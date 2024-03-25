@@ -10,8 +10,8 @@ contract MockPriceOracle is IPriceOracle {
     bool public isValid;
 
     constructor() {
-        price = 0;
-        spread = 0;
+        price = 2000 ether;
+        spread = 1 ether;
         isValid = true;
     }
 
