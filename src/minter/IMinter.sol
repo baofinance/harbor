@@ -70,6 +70,18 @@ interface IMinter {
      * Errors *
      **********/
 
+    /// @dev Thrown when the oracle price is invalid.
+    error InvalidOraclePrice();
+
+    /// @dev Thrown when the oracle price is zero.
+    error ZeroOraclePrice();
+
+    /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero
+    error ZeroCollateral();
+
+    /// @dev thrown if a ratio doesn't make sense in some context
+    error InvalidRatio();
+
     /*************************
      * Public View Functions *
      *************************/
