@@ -11,7 +11,7 @@ interface IMinter {
     /// @param recipient The address of receiver for pToken or lToken.
     /// @param collateralTokenIn The amount of collateral token deposited.
     /// @param pTokenOut The amount of pToken minted.
-    /// @param mintFee The amount of mint fee charged.
+    /// @param mintFee The amount of mint fee charged in terms of collateral token.
     event MintPeggedToken(
         address indexed owner,
         address indexed recipient,
@@ -77,10 +77,12 @@ interface IMinter {
     error ZeroOraclePrice();
 
     /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero
-    error ZeroCollateral();
+    error ZeroBalance();
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
+
+    error InsufficientOutput(address mintingToken);
 
     /*************************
      * Public View Functions *
@@ -97,6 +99,15 @@ interface IMinter {
 
     /// @notice Return the current collateral ratio of the pToken to the collateral token, multipled by 1e18.
     function collateralRatio() external view returns (uint256);
+
+    function priceOracle() external view returns (address);
+
+    function rateProvider() external view returns (address);
+
+    // @notice Returns the totalAmount of tokens minted and not redeemed by the minter
+    function peggedTokenBalance() external view returns (uint256);
+
+    function mintPeggedTokenFees(uint256 collateralIn) external view returns (uint256 fees);
 
     /****************************
      * Public Mutated Functions *
@@ -147,4 +158,8 @@ interface IMinter {
         address recipient,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
+}
+
+interface IMinterTreasury {
+    function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedTokenOut);
 }

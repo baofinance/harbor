@@ -16,6 +16,7 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
+import { IMintable } from "src/minter/IMintable.sol";
 
 contract Test_LeveragedToken is Test {
     using ECDSA for bytes32;
@@ -249,6 +250,11 @@ contract Test_LeveragedToken is Test {
         leveragedToken.transferFrom(user.addr, user2.addr, 1 ether);
         assertEq(leveragedToken.balanceOf(user.addr), 8 ether, "moved another 1");
         assertEq(leveragedToken.balanceOf(user2.addr), 2 ether, "received another 1");
+    }
+
+    function test_introspection() public view {
+        assertTrue(leveragedToken.supportsInterface(type(IERC20).interfaceId), "should support IERC20");
+        assertTrue(leveragedToken.supportsInterface(type(IMintable).interfaceId), "should support IMinter");
     }
 
     // TODO: test upgrading

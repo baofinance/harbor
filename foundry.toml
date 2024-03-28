@@ -6,5 +6,10 @@ ffi = true
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
+gas_reports = ["LeveragedToken*", "Minter*"]
+fs_permissions = [{ access = "read", path = "./"}, { access = "read-write", path = "./results"}]
+
+[etherscan]
+mainnet = { key = "${ETHERSCAN_KEY}" }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

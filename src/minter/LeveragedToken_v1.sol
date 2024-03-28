@@ -6,7 +6,8 @@ import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/ac
 import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import { ERC20PermitUpgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-
+import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 
 // TODO: consider AccessControlDefaultAdminRules as owner can remove themselves
@@ -25,6 +26,7 @@ contract LeveragedToken_v1 is
         __UUPSUpgradeable_init();
         __ERC20_init(name, symbol);
         __ERC20Permit_init(name);
+        __ERC165_init();
         _grantRole(DEFAULT_ADMIN_ROLE, owner);
     }
 
@@ -34,6 +36,16 @@ contract LeveragedToken_v1 is
     }
 
     function _authorizeUpgrade(address) internal virtual override {}
+
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return
+            interfaceId == type(IMintable).interfaceId ||
+            interfaceId == type(IERC20).interfaceId ||
+            super.supportsInterface(interfaceId);
+    }
 
     function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
         _mint(to, amount);
