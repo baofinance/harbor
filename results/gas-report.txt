@@ -28,19 +28,18 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 1742870                                     | 7960            |        |        |        |         |
+| 1931598                                     | 8834            |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | DEFAULT_ADMIN_ROLE                          | 240             | 240    | 240    | 240    | 6       |
 | collateralRatio                             | 3391            | 3474   | 3391   | 16305  | 154     |
 | collateralToken                             | 2442            | 2442   | 2442   | 2442   | 1       |
-| freeMintPeggedToken                         | 2921            | 91452  | 120963 | 120963 | 4       |
-| hasRole                                     | 2787            | 2787   | 2787   | 2787   | 3       |
-| initialize                                  | 3442            | 179688 | 207709 | 207709 | 8       |
-| leveragedToken                              | 2387            | 2387   | 2387   | 2387   | 1       |
-| mintPeggedToken                             | 40691           | 40691  | 40691  | 40691  | 1       |
-| mintPeggedTokenFeeRatio                     | 5108            | 5289   | 5152   | 7108   | 150     |
-| peggedToken                                 | 2366            | 2366   | 2366   | 2366   | 1       |
-| peggedTokenBalance                          | 2425            | 2425   | 2425   | 2425   | 1       |
-| priceOracle                                 | 2443            | 2443   | 2443   | 2443   | 1       |
-| rateProvider                                | 2431            | 2431   | 2431   | 2431   | 1       |
+| freeMintPeggedToken                         | 2920            | 91373  | 120858 | 120858 | 4       |
+| hasRole                                     | 2743            | 2743   | 2743   | 2743   | 3       |
+| initialize                                  | 3476            | 230451 | 262876 | 262876 | 8       |
+| leveragedToken                              | 2431            | 2431   | 2431   | 2431   | 1       |
+| mintPeggedToken                             | 35168           | 73627  | 64857  | 120857 | 3       |
+| mintPeggedTokenFeeRatio                     | 4718            | 5101   | 4765   | 6718   | 150     |
+| peggedToken                                 | 2389            | 2389   | 2389   | 2389   | 1       |
+| peggedTokenBalance                          | 2337            | 2337   | 2337   | 2337   | 1       |
+| priceOracle                                 | 2388            | 2388   | 2388   | 2388   | 1       |
 

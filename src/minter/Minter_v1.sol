@@ -13,6 +13,8 @@ import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
+//import "forge-std/console.sol";
+
 /// @title
 /// @author
 /// @notice provides a base layer interface for minting and redeeming pegged and leveraged tokens
@@ -218,15 +220,28 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         // input is in terms of collateral ration which could be any number > 0
         // it need to be clamped between 0 and criticalCollateralRatio - 1
         // and as the output is 0 - 100% fee the clamping is normalised
-        uint256 x = newCollateralRatio;
-        if (x < 1 ether) x = 0;
-        else if (x > mintPeggedTokenConfig.criticalCollateralRatio) x = 1 ether;
-        else x = ((x - 1 ether) * 1 ether) / (mintPeggedTokenConfig.criticalCollateralRatio - 1 ether);
-
-        // now do the smoothstep calculation
-        uint256 smoothstep = (((x * x) / 1 ether) * (3 ether - 2 * x)) / 1 ether;
-
-        // with adjustment for turning it upside down and having a minimum fee
+        // console.log("newCollateralRatio=%s", newCollateralRatio);
+        uint256 smoothstep;
+        if (newCollateralRatio <= 1 ether) {
+            smoothstep = 0;
+        } else if (newCollateralRatio > mintPeggedTokenConfig.criticalCollateralRatio) {
+            smoothstep = 1 ether;
+        } else {
+            uint256 x = newCollateralRatio;
+            x = ((x - 1 ether) * 1 ether) / (mintPeggedTokenConfig.criticalCollateralRatio - 1 ether);
+            // do the smoothstep calculation
+            // first order smooth
+            // 3*x^2 - 2*x^3
+            uint256 x2 = (x * x) / (1 ether); // Normalize x^2
+            smoothstep = (x2 * (3 ether - 2 * x)) / 1 ether;
+            // second order smooth, unfortunately x^5 is likely to underflow, so we need to do more work to get this
+            // 6*x^5 - 15*x^4 + 10*x^3
+            // smoothstep = (((x2 * x2) / 1 ether) * (((x * (6 * x - 15 ether)) / 1 ether) + 10 ether)) / 1 ether;
+            //                    -------------------            ----------------                --------
+            //                                            ------------------------------------------------
+            //                   ----------------------------------------------------
+        }
+        // adjustment for turning it upside down and having a minimum fee
         fees = 1 ether - ((1 ether - mintPeggedTokenConfig.defaultFeeRatio) * smoothstep) / 1 ether;
     }
 
