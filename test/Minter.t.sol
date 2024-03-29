@@ -17,31 +17,32 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
-import { deployed } from "./deployed.sol";
+import { deployed } from "test/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
-import { MockPriceOracle } from "./MockPriceOracle.sol";
-import { MockRateProvider } from "./MockRateProvider.sol";
+import { MockPriceOracle } from "test/MockPriceOracle.sol";
+import { MockRateProvider } from "test/MockRateProvider.sol";
+import { IBaoUSD } from "test/IBaoUSD.sol";
 
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
-import "./Useful.sol";
-
-interface IBaoUSD {
-    function operator() external returns (address);
-    function addMinter(address newMinter) external;
-}
+import "test/Useful.sol";
 
 contract TestMinter is Test {
     address minter;
+    uint64 defaultMintPeggedFee;
+
     address lToken;
     MockPriceOracle priceOracle;
     MockRateProvider rateProvider;
 
+    Vm.Wallet feeReceiver;
     Vm.Wallet owner;
     bytes32 ownerRole = 0;
 
     function setUp() public virtual {
         string memory url = vm.envString("MAINNET_RPC_URL");
         vm.createSelectFork(url);
+
+        feeReceiver = vm.createWallet("feeReceiver");
 
         owner = vm.createWallet("owner");
         deal(address(deployed.wstETH), address(this), 20 ether);
@@ -53,20 +54,37 @@ contract TestMinter is Test {
             "LeveragedToken_v1.sol",
             abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoL"))
         );
-
+        defaultMintPeggedFee = 2 ether / 100; // 2%
         minter = Upgrades.deployUUPSProxy(
             "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
                 (
                     owner.addr,
-                    deployed.BaoUSD,
-                    address(lToken),
-                    deployed.wstETH,
+                    IMinter.MinterTokens(deployed.BaoUSD, address(lToken), deployed.wstETH),
                     address(priceOracle),
-                    address(rateProvider),
-                    130 ether / 100, // 130%
-                    2 ether / 100 // 2%
+                    // address(rateProvider),
+                    feeReceiver.addr,
+                    IMinter.MintPeggedTokenConfig(
+                        130 ether / 100, // 130%
+                        defaultMintPeggedFee,
+                        1 ether // 100%
+                    ),
+                    IMinter.RedeemPeggedTokenConfig(
+                        130 ether / 100, // 130%
+                        2 ether / 100, // 2%
+                        1 ether // 100%
+                    ),
+                    IMinter.MintLeveragedTokenConfig(
+                        130 ether / 100, // 130%
+                        2 ether / 100, // 2%
+                        1 ether // 100%
+                    ),
+                    IMinter.RedeemLeveragedTokenConfig(
+                        130 ether / 100, // 130%
+                        2 ether / 100, // 2%
+                        1 ether // 100%
+                    )
                 )
             )
         );
@@ -100,13 +118,30 @@ contract Test_MinterInit is TestMinter {
                 Minter_v1.initialize,
                 (
                     address(this),
-                    deployed.BaoUSD,
-                    address(lToken),
-                    deployed.wstETH,
+                    IMinter.MinterTokens(deployed.BaoUSD, address(lToken), deployed.wstETH),
                     address(priceOracle),
-                    address(rateProvider),
-                    0,
-                    0
+                    //address(rateProvider),
+                    feeReceiver.addr,
+                    IMinter.MintPeggedTokenConfig(
+                        130 ether / 100, // 130%
+                        defaultMintPeggedFee,
+                        1 ether // 100%
+                    ),
+                    IMinter.RedeemPeggedTokenConfig(
+                        130 ether / 100, // 130%
+                        2 ether / 100, // 2%
+                        1 ether // 100%
+                    ),
+                    IMinter.MintLeveragedTokenConfig(
+                        130 ether / 100, // 130%
+                        2 ether / 100, // 2%
+                        1 ether // 100%
+                    ),
+                    IMinter.RedeemLeveragedTokenConfig(
+                        130 ether / 100, // 130%
+                        2 ether / 100, // 2%
+                        1 ether // 100%
+                    )
                 )
             )
         );
@@ -118,14 +153,24 @@ contract Test_MinterInit is TestMinter {
 
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        Minter_v1(minter).initialize(address(0), address(0), address(0), address(0), address(0), address(0), 0, 0);
+        Minter_v1(minter).initialize(
+            address(0),
+            IMinter.MinterTokens(address(0), address(0), address(0)),
+            address(0),
+            //address(rateProvider),
+            address(0),
+            IMinter.MintPeggedTokenConfig(0, 0, 0),
+            IMinter.RedeemPeggedTokenConfig(0, 0, 0),
+            IMinter.MintLeveragedTokenConfig(0, 0, 0),
+            IMinter.RedeemLeveragedTokenConfig(0, 0, 0)
+        );
 
         assertTrue(IAccessControl(minter).hasRole(ownerRole, owner.addr));
         assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
         assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
         assertEq(IMinter(minter).leveragedToken(), address(lToken));
         assertEq(IMinter(minter).priceOracle(), address(priceOracle));
-        assertEq(IMinter(minter).rateProvider(), address(rateProvider));
+        //assertEq(IMinter(minter).rateProvider(), address(rateProvider));
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
 
         // no pegged tokens so divide by zero
@@ -193,26 +238,26 @@ contract TestMinterMint is TestMinter {
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio = 100%");
     }
 
-    function setUp_collateral() private {
+    function setUp_collateral(uint256 amount) private {
         // put some collateral into the minter to bootstrap it
         // get collateral & allowance
-        deal(address(wstETH), owner.addr, 10 ether);
+        deal(address(wstETH), owner.addr, amount + 10 ether);
         vm.prank(owner.addr);
-        IERC20(wstETH).approve(minter, 1 ether);
+        IERC20(wstETH).approve(minter, amount);
         vm.prank(owner.addr);
-        uint256 minted = IMinterTreasury(minter).freeMintPeggedToken(1 ether, user.addr);
+        IMinterTreasury(minter).freeMintPeggedToken(amount, owner.addr);
     }
 
     function test_fees() public {
-        setUp_collateral();
+        setUp_collateral(1 ether);
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
         string memory file = "./results/fees.csv";
-        vm.removeFile(file);
+        if (vm.exists(file)) vm.removeFile(file);
         vm.writeLine(file, "price, collateral ratio, fees");
         (, uint256 startPrice, , ) = IPriceOracle(priceOracle).getPrice();
-        for (uint256 price = startPrice / 2; price < startPrice * 2; price += 10 ether) {
+        for (uint256 price = (startPrice / 4) * 3; price < (startPrice * 15) / 10; price += 10 ether) {
             MockPriceOracle(priceOracle).setPrice(price);
-            uint fees = IMinter(minter).mintPeggedTokenFees(0);
+            uint fees = IMinter(minter).mintPeggedTokenFeeRatio(0);
             uint256 cr = IMinter(minter).collateralRatio();
             vm.writeLine(
                 file,
@@ -229,11 +274,17 @@ contract TestMinterMint is TestMinter {
     }
 
     function test_mintPegged() public {
+        setUp_collateral(10 ether);
+        priceOracle.setPrice(4000 ether); // put the collateral ratio to 2, so no excess fees
+        assertEq(IMinter(minter).collateralRatio(), 2 ether);
+        assertEq(IERC20(baoUSD).balanceOf(user.addr), 0);
+
         // mint no balance
         assertEq(IERC20(wstETH).balanceOf(user.addr), 0);
         vm.expectRevert("ERC20: transfer amount exceeds balance");
         vm.prank(user.addr);
         IMinter(minter).mintPeggedToken(1 ether, user.addr, 0);
+        assertEq(IERC20(baoUSD).balanceOf(user.addr), 0);
 
         // get collateral
         deal(address(wstETH), user.addr, 10 ether);
@@ -243,21 +294,32 @@ contract TestMinterMint is TestMinter {
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
         vm.prank(user.addr);
         IMinter(minter).mintPeggedToken(1 ether, user.addr, 0);
+        assertEq(IERC20(baoUSD).balanceOf(user.addr), 0);
 
         // get allowance
         vm.prank(user.addr);
         IERC20(wstETH).approve(minter, 1 ether);
 
+        // TODO: add all the events emitted
         // mint
         (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 minterOpeningBalance = IERC20(wstETH).balanceOf(minter);
         assertEq(IERC20(baoUSD).balanceOf(user.addr), 0);
-        vm.expectEmit(false, false, false, true, minter);
-        emit IMinter.MintPeggedToken(user.addr, user.addr, 1 ether, price, 0); // TODO: update when fees are added
+
+        uint256 collateralMinusFee = 1 ether - defaultMintPeggedFee;
+        uint256 peggedTokenMinted = (price * collateralMinusFee) / 1 ether;
+        vm.expectEmit(true, true, false, false, minter);
+        emit IMinter.MintPeggedToken(user.addr, user.addr, collateralMinusFee, peggedTokenMinted, defaultMintPeggedFee);
         vm.prank(user.addr);
         uint256 minted = IMinter(minter).mintPeggedToken(1 ether, user.addr, 0);
-        assertEq(minted, price, "unexpected amount minted compared to price");
-        assertEq(IERC20(wstETH).balanceOf(user.addr), 9 ether);
-        assertEq(IERC20(wstETH).balanceOf(minter), 1 ether);
-        assertEq(IERC20(baoUSD).balanceOf(user.addr), price);
+        assertEq(minted, peggedTokenMinted, "unexpected amount minted compared to price");
+        assertEq(IERC20(wstETH).balanceOf(user.addr), 9 ether, "user loses 1 ether");
+        assertEq(
+            IERC20(wstETH).balanceOf(minter),
+            minterOpeningBalance + collateralMinusFee,
+            "minter has the collateral minus fee"
+        );
+        assertEq(IERC20(baoUSD).balanceOf(user.addr), peggedTokenMinted, "user has minted baoUSD");
+        assertEq(IERC20(wstETH).balanceOf(feeReceiver.addr), defaultMintPeggedFee);
     }
 }

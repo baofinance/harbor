@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.25;
 
-import { LoggingTest } from "./LoggingTest.sol";
+import { Test } from "forge-std/Test.sol";
 
-import { Useful } from "./Useful.sol";
-//import {DateUtils} from "DateUtils/DateUtils.sol";
+import { Useful } from "test/Useful.sol";
 
-contract TestUsefulSimples is LoggingTest {
+contract TestUsefulSimples is Test {
     bytes zeroA = new bytes(0);
     bytes zeroB = new bytes(0);
 
@@ -55,7 +54,7 @@ contract TestUsefulSimples is LoggingTest {
     string bigBymS = "xxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxx";
     string bigBynS = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_";
 
-    function test_memory() public {
+    function test_memory() public view {
         // zero length
         assertTrue(Useful.memEq(zeroA, zeroA), "zero length bytes are equal");
         assertTrue(Useful.memEq(zeroA, zeroB), "zero length bytes are equal");
@@ -82,7 +81,7 @@ contract TestUsefulSimples is LoggingTest {
         assertTrue(!Useful.memEq(bigAx, bigByn));
     }
 
-    function test_string() public {
+    function test_string() public view {
         // zero length
         assertTrue(Useful.strEq(zeroAS, zeroAS), "zero length bytes are equal");
         assertTrue(Useful.strEq(zeroAS, zeroBS), "zero length bytes are equal");
@@ -109,7 +108,7 @@ contract TestUsefulSimples is LoggingTest {
         assertTrue(!Useful.strEq(bigAxS, bigBynS));
     }
 
-    function test_extractUInt256() public {
+    function test_extractUInt256() public pure {
         bytes memory data = new bytes(100);
         assertEq(Useful.extractUInt256(data, 0), 0, "initialised to zero, right?");
 
@@ -123,7 +122,7 @@ contract TestUsefulSimples is LoggingTest {
         // TODO: test beyond 32bytes
     }
 
-    function test_toString_decimals() public {
+    function test_toString_decimals() public pure {
         assertEq(Useful.toStringScaled(0, 1), "0.0");
         assertEq(Useful.toStringScaled(0, 2), "0.00");
         assertEq(Useful.toStringScaled(1, 1), "0.1");
@@ -132,7 +131,7 @@ contract TestUsefulSimples is LoggingTest {
         assertEq(Useful.toStringScaled(100, 2), "1.00");
     }
 
-    function test_toString_thousands() public {
+    function test_toString_thousands() public pure {
         assertEq(Useful.toStringThousands(0, Useful.comma), "0");
         assertEq(Useful.toStringThousands(1, Useful.comma), "1");
         assertEq(Useful.toStringThousands(100, Useful.comma), "100");
@@ -157,7 +156,7 @@ contract TestUsefulSimples is LoggingTest {
         assertEq(Useful.toStringThousands(1000000, 0), "1000000");
     }
 
-    function test_toString() public {
+    function test_toString() public pure {
         assertEq(Useful.toString(0), "0");
         assertEq(Useful.toString(1), "1");
         assertEq(Useful.toString(2), "2");
@@ -172,7 +171,7 @@ contract TestUsefulSimples is LoggingTest {
         assertEq(Useful.toString(2 ** 31), "2147483648");
     }
 
-    function test_toStringHex() public {
+    function test_toStringHex() public pure {
         assertEq(Useful.toStringHex(0), "0x0");
         assertEq(Useful.toStringHex(1), "0x1");
         assertEq(Useful.toStringHex(2), "0x2");
@@ -195,7 +194,7 @@ contract TestUsefulSimples is LoggingTest {
         assertEq(Useful.toStringHex(2 ** 31), "0x80000000");
     }
 
-    function test_toUint256() public {
+    function test_toUint256() public pure {
         assertEq(Useful.toUint256("", 0), 0, "empty");
         assertEq(Useful.toUint256("0", 0), 0, "zero");
 
@@ -230,7 +229,7 @@ contract TestUsefulSimples is LoggingTest {
         assertEq(Useful.toUint256("9%", 4), 900, "9%");
     }
 
-    function test_consistency() public {
+    function test_consistency() public pure {
         assertEq(Useful.toUint256(Useful.toStringScaled(0, 1), 1), 0);
         assertEq(Useful.toUint256(Useful.toStringScaled(0, 2), 2), 0);
         assertEq(Useful.toUint256(Useful.toStringScaled(1, 1), 1), 1);

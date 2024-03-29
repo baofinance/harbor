@@ -1,0 +1,46 @@
+| src/minter/LeveragedToken_v1.sol:LeveragedToken_v1 contract |                 |        |        |        |         |
+|-------------------------------------------------------------|-----------------|--------|--------|--------|---------|
+| Deployment Cost                                             | Deployment Size |        |        |        |         |
+| 1836688                                                     | 8393            |        |        |        |         |
+| Function Name                                               | min             | avg    | median | max    | # calls |
+| DEFAULT_ADMIN_ROLE                                          | 240             | 240    | 240    | 240    | 6       |
+| DOMAIN_SEPARATOR                                            | 6568            | 6568   | 6568   | 6568   | 1       |
+| MINTER_ROLE                                                 | 261             | 261    | 261    | 261    | 6       |
+| allowance                                                   | 848             | 848    | 848    | 848    | 3       |
+| approve                                                     | 24814           | 24814  | 24814  | 24814  | 1       |
+| balanceOf                                                   | 654             | 1404   | 654    | 2654   | 16      |
+| burn                                                        | 2936            | 6354   | 5351   | 15199  | 5       |
+| decimals                                                    | 245             | 245    | 245    | 245    | 1       |
+| grantRole                                                   | 5111            | 23569  | 29722  | 29722  | 4       |
+| hasRole                                                     | 2754            | 2754   | 2754   | 2754   | 5       |
+| initialize                                                  | 3602            | 135556 | 145707 | 145707 | 14      |
+| mint                                                        | 2892            | 30747  | 49318  | 49318  | 5       |
+| name                                                        | 3338            | 3338   | 3338   | 3338   | 1       |
+| nonces                                                      | 2694            | 2694   | 2694   | 2694   | 1       |
+| permit                                                      | 57667           | 57667  | 57667  | 57667  | 1       |
+| supportsInterface                                           | 429             | 448    | 448    | 467    | 2       |
+| symbol                                                      | 3372            | 3372   | 3372   | 3372   | 1       |
+| totalSupply                                                 | 371             | 1171   | 371    | 2371   | 5       |
+| transfer                                                    | 2934            | 16473  | 16473  | 30012  | 2       |
+| transferFrom                                                | 3062            | 13885  | 8745   | 35829  | 5       |
+
+--
+| src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
+|---------------------------------------------|-----------------|--------|--------|--------|---------|
+| Deployment Cost                             | Deployment Size |        |        |        |         |
+| 1742870                                     | 7960            |        |        |        |         |
+| Function Name                               | min             | avg    | median | max    | # calls |
+| DEFAULT_ADMIN_ROLE                          | 240             | 240    | 240    | 240    | 6       |
+| collateralRatio                             | 3391            | 3474   | 3391   | 16305  | 154     |
+| collateralToken                             | 2442            | 2442   | 2442   | 2442   | 1       |
+| freeMintPeggedToken                         | 2921            | 91452  | 120963 | 120963 | 4       |
+| hasRole                                     | 2787            | 2787   | 2787   | 2787   | 3       |
+| initialize                                  | 3442            | 179688 | 207709 | 207709 | 8       |
+| leveragedToken                              | 2387            | 2387   | 2387   | 2387   | 1       |
+| mintPeggedToken                             | 40691           | 40691  | 40691  | 40691  | 1       |
+| mintPeggedTokenFeeRatio                     | 5108            | 5289   | 5152   | 7108   | 150     |
+| peggedToken                                 | 2366            | 2366   | 2366   | 2366   | 1       |
+| peggedTokenBalance                          | 2425            | 2425   | 2425   | 2425   | 1       |
+| priceOracle                                 | 2443            | 2443   | 2443   | 2443   | 1       |
+| rateProvider                                | 2431            | 2431   | 2431   | 2431   | 1       |
+

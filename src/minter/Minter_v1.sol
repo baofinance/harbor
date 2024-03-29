@@ -9,9 +9,9 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IMinter, IMinterTreasury } from "./IMinter.sol";
-import { IMintable } from "./IMintable.sol";
-import { IPriceOracle } from "price/IPriceOracle.sol";
+import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
+import { IMintable } from "src/minter/IMintable.sol";
+import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
 /// @title
 /// @author
@@ -23,20 +23,21 @@ import { IPriceOracle } from "price/IPriceOracle.sol";
 contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, IMinter, IMinterTreasury {
     using SafeERC20 for IERC20;
 
-    /****************
-     * storage
-     */
+    /****************************
+     * Share-with-proxy Storage *
+     ****************************/
+
     /// @custom:storage-location erc7201:bao.storage.Minter
     struct MinterStorage {
-        address peggedToken;
-        address leveragedToken;
-        address collateralToken;
+        MinterTokens tokens;
         address priceOracle;
-        address rateProvider;
+        // address rateProvider;
+        address feeReceiver;
         uint256 peggedTokenBalance;
-        // TODO: check that the below two are packed
-        uint128 criticalCollateralRatio;
-        uint128 minimumMintPeggedFeeRatio;
+        MintPeggedTokenConfig mintPeggedTokenConfig;
+        RedeemPeggedTokenConfig redeemPeggedTokenConfig;
+        MintLeveragedTokenConfig mintLeveragedTokenConfig;
+        RedeemLeveragedTokenConfig redeemLeveragedTokenConfig;
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
@@ -54,28 +55,31 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
 
     function initialize(
         address owner,
-        address peggedToken_,
-        address leveragedToken_,
-        address collateralToken_,
+        MinterTokens calldata tokens_,
         address priceOracle_,
-        address rateProvider_,
-        uint128 criticalCollateralRatio_,
-        uint128 minimumMintPeggedFeeRatio_
+        // address rateProvider;
+        address feeReceiver_,
+        MintPeggedTokenConfig calldata mintPeggedTokenConfig_,
+        RedeemPeggedTokenConfig calldata redeemPeggedTokenConfig_,
+        MintLeveragedTokenConfig calldata mintLeveragedTokenConfig_,
+        RedeemLeveragedTokenConfig calldata redeemLeveragedTokenConfig_
     ) public initializer {
         // initialise all the state variables
         __AccessControl_init();
         __UUPSUpgradeable_init();
 
         MinterStorage storage $ = _getMinterStorage();
-        $.peggedToken = peggedToken_;
-        $.leveragedToken = leveragedToken_;
-        $.collateralToken = collateralToken_;
+        $.tokens = tokens_;
         $.priceOracle = priceOracle_;
         // TODO: is this the difference between a wrapped or non-wrapped collateral?
-        $.rateProvider = rateProvider_;
+        // $.rateProvider = rateProvider_;
         $.peggedTokenBalance = 0;
-        $.criticalCollateralRatio = criticalCollateralRatio_;
-        $.minimumMintPeggedFeeRatio = minimumMintPeggedFeeRatio_;
+        $.feeReceiver = feeReceiver_;
+
+        _updateMintPeggedTokenConfig(mintPeggedTokenConfig_);
+        _updateRedeemPeggedTokenConfig(redeemPeggedTokenConfig_);
+        _updateMintLeveragedTokenConfig(mintLeveragedTokenConfig_);
+        _updateRedeemLeveragedTokenConfig(redeemLeveragedTokenConfig_);
 
         _grantRole(DEFAULT_ADMIN_ROLE, owner);
     }
@@ -98,21 +102,23 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 peggedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
-        collateralIn = _allOf(_msgSender(), $.collateralToken, collateralIn);
+        address collateralToken_ = $.tokens.collateralToken;
+        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
 
         // transfer and mint
         uint256 price = _fetchSafePrice($.priceOracle);
-        peggedTokenOut = _freeMintPeggedToken($.collateralToken, collateralIn, price, $.peggedToken, recipient, 0);
+        peggedTokenOut = _mintPeggedToken(collateralToken_, collateralIn, price, $.tokens.peggedToken, recipient, 0);
     }
 
-    function _freeMintPeggedToken(
+    function _mintPeggedToken(
         address collateralToken_,
         uint256 collateralIn,
         uint256 price,
         address peggedToken_,
         address recipient,
-        uint256 fees
+        uint256 fees // only for the emit
     ) internal returns (uint256 peggedTokenOut) {
+        if (collateralIn == 0) revert MintZeroAmount();
         // get the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
 
@@ -128,29 +134,77 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut, fees);
     }
 
-    function mintPeggedTokenFees(uint256 collateralIn) external view override returns (uint256 fees) {
+    function mintPeggedTokenFeeRatio(uint256 collateralIn) external view override returns (uint256 fees) {
         // get the collateral ratio
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchSafePrice($.priceOracle);
         uint256 newPeggedToken = (collateralIn * price) / 1 ether;
 
-        fees = _mintPeggedTokenFees(
-            IERC20($.collateralToken).balanceOf(address(this)),
+        fees = _mintPeggedTokenFeeRatio(
+            IERC20($.tokens.collateralToken).balanceOf(address(this)),
             collateralIn,
             price,
             $.peggedTokenBalance + newPeggedToken,
-            $.criticalCollateralRatio,
-            $.minimumMintPeggedFeeRatio
+            $.mintPeggedTokenConfig
         );
     }
 
-    function _mintPeggedTokenFees(
+    function updateMintPeggedTokenConfig(
+        MintPeggedTokenConfig calldata mintPeggedTokenConfig_
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _updateMintPeggedTokenConfig(mintPeggedTokenConfig_);
+    }
+
+    function updateRedeemPeggedTokenConfig(
+        RedeemPeggedTokenConfig calldata redeemPeggedTokenConfig_
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _updateRedeemPeggedTokenConfig(redeemPeggedTokenConfig_);
+    }
+
+    function updateMintLeveragedTokenConfig(
+        MintLeveragedTokenConfig calldata mintLeveragedTokenConfig_
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _updateMintLeveragedTokenConfig(mintLeveragedTokenConfig_);
+    }
+
+    function updateRedeemLeveragedTokenConfig(
+        RedeemLeveragedTokenConfig calldata redeemLeveragedTokenConfig_
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _updateRedeemLeveragedTokenConfig(redeemLeveragedTokenConfig_);
+    }
+
+    function _updateMintPeggedTokenConfig(MintPeggedTokenConfig calldata mintPeggedTokenConfig_) internal {
+        MinterStorage storage $ = _getMinterStorage();
+        $.mintPeggedTokenConfig = mintPeggedTokenConfig_;
+        emit UpdateMintPeggedTokenConfig(mintPeggedTokenConfig_);
+    }
+
+    function _updateRedeemPeggedTokenConfig(RedeemPeggedTokenConfig calldata redeemPeggedTokenConfig_) internal {
+        MinterStorage storage $ = _getMinterStorage();
+        $.redeemPeggedTokenConfig = redeemPeggedTokenConfig_;
+        emit UpdateRedeemPeggedTokenConfig(redeemPeggedTokenConfig_);
+    }
+
+    function _updateMintLeveragedTokenConfig(MintLeveragedTokenConfig calldata mintLeveragedTokenConfig_) internal {
+        MinterStorage storage $ = _getMinterStorage();
+        $.mintLeveragedTokenConfig = mintLeveragedTokenConfig_;
+        emit UpdateMintLeveragedTokenConfig(mintLeveragedTokenConfig_);
+    }
+
+    function _updateRedeemLeveragedTokenConfig(
+        RedeemLeveragedTokenConfig calldata redeemLeveragedTokenConfig_
+    ) internal {
+        MinterStorage storage $ = _getMinterStorage();
+        $.redeemLeveragedTokenConfig = redeemLeveragedTokenConfig_;
+        emit UpdateRedeemLeveragedTokenConfig(redeemLeveragedTokenConfig_);
+    }
+
+    function _mintPeggedTokenFeeRatio(
         uint256 collateralHolding,
         uint256 newCollateral,
         uint256 collateralPrice,
         uint256 peggedHolding,
-        uint128 criticalCollateralRatio,
-        uint128 minimumMintPeggedFeeRatio
+        MintPeggedTokenConfig memory mintPeggedTokenConfig
     ) internal pure returns (uint256 fees) {
         // collateral ratio if we were to execute a zero-fee mint
         uint256 newPeggedTokenOut = (newCollateral * collateralPrice) / 1 ether;
@@ -166,14 +220,14 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         // and as the output is 0 - 100% fee the clamping is normalised
         uint256 x = newCollateralRatio;
         if (x < 1 ether) x = 0;
-        else if (x > criticalCollateralRatio) x = 1 ether;
-        else x = ((x - 1 ether) * 1 ether) / (criticalCollateralRatio - 1 ether);
+        else if (x > mintPeggedTokenConfig.criticalCollateralRatio) x = 1 ether;
+        else x = ((x - 1 ether) * 1 ether) / (mintPeggedTokenConfig.criticalCollateralRatio - 1 ether);
 
         // now do the smoothstep calculation
         uint256 smoothstep = (((x * x) / 1 ether) * (3 ether - 2 * x)) / 1 ether;
 
         // with adjustment for turning it upside down and having a minimum fee
-        fees = 1 ether - ((1 ether - minimumMintPeggedFeeRatio) * smoothstep) / 1 ether;
+        fees = 1 ether - ((1 ether - mintPeggedTokenConfig.defaultFeeRatio) * smoothstep) / 1 ether;
     }
 
     /// @inheritdoc IMinter
@@ -191,31 +245,30 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     {
         MinterStorage storage $ = _getMinterStorage();
         // work out how much collateral to use
-        address msgSender = _msgSender();
-        address collateralToken_ = $.collateralToken;
-        collateralIn = _allOf(msgSender, collateralToken_, collateralIn);
+        address collateralToken_ = $.tokens.collateralToken;
+        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
 
         // do a zero fee simulation to, err, calculate fees.
         uint256 price = _fetchSafePrice($.priceOracle);
         uint256 newPeggedToken = (collateralIn * price) / 1 ether;
-        // uint256 fees = _mintPeggedTokenFees(
-        //     IERC20($.collateralToken).balanceOf(address(this)),
-        //     collateralIn,
-        //     price,
-        //     $.peggedTokenBalance + newPeggedToken,
-        //     $.criticalCollateralRatio,
-        //     $.minimumMintPeggedFeeRatio
-        // );
 
-        // TODO: extract fees
-        uint256 fees = 0;
-        collateralIn -= fees;
+        uint256 feeRatio = _mintPeggedTokenFeeRatio(
+            IERC20(collateralToken_).balanceOf(address(this)),
+            collateralIn,
+            price,
+            $.peggedTokenBalance + newPeggedToken,
+            $.mintPeggedTokenConfig
+        );
 
-        peggedTokenOut = (collateralIn * price) / 1 ether;
-        address peggedToken_ = $.peggedToken;
+        uint256 fee = (collateralIn * feeRatio) / 1 ether;
+        uint256 collateralMinusFee = collateralIn - fee;
+
+        // recalculate the amounts involved
+        peggedTokenOut = (collateralMinusFee * price) / 1 ether;
+        address peggedToken_ = $.tokens.peggedToken;
         if (minPeggedToken > 0 && minPeggedToken < peggedTokenOut) revert InsufficientOutput(peggedToken_);
-
-        peggedTokenOut = _freeMintPeggedToken($.collateralToken, collateralIn, price, $.peggedToken, recipient, 0);
+        IERC20(collateralToken_).safeTransferFrom(_msgSender(), $.feeReceiver, fee);
+        peggedTokenOut = _mintPeggedToken(collateralToken_, collateralMinusFee, price, peggedToken_, recipient, fee);
     }
 
     // @inheritdoc IMinterTreasury
@@ -226,8 +279,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     ) external onlyRole(DEFAULT_ADMIN_ROLE) returns (uint256 peggedTokenOut, uint256 leveragedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
-        collateralIn = _allOf(_msgSender(), $.collateralToken, collateralIn);
-        IERC20($.collateralToken).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        address collateralToken_ = $.tokens.collateralToken;
+        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
+        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
 
         // // mint the tokens to the recipient
         uint256 price = _fetchSafePrice($.priceOracle);
@@ -244,9 +298,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         uint256 minXTokenMinted
     ) external override returns (uint256 lTokenMinted, uint256 bonus) {
         MinterStorage storage $ = _getMinterStorage();
-        address collateralToken_ = $.collateralToken;
-        address leveragedToken_ = $.leveragedToken;
-        address priceOracle_ = $.priceOracle;
+        address collateralToken_ = $.tokens.collateralToken;
+        // address leveragedToken_ = $.leveragedToken;
+        // address priceOracle_ = $.priceOracle;
         address msgSender = _msgSender();
 
         collateralIn = _allOf(msgSender, collateralToken_, collateralIn);
@@ -271,19 +325,19 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     /// @notice Return the address of the collateral (collateral) token
     function collateralToken() external view override returns (address) {
         MinterStorage storage $ = _getMinterStorage();
-        return $.collateralToken;
+        return $.tokens.collateralToken;
     }
 
     /// @notice Return the address of the pegged token.
     function peggedToken() external view override returns (address) {
         MinterStorage storage $ = _getMinterStorage();
-        return $.peggedToken;
+        return $.tokens.peggedToken;
     }
 
     /// @notice Return the address of the leveraged token.
     function leveragedToken() external view override returns (address) {
         MinterStorage storage $ = _getMinterStorage();
-        return $.leveragedToken;
+        return $.tokens.leveragedToken;
     }
 
     function priceOracle() external view override returns (address) {
@@ -291,10 +345,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         return $.priceOracle;
     }
 
-    function rateProvider() external view override returns (address) {
-        MinterStorage storage $ = _getMinterStorage();
-        return $.rateProvider;
-    }
+    // function rateProvider() external view override returns (address) {
+    //     MinterStorage storage $ = _getMinterStorage();
+    //     return $.rateProvider;
+    // }
 
     function peggedTokenBalance() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
@@ -306,7 +360,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         MinterStorage storage $ = _getMinterStorage();
         return
             _collateralRatio(
-                IERC20($.collateralToken).balanceOf(address(this)),
+                IERC20($.tokens.collateralToken).balanceOf(address(this)),
                 _fetchSafePrice($.priceOracle),
                 $.peggedTokenBalance
             );

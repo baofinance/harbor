@@ -2,9 +2,44 @@
 pragma solidity 0.8.25;
 
 interface IMinter {
-    /**********
-     * Events *
-     **********/
+    /****************************
+     * Data Structures          *
+     ****************************/
+
+    struct MinterTokens {
+        address peggedToken;
+        address leveragedToken;
+        address collateralToken;
+    }
+
+    struct MintPeggedTokenConfig {
+        // TODO: check that the below are packed
+        uint64 criticalCollateralRatio;
+        uint64 defaultFeeRatio;
+        uint64 maximumFeeRatio;
+    }
+
+    struct RedeemPeggedTokenConfig {
+        uint64 criticalCollateralRatio;
+        uint64 defaultFeeRatio;
+        uint64 bonusRatio;
+    }
+
+    struct MintLeveragedTokenConfig {
+        uint64 criticalCollateralRatio;
+        uint64 defaultFeeRatio;
+        uint64 bonusRatio;
+    }
+
+    struct RedeemLeveragedTokenConfig {
+        uint64 criticalCollateralRatio;
+        uint64 defaultFeeRatio;
+        uint64 maximumFeeRatio;
+    }
+
+    /****************************
+     * Events                   *
+     ****************************/
 
     /// @notice Emitted when pToken is minted.
     /// @param owner The address of collateral token owner.
@@ -66,9 +101,35 @@ interface IMinter {
         uint256 redeemFee
     );
 
-    /**********
-     * Errors *
-     **********/
+    /// @notice Emitted when the fee config for minting pegged tokens is updated.
+    /// @param config The new mint config.
+    event UpdateMintPeggedTokenConfig(MintPeggedTokenConfig config);
+
+    /// @notice Emitted when the fee ratio for minting xToken is updated.
+    /// @param config The new mint config.
+    event UpdateMintLeveragedTokenConfig(MintLeveragedTokenConfig config);
+
+    /// @notice Emitted when the fee ratio for redeeming fToken is updated.
+    /// @param config The new redeem config.
+    event UpdateRedeemPeggedTokenConfig(RedeemPeggedTokenConfig config);
+
+    /// @notice Emitted when the fee ratio for redeeming xToken is updated.
+    /// @param config The new redeem config.
+    event UpdateRedeemLeveragedTokenConfig(RedeemLeveragedTokenConfig config);
+
+    /// @notice Emitted when the platform contract is updated.
+    /// @param oldPlatform The address of previous platform contract.
+    /// @param newPlatform The address of current platform contract.
+    event UpdatePlatform(address indexed oldPlatform, address indexed newPlatform);
+
+    /// @notice Emitted when the  reserve pool contract is updated.
+    /// @param oldReservePool The address of previous reserve pool contract.
+    /// @param newReservePool The address of current reserve pool contract.
+    event UpdateReservePool(address indexed oldReservePool, address indexed newReservePool);
+
+    /****************************
+     * Errors                   *
+     ****************************/
 
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
@@ -84,9 +145,12 @@ interface IMinter {
 
     error InsufficientOutput(address mintingToken);
 
-    /*************************
-     * Public View Functions *
-     *************************/
+    /// @dev Thrown when mint with zero amount base token.
+    error MintZeroAmount();
+
+    /****************************
+     * Public View Functions    *
+     ****************************/
 
     /// @notice Return the address of the collateral (collateral) token
     function collateralToken() external view returns (address);
@@ -102,12 +166,12 @@ interface IMinter {
 
     function priceOracle() external view returns (address);
 
-    function rateProvider() external view returns (address);
+    //function rateProvider() external view returns (address);
 
     // @notice Returns the totalAmount of tokens minted and not redeemed by the minter
     function peggedTokenBalance() external view returns (uint256);
 
-    function mintPeggedTokenFees(uint256 collateralIn) external view returns (uint256 fees);
+    function mintPeggedTokenFeeRatio(uint256 collateralIn) external view returns (uint256 fees);
 
     /****************************
      * Public Mutated Functions *
@@ -161,5 +225,9 @@ interface IMinter {
 }
 
 interface IMinterTreasury {
+    /****************************
+     * Public Mutated Functions *
+     ****************************/
+
     function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedTokenOut);
 }
