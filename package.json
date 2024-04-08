@@ -1,9 +1,11 @@
 {
+  "license": "MIT",
   "scripts": {
     "prettier": "prettier --write 'src/**/*.sol'",
     "test": "forge clean && forge test -vvv --gas-report | tee ./results/test.log && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt",
     "test1": "forge clean && forge test -vvv ",
-    "coverage": "forge coverage --report summary --report lcov | tee ./results/coverage.log && grep '^|.*|$' ./results/coverage.log > ./results/coverage.txt"
+    "qtest1": "forge test -vvv ",
+    "coverage": "forge clean && forge coverage --report summary --report lcov | tee ./results/coverage.log && grep '^|.*|$' ./results/coverage.log > ./results/coverage.txt"
   },
   "dependencies": {
     "prettier": "^3.2.5",

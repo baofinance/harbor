@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
 interface IMinter {
@@ -6,35 +6,69 @@ interface IMinter {
      * Data Structures          *
      ****************************/
 
-    struct MinterTokens {
+    struct BalanceTokens {
         address peggedToken;
         address leveragedToken;
         address collateralToken;
     }
 
-    struct MintPeggedTokenConfig {
-        // TODO: check that the below are packed
-        uint64 criticalCollateralRatio;
-        uint64 defaultFeeRatio;
-        uint64 maximumFeeRatio;
+    /*
+     * fees, rebalance and bonuses
+     * say, collateral value falls, and continues to fall, the sequence of stability measures is:
+     *   1) at CR = danger,
+     *       * fees for minting pegged and redeeming leveraged go up, discouraging users from
+     *         making CR drop more
+     *       * fees for redeeming pegged and minting leveraged go down encouraging users to make CR go up
+     *   2) at CR = rebalance,
+     *       * at this point fees are 100% and 0% respectively and rebalance starts.
+     *         On each liquidate call, rebalance pools burn pegged in exchange for something (collateral or
+     *         leveraged tokens) restoring CR to rebalance level
+     *   3) once rebalance pools are exhausted,
+     *       * bonuses start for redeeming pegged and minting leveraged, encouraging users to make CR go up.
+     *         Bonuses are governed by the reserve pool
+     *
+     *   * defaultMintPeggedTokenFeeRatio: the fee when collateral ratio after a mint is above criticalCollateralRatio
+     *   * defaultRedeemLeveragedTokenFeeRatio: the fee when collateral ratio after the redeem is above criticalCollateralRatio
+     *   * dangerCollateralRatio: when the fee for
+     *       * minting Pegged tokens starts to increase from the default
+     *       * redeeming Leveraged tokens starts to decrease from the default
+     *   * rebalanceCollateralRatio: when:
+     *       * the fee minting Pegged tokens and redeeming Leveraged tokens reaches 100%, effectively pausing it.
+     *       * redeeming Pegged tokens and minting Leveraged tokens adopts a lower level, the
+     *       * the rebalance pools come into action and respond to liquidate requests
+     *     this should be below the criticalCollateralRatio
+     *
+     *   rebalance pools are liquidated to maintain the rebalanceCollateralRatio
+     *   when the rebalance pools are exhausted then bonuses are paid from the reserve pool
+     *
+     */
+
+    // collateral ratio:
+    //  safe, e.g. 135%, fees are static, at the "safe" values for minting and redeeming pegged and leveraged tokens
+    //  danger, e.g. 130%, fees start to increase at this point reaching 100% at rebalance
+    //  rebalance, e.g. 125%, here fees are 100% so an effective pause. This should be mentioned, or a pause instituted,
+    //              in the UI so that customers don't get stung, non-web users have to look after themselves
+    //  bonus, when rebalance pools are exhausted and CR < rebalance
+    // TODO: separate each config for mint/redeem pegged/leveraged
+    // because: we may want to increase mint pegged fees before reducing redeem leveraged, etc.
+    // need to also minimise storage accesses
+    struct CollateralRatioConfig {
+        uint256 bonusCollateralRatioUpperBound;
+        uint256 rebalanceCollateralRatioUpperBound;
+        uint256 safeCollateralRatioLowerBound;
+    }
+    struct FeeConfig {
+        uint256 safeMintPeggedTokenFeeRatio;
+        uint256 safeRedeemPeggedTokenFeeRatio;
+        uint256 safeMintLeveragedTokenFeeRatio;
+        uint256 safeRedeemLeveragedTokenFeeRatio;
     }
 
-    struct RedeemPeggedTokenConfig {
-        uint64 criticalCollateralRatio;
-        uint64 defaultFeeRatio;
-        uint64 bonusRatio;
-    }
-
-    struct MintLeveragedTokenConfig {
-        uint64 criticalCollateralRatio;
-        uint64 defaultFeeRatio;
-        uint64 bonusRatio;
-    }
-
-    struct RedeemLeveragedTokenConfig {
-        uint64 criticalCollateralRatio;
-        uint64 defaultFeeRatio;
-        uint64 maximumFeeRatio;
+    struct BonusConfig {
+        address bonusToken; // must be owned by the Minter, and if it is the collateral token then only those above the collateral depsited, so need to track this
+        // bonus can also be an xtoken? then these must be minted and given to the Minter
+        uint256 mintLeveragedBonusRatio;
+        uint256 redeemPeggedBonusRatio;
     }
 
     /****************************
@@ -101,31 +135,26 @@ interface IMinter {
         uint256 redeemFee
     );
 
-    /// @notice Emitted when the fee config for minting pegged tokens is updated.
-    /// @param config The new mint config.
-    event UpdateMintPeggedTokenConfig(MintPeggedTokenConfig config);
-
-    /// @notice Emitted when the fee ratio for minting xToken is updated.
-    /// @param config The new mint config.
-    event UpdateMintLeveragedTokenConfig(MintLeveragedTokenConfig config);
-
-    /// @notice Emitted when the fee ratio for redeeming fToken is updated.
-    /// @param config The new redeem config.
-    event UpdateRedeemPeggedTokenConfig(RedeemPeggedTokenConfig config);
-
-    /// @notice Emitted when the fee ratio for redeeming xToken is updated.
-    /// @param config The new redeem config.
-    event UpdateRedeemLeveragedTokenConfig(RedeemLeveragedTokenConfig config);
+    event UpdateCollateralRatioConfig(CollateralRatioConfig config);
+    event UpdateFeeConfig(FeeConfig config);
+    event UpdateBonusConfig(BonusConfig config);
 
     /// @notice Emitted when the platform contract is updated.
-    /// @param oldPlatform The address of previous platform contract.
-    /// @param newPlatform The address of current platform contract.
-    event UpdatePlatform(address indexed oldPlatform, address indexed newPlatform);
+    /// @param oldFeeReceiver The address of previous platform contract.
+    /// @param newFeeReceiver The address of current platform contract.
+    event UpdateFeeReceiver(address indexed oldFeeReceiver, address indexed newFeeReceiver);
 
+    /// @notice Emitted when the price oracle contract is updated.
+    /// @param oldPriceOracle The address of previous price oracle contract.
+    /// @param newPriceOracle The address of current price oracle contract.
+    event UpdatePriceOracle(address indexed oldPriceOracle, address indexed newPriceOracle);
+
+    /*
     /// @notice Emitted when the  reserve pool contract is updated.
     /// @param oldReservePool The address of previous reserve pool contract.
     /// @param newReservePool The address of current reserve pool contract.
     event UpdateReservePool(address indexed oldReservePool, address indexed newReservePool);
+    */
 
     /****************************
      * Errors                   *
@@ -142,6 +171,10 @@ interface IMinter {
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
+
+    error InvalidCollateralRatioConfig(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
+    error InvalidFeeConfig();
+    error InvalidBonusConfig();
 
     error InsufficientOutput(address mintingToken);
 
@@ -164,14 +197,22 @@ interface IMinter {
     /// @notice Return the current collateral ratio of the pToken to the collateral token, multipled by 1e18.
     function collateralRatio() external view returns (uint256);
 
+    function leveragedTokenNAV() external view returns (uint256);
+
     function priceOracle() external view returns (address);
 
-    //function rateProvider() external view returns (address);
+    function feeReceiver() external view returns (address);
 
     // @notice Returns the totalAmount of tokens minted and not redeemed by the minter
     function peggedTokenBalance() external view returns (uint256);
 
-    function mintPeggedTokenFeeRatio(uint256 collateralIn) external view returns (uint256 fees);
+    function mintPeggedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
+
+    function redeemPeggedTokenFeeRatio(uint256 reductionOfcollateral) external view returns (uint256 fees);
+
+    function mintLeveragedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
+
+    function redeemLeveragedTokenFeeRatio(uint256 reductionOfcollateral) external view returns (uint256 fees);
 
     /****************************
      * Public Mutated Functions *

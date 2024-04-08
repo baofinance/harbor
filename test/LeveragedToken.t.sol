@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
 import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";

@@ -3,6 +3,7 @@ node_modules
 # Compiler files
 cache/
 out/
+lcov.info
 
 # Ignores development broadcast logs
 !/broadcast
