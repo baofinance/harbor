@@ -39,7 +39,7 @@ contract TestMinter is Test {
     uint256 mintLeveragedBonusRatio;
     uint256 redeemPeggedBonusRatio;
 
-    address lToken;
+    address leveragedToken;
     MockPriceOracle priceOracle;
     MockRateProvider rateProvider;
 
@@ -60,7 +60,7 @@ contract TestMinter is Test {
         priceOracle = new MockPriceOracle();
         rateProvider = new MockRateProvider();
 
-        lToken = Upgrades.deployUUPSProxy(
+        leveragedToken = Upgrades.deployUUPSProxy(
             "LeveragedToken_v1.sol",
             abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoL"))
         );
@@ -82,7 +82,7 @@ contract TestMinter is Test {
                 Minter_v1.initialize,
                 (
                     owner.addr,
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(lToken), deployed.wstETH),
+                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
                     address(priceOracle),
                     feeReceiver.addr,
                     IMinter.CollateralRatioConfig(
@@ -129,7 +129,7 @@ contract Test_MinterInit is TestMinter {
                 Minter_v1.initialize,
                 (
                     address(this),
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(lToken), deployed.wstETH),
+                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
                     address(priceOracle),
                     feeReceiver.addr,
                     IMinter.CollateralRatioConfig(
@@ -157,7 +157,7 @@ contract Test_MinterInit is TestMinter {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         Minter_v1(minter).initialize(
             address(this),
-            IMinter.BalanceTokens(deployed.BaoUSD, address(lToken), deployed.wstETH),
+            IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
             address(priceOracle),
             feeReceiver.addr,
             IMinter.CollateralRatioConfig(bonusCollateralRatio, rebalanceCollateralRatio, dangerCollateralRatio),
@@ -173,7 +173,7 @@ contract Test_MinterInit is TestMinter {
         assertTrue(IAccessControl(minter).hasRole(ownerRole, owner.addr));
         assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
         assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
-        assertEq(IMinter(minter).leveragedToken(), address(lToken));
+        assertEq(IMinter(minter).leveragedToken(), address(leveragedToken));
         assertEq(IMinter(minter).priceOracle(), address(priceOracle));
         assertEq(IMinter(minter).feeReceiver(), feeReceiver.addr);
         assertEq(IMinter(minter).peggedTokenBalance(), 0);

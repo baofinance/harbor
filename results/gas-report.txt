@@ -28,9 +28,9 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 2199852                                     | 10058           |        |        |        |         |
+| 2199864                                     | 10058           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
-| collateralRatio                             | 2475            | 2477   | 2475   | 12887  | 4123    |
+| collateralRatio                             | 2475            | 2477   | 2475   | 12887  | 4124    |
 | collateralToken                             | 2446            | 2446   | 2446   | 2446   | 1       |
 | feeReceiver                                 | 2468            | 2468   | 2468   | 2468   | 1       |
 | freeMintPeggedToken                         | 2970            | 107799 | 142742 | 142742 | 4       |

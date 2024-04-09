@@ -287,10 +287,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
             revert MintZeroAmount();
         }
         // tell the world
+        peggedTokenOut = (collateralIn * price) / 1 ether;
         emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut, fees);
 
         // mint the tokens to the recipient
-        peggedTokenOut = (collateralIn * price) / 1 ether;
         IMintable(peggedToken_).mint(recipient, peggedTokenOut);
         // take the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
@@ -594,7 +594,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         nav = _leveragedTokenNAV(leveragedTokenBalance, $.peggedTokenBalance, $.collateralTokenBalance, price);
     }
 
-    /// @notice Return the current collateral ratio of the pToken to the collateral token, multipled by 1e18.
+    /// @notice Return the current collateral ratio of the peggedToken to the collateral token, multipled by 1e18.
     function collateralRatio() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
         return _collateralRatio($.collateralTokenBalance, _fetchSafePrice($.priceOracle), $.peggedTokenBalance);
