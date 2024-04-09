@@ -282,23 +282,23 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         address recipient,
         uint256 fees // only for the emit
     ) private returns (uint256 peggedTokenOut) {
+        // slither-disable-next-line incorrect-equality
         if (collateralIn == 0) {
             revert MintZeroAmount();
         }
-        // get the collateral
-        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        // tell the world
+        emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut, fees);
 
         // mint the tokens to the recipient
         peggedTokenOut = (collateralIn * price) / 1 ether;
         IMintable(peggedToken_).mint(recipient, peggedTokenOut);
+        // take the collateral
+        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
 
         // update our records
         MinterStorage storage $ = _getMinterStorage();
         $.peggedTokenBalance += peggedTokenOut;
         $.collateralTokenBalance += collateralIn;
-
-        // tell the world
-        emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut, fees);
     }
 
     // TODO: also add a swap function (free and fee'd) that swaps a pegged token for an xtoken, the free one does so to rebalance
@@ -362,6 +362,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         } else {
             actualIn = collateralIn;
         }
+        // slither-disable-next-line incorrect-equality
         if (actualIn == 0) {
             revert ZeroBalance();
         }
@@ -451,15 +452,17 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         // TODO: check this for very small x, because, e.g. x*x is even smaller.
         if (x <= edge0) {
             smoothstep = 0;
-        } else if (x > edge1) {
-            // TODO: check that this should not be >=
+        } else if (x >= edge1) {
             smoothstep = 1 ether;
         } else {
             // scale 0 to 1 vs edge0 to edge1
-            x = ((x - edge0) * 1 ether) / (edge1 - edge0);
+            uint256 t = ((x - edge0) * 1 ether) / (edge1 - edge0);
             // do the smoothstep calculation
             // first order smooth
             // 3*x^2 - 2*x^3
+            // slither-disable-next-line divide-before-multiply
+            smoothstep = (t * t * (3 * 1 ether - 2 * t)) / (10 ** 36);
+            /*
             uint256 x2 = (x * x) / (1 ether); // Normalize x^2
             smoothstep = (x2 * (3 ether - 2 * x)) / 1 ether;
             // second order smooth, unfortunately x^5 is likely to underflow, so we need to do more work to get this
@@ -468,6 +471,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
             //                    -------------------            ----------------                --------
             //                                            ------------------------------------------------
             //                   ----------------------------------------------------
+            */
         }
     }
 
@@ -639,6 +643,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     // fetching collateral price in terms of the pegged token
 
     function _fetchSafePrice(address priceOracle_) private view returns (uint256 safe) {
+        // slither-disable-next-line unused-return
         (bool isValid, uint256 safe_, , ) = IPriceOracle(priceOracle_).getPrice();
 
         if (!isValid) {
@@ -651,6 +656,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     }
 
     function _fetchMinPrice(address priceOracle_) private view returns (uint256 min) {
+        // slither-disable-next-line unused-return
         (bool isValid, uint256 safe, uint256 min_, ) = IPriceOracle(priceOracle_).getPrice();
         min = isValid ? safe : min_;
         if (min == 0) {
@@ -659,6 +665,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     }
 
     function _fetchMaxPrice(address priceOracle_) private view returns (uint256 max) {
+        // slither-disable-next-line unused-return
         (bool isValid, uint256 safe, , uint256 max_) = IPriceOracle(priceOracle_).getPrice();
         max = isValid ? safe : max_;
         if (max == 0) {
@@ -682,7 +689,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         uint256 collateralTokenBalance,
         uint256 collateralPrice
     ) private pure returns (uint256 nav) {
-        // TODO if the collateral ratio is 0, nav is 0 - check that this dowesn't just work out
+        // TODO if the collateral ratio is 0, nav is 0 - check that this doesn't just work out
+        // slither-disable-next-line incorrect-equality
         if (leveragedTokenBalance == 0) {
             nav = 1 ether;
         } else {
