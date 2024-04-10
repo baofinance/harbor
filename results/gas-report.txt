@@ -28,21 +28,21 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 2199864                                     | 10058           |        |        |        |         |
+| 2273079                                     | 10396           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
-| collateralRatio                             | 2475            | 2477   | 2475   | 12887  | 4124    |
-| collateralToken                             | 2446            | 2446   | 2446   | 2446   | 1       |
-| feeReceiver                                 | 2468            | 2468   | 2468   | 2468   | 1       |
-| freeMintPeggedToken                         | 2970            | 107799 | 142742 | 142742 | 4       |
-| hasRole                                     | 2740            | 2740   | 2740   | 2740   | 3       |
+| collateralRatio                             | 2453            | 2455   | 2453   | 12865  | 4124    |
+| collateralToken                             | 2424            | 2424   | 2424   | 2424   | 1       |
+| feeReceiver                                 | 2446            | 2446   | 2446   | 2446   | 1       |
+| freeMintPeggedToken                         | 2970            | 107782 | 142720 | 142720 | 4       |
+| hasRole                                     | 2827            | 2827   | 2827   | 2827   | 3       |
 | initialize                                  | 3365            | 221341 | 248589 | 248589 | 9       |
-| leveragedToken                              | 2490            | 2490   | 2490   | 2490   | 1       |
-| mintLeveragedTokenFeeRatio                  | 5062            | 5421   | 5086   | 5791   | 4120    |
-| mintPeggedToken                             | 34246           | 75005  | 63935  | 126834 | 3       |
-| mintPeggedTokenFeeRatio                     | 5428            | 5788   | 5452   | 9428   | 4120    |
+| leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 1       |
+| mintLeveragedTokenFeeRatio                  | 4621            | 4980   | 4645   | 5350   | 4120    |
+| mintPeggedToken                             | 28599           | 72297  | 77101  | 125560 | 6       |
+| mintPeggedTokenFeeRatio                     | 5151            | 5511   | 5175   | 9151   | 4120    |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 1       |
-| peggedTokenBalance                          | 484             | 1484   | 1484   | 2484   | 2       |
+| peggedTokenBalance                          | 462             | 1462   | 1462   | 2462   | 2       |
 | priceOracle                                 | 2425            | 2425   | 2425   | 2425   | 1       |
-| redeemLeveragedTokenFeeRatio                | 5044            | 5403   | 5068   | 5773   | 4120    |
-| redeemPeggedTokenFeeRatio                   | 5245            | 5604   | 5269   | 5974   | 4120    |
+| redeemLeveragedTokenFeeRatio                | 4908            | 5267   | 4932   | 5637   | 4120    |
+| redeemPeggedTokenFeeRatio                   | 4617            | 4976   | 4641   | 5346   | 4120    |
 

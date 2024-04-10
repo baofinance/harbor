@@ -176,7 +176,7 @@ interface IMinter {
     error InvalidFeeConfig();
     error InvalidBonusConfig();
 
-    error InsufficientOutput(address mintingToken);
+    error InsufficientOutput(address mintingToken, uint256 miniumum, uint256 actual);
 
     /// @dev Thrown when mint with zero amount base token.
     error MintZeroAmount();
@@ -208,9 +208,9 @@ interface IMinter {
 
     function mintPeggedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
 
-    function redeemPeggedTokenFeeRatio(uint256 reductionOfcollateral) external view returns (uint256 fees);
+    function redeemPeggedTokenFeeRatio() external view returns (uint256 fees);
 
-    function mintLeveragedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
+    function mintLeveragedTokenFeeRatio() external view returns (uint256 fees);
 
     function redeemLeveragedTokenFeeRatio(uint256 reductionOfcollateral) external view returns (uint256 fees);
 
@@ -218,37 +218,37 @@ interface IMinter {
      * Public Mutated Functions *
      ****************************/
 
-    /// @notice Mint some fToken with some collateral token.
+    /// @notice Mint some peggedToken with some collateral token.
     /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all collateral token.
-    /// @param recipient The address of receiver for fToken.
-    /// @param minFTokenMinted The minimum amount of fToken should be received.
-    /// @return fTokenMinted The amount of fToken should be received.
+    /// @param recipient The address of receiver for peggedToken.
+    /// @param minPeggedTokenOut The minimum amount of peggedToken should be received. 0 means no check is made.
+    /// @return peggedTokenOut The amount of peggedToken should be received.
     function mintPeggedToken(
         uint256 collateralIn,
         address recipient,
-        uint256 minFTokenMinted
-    ) external returns (uint256 fTokenMinted);
+        uint256 minPeggedTokenOut
+    ) external returns (uint256 peggedTokenOut);
 
     /// @notice Mint some leveragedToken with some collateral token.
     /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all collateral token.
     /// @param recipient The address of receiver for leveragedToken.
-    /// @param minXTokenMinted The minimum amount of leveragedToken should be received.
-    /// @return lTokenMinted The amount of leveragedToken should be received.
+    /// @param minLeveragedTokenOut The minimum amount of leveragedToken should be received. 0 means no check is made.
+    /// @return leveragedTokenOut The amount of leveragedToken should be received.
     /// @return bonus The amount of wrapped value of collateral token as bonus.
     function mintLeveragedToken(
         uint256 collateralIn,
         address recipient,
-        uint256 minXTokenMinted
-    ) external returns (uint256 lTokenMinted, uint256 bonus);
+        uint256 minLeveragedTokenOut
+    ) external returns (uint256 leveragedTokenOut, uint256 bonus);
 
-    /// @notice Redeem collateral token with fToken.
-    /// @param fTokenIn the amount of fToken to redeem, use `uint256(-1)` to redeem all fToken.
+    /// @notice Redeem collateral token with peggedToken.
+    /// @param peggedTokenIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
     /// @param recipient The address of receiver for collateral token.
-    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received.
+    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no check is made.
     /// @return collateralOut The amount of wrapped value of collateral token should be received.
     /// @return bonus The amount of wrapped value of collateral token as bonus.
     function redeemPeggedToken(
-        uint256 fTokenIn,
+        uint256 peggedTokenIn,
         address recipient,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut, uint256 bonus);
@@ -256,7 +256,7 @@ interface IMinter {
     /// @notice Redeem collateral token with leveragedToken.
     /// @param lTokenIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
     /// @param recipient The address of receiver for collateral token.
-    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received.
+    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no check is made.
     /// @return collateralOut The amount of wrapped value of collateral token should be received.
     function redeemLeveragedToken(
         uint256 lTokenIn,
