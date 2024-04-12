@@ -76,13 +76,13 @@ interface IMinter {
      ****************************/
 
     /// @notice Emitted when peggedToken is minted.
-    /// @param owner The address of collateral token owner.
+    /// @param sender The address of collateral token owner.
     /// @param recipient The address of receiver for peggedToken or leveragedToken.
     /// @param collateralTokenIn The amount of collateral token deposited.
     /// @param peggedTokenOut The amount of peggedToken minted.
     /// @param mintFee The amount of mint fee charged in terms of collateral token.
     event MintPeggedToken(
-        address indexed owner,
+        address indexed sender,
         address indexed recipient,
         uint256 collateralTokenIn,
         uint256 peggedTokenOut,
@@ -90,30 +90,30 @@ interface IMinter {
     );
 
     /// @notice Emitted when leveragedToken is minted.
-    /// @param owner The address of collateral token owner.
+    /// @param sender The address of collateral token owner.
     /// @param recipient The address of receiver for peggedToken or leveragedToken.
     /// @param collateralTokenIn The amount of collateral token deposited.
     /// @param leveragedTokenOut The amount of leveragedToken minted.
     /// @param bonus The amount of collateral token as bonus.
     /// @param mintFee The amount of mint fee charged.
     event MintLeveragedToken(
-        address indexed owner,
+        address indexed sender,
         address indexed recipient,
         uint256 collateralTokenIn,
         uint256 leveragedTokenOut,
-        uint256 bonus,
-        uint256 mintFee
+        uint256 mintFee,
+        uint256 bonus
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
-    /// @param owner The address of peggedToken and leveragedToken owner.
+    /// @param sender The address of peggedToken and leveragedToken owner.
     /// @param recipient The address of receiver for collateral token.
     /// @param peggedTokenBurned The amount of peggedToken burned.
     /// @param collateralTokenOut The amount of collateral token redeemed.
     /// @param bonus The amount of collateral token as bonus.
     /// @param redeemFee The amount of redeem fee charged.
     event RedeemPeggedToken(
-        address indexed owner,
+        address indexed sender,
         address indexed recipient,
         uint256 peggedTokenBurned,
         uint256 collateralTokenOut,
@@ -122,13 +122,13 @@ interface IMinter {
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
-    /// @param owner The address of peggedToken and leveragedToken owner.
+    /// @param sender The address of peggedToken and leveragedToken owner.
     /// @param recipient The address of receiver for collateral token.
     /// @param lTokenBurned The amount of leveragedToken burned.
     /// @param collateralTokenOut The amount of collateral token redeemed.
     /// @param redeemFee The amount of redeem fee charged.
     event RedeemLeveragedToken(
-        address indexed owner,
+        address indexed sender,
         address indexed recipient,
         uint256 lTokenBurned,
         uint256 collateralTokenOut,
@@ -167,7 +167,11 @@ interface IMinter {
     error ZeroOraclePrice();
 
     /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero
-    error ZeroBalance();
+    error ZeroInputBalance(address token);
+    /// @dev Thrown when collateral is passed but mint is prevented for some other reason.
+    error MintZeroAmount(address mintingToken);
+    /// @dev Thrown when collateral is passed but mint is reduced below the miniumum requested.
+    error MintInsufficientAmount(address mintingToken, uint256 miniumum, uint256 actual);
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
@@ -175,11 +179,6 @@ interface IMinter {
     error InvalidCollateralRatioConfig(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
     error InvalidFeeConfig();
     error InvalidBonusConfig();
-
-    error InsufficientOutput(address mintingToken, uint256 miniumum, uint256 actual);
-
-    /// @dev Thrown when mint with zero amount base token.
-    error MintZeroAmount();
 
     /****************************
      * Public View Functions    *
@@ -198,6 +197,7 @@ interface IMinter {
     function collateralRatio() external view returns (uint256);
 
     function leveragedTokenNAV() external view returns (uint256);
+    function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256);
 
     function priceOracle() external view returns (address);
 
@@ -205,6 +205,8 @@ interface IMinter {
 
     // @notice Returns the totalAmount of tokens minted and not redeemed by the minter
     function peggedTokenBalance() external view returns (uint256);
+    function leveragedTokenBalance() external view returns (uint256);
+    function collateralTokenBalance() external view returns (uint256);
 
     function mintPeggedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
 

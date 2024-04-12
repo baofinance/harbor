@@ -4,7 +4,7 @@
 pragma solidity 0.8.25;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -23,7 +23,13 @@ import "forge-std/console.sol";
 
 // TODO: check what ERC165 is used for
 /// @custom:oz-upgrades
-contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, IMinter, IMinterTreasury {
+contract Minter_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    AccessControlDefaultAdminRulesUpgradeable,
+    IMinter,
+    IMinterTreasury
+{
     using SafeERC20 for IERC20;
 
     // ratios are stored as uint32, which allows for a maximum value of ~4 billion
@@ -41,10 +47,12 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         address leveragedToken; //                      160
         //                                          slot
         address collateralToken; //                     160
+        // token balances: can't rely on balanceOf(address(this)) for key values
         // pegged token balance - we have to track pegged tokens
         // because we possibly are not the only minters of these pegged tokens
         // we are not likely to use these tokens as bonus because during a bonus period pegged minting
         // will not be allowed
+        // TODO: this value must not drop to zero of collateralRatio calculation go infinite
         //                                          slot
         uint256 peggedTokenBalance; //                  256
         // leveragedTokenBalance - we track this here because this contract can also own collateral tokens
@@ -53,6 +61,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         uint256 leveragedTokenBalance; //              256
         // collateralTokenBalance - we track this here because this contract can also own collateral tokens
         // that will be used for the reserve pool
+        // TODO: do we want a collateral cap?
         //                                          slot
         uint256 collateralTokenBalance; //              256
         //                                          slot
@@ -106,16 +115,17 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         BonusConfig calldata bonusConfig_
     ) external initializer {
         // initialise all the state variables
-        __AccessControl_init();
+        __AccessControlDefaultAdminRules_init(7 days, owner);
         __UUPSUpgradeable_init();
 
         MinterStorage storage $ = _getMinterStorage();
         // balance tokens
         $.collateralToken = tokens_.collateralToken;
+        $.collateralTokenBalance = 0;
         $.peggedToken = tokens_.peggedToken;
-        $.leveragedToken = tokens_.leveragedToken;
-
         $.peggedTokenBalance = 0;
+        $.leveragedToken = tokens_.leveragedToken;
+        $.leveragedTokenBalance = 0;
 
         _updatePriceOracle(priceOracle_);
         _updateFeeReceiver(feeReceiver_);
@@ -124,8 +134,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         _updateFeeConfig(feeConfig_);
         _updateBonusConfig(bonusConfig_);
 
-        _grantRole(DEFAULT_ADMIN_ROLE, owner);
         _grantRole(ZERO_FEE_ROLE, owner);
+        // TODO: should we be saving the last permissioned price? _fetchSafePrice(priceOracle_)
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -236,6 +246,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         uint256 price = _fetchSafePrice($.priceOracle);
         uint256 newPeggedToken = (collateralIn * price) / 1 ether;
 
+        // TODO: consider deducting the safe fee before calculating the actual fee
         uint256 feeRatio = _mintPeggedTokenFeeRatio(
             _collateralRatio($.collateralTokenBalance + collateralIn, price, $.peggedTokenBalance + newPeggedToken),
             $.rebalanceCollateralRatioUpperBound,
@@ -249,7 +260,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         // recalculate the amounts involved
         peggedTokenOut = (collateralIn * price) / 1 ether;
         if (peggedTokenOut < minPeggedTokenOut) {
-            revert InsufficientOutput($.peggedToken, minPeggedTokenOut, peggedTokenOut);
+            revert MintInsufficientAmount($.peggedToken, minPeggedTokenOut, peggedTokenOut);
         }
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), $.feeReceiver, fee);
         _mintPeggedToken(collateralToken_, collateralIn, $.peggedToken, peggedTokenOut, recipient, fee);
@@ -280,7 +291,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     ) private {
         // slither-disable-next-line incorrect-equality
         if (collateralIn == 0) {
-            revert MintZeroAmount();
+            revert ZeroInputBalance(collateralToken_);
         }
         emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut, fees);
 
@@ -309,19 +320,13 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
 
         uint256 price = _fetchSafePrice($.priceOracle);
-        uint256 leveragedPrice = _leveragedTokenNAV(
-            $.leveragedTokenBalance,
-            $.peggedTokenBalance,
-            $.collateralTokenBalance,
-            price
-        );
         uint256 currentCollateralRatio = _collateralRatio($.collateralTokenBalance, price, $.peggedTokenBalance);
 
         uint256 feeRatio = _mintLeveragedTokenFeeRatio(
             currentCollateralRatio,
             $.rebalanceCollateralRatioUpperBound,
             $.safeCollateralRatioLowerBound,
-            $.safeMintPeggedTokenFeeRatio
+            $.safeMintLeveragedTokenFeeRatio
         );
 
         uint256 fee = (collateralIn * feeRatio) / 1 ether;
@@ -332,10 +337,15 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
             // TODO: add the bonus here (if rebalance pools are exhausted)
         }
 
-        // recalculate the amounts involved
-        leveragedTokenOut = (collateralIn * price) / leveragedPrice;
+        leveragedTokenOut = _leverageTokensForCollateral(
+            collateralIn,
+            $.leveragedTokenBalance,
+            $.peggedTokenBalance,
+            $.collateralTokenBalance,
+            price
+        );
         if (leveragedTokenOut < minLeveragedTokenOut) {
-            revert InsufficientOutput($.leveragedToken, minLeveragedTokenOut, leveragedTokenOut);
+            revert MintInsufficientAmount($.leveragedToken, minLeveragedTokenOut, leveragedTokenOut);
         }
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), $.feeReceiver, fee);
         _mintLeveragedToken(
@@ -360,15 +370,16 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
 
-        // // mint the tokens to the recipient
+        // mint the tokens to the recipient
         uint256 price = _fetchSafePrice($.priceOracle);
-        uint256 leveragedPrice = _leveragedTokenNAV(
+
+        leveragedTokenOut = _leverageTokensForCollateral(
+            collateralIn,
             $.leveragedTokenBalance,
             $.peggedTokenBalance,
             $.collateralTokenBalance,
             price
         );
-        leveragedTokenOut = (collateralIn * price) / leveragedPrice;
 
         _mintLeveragedToken(collateralToken_, collateralIn, $.leveragedToken, leveragedTokenOut, recipient, 0, 0);
     }
@@ -382,10 +393,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         uint256 fees, // only for the emit
         uint256 bonus // only for the emit
     ) private {
-        // slither-disable-next-line incorrect-equality
-        if (collateralIn == 0) {
-            revert MintZeroAmount();
-        }
         // tell the world
         emit MintLeveragedToken(_msgSender(), recipient, collateralIn, leveragedTokenOut, fees, bonus);
 
@@ -396,6 +403,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
 
         // update our records
         MinterStorage storage $ = _getMinterStorage();
+        console.log("leveragedTokenBalance=%s + %s", $.leveragedTokenBalance, leveragedTokenOut);
         $.leveragedTokenBalance += leveragedTokenOut;
         $.collateralTokenBalance += collateralIn;
     }
@@ -424,7 +432,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
         }
         // slither-disable-next-line incorrect-equality
         if (actualIn == 0) {
-            revert ZeroBalance();
+            revert ZeroInputBalance(token);
         }
     }
 
@@ -477,10 +485,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     function redeemLeveragedTokenFeeRatio(uint256 reductionOfcollateral) external view override returns (uint256 fees) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchSafePrice($.priceOracle);
-        uint256 collateralTokenBalance = $.collateralTokenBalance;
+        uint256 collateralTokenBalance_ = $.collateralTokenBalance;
         // TODO: make sure there wont be a subtaction underflow
         fees = _redeemLeveragedTokenFeeRatio(
-            _collateralRatio(collateralTokenBalance - reductionOfcollateral, price, $.peggedTokenBalance),
+            _collateralRatio(collateralTokenBalance_ - reductionOfcollateral, price, $.peggedTokenBalance),
             $.rebalanceCollateralRatioUpperBound,
             $.safeCollateralRatioLowerBound,
             $.safeRedeemLeveragedTokenFeeRatio
@@ -599,25 +607,26 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
 
     function leveragedTokenNAV() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 leveragedTokenBalance = IERC20($.leveragedToken).balanceOf(address(this));
+        uint256 leveragedTokenBalance_ = IERC20($.leveragedToken).balanceOf(address(this));
         uint256 price = _fetchSafePrice($.priceOracle);
-        nav = _leveragedTokenNAV(leveragedTokenBalance, $.peggedTokenBalance, $.collateralTokenBalance, price);
+        nav = _leveragedTokenNAV(leveragedTokenBalance_, $.peggedTokenBalance, $.collateralTokenBalance, price);
     }
 
     function _leveragedTokenNAV(
-        uint256 leveragedTokenBalance,
+        uint256 leveragedTokenBalance_,
         uint256 peggedTokenBalance_,
-        uint256 collateralTokenBalance,
+        uint256 collateralTokenBalance_,
         uint256 collateralPrice
-    ) private pure returns (uint256 nav) {
+    ) private view returns (uint256 nav) {
         // TODO if the collateral ratio is 0, nav is 0 - check that this doesn't just work out
         // slither-disable-next-line incorrect-equality
-        if (leveragedTokenBalance == 0) {
+        if (leveragedTokenBalance_ == 0) {
             nav = 1 ether;
         } else {
             // TODO: is this the right price?
-            uint256 collateralValue = (collateralTokenBalance * collateralPrice) / 1 ether;
-            if (collateralValue <= peggedTokenBalance_) {
+            uint256 collateralValue = collateralTokenBalance_ * collateralPrice;
+            uint256 peggedValue = peggedTokenBalance_ * 1 ether;
+            if (collateralValue < peggedValue) {
                 // this is where the invariant is, err, variant in that the leveraged value should have gone negative
                 // this essentially means that the pegged token is, err, no longer pegged
                 // - at least those pegged tokens that are backed by this colllateral
@@ -626,8 +635,59 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
                 nav = 0;
             } else {
                 // this is the invariant collateral value  = pegged value + leveraged value
-                nav = (collateralValue - peggedTokenBalance_) / leveragedTokenBalance;
+                nav = (collateralValue - peggedValue) / leveragedTokenBalance_;
+                console.log("nav=%s", nav);
+                console.log("nav=(%s-%s)/%s", collateralValue, peggedValue, leveragedTokenBalance_);
             }
+        }
+    }
+
+    function leverageTokensForCollateral(
+        uint256 forCollateral
+    ) external view override returns (uint256 leveragedTokens) {
+        MinterStorage storage $ = _getMinterStorage();
+        uint256 leveragedTokenBalance_ = IERC20($.leveragedToken).balanceOf(address(this));
+        uint256 price = _fetchSafePrice($.priceOracle);
+        leveragedTokens = _leverageTokensForCollateral(
+            forCollateral,
+            leveragedTokenBalance_,
+            $.peggedTokenBalance,
+            $.collateralTokenBalance,
+            price
+        );
+    }
+
+    function _leverageTokensForCollateral(
+        uint256 forCollateral,
+        uint256 leveragedTokenBalance_,
+        uint256 peggedTokenBalance_,
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice
+    ) private view returns (uint256 leveragedTokens) {
+        // the following assumes that the collateral change is very small compared to the overall collateral
+        // because it is the derivative of the legeraged balance with respect to the collateral balance
+        // using the invariant collateral value = leveraged value + pegged value.
+        // which assumes the leveraged nav doesn't change, i.e. that the invariant is linear in collateral balance
+        // which it isn't
+        // TODO: work out the acceptable amount of collateral as a ratio that can be added in one go
+        // and split this equation into a series of steps, i.e. do a piecewise differentiation, or
+        // work out how leveraged nav varies with collateral tokens without using the invariant (if that's possible)
+        // or investigate if this is why Aladdin are using the moving average for leverage ratio
+        // Note: if leveraged balance is 0 this returns 0, so we have to bootstrap this contract with some leveraged tokens
+        //       or work out the correct equation, assuming there is one solution:
+        //           leveraged nav can vary or leveraged balance can vary
+        console.log("collateral price=%s", collateralPrice);
+        leveragedTokens = forCollateral * collateralPrice;
+        if (leveragedTokenBalance_ > 0) {
+            // TODO: what to do if (collateralTokenBalance_ * collateralPrice) <= peggedTokenBalance_ * 1 ether
+            // i.e. when pegged value is greater or equal to collateral value,
+            // i.e. when collateral ratio is less than 1, at initialisation or if all pegged are redeemed
+            // all at times when we should be quite happily mint more tokens
+            leveragedTokens =
+                (leveragedTokens * leveragedTokenBalance_) /
+                (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether);
+        } else {
+            leveragedTokens /= 1 ether;
         }
     }
 
@@ -638,11 +698,15 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     }
 
     function _collateralRatio(
-        uint256 collateralTokenBalance,
+        uint256 collateralTokenBalance_,
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 collateralRatio_) {
-        collateralRatio_ = (collateralTokenBalance * collateralPrice) / peggedTokenBalance_;
+        if (peggedTokenBalance_ == 0) {
+            collateralRatio_ = type(uint256).max; // just needs to be high so fees are calculated properly
+        } else {
+            collateralRatio_ = (collateralTokenBalance_ * collateralPrice) / peggedTokenBalance_;
+        }
     }
 
     // External view functions
@@ -683,6 +747,16 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControlUpgradeable, 
     function peggedTokenBalance() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
         return $.peggedTokenBalance;
+    }
+
+    function leveragedTokenBalance() external view override returns (uint256) {
+        MinterStorage storage $ = _getMinterStorage();
+        return $.leveragedTokenBalance;
+    }
+
+    function collateralTokenBalance() external view override returns (uint256) {
+        MinterStorage storage $ = _getMinterStorage();
+        return $.collateralTokenBalance;
     }
 
     // fetching collateral price in terms of the pegged token

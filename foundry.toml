@@ -10,7 +10,7 @@ gas_reports = ["LeveragedToken_v1", "Minter_v1"]
 fs_permissions = [{ access = "read", path = "./"}, { access = "read-write", path = "./results"}]
 auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"
-
+# deny_warnings = true # enable to stop compilations if there are warnings
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }
