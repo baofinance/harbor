@@ -455,15 +455,14 @@ contract Minter_v1 is
     }
 
     // @inheritdoc IMinter
-    function freeMintLegeragedToken(
+    function freeMintLeveragedToken(
         uint256 collateralIn,
         address recipient
-    ) external onlyRole(ZERO_FEE_ROLE) returns (uint256 leveragedTokenOut) {
+    ) external override onlyRole(ZERO_FEE_ROLE) returns (uint256 leveragedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address collateralToken_ = $.collateralToken;
         collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
-        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
 
         // mint the tokens to the recipient
         uint256 price = _fetchSafePrice($.priceOracle);
@@ -498,7 +497,7 @@ contract Minter_v1 is
 
         // update our records
         MinterStorage storage $ = _getMinterStorage();
-        console.log("leveragedTokenBalance=%s + %s", $.leveragedTokenBalance, leveragedTokenOut);
+        // console.log("leveragedTokenBalance=%s + %s", $.leveragedTokenBalance, leveragedTokenOut);
         $.leveragedTokenBalance += leveragedTokenOut;
         $.collateralTokenBalance += collateralIn;
     }
@@ -764,7 +763,7 @@ contract Minter_v1 is
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
-    ) private view returns (uint256 leveragedTokens) {
+    ) private pure returns (uint256 leveragedTokens) {
         // the following assumes that the collateral change is very small compared to the overall collateral
         // because it is the derivative of the legeraged balance with respect to the collateral balance
         // using the invariant collateral value = leveraged value + pegged value.
@@ -789,12 +788,14 @@ contract Minter_v1 is
         } else {
             leveragedTokens /= 1 ether; // TODO: check if there can be any starting price
         }
+        /*
         console.log(
             "forCollateral=%s, collateralPrice=%s, leveragedTokens=%s",
             forCollateral,
             collateralPrice,
             leveragedTokens
         );
+        */
     }
 
     /// @notice Return the current collateral ratio of the peggedToken to the collateral token, multipled by 1e18.

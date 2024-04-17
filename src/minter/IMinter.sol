@@ -295,4 +295,8 @@ interface IMinterTreasury {
      ****************************/
 
     function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedTokenOut);
+    function freeMintLeveragedToken(
+        uint256 collateralIn,
+        address recipient
+    ) external returns (uint256 leveragedTokenOut);
 }
