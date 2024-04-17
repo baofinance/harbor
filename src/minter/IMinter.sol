@@ -52,16 +52,25 @@ interface IMinter {
     // TODO: separate each config for mint/redeem pegged/leveraged
     // because: we may want to increase mint pegged fees before reducing redeem leveraged, etc.
     // need to also minimise storage accesses
-    struct CollateralRatioConfig {
+    struct CollateralRatioBoundsConfig {
         uint256 bonusCollateralRatioUpperBound;
         uint256 rebalanceCollateralRatioUpperBound;
-        uint256 safeCollateralRatioLowerBound;
+        uint256 dangerCollateralRatioUpperBound;
+        uint256 normalCollateralRatioUpperBound;
     }
+    struct FeeConfigForAction {
+        uint256 bonusFeeRatio;
+        uint256 rebalanceFeeRatio;
+        uint256 dangerFeeRatio;
+        uint256 normalFeeRatio;
+        uint256 safeFeeRatio;
+    }
+
     struct FeeConfig {
-        uint256 safeMintPeggedTokenFeeRatio;
-        uint256 safeRedeemPeggedTokenFeeRatio;
-        uint256 safeMintLeveragedTokenFeeRatio;
-        uint256 safeRedeemLeveragedTokenFeeRatio;
+        FeeConfigForAction mintPeggedToken;
+        FeeConfigForAction redeemPeggedToken;
+        FeeConfigForAction mintLeveragedToken;
+        FeeConfigForAction redeemLeveragedToken;
     }
 
     struct BonusConfig {
@@ -69,6 +78,13 @@ interface IMinter {
         // bonus can also be an xtoken? then these must be minted and given to the Minter
         uint256 mintLeveragedBonusRatio;
         uint256 redeemPeggedBonusRatio;
+    }
+
+    struct PauseConfig {
+        uint256 mintPeggedToken;
+        uint256 redeemPeggedToken;
+        uint256 mintLeveragedToken;
+        uint256 redeemLeveragedToken;
     }
 
     /****************************
@@ -135,7 +151,7 @@ interface IMinter {
         uint256 redeemFee
     );
 
-    event UpdateCollateralRatioConfig(CollateralRatioConfig config);
+    event UpdateCollateralRatioConfig(CollateralRatioBoundsConfig config);
     event UpdateFeeConfig(FeeConfig config);
     event UpdateBonusConfig(BonusConfig config);
 
@@ -265,6 +281,12 @@ interface IMinter {
         address recipient,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
+
+    function updateCollateralRatioConfig(CollateralRatioBoundsConfig calldata collateralRatioConfig_) external;
+
+    function updateFeeConfig(FeeConfig calldata feeConfig_) external;
+
+    function updateBonusConfig(BonusConfig calldata bonusConfig_) external;
 }
 
 interface IMinterTreasury {
