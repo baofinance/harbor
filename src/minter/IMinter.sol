@@ -299,4 +299,5 @@ interface IMinterTreasury {
         uint256 collateralIn,
         address recipient
     ) external returns (uint256 leveragedTokenOut);
+    function freeRedeemLeveragedToken(uint256 leveragedIn) external returns (uint256 collateralTokenOut);
 }

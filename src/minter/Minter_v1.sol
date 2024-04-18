@@ -63,7 +63,6 @@ contract Minter_v1 is
         // because we possibly are not the only minters of these pegged tokens
         // we are not likely to use these tokens as bonus because during a bonus period pegged minting
         // will not be allowed
-        // TODO: this value must not drop to zero of collateralRatio calculation go infinite
         //                                             slot
         uint256 peggedTokenBalance; //                  256
         // leveragedTokenBalance - we track this here because this contract can also own collateral tokens
@@ -425,7 +424,7 @@ contract Minter_v1 is
         );
 
         uint256 fee = (collateralIn * feeRatio) / 1 ether;
-        collateralIn -= fee;
+        uint256 collateralUsed = collateralIn - fee;
         bonusOut = 0;
         // TODO: add the rebalance pool balance
         if (fee == 0 && currentCollateralRatio < $.collateralRatioUpperBounds[uint(CollateralRatioZones.bonus)]) {
@@ -433,7 +432,7 @@ contract Minter_v1 is
         }
 
         leveragedTokenOut = _leverageTokensForCollateral(
-            collateralIn,
+            collateralUsed,
             $.leveragedTokenBalance,
             $.peggedTokenBalance,
             $.collateralTokenBalance,
@@ -445,7 +444,7 @@ contract Minter_v1 is
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), $.feeReceiver, fee);
         _mintLeveragedToken(
             collateralToken_,
-            collateralIn,
+            collateralUsed,
             $.leveragedToken,
             leveragedTokenOut,
             recipient,
@@ -480,7 +479,7 @@ contract Minter_v1 is
 
     function _mintLeveragedToken(
         address collateralToken_,
-        uint256 collateralIn,
+        uint256 collateralUsed,
         address leveragedToken_,
         uint256 leveragedTokenOut,
         address recipient,
@@ -488,18 +487,18 @@ contract Minter_v1 is
         uint256 bonus // only for the emit
     ) private {
         // tell the world
-        emit MintLeveragedToken(_msgSender(), recipient, collateralIn, leveragedTokenOut, fees, bonus);
+        emit MintLeveragedToken(_msgSender(), recipient, collateralUsed + fees, leveragedTokenOut, fees, bonus);
 
         // mint the tokens to the recipient
         IMintable(leveragedToken_).mint(recipient, leveragedTokenOut);
         // take the collateral
-        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralUsed);
 
         // update our records
         MinterStorage storage $ = _getMinterStorage();
         // console.log("leveragedTokenBalance=%s + %s", $.leveragedTokenBalance, leveragedTokenOut);
         $.leveragedTokenBalance += leveragedTokenOut;
-        $.collateralTokenBalance += collateralIn;
+        $.collateralTokenBalance += collateralUsed;
     }
 
     /// @inheritdoc IMinter
@@ -519,6 +518,30 @@ contract Minter_v1 is
         if (actualIn == 0) {
             revert ZeroInputBalance(token);
         }
+    }
+
+    // @inheritdoc IMinter
+    function freeRedeemLeveragedToken(
+        uint256 leveragedTokenIn
+    ) external override onlyRole(ZERO_FEE_ROLE) returns (uint256 collateralTokenOut) {
+        /*        MinterStorage storage $ = _getMinterStorage();
+        // how much collateral to use
+        address collateralToken_ = $.collateralToken;
+        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
+
+        // mint the tokens to the recipient
+        uint256 price = _fetchSafePrice($.priceOracle);
+
+        leveragedTokenOut = _leverageTokensForCollateral(
+            collateralIn,
+            $.leveragedTokenBalance,
+            $.peggedTokenBalance,
+            $.collateralTokenBalance,
+            price
+        );
+
+        _mintLeveragedToken(collateralToken_, collateralIn, $.leveragedToken, leveragedTokenOut, recipient, 0, 0);
+*/
     }
 
     // -------------------------
@@ -746,11 +769,10 @@ contract Minter_v1 is
         uint256 forCollateral
     ) external view override returns (uint256 leveragedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 leveragedTokenBalance_ = IERC20($.leveragedToken).balanceOf(address(this));
         uint256 price = _fetchSafePrice($.priceOracle);
         leveragedTokens = _leverageTokensForCollateral(
             forCollateral,
-            leveragedTokenBalance_,
+            $.leveragedTokenBalance,
             $.peggedTokenBalance,
             $.collateralTokenBalance,
             price
@@ -788,14 +810,6 @@ contract Minter_v1 is
         } else {
             leveragedTokens /= 1 ether; // TODO: check if there can be any starting price
         }
-        /*
-        console.log(
-            "forCollateral=%s, collateralPrice=%s, leveragedTokens=%s",
-            forCollateral,
-            collateralPrice,
-            leveragedTokens
-        );
-        */
     }
 
     /// @notice Return the current collateral ratio of the peggedToken to the collateral token, multipled by 1e18.

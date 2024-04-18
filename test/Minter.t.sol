@@ -403,9 +403,21 @@ contract TestMinterMint is TestMinter {
         uint256 minted = IMinterTreasury(minter).freeMintPeggedToken(collateralIn, receiver.addr);
         //               --------------------------------------------------------------------
         assertEq(minted, receiverBaoUSDIncrease, "unexpected amount minted compared to price");
-        assertEq(IERC20(deployed.wstETH).balanceOf(owner.addr), ownerCollateralBefore - ownerCollateralDecrease);
-        assertEq(IERC20(deployed.wstETH).balanceOf(receiver.addr), receiverCollateralBefore);
-        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), receiverBaoUSDBefore + receiverBaoUSDIncrease);
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(owner.addr),
+            ownerCollateralBefore - ownerCollateralDecrease,
+            "collateral not paid"
+        );
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(receiver.addr),
+            receiverCollateralBefore,
+            "collateral not mis-transferred to receiver"
+        );
+        assertEq(
+            IERC20(deployed.BaoUSD).balanceOf(receiver.addr),
+            receiverBaoUSDBefore + receiverBaoUSDIncrease,
+            "receiver baoUSD balance after"
+        );
         assertEq(IMinter(minter).collateralTokenBalance(), minterCollateralBefore + ownerCollateralDecrease);
         assertEq(IERC20(deployed.wstETH).balanceOf(minter), minterWstETHBefore + ownerCollateralDecrease);
         assertLe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio <= before");
@@ -477,33 +489,35 @@ contract TestMinterMint is TestMinter {
     function _mintPeggedToken(uint256 collateralIn) private {
         (, uint256 price, , ) = priceOracle.getPrice();
 
-        uint256 ownerCollateralDecrease;
+        uint256 senderCollateralDecrease;
         if (collateralIn == type(uint256).max) {
-            ownerCollateralDecrease = IERC20(deployed.wstETH).balanceOf(owner.addr);
+            senderCollateralDecrease = IERC20(deployed.wstETH).balanceOf(sender.addr);
         } else {
-            ownerCollateralDecrease = collateralIn;
+            senderCollateralDecrease = collateralIn;
         }
 
-        deal(address(deployed.wstETH), sender.addr, ownerCollateralDecrease);
+        deal(address(deployed.wstETH), sender.addr, senderCollateralDecrease);
         vm.prank(sender.addr);
-        IERC20(deployed.wstETH).approve(minter, 10 ether);
+        IERC20(deployed.wstETH).approve(minter, type(uint256).max);
 
-        uint256 mintPeggedFee = (ownerCollateralDecrease * mintPeggedFeeRatios.normalFeeRatio) / 1 ether;
-        uint256 receiverBaoUSDIncrease = (price * (ownerCollateralDecrease - mintPeggedFee)) / 1 ether;
+        uint256 mintPeggedFee = (senderCollateralDecrease * mintPeggedFeeRatios.normalFeeRatio) / 1 ether;
+        uint256 receiverBaoUSDIncrease = (price * (senderCollateralDecrease - mintPeggedFee)) / 1 ether;
 
         uint256 feeReceiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        uint256 ownerCollateralBefore = IERC20(deployed.wstETH).balanceOf(owner.addr);
+        uint256 senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
         uint256 receiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(receiver.addr);
-        uint256 receiverBaoUSDBefore = IERC20(deployed.BaoUSD).balanceOf(receiver.addr);
-        uint256 minterCollateralBefore = IMinter(minter).collateralTokenBalance();
-        uint256 minterWstETHBefore = IERC20(deployed.wstETH).balanceOf(minter);
+        uint256 receiverPeggedBefore = IERC20(deployed.BaoUSD).balanceOf(receiver.addr);
+        uint256 minterCollateralBalanceBefore = IMinter(minter).collateralTokenBalance();
+        uint256 minterPeggedBalanceBefore = IMinter(minter).peggedTokenBalance();
+        // uint256 minterLeveragedBalanceBefore = IMinter(minter).peggedTokenBalance();
+        uint256 minterCollateralBefore = IERC20(deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintPeggedToken(
             sender.addr,
             receiver.addr,
-            ownerCollateralDecrease,
+            senderCollateralDecrease,
             receiverBaoUSDIncrease,
             mintPeggedFee
         );
@@ -517,8 +531,8 @@ contract TestMinterMint is TestMinter {
             "fee transferred"
         );
         assertEq(
-            IERC20(deployed.wstETH).balanceOf(owner.addr),
-            ownerCollateralBefore - ownerCollateralDecrease,
+            IERC20(deployed.wstETH).balanceOf(sender.addr),
+            senderCollateralBefore - senderCollateralDecrease,
             "collateral sent"
         );
         assertEq(
@@ -528,29 +542,31 @@ contract TestMinterMint is TestMinter {
         );
         assertEq(
             IERC20(deployed.BaoUSD).balanceOf(receiver.addr),
-            receiverBaoUSDBefore + receiverBaoUSDIncrease,
+            receiverPeggedBefore + receiverBaoUSDIncrease,
             "receiver received baoUSD"
         );
         assertEq(
             IMinter(minter).collateralTokenBalance(),
-            minterCollateralBefore + ownerCollateralDecrease - mintPeggedFee,
-            "minter has the collateral"
+            minterCollateralBalanceBefore + senderCollateralDecrease - mintPeggedFee,
+            "minter is tracking the new collateral"
         );
         assertEq(
+            IMinter(minter).peggedTokenBalance(),
+            minterPeggedBalanceBefore + receiverBaoUSDIncrease,
+            "minter is tracking the new pegged"
+        );
+        //assertEq(IMinter(minter).leveragedTokenBalance(), minterLeveragedBalanceBefore, "no new leveraged tokens");
+        assertEq(
             IERC20(deployed.wstETH).balanceOf(minter),
-            minterWstETHBefore + ownerCollateralDecrease,
+            minterCollateralBefore + senderCollateralDecrease - mintPeggedFee,
             "wstETH has minter owning it"
         );
-        assertLe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio <= before");
+        assertLt(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio <= before");
     }
 
     function test_mintPeggedBasic() public {
-        /*
-        (uint256 initialPeggedTokens, ) = setUp_collateral(10 ether, 0);
-        priceOracle.setPrice(4000 ether); // put the collateral ratio to 2, so no excess fees
-        assertEq(IMinter(minter).collateralRatio(), 2 ether);
-        assertEq(IERC20(deployed.BaoUSD).balanceOf(user.addr), 0);
-        */
+        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
 
         // zero input, when none
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 0);
@@ -558,23 +574,28 @@ contract TestMinterMint is TestMinter {
         vm.prank(sender.addr);
         IMinter(minter).mintPeggedToken(0, receiver.addr, 0);
         //----------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
         vm.prank(sender.addr);
         IMinter(minter).mintPeggedToken(type(uint256).max, receiver.addr, 0);
         //----------------------------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
 
         // some input, when none
         vm.expectRevert("ERC20: transfer amount exceeds balance");
         vm.prank(sender.addr);
         IMinter(minter).mintPeggedToken(1 ether, receiver.addr, 0);
         //-------------------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
         vm.prank(sender.addr);
         IMinter(minter).mintPeggedToken(type(uint256).max, receiver.addr, 0);
+        //------------------------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
 
         // get collateral
         deal(address(deployed.wstETH), sender.addr, 10 ether);
@@ -585,6 +606,7 @@ contract TestMinterMint is TestMinter {
         vm.prank(sender.addr);
         IMinter(minter).mintPeggedToken(1 ether, receiver.addr, 0);
         //----------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
 
         // get allowance
         vm.prank(sender.addr);
@@ -595,57 +617,41 @@ contract TestMinterMint is TestMinter {
         vm.prank(sender.addr);
         IMinter(minter).mintPeggedToken(0, receiver.addr, 0);
         //----------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
     }
 
     function test_mintPegged() public {
         // set up some collateral,
-        (uint256 initialPeggedTokens, ) = setUp_collateral(10 ether, 10 ether);
-        console.log("collateral ratio=%s", IMinter(minter).collateralRatio());
+        setUp_collateral(10 ether, 10 ether);
+        (, uint256 price, , ) = priceOracle.getPrice();
+        assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         // first mint
         _mintPeggedToken(1 ether);
-        //-----------------------
-        /*
-        (, uint256 price, , ) = priceOracle.getPrice();
-        uint256 minterOpeningBalance = IMinter(minter).collateralTokenBalance();
-        assertEq(IERC20(deployed.BaoUSD).balanceOf(user.addr), 0);
-
-        uint256 collateralMinusFee = 1 ether - mintPeggedFeeRatios;
-        uint256 expectedPeggedTokenOut = (price * collateralMinusFee) / 1 ether;
-        vm.expectEmit(true, true, false, false, minter);
-        emit IMinter.MintPeggedToken(
-            user.addr,
-            user.addr,
-            collateralMinusFee,
-            expectedPeggedTokenOut,
-            mintPeggedFeeRatios
-        );
-        vm.prank(user.addr);
-        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, user.addr, 0);
-        assertEq(minted, expectedPeggedTokenOut, "unexpected amount minted compared to price");
-        assertEq(
-            IMinter(minter).peggedTokenBalance(),
-            initialPeggedTokens + expectedPeggedTokenOut,
-            "pegged token controlled"
-        );
-        assertEq(IERC20(deployed.wstETH).balanceOf(user.addr), 9 ether, "user loses 1 ether");
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            minterOpeningBalance + collateralMinusFee,
-            "minter has the collateral minus fee"
-        );
-        assertEq(IERC20(deployed.BaoUSD).balanceOf(user.addr), expectedPeggedTokenOut, "user has minted deployed.BaoUSD");
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), mintPeggedFeeRatios);
-        */
 
         // second mint
         _mintPeggedToken(2 ether);
 
-        /*
+        // check token out check
+        uint256 collateral = 3 ether;
+        deal(address(deployed.wstETH), sender.addr, collateral * 10);
 
-        // do a mint but expect more
-        vm.prank(user.addr);
-        IMinter(minter).mintPeggedToken(1 ether, user.addr, expectedPeggedTokenOut);
+        uint256 mintPeggedFee = (collateral * mintPeggedFeeRatios.normalFeeRatio) / 1 ether;
+        uint256 expectedPeggedTokenOut = ((collateral - mintPeggedFee) * price) / 1 ether;
+        uint256 senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
+        uint256 receiverPeggedBefore = IERC20(deployed.BaoUSD).balanceOf(receiver.addr);
+
+        // just within
+        vm.prank(sender.addr);
+        IMinter(minter).mintPeggedToken(collateral, receiver.addr, expectedPeggedTokenOut);
+        //--------------------------------------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), receiverPeggedBefore + expectedPeggedTokenOut);
+        assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), senderCollateralBefore - collateral);
+
+        senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
+        receiverPeggedBefore = IERC20(deployed.BaoUSD).balanceOf(receiver.addr);
+
+        // just over
         vm.expectRevert(
             abi.encodeWithSelector(
                 IMinter.MintInsufficientAmount.selector,
@@ -654,16 +660,19 @@ contract TestMinterMint is TestMinter {
                 expectedPeggedTokenOut
             )
         );
-        vm.prank(user.addr);
-        IMinter(minter).mintPeggedToken(1 ether, user.addr, expectedPeggedTokenOut + 1);
+        vm.prank(sender.addr);
+        IMinter(minter).mintPeggedToken(collateral, receiver.addr, expectedPeggedTokenOut + 1);
+        //------------------------------------------------------------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), receiverPeggedBefore);
+        assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), senderCollateralBefore);
 
         // mint from all of balance
-        uint256 before = IERC20(deployed.wstETH).balanceOf(user.addr);
-        assertGt(before, 0);
-        vm.prank(user.addr);
-        IMinter(minter).mintPeggedToken(type(uint256).max, user.addr, 0);
-        assertEq(IERC20(deployed.wstETH).balanceOf(user.addr), 0, "transferred it all");
-        */
+        mintPeggedFee = (senderCollateralBefore * mintPeggedFeeRatios.normalFeeRatio) / 1 ether;
+        expectedPeggedTokenOut = ((senderCollateralBefore - mintPeggedFee) * price) / 1 ether;
+        _mintPeggedToken(type(uint256).max);
+        //---------------------------------
+        assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), receiverPeggedBefore + expectedPeggedTokenOut);
+        assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 0, "transferred it all");
     }
 
     //---------------------------------------------------------------------------------------------
@@ -786,18 +795,119 @@ contract TestMinterMint is TestMinter {
     // Mint Leveraged
     //---------------------------------------------------------------------------------------------
 
-    // TODO: check bonus function
-    function test_mintLeveraged() public {
-        (, uint256 initialLeveragedTokens) = setUp_collateral(10 ether, 0);
-        priceOracle.setPrice(4000 ether); // put the collateral ratio to 2, so no excess feessender
-        assertEq(IMinter(minter).collateralRatio(), 2 ether);
+    function _mintLeveragedToken(uint256 collateralIn) private {
+        //(, uint256 price, , ) = priceOracle.getPrice();
+
+        uint256 senderCollateralDecrease;
+        if (collateralIn == type(uint256).max) {
+            senderCollateralDecrease = IERC20(deployed.wstETH).balanceOf(sender.addr);
+        } else {
+            senderCollateralDecrease = collateralIn;
+        }
+
+        deal(address(deployed.wstETH), sender.addr, senderCollateralDecrease);
+        vm.prank(sender.addr);
+        IERC20(deployed.wstETH).approve(minter, type(uint256).max);
+
+        uint256 mintLeveragedFee = (senderCollateralDecrease * mintLeveragedFeeRatios.normalFeeRatio) / 1 ether;
+        uint256 receiverLeveragedIncrease = IMinter(minter).leverageTokensForCollateral(
+            senderCollateralDecrease - mintLeveragedFee
+        );
+
+        uint256 feeReceiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        uint256 senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
+        uint256 receiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(receiver.addr);
+        uint256 receiverLeveragedBefore = IERC20(leveragedToken).balanceOf(receiver.addr);
+        uint256 minterCollateralBalanceBefore = IMinter(minter).collateralTokenBalance();
+        //uint256 minterPeggedBalanceBefore = IMinter(minter).peggedTokenBalance();
+        uint256 minterLeveragedBalanceBefore = IMinter(minter).leveragedTokenBalance();
+        uint256 minterCollateralBefore = IERC20(deployed.wstETH).balanceOf(minter);
+        uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
+
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter.MintLeveragedToken(
+            sender.addr,
+            receiver.addr,
+            senderCollateralDecrease,
+            receiverLeveragedIncrease,
+            mintLeveragedFee,
+            0 // TODO: check for non-zero bonus
+        );
+        vm.prank(sender.addr);
+        (uint256 minted, uint256 bonus) = IMinter(minter).mintLeveragedToken(collateralIn, receiver.addr, 0);
+        //                                ------------------------------------------------------------------
+        assertEq(minted, receiverLeveragedIncrease, "unexpected amount minted compared to price");
+        assertEq(bonus, 0, "expect zero bonus");
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            feeReceiverCollateralBefore + mintLeveragedFee,
+            "fee transferred"
+        );
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(sender.addr),
+            senderCollateralBefore - senderCollateralDecrease,
+            "collateral sent"
+        );
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(receiver.addr),
+            receiverCollateralBefore,
+            "no change in receiver collateral"
+        );
+        assertEq(
+            IERC20(leveragedToken).balanceOf(receiver.addr),
+            receiverLeveragedBefore + receiverLeveragedIncrease,
+            "receiver received leveraged"
+        );
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            minterCollateralBalanceBefore + senderCollateralDecrease - mintLeveragedFee,
+            "minter is tracking the new collateral"
+        );
+        //assertEq(IMinter(minter).peggedTokenBalance(), minterPeggedBalanceBefore, "no new pegged");
+        assertEq(
+            IMinter(minter).leveragedTokenBalance(),
+            minterLeveragedBalanceBefore + receiverLeveragedIncrease,
+            "minter is tracking new leveraged tokens"
+        );
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(minter),
+            minterCollateralBefore + senderCollateralDecrease - mintLeveragedFee,
+            "wstETH has minter owning it"
+        );
+        assertGt(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio <= before");
+    }
+
+    function test_mintLevergedBasic() public {
+        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
         assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
 
-        // mint no balance
+        // zero input, when none
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 0);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
+        vm.prank(sender.addr);
+        IMinter(minter).mintLeveragedToken(0, receiver.addr, 0);
+        //----------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
+
+        // all input, when none
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
+        vm.prank(sender.addr);
+        IMinter(minter).mintLeveragedToken(type(uint256).max, receiver.addr, 0);
+        //----------------------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
+
+        // some input, when none
         vm.expectRevert("ERC20: transfer amount exceeds balance");
         vm.prank(sender.addr);
         IMinter(minter).mintLeveragedToken(1 ether, receiver.addr, 0);
+        //-------------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
+
+        // all input, when none
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
+        vm.prank(sender.addr);
+        IMinter(minter).mintLeveragedToken(type(uint256).max, receiver.addr, 0);
+        //------------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
 
         // get collateral
@@ -808,81 +918,56 @@ contract TestMinterMint is TestMinter {
         vm.expectRevert("ERC20: transfer amount exceeds allowance");
         vm.prank(sender.addr);
         IMinter(minter).mintLeveragedToken(1 ether, receiver.addr, 0);
+        //----------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
 
         // get allowance
         vm.prank(sender.addr);
         IERC20(deployed.wstETH).approve(minter, 10 ether);
 
-        // mint
-        (, uint256 price, , ) = priceOracle.getPrice();
-        uint256 minterOpeningBalance = IMinter(minter).collateralTokenBalance();
-        uint256 feeReceiverOpeningBalance = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        // zero input, when some
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
+        vm.prank(sender.addr);
+        IMinter(minter).mintLeveragedToken(0, receiver.addr, 0);
+        //----------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
-        uint256 collateralMinusFee = 1 ether - mintLeveragedFeeRatios.normalFeeRatio;
-        uint256 expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(collateralMinusFee);
-        uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
-        vm.expectEmit(true, true, false, false, minter);
-        emit IMinter.MintLeveragedToken(
-            sender.addr,
-            receiver.addr,
-            collateralMinusFee,
-            expectedLeveragedTokenOut,
-            mintLeveragedFeeRatios.normalFeeRatio,
-            0
-        );
+    }
+
+    // TODO: check bonus function
+    function test_mintLeveraged() public {
+        setUp_collateral(10 ether, 0);
+        priceOracle.setPrice(4000 ether); // put the collateral ratio to 2, so no excess fees
+        assertEq(IMinter(minter).collateralRatio(), 2 ether);
+
+        // first mint
+        _mintLeveragedToken(1 ether);
+        //--------------------------
+
+        // second mint
+        _mintLeveragedToken(2 ether);
+        //--------------------------
+
+        // check token out check
+        uint256 collateral = 3 ether;
+        deal(address(deployed.wstETH), sender.addr, collateral * 10);
+
+        uint256 mintLeveragedFee = (collateral * mintLeveragedFeeRatios.normalFeeRatio) / 1 ether;
+        uint256 expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(collateral - mintLeveragedFee);
+
+        uint256 senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
+        uint256 receiverLeveragedBefore = IERC20(leveragedToken).balanceOf(receiver.addr);
+
+        // just within
         vm.prank(sender.addr);
-        (uint256 minted, uint256 bonus) = IMinter(minter).mintLeveragedToken(1 ether, receiver.addr, 0);
-        console.log(
-            "leveragedMinted=%s, price=%s, leveragedNAV=%s",
-            minted,
-            price,
-            IMinter(minter).leveragedTokenNAV()
-        );
-        assertEq(bonus, 0);
-        assertEq(minted, expectedLeveragedTokenOut, "unexpected amount minted leveraged compared to price");
-        assertEq(
-            IMinter(minter).leveragedTokenBalance(),
-            initialLeveragedTokens + expectedLeveragedTokenOut,
-            "leveraged token controlled"
-        );
-        assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 9 ether, "sender loses 1 ether");
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            minterOpeningBalance + collateralMinusFee,
-            "minter has the collateral minus fee"
-        );
-        assertEq(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
-            feeReceiverOpeningBalance + mintLeveragedFeeRatios.normalFeeRatio,
-            "fee receiver has the fee" // TODO: check this happens with minting pegged
-        );
+        IMinter(minter).mintLeveragedToken(collateral, receiver.addr, expectedLeveragedTokenOut);
+        //--------------------------------------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), receiverLeveragedBefore + expectedLeveragedTokenOut);
+        assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), senderCollateralBefore - collateral);
 
-        assertEq(
-            IERC20(leveragedToken).balanceOf(receiver.addr),
-            expectedLeveragedTokenOut,
-            "receiver has minted leveragedToken"
-        );
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), mintLeveragedFeeRatios.normalFeeRatio);
-        console.log("collateral ratio %s -> %s", collateralRatioBefore, IMinter(minter).collateralRatio());
+        senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
+        receiverLeveragedBefore = IERC20(leveragedToken).balanceOf(receiver.addr);
 
-        // do a mint but expect more, just below the line
-        expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(
-            1 ether - mintLeveragedFeeRatios.normalFeeRatio
-        );
-        console.log("expectedLeveragedTokenOut=%s", expectedLeveragedTokenOut);
-        vm.prank(sender.addr);
-        (minted, ) = IMinter(minter).mintLeveragedToken(1 ether, receiver.addr, expectedLeveragedTokenOut);
-        console.log(
-            "leveragedMinted=%s, price=%s, leveragedNAV=%s",
-            minted,
-            price,
-            IMinter(minter).leveragedTokenNAV()
-        );
-
-        // do a mint but expect more, just above the line
-        expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(1 ether);
-        console.log("expectedLeveragedTokenOut=%s", expectedLeveragedTokenOut);
+        // just over
         vm.expectRevert(
             abi.encodeWithSelector(
                 IMinter.MintInsufficientAmount.selector,
@@ -892,26 +977,50 @@ contract TestMinterMint is TestMinter {
             )
         );
         vm.prank(sender.addr);
-        (minted, ) = IMinter(minter).mintLeveragedToken(1 ether, receiver.addr, expectedLeveragedTokenOut + 1);
-        console.log(
-            "leveragedMinted=%s, price=%s, leveragedNAV=%s",
-            minted,
-            price,
-            IMinter(minter).leveragedTokenNAV()
-        );
+        IMinter(minter).mintLeveragedToken(collateral, receiver.addr, expectedLeveragedTokenOut + 1);
+        //------------------------------------------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), receiverLeveragedBefore);
+        assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), senderCollateralBefore);
 
         // mint from all of balance
-        uint256 before = IERC20(deployed.wstETH).balanceOf(sender.addr);
-        assertGt(before, 0);
-        vm.prank(sender.addr);
-        IMinter(minter).mintLeveragedToken(type(uint256).max, receiver.addr, 0);
-        console.log(
-            "leveragedMinted=%s, price=%s, leveragedNAV=%s",
-            minted,
-            price,
-            IMinter(minter).leveragedTokenNAV()
+        mintLeveragedFee = (senderCollateralBefore * mintLeveragedFeeRatios.normalFeeRatio) / 1 ether;
+        expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(
+            senderCollateralBefore - mintLeveragedFee
         );
+        _mintLeveragedToken(type(uint256).max);
+        //------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), receiverLeveragedBefore + expectedLeveragedTokenOut);
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 0, "transferred it all");
+    }
+
+    // checks that two free mint leverage tokens does not produce more leverage tokens than 1
+    function test_leveragedToCollateralCalculation() public {
+        setUp_collateral(1 ether, 1 ether);
+        assertEq(IMinter(minter).collateralRatio(), 2 ether, "CR=2");
+
+        uint256 collateral = 10 ether;
+
+        deal(address(deployed.wstETH), owner.addr, collateral);
+        vm.prank(owner.addr);
+        IERC20(deployed.wstETH).approve(minter, collateral);
+        // for a range of collateral ratios,
+
+        // mint one
+        uint256 oneMint = IMinter(minter).leverageTokensForCollateral(collateral);
+
+        // mint two
+        uint256 collateral2 = collateral / 2;
+        uint256 twoMint0 = IMinter(minter).leverageTokensForCollateral(collateral2);
+
+        vm.prank(owner.addr);
+        uint256 twoMintOut0 = IMinterTreasury(minter).freeMintLeveragedToken(collateral2, receiver.addr);
+        assertEq(IMinter(minter).collateralRatio(), 7 ether, "CR=7");
+        assertEq(twoMintOut0, twoMint0, "calc meets reality");
+
+        uint256 twoMint1 = IMinter(minter).leverageTokensForCollateral(collateral2);
+        // check first against the sum of the others
+        assertEq(oneMint, twoMint0 + twoMint1, "freeMintLeveragedToken isn't linear");
+        assertEq(twoMint0, twoMint1, "freeMintLeveragedToken isn't linear #2");
     }
 
     function testMinterRedeemPegged() public {}
