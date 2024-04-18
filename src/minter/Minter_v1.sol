@@ -329,6 +329,7 @@ contract Minter_v1 is
         collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
 
         uint256 price = _fetchSafePrice($.priceOracle);
+        // TODO: handle depegged situation
         uint256 newPeggedToken = (collateralIn * price) / 1 ether;
 
         // TODO: consider deducting the current fee before calculating the actual fee
@@ -338,19 +339,18 @@ contract Minter_v1 is
             $.peggedTokenBalance + newPeggedToken
         );
 
-        // TODO: handle depegged situation
         uint256 feeRatio = _feeRatio(collateralRatio_, $.collateralRatioUpperBounds, $.mintPeggedTokenFeeRatios);
 
         uint256 fee = (collateralIn * feeRatio) / 1 ether;
-        collateralIn -= fee;
+        uint256 collateralUsed = collateralIn - fee;
 
         // recalculate the amounts involved
-        peggedTokenOut = (collateralIn * price) / 1 ether;
+        peggedTokenOut = (collateralUsed * price) / 1 ether;
         if (peggedTokenOut < minPeggedTokenOut) {
             revert MintInsufficientAmount($.peggedToken, minPeggedTokenOut, peggedTokenOut);
         }
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), $.feeReceiver, fee);
-        _mintPeggedToken(collateralToken_, collateralIn, $.peggedToken, peggedTokenOut, recipient, fee);
+        _mintPeggedToken(collateralToken_, collateralUsed, $.peggedToken, peggedTokenOut, recipient, fee);
     }
 
     function freeMintPeggedToken(
@@ -370,27 +370,27 @@ contract Minter_v1 is
 
     function _mintPeggedToken(
         address collateralToken_,
-        uint256 collateralIn,
+        uint256 collateralUsed,
         address peggedToken_,
         uint256 peggedTokenOut,
         address recipient,
         uint256 fees // only for the emit
     ) private {
         // slither-disable-next-line incorrect-equality
-        if (collateralIn == 0) {
+        if (collateralUsed + fees == 0) {
             revert ZeroInputBalance(collateralToken_);
         }
-        emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut, fees);
+        emit MintPeggedToken(_msgSender(), recipient, collateralUsed + fees, peggedTokenOut, fees);
 
         // mint the tokens to the recipient
         IMintable(peggedToken_).mint(recipient, peggedTokenOut);
         // take the collateral
-        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralUsed);
 
         // update our records
         MinterStorage storage $ = _getMinterStorage();
         $.peggedTokenBalance += peggedTokenOut;
-        $.collateralTokenBalance += collateralIn;
+        $.collateralTokenBalance += collateralUsed;
     }
 
     /// @inheritdoc IMinter
