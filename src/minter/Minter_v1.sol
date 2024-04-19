@@ -338,7 +338,7 @@ contract Minter_v1 is
             $.peggedTokenBalance + newPeggedToken
         );
 
-        uint256 feeRatio = _feeRatio(collateralRatio_, $.collateralRatioUpperBounds, $.mintPeggedTokenFeeRatios);
+        (uint256 feeRatio, ) = _feeRatio(collateralRatio_, $.collateralRatioUpperBounds, $.mintPeggedTokenFeeRatios);
 
         uint256 fee = (collateralIn * feeRatio) / 1 ether;
         uint256 collateralUsed = collateralIn - fee;
@@ -417,14 +417,14 @@ contract Minter_v1 is
         uint256 price = _fetchSafePrice($.priceOracle);
         uint256 currentCollateralRatio = _collateralRatio($.collateralTokenBalance, price, $.peggedTokenBalance);
 
-        uint256 feeRatio = _feeRatio(
+        (uint256 feeRatio, CollateralRatioZones zone) = _feeRatio(
             currentCollateralRatio,
             $.collateralRatioUpperBounds,
             $.mintLeveragedTokenFeeRatios
         );
 
         uint256 fee = (collateralIn * feeRatio) / 1 ether;
-        uint256 collateralUsed = collateralIn - fee;
+        collateralIn -= fee;
         bonusOut = 0;
         // TODO: add the rebalance pool balance
         if (fee == 0 && currentCollateralRatio < $.collateralRatioUpperBounds[uint(CollateralRatioZones.bonus)]) {
@@ -432,7 +432,7 @@ contract Minter_v1 is
         }
 
         leveragedTokenOut = _leverageTokensForCollateral(
-            collateralUsed,
+            collateralIn,
             $.leveragedTokenBalance,
             $.peggedTokenBalance,
             $.collateralTokenBalance,
@@ -444,7 +444,7 @@ contract Minter_v1 is
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), $.feeReceiver, fee);
         _mintLeveragedToken(
             collateralToken_,
-            collateralUsed,
+            collateralIn,
             $.leveragedToken,
             leveragedTokenOut,
             recipient,
@@ -557,7 +557,7 @@ contract Minter_v1 is
         uint256 newPeggedToken = (additionalCollateral * price) / 1 ether;
         //console.log("newPeggedToken=%s", newPeggedToken);
 
-        feeRatio = _feeRatio(
+        (feeRatio, ) = _feeRatio(
             _collateralRatio(
                 $.collateralTokenBalance + additionalCollateral,
                 price,
@@ -576,7 +576,7 @@ contract Minter_v1 is
     function redeemPeggedTokenFeeRatio() external view override returns (uint256 feeRatio) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchSafePrice($.priceOracle);
-        feeRatio = _feeRatio(
+        (feeRatio, ) = _feeRatio(
             _collateralRatio($.collateralTokenBalance, price, $.peggedTokenBalance),
             $.collateralRatioUpperBounds,
             $.redeemPeggedTokenFeeRatios
@@ -588,7 +588,7 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         // TODO: do we need safe price for this?
         uint256 price = _fetchSafePrice($.priceOracle);
-        feeRatio = _feeRatio(
+        (feeRatio, ) = _feeRatio(
             _collateralRatio($.collateralTokenBalance, price, $.peggedTokenBalance),
             $.collateralRatioUpperBounds,
             $.mintLeveragedTokenFeeRatios
@@ -602,7 +602,7 @@ contract Minter_v1 is
         uint256 price = _fetchSafePrice($.priceOracle);
         uint256 collateralTokenBalance_ = $.collateralTokenBalance;
         // TODO: make sure there wont be a subtaction underflow
-        feeRatio = _feeRatio(
+        (feeRatio, ) = _feeRatio(
             _collateralRatio(collateralTokenBalance_ - reductionOfcollateral, price, $.peggedTokenBalance),
             $.collateralRatioUpperBounds,
             $.redeemLeveragedTokenFeeRatios
@@ -659,28 +659,27 @@ contract Minter_v1 is
         uint256 atCollateralRatio,
         uint32[zoneBounds] memory collateralRatios,
         uint32[zones] memory feeRatios
-    ) private pure returns (uint256 feeRatio) {
+    ) private pure returns (uint256 feeRatio, CollateralRatioZones zone) {
         // find the upper and lower bounds of the collateral ration zone we are in
-        // TODO: add zone for depegged
+        if (atCollateralRatio > _ratioEther(collateralRatios[collateralRatios.length - 1])) {
+            // > normalUpperBound, so in safe zone
+            return (_ratioEther(feeRatios[uint(CollateralRatioZones.safe)]), CollateralRatioZones.safe);
+        }
         //console.log("CR=%s", atCollateralRatio);
-        for (uint ib = 0; ib < uint(collateralRatios.length); ib++) {
-            uint j = collateralRatios.length - 1 - ib;
-            //console.log("?%s > collateralRatios[%s](%s)", atCollateralRatio, j, _ratioEther(collateralRatios[j]));
-            if (atCollateralRatio > _ratioEther(collateralRatios[j])) {
+        for (uint ib = 1; ib < uint(collateralRatios.length); ib++) {
+            // ib goes from 1 to 3
+            uint z = collateralRatios.length - ib; // goes from 3 (normal) to 1 (rebalance)
+            //console.log("?%s > collateralRatios[%s](%s)", atCollateralRatio, zone, _ratioEther(collateralRatios[zone]));
+            if (atCollateralRatio > _ratioEther(collateralRatios[z - 1])) {
                 // found the upper bound for the zone below
-                // console.log("found lower bound at j=%s, CR=%s", j, _ratioEther(collateralRatios[j]));
-                if (j == collateralRatios.length - 1) {
-                    // in the safe zone, where the fees are flat
-                    return _ratioEther(feeRatios[j + 1]);
-                }
-                uint256 upperBoundFeeRatio = _ratioEther(feeRatios[j + 2]);
-                uint256 lowerBoundFeeRatio = _ratioEther(feeRatios[j + 1]);
+                uint256 upperBoundFeeRatio = _ratioEther(feeRatios[z + 1]);
+                uint256 lowerBoundFeeRatio = _ratioEther(feeRatios[z]);
                 if (upperBoundFeeRatio == lowerBoundFeeRatio) {
                     // console.log("lower, upper bound fee=%s, %s", lowerBoundFeeRatio, upperBoundFeeRatio);
-                    return upperBoundFeeRatio;
+                    return (upperBoundFeeRatio, CollateralRatioZones(z));
                 } else {
-                    uint256 upperCollateralRatio = _ratioEther(collateralRatios[j + 1]);
-                    uint256 lowerCollateralRatio = _ratioEther(collateralRatios[j]);
+                    uint256 upperCollateralRatio = _ratioEther(collateralRatios[z]);
+                    uint256 lowerCollateralRatio = _ratioEther(collateralRatios[z - 1]);
                     // console.log("upper bound CR=%s, fee=%s", upperCollateralRatio, upperBoundFeeRatio);
                     // console.log("lower bound CR=%s, fee=%s", lowerCollateralRatio, lowerBoundFeeRatio);
                     // see https://en.wikipedia.org/wiki/Smoothstep for details on the below
@@ -709,20 +708,25 @@ contract Minter_v1 is
                     if (upperBoundFeeRatio > lowerBoundFeeRatio) {
                         // step up
                         // console.log("step up=%s", upperBoundFeeRatio - lowerBoundFeeRatio);
-                        return ((upperBoundFeeRatio - lowerBoundFeeRatio) * smoothstep) / 1 ether + lowerBoundFeeRatio;
+                        return (
+                            ((upperBoundFeeRatio - lowerBoundFeeRatio) * smoothstep) / 1 ether + lowerBoundFeeRatio,
+                            CollateralRatioZones(z)
+                        );
                     } else {
                         // step down
                         // console.log("step down=%s", lowerBoundFeeRatio - upperBoundFeeRatio);
-                        return
+                        return (
                             ((lowerBoundFeeRatio - upperBoundFeeRatio) * (1 ether - smoothstep)) /
-                            1 ether +
-                            upperBoundFeeRatio;
+                                1 ether +
+                                upperBoundFeeRatio,
+                            CollateralRatioZones(z)
+                        );
                     }
                 }
             }
         }
         // console.log("bonus zone, fee=", _ratioEther(feeRatios[0]));
-        return _ratioEther(feeRatios[0]);
+        return (_ratioEther(feeRatios[0]), CollateralRatioZones.bonus);
     }
 
     // other calculations

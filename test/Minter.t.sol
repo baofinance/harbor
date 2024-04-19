@@ -273,6 +273,18 @@ contract Test_MinterInit is TestMinter {
 }
 
 contract TestMinterFees is TestMinter {
+    Vm.Wallet user;
+
+    function setUp() public override {
+        super.setUp();
+        user = vm.createWallet("user");
+        setUp_permissions();
+
+        deal(address(deployed.wstETH), user.addr, 100 ether);
+        vm.prank(user.addr);
+        IERC20(deployed.wstETH).approve(minter, type(uint256).max);
+    }
+
     //---------------------------------------------------------------------------------------------
     // Fees
     //---------------------------------------------------------------------------------------------
@@ -298,7 +310,7 @@ contract TestMinterFees is TestMinter {
         setUp_collateral(1 ether, 0);
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
         (, uint256 startPrice, , ) = IPriceOracle(priceOracle).getPrice();
-        /*
+
         // test fees at the extremities, around rebalance and danger
         // CR is proportional to price
         uint256 priceForCollateral = (startPrice * rebalanceCollateralRatio) / 1 ether;
@@ -328,7 +340,7 @@ contract TestMinterFees is TestMinter {
                 uint256 redeemLeveragedFees
             ) = getFees();
         }
-        */
+
         // write a gnuplot data file for fees
         string memory file = "./results/fees.csv";
         if (vm.exists(file)) vm.removeFile(file);
@@ -369,6 +381,64 @@ contract TestMinterFees is TestMinter {
         }
         vm.closeFile(file);
     }
+
+    function test_mintPeggedFees() public {
+        (, uint256 price, , ) = priceOracle.getPrice();
+        setUp_collateral(2 ether, 1 ether);
+        assertEq(IMinter(minter).collateralRatio(), 3 ether / 2);
+
+        uint256 collateral = 1 ether; // cr goes to 4 ether / 3 = 1.33, so fees should be well within normal, increasing to danger
+        uint256 mintPeggedFees0 = IMinter(minter).mintPeggedTokenFeeRatio(0);
+        uint256 mintPeggedFees1 = IMinter(minter).mintPeggedTokenFeeRatio(collateral);
+        assertGt(mintPeggedFees1, mintPeggedFees0, "fee ratios increase the more is minted");
+        uint256 expectedFees = (mintPeggedFees1 * collateral) / 1 ether;
+        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter.MintPeggedToken(
+            user.addr,
+            user.addr,
+            collateral,
+            (price * (collateral - expectedFees)) / 1 ether,
+            expectedFees
+        );
+        vm.prank(user.addr);
+        IMinter(minter).mintPeggedToken(collateral, user.addr, 0);
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            feeReceiverCollateralBalanceBefore + expectedFees
+        );
+    }
+
+    /*
+    function test_mintLeveragedFees() public {
+        (, uint256 price, , ) = priceOracle.getPrice();
+        setUp_collateral(2 ether, 1 ether);
+        assertEq(IMinter(minter).collateralRatio(), 3 ether / 2);
+
+        uint256 collateral = 1 ether; // cr goes to 4 ether / 3 = 1.33, so fees should be well within normal, increasing to danger
+        uint256 mintLeveragedFees0 = IMinter(minter).mintLeveragedTokenFeeRatio(); // TODO: make it the lower of the before and after fee
+        uint256 mintLeveragedFees1 = IMinter(minter).mintLeveragedTokenFeeRatio();
+        assertGt(mintLeveragedFees1, mintLeveragedFees0, "fee ratios increase the more is minted");
+        uint256 expectedFees = (mintLeveragedFees1 * collateral) / 1 ether;
+        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter.MintLeveragedToken(
+            user.addr,
+            user.addr,
+            collateral,
+            (price * (collateral - expectedFees)) / 1 ether,
+            expectedFees
+        );
+        vm.prank(user.addr);
+        IMinter(minter).mintLeveragedToken(collateral, user.addr, 0);
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            feeReceiverCollateralBalanceBefore + expectedFees
+        );
+    }
+    */
 }
 
 contract TestMinterMint is TestMinter {
@@ -1012,9 +1082,10 @@ contract TestMinterMint is TestMinter {
     // checks that two free mint leverage tokens does not produce more leverage tokens than 1
     function test_leveragedToCollateralCalculation() public {
         setUp_collateral(1 ether, 1 ether);
-        assertEq(IMinter(minter).collateralRatio(), 2 ether, "CR=2");
+        uint256 startCollateralRatio = 2 ether;
+        assertEq(IMinter(minter).collateralRatio(), startCollateralRatio, "CR=2");
 
-        uint256 collateral = 10 ether;
+        uint256 collateral = 100 ether;
 
         deal(address(deployed.wstETH), owner.addr, collateral);
         vm.prank(owner.addr);
@@ -1024,20 +1095,27 @@ contract TestMinterMint is TestMinter {
         // mint one
         uint256 oneMint = IMinter(minter).leverageTokensForCollateral(collateral);
 
-        // mint two
-        uint256 collateral2 = collateral / 2;
-        uint256 twoMint0 = IMinter(minter).leverageTokensForCollateral(collateral2);
+        // mint multiple
+        uint multiples = 100;
+        uint256 collateral2 = collateral / multiples;
+        uint256 prevCollateralRatio = startCollateralRatio;
+        uint256 sum = 0;
+        for (uint i = 0; i < multiples; i++) {
+            uint256 oneOfMint = IMinter(minter).leverageTokensForCollateral(collateral2);
+            assertEq(oneOfMint, oneMint / multiples, "first mint not exactly linear");
+            sum += oneOfMint;
 
-        vm.prank(owner.addr);
-        uint256 twoMintOut0 = IMinterTreasury(minter).freeMintLeveragedToken(collateral2, receiver.addr);
-        assertEq(IMinter(minter).collateralRatio(), 7 ether, "CR=7");
-        assertEq(twoMintOut0, twoMint0, "calc meets reality");
-
-        uint256 twoMint1 = IMinter(minter).leverageTokensForCollateral(collateral2);
-        // check first against the sum of the others
-        assertEq(oneMint, twoMint0 + twoMint1, "freeMintLeveragedToken isn't linear");
-        assertEq(twoMint0, twoMint1, "freeMintLeveragedToken isn't linear #2");
+            vm.prank(owner.addr);
+            uint256 oneOfMintActual = IMinterTreasury(minter).freeMintLeveragedToken(collateral2, receiver.addr);
+            assertEq(oneOfMintActual, oneOfMint, "calc meets reality");
+            uint256 collateralRatio = IMinter(minter).collateralRatio();
+            assertGt(collateralRatio, prevCollateralRatio, "CR not increasing");
+            prevCollateralRatio = collateralRatio;
+        }
+        assertEq(sum, oneMint, "one is the sum of it's constituents");
     }
+
+    // TODO: mint a pegged token and check the fee was the one for the new collateral ratio
 
     function testMinterRedeemPegged() public {}
 }
