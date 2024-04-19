@@ -30,9 +30,9 @@
 | Deployment Cost                             | Deployment Size |        |        |        |         |
 | 3402735                                     | 15621           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
-| collateralRatio                             | 2316            | 2531   | 2453   | 16816  | 636     |
+| collateralRatio                             | 2316            | 2531   | 2453   | 16816  | 637     |
 | collateralToken                             | 2513            | 2513   | 2513   | 2513   | 1       |
-| collateralTokenBalance                      | 462             | 462    | 462    | 462    | 23      |
+| collateralTokenBalance                      | 462             | 462    | 462    | 462    | 24      |
 | feeReceiver                                 | 2424            | 2424   | 2424   | 2424   | 1       |
 | freeMintLeveragedToken                      | 3016            | 74382  | 83620  | 167847 | 11      |
 | freeMintPeggedToken                         | 2992            | 79342  | 74932  | 142877 | 12      |
@@ -41,12 +41,12 @@
 | leverageTokensForCollateral                 | 3066            | 3270   | 3066   | 4704   | 8       |
 | leveragedToken                              | 2469            | 2469   | 2469   | 2469   | 1       |
 | leveragedTokenBalance                       | 419             | 419    | 419    | 419    | 6       |
-| mintLeveragedToken                          | 2795            | 58678  | 39087  | 171438 | 11      |
+| mintLeveragedToken                          | 2795            | 58595  | 39087  | 171438 | 11      |
 | mintLeveragedTokenFeeRatio                  | 6638            | 9697   | 10497  | 12026  | 601     |
-| mintPeggedToken                             | 2816            | 62027  | 90145  | 129672 | 11      |
+| mintPeggedToken                             | 2816            | 52764  | 39382  | 129672 | 11      |
 | mintPeggedTokenFeeRatio                     | 7041            | 10115  | 10900  | 13296  | 601     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 1       |
-| peggedTokenBalance                          | 440             | 773    | 440    | 2440   | 6       |
+| peggedTokenBalance                          | 440             | 725    | 440    | 2440   | 7       |
 | priceOracle                                 | 2536            | 2536   | 2536   | 2536   | 1       |
 | redeemLeveragedTokenFeeRatio                | 6885            | 9968   | 10744  | 12346  | 601     |
 | redeemPeggedTokenFeeRatio                   | 6711            | 9387   | 9801   | 11298  | 601     |

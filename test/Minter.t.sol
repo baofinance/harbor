@@ -142,11 +142,23 @@ contract TestMinter is Test {
         }
     }
 
-    function makeSafeFeesNormal() internal {
+    function makeAllFeesNormal() internal {
         mintPeggedFeeRatios.safeFeeRatio = mintPeggedFeeRatios.normalFeeRatio;
         redeemPeggedFeeRatios.safeFeeRatio = redeemPeggedFeeRatios.normalFeeRatio;
         mintLeveragedFeeRatios.safeFeeRatio = mintLeveragedFeeRatios.normalFeeRatio;
         redeemLeveragedFeeRatios.safeFeeRatio = redeemLeveragedFeeRatios.normalFeeRatio;
+        mintPeggedFeeRatios.dangerFeeRatio = mintPeggedFeeRatios.normalFeeRatio;
+        redeemPeggedFeeRatios.dangerFeeRatio = redeemPeggedFeeRatios.normalFeeRatio;
+        mintLeveragedFeeRatios.dangerFeeRatio = mintLeveragedFeeRatios.normalFeeRatio;
+        redeemLeveragedFeeRatios.dangerFeeRatio = redeemLeveragedFeeRatios.normalFeeRatio;
+        mintPeggedFeeRatios.rebalanceFeeRatio = mintPeggedFeeRatios.normalFeeRatio;
+        redeemPeggedFeeRatios.rebalanceFeeRatio = redeemPeggedFeeRatios.normalFeeRatio;
+        mintLeveragedFeeRatios.rebalanceFeeRatio = mintLeveragedFeeRatios.normalFeeRatio;
+        redeemLeveragedFeeRatios.rebalanceFeeRatio = redeemLeveragedFeeRatios.normalFeeRatio;
+        mintPeggedFeeRatios.bonusFeeRatio = mintPeggedFeeRatios.normalFeeRatio;
+        redeemPeggedFeeRatios.bonusFeeRatio = redeemPeggedFeeRatios.normalFeeRatio;
+        mintLeveragedFeeRatios.bonusFeeRatio = mintLeveragedFeeRatios.normalFeeRatio;
+        redeemLeveragedFeeRatios.bonusFeeRatio = redeemLeveragedFeeRatios.normalFeeRatio;
         vm.prank(owner.addr);
         IMinter(minter).updateFeeConfig(
             IMinter.FeeConfig(
@@ -372,7 +384,7 @@ contract TestMinterMint is TestMinter {
         sender = vm.createWallet("sender");
         receiver = vm.createWallet("receiver");
         setUp_permissions();
-        makeSafeFeesNormal(); // makes fee calculations simple and we're not concerned with fees here
+        makeAllFeesNormal(); // makes fee calculations simple and we're not concerned with fees here
     }
 
     //---------------------------------------------------------------------------------------------
@@ -834,7 +846,11 @@ contract TestMinterMint is TestMinter {
             0 // TODO: check for non-zero bonus
         );
         vm.prank(sender.addr);
-        (uint256 minted, uint256 bonus) = IMinter(minter).mintLeveragedToken(collateralIn, receiver.addr, 0);
+        (uint256 minted, uint256 bonus) = IMinter(minter).mintLeveragedToken(
+            senderCollateralDecrease,
+            receiver.addr,
+            0
+        );
         //                                ------------------------------------------------------------------
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount minted compared to price");
         assertEq(bonus, 0, "expect zero bonus");
