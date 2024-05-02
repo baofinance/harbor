@@ -52,39 +52,47 @@ interface IMinter {
     // TODO: separate each config for mint/redeem pegged/leveraged
     // because: we may want to increase mint pegged fees before reducing redeem leveraged, etc.
     // need to also minimise storage accesses
-    struct CollateralRatioBoundsConfig {
+
+    /*
+     * fees are charged at a rate that would be the same if the action was performed one dollar at a time
+     * i.e. the fee is an integral of the piecewise function below
+     * this results in the correct incentive for users to be nudged in the direction that results in
+     * stability of the protocol
+     *
+     * mint pegged and redeem leveraged fees/bonus
+     * -------------------------------------------
+     *                         bonus CR                            danger
+     *                         v        rebalance fee ratio        v
+     *                         .-----------------------------------.
+     *                         |                                    \
+     *                         |                                     \         normal fee
+     *                         |                                      `----------------------
+     *                         |                                      ^
+     *                         |                                      normal
+     * 0-----------------------+-------------------------------------------------------------
+     *                         |
+     *    - bonus ratio        |
+     * ------------------------'
+     *
+     *
+     *
+     */
+    // TODO: make the collateral ratios a sequence by specifying the difference between one and the next
+    struct Config {
         uint256 bonusCollateralRatioUpperBound;
         uint256 rebalanceCollateralRatioUpperBound;
         uint256 dangerCollateralRatioUpperBound;
         uint256 normalCollateralRatioUpperBound;
-    }
-    struct FeeConfigForAction {
-        uint256 bonusFeeRatio;
-        uint256 rebalanceFeeRatio;
-        uint256 dangerFeeRatio;
-        uint256 normalFeeRatio;
-        uint256 safeFeeRatio;
-    }
-
-    struct FeeConfig {
-        FeeConfigForAction mintPeggedToken;
-        FeeConfigForAction redeemPeggedToken;
-        FeeConfigForAction mintLeveragedToken;
-        FeeConfigForAction redeemLeveragedToken;
-    }
-
-    struct BonusConfig {
-        address bonusToken; // must be owned by the Minter, and if it is the collateral token then only those above the collateral depsited, so need to track this
-        // bonus can also be an xtoken? then these must be minted and given to the Minter
-        uint256 mintLeveragedBonusRatio;
+        uint256 mintPeggedDangerFeeRatio;
+        uint256 mintPeggedNormalFeeRatio;
         uint256 redeemPeggedBonusRatio;
-    }
-
-    struct PauseConfig {
-        uint256 mintPeggedToken;
-        uint256 redeemPeggedToken;
-        uint256 mintLeveragedToken;
-        uint256 redeemLeveragedToken;
+        uint256 redeemPeggedDangerFeeRatio;
+        uint256 redeemPeggedNormalFeeRatio;
+        uint256 mintLeveragedBonusRatio;
+        uint256 mintLeveragedDangerFeeRatio;
+        uint256 mintLeveragedNormalFeeRatio;
+        uint256 redeemLeveragedDangerFeeRatio;
+        uint256 redeemLeveragedNormalFeeRatio;
     }
 
     /****************************
@@ -151,9 +159,7 @@ interface IMinter {
         uint256 redeemFee
     );
 
-    event UpdateCollateralRatioConfig(CollateralRatioBoundsConfig config);
-    event UpdateFeeConfig(FeeConfig config);
-    event UpdateBonusConfig(BonusConfig config);
+    event UpdateConfig(Config config);
 
     /// @notice Emitted when the platform contract is updated.
     /// @param oldFeeReceiver The address of previous platform contract.
@@ -195,6 +201,9 @@ interface IMinter {
     error InvalidCollateralRatioConfig(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
     error InvalidFeeConfig();
     error InvalidBonusConfig();
+
+    /// @dev thrown when an action is paused, for example if the protocol is not initialised
+    error ActionPaused();
 
     /****************************
      * Public View Functions    *
@@ -282,11 +291,7 @@ interface IMinter {
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
 
-    function updateCollateralRatioConfig(CollateralRatioBoundsConfig calldata collateralRatioConfig_) external;
-
-    function updateFeeConfig(FeeConfig calldata feeConfig_) external;
-
-    function updateBonusConfig(BonusConfig calldata bonusConfig_) external;
+    function updateConfig(Config calldata config) external;
 }
 
 interface IMinterTreasury {
