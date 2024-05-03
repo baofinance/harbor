@@ -8,13 +8,13 @@
 | MINTER_ROLE                                                 | 260             | 260    | 260    | 260    | 6       |
 | allowance                                                   | 867             | 867    | 867    | 867    | 3       |
 | approve                                                     | 24854           | 24854  | 24854  | 24854  | 1       |
-| balanceOf                                                   | 714             | 1153   | 714    | 2714   | 41      |
+| balanceOf                                                   | 714             | 1142   | 714    | 2714   | 42      |
 | burn                                                        | 2910            | 6326   | 5322   | 15169  | 5       |
 | decimals                                                    | 222             | 222    | 222    | 222    | 1       |
-| grantRole                                                   | 5231            | 22795  | 29948  | 29948  | 19      |
+| grantRole                                                   | 5231            | 20064  | 29948  | 29948  | 25      |
 | hasRole                                                     | 2728            | 2728   | 2728   | 2728   | 5       |
-| initialize                                                  | 3658            | 181746 | 190651 | 190651 | 21      |
-| mint                                                        | 2933            | 17745  | 15155  | 49355  | 116     |
+| initialize                                                  | 3658            | 182520 | 190651 | 190651 | 23      |
+| mint                                                        | 2933            | 18280  | 15155  | 49355  | 118     |
 | name                                                        | 3271            | 3271   | 3271   | 3271   | 1       |
 | nonces                                                      | 2754            | 2754   | 2754   | 2754   | 1       |
 | permit                                                      | 57640           | 57640  | 57640  | 57640  | 1       |
@@ -28,27 +28,27 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 3421339                                     | 15707           |        |        |        |         |
+| 3081515                                     | 14134           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
-| collateralRatio                             | 2316            | 2463   | 2453   | 16816  | 4737    |
-| collateralToken                             | 2513            | 2513   | 2513   | 2513   | 1       |
-| collateralTokenBalance                      | 462             | 462    | 462    | 462    | 24      |
-| feeReceiver                                 | 2424            | 2424   | 2424   | 2424   | 1       |
-| freeMintLeveragedToken                      | 3016            | 82342  | 82709  | 167851 | 111     |
-| freeMintPeggedToken                         | 2992            | 84230  | 75388  | 142877 | 13      |
-| hasRole                                     | 2805            | 2805   | 2805   | 2805   | 5       |
-| initialize                                  | 3365            | 377023 | 403713 | 403713 | 15      |
-| leverageTokensForCollateral                 | 3066            | 3081   | 3066   | 4708   | 106     |
-| leveragedToken                              | 2469            | 2469   | 2469   | 2469   | 1       |
-| leveragedTokenBalance                       | 419             | 419    | 419    | 419    | 6       |
-| mintLeveragedToken                          | 2795            | 58429  | 38828  | 171179 | 11      |
-| mintLeveragedTokenFeeRatio                  | 6368            | 10783  | 10955  | 13750  | 4601    |
-| mintPeggedToken                             | 2816            | 59338  | 54094  | 133267 | 12      |
-| mintPeggedTokenFeeRatio                     | 6769            | 11218  | 11429  | 16151  | 4603    |
+| collateralRatio                             | 2360            | 2555   | 2497   | 16860  | 844     |
+| collateralToken                             | 2424            | 2424   | 2424   | 2424   | 1       |
+| collateralTokenBalance                      | 483             | 483    | 483    | 483    | 24      |
+| feeReceiver                                 | 2468            | 2468   | 2468   | 2468   | 1       |
+| freeMintLeveragedToken                      | 2927            | 83162  | 82620  | 167762 | 113     |
+| freeMintPeggedToken                         | 3014            | 94027  | 142899 | 142899 | 17      |
+| hasRole                                     | 2740            | 2740   | 2740   | 2740   | 5       |
+| initialize                                  | 3111            | 327773 | 348065 | 348065 | 17      |
+| leverageTokensForCollateral                 | 3088            | 3103   | 3088   | 4730   | 106     |
+| leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 1       |
+| leveragedTokenBalance                       | 418             | 418    | 418    | 418    | 6       |
+| mintLeveragedToken                          | 2728            | 54491  | 34671  | 169230 | 12      |
+| mintLeveragedTokenFeeRatio                  | 6157            | 6197   | 6195   | 8233   | 701     |
+| mintPeggedToken                             | 2751            | 54821  | 30615  | 128065 | 16      |
+| mintPeggedTokenFeeRatio                     | 3662            | 4642   | 3662   | 7904   | 705     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 1       |
-| peggedTokenBalance                          | 440             | 725    | 440    | 2440   | 7       |
+| peggedTokenBalance                          | 506             | 791    | 506    | 2506   | 7       |
 | priceOracle                                 | 2536            | 2536   | 2536   | 2536   | 1       |
-| redeemLeveragedTokenFeeRatio                | 6615            | 11082  | 11275  | 14070  | 4601    |
-| redeemPeggedTokenFeeRatio                   | 6441            | 10298  | 10306  | 11527  | 4601    |
-| updateFeeConfig                             | 44179           | 44179  | 44179  | 44179  | 8       |
+| redeemLeveragedTokenFeeRatio                | 2128            | 2128   | 2128   | 2128   | 701     |
+| redeemPeggedTokenFeeRatio                   | 2129            | 2129   | 2129   | 2129   | 701     |
+| updateConfig                                | 39018           | 39018  | 39018  | 39018  | 9       |
 

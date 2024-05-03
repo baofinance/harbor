@@ -46,13 +46,18 @@ contract Minter_v1 is
     uint private constant zones = 4;
     uint private constant zoneBounds = zones - 1;
 
-    struct MinterStorageIncentive {
-        uint32 bonusCollateralRatioUpperBound;
-        uint32 rebalanceCollateralRatioUpperBound;
+    struct DecreasingCollateralRatioActionIncentive {
+        uint32 disallowCollateralRatioUpperBound;
         uint32 dangerCollateralRatioUpperBound;
-        uint32 normalCollateralRatioUpperBound;
         uint32 dangerFeeRatio;
         uint32 normalFeeRatio;
+    }
+
+    struct IncreasingCollateralRatioActionIncentive {
+        uint32 dangerCollateralRatioUpperBound;
+        uint32 dangerFeeRatio;
+        uint32 normalFeeRatio;
+        uint32 bonusCollateralRatioUpperBound;
         uint32 bonusRatio;
     }
 
@@ -87,13 +92,13 @@ contract Minter_v1 is
         //                                             slot
         address feeReceiver; //                         160
         //                                             slot
-        MinterStorageIncentive mintPeggedConfig;
+        DecreasingCollateralRatioActionIncentive mintPeggedConfig;
         //                                             slot
-        MinterStorageIncentive redeemPeggedConfig;
+        IncreasingCollateralRatioActionIncentive redeemPeggedConfig;
         //                                             slot
-        MinterStorageIncentive mintLeveragedConfig;
+        IncreasingCollateralRatioActionIncentive mintLeveragedConfig;
         //                                             slot
-        MinterStorageIncentive redeemLeveragedConfig;
+        DecreasingCollateralRatioActionIncentive redeemLeveragedConfig;
         //                                             slot
         address bonusToken; //                          160
     }
@@ -176,47 +181,33 @@ contract Minter_v1 is
             config.rebalanceCollateralRatioUpperBound,
             config.dangerCollateralRatioUpperBound
         );
-        _checkCollateralRatioConfigValues(
-            config.dangerCollateralRatioUpperBound,
-            config.normalCollateralRatioUpperBound
-        );
         // TODO: check the ranges of fee/bonus config are between 0 and 1
 
         // store the data from the user-friendly to the optimised-for-gas structure
         MinterStorage storage $ = _getMinterStorage();
-        $.mintPeggedConfig.bonusCollateralRatioUpperBound = _etherRatio(config.bonusCollateralRatioUpperBound);
-        $.mintPeggedConfig.rebalanceCollateralRatioUpperBound = _etherRatio(config.rebalanceCollateralRatioUpperBound);
+        $.mintPeggedConfig.disallowCollateralRatioUpperBound = _etherRatio(
+            config.disallowMintPeggedCollateralRatioUpperBound
+        );
         $.mintPeggedConfig.dangerCollateralRatioUpperBound = _etherRatio(config.dangerCollateralRatioUpperBound);
-        $.mintPeggedConfig.normalCollateralRatioUpperBound = _etherRatio(config.normalCollateralRatioUpperBound);
         $.mintPeggedConfig.dangerFeeRatio = _etherRatio(config.mintPeggedDangerFeeRatio);
         $.mintPeggedConfig.normalFeeRatio = _etherRatio(config.mintPeggedNormalFeeRatio);
 
         $.redeemPeggedConfig.bonusCollateralRatioUpperBound = _etherRatio(config.bonusCollateralRatioUpperBound);
-        $.redeemPeggedConfig.rebalanceCollateralRatioUpperBound = _etherRatio(
-            config.rebalanceCollateralRatioUpperBound
-        );
         $.redeemPeggedConfig.dangerCollateralRatioUpperBound = _etherRatio(config.dangerCollateralRatioUpperBound);
-        $.redeemPeggedConfig.normalCollateralRatioUpperBound = _etherRatio(config.normalCollateralRatioUpperBound);
         $.redeemPeggedConfig.dangerFeeRatio = _etherRatio(config.redeemPeggedDangerFeeRatio);
         $.redeemPeggedConfig.normalFeeRatio = _etherRatio(config.redeemPeggedNormalFeeRatio);
         $.redeemPeggedConfig.bonusRatio = _etherRatio(config.redeemPeggedBonusRatio);
 
         $.mintLeveragedConfig.bonusCollateralRatioUpperBound = _etherRatio(config.bonusCollateralRatioUpperBound);
-        $.mintLeveragedConfig.rebalanceCollateralRatioUpperBound = _etherRatio(
-            config.rebalanceCollateralRatioUpperBound
-        );
         $.mintLeveragedConfig.dangerCollateralRatioUpperBound = _etherRatio(config.dangerCollateralRatioUpperBound);
-        $.mintLeveragedConfig.normalCollateralRatioUpperBound = _etherRatio(config.normalCollateralRatioUpperBound);
         $.mintLeveragedConfig.dangerFeeRatio = _etherRatio(config.mintLeveragedDangerFeeRatio);
         $.mintLeveragedConfig.normalFeeRatio = _etherRatio(config.mintLeveragedNormalFeeRatio);
         $.mintLeveragedConfig.bonusRatio = _etherRatio(config.mintLeveragedBonusRatio);
 
-        $.redeemLeveragedConfig.bonusCollateralRatioUpperBound = _etherRatio(config.bonusCollateralRatioUpperBound);
-        $.redeemLeveragedConfig.rebalanceCollateralRatioUpperBound = _etherRatio(
-            config.rebalanceCollateralRatioUpperBound
+        $.redeemLeveragedConfig.disallowCollateralRatioUpperBound = _etherRatio(
+            config.disallowRedeemLeveragedCollateralRatioUpperBound
         );
         $.redeemLeveragedConfig.dangerCollateralRatioUpperBound = _etherRatio(config.dangerCollateralRatioUpperBound);
-        $.redeemLeveragedConfig.normalCollateralRatioUpperBound = _etherRatio(config.normalCollateralRatioUpperBound);
         $.redeemLeveragedConfig.dangerFeeRatio = _etherRatio(config.redeemLeveragedDangerFeeRatio);
         $.redeemLeveragedConfig.normalFeeRatio = _etherRatio(config.redeemLeveragedNormalFeeRatio);
 
@@ -262,8 +253,7 @@ contract Minter_v1 is
 
         // fee calculation
         uint256 feeRatio;
-        uint256 bonusRatio;
-        (collateralIn, feeRatio, bonusRatio) = _mintPeggedAdjustments(
+        (collateralIn, feeRatio) = _mintPeggedAdjustments(
             $.mintPeggedConfig,
             collateralIn,
             price,
@@ -287,23 +277,27 @@ contract Minter_v1 is
         _mintPeggedToken(collateralToken_, collateralIn, $.peggedToken, peggedTokenOut, recipient, fee);
     }
 
-    function _dangerFeeRatio(
-        uint256 fromCollateralRatio,
-        uint256 toCollateralRatio,
-        MinterStorageIncentive memory config
+    function _proRatedRatio(
+        uint256 lowerCollateralRatio,
+        uint256 upperCollateralRatio,
+        uint256 pivotCollateralRatioUpperBound,
+        uint256 belowPivotFeeRatio,
+        uint256 abovePivotFeeRatio
     ) private pure returns (uint256 feeRatio) {
-        if (fromCollateralRatio <= _ratioEther(config.dangerCollateralRatioUpperBound)) {
-            // all in danger zone
-            feeRatio = _ratioEther(config.dangerFeeRatio);
+        if (lowerCollateralRatio <= pivotCollateralRatioUpperBound) {
+            if (upperCollateralRatio <= pivotCollateralRatioUpperBound) {
+                // both below pivot
+                feeRatio = belowPivotFeeRatio;
+            } else {
+                uint256 belowPortion = ((pivotCollateralRatioUpperBound - lowerCollateralRatio) * 1 ether) /
+                    (upperCollateralRatio - lowerCollateralRatio);
+                feeRatio =
+                    (belowPortion * belowPivotFeeRatio + (1 ether - belowPortion) * abovePivotFeeRatio) /
+                    1 ether;
+            }
         } else {
-            uint256 dangerPortion = ((_ratioEther(config.dangerCollateralRatioUpperBound) - toCollateralRatio) *
-                1 ether) / (fromCollateralRatio - toCollateralRatio);
-            feeRatio =
-                (dangerPortion *
-                    _ratioEther(config.dangerFeeRatio) +
-                    (1 ether - dangerPortion) *
-                    _ratioEther(config.normalFeeRatio)) /
-                1 ether;
+            // both above pivot
+            feeRatio = abovePivotFeeRatio;
         }
     }
 
@@ -320,34 +314,39 @@ contract Minter_v1 is
      * @return feeRatio the pro-rated fee
      */
     function _mintPeggedAdjustments(
-        MinterStorageIncentive memory config,
+        DecreasingCollateralRatioActionIncentive memory config,
         uint256 collateralIn,
         uint256 price,
         uint256 collateralTokenBalance_,
         uint256 peggedTokenBalance_
-    ) private pure returns (uint256 collateralInUsed, uint256 feeRatio, uint256 bonusRatio) {
+    ) private pure returns (uint256 collateralInUsed, uint256 feeRatio) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
         // why add 2 for the lower bound? because we want to ensure that the below calculations do not result in a
         // collateral ratio less than the rebalance upper bound.
-        uint256 collateralRatioLowerBound = _ratioEther(config.rebalanceCollateralRatioUpperBound) + 2;
-        if (currentCollateralRatio < collateralRatioLowerBound) return (0, 0, 0);
+        uint256 collateralRatioLowerBound = _ratioEther(config.disallowCollateralRatioUpperBound) + 2;
+        // if the the action is disallowed then there's no collateral used and the fee ratio is 0
+        if (currentCollateralRatio < collateralRatioLowerBound) return (0, 0);
 
         // TODO: handle depegged situation, where leveraged token is worth 0 and pegged is worth it's share of collateral
-        uint256 peggedTokenOut = (collateralIn * price) / 1 ether;
-        //console.log("   #1 peggedTokenOut=%s", peggedTokenOut);
         uint256 proposedCollateralRatio = _collateralRatio(
             collateralTokenBalance_ + collateralIn,
             price,
-            peggedTokenBalance_ + peggedTokenOut
+            peggedTokenBalance_ + (collateralIn * price) / 1 ether
         );
-        //console.log("   proposedCollateralRatio=%s", proposedCollateralRatio);
 
-        // can't mint any into rebalance, so adjust the collateralIn
+        feeRatio = _proRatedRatio(
+            proposedCollateralRatio,
+            currentCollateralRatio,
+            _ratioEther(config.dangerCollateralRatioUpperBound),
+            _ratioEther(config.dangerFeeRatio),
+            _ratioEther(config.normalFeeRatio)
+        );
+
+        // can't mint/redeem triggering a rebalance, so adjust the collateralIn to prevent this
         if (proposedCollateralRatio < collateralRatioLowerBound) {
             proposedCollateralRatio = collateralRatioLowerBound;
-            feeRatio = _dangerFeeRatio(currentCollateralRatio, proposedCollateralRatio, config);
             // formula derived by taking the collateral ratio formula an backing out the collateral needed
             // fees are deducted before hand, thus applying to both the collateral token and pegged token balances
             // without consideroing fees:
@@ -363,11 +362,6 @@ contract Minter_v1 is
         } else {
             collateralInUsed = collateralIn;
             // calculate the fee as a pro-rata of each of the collateral zones it is in
-            if (proposedCollateralRatio <= _ratioEther(config.dangerCollateralRatioUpperBound)) {
-                feeRatio = _dangerFeeRatio(currentCollateralRatio, proposedCollateralRatio, config);
-            } else {
-                feeRatio = _ratioEther(config.normalFeeRatio);
-            }
         }
     }
 
@@ -437,7 +431,13 @@ contract Minter_v1 is
         uint256 currentCollateralRatio = _collateralRatio($.collateralTokenBalance, price, $.peggedTokenBalance);
 
         // TODO: calc the fee
-        uint256 feeRatio = 0;
+        (uint256 feeRatio, uint256 bonusRatio) = _mintLeveragedAdjustments(
+            $.mintLeveragedConfig,
+            collateralIn,
+            price,
+            $.collateralTokenBalance,
+            $.peggedTokenBalance
+        );
 
         uint256 fee = (collateralIn * feeRatio) / 1 ether;
         collateralIn -= fee;
@@ -466,6 +466,43 @@ contract Minter_v1 is
             recipient,
             fee,
             bonusOut
+        );
+    }
+
+    function _mintLeveragedAdjustments(
+        IncreasingCollateralRatioActionIncentive memory config,
+        uint256 collateralIn,
+        uint256 price,
+        uint256 collateralTokenBalance_,
+        uint256 peggedTokenBalance_
+    ) private pure returns (uint256 feeRatio, uint256 bonusRatio) {
+        // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
+        if (peggedTokenBalance_ == 0) revert ActionPaused();
+        uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
+
+        uint256 proposedCollateralRatio = _collateralRatio(
+            collateralTokenBalance_ + collateralIn,
+            price,
+            peggedTokenBalance_
+        );
+        //console.log("   proposedCollateralRatio=%s", proposedCollateralRatio);
+
+        // calculate the fee
+        feeRatio = _proRatedRatio(
+            currentCollateralRatio,
+            proposedCollateralRatio,
+            _ratioEther(config.dangerCollateralRatioUpperBound),
+            _ratioEther(config.dangerFeeRatio),
+            _ratioEther(config.normalFeeRatio)
+        );
+
+        // calculate the bonus
+        bonusRatio = _proRatedRatio(
+            currentCollateralRatio,
+            proposedCollateralRatio,
+            _ratioEther(config.bonusCollateralRatioUpperBound),
+            _ratioEther(config.bonusRatio),
+            0
         );
     }
 
@@ -572,7 +609,7 @@ contract Minter_v1 is
 
         // fee calculation
         uint256 collateralUsed;
-        (collateralUsed, feeRatio, ) = _mintPeggedAdjustments(
+        (collateralUsed, feeRatio) = _mintPeggedAdjustments(
             $.mintPeggedConfig,
             additionalCollateral,
             price,
@@ -582,22 +619,30 @@ contract Minter_v1 is
         //console.log("mintPeggedTokenFeeRatio=%s", feeRatio);
     }
 
-    function redeemPeggedTokenFeeRatio() external view override returns (uint256 feeRatio) {
+    function redeemPeggedTokenFeeRatio(uint256 reductionOfPegged) external view override returns (uint256 feeRatio) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchSafePrice($.priceOracle);
         feeRatio = 0;
     }
 
     // TODO: should be fees lower/bonus higher for higher leveraged token redeem amount
-    function mintLeveragedTokenFeeRatio() external view override returns (uint256 feeRatio) {
+    function mintLeveragedTokenFeeRatio(
+        uint256 additionalCollateral
+    ) external view override returns (uint256 feeRatio) {
         MinterStorage storage $ = _getMinterStorage();
         // TODO: do we need safe price for this?
         uint256 price = _fetchSafePrice($.priceOracle);
-        feeRatio = 0;
+        (feeRatio, ) = _mintLeveragedAdjustments(
+            $.mintLeveragedConfig,
+            additionalCollateral,
+            price,
+            $.collateralTokenBalance,
+            $.peggedTokenBalance
+        );
     }
 
     function redeemLeveragedTokenFeeRatio(
-        uint256 reductionOfcollateral
+        uint256 reductionOfLeveraged
     ) external view override returns (uint256 feeRatio) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 price = _fetchSafePrice($.priceOracle);

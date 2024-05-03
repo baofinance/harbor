@@ -55,7 +55,7 @@ interface IMinter {
 
     /*
      * fees are charged at a rate that would be the same if the action was performed one dollar at a time
-     * i.e. the fee is an integral of the piecewise function below
+     * i.e. the fee is a definite integral of the piecewise function below
      * this results in the correct incentive for users to be nudged in the direction that results in
      * stability of the protocol
      *
@@ -81,8 +81,11 @@ interface IMinter {
     struct Config {
         uint256 bonusCollateralRatioUpperBound;
         uint256 rebalanceCollateralRatioUpperBound;
-        uint256 dangerCollateralRatioUpperBound;
-        uint256 normalCollateralRatioUpperBound;
+        uint256 disallowMintPeggedCollateralRatioUpperBound; // typically the same as the rebalance CR
+        uint256 freeRedeemPeggedCollateralRatioUpperBound;
+        uint256 freeMintLeveragedCollateralRatioUpperBound;
+        uint256 disallowRedeemLeveragedCollateralRatioUpperBound; // typically the same as the bonus CR
+        uint256 dangerCollateralRatioUpperBound; // where danger fee ratio gives way to normal
         uint256 mintPeggedDangerFeeRatio;
         uint256 mintPeggedNormalFeeRatio;
         uint256 redeemPeggedBonusRatio;
@@ -235,11 +238,11 @@ interface IMinter {
 
     function mintPeggedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
 
-    function redeemPeggedTokenFeeRatio() external view returns (uint256 fees);
+    function redeemPeggedTokenFeeRatio(uint256 reductionOfPegged) external view returns (uint256 fees);
 
-    function mintLeveragedTokenFeeRatio() external view returns (uint256 fees);
+    function mintLeveragedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
 
-    function redeemLeveragedTokenFeeRatio(uint256 reductionOfcollateral) external view returns (uint256 fees);
+    function redeemLeveragedTokenFeeRatio(uint256 reductionOfLeveraged) external view returns (uint256 fees);
 
     /****************************
      * Public Mutated Functions *
