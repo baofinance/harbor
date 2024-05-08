@@ -28,29 +28,12 @@ library Useful {
         return memEq(bytes(a), bytes(b));
     }
 
-    function extractUInt256(bytes memory data, uint256 pos) public pure returns (uint256 result) {
+    function extractUInt256(bytes memory data, uint256 pos) internal pure returns (uint256 result) {
         require((pos + 256 / 8) <= data.length, "don't read beyond the data");
         uint256 endian = pos + 32;
         assembly {
             result := mload(add(data, endian))
         }
-    }
-
-    function concat(string memory a, string memory b) public pure returns (string memory result) {
-        result = string(abi.encodePacked(a, b)); // can use string.concat from 0.8.12 onwards
-    }
-
-    function concat(string memory a, string memory b, string memory c) public pure returns (string memory result) {
-        result = string(abi.encodePacked(a, b, c)); // can use string.concat from 0.8.12 onwards
-    }
-
-    function concat(
-        string memory a,
-        string memory b,
-        string memory c,
-        string memory d
-    ) public pure returns (string memory result) {
-        result = string(abi.encodePacked(a, b, c, d)); // can use string.concat from 0.8.12 onwards
     }
 
     function _length(uint256 value, uint256 base) private pure returns (uint256 digits) {
@@ -82,7 +65,7 @@ library Useful {
         }
     }
 
-    function toStringScaled(uint256 value, uint256 decimals) public pure returns (string memory buffer) {
+    function toStringScaled(uint256 value, uint256 decimals) internal pure returns (string memory buffer) {
         uint256 digits = _length(value, 10);
         uint256 length = digits;
         if (decimals > 0) {
@@ -119,18 +102,23 @@ library Useful {
         }
     }
 
+    function toStringScaled(int256 value, uint256 decimals) internal pure returns (string memory buffer) {
+        if (value >= 0) return toStringScaled(uint256(value), decimals);
+        return string.concat("-", toStringScaled(uint256(-value), decimals));
+    }
+
     function toString(uint256 value) internal pure returns (string memory) {
         return _toStringBase(value, 10);
     }
 
     function toStringHex(uint256 value) public pure returns (string memory buffer) {
-        buffer = concat("0x", _toStringBase(value, 16));
+        buffer = string.concat("0x", _toStringBase(value, 16));
     }
 
-    uint8 public constant comma = 44;
-    uint8 public constant underscore = 95;
+    uint8 constant comma = 44;
+    uint8 constant underscore = 95;
 
-    function toStringThousands(uint256 value, uint8 separator) public pure returns (string memory buffer) {
+    function toStringThousands(uint256 value, uint8 separator) internal pure returns (string memory buffer) {
         // calculate the length of the result, with no separators
         uint256 digits;
         for (uint256 j = value; j != 0; j /= 10) {
@@ -177,7 +165,7 @@ library Useful {
     bytes1 constant decimalPoint = bytes(".")[0];
     bytes1 constant percent = bytes1(uint8(37));
 
-    function toUint256(string memory value, uint256 decimals) public pure returns (uint256 result) {
+    function toUint256(string memory value, uint256 decimals) internal pure returns (uint256 result) {
         //console.log("toUint256('%s',%d)", value, decimals);
         uint256 length = bytes(value).length;
         uint256 point = length; // if there's none there, it's after all the digits

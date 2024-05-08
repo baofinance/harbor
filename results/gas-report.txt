@@ -28,27 +28,27 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 3081515                                     | 14134           |        |        |        |         |
+| 3466028                                     | 15911           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralRatio                             | 2360            | 2555   | 2497   | 16860  | 844     |
 | collateralToken                             | 2424            | 2424   | 2424   | 2424   | 1       |
-| collateralTokenBalance                      | 483             | 483    | 483    | 483    | 24      |
+| collateralTokenBalance                      | 461             | 461    | 461    | 461    | 24      |
 | feeReceiver                                 | 2468            | 2468   | 2468   | 2468   | 1       |
 | freeMintLeveragedToken                      | 2927            | 83162  | 82620  | 167762 | 113     |
 | freeMintPeggedToken                         | 3014            | 94027  | 142899 | 142899 | 17      |
 | hasRole                                     | 2740            | 2740   | 2740   | 2740   | 5       |
-| initialize                                  | 3111            | 327773 | 348065 | 348065 | 17      |
-| leverageTokensForCollateral                 | 3088            | 3103   | 3088   | 4730   | 106     |
-| leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 1       |
-| leveragedTokenBalance                       | 418             | 418    | 418    | 418    | 6       |
-| mintLeveragedToken                          | 2728            | 54491  | 34671  | 169230 | 12      |
-| mintLeveragedTokenFeeRatio                  | 6157            | 6197   | 6195   | 8233   | 701     |
-| mintPeggedToken                             | 2751            | 54821  | 30615  | 128065 | 16      |
-| mintPeggedTokenFeeRatio                     | 3662            | 4642   | 3662   | 7904   | 705     |
+| initialize                                  | 3194            | 629234 | 668362 | 668362 | 17      |
+| leverageTokensForCollateral                 | 3066            | 3081   | 3066   | 4708   | 106     |
+| leveragedToken                              | 2446            | 2446   | 2446   | 2446   | 1       |
+| leveragedTokenBalance                       | 396             | 396    | 396    | 396    | 6       |
+| mintLeveragedToken                          | 2839            | 57751  | 38886  | 174192 | 12      |
+| mintLeveragedTokenFeeRatio                  | 8539            | 9322   | 9479   | 14539  | 701     |
+| mintPeggedToken                             | 2751            | 61638  | 39296  | 139148 | 16      |
+| mintPeggedTokenFeeRatio                     | 6939            | 7951   | 6939   | 17146  | 705     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 1       |
-| peggedTokenBalance                          | 506             | 791    | 506    | 2506   | 7       |
+| peggedTokenBalance                          | 484             | 769    | 484    | 2484   | 7       |
 | priceOracle                                 | 2536            | 2536   | 2536   | 2536   | 1       |
-| redeemLeveragedTokenFeeRatio                | 2128            | 2128   | 2128   | 2128   | 701     |
-| redeemPeggedTokenFeeRatio                   | 2129            | 2129   | 2129   | 2129   | 701     |
-| updateConfig                                | 39018           | 39018  | 39018  | 39018  | 9       |
+| redeemLeveragedTokenFeeRatio                | 2106            | 2106   | 2106   | 2106   | 701     |
+| redeemPeggedTokenFeeRatio                   | 2107            | 2107   | 2107   | 2107   | 701     |
+| updateConfig                                | 123162          | 123162 | 123162 | 123162 | 9       |
 

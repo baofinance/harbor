@@ -77,25 +77,28 @@ interface IMinter {
      *
      *
      */
-    // TODO: make the collateral ratios a sequence by specifying the difference between one and the next
+    // TODO: add getter functions for Incentive config
+    // TODO: add getter functions for the other 4 config items
+    // TODO: and test them
+    struct IncentiveConfig {
+        // note: incentive ratios have one more entry than the band bounds do
+        uint256[] collateralRatioBandUpperBounds;
+        int256[] incentiveRatios; // critical, danger, normal, safe
+    }
     struct Config {
-        uint256 bonusCollateralRatioUpperBound;
-        uint256 rebalanceCollateralRatioUpperBound;
+        // points at which specific activity commences
+        uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
+        uint256 normalCollateralRatioUpperBound; // above this harvesting of collateral can begin
+        // points at which specific user activity is disallowed
         uint256 disallowMintPeggedCollateralRatioUpperBound; // typically the same as the rebalance CR
-        uint256 freeRedeemPeggedCollateralRatioUpperBound;
-        uint256 freeMintLeveragedCollateralRatioUpperBound;
         uint256 disallowRedeemLeveragedCollateralRatioUpperBound; // typically the same as the bonus CR
-        uint256 dangerCollateralRatioUpperBound; // where danger fee ratio gives way to normal
-        uint256 mintPeggedDangerFeeRatio;
-        uint256 mintPeggedNormalFeeRatio;
-        uint256 redeemPeggedBonusRatio;
-        uint256 redeemPeggedDangerFeeRatio;
-        uint256 redeemPeggedNormalFeeRatio;
-        uint256 mintLeveragedBonusRatio;
-        uint256 mintLeveragedDangerFeeRatio;
-        uint256 mintLeveragedNormalFeeRatio;
-        uint256 redeemLeveragedDangerFeeRatio;
-        uint256 redeemLeveragedNormalFeeRatio;
+        // bonus/fees
+        IncentiveConfig mintPeggedIncentiveConfig;
+        // leverage tokens have their own intrinsic value in that they increase in leverage the lower the collateral ratio
+        // so there is a convenient intrinsic incentive to mint at low collateral ratios
+        IncentiveConfig mintLeveragedIncentiveConfig;
+        IncentiveConfig redeemPeggedIncentiveConfig;
+        IncentiveConfig redeemLeveragedIncentiveConfig;
     }
 
     /****************************
@@ -201,9 +204,11 @@ interface IMinter {
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
 
-    error InvalidCollateralRatioConfig(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
-    error InvalidFeeConfig();
-    error InvalidBonusConfig();
+    error TooManyCollateralRatioBounds(uint count);
+    error InvalidCollateralRatioBoundValue(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
+    error TooManyIncentiveRatios(uint count);
+    error InvalidIncentiveRatioValue(int256 shouldBeMinusOnetoOne);
+    error CollateralRatioBoundsIncentivesLengthsMismatch(uint256 oneLess, uint256 oneMore);
 
     /// @dev thrown when an action is paused, for example if the protocol is not initialised
     error ActionPaused();
@@ -236,13 +241,13 @@ interface IMinter {
     function leveragedTokenBalance() external view returns (uint256);
     function collateralTokenBalance() external view returns (uint256);
 
-    function mintPeggedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
+    function mintPeggedTokenFeeRatio(uint256 additionalCollateral) external view returns (int256 fees);
 
-    function redeemPeggedTokenFeeRatio(uint256 reductionOfPegged) external view returns (uint256 fees);
+    function redeemPeggedTokenFeeRatio(uint256 reductionOfPegged) external view returns (int256 fees);
 
-    function mintLeveragedTokenFeeRatio(uint256 additionalCollateral) external view returns (uint256 fees);
+    function mintLeveragedTokenFeeRatio(uint256 additionalCollateral) external view returns (int256 fees);
 
-    function redeemLeveragedTokenFeeRatio(uint256 reductionOfLeveraged) external view returns (uint256 fees);
+    function redeemLeveragedTokenFeeRatio(uint256 reductionOfLeveraged) external view returns (int256 fees);
 
     /****************************
      * Public Mutated Functions *

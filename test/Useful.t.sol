@@ -123,12 +123,25 @@ contract TestUsefulSimples is Test {
     }
 
     function test_toString_decimals() public pure {
-        assertEq(Useful.toStringScaled(0, 1), "0.0");
-        assertEq(Useful.toStringScaled(0, 2), "0.00");
-        assertEq(Useful.toStringScaled(1, 1), "0.1");
-        assertEq(Useful.toStringScaled(1, 2), "0.01");
-        assertEq(Useful.toStringScaled(10, 1), "1.0");
-        assertEq(Useful.toStringScaled(100, 2), "1.00");
+        assertEq(Useful.toStringScaled(uint(0), 1), "0.0");
+        assertEq(Useful.toStringScaled(uint(0), 2), "0.00");
+        assertEq(Useful.toStringScaled(uint(1), 1), "0.1");
+        assertEq(Useful.toStringScaled(uint(1), 2), "0.01");
+        assertEq(Useful.toStringScaled(uint(10), 1), "1.0");
+        assertEq(Useful.toStringScaled(uint(100), 2), "1.00");
+
+        assertEq(Useful.toStringScaled(int(0), 1), "0.0");
+        assertEq(Useful.toStringScaled(int(0), 2), "0.00");
+        assertEq(Useful.toStringScaled(int(1), 1), "0.1");
+        assertEq(Useful.toStringScaled(int(1), 2), "0.01");
+        assertEq(Useful.toStringScaled(int(10), 1), "1.0");
+        assertEq(Useful.toStringScaled(int(100), 2), "1.00");
+
+        assertEq(Useful.toStringScaled(int(-0), 2), "0.00");
+        assertEq(Useful.toStringScaled(int(-1), 1), "-0.1");
+        assertEq(Useful.toStringScaled(int(-1), 2), "-0.01");
+        assertEq(Useful.toStringScaled(int(-10), 1), "-1.0");
+        assertEq(Useful.toStringScaled(int(-100), 2), "-1.00");
     }
 
     function test_toString_thousands() public pure {
@@ -230,11 +243,11 @@ contract TestUsefulSimples is Test {
     }
 
     function test_consistency() public pure {
-        assertEq(Useful.toUint256(Useful.toStringScaled(0, 1), 1), 0);
-        assertEq(Useful.toUint256(Useful.toStringScaled(0, 2), 2), 0);
-        assertEq(Useful.toUint256(Useful.toStringScaled(1, 1), 1), 1);
-        assertEq(Useful.toUint256(Useful.toStringScaled(1, 2), 2), 1);
-        assertEq(Useful.toUint256(Useful.toStringScaled(10, 1), 1), 10);
-        assertEq(Useful.toUint256(Useful.toStringScaled(100, 2), 2), 100);
+        assertEq(Useful.toUint256(Useful.toStringScaled(uint(0), 1), 1), 0);
+        assertEq(Useful.toUint256(Useful.toStringScaled(uint(0), 2), 2), 0);
+        assertEq(Useful.toUint256(Useful.toStringScaled(uint(1), 1), 1), 1);
+        assertEq(Useful.toUint256(Useful.toStringScaled(uint(1), 2), 2), 1);
+        assertEq(Useful.toUint256(Useful.toStringScaled(uint(10), 1), 1), 10);
+        assertEq(Useful.toUint256(Useful.toStringScaled(uint(100), 2), 2), 100);
     }
 }
