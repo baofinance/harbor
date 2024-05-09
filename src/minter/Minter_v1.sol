@@ -278,6 +278,7 @@ contract Minter_v1 is
     function updateFeeReceiver(address feeReceiver_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _updateFeeReceiver(feeReceiver_);
     }
+
     function _updateFeeReceiver(address feeReceiver_) private {
         MinterStorage storage $ = _getMinterStorage();
         address old = $.feeReceiver;
@@ -882,14 +883,14 @@ contract Minter_v1 is
     // other calculations
     // ------------------
 
-    function leveragedTokenNAV() external view override returns (uint256 nav) {
+    function leveragedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 leveragedTokenBalance_ = IERC20($.leveragedToken).balanceOf(address(this));
         uint256 price = _fetchSafePrice($.priceOracle);
-        nav = _leveragedTokenNAV(leveragedTokenBalance_, $.peggedTokenBalance, $.collateralTokenBalance, price);
+        nav = _leveragedTokenPrice(leveragedTokenBalance_, $.peggedTokenBalance, $.collateralTokenBalance, price);
     }
 
-    function _leveragedTokenNAV(
+    function _leveragedTokenPrice(
         uint256 leveragedTokenBalance_,
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
@@ -984,6 +985,50 @@ contract Minter_v1 is
             collateralRatio_ = (collateralTokenBalance_ * collateralPrice) / peggedTokenBalance_;
         }
         // console.log("collateralRatio()=%s", collateralRatio_);
+    }
+
+    /*
+     int256 _earningRatio = int256(_state.baseNav).sub(_lastPermissionedPrice).mul(PRECISION_I256).div(
+      _lastPermissionedPrice
+    );
+
+             function leverageRatio(
+    SwapState memory state,
+    uint256 beta,
+    int256 earningRatio
+
+
+  ) internal pure returns (uint256 ratio) {
+    // (1 - rho * beta * (1 + r)) / (1 - rho)
+    uint256 rho = state.fSupply.mul(state.fNav).mul(PRECISION).div(state.baseSupply.mul(state.baseNav));
+    uint256 x = rho.mul(beta).mul(uint256(PRECISION_I256 + earningRatio)).div(PRECISION * PRECISION);
+    ratio = PRECISION.sub(x).mul(PRECISION).div(PRECISION - rho);
+    if (ratio > MAX_LEVERAGE_RATIO) ratio = MAX_LEVERAGE_RATIO;
+  }
+*/
+
+    function leverageRatio() external view override returns (uint256) {
+        MinterStorage storage $ = _getMinterStorage();
+        return _leverageRatio($.collateralTokenBalance, _fetchSafePrice($.priceOracle), $.peggedTokenBalance);
+    }
+
+    function _leverageRatio(
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice,
+        uint256 peggedTokenBalance_
+    ) private pure returns (uint256 ratio) {
+        // ratio = (1 - rho * beta * (1 + r)) / (1 - rho), and beta = 0
+        // ratio = 1 / (1 - rho)
+        // rho = inverse of the collateral ratio
+        uint256 rho = peggedTokenBalance_ / (collateralTokenBalance_ * collateralPrice);
+        if (rho >= 1 ether) {
+            // under collateral, assume infinite leverage
+            // TODO: max leverage ratio
+            ratio = type(uint256).max;
+        } else {
+            ratio = (1 ether * 1 ether) / (1 ether - rho);
+            // TODO: if (ratio > MAX_LEVERAGE_RATIO) ratio = MAX_LEVERAGE_RATIO;
+        }
     }
 
     // External view functions

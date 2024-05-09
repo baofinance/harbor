@@ -809,7 +809,6 @@ contract TestMinterMint is TestMinter {
     }
 
     function test_mintPeggedDisallow() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
         // get collateral & allow
         deal(address(deployed.wstETH), sender.addr, 10 ether);
         vm.prank(sender.addr);

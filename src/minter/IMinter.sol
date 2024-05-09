@@ -229,7 +229,9 @@ interface IMinter {
     /// @notice Return the current collateral ratio of the peggedToken to the collateral token, multipled by 1e18.
     function collateralRatio() external view returns (uint256);
 
-    function leveragedTokenNAV() external view returns (uint256);
+    function leverageRatio() external view returns (uint256);
+
+    function leveragedTokenPrice() external view returns (uint256);
     function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256);
 
     function priceOracle() external view returns (address);
