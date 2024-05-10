@@ -28,22 +28,22 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 3258409                                     | 14951           |        |        |        |         |
+| 3271184                                     | 15010           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralRatio                             | 2382            | 2577   | 2519   | 16882  | 844     |
 | collateralToken                             | 2446            | 2446   | 2446   | 2446   | 1       |
 | collateralTokenBalance                      | 439             | 439    | 439    | 439    | 24      |
 | feeReceiver                                 | 2490            | 2490   | 2490   | 2490   | 1       |
-| freeMintLeveragedToken                      | 2949            | 83187  | 82646  | 167788 | 113     |
-| freeMintPeggedToken                         | 2992            | 94008  | 142881 | 142881 | 17      |
+| freeMintLeveragedToken                      | 2949            | 82945  | 82392  | 167534 | 113     |
+| freeMintPeggedToken                         | 2992            | 93983  | 142845 | 142845 | 17      |
 | hasRole                                     | 2762            | 2762   | 2762   | 2762   | 5       |
 | initialize                                  | 3216            | 483411 | 513424 | 513424 | 17      |
 | leverageTokensForCollateral                 | 3088            | 3103   | 3088   | 4730   | 106     |
 | leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 1       |
 | leveragedTokenBalance                       | 418             | 418    | 418    | 418    | 6       |
-| mintLeveragedToken                          | 2751            | 54343  | 33842  | 169156 | 12      |
+| mintLeveragedToken                          | 2751            | 54726  | 34820  | 168777 | 12      |
 | mintLeveragedTokenFeeRatio                  | 5770            | 6750   | 7018   | 9770   | 701     |
-| mintPeggedToken                             | 2773            | 56334  | 32225  | 132607 | 16      |
+| mintPeggedToken                             | 2773            | 56508  | 33308  | 132343 | 16      |
 | mintPeggedTokenFeeRatio                     | 3646            | 4807   | 3646   | 10234  | 705     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 1       |
 | peggedTokenBalance                          | 506             | 791    | 506    | 2506   | 7       |
