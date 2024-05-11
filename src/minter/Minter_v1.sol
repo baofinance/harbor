@@ -107,11 +107,12 @@ contract Minter_v1 is
         // we are not likely to use these tokens as bonus because during a bonus period pegged minting
         // will not be allowed
         //                                             slot
+        // we keep track of pegged tokens and collateral tokens because they both have a life
+        // outside of this system. Leverage tokens, however, only exist in the context of this system
+        // so we use their totalSupply number instead.
         uint256 peggedTokenBalance; //                  256
-        // leveragedTokenBalance - we track this here because this contract can also own collateral tokens
-        // that will be used for the reserve pool
         //                                             slot
-        uint256 leveragedTokenBalance; //               256
+        // uint256 leveragedTokenBalance; //               256
         // collateralTokenBalance - we track this here because this contract can also own collateral tokens
         // that will be used for the reserve pool
         // TODO: do we want a collateral cap?
@@ -170,7 +171,7 @@ contract Minter_v1 is
         $.peggedToken = tokens_.peggedToken;
         $.peggedTokenBalance = 0;
         $.leveragedToken = tokens_.leveragedToken;
-        $.leveragedTokenBalance = 0;
+        //$.leveragedTokenBalance = 0;
 
         _updatePriceOracle(priceOracle_);
         _updateFeeReceiver(feeReceiver_);
@@ -525,7 +526,9 @@ contract Minter_v1 is
 
         uint256 price = _fetchSafePrice($.priceOracle);
 
-        uint256 leveragedTokenBalance_ = $.leveragedTokenBalance;
+        address leveragedToken_ = $.leveragedToken;
+
+        uint256 leveragedTokenBalance_ = IERC20(leveragedToken_).totalSupply();
         uint256 collateralTokenBalance_ = $.collateralTokenBalance;
         // uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         int256 fee = (_mintLeveragedAdjustments(
@@ -553,7 +556,6 @@ contract Minter_v1 is
             price
         );
 
-        address leveragedToken_ = $.leveragedToken;
         if (leveragedTokenOut < minLeveragedTokenOut) {
             revert MintInsufficientAmount(leveragedToken_, minLeveragedTokenOut, leveragedTokenOut);
         }
@@ -569,7 +571,6 @@ contract Minter_v1 is
         );
 
         // update our records
-        $.leveragedTokenBalance = leveragedTokenBalance_ + leveragedTokenOut;
         $.collateralTokenBalance = collateralTokenBalance_ + collateralIn;
     }
 
@@ -608,20 +609,19 @@ contract Minter_v1 is
         // mint the tokens to the recipient
         uint256 price = _fetchSafePrice($.priceOracle);
 
-        uint256 leveragedTokenBalance_ = $.leveragedTokenBalance;
+        address leveragedToken_ = $.leveragedToken;
         uint256 collateralTokenBalance_ = $.collateralTokenBalance;
         leveragedTokenOut = _leverageTokensForCollateral(
             collateralIn,
-            leveragedTokenBalance_,
+            IERC20(leveragedToken_).totalSupply(),
             $.peggedTokenBalance,
             collateralTokenBalance_,
             price
         );
 
-        _mintLeveragedToken(collateralToken_, collateralIn, $.leveragedToken, leveragedTokenOut, recipient, 0, 0);
+        _mintLeveragedToken(collateralToken_, collateralIn, leveragedToken_, leveragedTokenOut, recipient, 0, 0);
 
         // update our records
-        $.leveragedTokenBalance = leveragedTokenBalance_ + leveragedTokenOut;
         $.collateralTokenBalance = collateralTokenBalance_ + collateralIn;
     }
 
@@ -899,7 +899,7 @@ contract Minter_v1 is
         uint256 price = _fetchSafePrice($.priceOracle);
         leveragedTokens = _leverageTokensForCollateral(
             forCollateral,
-            $.leveragedTokenBalance,
+            IERC20($.leveragedToken).totalSupply(),
             $.peggedTokenBalance,
             $.collateralTokenBalance,
             price
@@ -1045,7 +1045,7 @@ contract Minter_v1 is
 
     function leveragedTokenBalance() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
-        return $.leveragedTokenBalance;
+        return IERC20($.leveragedToken).totalSupply();
     }
 
     function collateralTokenBalance() external view override returns (uint256) {
