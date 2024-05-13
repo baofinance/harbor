@@ -20,11 +20,12 @@ import { IReservePool } from "./IReservePool.sol";
 contract ReservePool_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultAdminRulesUpgradeable, IReservePool {
     using SafeERC20 for IERC20;
 
-    /// @notice Emitted when the bonus ratio is updated.
-    /// @param token The address of the token updated.
-    /// @param oldRatio The value of previous bonus ratio
-    /// @param newRatio The value of current bonus ratio
-    event UpdateBonusRatio(address indexed token, uint256 oldRatio, uint256 newRatio);
+    /// @notice Emitted when the minter request bonus.
+    /// @param minter The address of minter contract.
+    /// @param token The address of the token withdrawn.
+    /// @param receiver The address of token receiver.
+    /// @param amount The amount of token withdrawn.
+    event WithdrawFunds(address indexed minter, address indexed token, address indexed receiver, uint256 amount);
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
@@ -62,23 +63,27 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultA
         address recipient,
         uint256 amountRequested
     ) public override onlyRole(MINTER_ROLE) returns (uint256 amountSent) {
-        uint256 _balance = _getBalance(token);
-        if (amountRequested > _balance) {
-            amountSent = _balance;
+        uint256 balance = _getBalance(token);
+        if (amountRequested > balance) {
+            amountSent = balance;
         } else {
             amountSent = amountRequested;
         }
+        emit RequestBonus(_msgSender(), token, recipient, amountRequested, amountSent);
         if (amountSent > 0) {
             _transfer(token, recipient, amountSent);
         }
-        emit RequestBonus(_msgSender(), token, recipient, amountRequested, amountSent);
     }
 
     function withdrawFunds(address token, address recipient, uint256 amount) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (amount == type(uint256).max) {
-            amount = _getBalance(token);
+        uint256 balance = _getBalance(token);
+        if (amount == type(uint256).max || amount > balance) {
+            amount = balance;
         }
-        _transfer(token, recipient, amount);
+        emit WithdrawFunds(_msgSender(), token, recipient, amount);
+        if (amount > 0) {
+            _transfer(token, recipient, amount);
+        }
     }
 
     /**********************
