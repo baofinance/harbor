@@ -51,7 +51,7 @@ contract TestMinterMintPegged is TestMinterMint {
         emit IMinter.MintPeggedToken(owner.addr, receiver.addr, ownerCollateralDecrease, receiverBaoUSDIncrease, 0);
         vm.prank(owner.addr);
         uint256 minted = IMinterTreasury(minter).freeMintPeggedToken(collateralIn, receiver.addr);
-        //               --------------------------------------------------------------------
+        //               ------------------------------------------------------------------------
         assertEq(minted, receiverBaoUSDIncrease, "unexpected amount minted compared to price");
         assertEq(
             IERC20(deployed.wstETH).balanceOf(owner.addr),
@@ -111,6 +111,7 @@ contract TestMinterMintPegged is TestMinterMint {
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
         vm.prank(owner.addr);
         IMinterTreasury(minter).freeMintPeggedToken(0, receiver.addr);
+        //-----------------------------------------------------------
 
         (, uint256 price, , ) = priceOracle.getPrice();
 
@@ -241,7 +242,7 @@ contract TestMinterMintPegged is TestMinterMint {
         //-------------------------------------------------------------
         assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), 0);
 
-        // some input, when in the rebalance zone
+        // some input, when in the disallow zone
         setUp_collateral(1 ether, 0); // make a finite collateral ratio, 1.0
         vm.expectRevert(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, deployed.BaoUSD));
         vm.prank(sender.addr);
@@ -335,9 +336,11 @@ contract TestMinterMintPegged is TestMinterMint {
 
         // first mint
         _mintPeggedToken(1 ether);
+        //-----------------------
 
         // second mint
         _mintPeggedToken(2 ether);
+        //-----------------------
 
         // check token out check
         uint256 collateral = 3 ether;
@@ -381,4 +384,6 @@ contract TestMinterMintPegged is TestMinterMint {
         assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), receiverPeggedBefore + expectedPeggedTokenOut);
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 0, "transferred it all");
     }
+
+    // TODO: check the fee across the whole range of fee ratios and then do the minting in bits
 }

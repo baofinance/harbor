@@ -169,8 +169,13 @@ interface IMinter {
 
     /// @notice Emitted when the platform contract is updated.
     /// @param oldFeeReceiver The address of previous platform contract.
-    /// @param newFeeReceiver The address of current platform contract.
+    /// @param newFeeReceiver The address of the new (current) platform contract.
     event UpdateFeeReceiver(address indexed oldFeeReceiver, address indexed newFeeReceiver);
+
+    /// @notice Emitted when the platform contract is updated.
+    /// @param oldReservePool The address of previous reserve pool contract.
+    /// @param newReservePool The address of new (current) reserve pool contract.
+    event UpdateReservePool(address indexed oldReservePool, address indexed newReservePool);
 
     /// @notice Emitted when the price oracle contract is updated.
     /// @param oldPriceOracle The address of previous price oracle contract.
@@ -302,6 +307,9 @@ interface IMinter {
     ) external returns (uint256 collateralOut);
 
     function updateConfig(Config calldata config) external;
+
+    function updateFeeReceiver(address feeReceiver_) external;
+    function updateReservePool(address reservePool_) external;
 }
 
 interface IMinterTreasury {

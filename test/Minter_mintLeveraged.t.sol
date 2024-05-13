@@ -58,7 +58,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         );
         vm.prank(owner.addr);
         uint256 minted = IMinterTreasury(minter).freeMintLeveragedToken(collateralIn, receiver.addr);
-        //               --------------------------------------------------------------------
+        //               ---------------------------------------------------------------------------
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount free minted leveraged compared to price");
         assertEq(
             IERC20(deployed.wstETH).balanceOf(owner.addr),
@@ -189,7 +189,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             receiver.addr,
             0
         );
-        //                                ------------------------------------------------------------------
+        //   ------------------------------------------------------------------
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount minted compared to price");
         assertEq(bonus, 0, "expect zero bonus");
         assertEq(
@@ -317,7 +317,6 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(
             uint256(int256(collateral) - mintLeveragedFee)
         );
-
         uint256 senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
         uint256 receiverLeveragedBefore = IERC20(leveragedToken).balanceOf(receiver.addr);
 
@@ -393,7 +392,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         assertEq(sum, oneMint, "one is the sum of it's constituents");
     }
 
-    // TODO: mint a pegged token and check the fee was the one for the new collateral ratio
+    // TODO: check the fee across the whole range of fee ratios and then do the minting in bits (excluding and including bonus)
 
     function testMinterRedeemPegged() public {}
 }

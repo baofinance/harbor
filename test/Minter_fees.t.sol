@@ -206,4 +206,6 @@ contract TestMinterFees is TestMinter {
         );
     }
     */
+
+    // TODO: check the bonus if properly paid - maybe do this in test mint leveraged
 }

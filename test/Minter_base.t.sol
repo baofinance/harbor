@@ -15,15 +15,17 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
+import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
+import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
+
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
+import { IReservePool } from "src/minter/IReservePool.sol";
 import { deployed } from "test/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { MockRateProvider } from "test/MockRateProvider.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
-
-import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import "test/Useful.sol";
 
 contract TestMinter is Test {
@@ -33,6 +35,7 @@ contract TestMinter is Test {
     address bonusToken;
 
     address leveragedToken;
+    address reservePool;
     MockPriceOracle priceOracle;
     MockRateProvider rateProvider;
 
@@ -168,7 +171,12 @@ contract TestMinter is Test {
 
         leveragedToken = Upgrades.deployUUPSProxy(
             "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoL"))
+            abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoUSDLwstETH"))
+        );
+
+        reservePool = Upgrades.deployUUPSProxy(
+            "ReservePool_v1.sol",
+            abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
         );
 
         danger = 140;
@@ -207,6 +215,7 @@ contract TestMinter is Test {
                     IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
                     address(priceOracle),
                     feeReceiver.addr,
+                    reservePool,
                     config
                 )
             )
@@ -290,6 +299,7 @@ contract TestMinterInit is TestMinter {
                     IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
                     address(priceOracle),
                     feeReceiver.addr,
+                    reservePool,
                     config
                 )
             )
@@ -307,8 +317,11 @@ contract TestMinterInit is TestMinter {
             IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
             address(priceOracle),
             feeReceiver.addr,
+            reservePool,
             config
         );
+
+        // TODO: test reserve pool is properly set up
 
         assertTrue(IAccessControl(minter).hasRole(ownerRole, owner.addr));
         assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
