@@ -52,3 +52,15 @@
 | redeemPeggedTokenFeeRatio                   | 2151            | 2151   | 2151   | 2151   | 701     |
 | updateConfig                                | 74494           | 74494  | 74494  | 74494  | 9       |
 
+--
+| src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |
+|-------------------------------------------------------|-----------------|-------|--------|-------|---------|
+| Deployment Cost                                       | Deployment Size |       |        |       |         |
+| 1597338                                               | 7269            |       |        |       |         |
+| Function Name                                         | min             | avg   | median | max   | # calls |
+| MINTER_ROLE                                           | 260             | 260   | 260    | 260   | 2       |
+| grantRole                                             | 5231            | 21709 | 29948  | 29948 | 3       |
+| initialize                                            | 2760            | 89353 | 94447  | 94447 | 18      |
+| requestBonus                                          | 3012            | 19291 | 17022  | 40110 | 4       |
+| withdrawFunds                                         | 3010            | 19778 | 22689  | 39792 | 5       |
+
