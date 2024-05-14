@@ -10,6 +10,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
+import { Token } from "src/common/Token.sol";
 
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
@@ -174,6 +175,8 @@ contract Minter_v1 is
 
         MinterStorage storage $ = _getMinterStorage();
         // balance tokens
+        if (!Token.isERC20(tokens_.collateralToken)) revert Token.NotERC20Token(tokens_.collateralToken);
+
         $.collateralToken = tokens_.collateralToken;
         $.peggedToken = tokens_.peggedToken;
         $.peggedTokenBalance = 0;
@@ -197,6 +200,13 @@ contract Minter_v1 is
 
     // only owners can upgrade this contract
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return
+            interfaceId == type(IMinter).interfaceId ||
+            interfaceId == type(IMinterTreasury).interfaceId ||
+            super.supportsInterface(interfaceId);
+    }
 
     // Updater functions
     // -----------------

@@ -19,10 +19,12 @@ import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
+import { Token } from "src/common/Token.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
-import { deployed } from "test/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
+
+import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { MockRateProvider } from "test/MockRateProvider.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
@@ -277,6 +279,32 @@ contract TestMinterInit is TestMinter {
 
     function setUp() public override {
         super.setUp();
+    }
+    // TODO: test the ERC20 check in Token - probably in a separate test contract
+    function test_notERC20() private {
+        //                   -------
+        Minter_v1 minter = new Minter_v1();
+        // not a contract
+        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, owner.addr));
+        minter.initialize(
+            owner.addr,
+            IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), owner.addr),
+            address(priceOracle),
+            feeReceiver.addr,
+            reservePool,
+            config
+        );
+
+        // contract but not ERC20
+        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, address(priceOracle)));
+        minter.initialize(
+            owner.addr,
+            IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
+            address(priceOracle),
+            feeReceiver.addr,
+            reservePool,
+            config
+        );
     }
 
     function test_initEvents() public {

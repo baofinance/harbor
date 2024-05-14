@@ -9,17 +9,20 @@ import { Vm } from "forge-std/Vm.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 //import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
+import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 import { deployed } from "test/deployed.sol";
 
 contract Test_ReservePool is Test {
+    using SafeERC20 for IERC20;
     address token1 = deployed.BaoUSD;
     address token2 = deployed.wstETH;
     address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
@@ -46,10 +49,26 @@ contract Test_ReservePool is Test {
         );
         // set up permissions
         minter = vm.createWallet("minter");
-        minterRole = ReservePool_v1(reservePool).MINTER_ROLE();
+        minterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
 
         vm.prank(owner.addr);
         IAccessControl(reservePool).grantRole(minterRole, minter.addr);
+    }
+
+    function _balanceOf(address token, address who) private view returns (uint256) {
+        if (token == address(0)) {
+            return who.balance;
+        } else {
+            return IERC20(token).balanceOf(who);
+        }
+    }
+
+    function _deal(address token, address to, uint256 amount) internal {
+        if (token == address(0)) {
+            vm.deal(to, amount);
+        } else {
+            deal(token, to, amount);
+        }
     }
 
     function test_init() public {
@@ -68,15 +87,7 @@ contract Test_ReservePool is Test {
         IAccessControl(reservePool).grantRole(minterRole, minter.addr);
     }
 
-    function test_bonus() public {
-        // make sure the receiver has no bonus tokens
-        assertEq(IERC20(token1).balanceOf(bonusReceiver.addr), 0);
-        assertEq(IERC20(token2).balanceOf(bonusReceiver.addr), 0);
-        assertEq(IERC20(token1).balanceOf(treasury.addr), 0);
-        assertEq(IERC20(token2).balanceOf(treasury.addr), 0);
-        assertEq(IERC20(token1).balanceOf(reservePool), 0);
-        assertEq(IERC20(token2).balanceOf(reservePool), 0);
-
+    function test_access() public {
         // can anyone request bonus
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), minterRole)
@@ -87,75 +98,87 @@ contract Test_ReservePool is Test {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
         );
         ReservePool_v1(reservePool).withdrawFunds(token1, bonusReceiver.addr, 1 ether);
+    }
 
-        // when none
-        // request
-        vm.expectEmit(true, true, true, true);
-        emit IReservePool.RequestBonus(minter.addr, token1, bonusReceiver.addr, 1 ether, 0);
-        vm.prank(minter.addr);
-        IReservePool(reservePool).requestBonus(token1, bonusReceiver.addr, 1 ether);
-        //-------------------------------------------------------------------------
-        assertEq(IERC20(token1).balanceOf(bonusReceiver.addr), 0);
-        // withdraw
-        vm.expectEmit(true, true, true, true);
-        emit ReservePool_v1.WithdrawFunds(owner.addr, token1, treasury.addr, 0);
-        vm.prank(owner.addr);
-        ReservePool_v1(reservePool).withdrawFunds(token1, treasury.addr, 1 ether);
-        //----------------------------------------------------------------------------
-        assertEq(IERC20(token1).balanceOf(treasury.addr), 0);
+    function test_bonus() public {
+        // we assume all tokens are ERC20
+        address[2] memory tokens = [token1, token2 /*, tokenNotERC20*/];
+        // make sure nothing has a balance of any bonus tokens
+        for (uint i = 0; i < tokens.length; i++) {
+            assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 0);
+            assertEq(_balanceOf(tokens[i], treasury.addr), 0);
+            assertEq(_balanceOf(tokens[i], reservePool), 0);
 
-        // add some funds - anyone can
-        deal(token1, address(this), 20 ether);
-        IERC20(token1).transfer(reservePool, 3 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 3 ether);
+            // when none
+            // request
+            vm.expectEmit(true, true, true, true);
+            emit IReservePool.RequestBonus(minter.addr, tokens[i], bonusReceiver.addr, 1 ether, 0);
+            vm.prank(minter.addr);
+            IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver.addr, 1 ether);
+            //-------------------------------------------------------------------------
+            assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 0);
+            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
+            // withdraw
+            vm.expectEmit(true, true, true, true);
+            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 0);
+            vm.prank(owner.addr);
+            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, 1 ether);
+            //----------------------------------------------------------------------------
+            assertEq(_balanceOf(tokens[i], treasury.addr), 0 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
 
-        // request less than some
-        vm.expectEmit(true, true, true, true);
-        emit IReservePool.RequestBonus(minter.addr, token1, bonusReceiver.addr, 1 ether, 1 ether);
-        vm.prank(minter.addr);
-        IReservePool(reservePool).requestBonus(token1, bonusReceiver.addr, 1 ether);
-        //-------------------------------------------------------------------------
-        assertEq(IERC20(token1).balanceOf(bonusReceiver.addr), 1 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 2 ether);
-        // withdraw
-        vm.expectEmit(true, true, true, true);
-        emit ReservePool_v1.WithdrawFunds(owner.addr, token1, treasury.addr, 1 ether);
-        vm.prank(owner.addr);
-        ReservePool_v1(reservePool).withdrawFunds(token1, treasury.addr, 1 ether);
-        //----------------------------------------------------------------------------
-        assertEq(IERC20(token1).balanceOf(treasury.addr), 1 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 1 ether);
+            // add some funds - anyone can
+            deal(tokens[i], reservePool, 3 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 3 ether);
 
-        // request more than some
-        vm.expectEmit(true, true, true, true);
-        emit IReservePool.RequestBonus(minter.addr, token1, bonusReceiver.addr, 2 ether, 1 ether);
-        vm.prank(minter.addr);
-        IReservePool(reservePool).requestBonus(token1, bonusReceiver.addr, 2 ether);
-        //-------------------------------------------------------------------------
-        assertEq(IERC20(token1).balanceOf(bonusReceiver.addr), 2 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 0 ether);
-        // withdraw
-        IERC20(token1).transfer(reservePool, 1 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 1 ether);
-        vm.expectEmit(true, true, true, true);
-        emit ReservePool_v1.WithdrawFunds(owner.addr, token1, treasury.addr, 1 ether);
-        vm.prank(owner.addr);
-        ReservePool_v1(reservePool).withdrawFunds(token1, treasury.addr, 2 ether);
-        //----------------------------------------------------------------------------
-        assertEq(IERC20(token1).balanceOf(treasury.addr), 2 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 0 ether);
+            // request less than some
+            vm.expectEmit(true, true, true, true);
+            emit IReservePool.RequestBonus(minter.addr, tokens[i], bonusReceiver.addr, 1 ether, 1 ether);
+            vm.prank(minter.addr);
+            IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver.addr, 1 ether);
+            //-------------------------------------------------------------------------
+            assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 1 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 2 ether);
+            // withdraw
+            vm.expectEmit(true, true, true, true);
+            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 1 ether);
+            vm.prank(owner.addr);
+            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, 1 ether);
+            //----------------------------------------------------------------------------
+            assertEq(_balanceOf(tokens[i], treasury.addr), 1 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
 
-        // withdraw it all
-        // withdraw
-        IERC20(token1).transfer(reservePool, 1 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 1 ether);
-        vm.expectEmit(true, true, true, true);
-        emit ReservePool_v1.WithdrawFunds(owner.addr, token1, treasury.addr, 1 ether);
-        vm.prank(owner.addr);
-        ReservePool_v1(reservePool).withdrawFunds(token1, treasury.addr, type(uint256).max);
-        //----------------------------------------------------------------------------
-        assertEq(IERC20(token1).balanceOf(treasury.addr), 3 ether);
-        assertEq(IERC20(token1).balanceOf(reservePool), 0 ether);
+            // request more than some
+            vm.expectEmit(true, true, true, true);
+            emit IReservePool.RequestBonus(minter.addr, tokens[i], bonusReceiver.addr, 2 ether, 1 ether);
+            vm.prank(minter.addr);
+            IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver.addr, 2 ether);
+            //-------------------------------------------------------------------------
+            assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 2 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
+            // withdraw
+            _deal(tokens[i], reservePool, 1 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
+            vm.expectEmit(true, true, true, true);
+            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 1 ether);
+            vm.prank(owner.addr);
+            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, 2 ether);
+            //----------------------------------------------------------------------------
+            assertEq(_balanceOf(tokens[i], treasury.addr), 2 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
+
+            // withdraw it all
+            // withdraw
+            _deal(tokens[i], reservePool, 1 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
+            vm.expectEmit(true, true, true, true);
+            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 1 ether);
+            vm.prank(owner.addr);
+            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, type(uint256).max);
+            //----------------------------------------------------------------------------
+            assertEq(_balanceOf(tokens[i], treasury.addr), 3 ether);
+            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
+        }
     }
 
     // TODO: test upgrading

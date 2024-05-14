@@ -28,7 +28,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 3394456                                     | 15580           |        |        |        |         |
+| 3563164                                     | 16360           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralRatio                             | 3336            | 3550   | 3473   | 22336  | 844     |
 | collateralToken                             | 2446            | 2446   | 2446   | 2446   | 1       |
@@ -37,7 +37,7 @@
 | freeMintLeveragedToken                      | 2949            | 74088  | 74235  | 125177 | 113     |
 | freeMintPeggedToken                         | 2992            | 81323  | 120635 | 120635 | 17      |
 | hasRole                                     | 2762            | 2762   | 2762   | 2762   | 5       |
-| initialize                                  | 3268            | 501679 | 532830 | 532830 | 17      |
+| initialize                                  | 3268            | 511045 | 542782 | 542782 | 17      |
 | leverageTokensForCollateral                 | 5208            | 5242   | 5208   | 8850   | 106     |
 | leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 1       |
 | leveragedTokenBalance                       | 1609            | 1609   | 1609   | 1609   | 6       |
@@ -56,11 +56,11 @@
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |
 |-------------------------------------------------------|-----------------|-------|--------|-------|---------|
 | Deployment Cost                                       | Deployment Size |       |        |       |         |
-| 1597338                                               | 7269            |       |        |       |         |
+| 1581550                                               | 7196            |       |        |       |         |
 | Function Name                                         | min             | avg   | median | max   | # calls |
-| MINTER_ROLE                                           | 260             | 260   | 260    | 260   | 2       |
-| grantRole                                             | 5231            | 21709 | 29948  | 29948 | 3       |
-| initialize                                            | 2760            | 89353 | 94447  | 94447 | 18      |
-| requestBonus                                          | 3012            | 19291 | 17022  | 40110 | 4       |
-| withdrawFunds                                         | 3010            | 19778 | 22689  | 39792 | 5       |
+| REQUESTER_ROLE                                        | 239             | 239   | 239    | 239   | 3       |
+| grantRole                                             | 5231            | 23768 | 29948  | 29948 | 4       |
+| initialize                                            | 2782            | 89643 | 94469  | 94469 | 19      |
+| requestBonus                                          | 3034            | 21620 | 22914  | 40231 | 7       |
+| withdrawFunds                                         | 3010            | 21623 | 22572  | 39891 | 9       |
 
