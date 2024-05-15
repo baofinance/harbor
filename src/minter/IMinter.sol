@@ -49,7 +49,6 @@ interface IMinter {
     //  rebalance, e.g. 125%, here fees are 100% so an effective pause. This should be mentioned, or a pause instituted,
     //              in the UI so that customers don't get stung, non-web users have to look after themselves
     //  bonus, when rebalance pools are exhausted and CR < rebalance
-    // TODO: separate each config for mint/redeem pegged/leveraged
     // because: we may want to increase mint pegged fees before reducing redeem leveraged, etc.
     // need to also minimise storage accesses
 

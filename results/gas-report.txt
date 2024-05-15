@@ -11,16 +11,16 @@
 | balanceOf                                                   | 714             | 1142   | 714    | 2714   | 42      |
 | burn                                                        | 2910            | 6326   | 5322   | 15169  | 5       |
 | decimals                                                    | 222             | 222    | 222    | 222    | 1       |
-| grantRole                                                   | 5231            | 20064  | 29948  | 29948  | 25      |
+| grantRole                                                   | 5231            | 19973  | 29948  | 29948  | 27      |
 | hasRole                                                     | 2728            | 2728   | 2728   | 2728   | 5       |
-| initialize                                                  | 3658            | 182520 | 190651 | 190651 | 23      |
-| mint                                                        | 2933            | 16365  | 13155  | 49355  | 118     |
+| initialize                                                  | 3658            | 182859 | 190651 | 190651 | 24      |
+| mint                                                        | 2933            | 16626  | 13155  | 49355  | 119     |
 | name                                                        | 3271            | 3271   | 3271   | 3271   | 1       |
 | nonces                                                      | 2754            | 2754   | 2754   | 2754   | 1       |
 | permit                                                      | 57640           | 57640  | 57640  | 57640  | 1       |
 | supportsInterface                                           | 449             | 468    | 468    | 487    | 2       |
 | symbol                                                      | 3239            | 3239   | 3239   | 3239   | 1       |
-| totalSupply                                                 | 348             | 1373   | 2348   | 2348   | 234     |
+| totalSupply                                                 | 348             | 1377   | 2348   | 2348   | 235     |
 | transfer                                                    | 2907            | 16445  | 16445  | 29983  | 2       |
 | transferFrom                                                | 3033            | 13852  | 8711   | 35793  | 5       |
 
@@ -28,23 +28,23 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 3563164                                     | 16360           |        |        |        |         |
+| 3597738                                     | 16520           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
-| collateralRatio                             | 3336            | 3550   | 3473   | 22336  | 844     |
+| collateralRatio                             | 3336            | 3550   | 3473   | 22336  | 845     |
 | collateralToken                             | 2446            | 2446   | 2446   | 2446   | 1       |
 | collateralTokenBalance                      | 1404            | 1404   | 1404   | 1404   | 24      |
 | feeReceiver                                 | 2490            | 2490   | 2490   | 2490   | 1       |
-| freeMintLeveragedToken                      | 2949            | 74088  | 74235  | 125177 | 113     |
-| freeMintPeggedToken                         | 2992            | 81323  | 120635 | 120635 | 17      |
+| freeMintLeveragedToken                      | 2949            | 74386  | 74235  | 125177 | 114     |
+| freeMintPeggedToken                         | 2992            | 83507  | 120635 | 120635 | 18      |
 | hasRole                                     | 2762            | 2762   | 2762   | 2762   | 5       |
-| initialize                                  | 3268            | 511045 | 542782 | 542782 | 17      |
+| initialize                                  | 3268            | 512809 | 542782 | 542782 | 18      |
 | leverageTokensForCollateral                 | 5208            | 5242   | 5208   | 8850   | 106     |
 | leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 1       |
 | leveragedTokenBalance                       | 1609            | 1609   | 1609   | 1609   | 6       |
 | mintLeveragedToken                          | 2751            | 54127  | 44905  | 143536 | 12      |
 | mintLeveragedTokenFeeRatio                  | 6746            | 7726   | 7994   | 10746  | 701     |
-| mintPeggedToken                             | 2773            | 55888  | 35389  | 128190 | 16      |
-| mintPeggedTokenFeeRatio                     | 4606            | 5767   | 4606   | 11194  | 705     |
+| mintPeggedToken                             | 2773            | 68971  | 89855  | 128183 | 24      |
+| mintPeggedTokenFeeRatio                     | 4606            | 5829   | 4606   | 12027  | 719     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 1       |
 | peggedTokenBalance                          | 506             | 791    | 506    | 2506   | 7       |
 | priceOracle                                 | 2447            | 2447   | 2447   | 2447   | 1       |
@@ -60,7 +60,7 @@
 | Function Name                                         | min             | avg   | median | max   | # calls |
 | REQUESTER_ROLE                                        | 239             | 239   | 239    | 239   | 3       |
 | grantRole                                             | 5231            | 23768 | 29948  | 29948 | 4       |
-| initialize                                            | 2782            | 89643 | 94469  | 94469 | 19      |
+| initialize                                            | 2782            | 89884 | 94469  | 94469 | 20      |
 | requestBonus                                          | 3034            | 21620 | 22914  | 40231 | 7       |
 | withdrawFunds                                         | 3010            | 21623 | 22572  | 39891 | 9       |
 

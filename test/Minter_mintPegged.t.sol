@@ -384,6 +384,4 @@ contract TestMinterMintPegged is TestMinterMint {
         assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver.addr), receiverPeggedBefore + expectedPeggedTokenOut);
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 0, "transferred it all");
     }
-
-    // TODO: check the fee across the whole range of fee ratios and then do the minting in bits
 }

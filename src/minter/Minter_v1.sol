@@ -121,7 +121,6 @@ contract Minter_v1 is
         // collateralTokenBalance - we track this here because this contract can also own collateral tokens
         // that will be used for the reserve pool
         // TODO: do we want a collateral cap?
-        // TODO: remove the collateralTokenBalance
         // it's just the ownership of collateralTokens
         // so: reserve pool is a separate contract
         //                                             slot
@@ -148,7 +147,6 @@ contract Minter_v1 is
     // keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
     bytes32 private constant MINTER_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
 
-    // TODO: also the difference between external and public (apart from the auto generation of getters and setters)
     function _getMinterStorage() private pure returns (MinterStorage storage $) {
         assembly {
             $.slot := MINTER_STORAGE
@@ -256,7 +254,8 @@ contract Minter_v1 is
     }
 
     function _updateConfig(Config calldata config) private {
-        // check the configs are monotonically increasing, bonus, rebalance, danger, normal
+        // TODO: check rebalance pools are exhausted before bonus is handed out?
+
         MinterStorage storage $ = _getMinterStorage();
 
         // action config
@@ -339,11 +338,12 @@ contract Minter_v1 is
             collateralTokenBalance_,
             peggedTokenBalance_
         );
-        // console.log("feeRatio=%s", uint256(feeRatio));
         int256 fee = (int256(collateralIn) * feeRatio) / 1 ether;
-        // TODO: handle the case where fee is negative!
-        collateralIn = uint256(int256(collateralIn) - fee);
-        // console.log("fee=%s, collateralIn=%s", uint256(fee), collateralIn);
+        if (fee >= 0) {
+            collateralIn -= uint256(fee);
+        } else {
+            IReservePool($.reservePool).requestBonus(collateralToken_, recipient, uint256(-fee));
+        }
 
         address peggedToken_ = $.peggedToken;
         if (collateralIn == 0) revert MintZeroAmount(peggedToken_);
@@ -423,8 +423,34 @@ contract Minter_v1 is
     }
 
     /**
+     * @dev formula derived by taking the collateral ratio formula an backing out the collateral needed
+     * fees are deducted beforehand, thus applying to both the collateral token and pegged token balances
+     * this function can be used to calcuilate
+     * 1) piecewise pro-rated fee ratios for multiple fee zones
+     * 2) the disallowed collateral amount given a disallow collateral ratio and a calculated fee ratio
+     * @param targetCollateralRatio the collateral ratio we aim to get to, with the returned collateral tokens
+     * @param collateralTokenBalance_ the collateral token balance of the minter
+     * @param price the price of the collateral in pegged token units
+     * @param peggedTokenBalance_  the pegged tokend minted by the minter
+     * @param feeRatio  the singular fee ratio applied between the current collateral ratio (given by the parameters)
+     */
+    function _collateralTokensForCollateralRatio(
+        uint256 targetCollateralRatio,
+        uint256 collateralTokenBalance_,
+        uint256 price,
+        uint256 peggedTokenBalance_,
+        int256 feeRatio
+    ) private pure returns (uint256 collateralTokens) {
+        collateralTokens =
+            ((collateralTokenBalance_ * price - targetCollateralRatio * peggedTokenBalance_) * 1 ether) /
+            uint256(
+                int256(price) * ((int256(targetCollateralRatio) * (1 ether - feeRatio)) / 1 ether - 1 ether + feeRatio)
+            );
+    }
+
+    /**
      * @notice calculates the fee or bonuses relating to the different feeRatios
-     * It calculates the proportion, in collateral ratio space, the transition from one collateral ratio boundary to another
+     * It calculates the proportion, in collateral space, the transition from one collateral ratio boundary to another
      * and performs a weighted sum of the fee ratios. It essentially performs a definite integral of the fee function.
      * @param config is the collateral ratio boundaries and the fee ratios within each boundary
      * @param collateralIn the proposed amount of collateral being posted in exchange for pegged tokens
@@ -466,8 +492,7 @@ contract Minter_v1 is
             proposedCollateralRatio = collateralRatioLowerBound;
             // console.log("  proposedCollateralRatio=%s (limited)", proposedCollateralRatio);
             feeRatio = _proRatedRatio(proposedCollateralRatio, currentCollateralRatio, config);
-            // formula derived by taking the collateral ratio formula an backing out the collateral needed
-            // fees are deducted before hand, thus applying to both the collateral token and pegged token balances
+
             // without consideroing fees:
             // collateralInUsed =
             //     ((collateralTokenBalance_ * price - proposedCollateralRatio * peggedTokenBalance_) * 1 ether) /
@@ -563,12 +588,10 @@ contract Minter_v1 is
             $.peggedTokenBalance
         ) * int256(collateralIn)) / 1 ether;
 
-        // TODO: add the rebalance pool balance
         if (fee >= 0) {
             collateralIn -= uint256(fee);
             bonusOut = 0;
         } else {
-            // TODO: add the bonus here (if rebalance pools are exhausted)
             IReservePool($.reservePool).requestBonus(collateralToken_, recipient, uint256(-fee));
         }
 

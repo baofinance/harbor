@@ -177,6 +177,62 @@ contract TestMinterFees is TestMinter {
         ); // CR -> disallow but fee ratio is still danger
     }
 
+    function _checkIntegral(uint iTotalMint, uint step) private returns (uint256 totalFee) {
+        uint256 totalMint = iTotalMint * 1 ether;
+        totalFee = (totalMint * uint256(IMinter(minter).mintPeggedTokenFeeRatio(totalMint))) / 1 ether;
+        console.log("expected fees=%s", totalFee);
+        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        console.log("starting fees=%s", start);
+        for (uint i = 0; i < iTotalMint; i++) {
+            uint256 s = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+            console.log(" expected %s=%s", i, uint256(IMinter(minter).mintPeggedTokenFeeRatio(1 ether)));
+            vm.prank(user.addr);
+            IMinter(minter).mintPeggedToken(1 ether, user.addr, 0);
+            console.log(" %s=%s", i, IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - s);
+        }
+        console.log("all=%s", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+        console.log("diff=%s", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start - totalFee);
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start, totalFee, Useful.toString(step));
+    }
+
+    function test_mintPeggedFeesAreIntegrals() public {
+        // critical CRs = 131% (disallow), 140% (danger)
+        // TODO: check the above is the case
+        setUp_collateral(20 ether, 10 ether); // CR = 30/20 = 150%
+        assertLt(dangerCollateralRatioUpperBound, IMinter(minter).collateralRatio(), "test must start with CR normal");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
+
+        // check fees:
+        // 1) completely in the first zone: mint(4), CR = 34/24 = 141%
+        uint256 totalFee1 = (4 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(4 ether))) / 1 ether;
+        // 2) straddling the first boundary: mint(4), CR = 38/28 = 135%
+        uint256 totalFee2 = (8 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(8 ether))) / 1 ether;
+        // 3) remaining in the second zone: mint(2), CR= 41/31 = 132%
+        uint256 totalFee3 = (10 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(10 ether))) / 1 ether;
+        // 4) straddling all zones: mint(5), CR = 46/36 = 128%
+        uint256 totalFee4 = (15 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(15 ether))) / 1 ether;
+
+        // 1)
+        uint256 totalFee = _checkIntegral(4, 1);
+        assertEq(totalFee, totalFee1, "1, running sum");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee);
+
+        // 2)
+        totalFee += _checkIntegral(4, 2);
+        assertEq(totalFee, totalFee2, "2, running sum");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee);
+
+        // 3)
+        totalFee += _checkIntegral(2, 3);
+        assertEq(totalFee, totalFee3, "3, running sum");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee);
+
+        // 4)
+        totalFee += _checkIntegral(5, 4);
+        assertEq(totalFee, totalFee4, "4, running sum");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee);
+    }
+
     /*
     function test_mintLeveragedFees() public {
         (, uint256 price, , ) = priceOracle.getPrice();
