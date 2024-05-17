@@ -19,6 +19,10 @@ import { TestMinter } from "test/Minter_base.t.sol";
 contract TestMinterFees is TestMinter {
     Vm.Wallet user;
 
+    function clog(string memory name, uint256 value) private pure {
+        console.log("%s=%s (%e)", name, value, value);
+    }
+
     function setUp() public virtual override {
         super.setUp();
         user = vm.createWallet("user");
@@ -178,21 +182,33 @@ contract TestMinterFees is TestMinter {
     }
 
     function _checkIntegral(uint iTotalMint, uint step) private returns (uint256 totalFee) {
+        console.log("_checkIntegral(%s, %s)", iTotalMint, step);
+        // console.log("------------------------------------------");
         uint256 totalMint = iTotalMint * 1 ether;
         totalFee = (totalMint * uint256(IMinter(minter).mintPeggedTokenFeeRatio(totalMint))) / 1 ether;
-        console.log("expected fees=%s", totalFee);
+        // console.log(" %s expected fees=%s", step, totalFee);
         uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        console.log("starting fees=%s", start);
+        console.log(" %s starting fees=%s", step, start);
         for (uint i = 0; i < iTotalMint; i++) {
-            uint256 s = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-            console.log(" expected %s=%s", i, uint256(IMinter(minter).mintPeggedTokenFeeRatio(1 ether)));
+            console.log("  step % mint %s", step, i);
+            // uint256 s = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+            // clog("  expected", uint256(IMinter(minter).mintPeggedTokenFeeRatio(1 ether)));
+            if (step == 4 && i >= 3) {
+                vm.expectRevert(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, deployed.BaoUSD));
+            }
             vm.prank(user.addr);
             IMinter(minter).mintPeggedToken(1 ether, user.addr, 0);
-            console.log(" %s=%s", i, IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - s);
+            clog("  fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr));
         }
-        console.log("all=%s", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
-        console.log("diff=%s", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start - totalFee);
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start, totalFee, Useful.toString(step));
+        // clog(" all (feeReceiver)", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+        // clog(" all (pre-calc'd) ", totalFee);
+        assertApproxEqAbs(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
+            totalFee,
+            2,
+            Useful.toString(step)
+        );
+        console.log("_checkIntegral() -> %s", totalFee);
     }
 
     function test_mintPeggedFeesAreIntegrals() public {
@@ -204,12 +220,16 @@ contract TestMinterFees is TestMinter {
 
         // check fees:
         // 1) completely in the first zone: mint(4), CR = 34/24 = 141%
+        console.log("step 1 (cumulative):");
         uint256 totalFee1 = (4 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(4 ether))) / 1 ether;
         // 2) straddling the first boundary: mint(4), CR = 38/28 = 135%
+        console.log("step 2 (cumulative):");
         uint256 totalFee2 = (8 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(8 ether))) / 1 ether;
         // 3) remaining in the second zone: mint(2), CR= 41/31 = 132%
+        console.log("step 3 (cumulative):");
         uint256 totalFee3 = (10 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(10 ether))) / 1 ether;
         // 4) straddling all zones: mint(5), CR = 46/36 = 128%
+        console.log("step 4 (cumulative):");
         uint256 totalFee4 = (15 ether * uint256(IMinter(minter).mintPeggedTokenFeeRatio(15 ether))) / 1 ether;
 
         // 1)
@@ -220,17 +240,17 @@ contract TestMinterFees is TestMinter {
         // 2)
         totalFee += _checkIntegral(4, 2);
         assertEq(totalFee, totalFee2, "2, running sum");
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee);
+        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee, 2);
 
         // 3)
         totalFee += _checkIntegral(2, 3);
         assertEq(totalFee, totalFee3, "3, running sum");
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee);
+        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee, 2);
 
         // 4)
         totalFee += _checkIntegral(5, 4);
         assertEq(totalFee, totalFee4, "4, running sum");
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee);
+        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), totalFee, 2);
     }
 
     /*

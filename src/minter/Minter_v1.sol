@@ -8,6 +8,7 @@ import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contrac
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
@@ -36,6 +37,10 @@ contract Minter_v1 is
     using SafeERC20 for IERC20;
     using WordCodec for bytes32;
 
+    function clog(string memory name, uint256 value) private view {
+        console.log("%s=%s (%e)", name, value, value);
+    }
+
     // collateral ratio bounds are stored as uint32, which allows for a maximum value of ~4 billion
     // with decimals = 6, this gives a max ratio of 4,000 (400,000%) with precision of 0.000001 (0.0001%),
     // e.g. 130.55% is easily catered for
@@ -48,13 +53,6 @@ contract Minter_v1 is
     // this allow 8 of these to be stored in a slot. As we need 6, we need a whole slot
     uint private constant INCENTIVE_RATIO_DECIMALS = 9;
 
-    // zone indices for collateral ration, used to index CollateralRatioZones and the various FeeRatios
-    enum CollateralRatioZones {
-        bonus,
-        rebalance,
-        danger,
-        normal
-    }
     uint private constant maxBands = 6;
     uint private constant maxBounds = maxBands - 1;
 
@@ -86,6 +84,7 @@ contract Minter_v1 is
     function setDisallowCollateralRatioUpperBound(ActionIncentive memory config, uint256 value) private pure {
         config.slot0 = config.slot0.insertUint(value / 10 ** (18 - COLLATERAL_RATIO_DECIMALS), 192, 32);
     }
+    // TODO: do a version of these that don't need us to do a "/ 1 ether" after multiplying
     function incentiveRatios(ActionIncentive memory config, uint index) private pure returns (int256) {
         return config.slot1.decodeInt(index * 32, 32) * int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS));
     }
@@ -233,10 +232,15 @@ contract Minter_v1 is
 
         setCollateralRatioBandCount(out, config.incentiveRatios.length);
 
-        // check monotonically increasing and copy;
+        // check monotonically increasing, and greater than disallow ratio, and then copy;
         uint256 min = 0;
         for (uint i = 0; i < uint(config.collateralRatioBandUpperBounds.length); i++) {
             uint256 value = config.collateralRatioBandUpperBounds[i];
+            // disallow must be at a lower collateral ratio than any fee boundary (or the fee boundary is ignored!)
+            if (i == 0 && value <= disallowCollateralRatioUpperBound_) {
+                revert InvalidCollateralRatioBoundValue(value, disallowCollateralRatioUpperBound_);
+            }
+            // must be monotonically increasing
             if (value < min) {
                 revert InvalidCollateralRatioBoundValue(value, min);
             }
@@ -330,19 +334,20 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
 
         // fee calculation
-        int256 feeRatio;
-        (collateralIn, feeRatio) = _mintPeggedAdjustments(
+        uint256 feeRatio;
+        (collateralIn, feeRatio, ) = _mintPeggedAdjustments2(
             $.mintPeggedConfig,
             collateralIn,
             price,
             collateralTokenBalance_,
             peggedTokenBalance_
         );
-        int256 fee = (int256(collateralIn) * feeRatio) / 1 ether;
+        uint256 fee = (collateralIn * feeRatio) / 1 ether;
+        // TODO: handle bonuses, maybe net the fee and the bonus
         if (fee >= 0) {
             collateralIn -= uint256(fee);
         } else {
-            IReservePool($.reservePool).requestBonus(collateralToken_, recipient, uint256(-fee));
+            // IReservePool($.reservePool).requestBonus(collateralToken_, recipient, uint256(-fee));
         }
 
         address peggedToken_ = $.peggedToken;
@@ -423,32 +428,6 @@ contract Minter_v1 is
     }
 
     /**
-     * @dev formula derived by taking the collateral ratio formula an backing out the collateral needed
-     * fees are deducted beforehand, thus applying to both the collateral token and pegged token balances
-     * this function can be used to calcuilate
-     * 1) piecewise pro-rated fee ratios for multiple fee zones
-     * 2) the disallowed collateral amount given a disallow collateral ratio and a calculated fee ratio
-     * @param targetCollateralRatio the collateral ratio we aim to get to, with the returned collateral tokens
-     * @param collateralTokenBalance_ the collateral token balance of the minter
-     * @param price the price of the collateral in pegged token units
-     * @param peggedTokenBalance_  the pegged tokend minted by the minter
-     * @param feeRatio  the singular fee ratio applied between the current collateral ratio (given by the parameters)
-     */
-    function _collateralTokensForCollateralRatio(
-        uint256 targetCollateralRatio,
-        uint256 collateralTokenBalance_,
-        uint256 price,
-        uint256 peggedTokenBalance_,
-        int256 feeRatio
-    ) private pure returns (uint256 collateralTokens) {
-        collateralTokens =
-            ((collateralTokenBalance_ * price - targetCollateralRatio * peggedTokenBalance_) * 1 ether) /
-            uint256(
-                int256(price) * ((int256(targetCollateralRatio) * (1 ether - feeRatio)) / 1 ether - 1 ether + feeRatio)
-            );
-    }
-
-    /**
      * @notice calculates the fee or bonuses relating to the different feeRatios
      * It calculates the proportion, in collateral space, the transition from one collateral ratio boundary to another
      * and performs a weighted sum of the fee ratios. It essentially performs a definite integral of the fee function.
@@ -506,11 +485,214 @@ contract Minter_v1 is
                 );
         } else {
             collateralInUsed = collateralIn;
-            // calculate the fee as a pro-rata of each of the collateral zones it is in
+            // calculate the fee as a pro-rata of each of the collateral bands it is in
             feeRatio = _proRatedRatio(proposedCollateralRatio, currentCollateralRatio, config);
         }
         // console.log("   feeRatio=%s", uint256(feeRatio));
         // console.log("   collateralInUsed=%s", collateralInUsed);
+    }
+
+    /**
+     * @dev formula derived by taking the collateral ratio formula an backing out the collateral needed
+     * fees are deducted beforehand, thus applying to both the collateral token and pegged token balances
+     * this function can be used to calcuilate
+     * 1) piecewise pro-rated fee ratios for multiple fee zones
+     * 2) the disallowed collateral amount given a disallow collateral ratio and a calculated fee ratio
+     * @param targetCollateralRatio the collateral ratio we aim to get to, with the returned collateral tokens
+     * @param collateralTokenBalance_ the collateral token balance of the minter
+     * @param price the price of the collateral in pegged token units
+     * @param peggedTokenBalance_  the pegged tokend minted by the minter
+     * @param feeRatio  the singular fee ratio applied between the current collateral ratio (given by the parameters)
+     */
+    function _collateralTokensForCollateralRatio(
+        uint256 targetCollateralRatio,
+        uint256 collateralTokenBalance_,
+        uint256 price,
+        uint256 peggedTokenBalance_,
+        // TODO: make this a uint256 and ignre all negative fees
+        int256 feeRatio
+    ) private pure returns (uint256 collateralTokens) {
+        // console.log("      targetCollateralRatio=%s", targetCollateralRatio);
+        // console.log("      collateralTokenBalance_=%s", collateralTokenBalance_);
+        // console.log("      price=%s", price);
+        // console.log("      peggedTokenBalance_=%s", peggedTokenBalance_);
+        // console.log("      feeRatio=%s", uint256(feeRatio));
+
+        collateralTokens =
+            ((collateralTokenBalance_ * price - targetCollateralRatio * peggedTokenBalance_) * 1 ether) /
+            uint256(
+                int256(price) * ((int256(targetCollateralRatio) * (1 ether - feeRatio)) / 1 ether - 1 ether + feeRatio)
+            );
+        // console.log("      collateralTokens=%s", collateralTokens);
+    }
+
+    function _bandFeeRatio(ActionIncentive memory config, uint256 band) private pure returns (uint256 feeRatio) {
+        return uint256(SignedMath.max(incentiveRatios(config, band), 0));
+    }
+
+    function _getBandForCollateralRatio(
+        ActionIncentive memory config,
+        uint256 collateralRatio_
+    ) private pure returns (uint256) {
+        // clog("  currentCollateralRatio", currentCollateralRatio);
+
+        // TODO: why add 2 for the lower bound? because we want to ensure that the below calculations do not result in a
+        // collateral ratio less than the disallow upper bound.
+        uint256 allowCollateralRatioLowerBound = disallowCollateralRatioUpperBound(config);
+        // console.log("  collateralRatioLowerBound=%s", allowCollateralRatioLowerBound);
+        // as minting never increases collateral ratio if we are currently disallowed then there's no collateral used and the fee ratio is 0
+        if (collateralRatio_ < (allowCollateralRatioLowerBound + 1)) {
+            // console.log("all inside disallowed zone");
+            return type(uint256).max;
+        }
+        // TODO, search
+    }
+
+    function _mintPeggedAdjustments2(
+        ActionIncentive memory config,
+        uint256 collateralIn,
+        uint256 price,
+        uint256 collateralTokenBalance_,
+        uint256 peggedTokenBalance_
+    ) private pure returns (uint256 collateralInUsed, uint256 feeRatio, uint256 bonusRatio) {
+        // console.log("  collateralIn=%s", collateralIn);
+        // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
+        // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
+        uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
+        // clog("  currentCollateralRatio", currentCollateralRatio);
+
+        // TODO: why add 2 for the lower bound? because we want to ensure that the below calculations do not result in a
+        // collateral ratio less than the disallow upper bound.
+        uint256 allowCollateralRatioLowerBound = disallowCollateralRatioUpperBound(config);
+        // console.log("  collateralRatioLowerBound=%s", allowCollateralRatioLowerBound);
+        // as minting never increases collateral ratio if we are currently disallowed then there's no collateral used and the fee ratio is 0
+        if (currentCollateralRatio < (allowCollateralRatioLowerBound + 1)) {
+            // console.log("all inside disallowed zone");
+            return (0, 0, 0);
+        }
+        // TODO: handle depegged situation, where leveraged token is worth 0 and pegged is worth it's share of collateral
+
+        // simulate minting tokens from current collateral ratio down, extracting the fee as we go.
+        // we do this band at a time
+        // find the band where the current collateral ratio is
+        uint band;
+        for (band = 0; band < collateralRatioBandCount(config) - 1; band++) {
+            if (currentCollateralRatio <= collateralRatioUpperBounds(config, band)) {
+                break;
+            }
+        }
+        // console.log("  band=%s", band);
+
+        // TODO: handle negative fees - they are treated as zero fees, then added as a bonus later
+        // TODO: need to sum up the bonus too - incentiveRatio should return a tuple
+        uint256 bandFeeRatio = _bandFeeRatio(config, band);
+        // console.log("  bandFeeRatio=%s", bandFeeRatio);
+        uint256 convertibleCollateral = collateralIn - (collateralIn * bandFeeRatio) / 1 ether;
+        // console.log("  convertibleCollateral=%s", convertibleCollateral);
+        // what's the new collateral ratio if we convert the collateral to pegged tokens (at the bandFee)
+        uint256 potentialCollateralRatio = _collateralRatio(
+            collateralTokenBalance_ + convertibleCollateral,
+            price,
+            peggedTokenBalance_ + ((convertibleCollateral * price) / 1 ether)
+        );
+        // clog("  potentialCollateralRatio", potentialCollateralRatio);
+        // check against allowed lower bounds
+        if (band == 0) {
+            // console.log("   lowest incentive band");
+            if (potentialCollateralRatio < allowCollateralRatioLowerBound + 1) {
+                potentialCollateralRatio = allowCollateralRatioLowerBound;
+                // console.log("   disallow band");
+                // console.log("    potentialCollateralRatio=%s", potentialCollateralRatio);
+                // recalculate the collateralIn remaining
+                collateralInUsed = _collateralTokensForCollateralRatio(
+                    potentialCollateralRatio,
+                    collateralTokenBalance_,
+                    price,
+                    peggedTokenBalance_,
+                    int256(bandFeeRatio) // TODO: take out this cast
+                );
+            } else {
+                collateralInUsed = collateralIn;
+            }
+            feeRatio = bandFeeRatio;
+        } else if (potentialCollateralRatio > collateralRatioUpperBounds(config, band - 1)) {
+            // all within the one band
+            collateralInUsed = collateralIn;
+            feeRatio = uint256(SignedMath.max(incentiveRatios(config, band), 0));
+        } else {
+            // console.log("  multiple bands...");
+            // crossing a band boundary, so need to pro-rate the fee for each band crossed
+            // work downwards (minting pegged never increases collateral ratio), simulating a mint in each band as we go
+            // console.log("  feeRatio=%s", feeRatio);
+            for (; band > 0; band--) {
+                // console.log("    band=%s", band);
+                // Calculate pro-rated fee for the portion within the band, ie between upper bound of band-1 and current collateral ratio
+                uint256 collateralInBand = _collateralTokensForCollateralRatio(
+                    collateralRatioUpperBounds(config, band - 1),
+                    collateralTokenBalance_,
+                    price,
+                    peggedTokenBalance_,
+                    incentiveRatios(config, band)
+                );
+                // clog("    collateralInBand", collateralInBand);
+                if (collateralInBand > collateralIn) {
+                    // we have reached the final band
+                    // console.log("    found last band, %s", band);
+                    break;
+                }
+                // add to the feeRatio
+                feeRatio += collateralInBand * bandFeeRatio;
+                // console.log("    feeRatio=%s", feeRatio);
+                // and the given collateral actually used
+                // TODO: do we need to keep a running total
+                // TODO: - isn't the final value the original collateralIn - final collateralIn
+                // TODO: so we're counting the value twice
+                collateralInUsed += collateralInBand;
+                // clog("    collateralInUsed", collateralInUsed);
+                // simulate the mint
+                uint256 collateralAdded = (collateralInBand * (1 ether - bandFeeRatio)) / 1 ether;
+                collateralTokenBalance_ += collateralAdded;
+                // clog("    collateralTokenBalance_", collateralTokenBalance_);
+                peggedTokenBalance_ += (collateralAdded * price) / 1 ether;
+                // clog("    peggedTokenBalance_", peggedTokenBalance_);
+                collateralIn -= collateralInBand;
+                // clog("    collateralIn", collateralIn);
+                // clog("    collateralRatio", _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_));
+
+                bandFeeRatio = uint256(SignedMath.max(incentiveRatios(config, band - 1), 0));
+                // console.log("    bandFeeRatio=%s", bandFeeRatio);
+            }
+            // console.log("  last band=%s", band);
+            // check we are not in the disallow band (disallow band can only be in the lowest fee band)
+            if (band == 0) {
+                potentialCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
+                // console.log("  potentialCollateralRatio=%s", potentialCollateralRatio);
+                // console.log("  <? allowCollateralRatioLowerBound=%s", allowCollateralRatioLowerBound);
+
+                if (potentialCollateralRatio < allowCollateralRatioLowerBound) {
+                    potentialCollateralRatio = allowCollateralRatioLowerBound;
+                    // console.log("    potentialCollateralRatio=%s", potentialCollateralRatio);
+                    // recalculate the collateralIn remaining
+                    collateralIn = _collateralTokensForCollateralRatio(
+                        potentialCollateralRatio,
+                        collateralTokenBalance_,
+                        price,
+                        peggedTokenBalance_,
+                        int256(bandFeeRatio) // TODO: take out this cast
+                    );
+                    // console.log("    collateralIn=%s", collateralIn);
+                }
+            }
+            collateralInUsed += collateralIn;
+            // add the final band feeRatio
+            feeRatio += collateralIn * bandFeeRatio;
+            // and scale
+            feeRatio /= collateralInUsed;
+            // console.log("  multiple bands, done.");
+        }
+
+        // clog("   collateralInUsed", collateralInUsed);
+        // clog("   feeRatio", uint256(feeRatio));
     }
 
     function freeMintPeggedToken(
@@ -740,13 +922,15 @@ contract Minter_v1 is
         // console.log("about to call adjustments");
         // fee calculation
         uint256 collateralUsed;
-        (collateralUsed, feeRatio) = _mintPeggedAdjustments(
+        uint256 uFeeRatio;
+        (collateralUsed, uFeeRatio, ) = _mintPeggedAdjustments2(
             $.mintPeggedConfig,
             additionalCollateral,
             price,
             _collateralTokenBalance($.collateralToken),
             $.peggedTokenBalance
         );
+        feeRatio = int256(uFeeRatio);
         //console.log("mintPeggedTokenFeeRatio=%s", feeRatio);
     }
 
