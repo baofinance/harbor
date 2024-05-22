@@ -1,8 +1,9 @@
 datafile = "fees.csv"
 #datafile1 = "fees.good.csv"
 set datafile separator comma
-set key autotitle columnheader noenhanced
+set key autotitle columnheader noenhanced below
 set terminal svg enhanced size 500 300 background rgb "gray90"
+#set terminal pngcairo size 500 300
 set autoscale
 set colorsequence default
 plot datafile using ($2):($3) with lines linewidth 2 dashtype 2 linetype 1, \

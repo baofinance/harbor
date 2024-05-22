@@ -12,7 +12,7 @@ interface IMinter {
         address collateralToken;
     }
 
-    /*
+    /* TODO: rewrite this (or remove it)
      * fees, rebalance and bonuses
      * say, collateral value falls, and continues to fall, the sequence of stability measures is:
      *   1) at CR = danger,
@@ -247,13 +247,19 @@ interface IMinter {
     function leveragedTokenBalance() external view returns (uint256);
     function collateralTokenBalance() external view returns (uint256);
 
-    function mintPeggedTokenFeeRatio(uint256 additionalCollateral) external view returns (int256 fees);
+    function mintPeggedTokenIncentiveRatio(
+        uint256 additionalCollateral
+    ) external view returns (uint256 maxCollateral, int256 incentiveRatio);
 
-    function redeemPeggedTokenFeeRatio(uint256 reductionOfPegged) external view returns (int256 fees);
+    function redeemPeggedTokenIncentiveRatio(uint256 reductionOfPegged) external view returns (int256 incentiveRatio);
 
-    function mintLeveragedTokenFeeRatio(uint256 additionalCollateral) external view returns (int256 fees);
+    function mintLeveragedTokenIncentiveRatio(
+        uint256 additionalCollateral
+    ) external view returns (int256 incentiveRatio);
 
-    function redeemLeveragedTokenFeeRatio(uint256 reductionOfLeveraged) external view returns (int256 fees);
+    function redeemLeveragedTokenIncentiveRatio(
+        uint256 reductionOfLeveraged
+    ) external view returns (int256 incentiveRatio);
 
     /****************************
      * Public Mutated Functions *

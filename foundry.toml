@@ -6,8 +6,16 @@ ffi = true
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
-gas_reports = ["LeveragedToken_v1", "Minter_v1", "ReservePool_v1", "FeeSplitter_v1.sol"]
-fs_permissions = [{ access = "read", path = "./"}, { access = "read-write", path = "./results"}]
+gas_reports = [
+  "LeveragedToken_v1",
+  "Minter_v1",
+  "ReservePool_v1",
+  "FeeSplitter_v1.sol",
+]
+fs_permissions = [
+  { access = "read", path = "./" },
+  { access = "read-write", path = "./results" },
+]
 auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"
 optimizer = true

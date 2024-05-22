@@ -49,10 +49,10 @@ contract TestMinter is Test {
 
     uint256 danger;
     uint256 dangerCollateralRatioUpperBound;
-    int256 mintPeggedNormalFeeRatio;
-    int256 mintPeggedDangerFeeRatio;
-    int256 mintLeveragedNormalFeeRatio;
-    int256 mintLeveragedDangerFeeRatio;
+    int256 mintPeggedNormalIncentiveRatio;
+    int256 mintPeggedDangerIncentiveRatio;
+    int256 mintLeveragedNormalIncentiveRatio;
+    int256 mintLeveragedDangerIncentiveRatio;
 
     function _percentToEther(uint amount) private pure returns (uint256) {
         return (amount * 1 ether) / 100;
@@ -185,12 +185,12 @@ contract TestMinter is Test {
         dangerCollateralRatioUpperBound = _percentToEther(danger);
         int mpNormalIR = 50;
         int mpDangerIR = 100;
-        mintPeggedNormalFeeRatio = _basisPointToEther(mpNormalIR);
-        mintPeggedDangerFeeRatio = _basisPointToEther(mpDangerIR);
+        mintPeggedNormalIncentiveRatio = _basisPointToEther(mpNormalIR);
+        mintPeggedDangerIncentiveRatio = _basisPointToEther(mpDangerIR);
         int mlNormalIR = 70;
         int mlDangerIR = 20;
-        mintLeveragedNormalFeeRatio = _basisPointToEther(mlNormalIR);
-        mintLeveragedDangerFeeRatio = _basisPointToEther(mlDangerIR);
+        mintLeveragedNormalIncentiveRatio = _basisPointToEther(mlNormalIR);
+        mintLeveragedDangerIncentiveRatio = _basisPointToEther(mlDangerIR);
 
         config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
         config.disallowMintPeggedCollateralRatioUpperBound = _percentToEther(131); // typically the same as the rebalance CR
