@@ -35,7 +35,9 @@ library Token {
         try IERC20(addr).totalSupply() returns (uint256) {
             try IERC20(addr).balanceOf(address(0)) returns (uint256) {
                 // If both the calls succeed, check for a transfer
-                try IERC20(addr).transfer(address(0), 0) returns (bool) {} catch Error(string memory revertMessage) {
+                try IERC20(addr).transfer(address(0), 0) returns (bool) {
+                    return true;
+                } catch Error(string memory revertMessage) {
                     if (
                         bytes(revertMessage).length > 0 &&
                         keccak256(bytes(revertMessage)) == keccak256("ERC20: transfer to the zero address")

@@ -56,7 +56,7 @@ contract FeeSplitter_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultA
         }
     }
 
-    function initialize(address owner, string memory name, string memory symbol) public initializer {
+    function initialize(address owner) public initializer {
         __AccessControlDefaultAdminRules_init(7 days, owner);
         __UUPSUpgradeable_init();
         __ERC165_init();

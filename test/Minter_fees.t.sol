@@ -23,7 +23,7 @@ contract TestMinterFees is TestMinter {
         console.log("%s=%s (%e)", name, value, value);
     }
 
-    function clog(string memory name, int256 value) private view {
+    function clog(string memory name, int256 value) private pure {
         if (value < 0) {
             console.log("%s=-%s (-%e)", name, uint256(-value), uint256(-value));
         } else {
@@ -234,6 +234,12 @@ contract TestMinterFees is TestMinter {
         console.log("_checkIntegral() -> %s", totalFee);
     }
 
+    struct TestData {
+        uint256 maxCollateral;
+        int256 totalFeeRatio;
+        int256 totalFee;
+    }
+
     function test_mintPeggedFeesAreIntegrals() public {
         // critical CRs = 131% (disallow), 140% (danger)
         // TODO: check the above is the case
@@ -246,55 +252,45 @@ contract TestMinterFees is TestMinter {
         assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
 
         // check fees:
-        // 1) completely in the first zone: mint(4), CR = 34/24 = 141%
-        console.log("step 1 (cumulative):");
-        uint256 maxCollateral1;
-        int256 totalFeeRatio1;
-        (maxCollateral1, totalFeeRatio1) = IMinter(minter).mintPeggedTokenIncentiveRatio(4 ether);
-        assertEq(maxCollateral1, 4 ether);
-        int256 totalFee1 = (int256(maxCollateral1) * totalFeeRatio1) / 1 ether;
-        // 2) straddling the first boundary: mint(4), CR = 38/28 = 135%
-        console.log("step 2 (cumulative):");
-        uint256 maxCollateral2;
-        int256 totalFeeRatio2;
-        (maxCollateral2, totalFeeRatio2) = IMinter(minter).mintPeggedTokenIncentiveRatio(8 ether);
-        assertEq(maxCollateral2, 8 ether);
-        int256 totalFee2 = (int256(maxCollateral2) * totalFeeRatio2) / 1 ether;
-        // 3) remaining in the second zone: mint(2), CR= 41/31 = 132%
-        console.log("step 3 (cumulative):");
-        uint256 maxCollateral3;
-        int256 totalFeeRatio3;
-        (maxCollateral3, totalFeeRatio3) = IMinter(minter).mintPeggedTokenIncentiveRatio(10 ether);
-        assertEq(maxCollateral3, 10 ether);
-        int256 totalFee3 = (int256(maxCollateral3) * totalFeeRatio3) / 1 ether;
-        // 4) straddling all zones: mint(5), CR = 46/36 = 128%
-        console.log("step 4 (cumulative):");
-        uint256 maxCollateral4;
-        int256 totalFeeRatio4;
-        (maxCollateral4, totalFeeRatio4) = IMinter(minter).mintPeggedTokenIncentiveRatio(15 ether);
-        assertGt(maxCollateral4, 10 ether);
-        assertLt(maxCollateral4, 15 ether);
-        int256 totalFee4 = (int256(maxCollateral4) * totalFeeRatio4) / 1 ether;
+        uint256[4] memory mintStep = [
+            // 1) completely in the first zone: mint(4), CR = 34/24 = 141%
+            uint(4),
+            // 2) straddling the first boundary: mint(4), CR = 38/28 = 135%
+            uint(4),
+            // 3) remaining in the second zone: mint(2), CR= 41/31 = 132%
+            uint(2),
+            // 4) straddling all zones: mint(5), CR = 46/36 = 128%
+            uint(5)
+        ];
+        TestData[4] memory testData;
+        uint256 collateralInSum = 0;
+        for (uint i = 0; i <= 3; i++) {
+            collateralInSum += (mintStep[i] * 1 ether);
+            clog("collateralInSum", collateralInSum);
+            (testData[i].maxCollateral, testData[i].totalFeeRatio) = IMinter(minter).mintPeggedTokenIncentiveRatio(
+                collateralInSum
+            );
+            if (i < 3) {
+                assertEq(testData[i].maxCollateral, collateralInSum);
+            } else {
+                assertGt(testData[i].maxCollateral, collateralInSum - mintStep[i] * 1 ether);
+                assertLt(testData[i].maxCollateral, collateralInSum);
+            }
+            testData[i].totalFee = (int256(testData[i].maxCollateral) * testData[i].totalFeeRatio) / 1 ether;
+        }
 
-        // 1)
-        int256 totalFee = _checkIntegral(4, 1);
-        assertEq(totalFee, totalFee1, "1, running sum");
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), "step 1");
-
-        // 2)
-        totalFee += _checkIntegral(4, 2);
-        assertEq(totalFee, totalFee2, "2, running sum");
-        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 3, "step 2");
-
-        // 3)
-        totalFee += _checkIntegral(2, 3);
-        assertEq(totalFee, totalFee3, "3, running sum");
-        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 3, "step 3");
-
-        // 4)
-        totalFee += _checkIntegral(5, 4);
-        assertApproxEqAbs(totalFee, totalFee4, 1, "4, running sum");
-        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 3, "step 4");
+        int256 totalFee = 0;
+        for (uint i = 0; i <= 3; i++) {
+            totalFee += _checkIntegral(mintStep[i], i + 1);
+            string memory step = Useful.toString(i + 1);
+            assertApproxEqAbs(totalFee, testData[i].totalFee, 1, string.concat(step, ", running sum"));
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+                uint256(totalFee),
+                3,
+                string.concat("step ", step)
+            );
+        }
     }
 
     /*
