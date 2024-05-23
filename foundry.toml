@@ -19,8 +19,8 @@ fs_permissions = [
 auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"
 optimizer = true
-optimizer_runs = 2
-via_ir = true
+#optimizer_runs = 2
+#via_ir = true
 # deny_warnings = true # enable to stop compilations if there are warnings
 
 [etherscan]

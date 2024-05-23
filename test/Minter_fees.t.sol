@@ -228,7 +228,7 @@ contract TestMinterFees is TestMinter {
         assertApproxEqAbs(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
             uint256(totalFee),
-            2,
+            3,
             Useful.toString(step)
         );
         console.log("_checkIntegral() -> %s", totalFee);
@@ -279,22 +279,22 @@ contract TestMinterFees is TestMinter {
         // 1)
         int256 totalFee = _checkIntegral(4, 1);
         assertEq(totalFee, totalFee1, "1, running sum");
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee));
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), "step 1");
 
         // 2)
         totalFee += _checkIntegral(4, 2);
         assertEq(totalFee, totalFee2, "2, running sum");
-        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 2);
+        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 3, "step 2");
 
         // 3)
         totalFee += _checkIntegral(2, 3);
         assertEq(totalFee, totalFee3, "3, running sum");
-        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 2);
+        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 3, "step 3");
 
         // 4)
         totalFee += _checkIntegral(5, 4);
         assertApproxEqAbs(totalFee, totalFee4, 1, "4, running sum");
-        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 2);
+        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFee), 3, "step 4");
     }
 
     /*

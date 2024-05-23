@@ -317,14 +317,14 @@ contract TestMinterMintPegged is TestMinterMint {
         // CR should now be disallow (1.3+), not 1.25
         assertApproxEqAbs(
             IMinter(minter).collateralRatio(),
-            config.disallowMintPeggedCollateralRatioUpperBound + 1,
+            config.disallowMintPeggedCollateralRatioUpperBound,
             1,
-            "CR=disallow(1.3)"
+            "CR=disallow(1.3) - right amount"
         );
-        assertGt(
+        assertGe(
             IMinter(minter).collateralRatio(),
             config.disallowMintPeggedCollateralRatioUpperBound,
-            "CR>disallow(1.3)"
+            "CR>disallow(1.3), right side of boundary"
         );
     }
 
