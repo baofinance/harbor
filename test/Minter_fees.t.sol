@@ -157,10 +157,13 @@ contract TestMinterFees is TestMinter {
         assertEq(mintPeggedFees, mintPeggedNormalIncentiveRatio);
 
         // fees crossing into danger
-        uint256 collateral = 1 ether;
-        (maxCollateral, mintPeggedFees) = IMinter(minter).mintPeggedTokenIncentiveRatio(collateral); // CR -> 4/3 = 1.33 in danger
+        uint256 collateral = 1 ether; // CR -> 4/3 = 1.33 i.e. crossing into danger
+        (maxCollateral, mintPeggedFees) = IMinter(minter).mintPeggedTokenIncentiveRatio(collateral);
         assertGt(mintPeggedFees, mintPeggedNormalIncentiveRatio, "fee is part normal, part danger, so > normal");
         assertLt(mintPeggedFees, mintPeggedDangerIncentiveRatio, "fee is part normal, part danger, so < danger");
+        int256 mintPeggedFeesPlus;
+        (maxCollateral, mintPeggedFeesPlus) = IMinter(minter).mintPeggedTokenIncentiveRatio(collateral + 10 ** 16);
+        assertGt(mintPeggedFeesPlus, mintPeggedFees, "the more in danger the higher the fee");
 
         // check that the fees match the reported value, both emit and that transferred
         int256 expectedFees = (mintPeggedFees * int256(collateral)) / 1 ether;
@@ -181,15 +184,18 @@ contract TestMinterFees is TestMinter {
         );
 
         // we are now in danger (CR=1.33), so check the fee here
-        assertGt(dangerCollateralRatioUpperBound, IMinter(minter).collateralRatio(), "test must start with CR danger");
+        assertGt(
+            dangerCollateralRatioUpperBound,
+            IMinter(minter).collateralRatio(),
+            "test must be in CR danger < normal"
+        );
         assertLt(
             config.disallowMintPeggedCollateralRatioUpperBound,
             IMinter(minter).collateralRatio(),
-            "test must start with CR danger"
+            "test must be in CR danger > disallow"
         );
         (maxCollateral, mintPeggedFees) = IMinter(minter).mintPeggedTokenIncentiveRatio(0);
         assertEq(mintPeggedFees, mintPeggedDangerIncentiveRatio, "expected to be in danger");
-        // TODO: add a view function to say how much will be minted, given disallowing, maybe the same function mintPeggedTokenIncentiveRatio
         (maxCollateral, mintPeggedFees) = IMinter(minter).mintPeggedTokenIncentiveRatio(3 ether);
         assertEq(mintPeggedFees, mintPeggedDangerIncentiveRatio, "expected to still be in danger"); // CR -> disallow but fee ratio is still danger
     }
@@ -293,35 +299,51 @@ contract TestMinterFees is TestMinter {
         }
     }
 
-    /*
-    function test_mintLeveragedFees() public {
+    function test_mintLeveragedFeeCalcs() public {
+        // TODO: start in critical 120, then go to danger 140, then normal
         (, uint256 price, , ) = priceOracle.getPrice();
-        setUp_collateral(2 ether, 1 ether);
-        assertEq(IMinter(minter).collateralRatio(), 3 ether / 2);
+        setUp_collateral(3 ether, 1 ether); // CR = 4/3 = 1.33
+        assertGe(dangerCollateralRatioUpperBound, IMinter(minter).collateralRatio(), "test must start with CR danger");
 
-        uint256 collateral = 1 ether; // cr goes to 4 ether / 3 = 1.33, so fees should be well within normal, increasing to danger
-        (uint256 mintLeveragedFees0, ) = IMinter(minter).mintLeveragedTokenIncentiveRatio(); // TODO: make it the lower of the before and after fee
-        (uint256 mintLeveragedFees1, ) = IMinter(minter).mintLeveragedTokenIncentiveRatio();
-        assertGt(mintLeveragedFees1, mintLeveragedFees0, "fee ratios increase the more is minted");
-        uint256 expectedFees = (mintLeveragedFees1 * collateral) / 1 ether;
+        // fees at danger
+        int256 mintLeveragedFees = IMinter(minter).mintLeveragedTokenIncentiveRatio(0);
+        assertEq(mintLeveragedFees, mintLeveragedDangerIncentiveRatio);
+
+        // fees crossing into normal
+        uint256 collateral = 1 ether; // CR -> 5/3 = 1.66 i.e. crossing into normal
+        mintLeveragedFees = IMinter(minter).mintLeveragedTokenIncentiveRatio(collateral);
+        assertLt(mintLeveragedFees, mintLeveragedNormalIncentiveRatio, "fee is part normal, part danger, so < normal");
+        assertGt(mintLeveragedFees, mintLeveragedDangerIncentiveRatio, "fee is part normal, part danger, so > danger");
+        assertGt(
+            IMinter(minter).mintLeveragedTokenIncentiveRatio(collateral + 10 ** 16),
+            mintLeveragedFees,
+            "the more in normal the higher the fee"
+        );
+
+        // check that the fees match the reported value, both emit and that transferred
+        int256 expectedFees = (mintLeveragedFees * int256(collateral)) / 1 ether;
         uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintLeveragedToken(
             user.addr,
             user.addr,
             collateral,
-            (price * (collateral - expectedFees)) / 1 ether,
-            expectedFees
+            uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether,
+            uint256(expectedFees),
+            0
         );
         vm.prank(user.addr);
         IMinter(minter).mintLeveragedToken(collateral, user.addr, 0);
         assertEq(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
-            feeReceiverCollateralBalanceBefore + expectedFees
+            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
         );
-    }
-    */
 
-    // TODO: check the bonus if properly paid - maybe do this in test mint leveraged
+        // we are now in normal (CR=1.66), so check the fee here
+        assertLt(dangerCollateralRatioUpperBound, IMinter(minter).collateralRatio(), "test must be in CR normal now");
+        mintLeveragedFees = IMinter(minter).mintLeveragedTokenIncentiveRatio(0);
+        assertEq(mintLeveragedFees, mintLeveragedNormalIncentiveRatio, "expected to be in normal");
+    }
+
+    // TODO: check the bonus if properly paid - do this with the reserve pool
 }

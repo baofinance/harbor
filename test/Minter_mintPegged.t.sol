@@ -161,7 +161,7 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 receiverPeggedBefore = IERC20(deployed.BaoUSD).balanceOf(receiver.addr);
         uint256 minterCollateralBalanceBefore = IMinter(minter).collateralTokenBalance();
         uint256 minterPeggedBalanceBefore = IMinter(minter).peggedTokenBalance();
-        // uint256 minterLeveragedBalanceBefore = IMinter(minter).peggedTokenBalance();
+        // removed to save stack space uint256 minterLeveragedBalanceBefore = IMinter(minter).leveragedTokenBalance();
         uint256 minterCollateralBefore = IERC20(deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
@@ -176,6 +176,11 @@ contract TestMinterMintPegged is TestMinterMint {
         vm.prank(sender.addr);
         uint256 minted = IMinter(minter).mintPeggedToken(collateralIn, receiver.addr, 0);
         //               -----------------------------------------------------------
+        // TODO: removed to save stack space assertEq(
+        //     minterLeveragedBalanceBefore,
+        //     IMinter(minter).leveragedTokenBalance(),
+        //     "leveraged tokens remain the same"
+        // );
         assertEq(minted, receiverBaoUSDIncrease, "unexpected amount minted compared to price");
         assertEq(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),

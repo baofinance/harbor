@@ -169,7 +169,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 receiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(receiver.addr);
         uint256 receiverLeveragedBefore = IERC20(leveragedToken).balanceOf(receiver.addr);
         uint256 minterCollateralBalanceBefore = IMinter(minter).collateralTokenBalance();
-        //uint256 minterPeggedBalanceBefore = IMinter(minter).peggedTokenBalance();
+        // removed to save stack space uint256 minterPeggedBalanceBefore = IMinter(minter).peggedTokenBalance();
         uint256 minterLeveragedBalanceBefore = IMinter(minter).leveragedTokenBalance();
         uint256 minterCollateralBefore = IERC20(deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
@@ -190,6 +190,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             0
         );
         //   ------------------------------------------------------------------
+        // TODO: removed to save stack space assertEq(minterPeggedBalanceBefore, IMinter(minter).peggedTokenBalance(), "pegged tokens remain the same");
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount minted compared to price");
         assertEq(bonus, 0, "expect zero bonus");
         assertEq(
@@ -295,7 +296,13 @@ contract TestMinterMintLeveraged is TestMinterMint {
         assertEq(IERC20(leveragedToken).balanceOf(receiver.addr), 0);
     }
 
-    // TODO: check bonus function
+    // TODO: check bonus function - do this as part of reserve pool
+    function test_mintLeveragedBonus() public {
+        // test bonus when reserve pool is empty
+        // test bonus when reserve
+        // CR out of bonus zone = no bonus
+    }
+
     function test_mintLeveraged() public {
         setUp_collateral(10 ether, 0);
         priceOracle.setPrice(4000 ether); // put the collateral ratio to 2, so no excess fees
@@ -356,7 +363,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), 0, "transferred it all");
     }
 
-    // checks that two free mint leverage tokens does not produce more leverage tokens than 1
+    // checks that two free mint leverage tokens does not produce more leverage tokens than one mint
     function test_leveragedToCollateralCalculation() public {
         setUp_collateral(1 ether, 1 ether);
         uint256 startCollateralRatio = 2 ether;
@@ -391,8 +398,4 @@ contract TestMinterMintLeveraged is TestMinterMint {
         }
         assertEq(sum, oneMint, "one is the sum of it's constituents");
     }
-
-    // TODO: check the fee across the whole range of fee ratios and then do the minting in bits (excluding and including bonus)
-
-    function testMinterRedeemPegged() public {}
 }
