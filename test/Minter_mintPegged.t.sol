@@ -48,7 +48,7 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
         vm.expectEmit(true, true, false, true, minter);
-        emit IMinter.MintPeggedToken(owner.addr, receiver.addr, ownerCollateralDecrease, receiverBaoUSDIncrease, 0);
+        emit IMinter.MintPeggedToken(owner.addr, receiver.addr, ownerCollateralDecrease, receiverBaoUSDIncrease);
         vm.prank(owner.addr);
         uint256 minted = IMinterTreasury(minter).freeMintPeggedToken(collateralIn, receiver.addr);
         //               ------------------------------------------------------------------------
@@ -166,13 +166,7 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
         vm.expectEmit(true, true, false, true, minter);
-        emit IMinter.MintPeggedToken(
-            sender.addr,
-            receiver.addr,
-            senderCollateralDecrease,
-            receiverBaoUSDIncrease,
-            uint256(mintPeggedFee)
-        );
+        emit IMinter.MintPeggedToken(sender.addr, receiver.addr, senderCollateralDecrease, receiverBaoUSDIncrease);
         vm.prank(sender.addr);
         uint256 minted = IMinter(minter).mintPeggedToken(collateralIn, receiver.addr, 0);
         //               -----------------------------------------------------------

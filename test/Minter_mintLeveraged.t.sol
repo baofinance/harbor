@@ -48,14 +48,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
         vm.expectEmit(true, true, false, true, minter);
-        emit IMinter.MintLeveragedToken(
-            owner.addr,
-            receiver.addr,
-            ownerCollateralDecrease,
-            receiverLeveragedIncrease,
-            0,
-            0
-        );
+        emit IMinter.MintLeveragedToken(owner.addr, receiver.addr, ownerCollateralDecrease, receiverLeveragedIncrease);
         vm.prank(owner.addr);
         uint256 minted = IMinterTreasury(minter).freeMintLeveragedToken(collateralIn, receiver.addr);
         //               ---------------------------------------------------------------------------
@@ -179,20 +172,13 @@ contract TestMinterMintLeveraged is TestMinterMint {
             sender.addr,
             receiver.addr,
             senderCollateralDecrease,
-            receiverLeveragedIncrease,
-            uint256(mintLeveragedFee),
-            0 // TODO: check for non-zero bonus
+            receiverLeveragedIncrease
         );
         vm.prank(sender.addr);
-        (uint256 minted, uint256 bonus) = IMinter(minter).mintLeveragedToken(
-            senderCollateralDecrease,
-            receiver.addr,
-            0
-        );
+        uint256 minted = IMinter(minter).mintLeveragedToken(senderCollateralDecrease, receiver.addr, 0);
         //   ------------------------------------------------------------------
         // TODO: removed to save stack space assertEq(minterPeggedBalanceBefore, IMinter(minter).peggedTokenBalance(), "pegged tokens remain the same");
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount minted compared to price");
-        assertEq(bonus, 0, "expect zero bonus");
         assertEq(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
             uint256(int256(feeReceiverCollateralBefore) + mintLeveragedFee),

@@ -46,9 +46,11 @@ contract TestMinter is Test {
     bytes32 ownerRole = 0;
     bytes32 zeroFeeRole = keccak256("ZERO_FEE_ROLE");
     bytes32 minterRole = keccak256("MINTER_ROLE");
+    bytes32 requesterRole = keccak256("REQUESTER_ROLE");
 
-    uint256 danger;
     uint256 dangerCollateralRatioUpperBound;
+    uint256 criticalCollateralRatioUpperBound;
+    uint256 bonusCollateralRatioUpperBound;
     int256 mintPeggedNormalIncentiveRatio;
     int256 mintPeggedDangerIncentiveRatio;
     int256 mintLeveragedNormalIncentiveRatio;
@@ -181,8 +183,12 @@ contract TestMinter is Test {
             abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
         );
 
-        danger = 140;
+        uint danger = 140;
+        uint critical = 120;
+        uint bonus = 110;
         dangerCollateralRatioUpperBound = _percentToEther(danger);
+        criticalCollateralRatioUpperBound = _percentToEther(critical);
+        bonusCollateralRatioUpperBound = _percentToEther(bonus);
         int mpNormalIR = 50;
         int mpDangerIR = 100;
         mintPeggedNormalIncentiveRatio = _basisPointToEther(mpNormalIR);
@@ -199,10 +205,10 @@ contract TestMinter is Test {
 
         config.mintPeggedIncentiveConfig = _makeIncentiveConfig(ua(danger), a(mpDangerIR, mpNormalIR));
         config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(
-            ua(110, 120, danger),
+            ua(bonus, critical, danger),
             a(-100, 0, mlDangerIR, mlNormalIR)
         );
-        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(ua(110, 120, danger), a(-50, 0, 50, 100));
+        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(ua(bonus, critical, danger), a(-50, 0, 50, 100));
         config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(danger), a(150, 120));
 
         // TODO: test for leveraged, collateral and random tokens
@@ -229,6 +235,8 @@ contract TestMinter is Test {
         IBaoUSD(deployed.BaoUSD).addMinter(minter);
         vm.prank(owner.addr);
         IAccessControl(leveragedToken).grantRole(minterRole, minter);
+        vm.prank(owner.addr);
+        ReservePool_v1(reservePool).grantRole(requesterRole, minter);
     }
 
     function setUp_collateral(

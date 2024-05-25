@@ -109,13 +109,11 @@ interface IMinter {
     /// @param recipient The address of receiver for peggedToken or leveragedToken.
     /// @param collateralTokenIn The amount of collateral token deposited.
     /// @param peggedTokenOut The amount of peggedToken minted.
-    /// @param mintFee The amount of mint fee charged in terms of collateral token.
     event MintPeggedToken(
         address indexed sender,
         address indexed recipient,
         uint256 collateralTokenIn,
-        uint256 peggedTokenOut,
-        uint256 mintFee
+        uint256 peggedTokenOut
     );
 
     /// @notice Emitted when leveragedToken is minted.
@@ -123,15 +121,11 @@ interface IMinter {
     /// @param recipient The address of receiver for peggedToken or leveragedToken.
     /// @param collateralTokenIn The amount of collateral token deposited.
     /// @param leveragedTokenOut The amount of leveragedToken minted.
-    /// @param bonus The amount of collateral token as bonus.
-    /// @param mintFee The amount of mint fee charged.
     event MintLeveragedToken(
         address indexed sender,
         address indexed recipient,
         uint256 collateralTokenIn,
-        uint256 leveragedTokenOut,
-        uint256 mintFee,
-        uint256 bonus
+        uint256 leveragedTokenOut
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
@@ -139,15 +133,11 @@ interface IMinter {
     /// @param recipient The address of receiver for collateral token.
     /// @param peggedTokenBurned The amount of peggedToken burned.
     /// @param collateralTokenOut The amount of collateral token redeemed.
-    /// @param bonus The amount of collateral token as bonus.
-    /// @param redeemFee The amount of redeem fee charged.
     event RedeemPeggedToken(
         address indexed sender,
         address indexed recipient,
         uint256 peggedTokenBurned,
-        uint256 collateralTokenOut,
-        uint256 bonus,
-        uint256 redeemFee
+        uint256 collateralTokenOut
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
@@ -155,13 +145,11 @@ interface IMinter {
     /// @param recipient The address of receiver for collateral token.
     /// @param lTokenBurned The amount of leveragedToken burned.
     /// @param collateralTokenOut The amount of collateral token redeemed.
-    /// @param redeemFee The amount of redeem fee charged.
     event RedeemLeveragedToken(
         address indexed sender,
         address indexed recipient,
         uint256 lTokenBurned,
-        uint256 collateralTokenOut,
-        uint256 redeemFee
+        uint256 collateralTokenOut
     );
 
     event UpdateConfig(Config config);
@@ -180,13 +168,6 @@ interface IMinter {
     /// @param oldPriceOracle The address of previous price oracle contract.
     /// @param newPriceOracle The address of current price oracle contract.
     event UpdatePriceOracle(address indexed oldPriceOracle, address indexed newPriceOracle);
-
-    /*
-    /// @notice Emitted when the  reserve pool contract is updated.
-    /// @param oldReservePool The address of previous reserve pool contract.
-    /// @param newReservePool The address of current reserve pool contract.
-    event UpdateReservePool(address indexed oldReservePool, address indexed newReservePool);
-    */
 
     /****************************
      * Errors                   *
@@ -249,7 +230,7 @@ interface IMinter {
 
     function mintPeggedTokenIncentiveRatio(
         uint256 additionalCollateral
-    ) external view returns (uint256 maxCollateral, int256 incentiveRatio);
+    ) external view returns (int256 incentiveRatio, uint256 maxCollateral);
 
     function redeemPeggedTokenIncentiveRatio(uint256 reductionOfPegged) external view returns (int256 incentiveRatio);
 
@@ -259,7 +240,7 @@ interface IMinter {
 
     function redeemLeveragedTokenIncentiveRatio(
         uint256 reductionOfLeveraged
-    ) external view returns (int256 incentiveRatio);
+    ) external view returns (int256 incentiveRatio, uint256 maxLeveragedTokens);
 
     /****************************
      * Public Mutated Functions *
@@ -281,24 +262,22 @@ interface IMinter {
     /// @param recipient The address of receiver for leveragedToken.
     /// @param minLeveragedTokenOut The minimum amount of leveragedToken should be received. 0 means no check is made.
     /// @return leveragedTokenOut The amount of leveragedToken should be received.
-    /// @return bonus The amount of wrapped value of collateral token as bonus.
     function mintLeveragedToken(
         uint256 collateralIn,
         address recipient,
         uint256 minLeveragedTokenOut
-    ) external returns (uint256 leveragedTokenOut, uint256 bonus);
+    ) external returns (uint256 leveragedTokenOut);
 
     /// @notice Redeem collateral token with peggedToken.
     /// @param peggedTokenIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
     /// @param recipient The address of receiver for collateral token.
     /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no check is made.
     /// @return collateralOut The amount of wrapped value of collateral token should be received.
-    /// @return bonus The amount of wrapped value of collateral token as bonus.
     function redeemPeggedToken(
         uint256 peggedTokenIn,
         address recipient,
         uint256 minCollateralOut
-    ) external returns (uint256 collateralOut, uint256 bonus);
+    ) external returns (uint256 collateralOut);
 
     /// @notice Redeem collateral token with leveragedToken.
     /// @param lTokenIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
