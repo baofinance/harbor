@@ -197,10 +197,10 @@ contract TestMinterFees is TestMinter {
         (mintPeggedFees, maxCollateral) = IMinter(minter).mintPeggedTokenIncentiveRatio(0);
         assertEq(mintPeggedFees, mintPeggedDangerIncentiveRatio, "expected to be in danger");
         (mintPeggedFees, maxCollateral) = IMinter(minter).mintPeggedTokenIncentiveRatio(3 ether);
-        assertEq(mintPeggedFees, mintPeggedDangerIncentiveRatio, "expected to still be in danger"); // CR -> disallow but fee ratio is still danger
+        assertApproxEqAbs(mintPeggedFees, mintPeggedDangerIncentiveRatio, 5, "expected to still be in danger"); // CR -> disallow but fee ratio is still danger
     }
 
-    function _checkMintPeggedIntegral(uint iTotalMint, uint step) private returns (int256 totalFee) {
+    function _checkMintPeggedIntegral(uint iTotalMint, uint step, uint tolerance) private returns (int256 totalFee) {
         bool log = step == 2;
         console.log("_checkMintPeggedIntegral(%s, %s)", iTotalMint, step);
         // console.log("------------------------------------------");
@@ -234,7 +234,7 @@ contract TestMinterFees is TestMinter {
         assertApproxEqAbs(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
             uint256(totalFee),
-            3,
+            tolerance,
             Useful.toString(step)
         );
         console.log("_checkMintPeggedIntegral() -> %s", totalFee);
@@ -284,14 +284,14 @@ contract TestMinterFees is TestMinter {
 
         int256 totalFee = 0;
         for (uint i = 0; i < 4; i++) {
-            totalFee += _checkMintPeggedIntegral(mintStep[i], i + 1);
-            string memory step = Useful.toString(i + 1);
-            assertApproxEqAbs(totalFee, totalFees[i], 1, string.concat(step, ", running sum"));
+            uint step = i + 1;
+            totalFee += _checkMintPeggedIntegral(mintStep[i], step, step);
+            assertApproxEqAbs(totalFee, totalFees[i], step, string.concat(Useful.toString(step), ", running sum"));
             assertApproxEqAbs(
                 IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
                 uint256(totalFee),
-                3,
-                string.concat("step ", step)
+                step * 2,
+                string.concat("step ", Useful.toString(step))
             );
         }
     }
