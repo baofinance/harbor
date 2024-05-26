@@ -9,7 +9,7 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { IMintable } from "src/minter/IMintable.sol";
+import { IMintable, IBurnable } from "src/minter/IMintable.sol";
 
 contract LeveragedToken_v1 is
     Initializable,
@@ -17,7 +17,8 @@ contract LeveragedToken_v1 is
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
     AccessControlDefaultAdminRulesUpgradeable,
-    IMintable
+    IMintable,
+    IBurnable
 {
     using SafeERC20 for IERC20;
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");

@@ -28,6 +28,8 @@ library Token {
 
     error NotERC20Token(address token);
 
+    // TODO: use staticcall to find out if the function is there
+
     function isERC20(address addr) internal returns (bool) {
         if (!isContract(addr)) {
             return false;
@@ -53,5 +55,23 @@ library Token {
         } catch {
             return false;
         }
+    }
+
+    function hasFunction(
+        address contract_,
+        bytes4 functionSelector,
+        address param1,
+        uint256 param2
+    ) external view returns (bool) {
+        // Define the function selector
+        // bytes4 functionSelector = IExample.foo.selector;
+
+        // Encode the function call with parameters
+        bytes memory data = abi.encodeWithSelector(functionSelector, param1, param2);
+
+        // Perform a static call to check for the function's existence
+        (bool success, ) = contract_.staticcall(data);
+
+        return success;
     }
 }

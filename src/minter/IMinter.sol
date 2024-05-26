@@ -185,6 +185,8 @@ interface IMinter {
     error MintZeroAmount(address mintingToken);
     /// @dev Thrown when collateral is passed but mint is reduced below the miniumum requested.
     error MintInsufficientAmount(address mintingToken, uint256 miniumum, uint256 actual);
+    error ReturnInsufficientAmount(address returningToken, uint256 miniumum, uint256 actual);
+    error NoRedeemableTokens(address redeemingToken);
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
@@ -232,14 +234,12 @@ interface IMinter {
         uint256 additionalCollateral
     ) external view returns (int256 incentiveRatio, uint256 maxCollateral);
 
-    function redeemPeggedTokenIncentiveRatio(uint256 reductionOfPegged) external view returns (int256 incentiveRatio);
+    function redeemPeggedTokenIncentiveRatio(uint256 peggedIn) external view returns (int256 incentiveRatio);
 
-    function mintLeveragedTokenIncentiveRatio(
-        uint256 additionalCollateral
-    ) external view returns (int256 incentiveRatio);
+    function mintLeveragedTokenIncentiveRatio(uint256 collateralIn) external view returns (int256 incentiveRatio);
 
     function redeemLeveragedTokenIncentiveRatio(
-        uint256 reductionOfLeveraged
+        uint256 leveragedIn
     ) external view returns (int256 incentiveRatio, uint256 maxLeveragedTokens);
 
     /****************************
@@ -301,10 +301,8 @@ interface IMinterTreasury {
      * Public Mutated Functions *
      ****************************/
 
-    function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedTokenOut);
-    function freeMintLeveragedToken(
-        uint256 collateralIn,
-        address recipient
-    ) external returns (uint256 leveragedTokenOut);
-    function freeRedeemLeveragedToken(uint256 leveragedIn) external returns (uint256 collateralTokenOut);
+    function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedOut);
+    function freeRedeemPeggedToken(uint256 peggedIn, address recipient) external returns (uint256 collateralOut);
+    function freeMintLeveragedToken(uint256 collateralIn, address recipient) external returns (uint256 leveragedOut);
+    function freeRedeemLeveragedToken(uint256 leveragedIn) external returns (uint256 collateralOut);
 }

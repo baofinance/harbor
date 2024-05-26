@@ -56,6 +56,23 @@ contract TestMinter is Test {
     int256 mintLeveragedNormalIncentiveRatio;
     int256 mintLeveragedDangerIncentiveRatio;
 
+    int256 redeemPeggedNormalIncentiveRatio;
+    int256 redeemPeggedDangerIncentiveRatio;
+    int256 redeemLeveragedNormalIncentiveRatio;
+    int256 redeemLeveragedDangerIncentiveRatio;
+
+    function clog(string memory name, uint256 value) internal pure {
+        console.log("T %s=%s (%e)", name, value, value);
+    }
+
+    function clog(string memory name, int256 value) internal pure {
+        if (value < 0) {
+            console.log("T %s=-%s (-%e)", name, uint256(-value), uint256(-value));
+        } else {
+            console.log("T %s=%s (%e)", name, uint256(value), uint256(value));
+        }
+    }
+
     function _percentToEther(uint amount) private pure returns (uint256) {
         return (amount * 1 ether) / 100;
     }
@@ -198,6 +215,15 @@ contract TestMinter is Test {
         mintLeveragedNormalIncentiveRatio = _basisPointToEther(mlNormalIR);
         mintLeveragedDangerIncentiveRatio = _basisPointToEther(mlDangerIR);
 
+        int rpNormalIR = 80;
+        int rpDangerIR = 60;
+        redeemPeggedNormalIncentiveRatio = _basisPointToEther(rpNormalIR);
+        redeemPeggedDangerIncentiveRatio = _basisPointToEther(rpDangerIR);
+        int rlNormalIR = 120;
+        int rlDangerIR = 150;
+        redeemLeveragedNormalIncentiveRatio = _basisPointToEther(rlNormalIR);
+        redeemLeveragedDangerIncentiveRatio = _basisPointToEther(rlDangerIR);
+
         config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
         config.disallowMintPeggedCollateralRatioUpperBound = _percentToEther(131); // typically the same as the rebalance CR
         config.disallowRedeemLeveragedCollateralRatioUpperBound = _percentToEther(110); // typically the same as the bonus CR
@@ -208,8 +234,11 @@ contract TestMinter is Test {
             ua(bonus, critical, danger),
             a(-100, 0, mlDangerIR, mlNormalIR)
         );
-        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(ua(bonus, critical, danger), a(-50, 0, 50, 100));
-        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(danger), a(150, 120));
+        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(
+            ua(bonus, critical, danger),
+            a(-50, 0, rpDangerIR, rpNormalIR)
+        );
+        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(danger), a(rlDangerIR, rlNormalIR));
 
         // TODO: test for leveraged, collateral and random tokens
         bonusToken = deployed.wstETH;

@@ -20,18 +20,6 @@ import { TestMinter } from "test/Minter_base.t.sol";
 contract TestMinterFees is TestMinter {
     Vm.Wallet user;
 
-    function clog(string memory name, uint256 value) private pure {
-        console.log("T %s=%s (%e)", name, value, value);
-    }
-
-    function clog(string memory name, int256 value) private pure {
-        if (value < 0) {
-            console.log("T %s=-%s (-%e)", name, uint256(-value), uint256(-value));
-        } else {
-            console.log("T %s=%s (%e)", name, uint256(value), uint256(value));
-        }
-    }
-
     function setUp() public virtual override {
         super.setUp();
         user = vm.createWallet("user");
@@ -420,6 +408,140 @@ contract TestMinterFees is TestMinter {
         for (uint i = 0; i < 6; i++) {
             uint step = i + 1;
             totalFee += _checkMintLeveragedIntegral(mintStep[i], step, step * 2);
+            assertApproxEqAbs(totalFee, totalFees[i], i * 10, string.concat(Useful.toString(step), ", running sum"));
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+                uint256(SignedMath.max(0, totalFee)),
+                step * 2,
+                string.concat("step ", Useful.toString(step))
+            );
+        }
+    }
+
+    function test_redeemPeggedFeeCalcs() public {
+        // TODO: start in critical 120, then go to danger 140, then normal
+        (, uint256 price, , ) = priceOracle.getPrice();
+        setUp_collateral(3 ether, 1 ether); // CR = 4/3 = 1.33
+        assertGe(dangerCollateralRatioUpperBound, IMinter(minter).collateralRatio(), "test must start with CR danger");
+
+        // fees at danger
+        int256 redeemPeggedFees = IMinter(minter).redeemPeggedTokenIncentiveRatio(0);
+        assertEq(redeemPeggedFees, redeemPeggedDangerIncentiveRatio);
+
+        // fees crossing into normal
+        uint256 collateral = 1 ether; // CR -> 5/3 = 1.66 i.e. crossing into normal
+        redeemPeggedFees = IMinter(minter).redeemPeggedTokenIncentiveRatio(collateral);
+        assertLt(redeemPeggedFees, redeemPeggedNormalIncentiveRatio, "fee is part normal, part danger, so < normal");
+        assertGt(redeemPeggedFees, redeemPeggedDangerIncentiveRatio, "fee is part normal, part danger, so > danger");
+        assertGt(
+            IMinter(minter).redeemPeggedTokenIncentiveRatio(collateral + 10 ** 16),
+            redeemPeggedFees,
+            "the more in normal the higher the fee"
+        );
+
+        // check that the fees match the reported value, both emit and that transferred
+        int256 expectedFees = (redeemPeggedFees * int256(collateral)) / 1 ether;
+        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        vm.expectEmit(true, true, false, true, minter);
+        emit IMinter.RedeemPeggedToken(
+            user.addr,
+            user.addr,
+            collateral,
+            uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether
+        );
+        vm.prank(user.addr);
+        IMinter(minter).redeemPeggedToken(collateral, user.addr, 0);
+        assertEq(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
+        );
+
+        // we are now in normal (CR=1.66), so check the fee here
+        assertLt(dangerCollateralRatioUpperBound, IMinter(minter).collateralRatio(), "test must be in CR normal now");
+        redeemPeggedFees = IMinter(minter).redeemPeggedTokenIncentiveRatio(0);
+        assertEq(redeemPeggedFees, redeemPeggedNormalIncentiveRatio, "expected to be in normal");
+    }
+
+    // TODO: check the bonus if properly paid - do this with the reserve pool
+
+    function _checkRedeemPeggedIntegral(uint iTotalMint, uint step, uint tolerance) private returns (int256 totalFee) {
+        bool log = step == 4;
+        console.log("_checkRedeemPeggedIntegral(%s, %s)", iTotalMint, step);
+        // console.log("------------------------------------------");
+        uint256 collateral = iTotalMint * 1 ether;
+        int256 incentiveRatio = IMinter(minter).redeemPeggedTokenIncentiveRatio(collateral);
+        if (log) clog("  incentiveRatio", incentiveRatio);
+        totalFee = (int256(collateral) * incentiveRatio) / 1 ether;
+        if (log) clog("  expected fees", totalFee);
+        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        if (log) console.log("  starting fees=%s", start);
+        for (uint i = 0; i < iTotalMint; i++) {
+            console.log("    step %s mint %s of %s", step, i + 1, iTotalMint);
+            uint256 beforeMint = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+            // uint256 expected = 1 ether * uint256(IMinter(minter).redeemPeggedTokenIncentiveRatio(1 ether));
+            vm.prank(user.addr);
+            IMinter(minter).redeemPeggedToken(1 ether, user.addr, 0);
+            if (log) clog("    fees this mint", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint);
+            // assertApproxEqAbs(
+            //     IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint,
+            //     expected,
+            //     2,
+            //     string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
+            // );
+            // if (log)
+            //     clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+        }
+        if (log) clog(" actual fees  ", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+        // clog(" all (pre-calc'd) ", totalFee);
+        assertApproxEqAbs(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
+            uint256(SignedMath.max(totalFee, 0)), // ignore bonuses here for now
+            // TODO: do another loop like this for bonuses
+            tolerance,
+            Useful.toString(step)
+        );
+        console.log("_checkRedeemPeggedIntegral() -> %s", totalFee);
+    }
+
+    function test_redeemPeggedFeesAreIntegrals() public {
+        // critical CRs = 110% (bonus), 120% (free), 140% (danger)
+        // TODO: check the above is the case
+        setUp_collateral(150 ether, 10 ether); // CR = 160/150 = 107%, bonus
+        assertGt(bonusCollateralRatioUpperBound, IMinter(minter).collateralRatio(), "test must start with CR bonus");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
+
+        // check fees:
+
+        uint256[6] memory mintStep = [
+            // 1) completely in the first zone: mint(4), CR = 164/150 = 109%
+            uint(4),
+            // 2) straddling the first boundary: mint(4), CR = 168/150 = 112%
+            uint(4),
+            // 3) remaining in the second zone: mint(10), CR= 178/150 = 119%
+            uint(10),
+            // 4) straddling the second boundary: mint(20), CR = 198/150 = 132%
+            uint(20),
+            // 5) remaining in the third zone: mint(10), CR= 208/150 = 139%
+            uint(10),
+            // 6) straddling all zones: mint(10), CR = 218/150 = 145%
+            uint(10)
+        ];
+
+        int256[6] memory totalFeeRatios;
+        int256[6] memory totalFees;
+        uint256 collateralInSum = 0;
+        for (uint i = 0; i < 6; i++) {
+            collateralInSum += (mintStep[i] * 1 ether);
+            clog("collateralInSum", collateralInSum);
+            totalFeeRatios[i] = IMinter(minter).redeemPeggedTokenIncentiveRatio(collateralInSum);
+            clog("totalFeeRatios[i]", totalFeeRatios[i]);
+            totalFees[i] = (int256(collateralInSum) * totalFeeRatios[i]) / 1 ether;
+        }
+        int256 totalFee = 0;
+        // TODO: add tolerances to mint pegged
+        for (uint i = 0; i < 6; i++) {
+            uint step = i + 1;
+            totalFee += _checkRedeemPeggedIntegral(mintStep[i], step, step * 2);
             assertApproxEqAbs(totalFee, totalFees[i], i * 10, string.concat(Useful.toString(step), ", running sum"));
             assertApproxEqAbs(
                 IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
