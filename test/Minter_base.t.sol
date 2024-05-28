@@ -77,6 +77,10 @@ contract TestMinter is Test {
         return (amount * 1 ether) / 100;
     }
 
+    function _etherToBasisPoint(int256 amount) private pure returns (int) {
+        return (amount * 10000) / 1 ether;
+    }
+
     function _basisPointToEther(int amount) private pure returns (int256) {
         return (amount * 1 ether) / 10000;
     }
@@ -232,7 +236,7 @@ contract TestMinter is Test {
         config.mintPeggedIncentiveConfig = _makeIncentiveConfig(ua(danger), a(mpDangerIR, mpNormalIR));
         config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(
             ua(bonus, critical, danger),
-            a(-100, 0, mlDangerIR, mlNormalIR)
+            a(-50, 0, mlDangerIR, mlNormalIR)
         );
         config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(
             ua(bonus, critical, danger),
@@ -272,6 +276,14 @@ contract TestMinter is Test {
         uint256 collateralForPegged,
         uint256 collateralForLeveraged
     ) internal returns (uint256 peggedTokens, uint256 leveragedTokens) {
+        return setUp_collateral(collateralForPegged, collateralForLeveraged, owner.addr);
+    }
+
+    function setUp_collateral(
+        uint256 collateralForPegged,
+        uint256 collateralForLeveraged,
+        address recipient
+    ) internal returns (uint256 peggedTokens, uint256 leveragedTokens) {
         // put some collateral into the minter to bootstrap it
         // get collateral & allowance
         uint256 totalAmount = collateralForPegged + collateralForLeveraged;
@@ -283,19 +295,31 @@ contract TestMinter is Test {
         IERC20(deployed.wstETH).approve(minter, totalAmount);
         if (collateralForPegged > 0) {
             vm.prank(owner.addr);
-            peggedTokens = IMinterTreasury(minter).freeMintPeggedToken(collateralForPegged, owner.addr);
+            peggedTokens = IMinterTreasury(minter).freeMintPeggedToken(collateralForPegged, recipient);
         }
         if (collateralForLeveraged > 0) {
             vm.prank(owner.addr);
-            leveragedTokens = IMinterTreasury(minter).freeMintLeveragedToken(collateralForLeveraged, owner.addr);
+            leveragedTokens = IMinterTreasury(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
     }
 
     function makeAllFeesNormal() internal {
-        config.mintPeggedIncentiveConfig = _makeIncentiveConfig(ua(), a(50));
-        config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(ua(), a(70));
-        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(ua(), a(100));
-        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(), a(120));
+        config.mintPeggedIncentiveConfig = _makeIncentiveConfig(
+            ua(),
+            a(_etherToBasisPoint(mintPeggedNormalIncentiveRatio))
+        );
+        config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(
+            ua(),
+            a(_etherToBasisPoint(mintLeveragedNormalIncentiveRatio))
+        );
+        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(
+            ua(),
+            a(_etherToBasisPoint(redeemPeggedNormalIncentiveRatio))
+        );
+        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(
+            ua(),
+            a(_etherToBasisPoint(redeemLeveragedNormalIncentiveRatio))
+        );
         vm.prank(owner.addr);
         IMinter(minter).updateConfig(config);
     }

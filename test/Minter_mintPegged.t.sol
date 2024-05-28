@@ -47,8 +47,6 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 minterWstETHBefore = IERC20(deployed.wstETH).balanceOf(minter);
         uint256 minterPeggedBefore = IMinter(minter).peggedTokenBalance();
         uint256 peggedSupplyBefore = IERC20(deployed.BaoUSD).totalSupply();
-        uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
-        if (collateralRatioBefore == type(uint256).max) collateralRatioBefore = 1 ether;
 
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintPeggedToken(owner.addr, receiver.addr, ownerCollateralDecrease, receiverBaoUSDIncrease);
@@ -75,8 +73,6 @@ contract TestMinterMintPegged is TestMinterMint {
         assertEq(IERC20(deployed.wstETH).balanceOf(minter), minterWstETHBefore + ownerCollateralDecrease);
         assertEq(IMinter(minter).peggedTokenBalance(), minterPeggedBefore + receiverBaoUSDIncrease);
         assertEq(IERC20(deployed.BaoUSD).totalSupply(), peggedSupplyBefore + receiverBaoUSDIncrease);
-
-        assertEq(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio = before"); // no leveraged tokens so CR is the same
     }
 
     function test_freeMintPegged() public {
@@ -169,8 +165,6 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 minterPeggedBalanceBefore = IMinter(minter).peggedTokenBalance();
         // removed to save stack space uint256 minterLeveragedBalanceBefore = IMinter(minter).leveragedTokenBalance();
         uint256 minterCollateralBefore = IERC20(deployed.wstETH).balanceOf(minter);
-        uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
-        if (collateralRatioBefore == type(uint256).max) collateralRatioBefore = 1 ether;
 
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintPeggedToken(sender.addr, receiver.addr, senderCollateralDecrease, receiverBaoUSDIncrease);
@@ -219,7 +213,6 @@ contract TestMinterMintPegged is TestMinterMint {
             uint256(int256(minterCollateralBefore + senderCollateralDecrease) - mintPeggedFee),
             "wstETH has minter owning it"
         );
-        assertEq(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio = before");
     }
 
     function test_mintPeggedBasic() public {
