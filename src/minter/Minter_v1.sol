@@ -43,40 +43,6 @@ contract Minter_v1 is
     using SafeERC20 for IERC20;
     using WordCodec for bytes32;
 
-    // TODO: move this logging to useful
-    bool constant logging = true;
-    function clog(string memory name, uint256 value) private view {
-        if (logging) console.log(string.concat("C ", name, "=%s [%e]"), value, value);
-    }
-
-    function clog(string memory name, int256 value) private view {
-        string memory neg = value < 0 ? "-" : "";
-        if (logging)
-            console.log(
-                string.concat("C ", name, "=", neg, "%s [", neg, "%e]"),
-                SignedMath.abs(value),
-                SignedMath.abs(value)
-            );
-    }
-
-    function clog(string memory value) private view {
-        if (logging) console.log("C %s", value);
-    }
-
-    function i2s(uint i) private pure returns (string memory) {
-        bytes memory byteArray = new bytes(1);
-        byteArray[0] = bytes1(uint8(i) + 48);
-        return string(byteArray);
-    }
-
-    function clog(string memory name, uint i, uint256 value) private view {
-        clog(string.concat(name, "[", i2s(i), "]"), value);
-    }
-
-    function clog(string memory name, uint i, int256 value) private view {
-        clog(string.concat(name, "[", i2s(i), "]"), value);
-    }
-
     // collateral ratio bounds are stored as uint32, which allows for a maximum value of ~4 billion
     // with decimals = 6, this gives a max ratio of 4,000 (400,000%) with precision of 0.000001 (0.0001%),
     // e.g. 130.55% is easily catered for

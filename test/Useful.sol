@@ -1,10 +1,53 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.25;
 
+import "@openzeppelin/contracts/utils/math/SignedMath.sol";
+
 // import {DateUtils} from "DateUtils/DateUtils.sol";
 import { console2 as console } from "forge-std/console2.sol";
 
 // Attribution: string basics stolen from OpenZeppelin
+
+/**
+ * library c is a wrapper around console.log that has
+ * automated indentation via c.into("function/scope/etc") and c.outof()
+ * https://chatgpt.com/share/fd257ec9-95ff-454d-bcb2-58bb11a100cf
+ */
+
+library c {
+    bool constant logging = true;
+    function log(string memory name, uint256 value) private pure {
+        if (logging) console.log(string.concat("C ", name, "=%s [%e]"), value, value);
+    }
+
+    function log(string memory name, int256 value) private pure {
+        string memory neg = value < 0 ? "-" : "";
+        if (logging)
+            console.log(
+                string.concat("C ", name, "=", neg, "%s [", neg, "%e]"),
+                SignedMath.abs(value),
+                SignedMath.abs(value)
+            );
+    }
+
+    function log(string memory value) private pure {
+        if (logging) console.log("C %s", value);
+    }
+
+    function i2s(uint i) private pure returns (string memory) {
+        bytes memory byteArray = new bytes(1);
+        byteArray[0] = bytes1(uint8(i) + 48);
+        return string(byteArray);
+    }
+
+    function log(string memory name, uint i, uint256 value) private pure {
+        log(string.concat(name, "[", i2s(i), "]"), value);
+    }
+
+    function clog(string memory name, uint i, int256 value) private pure {
+        log(string.concat(name, "[", i2s(i), "]"), value);
+    }
+}
 
 library Useful {
     bytes16 private constant _SYMBOLS = "0123456789abcdef";
