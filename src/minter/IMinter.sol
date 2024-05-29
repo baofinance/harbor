@@ -143,12 +143,12 @@ interface IMinter {
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
     /// @param sender The address of peggedToken and leveragedToken owner.
     /// @param recipient The address of receiver for collateral token.
-    /// @param lTokenBurned The amount of leveragedToken burned.
+    /// @param leveragedTokenBurned The amount of leveragedToken burned.
     /// @param collateralTokenOut The amount of collateral token redeemed.
     event RedeemLeveragedToken(
         address indexed sender,
         address indexed recipient,
-        uint256 lTokenBurned,
+        uint256 leveragedTokenBurned,
         uint256 collateralTokenOut
     );
 
@@ -219,8 +219,8 @@ interface IMinter {
     function leverageRatio() external view returns (uint256);
 
     function leveragedTokenPrice() external view returns (uint256);
-    function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256);
-
+    function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
+    function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 leveragedTokens);
     function priceOracle() external view returns (address);
 
     function feeReceiver() external view returns (address);
@@ -280,12 +280,12 @@ interface IMinter {
     ) external returns (uint256 collateralOut);
 
     /// @notice Redeem collateral token with leveragedToken.
-    /// @param lTokenIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
+    /// @param leveragedTokenIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
     /// @param recipient The address of receiver for collateral token.
     /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no check is made.
     /// @return collateralOut The amount of wrapped value of collateral token should be received.
     function redeemLeveragedToken(
-        uint256 lTokenIn,
+        uint256 leveragedTokenIn,
         address recipient,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
@@ -304,5 +304,5 @@ interface IMinterTreasury {
     function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedOut);
     function freeRedeemPeggedToken(uint256 peggedIn, address recipient) external returns (uint256 collateralOut);
     function freeMintLeveragedToken(uint256 collateralIn, address recipient) external returns (uint256 leveragedOut);
-    function freeRedeemLeveragedToken(uint256 leveragedIn) external returns (uint256 collateralOut);
+    function freeRedeemLeveragedToken(uint256 leveragedIn, address recipient) external returns (uint256 collateralOut);
 }

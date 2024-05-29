@@ -44,6 +44,7 @@ contract LeveragedToken_v1 is
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
             interfaceId == type(IMintable).interfaceId ||
+            interfaceId == type(IBurnable).interfaceId ||
             interfaceId == type(IERC20).interfaceId ||
             super.supportsInterface(interfaceId);
     }

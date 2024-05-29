@@ -99,7 +99,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // 2 ----------------------------------------------------------
 
         // some input, when none
-        vm.expectRevert(); // BaoUSD does not give an error message when burning tokens you don't have
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, deployed.BaoUSD));
         vm.prank(owner.addr);
         IMinterTreasury(minter).freeRedeemPeggedToken(price, receiver.addr);
         // 3 ----------------------------------------------------------------
