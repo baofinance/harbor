@@ -7,6 +7,15 @@ cache/
 out/
 lcov.info
 
+# yarn files (see https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored)
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/

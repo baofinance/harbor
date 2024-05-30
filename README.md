@@ -15,7 +15,7 @@ Fees increase as the collateral ratio decreases for certain user actions and dec
 ## Reserve pool
 
 Provides discounts for beneficial user actions.
-The reserve pool is filled with a percentage of the fees collected, and can be filled with other mechanisms
+The reserve pool is filled with a percentage of the fees collected, and can be filled by other mechanisms, e.g. simply transferring the collateral token to it.
 
 # Development
 
@@ -25,6 +25,13 @@ https://book.getfoundry.sh/
 
 ## Usage
 
-yarn test
+    $ yarn
 
-yarn coverage (doesn't work for me)
+to install node dependencies.
+Then add a good definition of <code>MAINNET_RPC_URL</code> to your <code>.env</code>.
+
+    $ yarn test
+    $ yarn coverage (doesn't work for me)
+    $ yarn slither
+
+etc. Check the scripts in <code>package.json</code>

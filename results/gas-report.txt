@@ -28,32 +28,32 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4769793                                     | 21941           |        |        |        |         |
+| 4400618                                     | 20234           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5128            | 5128   | 5128   | 5128   | 7       |
 | collateralRatio                             | 515             | 3533   | 3576   | 3576   | 868     |
 | collateralToken                             | 2446            | 2446   | 2446   | 2446   | 1       |
 | collateralTokenBalance                      | 1404            | 1564   | 1404   | 5404   | 50      |
 | feeReceiver                                 | 2490            | 2490   | 2490   | 2490   | 1       |
-| freeMintLeveragedToken                      | 2949            | 74983  | 73701  | 124643 | 121     |
-| freeMintPeggedToken                         | 2992            | 92183  | 120275 | 120275 | 28      |
-| freeRedeemLeveragedToken                    | 2926            | 37421  | 30904  | 83366  | 10      |
-| freeRedeemPeggedToken                       | 2972            | 42697  | 12204  | 105391 | 10      |
+| freeMintLeveragedToken                      | 2949            | 74937  | 73654  | 124596 | 121     |
+| freeMintPeggedToken                         | 2992            | 92143  | 120228 | 120228 | 28      |
+| freeRedeemLeveragedToken                    | 2926            | 37403  | 30904  | 83319  | 10      |
+| freeRedeemPeggedToken                       | 2972            | 42660  | 12204  | 105297 | 10      |
 | hasRole                                     | 762             | 2562   | 2762   | 2762   | 10      |
 | initialize                                  | 3268            | 527520 | 547684 | 547684 | 27      |
 | leverageTokensForCollateral                 | 5164            | 5198   | 5164   | 8806   | 107     |
 | leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 1       |
 | leveragedTokenBalance                       | 1609            | 2126   | 1609   | 12609  | 29      |
-| mintLeveragedToken                          | 2849            | 67488  | 94215  | 145157 | 13      |
+| mintLeveragedToken                          | 2849            | 67444  | 94121  | 145063 | 13      |
 | mintLeveragedTokenIncentiveRatio            | 5555            | 6782   | 7325   | 16259  | 705     |
-| mintPeggedToken                             | 2784            | 61726  | 58665  | 129918 | 16      |
-| mintPeggedTokenIncentiveRatio               | 8419            | 10459  | 11253  | 17753  | 706     |
+| mintPeggedToken                             | 2784            | 58119  | 53456  | 124638 | 16      |
+| mintPeggedTokenIncentiveRatio               | 5731            | 6488   | 6774   | 11022  | 706     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 1       |
 | peggedTokenBalance                          | 396             | 470    | 396    | 2396   | 27      |
 | priceOracle                                 | 2470            | 2470   | 2470   | 2470   | 1       |
-| redeemLeveragedToken                        | 6164            | 56956  | 17344  | 144558 | 11      |
-| redeemLeveragedTokenIncentiveRatio          | 9735            | 11724  | 12459  | 20569  | 701     |
-| redeemPeggedToken                           | 6991            | 59997  | 45509  | 144067 | 13      |
+| redeemLeveragedToken                        | 2817            | 42578  | 13295  | 117280 | 11      |
+| redeemLeveragedTokenIncentiveRatio          | 7047            | 7756   | 7980   | 16090  | 701     |
+| redeemPeggedToken                           | 6991            | 59936  | 45462  | 143926 | 13      |
 | redeemPeggedTokenIncentiveRatio             | 5462            | 6692   | 7232   | 17137  | 705     |
 | updateConfig                                | 76244           | 76244  | 76244  | 76244  | 17      |
 
