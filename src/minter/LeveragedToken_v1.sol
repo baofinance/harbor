@@ -9,7 +9,7 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { IMintable, IBurnable } from "src/minter/IMintable.sol";
+import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 
 contract LeveragedToken_v1 is
     Initializable,
@@ -18,7 +18,8 @@ contract LeveragedToken_v1 is
     ERC20PermitUpgradeable,
     AccessControlDefaultAdminRulesUpgradeable,
     IMintable,
-    IBurnable
+    IBurnable,
+    IBurnableFrom
 {
     using SafeERC20 for IERC20;
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -44,6 +45,7 @@ contract LeveragedToken_v1 is
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
             interfaceId == type(IMintable).interfaceId ||
+            interfaceId == type(IBurnableFrom).interfaceId ||
             interfaceId == type(IBurnable).interfaceId ||
             interfaceId == type(IERC20).interfaceId ||
             super.supportsInterface(interfaceId);
@@ -53,7 +55,11 @@ contract LeveragedToken_v1 is
         _mint(to, amount);
     }
 
-    function burn(address from, uint256 amount) public override onlyRole(MINTER_ROLE) {
+    function burn(uint256 amount) public override onlyRole(MINTER_ROLE) {
+        _burn(_msgSender(), amount);
+    }
+
+    function burnFrom(address from, uint256 amount) public override onlyRole(MINTER_ROLE) {
         _burn(from, amount);
     }
 }

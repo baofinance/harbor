@@ -12,7 +12,7 @@ interface IMintable {
     function mint(address to, uint256 amount) external;
 }
 
-interface IBurnable {
+interface IBurnableFrom {
     /****************************
      * Public Mutated Functions *
      ****************************/
@@ -20,10 +20,10 @@ interface IBurnable {
     /// @notice Burn some token from someone.
     /// @param from The address of owner to burn.
     /// @param amount The amount of token to burn.
-    function burn(address from, uint256 amount) external;
+    function burnFrom(address from, uint256 amount) external;
 }
 
-interface IBurnableNoAddress {
+interface IBurnable {
     /****************************
      * Public Mutated Functions *
      ****************************/

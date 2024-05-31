@@ -15,7 +15,7 @@ import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
 
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
-import { IMintable, IBurnableNoAddress, IBurnable } from "src/minter/IMintable.sol";
+import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
@@ -682,7 +682,7 @@ contract Minter_v1 is
         emit RedeemPeggedToken(_msgSender(), recipient, peggedIn, collateralOut);
         // burn the tokens from the sender - get them first then burn them
         IERC20(peggedToken_).safeTransferFrom(_msgSender(), address(this), peggedIn);
-        IBurnableNoAddress(peggedToken_).burn(peggedIn);
+        IBurnable(peggedToken_).burn(peggedIn);
         // return the collateral
         IERC20(collateralToken_).safeTransfer(recipient, collateralOut);
     }
@@ -1037,7 +1037,7 @@ contract Minter_v1 is
         // tell the world
         emit RedeemLeveragedToken(_msgSender(), recipient, leveragedIn, collateralOut);
         // burn the leveraged
-        IBurnable(leveragedToken_).burn(_msgSender(), leveragedIn);
+        IBurnableFrom(leveragedToken_).burnFrom(_msgSender(), leveragedIn);
         // return the collateral
         IERC20(collateralToken_).safeTransfer(recipient, collateralOut);
     }
