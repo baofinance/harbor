@@ -189,44 +189,31 @@ contract TestMinterFees is TestMinter {
     }
 
     function _checkMintPeggedIntegral(uint iTotalMint, uint step, uint tolerance) private returns (int256 totalFee) {
-        bool log = step == 2;
-        console.log("_checkMintPeggedIntegral(%s, %s)", iTotalMint, step);
-        // console.log("------------------------------------------");
         uint256 maxCollateral;
         int256 incentiveRatio;
         (incentiveRatio, maxCollateral) = IMinter(minter).mintPeggedTokenIncentiveRatio(iTotalMint * 1 ether);
-        if (log) clog("  incentiveRatio", incentiveRatio);
         totalFee = (int256(maxCollateral) * incentiveRatio) / 1 ether;
-        if (log) clog("  expected fees", totalFee);
         uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        if (log) clog("starting fees", start);
         for (uint i = 0; i < iTotalMint; i++) {
-            console.log("    step %s mint %s of %s", step, i + 1, iTotalMint);
             uint256 beforeMint = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-            // uint256 expected = 1 ether * uint256(IMinter(minter).mintPeggedTokenIncentiveRatio(1 ether));
+            int256 expected;
+            (expected, maxCollateral) = IMinter(minter).mintPeggedTokenIncentiveRatio(1 ether);
+            expected = (int256(maxCollateral) * incentiveRatio) / 1 ether;
             vm.prank(user.addr);
-            try IMinter(minter).mintPeggedToken(1 ether, user.addr, 0) returns (uint256) {} catch {
-                console.log("    mint reverted");
-            }
-            if (log) clog("    fees this mint", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint);
-            // assertApproxEqAbs(
-            //     IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint,
-            //     expected,
-            //     2,
-            //     string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
-            // );
-            // if (log)
-            //     clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+            try IMinter(minter).mintPeggedToken(1 ether, user.addr, 0) returns (uint256) {} catch {}
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint,
+                uint256(expected),
+                2,
+                string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
+            );
         }
-        if (log) clog(" actual fees  ", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
-        // clog(" all (pre-calc'd) ", totalFee);
         assertApproxEqAbs(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
             uint256(totalFee),
             tolerance,
             Useful.toString(step)
         );
-        console.log("_checkMintPeggedIntegral() -> %s", totalFee);
     }
 
     function test_mintPeggedFeesAreIntegrals() private {

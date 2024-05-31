@@ -188,7 +188,6 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
     function _redeemPeggedToken(uint256 peggedIn) private {
         (, uint256 price, , ) = priceOracle.getPrice();
-        clog("price", price);
 
         uint256 senderPeggedDecrease;
         if (peggedIn == type(uint256).max) {
@@ -196,17 +195,13 @@ contract TestMinterRedeemPegged is TestMinterMint {
         } else {
             senderPeggedDecrease = peggedIn;
         }
-        clog("senderPeggedDecrease", senderPeggedDecrease);
 
         deal(address(deployed.BaoUSD), sender.addr, senderPeggedDecrease);
         vm.prank(sender.addr);
         IERC20(deployed.BaoUSD).approve(minter, type(uint256).max);
 
-        clog("redeemPeggedNormalIncentiveRatio", redeemPeggedNormalIncentiveRatio);
         uint256 redeemPeggedFee = (senderPeggedDecrease * uint256(redeemPeggedNormalIncentiveRatio)) / price;
-        clog("redeemPeggedFee", redeemPeggedFee);
         uint256 receiverCollateralIncrease = (senderPeggedDecrease * 1 ether) / price - redeemPeggedFee;
-        clog("receiverCollateralIncrease", receiverCollateralIncrease);
 
         uint256 feeReceiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
         uint256 senderPeggedBefore = IERC20(deployed.BaoUSD).balanceOf(sender.addr);
@@ -367,8 +362,6 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).redeemPeggedToken(pegged, receiver.addr, expectedCollateralOut);
         // 3 ------------------------------------------------------------------------------
         assertEq(IERC20(deployed.wstETH).balanceOf(receiver.addr), receiverCollateralBefore + expectedCollateralOut);
-        clog("senderPeggedBefore", senderPeggedBefore);
-        clog("pegged", pegged);
 
         assertEq(IERC20(deployed.BaoUSD).balanceOf(sender.addr), senderPeggedBefore - pegged);
 

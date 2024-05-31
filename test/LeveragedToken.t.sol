@@ -104,7 +104,7 @@ contract Test_LeveragedToken is Test {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, minter.addr, minterRole)
         );
         vm.prank(minter.addr);
-        leveragedToken.burn(address(this), 1 ether);
+        leveragedToken.burnFrom(address(this), 1 ether);
 
         // non-minter mint - owner
         vm.expectRevert(
@@ -118,7 +118,7 @@ contract Test_LeveragedToken is Test {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, owner.addr, minterRole)
         );
         vm.prank(owner.addr);
-        leveragedToken.burn(address(this), 1 ether);
+        leveragedToken.burnFrom(address(this), 1 ether);
 
         // minter now is minter
         assertEq(leveragedToken.balanceOf(address(this)), 0, "should have none");
@@ -134,7 +134,7 @@ contract Test_LeveragedToken is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 0, 2 ether)
         );
-        leveragedToken.burn(address(this), 2 ether);
+        leveragedToken.burnFrom(address(this), 2 ether);
 
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(address(0), address(this), 2 ether);
@@ -145,11 +145,11 @@ contract Test_LeveragedToken is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 2 ether, 3 ether)
         );
-        leveragedToken.burn(address(this), 3 ether);
+        leveragedToken.burnFrom(address(this), 3 ether);
 
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(address(this), address(0), 1 ether);
-        leveragedToken.burn(address(this), 1 ether);
+        leveragedToken.burnFrom(address(this), 1 ether);
         assertEq(leveragedToken.totalSupply(), 1 ether, "1 ether left now");
         assertEq(leveragedToken.balanceOf(address(this)), 1 ether, "should now have 1");
 
