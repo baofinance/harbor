@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import { Test } from "forge-std/Test.sol";
 import { console2 as console } from "forge-std/console2.sol";
@@ -43,8 +43,8 @@ contract Test_ReservePool is Test {
         owner = vm.createWallet("owner");
         treasury = vm.createWallet("treasury");
 
-        reservePool = Upgrades.deployUUPSProxy(
-            "ReservePool_v1.sol",
+        reservePool = UnsafeUpgrades.deployUUPSProxy(
+            address(new ReservePool_v1()), // "ReservePool_v1.sol",
             abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
         );
         // set up permissions

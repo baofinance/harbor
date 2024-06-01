@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
+//import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import { Test } from "forge-std/Test.sol";
 import { console2 as console } from "forge-std/console2.sol";
@@ -39,8 +40,8 @@ contract Test_LeveragedToken is Test {
         user2 = vm.createWallet("user2");
 
         leveragedToken = LeveragedToken_v1(
-            Upgrades.deployUUPSProxy(
-                "LeveragedToken_v1.sol",
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
                 abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, name, symbol))
             )
         );
@@ -65,8 +66,8 @@ contract Test_LeveragedToken is Test {
         emit IAccessControl.RoleGranted(ownerRole, owner.addr, address(this));
         vm.expectEmit(false, false, false, true);
         emit Initializable.Initialized(1); // from the proxy delegate call
-        Upgrades.deployUUPSProxy(
-            "LeveragedToken_v1.sol",
+        UnsafeUpgrades.deployUUPSProxy(
+            address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
             abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, name, symbol))
         );
     }

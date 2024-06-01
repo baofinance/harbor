@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import { Test } from "forge-std/Test.sol";
 import { console2 as console } from "forge-std/console2.sol";
@@ -194,13 +194,13 @@ contract TestMinter is Test {
         priceOracle = new MockPriceOracle();
         rateProvider = new MockRateProvider();
 
-        leveragedToken = Upgrades.deployUUPSProxy(
-            "LeveragedToken_v1.sol",
+        leveragedToken = UnsafeUpgrades.deployUUPSProxy(
+            address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
             abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoUSDLwstETH"))
         );
 
-        reservePool = Upgrades.deployUUPSProxy(
-            "ReservePool_v1.sol",
+        reservePool = UnsafeUpgrades.deployUUPSProxy(
+            address(new ReservePool_v1()), //"ReservePool_v1.sol",
             abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
         );
 
@@ -247,8 +247,8 @@ contract TestMinter is Test {
         // TODO: test for leveraged, collateral and random tokens
         bonusToken = deployed.wstETH;
 
-        minter = Upgrades.deployUUPSProxy(
-            "Minter_v1.sol",
+        minter = UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1()), // "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
                 (
@@ -379,8 +379,8 @@ contract TestMinterInit is TestMinter {
         // vm.expectEmit(false, false, false, true);
         emit Initializable.Initialized(1); // from the proxy delegate call
 
-        Upgrades.deployUUPSProxy(
-            "Minter_v1.sol",
+        UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1()), // "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
                 (
