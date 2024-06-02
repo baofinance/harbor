@@ -5,7 +5,7 @@
     "build": "forge build",
     "test": "forge test -vvv --gas-report | tee ./results/test.log && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt",
     "test1": "forge test -vvv ",
-    "coverage": "forge coverage --report summary --report lcov | tee ./results/coverage.log && grep '^|.*|$' ./results/coverage.log > ./results/coverage.txt",
+    "coverage": "forge coverage --report summary --report lcov | tee ./results/coverage.log && grep '^| src/.* |$' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*'",
     "coverage1": "forge coverage --report summary --report lcov ",
     "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,incorrect-versions-of-solidity --filter-paths \"lib/openzeppelin.*|lib/forge-std.*\"",
     "script": "forge script --force --ffi"
