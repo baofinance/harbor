@@ -2,13 +2,13 @@
 # Manual changes might be lost - proceed with caution!
 
 __metadata:
-  version: 6
-  cacheKey: 8
+  version: 8
+  cacheKey: 10
 
 "@solidity-parser/parser@npm:^0.17.0":
   version: 0.17.0
   resolution: "@solidity-parser/parser@npm:0.17.0"
-  checksum: 2f47732c9a4f6b264ce6c8a0544bd5a0805f824d3c40a8a253e59d5dbe9a98163f55c06460232f57a6b389bb5235c18d0563f94425202ec2f859d88f2378e0ac
+  checksum: 10/76de7d1268de676c101b9a41576c324c0d0b9699e3ba3d846b5e580d6cae454fd7ec088011c316ce18af1b23a1482da88768d30f0e41becfd9da90f692fb9a65
   languageName: node
   linkType: hard
 
@@ -16,8 +16,8 @@ __metadata:
   version: 6.0.0
   resolution: "lru-cache@npm:6.0.0"
   dependencies:
-    yallist: ^4.0.0
-  checksum: f97f499f898f23e4585742138a22f22526254fdba6d75d41a1c2526b3b6cc5747ef59c5612ba7375f42aca4f8461950e925ba08c991ead0651b4918b7c978297
+    yallist: "npm:^4.0.0"
+  checksum: 10/fc1fe2ee205f7c8855fa0f34c1ab0bcf14b6229e35579ec1fd1079f31d6fc8ef8eb6fd17f2f4d99788d7e339f50e047555551ebd5e434dda503696e7c6591825
   languageName: node
   linkType: hard
 
@@ -25,12 +25,12 @@ __metadata:
   version: 1.3.1
   resolution: "prettier-plugin-solidity@npm:1.3.1"
   dependencies:
-    "@solidity-parser/parser": ^0.17.0
-    semver: ^7.5.4
-    solidity-comments-extractor: ^0.0.8
+    "@solidity-parser/parser": "npm:^0.17.0"
+    semver: "npm:^7.5.4"
+    solidity-comments-extractor: "npm:^0.0.8"
   peerDependencies:
     prettier: ">=2.3.0"
-  checksum: 286bf3b5899d7fad66e49c78ebac164bacfbf419f874a932ed99e491d97d77e91fa03ca068197939d3696ba7991db9e5258390dd42dee8d2184fa8c2e11921e4
+  checksum: 10/45c1bf16ca960e43e8dc518db95a9eecfce941480e2737272ab259ea9dcb9796a7830a8884de21637f286f80f06d4b4163418d4d55e41347aee96ee93bc4e8f0
   languageName: node
   linkType: hard
 
@@ -39,7 +39,7 @@ __metadata:
   resolution: "prettier@npm:3.2.5"
   bin:
     prettier: bin/prettier.cjs
-  checksum: 2ee4e1417572372afb7a13bb446b34f20f1bf1747db77cf6ccaf57a9be005f2f15c40f903d41a6b79eec3f57fff14d32a20fb6dee1f126da48908926fe43c311
+  checksum: 10/d509f9da0b70e8cacc561a1911c0d99ec75117faed27b95cc8534cb2349667dee6351b0ca83fa9d5703f14127faa52b798de40f5705f02d843da133fc3aa416a
   languageName: node
   linkType: hard
 
@@ -47,8 +47,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "root-workspace-0b6124@workspace:."
   dependencies:
-    prettier: ^3.2.5
-    prettier-plugin-solidity: ^1.3.1
+    prettier: "npm:^3.2.5"
+    prettier-plugin-solidity: "npm:^1.3.1"
   languageName: unknown
   linkType: soft
 
@@ -56,23 +56,23 @@ __metadata:
   version: 7.6.0
   resolution: "semver@npm:7.6.0"
   dependencies:
-    lru-cache: ^6.0.0
+    lru-cache: "npm:^6.0.0"
   bin:
     semver: bin/semver.js
-  checksum: 7427f05b70786c696640edc29fdd4bc33b2acf3bbe1740b955029044f80575fc664e1a512e4113c3af21e767154a94b4aa214bf6cd6e42a1f6dba5914e0b208c
+  checksum: 10/1b41018df2d8aca5a1db4729985e8e20428c650daea60fcd16e926e9383217d00f574fab92d79612771884a98d2ee2a1973f49d630829a8d54d6570defe62535
   languageName: node
   linkType: hard
 
 "solidity-comments-extractor@npm:^0.0.8":
   version: 0.0.8
   resolution: "solidity-comments-extractor@npm:0.0.8"
-  checksum: ad025fc968e2d744b4270710c2f7f55b43d8046ab3f155fd880a7768d6fd163a93ea98f62be3b1115a29ba815bd8b5736bb5ffd1feff79083eca1bf273108d07
+  checksum: 10/615d53c2e8f5e7a1ad26e4e7e3bdc8b7c7885420611fcd690864bb54a9af2813a93cf30bdede16273791bda16eebc7a4ce1379d458ac2d7834074eb4936dea70
   languageName: node
   linkType: hard
 
 "yallist@npm:^4.0.0":
   version: 4.0.0
   resolution: "yallist@npm:4.0.0"
-  checksum: 343617202af32df2a15a3be36a5a8c0c8545208f3d3dfbc6bb7c3e3b7e8c6f8e7485432e4f3b88da3031a6e20afa7c711eded32ddfb122896ac5d914e75848d5
+  checksum: 10/4cb02b42b8a93b5cf50caf5d8e9beb409400a8a4d85e83bb0685c1457e9ac0b7a00819e9f5991ac25ffabb56a78e2f017c1acc010b3a1babfe6de690ba531abd
   languageName: node
   linkType: hard
