@@ -21,30 +21,36 @@ import { IMintable } from "src/minter/IMintable.sol";
 
 contract Test_LeveragedToken is Test {
     using ECDSA for bytes32;
-    string constant name = "Leveraged wstETH against BaoUSD";
-    string constant symbol = "BaoUSDLwstETH";
+    string name = "Leveraged wstETH against BaoUSD";
+    string symbol = "BaoUSDLwstETH";
 
     LeveragedToken_v1 leveragedToken;
     Vm.Wallet minter;
-    Vm.Wallet owner;
+    address owner;
     Vm.Wallet user;
     Vm.Wallet user2;
 
     bytes32 minterRole;
     bytes32 ownerRole;
 
-    function setUp() public {
-        owner = vm.createWallet("owner");
+    function connectContract() public virtual {
+        name = "Leveraged wstETH against BaoUSD";
+        symbol = "BaoUSDLwstETH";
+        owner = vm.createWallet("owner").addr;
+        leveragedToken = LeveragedToken_v1(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
+                abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
+            )
+        );
+    }
+
+    function setUp() public virtual {
         minter = vm.createWallet("minter");
         user = vm.createWallet("user");
         user2 = vm.createWallet("user2");
 
-        leveragedToken = LeveragedToken_v1(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
-                abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, name, symbol))
-            )
-        );
+        connectContract();
 
         minterRole = leveragedToken.MINTER_ROLE();
         ownerRole = leveragedToken.DEFAULT_ADMIN_ROLE();
@@ -52,8 +58,8 @@ contract Test_LeveragedToken is Test {
 
     function setUpMinterAccess() private {
         vm.expectEmit(true, true, true, false);
-        emit IAccessControl.RoleGranted(minterRole, minter.addr, owner.addr);
-        vm.prank(owner.addr);
+        emit IAccessControl.RoleGranted(minterRole, minter.addr, owner);
+        vm.prank(owner);
         leveragedToken.grantRole(minterRole, minter.addr);
     }
 
@@ -63,12 +69,12 @@ contract Test_LeveragedToken is Test {
         vm.expectEmit(false, false, false, false);
         emit IERC1967.Upgraded(address(0)); // we don't know the address right now
         vm.expectEmit(true, true, true, false);
-        emit IAccessControl.RoleGranted(ownerRole, owner.addr, address(this));
+        emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
         vm.expectEmit(false, false, false, true);
         emit Initializable.Initialized(1); // from the proxy delegate call
         UnsafeUpgrades.deployUUPSProxy(
             address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, name, symbol))
+            abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
         );
     }
 
@@ -78,18 +84,18 @@ contract Test_LeveragedToken is Test {
         leveragedToken.initialize(address(this), name, symbol);
 
         // check the data has been set up correctly
-        assertTrue(Strings.equal(leveragedToken.name(), name), "wrong name");
-        assertTrue(Strings.equal(leveragedToken.symbol(), symbol), "wrong symbol");
+        assertEq(leveragedToken.name(), name, "wrong name");
+        assertEq(leveragedToken.symbol(), symbol, "wrong symbol");
         assertEq(leveragedToken.decimals(), 18, "wrong decimals");
         assertEq(leveragedToken.totalSupply(), 0, "nothing minted yet");
 
         // admin role
         assertFalse(leveragedToken.hasRole(ownerRole, address(this)), "this should not be admin");
-        assertTrue(leveragedToken.hasRole(ownerRole, owner.addr), "owner should be admin");
+        assertTrue(leveragedToken.hasRole(ownerRole, owner), "owner should be admin");
 
         // minter role
         assertFalse(leveragedToken.hasRole(minterRole, address(this)), "this should not be minter");
-        assertFalse(leveragedToken.hasRole(minterRole, owner.addr), "owner should not be minter");
+        assertFalse(leveragedToken.hasRole(minterRole, owner), "owner should not be minter");
         assertFalse(leveragedToken.hasRole(minterRole, minter.addr), "minter should not be minter (yet)");
     }
 
@@ -109,16 +115,16 @@ contract Test_LeveragedToken is Test {
 
         // non-minter mint - owner
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, owner.addr, minterRole)
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, owner, minterRole)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         leveragedToken.mint(address(this), 1 ether);
         assertEq(leveragedToken.totalSupply(), 0, "nothing minted yet");
 
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, owner.addr, minterRole)
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, owner, minterRole)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         leveragedToken.burnFrom(address(this), 1 ether);
 
         // minter now is minter
@@ -264,4 +270,22 @@ contract Test_LeveragedToken is Test {
     //     counter.setNumber(x);
     //     assertEq(counter.number(), x);
     //}
+}
+
+contract Test_LeveragedToken_sepolia is Test_LeveragedToken {
+    function setUp() public override {
+        string memory url = vm.rpcUrl("sepolia");
+        vm.createSelectFork(url, 6038049); // pin to a block for speed (4-June-2024)
+        super.setUp(); // calls the connectContract below
+    }
+
+    function connectContract() public override {
+        // vm.rpcUrl("sepolia");
+        // proxy: 0x48fD4A32A7Df9F747e0a3C7d7085761C1242B210
+        // implementation: 0x84bCF7815A9C29E1f69Fb75055F68D50EFAdD5e7
+        name = "BaoMinter BaoUSD-wstETH";
+        symbol = "BaoUSD-wstETH";
+        owner = 0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00;
+        leveragedToken = LeveragedToken_v1(0x48fD4A32A7Df9F747e0a3C7d7085761C1242B210);
+    }
 }

@@ -30,7 +30,7 @@ import { MockRateProvider } from "test/MockRateProvider.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 
-contract TestMinter is Test {
+contract TestMinter is Test, Clog {
     address minter;
     IMinter.Config config;
 
@@ -60,18 +60,6 @@ contract TestMinter is Test {
     int256 redeemPeggedDangerIncentiveRatio;
     int256 redeemLeveragedNormalIncentiveRatio;
     int256 redeemLeveragedDangerIncentiveRatio;
-
-    function clog(string memory name, uint256 value) internal pure {
-        console.log("T %s=%s (%e)", name, value, value);
-    }
-
-    function clog(string memory name, int256 value) internal pure {
-        if (value < 0) {
-            console.log("T %s=-%s (-%e)", name, uint256(-value), uint256(-value));
-        } else {
-            console.log("T %s=%s (%e)", name, uint256(value), uint256(value));
-        }
-    }
 
     function _percentToEther(uint amount) private pure returns (uint256) {
         return (amount * 1 ether) / 100;
@@ -183,8 +171,8 @@ contract TestMinter is Test {
     }
 
     function setUp() public virtual {
-        string memory url = vm.envString("MAINNET_RPC_URL");
-        vm.createSelectFork(url);
+        string memory url = vm.rpcUrl("mainnet");
+        vm.createSelectFork(url, 19210000);
 
         feeReceiver = vm.createWallet("feeReceiver");
 
@@ -426,12 +414,6 @@ contract TestMinterInit is TestMinter {
             type(uint256).max,
             "very high collateral ratios capped at maxuint256"
         );
-    }
-
-    function test_initProtocol() public {
-        // 10 ether,
-        // 1 ether / 2,
-        // holder
     }
 
     // function testFuzz_SetNumber(uint256 x) public {

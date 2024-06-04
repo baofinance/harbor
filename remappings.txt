@@ -4,3 +4,4 @@ forge-std/=lib/forge-std/src/
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
 openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/
 solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/
+src/=src/

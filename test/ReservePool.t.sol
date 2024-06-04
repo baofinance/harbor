@@ -36,8 +36,9 @@ contract Test_ReservePool is Test {
     bytes32 ownerRole = 0;
 
     function setUp() public {
-        string memory url = vm.envString("MAINNET_RPC_URL");
-        vm.createSelectFork(url);
+        string memory url = vm.rpcUrl("mainnet");
+        // TODO: make a base contract that has this fork
+        vm.createSelectFork(url, 19210000);
 
         bonusReceiver = vm.createWallet("bonusReceiver");
         owner = vm.createWallet("owner");

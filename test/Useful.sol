@@ -9,47 +9,91 @@ import { console2 as console } from "forge-std/console2.sol";
 // Attribution: string basics stolen from OpenZeppelin
 
 /**
- * library c is a wrapper around console.log that has
- * automated indentation via c.into("function/scope/etc") and c.outof()
+ * contract Clog is a wrapper around console.log that has
+ * automated indentation via into("function/scope/etc") and outof()
  * https://chatgpt.com/share/fd257ec9-95ff-454d-bcb2-58bb11a100cf
  */
 
-/*
-library c {
-    bool constant logging = true;
-    function log(string memory name, uint256 value) private pure {
-        if (logging) console.log(string.concat("C ", name, "=%s [%e]"), value, value);
+contract Clog {
+    // switch loggin on and off by setting this to true or false
+    bool public logging = true;
+    string[] private stack;
+
+    // set a prefix string, prepended to each log line.
+    // use this to distinguish contracts or e.g. "C" for contract and "T" for test
+    string private prefix = "";
+    function clogContext(string memory prefix_) public {
+        prefix = string.concat(prefix_, " ");
     }
 
-    function log(string memory name, int256 value) private pure {
+    function clog(string memory name, uint256 value) internal view {
+        _clog(name, value, _format(value));
+    }
+
+    function clog(string memory name, int256 value) internal view {
+        _clog(name, SignedMath.abs(value), _format(value));
+    }
+
+    function clog(string memory value) internal view {
+        _clog(value);
+    }
+
+    function clog(string memory name, uint i, uint256 value) internal view {
+        clog(string.concat(name, "[", _i2s(i), "]"), value);
+    }
+
+    function clog(string memory name, uint i, int256 value) internal view {
+        clog(string.concat(name, "[", _i2s(i), "]"), value);
+    }
+
+    function into(string memory func) public {
+        _clog(string.concat(func, "..."));
+        stack.push(func);
+    }
+
+    function out() public {
+        string memory func = stack[stack.length - 1];
+        stack.pop();
+        _clog(string.concat(func, "."));
+    }
+
+    /******************************
+    private functions
+     */
+
+    function _format(uint256) private pure returns (string memory) {
+        return "%s [%e]";
+    }
+
+    function _format(int256 value) private pure returns (string memory) {
         string memory neg = value < 0 ? "-" : "";
-        if (logging)
-            console.log(
-                string.concat("C ", name, "=", neg, "%s [", neg, "%e]"),
-                SignedMath.abs(value),
-                SignedMath.abs(value)
-            );
+        return string.concat(neg, "%s [", neg, "%e]");
     }
 
-    function log(string memory value) private pure {
-        if (logging) console.log("C %s", value);
+    uint private spacesPerIndentLevel = 2;
+
+    function _indent() private view returns (string memory indent_) {
+        indent_ = new string(stack.length * spacesPerIndentLevel);
+        bytes memory indentBytes = bytes(indent_);
+        for (uint256 i = 0; i < indentBytes.length; i++) {
+            indentBytes[i] = " ";
+        }
     }
 
-    function i2s(uint i) private pure returns (string memory) {
+    function _clog(string memory str) private view {
+        if (logging) console.log(string.concat(_indent(), prefix, str));
+    }
+
+    function _clog(string memory name, uint256 value, string memory format) private view {
+        if (logging) console.log(string.concat(_indent(), prefix, name, "=", format), value, value);
+    }
+
+    function _i2s(uint i) private pure returns (string memory) {
         bytes memory byteArray = new bytes(1);
         byteArray[0] = bytes1(uint8(i) + 48);
         return string(byteArray);
     }
-
-    function log(string memory name, uint i, uint256 value) private pure {
-        log(string.concat(name, "[", i2s(i), "]"), value);
-    }
-
-    function clog(string memory name, uint i, int256 value) private pure {
-        log(string.concat(name, "[", i2s(i), "]"), value);
-    }
 }
-*/
 
 library Useful {
     bytes16 private constant _SYMBOLS = "0123456789abcdef";
