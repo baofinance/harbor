@@ -8,7 +8,8 @@
     "coverage": "forge coverage --report summary --report lcov | tee ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*'",
     "coverage1": "forge coverage --report summary --report lcov ",
     "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,incorrect-versions-of-solidity --filter-paths \"lib/openzeppelin.*|lib/forge-std.*\"",
-    "script": "forge script --force --ffi"
+    "script": "forge script --force --ffi",
+    "disabled": "grep -e '^\\s*function\\s*test.*(.*).*private' test/**/*.t.sol"
   },
   "dependencies": {
     "prettier": "^3.2.5",
