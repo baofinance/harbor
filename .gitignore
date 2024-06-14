@@ -16,6 +16,9 @@ lcov.info
 !.yarn/sdks
 !.yarn/versions
 
+# wake
+.wake/build/
+
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/

@@ -1,0 +1,200 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.25;
+
+import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import { IMinterTreasury, IMinter } from "src/minter/IMinter.sol";
+import { Token } from "src/common/Token.sol";
+
+/// @title Genesis
+/// @author rootminus0x1 based on Aladdin's FX system
+/// @notice provides a mechanism for bootstrapping a minter with initial collateral
+/// The sequence is:
+///  1. users 'deposit' collateral tokens, their share beoing recorded
+///  2. at some point the admin for this contract mints the pegged and leveraged tokens.
+///  3. once minting has occurred, the users can either
+///     a. withdraw the collateral they deposited for a fee
+///     b. claim their share of pegged and leveraged tokens, for free. They can, of course, redeem them
+///        for a fee.
+///     There is no advantage to withdrawing or claiming then redeeming as far as fees are concerned.
+/// @dev uses UUPS proxy, erc7201 storage
+
+contract Genesis_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultAdminRulesUpgradeable {
+    using SafeERC20 for IERC20;
+
+    /**********
+     * Events *
+     **********/
+
+    /// @notice Emitted when the status of `genesisClaimable` is updated.
+    event ClaimingEnabledUpdated(bool status);
+
+    /**********
+     * Errors *
+     **********/
+
+    /// @dev Thrown when an attempt to withdraw both pegged and leveraged token.
+    error GenesisIsNotEnded();
+
+    /// @dev Thrown when the amount of collateral token is not enough.
+    error InsufficientCollateral(address token);
+
+    /// @dev Thrown when deposit after the genesis process has ended.
+    error GenesisIsEnded();
+
+    /// @dev Thrown when withdraw before initialization.
+    error ClaimingIsNotEnabled();
+
+    /*************
+     * Constants *
+     *************/
+
+    /*************
+     * Variables *
+     *************/
+
+    // Share-with-proxy Storage
+    // ------------------------
+    /// @custom:storage-location erc7201:bao.storage.Genesis
+    struct GenesisStorage {
+        /// @notice The address of minter contract.
+        address minter;
+        /// @notice The address of collateral token.
+        address collateralToken;
+        /// @notice The address of peggedToken token.
+        address peggedToken;
+        /// @notice The address of leveragedToken token.
+        address leveragedToken;
+        /// @notice Mapping from user address to pool shares.
+        mapping(address => uint256) shares;
+        /// @notice The total amount of pool shares.
+        uint256 totalShares;
+        bool genesisEnded;
+        /// @notice Whether claiming the pegged and leveraged tokens is enabled.
+        bool claimingEnabled;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("bao.storage.Genesis")) - 1)) & ~bytes32(uint256(0xff));
+    // TODO:
+    bytes32 private constant GENESIS_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
+
+    function _getGenesisStorage() private pure returns (GenesisStorage storage $) {
+        assembly {
+            $.slot := GENESIS_STORAGE
+        }
+    }
+
+    /***************
+     * Constructor *
+     ***************/
+
+    function initialize(address owner, IMinter.BalanceTokens calldata tokens_, address minter_) external initializer {
+        // initialise all the state variables
+        __AccessControlDefaultAdminRules_init(7 days, owner);
+        __UUPSUpgradeable_init();
+
+        GenesisStorage storage $ = _getGenesisStorage();
+        // balance tokens
+        if (!Token.isERC20(tokens_.collateralToken)) revert Token.NotERC20Token(tokens_.collateralToken);
+        $.collateralToken = tokens_.collateralToken;
+        $.peggedToken = tokens_.peggedToken;
+        $.leveragedToken = tokens_.leveragedToken;
+        $.minter = minter_;
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        // stop the implementation being initialized to any version
+        // https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
+        _disableInitializers();
+    }
+
+    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    /****************************
+     * Public Mutated Functions *
+     ****************************/
+
+    /// @notice Deposit collateral token to this contract.
+    /// @param collateralIn The amount of token to deposit.
+    /// @param receiver The address of pool share recipient.
+    function deposit(uint256 collateralIn, address receiver) external {
+        GenesisStorage storage $ = _getGenesisStorage();
+        if ($.genesisEnded) revert GenesisIsEnded();
+
+        IERC20($.collateralToken).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        $.shares[receiver] += collateralIn;
+        $.totalShares += collateralIn;
+    }
+
+    /// @notice Withdraw some collateral from this contract, for a fee, after genesis has ended.
+    /// @param recipient The address of collateral token recipient.
+    /// @param minCollateralOut The minimum amount of collateral token should receive.
+    /// @return collateralOut The amount of collateral token received.
+    function withdraw(address recipient, uint256 minCollateralOut) external returns (uint256 collateralOut) {
+        GenesisStorage storage $ = _getGenesisStorage();
+
+        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw($);
+
+        address minter_ = $.minter;
+        // we redeem the leveraged first because that potentially reduces the fee for redeeming the pegged
+        collateralOut += IMinter(minter_).redeemLeveragedToken(leveragedAmount, recipient, 0);
+        collateralOut += IMinter(minter_).redeemPeggedToken(peggedAmount, recipient, 0);
+
+        if (collateralOut < minCollateralOut) revert InsufficientCollateral($.collateralToken);
+    }
+
+    /// @notice Withdraw fxUSD/fToken and xToken from this contract.
+    /// @param receiver The address of token recipient.
+    function claim(address receiver) external {
+        GenesisStorage storage $ = _getGenesisStorage();
+        if (!$.claimingEnabled) revert ClaimingIsNotEnabled();
+
+        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw($);
+
+        IERC20($.peggedToken).safeTransfer(receiver, peggedAmount);
+        IERC20($.leveragedToken).safeTransfer(receiver, leveragedAmount);
+    }
+
+    function _withdraw(GenesisStorage storage $) private returns (uint256 peggedAmount, uint256 leveragedAmount) {
+        if (!$.genesisEnded) revert GenesisIsNotEnded();
+        uint256 share_ = $.shares[_msgSender()];
+        $.shares[_msgSender()] = 0;
+        uint256 totalShares_ = $.totalShares;
+        uint256 totalPeggedToken = IERC20($.peggedToken).balanceOf(address(this));
+        uint256 totalLeveragedToken = IERC20($.leveragedToken).balanceOf(address(this));
+        peggedAmount = (share_ * totalPeggedToken) / totalShares_;
+        leveragedAmount = (share_ * totalLeveragedToken) / totalShares_;
+    }
+
+    /************************
+     * Restricted Functions *
+     ************************/
+
+    /// @notice Initialize minter with the collateral in this contract.
+    function endGenesis() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        if ($.genesisEnded) revert GenesisIsEnded();
+
+        uint256 totalCollateral = IERC20($.collateralToken).balanceOf(address(this));
+        uint256 peggedCollateral = totalCollateral / 2;
+        address minter_ = $.minter;
+        IMinterTreasury(minter_).freeMintPeggedToken(peggedCollateral, address(this));
+        IMinterTreasury(minter_).freeMintLeveragedToken(totalCollateral - peggedCollateral, address(this));
+
+        $.genesisEnded = true;
+    }
+
+    /// @notice Change the status of `fxWithdrawalEnabled`.
+    function updateClaimingEnabled(bool newValue) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        $.claimingEnabled = newValue;
+
+        emit ClaimingEnabledUpdated(newValue);
+    }
+}
