@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /*
 function totalSupply() external view returns (uint256);
@@ -18,60 +19,57 @@ import { console2 as console } from "forge-std/console2.sol";
 // Attribution: string basics stolen from OpenZeppelin
 
 library Token {
-    function isContract(address addr) internal view returns (bool) {
+    error ZeroInputBalance(address token);
+    error ZeroAddress();
+    error NotContractAddress(address addr);
+    error NotERC20Token(address token);
+
+    function allOf(address account, address token, uint256 tokenIn) internal view returns (uint256 actualIn) {
+        if (tokenIn == type(uint256).max) {
+            actualIn = IERC20(token).balanceOf(account);
+        } else {
+            actualIn = tokenIn;
+        }
+        // slither-disable-next-line incorrect-equality
+        if (actualIn == 0) {
+            revert ZeroInputBalance(token);
+        }
+    }
+
+    function ensureNonZeroAddress(address that) internal pure {
+        if (that == address(0)) revert ZeroAddress();
+    }
+
+    function ensureContract(address addr) internal view {
+        ensureNonZeroAddress(addr);
+        // from https://www.rareskills.io/post/solidity-code-length
+        if (addr.code.length == 0) revert NotContractAddress(addr);
+        /*
         uint256 size;
         assembly {
             size := extcodesize(addr)
         }
-        return size > 0;
+        if (size == 0) revert NotContractAddress(addr);
+        */
     }
 
-    error NotERC20Token(address token);
-
-    // TODO: use staticcall to find out if the function is there
-
-    function isERC20(address addr) internal returns (bool) {
-        if (!isContract(addr)) {
-            return false;
-        }
-        try IERC20(addr).totalSupply() returns (uint256) {
-            try IERC20(addr).balanceOf(address(0)) returns (uint256) {
-                // If both the calls succeed, check for a transfer
-                try IERC20(addr).transfer(address(0), 0) returns (bool) {
-                    return true;
-                } catch Error(string memory revertMessage) {
-                    if (
-                        bytes(revertMessage).length > 0 &&
-                        keccak256(bytes(revertMessage)) == keccak256("ERC20: transfer to the zero address")
-                    ) {
-                        return true; // Reverted with ERC20 error message, indicating compliance
-                    } else {
-                        return false;
-                    }
-                }
-            } catch {
-                return false;
-            }
-        } catch {
-            return false;
+    function ensureERC20Token(address addr) internal view {
+        ensureContract(addr);
+        if (
+            // check all the readonly functions that IERC20 supports
+            !_hasFunction(addr, abi.encodeWithSelector(IERC20Metadata.name.selector)) ||
+            !_hasFunction(addr, abi.encodeWithSelector(IERC20Metadata.symbol.selector)) ||
+            !_hasFunction(addr, abi.encodeWithSelector(IERC20Metadata.decimals.selector)) ||
+            !_hasFunction(addr, abi.encodeWithSelector(IERC20.totalSupply.selector)) ||
+            !_hasFunction(addr, abi.encodeWithSelector(IERC20.balanceOf.selector, address(0))) ||
+            !_hasFunction(addr, abi.encodeWithSelector(IERC20.allowance.selector, address(0), address(0)))
+        ) {
+            revert NotERC20Token(addr);
         }
     }
 
-    function hasFunction(
-        address contract_,
-        bytes4 functionSelector,
-        address param1,
-        uint256 param2
-    ) external view returns (bool) {
-        // Define the function selector
-        // bytes4 functionSelector = IExample.foo.selector;
-
-        // Encode the function call with parameters
-        bytes memory data = abi.encodeWithSelector(functionSelector, param1, param2);
-
-        // Perform a static call to check for the function's existence
+    function _hasFunction(address contract_, bytes memory data) internal view returns (bool) {
         (bool success, ) = contract_.staticcall(data);
-
         return success;
     }
 }

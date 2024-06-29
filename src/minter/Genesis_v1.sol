@@ -3,28 +3,31 @@
 pragma solidity 0.8.25;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IMinterTreasury, IMinter } from "src/minter/IMinter.sol";
 import { Token } from "src/common/Token.sol";
+import { AccessControl } from "src/common/AccessControl.sol";
+import { TokenOwner } from "src/common/TokenOwner.sol";
 
 /// @title Genesis
 /// @author rootminus0x1 based on Aladdin's FX system
 /// @notice provides a mechanism for bootstrapping a minter with initial collateral
 /// The sequence is:
-///  1. users 'deposit' collateral tokens, their share beoing recorded
+///  1. users 'deposit' collateral tokens, their share being recorded
 ///  2. at some point the admin for this contract mints the pegged and leveraged tokens.
 ///  3. once minting has occurred, the users can either
 ///     a. withdraw the collateral they deposited for a fee
 ///     b. claim their share of pegged and leveraged tokens, for free. They can, of course, redeem them
 ///        for a fee.
+/// TODO: check that the fee costs of withdrawing for a fee and claiming 50/50 split and redeeming them both
 ///     There is no advantage to withdrawing or claiming then redeeming as far as fees are concerned.
 /// @dev uses UUPS proxy, erc7201 storage
 
-contract Genesis_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultAdminRulesUpgradeable {
+contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessControl, TokenOwner {
     using SafeERC20 for IERC20;
 
     /**********
@@ -95,12 +98,12 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultAdmin
 
     function initialize(address owner, IMinter.BalanceTokens calldata tokens_, address minter_) external initializer {
         // initialise all the state variables
-        __AccessControlDefaultAdminRules_init(7 days, owner);
+        __AccessControl_init(owner);
         __UUPSUpgradeable_init();
 
         GenesisStorage storage $ = _getGenesisStorage();
         // balance tokens
-        if (!Token.isERC20(tokens_.collateralToken)) revert Token.NotERC20Token(tokens_.collateralToken);
+        Token.ensureERC20Token(tokens_.collateralToken);
         $.collateralToken = tokens_.collateralToken;
         $.peggedToken = tokens_.peggedToken;
         $.leveragedToken = tokens_.leveragedToken;
@@ -136,7 +139,10 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultAdmin
     /// @param recipient The address of collateral token recipient.
     /// @param minCollateralOut The minimum amount of collateral token should receive.
     /// @return collateralOut The amount of collateral token received.
-    function withdraw(address recipient, uint256 minCollateralOut) external returns (uint256 collateralOut) {
+    function withdraw(
+        address recipient,
+        uint256 minCollateralOut
+    ) external nonReentrant returns (uint256 collateralOut) {
         GenesisStorage storage $ = _getGenesisStorage();
 
         (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw($);
@@ -177,7 +183,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultAdmin
      ************************/
 
     /// @notice Initialize minter with the collateral in this contract.
-    function endGenesis() external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function endGenesis() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
         GenesisStorage storage $ = _getGenesisStorage();
         if ($.genesisEnded) revert GenesisIsEnded();
 

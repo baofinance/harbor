@@ -1,0 +1,243 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.25;
+
+import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
+import { Token } from "src/common/Token.sol";
+import { TokenOwner } from "src/common/TokenOwner.sol";
+
+import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
+
+// import "forge-std/console.sol";
+
+contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenOwner {
+    using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    error RecipientsAndSharesDifferentSizes(uint recipientsLength, uint sharesLength);
+    error ShareAmountIsZero(address recipient);
+    error DuplicateRecipient(address recipient);
+    error ShareAmountIsTooHigh(address recipient, uint shares);
+    error TokenStillInUse(address token);
+
+    bytes32 public constant CLAIMER_ROLE = keccak256("CLAIMER_ROLE");
+    uint32 private constant INVALID_TOTAL_SHARES = type(uint32).max;
+
+    // structure containing the recipient and the number of shares allocated
+    // occupies one slot
+    struct Split {
+        // who receives
+        address recipient; //   0:160
+        // the share of the total amount, as a ratio it is share / totalShares
+        uint64 share; // 160: 64 = 224
+    }
+
+    // Share-with-proxy Storage
+    // ------------------------
+    /// @custom:storage-location erc7201:bao.storage.TokenDistributor
+    struct TokenDistributorStorage {
+        // a list of tokens, all tokens get distributed in the same way via the list of {recipient, share}
+        // this structure is optimised for distribution rather than set up, where linear searches are performed
+
+        EnumerableSet.AddressSet tokens;
+        // address recipient; //   0:160
+        // uint64 shares; // 160: 64 = 224
+        // EnumerableSet.Bytes32Set distribution;
+        Split[] distribution;
+        uint totalShares;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("bao.storage.TokenDistributor")) - 1)) & ~bytes32(uint256(0xff));
+    bytes32 private constant TOKEN_DISTRIBUTOR_STORAGE =
+        0xd0775fa9e06b22c4332c4ba2f31eb3c883151d167c94d1d0a605e68bca1dbb00;
+
+    function _getTokenDistributorStorage() private pure returns (TokenDistributorStorage storage $) {
+        assembly {
+            $.slot := TOKEN_DISTRIBUTOR_STORAGE
+        }
+    }
+
+    function initialize(address owner) public initializer {
+        // TODO: check that we are happy with the transfer of ownership rules.
+        __AccessControl_init(owner);
+        __UUPSUpgradeable_init();
+        __ERC165_init();
+        // console.log("bao.storage.TokenDistributor");
+        // console.logBytes32(
+        //     keccak256(abi.encode(uint256(keccak256("bao.storage.TokenDistributor")) - 1)) & ~bytes32(uint256(0xff))
+        // );
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(ITokenDistributor).interfaceId || super.supportsInterface(interfaceId);
+    }
+
+    // storage interpreters
+    /*
+    function _split(bytes32 split) private returns (address recipient, uint64 shares) {
+        recipient = split.decodeAddress(0, 160);
+        shares = split.decodeUint64(160, 64);
+    }
+    */
+
+    // read functions
+    function tokens() public view returns (address[] memory) {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        return $.tokens.values();
+    }
+
+    function distribution()
+        public
+        view
+        returns (address[] memory recipients, uint256[] memory shares, uint totalShares)
+    {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        uint length = $.distribution.length;
+        recipients = new address[](length);
+        shares = new uint256[](length);
+        for (uint i = 0; i < length; i++) {
+            recipients[i] = $.distribution[i].recipient;
+            shares[i] = $.distribution[i].share;
+        }
+        totalShares = $.totalShares;
+    }
+
+    function addToken(address token) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        Token.ensureERC20Token(token);
+        // wake-disable-next-line unchecked-return-value
+        $.tokens.add(token); // only adds if one is not already there
+    }
+
+    function removeToken(address token) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        // wake-disable-next-line unchecked-return-value
+        $.tokens.remove(token);
+    }
+
+    function setDistribution(
+        address[] calldata recipients,
+        uint[] calldata shares
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (recipients.length != shares.length)
+            revert RecipientsAndSharesDifferentSizes(recipients.length, shares.length);
+
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        uint totalShares = 0;
+
+        // Overwrite existing elements
+        uint existingLength = $.distribution.length;
+        uint i;
+        for (i = 0; i < recipients.length; i++) {
+            Token.ensureNonZeroAddress(recipients[i]);
+            uint256 share = shares[i];
+            if (share > type(uint64).max) revert ShareAmountIsTooHigh(recipients[i], share);
+            if (share == 0) revert ShareAmountIsZero(recipients[i]);
+
+            // check for a zero share. If you want no shares don't include the recipient in recipients
+            if (shares[i] == 0) revert ShareAmountIsZero(recipients[i]);
+            // check for duplicates. There's no in memory mappings so we use brute force.
+            // as there should be a small amount of recipients (< 10), this O(n^2) algorithm is acceptable
+            // also because this function is rarely called, it's best to check for errors
+            for (uint j = i + 1; j < recipients.length; j++) {
+                if (recipients[i] == recipients[j]) {
+                    revert DuplicateRecipient(recipients[i]);
+                }
+            }
+            totalShares += shares[i];
+            if (i < existingLength) {
+                $.distribution[i] = Split(recipients[i], uint64(share));
+            } else {
+                $.distribution.push(Split(recipients[i], uint64(share)));
+            }
+        }
+        $.totalShares = totalShares;
+
+        // Remove any remaining old elements if the new array is shorter
+        for (; i < existingLength; i++) {
+            $.distribution.pop();
+        }
+    }
+
+    function addRecipient(address recipient, uint256 share) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        Token.ensureNonZeroAddress(recipient);
+
+        if (share == 0) revert ShareAmountIsZero(recipient);
+        if (share > type(uint64).max) revert ShareAmountIsTooHigh(recipient, share);
+
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        // linear search is inefficient but OK for small numbers of recipients
+        // it's not expected that this will be called very often
+        for (uint i = 0; i < $.distribution.length; i++) {
+            if (recipient == $.distribution[i].recipient) {
+                // existing recipient updated
+                $.totalShares = $.totalShares + share - $.distribution[i].share;
+                $.distribution[i].share = uint64(share);
+                // we ensure that there are no duplicates elsewhere so we can return
+                return;
+            }
+        }
+        // if we get here, it's a new recipient
+        $.totalShares += share;
+        $.distribution.push(Split(recipient, uint64(share)));
+    }
+
+    function removeRecipient(address recipient) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        for (uint i = 0; i < $.distribution.length; i++) {
+            if (recipient == $.distribution[i].recipient) {
+                // existing recipient removed
+                $.totalShares = $.totalShares - $.distribution[i].share;
+                if (i < $.distribution.length - 1) {
+                    // if it's in the middle,
+                    // copy the last one over it
+                    $.distribution[i] = $.distribution[$.distribution.length - 1];
+                }
+                // remove the last one
+                $.distribution.pop();
+            }
+        }
+    }
+
+    // TODO: what protections, if any should be on this?
+    function distribute() public onlyRole(CLAIMER_ROLE) {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+
+        address[] memory tokens_ = $.tokens.values();
+        Split[] memory dist = $.distribution;
+        uint totalShares = $.totalShares;
+
+        for (uint t = 0; t < tokens_.length; t++) {
+            // how much do we have
+            // TODO: only transfer a minimum amount
+            // TODO: only transfer at a given minimum frequency
+            uint ownership = IERC20(tokens_[t]).balanceOf(address(this));
+
+            for (uint r = 0; r < dist.length; r++) {
+                IERC20(tokens_[t]).safeTransfer(dist[r].recipient, (ownership * dist[r].share) / totalShares);
+            }
+        }
+    }
+
+    // used to extract tokens that are no longer in use
+    function transferToken(address token, address receiver, uint256 amount) public override {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        if ($.tokens.contains(token)) revert TokenStillInUse(token);
+        super.transferToken(token, receiver, amount);
+    }
+}

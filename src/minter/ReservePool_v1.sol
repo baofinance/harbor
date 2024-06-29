@@ -8,16 +8,23 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
-import "forge-std/console.sol";
-
+import { TokenOwner } from "src/common/TokenOwner.sol";
 import { IReservePool } from "./IReservePool.sol";
+
+import "forge-std/console.sol";
 
 // this contract holds ERC20 tokens for use in a reserve capacity
 // it hands out what the minter contract asks for, if it has it.
 // anyone can load it up with tokens
 // owner can withdraw tokens
 
-contract ReservePool_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultAdminRulesUpgradeable, IReservePool {
+contract ReservePool_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    AccessControlDefaultAdminRulesUpgradeable,
+    IReservePool,
+    TokenOwner
+{
     using SafeERC20 for IERC20;
 
     /// @notice Emitted when the minter request bonus.
@@ -25,7 +32,7 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultA
     /// @param token The address of the token withdrawn.
     /// @param receiver The address of token receiver.
     /// @param amount The amount of token withdrawn.
-    event WithdrawFunds(address indexed minter, address indexed token, address indexed receiver, uint256 amount);
+    event RequestBonus(address indexed minter, address indexed token, address indexed receiver, uint256 amount);
 
     bytes32 public constant REQUESTER_ROLE = keccak256("REQUESTER_ROLE");
 
@@ -59,17 +66,6 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, AccessControlDefaultA
         emit RequestBonus(_msgSender(), token, recipient, amountRequested, amountSent);
         if (amountSent > 0) {
             IERC20(token).safeTransfer(recipient, amountSent);
-        }
-    }
-
-    function withdrawFunds(address token, address recipient, uint256 amount) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        if (amount == type(uint256).max || amount > balance) {
-            amount = balance;
-        }
-        emit WithdrawFunds(_msgSender(), token, recipient, amount);
-        if (amount > 0) {
-            IERC20(token).safeTransfer(recipient, amount);
         }
     }
 }

@@ -29,8 +29,9 @@ import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { MockRateProvider } from "test/MockRateProvider.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
+import { ArrayMaker } from "test/ArrayMaker.sol";
 
-contract TestMinter is Test, Clog {
+contract TestMinter is Test, Clog, ArrayMaker {
     address minter;
     IMinter.Config config;
 
@@ -87,89 +88,6 @@ contract TestMinter is Test, Clog {
         }
     }
 
-    function ua() private pure returns (uint[] memory result) {
-        result = new uint[](0);
-    }
-    function ua(uint a_) private pure returns (uint[] memory result) {
-        result = new uint[](1);
-        result[0] = a_;
-    }
-    function ua(uint a_, uint b) private pure returns (uint[] memory result) {
-        result = new uint[](2);
-        result[0] = a_;
-        result[1] = b;
-    }
-    function ua(uint a_, uint b, uint c) private pure returns (uint[] memory result) {
-        result = new uint[](3);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-    }
-    function ua(uint a_, uint b, uint c, uint d) private pure returns (uint[] memory result) {
-        result = new uint[](4);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-        result[3] = d;
-    }
-    function ua(uint a_, uint b, uint c, uint d, uint e) private pure returns (uint[] memory result) {
-        result = new uint[](5);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-        result[3] = d;
-        result[4] = e;
-    }
-    function ua(uint a_, uint b, uint c, uint d, uint e, uint f) private pure returns (uint[] memory result) {
-        result = new uint[](6);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-        result[3] = d;
-        result[4] = e;
-        result[5] = f;
-    }
-
-    function a(int a_) private pure returns (int[] memory result) {
-        result = new int[](1);
-        result[0] = a_;
-    }
-    function a(int a_, int b) private pure returns (int[] memory result) {
-        result = new int[](2);
-        result[0] = a_;
-        result[1] = b;
-    }
-    function a(int a_, int b, int c) private pure returns (int[] memory result) {
-        result = new int[](3);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-    }
-    function a(int a_, int b, int c, int d) private pure returns (int[] memory result) {
-        result = new int[](4);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-        result[3] = d;
-    }
-    function a(int a_, int b, int c, int d, int e) private pure returns (int[] memory result) {
-        result = new int[](5);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-        result[3] = d;
-        result[4] = e;
-    }
-    function a(int a_, int b, int c, int d, int e, int f) private pure returns (int[] memory result) {
-        result = new int[](6);
-        result[0] = a_;
-        result[1] = b;
-        result[2] = c;
-        result[3] = d;
-        result[4] = e;
-        result[5] = f;
-    }
-
     function setUp() public virtual {
         string memory url = vm.rpcUrl("mainnet");
         vm.createSelectFork(url, 19210000);
@@ -221,16 +139,16 @@ contract TestMinter is Test, Clog {
         config.disallowRedeemLeveragedCollateralRatioUpperBound = _percentToEther(110); // typically the same as the bonus CR
         config.normalCollateralRatioUpperBound = _percentToEther(250);
 
-        config.mintPeggedIncentiveConfig = _makeIncentiveConfig(ua(danger), a(mpDangerIR, mpNormalIR));
+        config.mintPeggedIncentiveConfig = _makeIncentiveConfig(ua(danger), ia(mpDangerIR, mpNormalIR));
         config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(
             ua(bonus, critical, danger),
-            a(-50, 0, mlDangerIR, mlNormalIR)
+            ia(-50, 0, mlDangerIR, mlNormalIR)
         );
         config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(
             ua(bonus, critical, danger),
-            a(-50, 0, rpDangerIR, rpNormalIR)
+            ia(-50, 0, rpDangerIR, rpNormalIR)
         );
-        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(danger), a(rlDangerIR, rlNormalIR));
+        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(danger), ia(rlDangerIR, rlNormalIR));
 
         // TODO: test for leveraged, collateral and random tokens
         bonusToken = deployed.wstETH;
@@ -294,19 +212,19 @@ contract TestMinter is Test, Clog {
     function makeAllFeesNormal() internal {
         config.mintPeggedIncentiveConfig = _makeIncentiveConfig(
             ua(),
-            a(_etherToBasisPoint(mintPeggedNormalIncentiveRatio))
+            ia(_etherToBasisPoint(mintPeggedNormalIncentiveRatio))
         );
         config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(
             ua(),
-            a(_etherToBasisPoint(mintLeveragedNormalIncentiveRatio))
+            ia(_etherToBasisPoint(mintLeveragedNormalIncentiveRatio))
         );
         config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(
             ua(),
-            a(_etherToBasisPoint(redeemPeggedNormalIncentiveRatio))
+            ia(_etherToBasisPoint(redeemPeggedNormalIncentiveRatio))
         );
         config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(
             ua(),
-            a(_etherToBasisPoint(redeemLeveragedNormalIncentiveRatio))
+            ia(_etherToBasisPoint(redeemLeveragedNormalIncentiveRatio))
         );
         vm.prank(owner.addr);
         IMinter(minter).updateConfig(config);

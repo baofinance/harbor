@@ -98,7 +98,7 @@ contract Test_ReservePool is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
         );
-        ReservePool_v1(reservePool).withdrawFunds(token1, bonusReceiver.addr, 1 ether);
+        ReservePool_v1(reservePool).transferToken(token1, bonusReceiver.addr, 1 ether);
     }
 
     function test_bonus() public {
@@ -116,14 +116,14 @@ contract Test_ReservePool is Test {
             emit IReservePool.RequestBonus(minter.addr, tokens[i], bonusReceiver.addr, 1 ether, 0);
             vm.prank(minter.addr);
             IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver.addr, 1 ether);
-            //-------------------------------------------------------------------------
+            //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 0);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
             // withdraw
             vm.expectEmit(true, true, true, true);
-            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 0);
+            emit IERC20.Transfer(reservePool, treasury.addr, 0);
             vm.prank(owner.addr);
-            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, 1 ether);
+            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, 1 ether);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], treasury.addr), 0 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
@@ -142,9 +142,9 @@ contract Test_ReservePool is Test {
             assertEq(_balanceOf(tokens[i], reservePool), 2 ether);
             // withdraw
             vm.expectEmit(true, true, true, true);
-            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 1 ether);
+            emit IERC20.Transfer(reservePool, treasury.addr, 1 ether);
             vm.prank(owner.addr);
-            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, 1 ether);
+            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, 1 ether);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], treasury.addr), 1 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
@@ -161,9 +161,9 @@ contract Test_ReservePool is Test {
             _deal(tokens[i], reservePool, 1 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
             vm.expectEmit(true, true, true, true);
-            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 1 ether);
+            emit IERC20.Transfer(reservePool, treasury.addr, 1 ether);
             vm.prank(owner.addr);
-            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, 2 ether);
+            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, 2 ether);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], treasury.addr), 2 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
@@ -173,9 +173,9 @@ contract Test_ReservePool is Test {
             _deal(tokens[i], reservePool, 1 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
             vm.expectEmit(true, true, true, true);
-            emit ReservePool_v1.WithdrawFunds(owner.addr, tokens[i], treasury.addr, 1 ether);
+            emit IERC20.Transfer(reservePool, treasury.addr, 1 ether);
             vm.prank(owner.addr);
-            ReservePool_v1(reservePool).withdrawFunds(tokens[i], treasury.addr, type(uint256).max);
+            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, type(uint256).max);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], treasury.addr), 3 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);

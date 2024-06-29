@@ -4,15 +4,16 @@
 pragma solidity 0.8.25;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
+import { AccessControl } from "src/common/AccessControl.sol";
 
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
@@ -33,13 +34,7 @@ import "forge-std/console.sol";
 /// @dev uses UUPS proxy, erc7201 storage
 
 /// @custom:oz-upgrades
-contract Minter_v1 is
-    Initializable,
-    UUPSUpgradeable,
-    AccessControlDefaultAdminRulesUpgradeable,
-    IMinter,
-    IMinterTreasury
-{
+contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyGuard, IMinter, IMinterTreasury {
     using SafeERC20 for IERC20;
     using WordCodec for bytes32;
 
@@ -169,7 +164,7 @@ contract Minter_v1 is
 
         MinterStorage storage $ = _getMinterStorage();
         // balance tokens
-        if (!Token.isERC20(tokens_.collateralToken)) revert Token.NotERC20Token(tokens_.collateralToken);
+        Token.ensureERC20Token(tokens_.collateralToken);
 
         $.collateralToken = tokens_.collateralToken;
         $.peggedToken = tokens_.peggedToken;
@@ -266,7 +261,8 @@ contract Minter_v1 is
     }
 
     function _updateConfig(Config calldata config) private {
-        // TODO: check rebalance pools are exhausted before bonus is handed out?
+        // TODO: check rebalance pools are exhausted before discounts are handed out?
+        // or is this handled by the fact that the CR for discount is much lower than the rebalance CR
 
         MinterStorage storage $ = _getMinterStorage();
 
@@ -337,11 +333,11 @@ contract Minter_v1 is
         uint256 collateralIn,
         address recipient,
         uint256 minPeggedTokenOut
-    ) external override returns (uint256 peggedTokenOut) {
+    ) external override nonReentrant returns (uint256 peggedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         // work out how much collateral to use
         address collateralToken_ = $.collateralToken;
-        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
+        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
 
         uint256 price = _fetchSafePrice($.priceOracle);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -547,11 +543,11 @@ contract Minter_v1 is
     function freeMintPeggedToken(
         uint256 collateralIn,
         address recipient
-    ) external override onlyRole(ZERO_FEE_ROLE) returns (uint256 peggedTokenOut) {
+    ) external override onlyRole(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address collateralToken_ = $.collateralToken;
-        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
+        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
 
         // transfer and mint
         uint256 price = _fetchSafePrice($.priceOracle);
@@ -598,12 +594,12 @@ contract Minter_v1 is
         uint256 peggedIn,
         address recipient,
         uint256 minCollateralOut
-    ) external override returns (uint256 collateralOut) {
+    ) external override nonReentrant returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
         address peggedToken_ = $.peggedToken;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        peggedIn = _allOf(_msgSender(), peggedToken_, peggedIn);
+        peggedIn = Token.allOf(_msgSender(), peggedToken_, peggedIn);
         peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
 
         uint256 price = _fetchMaxPrice($.priceOracle);
@@ -658,7 +654,7 @@ contract Minter_v1 is
         address collateralToken_ = $.collateralToken;
         address peggedToken_ = $.peggedToken;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        peggedIn = _allOf(_msgSender(), peggedToken_, peggedIn);
+        peggedIn = Token.allOf(_msgSender(), peggedToken_, peggedIn);
         peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
 
         uint256 price = _fetchMaxPrice($.priceOracle);
@@ -698,7 +694,7 @@ contract Minter_v1 is
     ) external override returns (uint256 leveragedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
-        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
+        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
         uint256 price = _fetchSafePrice($.priceOracle);
 
         address leveragedToken_ = $.leveragedToken;
@@ -858,7 +854,7 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address collateralToken_ = $.collateralToken;
-        collateralIn = _allOf(_msgSender(), collateralToken_, collateralIn);
+        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
 
         // mint the tokens to the recipient
         uint256 price = _fetchSafePrice($.priceOracle);
@@ -900,7 +896,7 @@ contract Minter_v1 is
     ) external override returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         address leveragedToken_ = $.leveragedToken;
-        leveragedIn = _allOf(_msgSender(), leveragedToken_, leveragedIn);
+        leveragedIn = Token.allOf(_msgSender(), leveragedToken_, leveragedIn);
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance(leveragedToken_);
         leveragedIn = _redeemable(leveragedToken_, leveragedIn, leveragedTokenBalance_);
@@ -988,18 +984,6 @@ contract Minter_v1 is
         }
     }
 
-    function _allOf(address account, address token, uint256 tokenIn) private view returns (uint256 actualIn) {
-        if (tokenIn == type(uint256).max) {
-            actualIn = IERC20(token).balanceOf(account);
-        } else {
-            actualIn = tokenIn;
-        }
-        // slither-disable-next-line incorrect-equality
-        if (actualIn == 0) {
-            revert ZeroInputBalance(token);
-        }
-    }
-
     // @inheritdoc IMinter
     function freeRedeemLeveragedToken(
         uint256 leveragedIn,
@@ -1008,7 +992,7 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address leveragedToken_ = $.leveragedToken;
-        leveragedIn = _allOf(_msgSender(), leveragedToken_, leveragedIn);
+        leveragedIn = Token.allOf(_msgSender(), leveragedToken_, leveragedIn);
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance(leveragedToken_);
         leveragedIn = _redeemable(leveragedToken_, leveragedIn, leveragedTokenBalance_);
