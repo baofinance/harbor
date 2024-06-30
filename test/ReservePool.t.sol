@@ -17,8 +17,10 @@ import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.so
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
+import { Token } from "src/common/Token.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
+
 import { deployed } from "test/deployed.sol";
 
 contract Test_ReservePool is Test {
@@ -36,9 +38,7 @@ contract Test_ReservePool is Test {
     bytes32 ownerRole = 0;
 
     function setUp() public {
-        string memory url = vm.rpcUrl("mainnet");
-        // TODO: make a base contract that has this fork
-        vm.createSelectFork(url, 19210000);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
         bonusReceiver = vm.createWallet("bonusReceiver");
         owner = vm.createWallet("owner");
@@ -73,11 +73,6 @@ contract Test_ReservePool is Test {
     }
 
     function test_init() public {
-        /*        reservePool = Upgrades.deployUUPSProxy(
-            "ReservePool_v1.sol",
-            abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
-        );
-        */
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         ReservePool_v1(reservePool).initialize(owner.addr);
 
@@ -103,9 +98,9 @@ contract Test_ReservePool is Test {
 
     function test_bonus() public {
         // we assume all tokens are ERC20
-        address[2] memory tokens = [token1, token2 /*, tokenNotERC20*/];
-        // make sure nothing has a balance of any bonus tokens
+        address[2] memory tokens = [token2, token1];
         for (uint i = 0; i < tokens.length; i++) {
+            // make sure nothing has a balance of any bonus tokens
             assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 0);
             assertEq(_balanceOf(tokens[i], treasury.addr), 0);
             assertEq(_balanceOf(tokens[i], reservePool), 0);
@@ -118,14 +113,6 @@ contract Test_ReservePool is Test {
             IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver.addr, 1 ether);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 0);
-            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
-            // withdraw
-            vm.expectEmit(true, true, true, true);
-            emit IERC20.Transfer(reservePool, treasury.addr, 0);
-            vm.prank(owner.addr);
-            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, 1 ether);
-            //----------------------------------------------------------------------------
-            assertEq(_balanceOf(tokens[i], treasury.addr), 0 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
 
             // add some funds - anyone can
@@ -140,44 +127,14 @@ contract Test_ReservePool is Test {
             //-------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 1 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 2 ether);
-            // withdraw
-            vm.expectEmit(true, true, true, true);
-            emit IERC20.Transfer(reservePool, treasury.addr, 1 ether);
-            vm.prank(owner.addr);
-            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, 1 ether);
-            //----------------------------------------------------------------------------
-            assertEq(_balanceOf(tokens[i], treasury.addr), 1 ether);
-            assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
 
             // request more than some
             vm.expectEmit(true, true, true, true);
-            emit IReservePool.RequestBonus(minter.addr, tokens[i], bonusReceiver.addr, 2 ether, 1 ether);
+            emit IReservePool.RequestBonus(minter.addr, tokens[i], bonusReceiver.addr, 3 ether, 2 ether);
             vm.prank(minter.addr);
-            IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver.addr, 2 ether);
+            IReservePool(reservePool).requestBonus(tokens[i], bonusReceiver.addr, 3 ether);
             //-------------------------------------------------------------------------
-            assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 2 ether);
-            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
-            // withdraw
-            _deal(tokens[i], reservePool, 1 ether);
-            assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
-            vm.expectEmit(true, true, true, true);
-            emit IERC20.Transfer(reservePool, treasury.addr, 1 ether);
-            vm.prank(owner.addr);
-            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, 2 ether);
-            //----------------------------------------------------------------------------
-            assertEq(_balanceOf(tokens[i], treasury.addr), 2 ether);
-            assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
-
-            // withdraw it all
-            // withdraw
-            _deal(tokens[i], reservePool, 1 ether);
-            assertEq(_balanceOf(tokens[i], reservePool), 1 ether);
-            vm.expectEmit(true, true, true, true);
-            emit IERC20.Transfer(reservePool, treasury.addr, 1 ether);
-            vm.prank(owner.addr);
-            ReservePool_v1(reservePool).transferToken(tokens[i], treasury.addr, type(uint256).max);
-            //----------------------------------------------------------------------------
-            assertEq(_balanceOf(tokens[i], treasury.addr), 3 ether);
+            assertEq(_balanceOf(tokens[i], bonusReceiver.addr), 3 ether);
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
         }
     }

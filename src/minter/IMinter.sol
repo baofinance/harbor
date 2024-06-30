@@ -87,7 +87,7 @@ interface IMinter {
     struct Config {
         // points at which specific activity commences
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        uint256 normalCollateralRatioUpperBound; // above this harvesting of collateral can begin
+        uint256 normalCollateralRatioUpperBound; // above this harvesting of collateral can begin // TODO: implement this
         // points at which specific user activity is disallowed
         uint256 disallowMintPeggedCollateralRatioUpperBound; // typically the same as the rebalance CR
         uint256 disallowRedeemLeveragedCollateralRatioUpperBound; // typically the same as the bonus CR

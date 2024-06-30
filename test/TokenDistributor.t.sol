@@ -417,7 +417,7 @@ contract Test_TokenDistributorBase is Test, ArrayMaker {
 
         vm.startPrank(owner);
 
-        vm.expectRevert("ERC20: transfer to the zero address");
+        vm.expectRevert(Token.ZeroAddress.selector);
         tokenDistributor.transferToken(token1, address(0), 1 ether);
 
         // a token that is in use

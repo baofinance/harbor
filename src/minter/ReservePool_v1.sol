@@ -18,13 +18,7 @@ import "forge-std/console.sol";
 // anyone can load it up with tokens
 // owner can withdraw tokens
 
-contract ReservePool_v1 is
-    Initializable,
-    UUPSUpgradeable,
-    AccessControlDefaultAdminRulesUpgradeable,
-    IReservePool,
-    TokenOwner
-{
+contract ReservePool_v1 is Initializable, UUPSUpgradeable, IReservePool, TokenOwner {
     using SafeERC20 for IERC20;
 
     /// @notice Emitted when the minter request bonus.
@@ -37,7 +31,7 @@ contract ReservePool_v1 is
     bytes32 public constant REQUESTER_ROLE = keccak256("REQUESTER_ROLE");
 
     function initialize(address owner) public initializer {
-        __AccessControlDefaultAdminRules_init(7 days, owner);
+        __AccessControl_init(owner);
         __UUPSUpgradeable_init();
         __ERC165_init();
     }

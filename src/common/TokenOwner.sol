@@ -18,6 +18,7 @@ abstract contract TokenOwner is AccessControl {
         address receiver,
         uint256 amount
     ) public virtual onlyRole(DEFAULT_ADMIN_ROLE) {
+        Token.ensureNonZeroAddress(receiver);
         amount = Token.allOf(address(this), token, amount);
         IERC20(token).approve(address(this), amount);
         IERC20(token).safeTransferFrom(address(this), receiver, amount);

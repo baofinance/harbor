@@ -13,7 +13,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
-import { AccessControl } from "src/common/AccessControl.sol";
+import { AccessControl } from "src/common/TokenOwner.sol";
 
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
@@ -159,12 +159,14 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         Config calldata config_
     ) external initializer {
         // initialise all the state variables
-        __AccessControlDefaultAdminRules_init(7 days, owner);
+        __AccessControl_init(owner);
         __UUPSUpgradeable_init();
 
         MinterStorage storage $ = _getMinterStorage();
         // balance tokens
         Token.ensureERC20Token(tokens_.collateralToken);
+        Token.ensureERC20Token(tokens_.peggedToken);
+        Token.ensureERC20Token(tokens_.leveragedToken);
 
         $.collateralToken = tokens_.collateralToken;
         $.peggedToken = tokens_.peggedToken;
@@ -568,6 +570,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut);
 
         // mint the tokens to the recipient
+        // wake-ignore-next-line reentrancy
+        // as all callers to this function have nonReentrant guard
         IMintable(peggedToken_).mint(recipient, peggedTokenOut);
         // take the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);

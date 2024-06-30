@@ -2,7 +2,6 @@
 pragma solidity 0.8.25;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import { ERC20PermitUpgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -11,12 +10,14 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 
+import { AccessControl } from "src/common/AccessControl.sol";
+
 contract LeveragedToken_v1 is
     Initializable,
     UUPSUpgradeable,
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
-    AccessControlDefaultAdminRulesUpgradeable,
+    AccessControl,
     IMintable,
     IBurnable,
     IBurnableFrom
@@ -25,7 +26,7 @@ contract LeveragedToken_v1 is
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     function initialize(address owner, string memory name, string memory symbol) public initializer {
-        __AccessControlDefaultAdminRules_init(7 days, owner);
+        __AccessControl_init(owner);
         __UUPSUpgradeable_init();
         __ERC20_init(name, symbol);
         __ERC20Permit_init(name);

@@ -96,17 +96,16 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessCo
      * Constructor *
      ***************/
 
-    function initialize(address owner, IMinter.BalanceTokens calldata tokens_, address minter_) external initializer {
+    function initialize(address owner, address minter_) external initializer {
         // initialise all the state variables
         __AccessControl_init(owner);
         __UUPSUpgradeable_init();
 
         GenesisStorage storage $ = _getGenesisStorage();
         // balance tokens
-        Token.ensureERC20Token(tokens_.collateralToken);
-        $.collateralToken = tokens_.collateralToken;
-        $.peggedToken = tokens_.peggedToken;
-        $.leveragedToken = tokens_.leveragedToken;
+        $.collateralToken = IMinter(minter_).collateralToken();
+        $.peggedToken = IMinter(minter_).peggedToken();
+        $.leveragedToken = IMinter(minter_).leveragedToken();
         $.minter = minter_;
     }
 

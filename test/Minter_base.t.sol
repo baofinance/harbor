@@ -26,7 +26,6 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
 import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
-import { MockRateProvider } from "test/MockRateProvider.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import { ArrayMaker } from "test/ArrayMaker.sol";
@@ -35,12 +34,9 @@ contract TestMinter is Test, Clog, ArrayMaker {
     address minter;
     IMinter.Config config;
 
-    address bonusToken;
-
     address leveragedToken;
     address reservePool;
     MockPriceOracle priceOracle;
-    MockRateProvider rateProvider;
 
     Vm.Wallet feeReceiver;
     Vm.Wallet owner;
@@ -89,8 +85,7 @@ contract TestMinter is Test, Clog, ArrayMaker {
     }
 
     function setUp() public virtual {
-        string memory url = vm.rpcUrl("mainnet");
-        vm.createSelectFork(url, 19210000);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
         feeReceiver = vm.createWallet("feeReceiver");
 
@@ -98,7 +93,6 @@ contract TestMinter is Test, Clog, ArrayMaker {
         deal(address(deployed.wstETH), address(this), 20 ether);
 
         priceOracle = new MockPriceOracle();
-        rateProvider = new MockRateProvider();
 
         leveragedToken = UnsafeUpgrades.deployUUPSProxy(
             address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
@@ -149,9 +143,6 @@ contract TestMinter is Test, Clog, ArrayMaker {
             ia(-50, 0, rpDangerIR, rpNormalIR)
         );
         config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(danger), ia(rlDangerIR, rlNormalIR));
-
-        // TODO: test for leveraged, collateral and random tokens
-        bonusToken = deployed.wstETH;
 
         minter = UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1()), // "Minter_v1.sol",
