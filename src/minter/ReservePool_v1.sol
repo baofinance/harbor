@@ -11,8 +11,6 @@ import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 import { IReservePool } from "./IReservePool.sol";
 
-import "forge-std/console.sol";
-
 // this contract holds ERC20 tokens for use in a reserve capacity
 // it hands out what the minter contract asks for, if it has it.
 // anyone can load it up with tokens

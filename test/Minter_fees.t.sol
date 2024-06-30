@@ -17,6 +17,8 @@ import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import "test/Useful.sol";
 import { TestMinter } from "test/Minter_base.t.sol";
 
+// TODO: need to test discounts
+
 contract TestMinterFees is TestMinter {
     Vm.Wallet user;
 

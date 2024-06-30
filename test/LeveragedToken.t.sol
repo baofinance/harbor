@@ -10,6 +10,7 @@ import { Vm } from "forge-std/Vm.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -17,7 +18,7 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
-import { IMintable } from "src/minter/IMintable.sol";
+import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 
 contract Test_LeveragedToken is Test {
     using ECDSA for bytes32;
@@ -142,23 +143,40 @@ contract Test_LeveragedToken is Test {
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 0, 2 ether)
         );
         leveragedToken.burnFrom(address(this), 2 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter.addr, 0, 2 ether)
+        );
+        leveragedToken.burn(2 ether);
 
+        // mint
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(address(0), address(this), 2 ether);
         leveragedToken.mint(address(this), 2 ether);
         assertEq(leveragedToken.totalSupply(), 2 ether, "2 ether minted");
         assertEq(leveragedToken.balanceOf(address(this)), 2 ether, "should have 2 ether");
+        leveragedToken.mint(minter.addr, 2 ether);
+        assertEq(leveragedToken.totalSupply(), 4 ether, "4 ether minted");
+        assertEq(leveragedToken.balanceOf(minter.addr), 2 ether, "should have 2 ether");
 
+        // burn too much
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 2 ether, 3 ether)
         );
         leveragedToken.burnFrom(address(this), 3 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter.addr, 2 ether, 3 ether)
+        );
+        leveragedToken.burn(3 ether);
 
+        // burn when some.
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(address(this), address(0), 1 ether);
         leveragedToken.burnFrom(address(this), 1 ether);
-        assertEq(leveragedToken.totalSupply(), 1 ether, "1 ether left now");
+        assertEq(leveragedToken.totalSupply(), 3 ether, "3 ether left now");
         assertEq(leveragedToken.balanceOf(address(this)), 1 ether, "should now have 1");
+        leveragedToken.burn(1 ether);
+        assertEq(leveragedToken.totalSupply(), 2 ether, "2 ether left now");
+        assertEq(leveragedToken.balanceOf(minter.addr), 1 ether, "should now have 1");
 
         vm.stopPrank();
     }
@@ -261,7 +279,11 @@ contract Test_LeveragedToken is Test {
 
     function test_introspection() public view {
         assertTrue(leveragedToken.supportsInterface(type(IERC20).interfaceId), "should support IERC20");
+        assertTrue(leveragedToken.supportsInterface(type(IERC20Metadata).interfaceId), "should support IERC20Metadata");
         assertTrue(leveragedToken.supportsInterface(type(IMintable).interfaceId), "should support IMinter");
+        assertTrue(leveragedToken.supportsInterface(type(IBurnable).interfaceId), "should support IBurnable");
+        assertTrue(leveragedToken.supportsInterface(type(IBurnableFrom).interfaceId), "should support IBurnableFrom");
+        assertFalse(leveragedToken.supportsInterface(bytes4(0)), "doesn't support 0");
     }
 
     // TODO: test upgrading
