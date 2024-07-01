@@ -14,6 +14,7 @@ import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/I
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
+import { IAccessControlDefaultAdminRules } from "@openzeppelin/contracts/access/extensions/IAccessControlDefaultAdminRules.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
@@ -294,10 +295,36 @@ contract Test_LeveragedToken is Test {
     //}
 }
 
+contract Test_LeveragedToken_badDeploy is Test {
+    function test_ZeroOwner() public {
+        string memory name = "leveraged";
+        string memory symbol = "BaoUSDLwstETH";
+
+        address owner = vm.createWallet("owner").addr;
+
+        UnsafeUpgrades.deployUUPSProxy(
+            address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
+            abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
+        );
+
+        address lt = address(new LeveragedToken_v1());
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControlDefaultAdminRules.AccessControlInvalidDefaultAdmin.selector,
+                address(0)
+            )
+        );
+        UnsafeUpgrades.deployUUPSProxy(
+            lt, //"LeveragedToken_v1.sol",
+            abi.encodeCall(LeveragedToken_v1.initialize, (address(0), name, symbol))
+        );
+    }
+}
+
 contract Test_LeveragedToken_sepolia is Test_LeveragedToken {
     function setUp() public override {
         string memory url = vm.rpcUrl("sepolia");
-        vm.createSelectFork(url, 6038049); // pin to a block for speed (4-June-2024)
+        vm.createSelectFork(url, 6225146); // pin to a block for speed (1-July-2024, proxy update block)
         super.setUp(); // calls the connectContract below
     }
 
@@ -307,7 +334,7 @@ contract Test_LeveragedToken_sepolia is Test_LeveragedToken {
         // implementation: 0x84bCF7815A9C29E1f69Fb75055F68D50EFAdD5e7
         name = "BaoMinter BaoUSD-wstETH";
         symbol = "BaoUSD-wstETH";
-        owner = 0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00;
-        leveragedToken = LeveragedToken_v1(0x48fD4A32A7Df9F747e0a3C7d7085761C1242B210);
+        owner = 0x0DC59a2caD3e1fa5D6b8a0F7c1481FcEDFa0bBCA;
+        leveragedToken = LeveragedToken_v1(0x26C6effF04F8c77E13F1A465C648056B80A8aE9a);
     }
 }

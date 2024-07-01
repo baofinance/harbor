@@ -1,24 +1,6 @@
-   [34m-->[0m src/minter/RebalancePool_v1.sol:167:9:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:169:9:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:170:9:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:171:9:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:223:27:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:226:33:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:232:29:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:259:9:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:341:9:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:342:9:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:343:68:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:343:88:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:217:5:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:220:5:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:223:5:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:226:5:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:229:5:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:232:5:
-   [34m-->[0m src/minter/RebalancePool_v1.sol:235:5:
 | File                                                                    | % Lines           | % Statements      | % Branches       | % Funcs          |
 |-------------------------------------------------------------------------|-------------------|-------------------|------------------|------------------|
+| src/_deployed/LeveragedToken_v1a.sol                                    | 0.00% (0/14)      | 0.00% (0/18)      | 100.00% (0/0)    | 0.00% (0/6)      |
 | src/common/AccessControl.sol                                            | 100.00% (1/1)     | 100.00% (1/1)     | 100.00% (0/0)    | 100.00% (1/1)    |
 | src/common/Token.sol                                                    | 100.00% (18/18)   | 100.00% (27/27)   | 90.00% (9/10)    | 100.00% (5/5)    |
 | src/common/TokenOwner.sol                                               | 100.00% (4/4)     | 100.00% (4/4)     | 100.00% (0/0)    | 100.00% (1/1)    |
@@ -30,7 +12,6 @@
 | src/minter/Genesis_v1.sol                                               | 18.60% (8/43)     | 15.52% (9/58)     | 0.00% (0/10)     | 22.22% (2/9)     |
 | src/minter/LeveragedToken_v1.sol                                        | 100.00% (15/15)   | 100.00% (20/20)   | 100.00% (0/0)    | 83.33% (5/6)     |
 | src/minter/Minter_v1.sol                                                | 83.78% (346/413)  | 84.49% (463/548)  | 62.50% (70/112)  | 84.85% (56/66)   |
-| src/minter/RebalancePool_v1.sol                                         | 0.00% (0/274)     | 0.00% (0/388)     | 0.00% (0/84)     | 0.00% (0/39)     |
 | src/minter/ReservePool_v1.sol                                           | 90.91% (10/11)    | 73.33% (11/15)    | 100.00% (4/4)    | 50.00% (2/4)     |
 | src/minter/TokenDistributor_v1.sol                                      | 98.59% (70/71)    | 96.33% (105/109)  | 54.17% (13/24)   | 92.31% (12/13)   |
-| Total                                                                   | 51.41% (695/1352) | 49.67% (907/1826) | 37.79% (130/344) | 50.57% (132/261) |
+| Total                                                                   | 63.07% (695/1102) | 61.91% (907/1465) | 50.00% (130/260) | 56.90% (132/232) |
