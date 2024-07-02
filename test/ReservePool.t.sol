@@ -138,11 +138,11 @@ contract Test_ReservePool is Test {
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
         }
     }
-
-    // TODO: test upgrading
-
-    // function testFuzz_SetNumber(uint256 x) public {
-    //     counter.setNumber(x);
-    //     assertEq(counter.number(), x);
-    //}
+    function test_introspection() public view {
+        assertTrue(
+            ReservePool_v1(reservePool).supportsInterface(type(IReservePool).interfaceId),
+            "should support IReservePool"
+        );
+        assertFalse(ReservePool_v1(reservePool).supportsInterface(bytes4(0)), "doesn't support 0");
+    }
 }

@@ -75,7 +75,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     function setCollateralRatioBandCount(ActionIncentive memory config, uint value) private pure {
         config.slot0 = config.slot0.insertUint(value, 160, 32);
     }
-    // TODO: do a version of these that don't need us to do a "/ 1 ether" after multiplying
     function _incentiveRatio(ActionIncentive memory config, uint index) private pure returns (int256) {
         return config.slot1.decodeInt(index * 32, 32) * int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS));
     }
@@ -177,7 +176,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         _updateFeeReceiver(feeReceiver_);
         _updateReservePool(reservePool_);
         _updateConfig(config_);
-
+        // wake-disable-next-line unchecked-return-value
         _grantRole(ZERO_FEE_ROLE, owner);
         // TODO: should we be saving the last permissioned price? _fetchSafePrice(priceOracle_)
     }
@@ -496,8 +495,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 // or:
                 //      arrived in the lowest band and we have more collateral than the band allows
                 //      so all we can use is the collateral in the band as the rest is disallowed
-                // or
-                break;
+                return (fee, maxCollateral);
             }
             // still some collateral left and we're allowed to mint or redeem, so simulate
             collateralTokenBalance_ += collateralInBand - bandFee;
@@ -570,8 +568,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut);
 
         // mint the tokens to the recipient
-        // wake-ignore-next-line reentrancy
         // as all callers to this function have nonReentrant guard
+        // wake-disable-next-line reentrancy
         IMintable(peggedToken_).mint(recipient, peggedTokenOut);
         // take the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);

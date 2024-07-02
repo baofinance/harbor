@@ -22,7 +22,7 @@ import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
 import { ArrayMaker } from "test/ArrayMaker.sol";
-import { deployed } from "test/deployed.sol";
+import { deployed, deployedSepolia } from "test/deployed.sol";
 
 contract Test_TokenDistributorBase is Test, ArrayMaker {
     using ECDSA for bytes32;
@@ -31,9 +31,9 @@ contract Test_TokenDistributorBase is Test, ArrayMaker {
     TokenDistributor_v1 tokenDistributor;
 
     address owner;
-    address constant token1 = deployed.wstETH;
-    address constant token2 = deployed.BaoUSD;
-    address constant token3 = deployed.BaoETH;
+    address token1 = deployed.wstETH;
+    address token2 = deployed.BaoUSD;
+    address token3 = deployed.BaoETH;
 
     bytes32 ownerRole;
     bytes32 claimerRole;
@@ -53,8 +53,13 @@ contract Test_TokenDistributorBase is Test, ArrayMaker {
     */
 
     function setUpFork() public virtual {
-        string memory url = vm.rpcUrl("mainnet");
-        vm.createSelectFork(url, 19210000);
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+
+        token1 = deployed.wstETH;
+        token2 = deployed.BaoUSD;
+        token3 = deployed.BaoETH;
+
+        owner = vm.createWallet("owner").addr;
     }
 
     function setUpContract() public virtual {
@@ -68,7 +73,7 @@ contract Test_TokenDistributorBase is Test, ArrayMaker {
 
     function setUp() public virtual {
         setUpFork();
-        owner = vm.createWallet("owner").addr;
+
         claimer = vm.createWallet("claimer").addr;
 
         recipient1 = vm.createWallet("recipient1").addr;
@@ -90,7 +95,10 @@ contract Test_TokenDistributorBase is Test, ArrayMaker {
         emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
         vm.expectEmit(false, false, false, true);
         emit Initializable.Initialized(1); // from the proxy delegate call
-        setUpContract();
+        UnsafeUpgrades.deployUUPSProxy(
+            address(new TokenDistributor_v1()), //"TokenDistributor_v1.sol",
+            abi.encodeCall(TokenDistributor_v1.initialize, (owner))
+        );
     }
 
     function test_init() public {
@@ -448,5 +456,20 @@ contract Test_TokenDistributorBase is Test, ArrayMaker {
         tokenDistributor.transferToken(token1, recipient2, 100 ether);
 
         vm.stopPrank();
+    }
+}
+
+contract Test_TokenDistributor_sepolia is Test_TokenDistributorBase {
+    function setUpFork() public override {
+        vm.createSelectFork(vm.rpcUrl("sepolia"), deployedSepolia.blockNumber);
+        token1 = deployedSepolia.USDT;
+        token2 = deployedSepolia.MAGIC;
+        token3 = deployedSepolia.USDC;
+    }
+
+    function setUpContract() public override {
+        // vm.rpcUrl("sepolia");
+        owner = deployedSepolia.owner;
+        tokenDistributor = TokenDistributor_v1(deployedSepolia.MinterFeeDistributor);
     }
 }

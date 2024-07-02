@@ -29,7 +29,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4426504                                     | 20255           |        |        |        |         |
+| 4426902                                     | 20257           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5128            | 5128   | 5128   | 5128   | 7       |
 | collateralRatio                             | 515             | 3533   | 3576   | 3576   | 868     |
@@ -47,8 +47,8 @@
 | leveragedTokenBalance                       | 1609            | 2126   | 1609   | 12609  | 29      |
 | mintLeveragedToken                          | 2849            | 67462  | 94153  | 145095 | 13      |
 | mintLeveragedTokenIncentiveRatio            | 5555            | 6782   | 7325   | 16267  | 705     |
-| mintPeggedToken                             | 7834            | 66439  | 64012  | 129860 | 16      |
-| mintPeggedTokenIncentiveRatio               | 5731            | 6488   | 6774   | 11077  | 706     |
+| mintPeggedToken                             | 7834            | 66439  | 64012  | 129859 | 16      |
+| mintPeggedTokenIncentiveRatio               | 5731            | 6488   | 6774   | 11076  | 706     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 4       |
 | peggedTokenBalance                          | 396             | 470    | 396    | 2396   | 27      |
 | priceOracle                                 | 2470            | 2470   | 2470   | 2470   | 1       |
@@ -62,11 +62,12 @@
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |
 |-------------------------------------------------------|-----------------|-------|--------|-------|---------|
 | Deployment Cost                                       | Deployment Size |       |        |       |         |
-| 1619997                                               | 7374            |       |        |       |         |
+| 1620009                                               | 7374            |       |        |       |         |
 | Function Name                                         | min             | avg   | median | max   | # calls |
-| REQUESTER_ROLE                                        | 217             | 217   | 217    | 217   | 3       |
-| grantRole                                             | 5209            | 19761 | 29926  | 29926 | 44      |
-| initialize                                            | 2760            | 91517 | 94476  | 94476 | 31      |
+| REQUESTER_ROLE                                        | 217             | 217   | 217    | 217   | 4       |
+| grantRole                                             | 5209            | 19987 | 29926  | 29926 | 45      |
+| initialize                                            | 2760            | 91609 | 94476  | 94476 | 32      |
 | requestBonus                                          | 3012            | 21611 | 22915  | 40232 | 7       |
+| supportsInterface                                     | 409             | 526   | 526    | 644   | 2       |
 | transferToken                                         | 3030            | 3030  | 3030   | 3030  | 1       |
 

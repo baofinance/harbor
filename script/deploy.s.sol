@@ -8,6 +8,9 @@ import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol"; // 
 import { Options } from "openzeppelin-foundry-upgrades/Options.sol";
 
 import "src/minter/LeveragedToken_v1.sol";
+import "src/minter/ReservePool_v1.sol";
+import "src/minter/TokenDistributor_v1.sol";
+import "src/minter/Minter_v1.sol";
 
 // functions are called in this sequence
 // 1) Deploy*
@@ -32,18 +35,23 @@ contract Deployed {
     address internal constant BaoUSD = 0x7945b0A6674b175695e5d1D08aE1e6F13744Abb0;
 }
 
-// deploy the leveraged token for the first time
+///////////////////////////////////////////////////////////////////////////
+// deploy the contract for the first time
 // This should only be called once!
 // owner is either BAOMULTISIG or your wallet address associated with the private key
+
+///////////////////////////////////////////////////////////////////////////
+// LeveragedToken
+// --------------
 // $ yarn script script/deploy.s.sol:DeployLeveraged --rpc-url $MAINNET_RPC_URL --sig "run*(string memory pegged, string memory collateral)" "BaoUSD" "wstETH" --broadcast --verify
 // log:
 // 1.sepolia, runDev
-//   leveraged proxy =      0x48fD4A32A7Df9F747e0a3C7d7085761C1242B210
+//   proxy = 0x48fD4A32A7Df9F747e0a3C7d7085761C1242B210
 //   implementation (v1a) = 0x84bCF7815A9C29E1f69Fb75055F68D50EFAdD5e7
 //   owner=BAOMULTISIG so can't upgrade :/
 // 2.sepolia, runDev
-//   leveraged proxy =      0x26C6effF04F8c77E13F1A465C648056B80A8aE9a
-//   implementation (v1 ) = 0xc14e210b71c20de3fa539cbdcc2af92378036bdd
+//   proxy = 0x26C6effF04F8c77E13F1A465C648056B80A8aE9a
+//   implementation (v1) = 0xc14e210b71c20de3fa539cbdcc2af92378036bdd
 
 contract DeployLeveraged is Script, Deployed {
     function runProd(string memory pegged, string memory collateral) external {
@@ -69,6 +77,89 @@ contract DeployLeveraged is Script, Deployed {
     }
 }
 
+///////////////////////////////////////////////////////////////////////////
+// ReservePool
+// -----------
+// $ yarn script script/deploy.s.sol:DeployReservePool --rpc-url $MAINNET_RPC_URL --sig "run*()" --broadcast --verify
+// log:
+// 1.sepolia, runDev
+//   proxy = 0x82dcC46336e06F4921EfC46ee6A177456012C59A
+//   implementation (v1a) = 0x82dcC46336e06F4921EfC46ee6A177456012C59A
+
+contract DeployReservePool is Script, Deployed {
+    function runProd() external {
+        run(BAOMULTISIG);
+    }
+
+    function runDev() external {
+        run(vm.envAddress("PUBLIC_KEY"));
+    }
+
+    function run(address owner) private {
+        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+
+        Upgrades.deployUUPSProxy("ReservePool_v1.sol", abi.encodeCall(ReservePool_v1.initialize, owner));
+
+        vm.stopBroadcast();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////
+// TokenDistributor
+// ---------------
+// $ yarn script script/deploy.s.sol:DeployTokenDistributor --rpc-url $MAINNET_RPC_URL --sig "run*()" --broadcast --verify
+// log:
+// 1.sepolia, runDev
+//   proxy = 0xEd659E305FA62C29122A87FAF1c5e4400ED98444
+//   implementation (v1a) = 0x4d63e2a2F1C185F1e2a1D5f32671bcC0e1387981
+//   something went wrong with the proxy setup on sepolia - they wont accept it is a proxy
+
+contract DeployTokenDistributor is Script, Deployed {
+    function runProd() external {
+        run(BAOMULTISIG);
+    }
+
+    function runDev() external {
+        run(vm.envAddress("PUBLIC_KEY"));
+    }
+
+    function run(address owner) private {
+        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+
+        Upgrades.deployUUPSProxy("TokenDistributor_v1.sol", abi.encodeCall(TokenDistributor_v1.initialize, owner));
+
+        vm.stopBroadcast();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////
+// Minter
+// ------
+// $ yarn script script/deploy.s.sol:DeployMinter --rpc-url $MAINNET_RPC_URL --sig "run*()" --broadcast --verify
+// log:
+// 1.sepolia, runDev
+//   proxy =
+//   implementation (v1a) =
+
+contract DeployMinter is Script, Deployed {
+    function runProd() external {
+        run(BAOMULTISIG);
+    }
+
+    function runDev() external {
+        run(vm.envAddress("PUBLIC_KEY"));
+    }
+
+    function run(address owner) private {
+        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+
+        // Upgrades.deployUUPSProxy("Minter_v1.sol", abi.encodeCall(Minter_v1.initialize, owner));
+
+        vm.stopBroadcast();
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////
 // deploy am upgrade implementation - prepared for the upgrade transaction
 // this is a general function - can be used with any contract - just needs its name to check the files, storage etc.
 // $ yarn script script/deploy.s.sol:PrepareUpgrade --rpc-url $MAINNET_RPC_URL --sig "run(string memory contractBase, string memory oldVersion, string memory newVersion)" "<e.g. LeveragedToken>" "<e.g. v1a>" "<e.g. v1>" --broadcast --slow --verify
@@ -107,10 +198,6 @@ contract UpgradeLeveraged is Script, Deployed {
     }
 }
 
-contract DeployReservePool is Script, Deployed {}
-
-contract DeployMinterFeeTokenDistributer is Script, Deployed {}
-
 contract DeployRebalancePool is Script, Deployed {}
 
-contract DeployMinter is Script, Deployed {}
+contract DeployGenesis is Script, Deployed {}

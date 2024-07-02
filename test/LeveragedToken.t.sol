@@ -20,6 +20,7 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
+import { deployedSepolia } from "test/deployed.sol";
 
 contract Test_LeveragedToken is Test {
     using ECDSA for bytes32;
@@ -35,7 +36,9 @@ contract Test_LeveragedToken is Test {
     bytes32 minterRole;
     bytes32 ownerRole;
 
-    function connectContract() public virtual {
+    function setUpFork() public virtual {}
+
+    function setUpContract() public virtual {
         name = "Leveraged wstETH against BaoUSD";
         symbol = "BaoUSDLwstETH";
         owner = vm.createWallet("owner").addr;
@@ -48,11 +51,13 @@ contract Test_LeveragedToken is Test {
     }
 
     function setUp() public virtual {
+        setUpFork();
+
         minter = vm.createWallet("minter");
         user = vm.createWallet("user");
         user2 = vm.createWallet("user2");
 
-        connectContract();
+        setUpContract();
 
         minterRole = leveragedToken.MINTER_ROLE();
         ownerRole = leveragedToken.DEFAULT_ADMIN_ROLE();
@@ -286,13 +291,6 @@ contract Test_LeveragedToken is Test {
         assertTrue(leveragedToken.supportsInterface(type(IBurnableFrom).interfaceId), "should support IBurnableFrom");
         assertFalse(leveragedToken.supportsInterface(bytes4(0)), "doesn't support 0");
     }
-
-    // TODO: test upgrading
-
-    // function testFuzz_SetNumber(uint256 x) public {
-    //     counter.setNumber(x);
-    //     assertEq(counter.number(), x);
-    //}
 }
 
 contract Test_LeveragedToken_badDeploy is Test {
@@ -322,19 +320,15 @@ contract Test_LeveragedToken_badDeploy is Test {
 }
 
 contract Test_LeveragedToken_sepolia is Test_LeveragedToken {
-    function setUp() public override {
-        string memory url = vm.rpcUrl("sepolia");
-        vm.createSelectFork(url, 6225146); // pin to a block for speed (1-July-2024, proxy update block)
-        super.setUp(); // calls the connectContract below
+    function setUpFork() public override {
+        vm.createSelectFork(vm.rpcUrl("sepolia"), deployedSepolia.blockNumber); // pin to a block for speed (1-July-2024, proxy update block)
     }
 
-    function connectContract() public override {
+    function setUpContract() public override {
         // vm.rpcUrl("sepolia");
-        // proxy: 0x48fD4A32A7Df9F747e0a3C7d7085761C1242B210
-        // implementation: 0x84bCF7815A9C29E1f69Fb75055F68D50EFAdD5e7
         name = "BaoMinter BaoUSD-wstETH";
         symbol = "BaoUSD-wstETH";
-        owner = 0x0DC59a2caD3e1fa5D6b8a0F7c1481FcEDFa0bBCA;
-        leveragedToken = LeveragedToken_v1(0x26C6effF04F8c77E13F1A465C648056B80A8aE9a);
+        owner = deployedSepolia.owner;
+        leveragedToken = LeveragedToken_v1(deployedSepolia.BaoUSDxwstETH);
     }
 }
