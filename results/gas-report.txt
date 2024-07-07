@@ -29,23 +29,23 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4426902                                     | 20257           |        |        |        |         |
+| 4433848                                     | 20289           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5128            | 5128   | 5128   | 5128   | 7       |
 | collateralRatio                             | 515             | 3533   | 3576   | 3576   | 868     |
 | collateralToken                             | 2446            | 2446   | 2446   | 2446   | 4       |
 | collateralTokenBalance                      | 1404            | 1564   | 1404   | 5404   | 50      |
 | feeReceiver                                 | 2490            | 2490   | 2490   | 2490   | 1       |
-| freeMintLeveragedToken                      | 2949            | 74968  | 73686  | 124628 | 121     |
-| freeMintPeggedToken                         | 2992            | 109935 | 142496 | 142496 | 28      |
+| freeMintLeveragedToken                      | 2949            | 80937  | 78854  | 146896 | 121     |
+| freeMintPeggedToken                         | 2992            | 109324 | 142496 | 142496 | 28      |
 | freeRedeemLeveragedToken                    | 2926            | 37410  | 30918  | 83325  | 10      |
 | freeRedeemPeggedToken                       | 2972            | 42665  | 12206  | 105301 | 10      |
 | hasRole                                     | 762             | 2562   | 2762   | 2762   | 10      |
-| initialize                                  | 3268            | 582387 | 610287 | 610287 | 29      |
+| initialize                                  | 3268            | 566236 | 582735 | 610287 | 29      |
 | leverageTokensForCollateral                 | 5164            | 5198   | 5164   | 8806   | 107     |
 | leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 4       |
 | leveragedTokenBalance                       | 1609            | 2126   | 1609   | 12609  | 29      |
-| mintLeveragedToken                          | 2849            | 67462  | 94153  | 145095 | 13      |
+| mintLeveragedToken                          | 7899            | 76503  | 99320  | 150262 | 13      |
 | mintLeveragedTokenIncentiveRatio            | 5555            | 6782   | 7325   | 16267  | 705     |
 | mintPeggedToken                             | 7834            | 66439  | 64012  | 129859 | 16      |
 | mintPeggedTokenIncentiveRatio               | 5731            | 6488   | 6774   | 11076  | 706     |
@@ -56,7 +56,6 @@
 | redeemLeveragedTokenIncentiveRatio          | 7047            | 7756   | 7980   | 16090  | 701     |
 | redeemPeggedToken                           | 12041           | 68991  | 50533  | 149114 | 13      |
 | redeemPeggedTokenIncentiveRatio             | 5462            | 6692   | 7232   | 17149  | 705     |
-| updateConfig                                | 76244           | 76244  | 76244  | 76244  | 17      |
 
 --
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |

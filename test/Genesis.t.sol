@@ -25,9 +25,9 @@ import { Genesis_v1 } from "src/minter/Genesis_v1.sol";
 
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { deployed } from "test/deployed.sol";
-import { ArrayMaker } from "test/ArrayMaker.sol";
+import { Array } from "test/Array.sol";
 
-contract Test_GenesisBase is Test, ArrayMaker {
+contract Test_GenesisBase is Test, Array {
     Genesis_v1 genesis;
 
     address owner;

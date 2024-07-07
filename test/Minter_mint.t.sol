@@ -25,12 +25,15 @@ contract TestMinterMint is TestMinter {
     Vm.Wallet sender;
     Vm.Wallet receiver;
 
+    function setUpConfig() public override {
+        setUpConfig(130, 250, 131, 110, ic(ua(), ia(50)), ic(ua(), ia(70)), ic(ua(), ia(80)), ic(ua(), ia(120)));
+    }
+
     function setUp() public virtual override {
         super.setUp();
         system = vm.createWallet("system");
         sender = vm.createWallet("sender");
         receiver = vm.createWallet("receiver");
         setUp_permissions();
-        makeAllFeesNormal(); // makes fee calculations simple as we're not concerned with fees here
     }
 }

@@ -28,9 +28,9 @@ import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
-import { ArrayMaker } from "test/ArrayMaker.sol";
+import { Array } from "test/Array.sol";
 
-contract TestMinter is Test, Clog, ArrayMaker {
+contract TestMinter is Test, Clog, Array {
     address minter;
     IMinter.Config config;
 
@@ -45,19 +45,6 @@ contract TestMinter is Test, Clog, ArrayMaker {
     bytes32 minterRole = keccak256("MINTER_ROLE");
     bytes32 requesterRole = keccak256("REQUESTER_ROLE");
 
-    uint256 dangerCollateralRatioUpperBound;
-    uint256 criticalCollateralRatioUpperBound;
-    uint256 bonusCollateralRatioUpperBound;
-    int256 mintPeggedNormalIncentiveRatio;
-    int256 mintPeggedDangerIncentiveRatio;
-    int256 mintLeveragedNormalIncentiveRatio;
-    int256 mintLeveragedDangerIncentiveRatio;
-
-    int256 redeemPeggedNormalIncentiveRatio;
-    int256 redeemPeggedDangerIncentiveRatio;
-    int256 redeemLeveragedNormalIncentiveRatio;
-    int256 redeemLeveragedDangerIncentiveRatio;
-
     function _percentToEther(uint amount) private pure returns (uint256) {
         return (amount * 1 ether) / 100;
     }
@@ -70,10 +57,10 @@ contract TestMinter is Test, Clog, ArrayMaker {
         return (amount * 1 ether) / 10000;
     }
 
-    function _makeIncentiveConfig(
+    function ic(
         uint[] memory upToPercent,
         int[] memory amountBasisPoints
-    ) private pure returns (IMinter.IncentiveConfig memory band) {
+    ) internal pure returns (IMinter.IncentiveConfig memory band) {
         band.collateralRatioBandUpperBounds = new uint256[](upToPercent.length);
         for (uint i = 0; i < upToPercent.length; i++) {
             band.collateralRatioBandUpperBounds[i] = _percentToEther(upToPercent[i]);
@@ -82,6 +69,39 @@ contract TestMinter is Test, Clog, ArrayMaker {
         for (uint i = 0; i < amountBasisPoints.length; i++) {
             band.incentiveRatios[i] = _basisPointToEther(amountBasisPoints[i]);
         }
+    }
+
+    function setUpConfig(
+        uint rebalance,
+        uint normal,
+        uint256 disallowMintPegged,
+        uint256 disallowRedeemLeveraged,
+        IMinter.IncentiveConfig memory mintPegged,
+        IMinter.IncentiveConfig memory mintLeveraged,
+        IMinter.IncentiveConfig memory redeemPegged,
+        IMinter.IncentiveConfig memory redeemLeveraged
+    ) public {
+        config.rebalanceCollateralRatioUpperBound = _percentToEther(rebalance);
+        config.normalCollateralRatioUpperBound = _percentToEther(normal);
+        config.disallowMintPeggedCollateralRatioUpperBound = _percentToEther(disallowMintPegged);
+        config.disallowRedeemLeveragedCollateralRatioUpperBound = _percentToEther(disallowRedeemLeveraged);
+        config.mintPeggedIncentiveConfig = mintPegged;
+        config.mintLeveragedIncentiveConfig = mintLeveraged;
+        config.redeemPeggedIncentiveConfig = redeemPegged;
+        config.redeemLeveragedIncentiveConfig = redeemLeveraged;
+    }
+
+    function setUpConfig() public virtual {
+        setUpConfig(
+            130,
+            250,
+            131,
+            110,
+            ic(ua(140), ia(100, 50)),
+            ic(ua(110, 120, 140), ia(-50, 0, 20, 70)),
+            ic(ua(110, 120, 140), ia(-50, 0, 60, 80)),
+            ic(ua(140), ia(150, 120))
+        );
     }
 
     function setUp() public virtual {
@@ -104,45 +124,7 @@ contract TestMinter is Test, Clog, ArrayMaker {
             abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
         );
 
-        uint danger = 140;
-        uint critical = 120;
-        uint bonus = 110;
-        dangerCollateralRatioUpperBound = _percentToEther(danger);
-        criticalCollateralRatioUpperBound = _percentToEther(critical);
-        bonusCollateralRatioUpperBound = _percentToEther(bonus);
-        int mpNormalIR = 50;
-        int mpDangerIR = 100;
-        mintPeggedNormalIncentiveRatio = _basisPointToEther(mpNormalIR);
-        mintPeggedDangerIncentiveRatio = _basisPointToEther(mpDangerIR);
-        int mlNormalIR = 70;
-        int mlDangerIR = 20;
-        mintLeveragedNormalIncentiveRatio = _basisPointToEther(mlNormalIR);
-        mintLeveragedDangerIncentiveRatio = _basisPointToEther(mlDangerIR);
-
-        int rpNormalIR = 80;
-        int rpDangerIR = 60;
-        redeemPeggedNormalIncentiveRatio = _basisPointToEther(rpNormalIR);
-        redeemPeggedDangerIncentiveRatio = _basisPointToEther(rpDangerIR);
-        int rlNormalIR = 120;
-        int rlDangerIR = 150;
-        redeemLeveragedNormalIncentiveRatio = _basisPointToEther(rlNormalIR);
-        redeemLeveragedDangerIncentiveRatio = _basisPointToEther(rlDangerIR);
-
-        config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
-        config.disallowMintPeggedCollateralRatioUpperBound = _percentToEther(131); // typically the same as the rebalance CR
-        config.disallowRedeemLeveragedCollateralRatioUpperBound = _percentToEther(110); // typically the same as the bonus CR
-        config.normalCollateralRatioUpperBound = _percentToEther(250);
-
-        config.mintPeggedIncentiveConfig = _makeIncentiveConfig(ua(danger), ia(mpDangerIR, mpNormalIR));
-        config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(
-            ua(bonus, critical, danger),
-            ia(-50, 0, mlDangerIR, mlNormalIR)
-        );
-        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(
-            ua(bonus, critical, danger),
-            ia(-50, 0, rpDangerIR, rpNormalIR)
-        );
-        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(ua(danger), ia(rlDangerIR, rlNormalIR));
+        setUpConfig();
 
         minter = UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1()), // "Minter_v1.sol",
@@ -198,27 +180,6 @@ contract TestMinter is Test, Clog, ArrayMaker {
             vm.prank(owner.addr);
             leveragedTokens = IMinterTreasury(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
-    }
-
-    function makeAllFeesNormal() internal {
-        config.mintPeggedIncentiveConfig = _makeIncentiveConfig(
-            ua(),
-            ia(_etherToBasisPoint(mintPeggedNormalIncentiveRatio))
-        );
-        config.mintLeveragedIncentiveConfig = _makeIncentiveConfig(
-            ua(),
-            ia(_etherToBasisPoint(mintLeveragedNormalIncentiveRatio))
-        );
-        config.redeemPeggedIncentiveConfig = _makeIncentiveConfig(
-            ua(),
-            ia(_etherToBasisPoint(redeemPeggedNormalIncentiveRatio))
-        );
-        config.redeemLeveragedIncentiveConfig = _makeIncentiveConfig(
-            ua(),
-            ia(_etherToBasisPoint(redeemLeveragedNormalIncentiveRatio))
-        );
-        vm.prank(owner.addr);
-        IMinter(minter).updateConfig(config);
     }
 }
 

@@ -20,8 +20,6 @@ import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
-import "forge-std/console.sol";
-
 /// @title
 /// @author
 /// @notice provides an interface for minting and redeeming pegged and leveraged tokens
@@ -475,7 +473,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             peggedTokenBalance_
         );
         if (band == 0) {
-            // in disallow band for mint pegged or redeem leveraged
+            // in disallow band for mint pegged
             return (0, 0);
         }
         // simulate minting until we run out of collateral, adding the fee & bonus as we go
@@ -693,7 +691,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 collateralIn,
         address recipient,
         uint256 minLeveragedTokenOut
-    ) external override returns (uint256 leveragedTokenOut) {
+    ) external override nonReentrant returns (uint256 leveragedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
         collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
@@ -745,8 +743,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
     ) private pure returns (uint band, uint256 bandUpperBound) {
+        bandUpperBound = type(uint256).max;
         uint256 collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
-        for (; band < collateralRatioBandCount(config) - 1; band++) {
+        for (band = 0; band < collateralRatioBandCount(config) - 1; band++) {
             bandUpperBound = _collateralRatioUpperBounds(config, band);
             if (collateralRatio_ <= bandUpperBound) {
                 break;
@@ -760,9 +759,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
     ) private pure returns (uint band, uint256 bandLowerBound) {
+        bandLowerBound = 0;
         uint256 collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
         for (band = collateralRatioBandCount(config) - 1; band > 0; band--) {
-            // we add 2 here to ensure rounding errors don't result in the collateral ratio being
+            // TODO: we add 2 here to ensure rounding errors don't result in the collateral ratio being
             // less than or equal to the the disallow collateral ratio upper bound.
             bandLowerBound = _collateralRatioUpperBounds(config, band - 1) + 2;
             if (collateralRatio_ >= bandLowerBound) {
@@ -852,7 +852,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     function freeMintLeveragedToken(
         uint256 collateralIn,
         address recipient
-    ) external override onlyRole(ZERO_FEE_ROLE) returns (uint256 leveragedTokenOut) {
+    ) external override onlyRole(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedTokenOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address collateralToken_ = $.collateralToken;

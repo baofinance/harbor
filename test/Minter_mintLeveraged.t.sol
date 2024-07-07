@@ -169,7 +169,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.prank(sender.addr);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);
 
-        int256 mintLeveragedFee = (int256(senderCollateralDecrease) * mintLeveragedNormalIncentiveRatio) / 1 ether;
+        int256 mintLeveragedFee = (int256(senderCollateralDecrease) *
+            ultimate(config.mintLeveragedIncentiveConfig.incentiveRatios)) / 1 ether;
         uint256 receiverLeveragedIncrease = IMinter(minter).leverageTokensForCollateral(
             uint256(int256(senderCollateralDecrease) - mintLeveragedFee)
         );
@@ -323,7 +324,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 collateral = 3 ether;
         deal(address(deployed.wstETH), sender.addr, collateral * 10);
 
-        int256 mintLeveragedFee = (int256(collateral) * mintLeveragedNormalIncentiveRatio) / 1 ether;
+        int256 mintLeveragedFee = (int256(collateral) * ultimate(config.mintLeveragedIncentiveConfig.incentiveRatios)) /
+            1 ether;
         uint256 expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(
             uint256(int256(collateral) - mintLeveragedFee)
         );
@@ -356,7 +358,9 @@ contract TestMinterMintLeveraged is TestMinterMint {
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), senderCollateralBefore);
 
         // mint from all of balance
-        mintLeveragedFee = (int256(senderCollateralBefore) * mintLeveragedNormalIncentiveRatio) / 1 ether;
+        mintLeveragedFee =
+            (int256(senderCollateralBefore) * ultimate(config.mintLeveragedIncentiveConfig.incentiveRatios)) /
+            1 ether;
         expectedLeveragedTokenOut = IMinter(minter).leverageTokensForCollateral(
             uint256(int256(senderCollateralBefore) - mintLeveragedFee)
         );

@@ -197,20 +197,22 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         } else {
             senderLeveragedDecrease = leveragedIn;
         }
-        clog("senderLeveragedDecrease", senderLeveragedDecrease);
+        //clog("senderLeveragedDecrease", senderLeveragedDecrease);
 
         vm.prank(sender.addr);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
 
-        clog("redeemLeveragedNormalIncentiveRatio", redeemLeveragedNormalIncentiveRatio);
+        // clog("redeemLeveragedNormalIncentiveRatio", ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios));
         uint256 redeemLeveragedFee = IMinter(minter).collateralForLeverageTokens(
-            (senderLeveragedDecrease * uint256(redeemLeveragedNormalIncentiveRatio)) / 1 ether
+            (senderLeveragedDecrease * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))) /
+                1 ether
         );
-        clog("redeemLeveragedFee", redeemLeveragedFee);
+        // clog("redeemLeveragedFee", redeemLeveragedFee);
         uint256 receiverCollateralIncrease = IMinter(minter).collateralForLeverageTokens(
-            (senderLeveragedDecrease * (1 ether - uint256(redeemLeveragedNormalIncentiveRatio))) / 1 ether
+            (senderLeveragedDecrease *
+                (1 ether - uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios)))) / 1 ether
         );
-        clog("receiverCollateralIncrease", receiverCollateralIncrease);
+        // clog("receiverCollateralIncrease", receiverCollateralIncrease);
 
         uint256 feeReceiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
         uint256 senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender.addr);
@@ -362,7 +364,8 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         deal(address(deployed.wstETH), sender.addr, collateral * 10);
 
-        uint256 redeemLeveragedFee = (collateral * uint256(redeemLeveragedNormalIncentiveRatio)) / 1 ether;
+        uint256 redeemLeveragedFee = (collateral *
+            uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))) / 1 ether;
         uint256 expectedCollateralOut = collateral - redeemLeveragedFee;
 
         uint256 senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender.addr);
@@ -398,7 +401,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
         // mint from all of balance
         redeemLeveragedFee = IMinter(minter).collateralForLeverageTokens(
-            (senderLeveragedBefore * uint256(redeemLeveragedNormalIncentiveRatio)) / 1 ether
+            (senderLeveragedBefore * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))) / 1 ether
         );
         expectedCollateralOut = collateral - redeemLeveragedFee;
 

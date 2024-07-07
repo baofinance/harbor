@@ -153,7 +153,8 @@ contract TestMinterMintPegged is TestMinterMint {
         vm.prank(sender.addr);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);
 
-        int256 mintPeggedFee = (int256(senderCollateralDecrease) * mintPeggedNormalIncentiveRatio) / 1 ether;
+        int256 mintPeggedFee = (int256(senderCollateralDecrease) *
+            ultimate(config.mintPeggedIncentiveConfig.incentiveRatios)) / 1 ether;
         uint256 receiverBaoUSDIncrease = uint256(int256(price) * (int256(senderCollateralDecrease) - mintPeggedFee)) /
             1 ether;
 
@@ -345,7 +346,8 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 collateral = 3 ether;
         deal(address(deployed.wstETH), sender.addr, collateral * 3);
 
-        int256 mintPeggedFee = (int256(collateral) * mintPeggedNormalIncentiveRatio) / 1 ether;
+        int256 mintPeggedFee = (int256(collateral) * ultimate(config.mintPeggedIncentiveConfig.incentiveRatios)) /
+            1 ether;
         uint256 expectedPeggedTokenOut = uint256((int256(collateral) - mintPeggedFee) * int256(price)) / 1 ether;
         uint256 senderCollateralBefore = IERC20(deployed.wstETH).balanceOf(sender.addr);
         uint256 receiverPeggedBefore = IERC20(deployed.BaoUSD).balanceOf(receiver.addr);
@@ -376,7 +378,9 @@ contract TestMinterMintPegged is TestMinterMint {
         assertEq(IERC20(deployed.wstETH).balanceOf(sender.addr), senderCollateralBefore);
 
         // mint from all of balance
-        mintPeggedFee = (int256(senderCollateralBefore) * mintPeggedNormalIncentiveRatio) / 1 ether;
+        mintPeggedFee =
+            (int256(senderCollateralBefore) * ultimate(config.mintPeggedIncentiveConfig.incentiveRatios)) /
+            1 ether;
         expectedPeggedTokenOut = uint256((int256(senderCollateralBefore) - mintPeggedFee) * int256(price)) / 1 ether;
         _mintPeggedToken(type(uint256).max);
         //---------------------------------

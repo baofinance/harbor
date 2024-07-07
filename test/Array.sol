@@ -3,7 +3,7 @@ pragma solidity ^0.8.25;
 
 // creates arrays of uint, int and address
 
-contract ArrayMaker {
+contract Array {
     function ua() internal pure returns (uint[] memory result) {
         result = new uint[](0);
     }
@@ -144,5 +144,65 @@ contract ArrayMaker {
         result[3] = d;
         result[4] = e;
         result[5] = f;
+    }
+
+    function cons(uint car, uint[] memory cdr) private pure returns (uint[] memory list) {
+        list = new uint[](cdr.length + 1);
+        list[0] = car;
+        for (uint i = 0; i < cdr.length; i++) {
+            list[i + 1] = cdr[i];
+        }
+    }
+
+    function cons(int car, int[] memory cdr) private pure returns (int[] memory list) {
+        list = new int[](cdr.length + 1);
+        list[0] = car;
+        for (uint i = 0; i < cdr.length; i++) {
+            list[i + 1] = cdr[i];
+        }
+    }
+
+    function cons(address car, address[] memory cdr) private pure returns (address[] memory list) {
+        list = new address[](cdr.length + 1);
+        list[0] = car;
+        for (uint i = 0; i < cdr.length; i++) {
+            list[i + 1] = cdr[i];
+        }
+    }
+
+    function ultimate(uint[] memory list) internal pure returns (uint) {
+        return list[list.length - 1];
+    }
+
+    function ultimate(int[] memory list) internal pure returns (int) {
+        return list[list.length - 1];
+    }
+
+    function ultimate(address[] memory list) internal pure returns (address) {
+        return list[list.length - 1];
+    }
+
+    function penultimate(uint[] memory list) internal pure returns (uint) {
+        return list[list.length - 2];
+    }
+
+    function penultimate(int[] memory list) internal pure returns (int) {
+        return list[list.length - 2];
+    }
+
+    function penultimate(address[] memory list) internal pure returns (address) {
+        return list[list.length - 2];
+    }
+
+    function initial(uint[] memory list) internal pure returns (uint) {
+        return list[0];
+    }
+
+    function initial(int[] memory list) internal pure returns (int) {
+        return list[0];
+    }
+
+    function initial(address[] memory list) internal pure returns (address) {
+        return list[0];
     }
 }

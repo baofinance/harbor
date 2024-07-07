@@ -21,10 +21,10 @@ import { Token } from "src/common/Token.sol";
 import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
-import { ArrayMaker } from "test/ArrayMaker.sol";
+import { Array } from "test/Array.sol";
 import { deployed, deployedSepolia } from "test/deployed.sol";
 
-contract Test_TokenDistributorBase is Test, ArrayMaker {
+contract Test_TokenDistributorBase is Test, Array {
     using ECDSA for bytes32;
     using SafeERC20 for IERC20;
 
