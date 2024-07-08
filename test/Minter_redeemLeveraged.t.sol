@@ -376,8 +376,8 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         IMinter(minter).redeemLeveragedToken(leveraged, receiver.addr, expectedCollateralOut);
         // 3 ------------------------------------------------------------------------------
         assertEq(IERC20(deployed.wstETH).balanceOf(receiver.addr), receiverCollateralBefore + expectedCollateralOut);
-        clog("senderLeveragedBefore", senderLeveragedBefore);
-        clog("leveraged", leveraged);
+        // clog("senderLeveragedBefore", senderLeveragedBefore);
+        // clog("leveraged", leveraged);
 
         assertEq(IERC20(leveragedToken).balanceOf(sender.addr), senderLeveragedBefore - leveraged);
 
@@ -405,7 +405,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
         expectedCollateralOut = collateral - redeemLeveragedFee;
 
-        clog("leverageToken.balanceOf(sender)", IERC20(leveragedToken).balanceOf(sender.addr));
+        // clog("leverageToken.balanceOf(sender)", IERC20(leveragedToken).balanceOf(sender.addr));
         _redeemLeveragedToken(type(uint256).max);
         // 5 --------------------------------
         assertApproxEqAbs(

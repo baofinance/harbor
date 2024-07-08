@@ -2,9 +2,9 @@
 pragma solidity 0.8.25;
 
 interface IMinter {
-    /****************************
-     * Data Structures          *
-     ****************************/
+    /********************************
+     * Data Structures              *
+     ********************************/
 
     struct BalanceTokens {
         address peggedToken;
@@ -100,9 +100,9 @@ interface IMinter {
         IncentiveConfig redeemLeveragedIncentiveConfig;
     }
 
-    /****************************
-     * Events                   *
-     ****************************/
+    /********************************
+     * Events                       *
+     ********************************/
 
     /// @notice Emitted when peggedToken is minted.
     /// @param sender The address of collateral token owner.
@@ -169,9 +169,9 @@ interface IMinter {
     /// @param newPriceOracle The address of current price oracle contract.
     event UpdatePriceOracle(address indexed oldPriceOracle, address indexed newPriceOracle);
 
-    /****************************
-     * Errors                   *
-     ****************************/
+    /********************************
+     * Errors                       *
+     ********************************/
 
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
@@ -200,11 +200,11 @@ interface IMinter {
     /// @dev thrown when an action is paused, for example if the protocol is not initialised
     error ActionPaused();
 
-    /****************************
-     * Public View Functions    *
-     ****************************/
+    /********************************
+     * Public View Functions        *
+     ********************************/
 
-    /// @notice Return the address of the collateral (collateral) token
+    /// @notice Return the address of the collateral token
     function collateralToken() external view returns (address);
 
     /// @notice Return the address of the pegged token.
@@ -213,11 +213,15 @@ interface IMinter {
     /// @notice Return the address of the leveraged token.
     function leveragedToken() external view returns (address);
 
-    /// @notice Return the current collateral ratio of the peggedToken to the collateral token, multipled by 1e18.
+    /// @notice Return the current config.
+    function config() external view returns (Config memory);
+
+    /// @notice Return the current collateral ratio of the peggedToken to the collateral token (18 decimals).
     function collateralRatio() external view returns (uint256);
 
     function leverageRatio() external view returns (uint256);
 
+    /// @notice Return the price of a leveraged token in terms of the pegged token's underlying
     function leveragedTokenPrice() external view returns (uint256);
     function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
     function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 leveragedTokens);
@@ -242,9 +246,9 @@ interface IMinter {
         uint256 leveragedIn
     ) external view returns (int256 incentiveRatio, uint256 maxLeveragedTokens);
 
-    /****************************
-     * Public Mutated Functions *
-     ****************************/
+    /********************************
+     * Public Mutator Functions     *
+     ********************************/
 
     /// @notice Mint some peggedToken with some collateral token.
     /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all collateral token.
@@ -297,9 +301,9 @@ interface IMinter {
 }
 
 interface IMinterTreasury {
-    /****************************
-     * Public Mutated Functions *
-     ****************************/
+    /********************************
+     * Public Mutator Functions     *
+     ********************************/
 
     function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedOut);
     function freeRedeemPeggedToken(uint256 peggedIn, address recipient) external returns (uint256 collateralOut);

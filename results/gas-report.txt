@@ -8,7 +8,7 @@
 | MINTER_ROLE                                                 | 292             | 292    | 292    | 292    | 6       |
 | allowance                                                   | 867             | 2673   | 2867   | 2867   | 31      |
 | approve                                                     | 4954            | 14904  | 14904  | 24854  | 6       |
-| balanceOf                                                   | 736             | 1481   | 736    | 2736   | 118     |
+| balanceOf                                                   | 736             | 1488   | 736    | 2736   | 117     |
 | burn                                                        | 5296            | 8577   | 5296   | 15141  | 3       |
 | burnFrom                                                    | 2899            | 10010  | 13158  | 15158  | 14      |
 | decimals                                                    | 222             | 222    | 222    | 222    | 29      |
@@ -29,33 +29,33 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4433848                                     | 20289           |        |        |        |         |
+| 4553237                                     | 20940           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5128            | 5128   | 5128   | 5128   | 7       |
-| collateralRatio                             | 515             | 3533   | 3576   | 3576   | 868     |
-| collateralToken                             | 2446            | 2446   | 2446   | 2446   | 4       |
+| collateralRatio                             | 450             | 3468   | 3511   | 3511   | 868     |
+| collateralToken                             | 2468            | 2468   | 2468   | 2468   | 4       |
 | collateralTokenBalance                      | 1404            | 1564   | 1404   | 5404   | 50      |
-| feeReceiver                                 | 2490            | 2490   | 2490   | 2490   | 1       |
-| freeMintLeveragedToken                      | 2949            | 80937  | 78854  | 146896 | 121     |
-| freeMintPeggedToken                         | 2992            | 109324 | 142496 | 142496 | 28      |
+| feeReceiver                                 | 2512            | 2512   | 2512   | 2512   | 1       |
+| freeMintLeveragedToken                      | 2971            | 75446  | 74174  | 125116 | 121     |
+| freeMintPeggedToken                         | 2992            | 92569  | 120696 | 120696 | 28      |
 | freeRedeemLeveragedToken                    | 2926            | 37410  | 30918  | 83325  | 10      |
-| freeRedeemPeggedToken                       | 2972            | 42665  | 12206  | 105301 | 10      |
-| hasRole                                     | 762             | 2562   | 2762   | 2762   | 10      |
-| initialize                                  | 3268            | 566236 | 582735 | 610287 | 29      |
+| freeRedeemPeggedToken                       | 2994            | 42687  | 12228  | 105323 | 10      |
+| hasRole                                     | 784             | 2584   | 2784   | 2784   | 10      |
+| initialize                                  | 3268            | 566418 | 582923 | 610475 | 29      |
 | leverageTokensForCollateral                 | 5164            | 5198   | 5164   | 8806   | 107     |
-| leveragedToken                              | 2468            | 2468   | 2468   | 2468   | 4       |
+| leveragedToken                              | 2490            | 2490   | 2490   | 2490   | 4       |
 | leveragedTokenBalance                       | 1609            | 2126   | 1609   | 12609  | 29      |
-| mintLeveragedToken                          | 7899            | 76503  | 99320  | 150262 | 13      |
-| mintLeveragedTokenIncentiveRatio            | 5555            | 6782   | 7325   | 16267  | 705     |
-| mintPeggedToken                             | 7834            | 66439  | 64012  | 129859 | 16      |
-| mintPeggedTokenIncentiveRatio               | 5731            | 6488   | 6774   | 11076  | 706     |
+| mintLeveragedToken                          | 3114            | 67802  | 94606  | 145548 | 13      |
+| mintLeveragedTokenIncentiveRatio            | 5565            | 6792   | 7335   | 16277  | 705     |
+| mintPeggedToken                             | 3093            | 58515  | 53799  | 125180 | 16      |
+| mintPeggedTokenIncentiveRatio               | 5754            | 6511   | 6797   | 11099  | 706     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 4       |
-| peggedTokenBalance                          | 396             | 470    | 396    | 2396   | 27      |
+| peggedTokenBalance                          | 441             | 515    | 441    | 2441   | 27      |
 | priceOracle                                 | 2470            | 2470   | 2470   | 2470   | 1       |
-| redeemLeveragedToken                        | 2817            | 42596  | 13317  | 117307 | 11      |
-| redeemLeveragedTokenIncentiveRatio          | 7047            | 7756   | 7980   | 16090  | 701     |
-| redeemPeggedToken                           | 12041           | 68991  | 50533  | 149114 | 13      |
-| redeemPeggedTokenIncentiveRatio             | 5462            | 6692   | 7232   | 17149  | 705     |
+| redeemLeveragedToken                        | 2817            | 42597  | 13317  | 117308 | 11      |
+| redeemLeveragedTokenIncentiveRatio          | 7048            | 7757   | 7981   | 16091  | 701     |
+| redeemPeggedToken                           | 7278            | 60311  | 45780  | 144422 | 13      |
+| redeemPeggedTokenIncentiveRatio             | 5472            | 6702   | 7242   | 17159  | 705     |
 
 --
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |
