@@ -568,7 +568,8 @@ contract Minter_v1 is
         // net out the fee & extra collateral
         if (extraCollateral > 0) {
             // it's a discount
-            // collect the extra collateral, if available
+            // collect the extra collateral, if availablex
+            // wake-disable-next-line reentrancy // reservePool is trusted
             extraCollateral = IReservePool($.reservePool).requestBonus(
                 collateralToken_,
                 address(this),
@@ -622,6 +623,7 @@ contract Minter_v1 is
         if (extraCollateral > 0) {
             // it's a discount
             // collect the extra collateral, if available
+            // wake-disable-next-line reentrancy // reservePool is trusted
             extraCollateral = IReservePool($.reservePool).requestBonus(
                 collateralToken_,
                 address(this),
@@ -722,7 +724,7 @@ contract Minter_v1 is
     function freeRedeemPeggedToken(
         uint256 peggedIn,
         address recipient
-    ) external override onlyRole(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
+    ) external override nonReentrant onlyRole(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
         address peggedToken_ = $.peggedToken;
@@ -1002,8 +1004,7 @@ contract Minter_v1 is
         emit MintPeggedToken(_msgSender(), recipient, collateralIn, peggedTokenOut);
 
         // mint the tokens to the recipient
-        // as all callers to this function have nonReentrant guard
-        // wake-disable-next-line reentrancy
+        // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
         IMintable(peggedToken_).mint(recipient, peggedTokenOut);
         // take the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
@@ -1020,6 +1021,7 @@ contract Minter_v1 is
         emit RedeemPeggedToken(_msgSender(), recipient, peggedIn, collateralOut);
         // burn the tokens from the sender - get them first then burn them
         IERC20(peggedToken_).safeTransferFrom(_msgSender(), address(this), peggedIn);
+        // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
         IBurnable(peggedToken_).burn(peggedIn);
         // return the collateral
         IERC20(collateralToken_).safeTransfer(recipient, collateralOut);
@@ -1036,6 +1038,7 @@ contract Minter_v1 is
         emit MintLeveragedToken(_msgSender(), recipient, collateralIn, leveragedTokenOut);
 
         // mint the tokens to the recipient
+        // wake-disable-next-line reentrancy
         IMintable(leveragedToken_).mint(recipient, leveragedTokenOut);
         // take the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
@@ -1051,6 +1054,7 @@ contract Minter_v1 is
         // tell the world
         emit RedeemLeveragedToken(_msgSender(), recipient, leveragedIn, collateralOut);
         // burn the leveraged
+        // wake-disable-next-line reentrancy // leveragedToken is trusted
         IBurnableFrom(leveragedToken_).burnFrom(_msgSender(), leveragedIn);
         // return the collateral
         IERC20(collateralToken_).safeTransfer(recipient, collateralOut);

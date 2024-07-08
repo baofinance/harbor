@@ -29,7 +29,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4553237                                     | 20940           |        |        |        |         |
+| 4555085                                     | 20950           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5128            | 5128   | 5128   | 5128   | 7       |
 | collateralRatio                             | 450             | 3468   | 3511   | 3511   | 868     |
@@ -39,7 +39,7 @@
 | freeMintLeveragedToken                      | 2971            | 75446  | 74174  | 125116 | 121     |
 | freeMintPeggedToken                         | 2992            | 92569  | 120696 | 120696 | 28      |
 | freeRedeemLeveragedToken                    | 2926            | 37410  | 30918  | 83325  | 10      |
-| freeRedeemPeggedToken                       | 2994            | 42687  | 12228  | 105323 | 10      |
+| freeRedeemPeggedToken                       | 3282            | 43046  | 12516  | 105789 | 10      |
 | hasRole                                     | 784             | 2584   | 2784   | 2784   | 10      |
 | initialize                                  | 3268            | 566418 | 582923 | 610475 | 29      |
 | leverageTokensForCollateral                 | 5164            | 5198   | 5164   | 8806   | 107     |

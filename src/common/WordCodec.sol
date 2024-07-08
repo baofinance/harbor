@@ -22,6 +22,7 @@ library WordCodec {
         // bytes32 clearedWord = bytes32(uint256(word) & ~(mask << offset));
         // result = clearedWord | bytes32(value << offset);
         assembly {
+            // slither-disable-next-line incorrect-shift
             let mask := sub(shl(bitLength, 1), 1)
             let clearedWord := and(word, not(shl(offset, mask)))
             result := or(clearedWord, shl(offset, value))
@@ -33,6 +34,7 @@ library WordCodec {
         // Equivalent to:
         // result = uint256(word >> offset) & ((1 << bitLength) - 1);
         assembly {
+            // slither-disable-next-line incorrect-shift
             result := and(shr(offset, word), sub(shl(bitLength, 1), 1))
         }
     }
@@ -89,6 +91,7 @@ library WordCodec {
         // bytes32 clearedWord = bytes32(uint256(word) & ~(1 << offset));
         // bytes32 referenceInsertBool = clearedWord | bytes32(uint256(value ? 1 : 0) << offset);
         assembly {
+            // slither-disable-next-line incorrect-shift
             let clearedWord := and(word, not(shl(offset, 1)))
             result := or(clearedWord, shl(offset, value))
         }
