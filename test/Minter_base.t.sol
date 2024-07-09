@@ -33,6 +33,7 @@ import { Array } from "test/Array.sol";
 contract TestMinter is Test, Clog, Array {
     address minter;
     IMinter.Config config;
+    int constant disallow = 1000;
 
     address leveragedToken;
     address reservePool;
@@ -74,17 +75,13 @@ contract TestMinter is Test, Clog, Array {
     function setUpConfig(
         uint rebalance,
         uint normal,
-        uint256 disallowMintPegged,
-        uint256 disallowRedeemLeveraged,
         IMinter.IncentiveConfig memory mintPegged,
         IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemPegged,
         IMinter.IncentiveConfig memory redeemLeveraged
     ) public {
         config.rebalanceCollateralRatioUpperBound = _percentToEther(rebalance);
-        config.normalCollateralRatioUpperBound = _percentToEther(normal);
-        config.disallowMintPeggedCollateralRatioUpperBound = _percentToEther(disallowMintPegged);
-        config.disallowRedeemLeveragedCollateralRatioUpperBound = _percentToEther(disallowRedeemLeveraged);
+        config.harvestCollateralRatioUpperBound = _percentToEther(normal);
         config.mintPeggedIncentiveConfig = mintPegged;
         config.mintLeveragedIncentiveConfig = mintLeveraged;
         config.redeemPeggedIncentiveConfig = redeemPegged;
@@ -95,12 +92,10 @@ contract TestMinter is Test, Clog, Array {
         setUpConfig(
             130,
             250,
-            131,
-            110,
-            ic(ua(140), ia(100, 50)),
+            ic(ua(131, 140), ia(disallow, 100, 50)),
             ic(ua(110, 120, 140), ia(-50, 0, 20, 70)),
             ic(ua(110, 120, 140), ia(-50, 0, 60, 80)),
-            ic(ua(140), ia(150, 120))
+            ic(ua(110, 140), ia(disallow, 150, 120))
         );
     }
 

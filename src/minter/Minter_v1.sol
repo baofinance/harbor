@@ -137,7 +137,7 @@ contract Minter_v1 is
         address feeReceiver; //                         160
         //                                              slot*2
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        uint256 normalCollateralRatioUpperBound; // above this harvesting of collateral can begin
+        uint256 harvestCollateralRatioUpperBound; // above this harvesting of collateral can begin
         //                                             slot*2
         ActionIncentive mintPeggedConfig;
         //                                             slot*2
@@ -802,10 +802,7 @@ contract Minter_v1 is
     // Config
     // ------
 
-    function _copyBands(
-        IncentiveConfig calldata config_,
-        uint256 disallowCollateralRatioUpperBound_
-    ) private pure returns (ActionIncentive memory out) {
+    function _checkAndCopyBands(IncentiveConfig calldata config_) private pure returns (ActionIncentive memory out) {
         if (config_.collateralRatioBandUpperBounds.length > maxBounds) {
             revert TooManyCollateralRatioBounds(config_.collateralRatioBandUpperBounds.length);
         }
@@ -819,42 +816,35 @@ contract Minter_v1 is
             );
         }
 
-        uint offset = 0;
-        if (disallowCollateralRatioUpperBound_ != 0) {
-            offset = 1;
-            _setCollateralRatioUpperBounds(out, 0, disallowCollateralRatioUpperBound_);
-            _setIncentiveRatio(out, 0, 0); // disallow carries a 0 fee
-        }
-        setCollateralRatioBandCount(out, config_.incentiveRatios.length + offset);
+        setCollateralRatioBandCount(out, config_.incentiveRatios.length);
 
         // check monotonically increasing, and greater than disallow ratio, and then copy
         uint256 min = 0;
         for (uint i = 0; i < config_.collateralRatioBandUpperBounds.length; i++) {
             uint256 value = config_.collateralRatioBandUpperBounds[i];
-            // disallow must be at a lower collateral ratio than any fee boundary (or the fee boundary is ignored!)
-            if (i == 0 && value <= disallowCollateralRatioUpperBound_) {
-                revert InvalidCollateralRatioBoundValue(value, disallowCollateralRatioUpperBound_);
-            }
             // must be monotonically increasing
             if (value < min) {
                 revert InvalidCollateralRatioBoundValue(value, min);
             }
             min = value;
-            _setCollateralRatioUpperBounds(out, i + offset, value);
-            //clog("  upper bounds", i, value);
+            _setCollateralRatioUpperBounds(out, i, value);
         }
-        // check in range [-1, 1] and copy
+        // check in range (-1, 1] and copy
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
             int256 value = config_.incentiveRatios[i];
-            if (value > 1 ether || value < -1 ether) {
+            if (value > 1 ether || value <= -1 ether) {
                 revert InvalidIncentiveRatioValue(value);
             }
-            // also any bonus ratio cannot be in the highest collateral band
+            // disallows must be at index 0
+            if (value == 1 ether && i != 0) {
+                revert InvalidIncentiveRatioValue(value);
+            }
+            // any bonus ratio cannot be in the highest collateral band
+            // TODO: why?
             if (i == config_.incentiveRatios.length && value < 0) {
                 revert InvalidIncentiveRatioValue(value);
             }
-            _setIncentiveRatio(out, i + offset, value);
-            //clog("  incentive ratio", i, value);
+            _setIncentiveRatio(out, i, value);
         }
     }
 
@@ -867,25 +857,19 @@ contract Minter_v1 is
         // action config
         // TODO: consider making those 32 bit
         $.rebalanceCollateralRatioUpperBound = config_.rebalanceCollateralRatioUpperBound;
-        $.normalCollateralRatioUpperBound = config_.normalCollateralRatioUpperBound;
+        $.harvestCollateralRatioUpperBound = config_.harvestCollateralRatioUpperBound;
         // clog("rebalanceCollateralRatioUpperBound", $.rebalanceCollateralRatioUpperBound);
         // clog("normalCollateralRatioUpperBound", $.normalCollateralRatioUpperBound);
 
         // incentive config
         // clog("mintPeggedConfig:");
-        $.mintPeggedConfig = _copyBands(
-            config_.mintPeggedIncentiveConfig,
-            config_.disallowMintPeggedCollateralRatioUpperBound
-        );
+        $.mintPeggedConfig = _checkAndCopyBands(config_.mintPeggedIncentiveConfig);
         // clog("mintLeveragedConfig:");
-        $.mintLeveragedConfig = _copyBands(config_.mintLeveragedIncentiveConfig, 0);
+        $.mintLeveragedConfig = _checkAndCopyBands(config_.mintLeveragedIncentiveConfig);
         // clog("redeemPeggedConfig:");
-        $.redeemPeggedConfig = _copyBands(config_.redeemPeggedIncentiveConfig, 0);
+        $.redeemPeggedConfig = _checkAndCopyBands(config_.redeemPeggedIncentiveConfig);
         // clog("redeemLeveragedConfig:");
-        $.redeemLeveragedConfig = _copyBands(
-            config_.redeemLeveragedIncentiveConfig,
-            config_.disallowRedeemLeveragedCollateralRatioUpperBound
-        );
+        $.redeemLeveragedConfig = _checkAndCopyBands(config_.redeemLeveragedIncentiveConfig);
 
         emit UpdateConfig(config_);
     }

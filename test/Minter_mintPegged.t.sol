@@ -307,7 +307,7 @@ contract TestMinterMintPegged is TestMinterMint {
         setUp_collateral(3 ether, 2 ether); // make CR = 6/4  = 1.5
         assertEq(IMinter(minter).collateralRatio(), 6 ether / 4, "CR=1.5");
         assertGt(
-            config.disallowMintPeggedCollateralRatioUpperBound,
+            initial(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
             10 ether / 8,
             "test should push CR below disallow"
         );
@@ -317,13 +317,13 @@ contract TestMinterMintPegged is TestMinterMint {
         // CR should now be disallow (1.3+), not 1.25
         assertApproxEqAbs(
             IMinter(minter).collateralRatio(),
-            config.disallowMintPeggedCollateralRatioUpperBound,
+            initial(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
             1,
             "CR=disallow(1.3) - right amount"
         );
         assertGe(
             IMinter(minter).collateralRatio(),
-            config.disallowMintPeggedCollateralRatioUpperBound,
+            initial(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
             "CR>disallow(1.3), right side of boundary"
         );
     }

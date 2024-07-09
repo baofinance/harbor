@@ -81,16 +81,19 @@ interface IMinter {
     // TODO: and test them
     struct IncentiveConfig {
         // note: incentive ratios have one more entry than the band bounds do
+        // the boundaries of the collateral ratio where the incentive ratios apply
+        // must be strictly increasing at the precision of 18 decimals
         uint256[] collateralRatioBandUpperBounds;
-        int256[] incentiveRatios; // critical, danger, normal, safe
+        // incentive ratios for the above bands , interval (-1 ether, 1 ether]
+        // positive = fee ratio, negative for discount, == 1 ether disallow
+        // any 1 ether values must be at index 0
+        // no negative values are allowed in the highest band
+        int256[] incentiveRatios;
     }
     struct Config {
         // points at which specific activity commences
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        uint256 normalCollateralRatioUpperBound; // above this harvesting of collateral can begin // TODO: implement this
-        // points at which specific user activity is disallowed
-        uint256 disallowMintPeggedCollateralRatioUpperBound; // typically the same as the rebalance CR
-        uint256 disallowRedeemLeveragedCollateralRatioUpperBound; // typically the same as the bonus CR
+        uint256 harvestCollateralRatioUpperBound; // above this harvesting of collateral can begin // TODO: implement this
         // bonus/fees
         IncentiveConfig mintPeggedIncentiveConfig;
         // leverage tokens have their own intrinsic value in that they increase in leverage the lower the collateral ratio

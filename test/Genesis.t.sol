@@ -67,8 +67,6 @@ contract Test_GenesisBase is Test, Array {
         IMinter.Config memory config = IMinter.Config(
             130 ether / 100,
             200 ether / 100,
-            130 ether / 100,
-            120 ether / 100,
             percent1,
             percent1,
             percent1,

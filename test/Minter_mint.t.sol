@@ -26,7 +26,14 @@ contract TestMinterMint is TestMinter {
     Vm.Wallet receiver;
 
     function setUpConfig() public override {
-        setUpConfig(130, 250, 131, 110, ic(ua(), ia(50)), ic(ua(), ia(70)), ic(ua(), ia(80)), ic(ua(), ia(120)));
+        setUpConfig(
+            130,
+            250,
+            ic(ua(131), ia(disallow, 50)),
+            ic(ua(), ia(70)),
+            ic(ua(), ia(80)),
+            ic(ua(110), ia(disallow, 120))
+        );
     }
 
     function setUp() public virtual override {

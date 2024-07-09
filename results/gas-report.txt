@@ -29,33 +29,33 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4555085                                     | 20950           |        |        |        |         |
+| 4525547                                     | 20814           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
-| collateralForLeverageTokens                 | 5128            | 5128   | 5128   | 5128   | 7       |
-| collateralRatio                             | 450             | 3468   | 3511   | 3511   | 868     |
-| collateralToken                             | 2468            | 2468   | 2468   | 2468   | 4       |
-| collateralTokenBalance                      | 1404            | 1564   | 1404   | 5404   | 50      |
-| feeReceiver                                 | 2512            | 2512   | 2512   | 2512   | 1       |
-| freeMintLeveragedToken                      | 2971            | 75446  | 74174  | 125116 | 121     |
+| collateralForLeverageTokens                 | 5150            | 5150   | 5150   | 5150   | 7       |
+| collateralRatio                             | 472             | 3490   | 3533   | 3533   | 868     |
+| collateralToken                             | 2490            | 2490   | 2490   | 2490   | 4       |
+| collateralTokenBalance                      | 1426            | 1586   | 1426   | 5426   | 50      |
+| feeReceiver                                 | 2447            | 2447   | 2447   | 2447   | 1       |
+| freeMintLeveragedToken                      | 2993            | 75468  | 74196  | 125138 | 121     |
 | freeMintPeggedToken                         | 2992            | 92569  | 120696 | 120696 | 28      |
-| freeRedeemLeveragedToken                    | 2926            | 37410  | 30918  | 83325  | 10      |
+| freeRedeemLeveragedToken                    | 2948            | 37432  | 30940  | 83347  | 10      |
 | freeRedeemPeggedToken                       | 3282            | 43046  | 12516  | 105789 | 10      |
 | hasRole                                     | 784             | 2584   | 2784   | 2784   | 10      |
-| initialize                                  | 3268            | 566418 | 582923 | 610475 | 29      |
-| leverageTokensForCollateral                 | 5164            | 5198   | 5164   | 8806   | 107     |
+| initialize                                  | 3290            | 568110 | 585717 | 612093 | 29      |
+| leverageTokensForCollateral                 | 5186            | 5220   | 5186   | 8828   | 107     |
 | leveragedToken                              | 2490            | 2490   | 2490   | 2490   | 4       |
-| leveragedTokenBalance                       | 1609            | 2126   | 1609   | 12609  | 29      |
-| mintLeveragedToken                          | 3114            | 67802  | 94606  | 145548 | 13      |
-| mintLeveragedTokenIncentiveRatio            | 5565            | 6792   | 7335   | 16277  | 705     |
+| leveragedTokenBalance                       | 1564            | 2081   | 1564   | 12564  | 29      |
+| mintLeveragedToken                          | 3048            | 67736  | 94540  | 145482 | 13      |
+| mintLeveragedTokenIncentiveRatio            | 5477            | 6704   | 7247   | 16189  | 705     |
 | mintPeggedToken                             | 3093            | 58515  | 53799  | 125180 | 16      |
 | mintPeggedTokenIncentiveRatio               | 5754            | 6511   | 6797   | 11099  | 706     |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 4       |
-| peggedTokenBalance                          | 441             | 515    | 441    | 2441   | 27      |
-| priceOracle                                 | 2470            | 2470   | 2470   | 2470   | 1       |
-| redeemLeveragedToken                        | 2817            | 42597  | 13317  | 117308 | 11      |
-| redeemLeveragedTokenIncentiveRatio          | 7048            | 7757   | 7981   | 16091  | 701     |
-| redeemPeggedToken                           | 7278            | 60311  | 45780  | 144422 | 13      |
-| redeemPeggedTokenIncentiveRatio             | 5472            | 6702   | 7242   | 17159  | 705     |
+| peggedTokenBalance                          | 463             | 537    | 463    | 2463   | 27      |
+| priceOracle                                 | 2492            | 2492   | 2492   | 2492   | 1       |
+| redeemLeveragedToken                        | 2729            | 42509  | 13229  | 117220 | 11      |
+| redeemLeveragedTokenIncentiveRatio          | 7070            | 7779   | 8003   | 16113  | 701     |
+| redeemPeggedToken                           | 7300            | 60333  | 45802  | 144444 | 13      |
+| redeemPeggedTokenIncentiveRatio             | 5494            | 6724   | 7264   | 17181  | 705     |
 
 --
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |

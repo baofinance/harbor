@@ -192,7 +192,7 @@ contract TestMinterFees is TestMinter {
             "test must be in CR danger < normal"
         );
         assertLt(
-            config.disallowMintPeggedCollateralRatioUpperBound,
+            initial(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds), // disallow
             IMinter(minter).collateralRatio(),
             "test must be in CR danger > disallow"
         );
