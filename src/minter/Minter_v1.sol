@@ -20,6 +20,8 @@ import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
+import { console } from "forge-std/console.sol";
+
 /// @title
 /// @author
 /// @notice provides an interface for minting and redeeming pegged and leveraged tokens
@@ -319,6 +321,7 @@ contract Minter_v1 is
         );
     }
 
+    // @InheritDoc IMinter
     function collateralForLeverageTokens(
         uint256 forLeveragedTokens
     ) external view override returns (uint256 leveragedTokens) {
@@ -451,20 +454,21 @@ contract Minter_v1 is
             // fee calculation
             uint256 collateralIn = _collateralForLeveragedTokens(
                 leveragedIn,
-                _leveragedTokenBalance($.leveragedToken),
+                leveragedTokenBalance_,
                 peggedTokenBalance_,
                 collateralTokenBalance_,
                 price
             );
 
             uint256 fee;
-            (fee, maxCollateral) = _mintPeggedAdjustments(
+            (fee, maxCollateral) = _redeemLeveragedAdjustments(
                 config_,
                 collateralIn,
                 collateralTokenBalance_,
                 price,
                 peggedTokenBalance_
             );
+
             incentiveRatio = maxCollateral == 0 ? _incentiveRatio(config_, 1) : int256((fee * 1 ether) / maxCollateral);
         }
     }
@@ -1505,13 +1509,15 @@ contract Minter_v1 is
     }
 
     // @param leveragedTokenBalance the stotal supply of leveraged tokens, required to be > 0
+    // returns the amount of collateral a leveraged token is worth
     function _collateralForLeveragedTokens(
         uint256 forLeveraged,
         uint256 leveragedTokenBalance_,
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
-    ) private pure returns (uint256 collateral) {
+    ) private view returns (uint256 collateral) {
+        if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) return 0;
         if (leveragedTokenBalance_ == 0) {
             collateral = forLeveraged * collateralPrice;
         } else {
@@ -1519,6 +1525,14 @@ contract Minter_v1 is
                 (forLeveraged * (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether)) /
                 (collateralPrice * leveragedTokenBalance_);
         }
+    }
+
+    function _isDepegged(
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice,
+        uint256 peggedTokenBalance_
+    ) private pure returns (bool) {
+        return (collateralTokenBalance_ * collateralPrice) < (peggedTokenBalance_ * 1 ether);
     }
 
     function _collateralRatio(

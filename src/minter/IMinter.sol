@@ -227,6 +227,7 @@ interface IMinter {
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying
     function leveragedTokenPrice() external view returns (uint256);
     function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
+    /// @notice Return the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and discounts
     function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 leveragedTokens);
     function priceOracle() external view returns (address);
 
