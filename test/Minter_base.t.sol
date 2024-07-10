@@ -33,7 +33,7 @@ import { Array } from "test/Array.sol";
 contract TestMinter is Test, Clog, Array {
     address minter;
     IMinter.Config config;
-    int constant disallow = 1000;
+    int constant disallow = 10000;
 
     address leveragedToken;
     address reservePool;
