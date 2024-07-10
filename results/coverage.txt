@@ -11,7 +11,6 @@
    [34m-->[0m src/minter/RebalancePool_v1.sol:342:9:
    [34m-->[0m src/minter/RebalancePool_v1.sol:343:68:
    [34m-->[0m src/minter/RebalancePool_v1.sol:343:88:
-    [34m-->[0m src/minter/Minter_v1.sol:1513:5:
    [34m-->[0m src/minter/RebalancePool_v1.sol:217:5:
    [34m-->[0m src/minter/RebalancePool_v1.sol:220:5:
    [34m-->[0m src/minter/RebalancePool_v1.sol:223:5:
@@ -31,8 +30,8 @@
 | src/common/rewards/distributor/LinearReward.sol                         | 0.00% (0/24)      | 0.00% (0/29)      | 0.00% (0/6)      | 0.00% (0/2)      |
 | src/minter/Genesis_v1.sol                                               | 18.60% (8/43)     | 15.52% (9/58)     | 0.00% (0/10)     | 22.22% (2/9)     |
 | src/minter/LeveragedToken_v1.sol                                        | 100.00% (15/15)   | 100.00% (20/20)   | 100.00% (0/0)    | 83.33% (5/6)     |
-| src/minter/Minter_v1.sol                                                | 90.42% (368/407)  | 90.81% (494/544)  | 76.85% (83/108)  | 85.07% (57/67)   |
+| src/minter/Minter_v1.sol                                                | 89.59% (370/413)  | 90.65% (504/556)  | 73.68% (84/114)  | 85.07% (57/67)   |
 | src/minter/RebalancePool_v1.sol                                         | 0.00% (0/274)     | 0.00% (0/388)     | 0.00% (0/84)     | 0.00% (0/39)     |
 | src/minter/ReservePool_v1.sol                                           | 100.00% (11/11)   | 100.00% (15/15)   | 100.00% (4/4)    | 75.00% (3/4)     |
 | src/minter/TokenDistributor_v1.sol                                      | 98.59% (70/71)    | 96.33% (105/109)  | 54.17% (13/24)   | 92.31% (12/13)   |
-| Total                                                                   | 50.75% (711/1401) | 49.44% (931/1883) | 41.52% (142/342) | 44.48% (133/299) |
+| Total                                                                   | 50.68% (713/1407) | 49.66% (941/1895) | 41.09% (143/348) | 44.48% (133/299) |
