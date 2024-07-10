@@ -280,6 +280,21 @@ contract TestMinterInit is TestMinter {
             "very high collateral ratios capped at maxuint256"
         );
     }
+}
+
+contract TestMinterBasics is TestMinter {
+    function test_introspection() public view {
+        assertTrue(Minter_v1(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
+        assertTrue(
+            Minter_v1(minter).supportsInterface(type(IMinterTreasury).interfaceId),
+            "should support IMinterTreasury"
+        );
+        assertFalse(Minter_v1(minter).supportsInterface(bytes4(0)), "doesn't support 0");
+    }
+
+    // function test_leverageRatio() public {
+
+    // }
 
     // function testFuzz_SetNumber(uint256 x) public {
     //     counter.setNumber(x);

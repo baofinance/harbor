@@ -88,6 +88,7 @@ contract Clog {
         if (logging) console.log(string.concat(_indent(), prefix, name, "=", format), value, value);
     }
 
+    // TODO: upgrade this to a full int to string coverter
     function _i2s(uint i) private pure returns (string memory) {
         bytes memory byteArray = new bytes(1);
         byteArray[0] = bytes1(uint8(i) + 48);
@@ -283,5 +284,17 @@ library Useful {
             //console.log("/ 10 ** %d", (digits - (point + decimals)));
             result = result / 10 ** (digits - (point + decimals));
         }
+    }
+
+    function join(string[] memory strings, string memory separator) internal pure returns (string memory) {
+        if (strings.length == 0) {
+            return "";
+        }
+
+        string memory result = strings[0];
+        for (uint i = 1; i < strings.length; i++) {
+            result = string.concat(result, separator, strings[i]);
+        }
+        return result;
     }
 }
