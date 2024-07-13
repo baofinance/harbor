@@ -21,7 +21,7 @@
 | permit                                                      | 57640           | 57640  | 57640  | 57640  | 1       |
 | supportsInterface                                           | 500             | 627    | 595    | 887    | 6       |
 | symbol                                                      | 3261            | 3261   | 3261   | 3261   | 30      |
-| totalSupply                                                 | 348             | 547    | 348    | 2348   | 1736    |
+| totalSupply                                                 | 348             | 489    | 348    | 2348   | 2437    |
 | transfer                                                    | 2907            | 16445  | 16445  | 29983  | 2       |
 | transferFrom                                                | 3033            | 13852  | 8711   | 35793  | 5       |
 
@@ -29,9 +29,9 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4550741                                     | 20929           |        |        |        |         |
+| 4585064                                     | 21088           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
-| collateralForLeverageTokens                 | 5401            | 5401   | 5401   | 5401   | 7       |
+| collateralForLeverageTokens                 | 5423            | 5423   | 5423   | 5423   | 7       |
 | collateralRatio                             | 472             | 3490   | 3533   | 3533   | 868     |
 | collateralToken                             | 2490            | 2490   | 2490   | 2490   | 4       |
 | collateralTokenBalance                      | 1426            | 1586   | 1426   | 5426   | 50      |
@@ -42,20 +42,23 @@
 | freeRedeemPeggedToken                       | 3282            | 43046  | 12516  | 105789 | 10      |
 | hasRole                                     | 784             | 2584   | 2784   | 2784   | 10      |
 | initialize                                  | 3290            | 568609 | 584851 | 610659 | 30      |
-| leverageTokensForCollateral                 | 5186            | 5220   | 5186   | 8828   | 107     |
+| leverageRatio                               | 3548            | 3933   | 3998   | 3998   | 701     |
+| leverageTokensForCollateral                 | 5164            | 5198   | 5164   | 8806   | 107     |
 | leveragedToken                              | 2490            | 2490   | 2490   | 2490   | 4       |
 | leveragedTokenBalance                       | 1564            | 2081   | 1564   | 12564  | 29      |
+| leveragedTokenPrice                         | 4827            | 5089   | 5133   | 5133   | 701     |
 | mintLeveragedToken                          | 3048            | 68132  | 95187  | 146129 | 13      |
 | mintLeveragedTokenIncentiveRatio            | 5459            | 8617   | 9052   | 16812  | 1406    |
 | mintPeggedToken                             | 3093            | 59398  | 54919  | 127290 | 16      |
 | mintPeggedTokenIncentiveRatio               | 4100            | 6744   | 6095   | 13209  | 1407    |
 | peggedToken                                 | 2420            | 2420   | 2420   | 2420   | 4       |
 | peggedTokenBalance                          | 463             | 537    | 463    | 2463   | 27      |
-| priceOracle                                 | 2492            | 2492   | 2492   | 2492   | 1       |
-| redeemLeveragedToken                        | 2729            | 43131  | 13229  | 118590 | 11      |
-| redeemLeveragedTokenIncentiveRatio          | 5753            | 8972   | 7965   | 11413  | 1402    |
-| redeemPeggedToken                           | 7300            | 60729  | 46449  | 145091 | 13      |
-| redeemPeggedTokenIncentiveRatio             | 5476            | 8720   | 9550   | 17804  | 1406    |
+| peggedTokenPrice                            | 3616            | 3639   | 3616   | 3780   | 701     |
+| priceOracle                                 | 2447            | 2447   | 2447   | 2447   | 1       |
+| redeemLeveragedToken                        | 2774            | 43176  | 13274  | 118635 | 11      |
+| redeemLeveragedTokenIncentiveRatio          | 5731            | 8950   | 7943   | 11391  | 1402    |
+| redeemPeggedToken                           | 7300            | 60634  | 46295  | 144937 | 13      |
+| redeemPeggedTokenIncentiveRatio             | 5521            | 8752   | 9590   | 17690  | 1406    |
 | supportsInterface                           | 482             | 585    | 520    | 755    | 3       |
 
 --

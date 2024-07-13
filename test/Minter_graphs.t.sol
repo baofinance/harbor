@@ -58,6 +58,14 @@ contract TestMinterGraphs is Array, TestMinter {
         vm.writeLine(file, Useful.join(strData, ","));
     }
 
+    function writeLine(string memory file, uint[] memory data) private {
+        string[] memory strData = new string[](data.length);
+        for (uint i = 0; i < data.length; i++) {
+            strData[i] = Useful.toStringScaled(data[i], 18);
+        }
+        vm.writeLine(file, Useful.join(strData, ","));
+    }
+
     function getIncentives(
         uint256 collateral
     )
@@ -130,6 +138,10 @@ contract TestMinterGraphs is Array, TestMinter {
         );
         string memory feesFile = openFile("fees", feesHeaders);
         string memory fees1File = openFile("fees1", feesHeaders);
+        string memory invariantFile = openFile(
+            "invariant",
+            sa("Collateral Ratio", "Leveraged Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
+        );
 
         //for (uint256 price = (startPrice * 9) / 10; price < (startPrice * 15) / 10; price += 10 ether)
         int256 mintPeggedFees;
@@ -156,8 +168,20 @@ contract TestMinterGraphs is Array, TestMinter {
                 fees1File,
                 ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)
             );
+
+            writeLine(
+                invariantFile,
+                ua(
+                    cr,
+                    IMinter(minter).leverageRatio(),
+                    IMinter(minter).peggedTokenPrice(),
+                    IMinter(minter).leveragedTokenPrice(),
+                    price
+                )
+            );
         }
         vm.closeFile(feesFile);
         vm.closeFile(fees1File);
+        vm.closeFile(invariantFile);
     }
 }

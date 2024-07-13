@@ -194,30 +194,62 @@ contract TestMinterInit is TestMinter {
     function setUp() public override {
         super.setUp();
     }
-    // TODO: test the ERC20 check in Token - probably in a separate test contract
+    // TODO: test the ERC20 check in Token - expect revert doesn't work for deployUUPS
     function test_notERC20() private {
         //                   -------
-        Minter_v1 minter = new Minter_v1();
+        /*
+        console.log("good deploy");
+        UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1()), // "Minter_v1.sol",
+            abi.encodeCall(
+                Minter_v1.initialize,
+                (
+                    address(this),
+                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
+                    address(priceOracle),
+                    feeReceiver.addr,
+                    reservePool,
+                    config
+                )
+            )
+        );
+        */
+
         // not a contract
-        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, owner.addr));
-        minter.initialize(
-            owner.addr,
-            IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), owner.addr),
-            address(priceOracle),
-            feeReceiver.addr,
-            reservePool,
-            config
+        console.log("not a contract");
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner.addr));
+
+        UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1()), // "Minter_v1.sol",
+            abi.encodeCall(
+                Minter_v1.initialize,
+                (
+                    address(this),
+                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), owner.addr),
+                    address(priceOracle),
+                    feeReceiver.addr,
+                    reservePool,
+                    config
+                )
+            )
         );
 
         // contract but not ERC20
+        console.log("not an ERC20");
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, address(priceOracle)));
-        minter.initialize(
-            owner.addr,
-            IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
-            address(priceOracle),
-            feeReceiver.addr,
-            reservePool,
-            config
+        UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1()), // "Minter_v1.sol",
+            abi.encodeCall(
+                Minter_v1.initialize,
+                (
+                    address(this),
+                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
+                    address(priceOracle),
+                    feeReceiver.addr,
+                    reservePool,
+                    config
+                )
+            )
         );
     }
 

@@ -307,6 +307,13 @@ contract Minter_v1 is
         );
     }
 
+    // @InheritDoc IMinter
+    function peggedTokenPrice() external view override returns (uint256 nav) {
+        MinterStorage storage $ = _getMinterStorage();
+        uint256 price = _fetchSafePrice($.priceOracle);
+        nav = _peggedTokenPrice($.peggedTokenBalance, _collateralTokenBalance($.collateralToken), price);
+    }
+
     function leverageTokensForCollateral(
         uint256 forCollateral
     ) external view override returns (uint256 leveragedTokens) {
@@ -1082,6 +1089,7 @@ contract Minter_v1 is
     ) private pure returns (uint256 fee, uint256 maxCollateral) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
+        // this calculation doesn't work if we are depegged
         if (_isDepegged(collateralTokenBalance_, price, peggedTokenBalance_)) return (0, 0);
 
         // find the band and it's lower bound where the current collateral ratio is
@@ -1145,34 +1153,32 @@ contract Minter_v1 is
         // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
         // TODO: handle depegged situation, where leveraged token is worth 0 and pegged is worth it's share of collateral
 
-        // simulate minting or redeeming tokens from current collateral ratio upwards or downwards,
+        // simulate redeeming tokens from current collateral ratio upwards,
         // extracting the fee at the correct ratio as we go.
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
-        // each band entered. We use collateral to pro-rate, rather than collateral ration which would be simpler, because
+        // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_);
         uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);
-        // simulate minting until we run out of collateral, adding the fee & bonus as we go
+        // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
         while (true) {
             int256 bandIncentiveRatio = _incentiveRatio(config_, band);
             uint256 bandFeeRatio = uint256(SignedMath.max(0, bandIncentiveRatio));
-            uint256 bandFee;
+            uint256 collateralInBand;
             if (band == collateralRatioBandCount(config_) - 1) {
-                // in last band for mint leveraged, note that it cannot be negative by config update check
-                bandFee = (collateralIn * uint256(bandIncentiveRatio)) / 1 ether;
-                fee += bandFee;
-                collateralTokenBalance_ -= collateralIn;
-                peggedTokenBalance_ -= ((collateralIn * price) / 1 ether);
-                break;
+                // the last band goes on forever
+                // TODO: take out the check for discounts in last band
+                collateralInBand = collateralIn;
+            } else {
+                // TODO: reduce calcs by factoring out price? (same for mint pegged adjustments)
+                // TODO: factor out this equation into a separate function
+                collateralInBand =
+                    ((bandUpperBound * peggedTokenBalance_ - collateralTokenBalance_ * price) * 1 ether) /
+                    (price * ((bandUpperBound * (1 ether - bandFeeRatio)) / 1 ether - 1 ether + bandFeeRatio));
+                // can't have more collateral in the band that there is collateral left
+                collateralInBand = Math.min(collateralIn, collateralInBand);
             }
-
-            // TODO: reduce calcs by factoring out price? (same for mint pegged adjustments)
-            // TODO: factor out this equation into a separate function
-            uint256 collateralInBand = ((bandUpperBound * peggedTokenBalance_ - collateralTokenBalance_ * price) *
-                1 ether) / (price * ((bandUpperBound * (1 ether - bandFeeRatio)) / 1 ether - 1 ether + bandFeeRatio));
-            // can't have more collateral in the band that there is collateral left
-            collateralInBand = Math.min(collateralIn, collateralInBand);
-            bandFee = 0;
+            uint256 bandFee = 0;
             if (bandIncentiveRatio > 0) {
                 bandFee = (collateralInBand * uint256(bandIncentiveRatio)) / 1 ether;
                 // tally the weighted fee ratios
@@ -1415,30 +1421,46 @@ contract Minter_v1 is
     // other calculations
     // ------------------
 
-    // the price of a leveraged token in terms of the pegged token's underlying
+    // the price of a leveraged token in terms of the pegged token's underlying (i.e. USD for a USD pegged token)
     function _leveragedTokenPrice(
         uint256 leveragedTokenBalance_,
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 nav) {
-        // TODO if the collateral ratio is 0, nav is 0 - check that this doesn't just work out
+        // if the collateral ratio is <= 1, nav is 0
         // slither-disable-next-line incorrect-equality
         if (leveragedTokenBalance_ == 0) {
             nav = 1 ether;
         } else {
-            uint256 collateralValue = collateralTokenBalance_ * collateralPrice;
-            uint256 peggedValue = peggedTokenBalance_ * 1 ether;
-            if (collateralValue <= peggedValue) {
-                // this is where the invariant is, err, variant in that the leveraged value should have gone negative
-                // this essentially means that the pegged token is, err, no longer pegged
-                // - at least those pegged tokens that are backed by this colllateral
-                // TODO: find some way of managing BaoUSD's depegging such that all collateral is taken into account
-                // to work out it's NAV given the total supply of pegged = value of the total collateral
+            if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
                 nav = 0;
             } else {
+                // from the invariant collateral value = pegged value + leveraged value
+                nav =
+                    (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether) /
+                    leveragedTokenBalance_;
+            }
+        }
+    }
+
+    // the price of a leveraged token in terms of the pegged token's underlying
+    function _peggedTokenPrice(
+        uint256 peggedTokenBalance_,
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice
+    ) private pure returns (uint256 nav) {
+        // TODO if the collateral ratio is 0, nav is 0 - check that this doesn't just work out
+        // slither-disable-next-line incorrect-equality
+        if (peggedTokenBalance_ == 0) {
+            nav = 1 ether;
+        } else {
+            if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+                // the nav becomes the value of the collateral
+                nav = (collateralTokenBalance_ * collateralPrice) / peggedTokenBalance_;
+            } else {
                 // this is the invariant collateral value  = pegged value + leveraged value
-                nav = (collateralValue - peggedValue) / leveragedTokenBalance_;
+                nav = 1 ether;
             }
         }
     }
@@ -1507,6 +1529,14 @@ contract Minter_v1 is
         return (collateralTokenBalance_ * collateralPrice) < (peggedTokenBalance_ * 1 ether);
     }
 
+    function _isNearlyDepegged(
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice,
+        uint256 peggedTokenBalance_
+    ) private pure returns (bool) {
+        return (collateralTokenBalance_ * collateralPrice) <= (peggedTokenBalance_ * 1 ether);
+    }
+
     function _collateralRatio(
         uint256 collateralTokenBalance_,
         uint256 collateralPrice,
@@ -1526,17 +1556,15 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
-    ) private pure returns (uint256 ratio) {
-        // ratio = (1 - rho * beta * (1 + r)) / (1 - rho), and beta = 0
-        // ratio = 1 / (1 - rho)
-        // rho = inverse of the collateral ratio
-        uint256 rho = peggedTokenBalance_ / (collateralTokenBalance_ * collateralPrice);
-        if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+    ) private view returns (uint256 ratio) {
+        if (_isNearlyDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
             // under collateral, assume infinite leverage
             // TODO: max leverage ratio (Aladdin use 100e18)
             ratio = type(uint256).max;
         } else {
-            ratio = (1 ether * 1 ether) / (1 ether - rho);
+            ratio =
+                (1 ether * 1 ether) /
+                (1 ether - (peggedTokenBalance_ * 1 ether * 1 ether) / (collateralTokenBalance_ * collateralPrice));
             // TODO: if (ratio > MAX_LEVERAGE_RATIO) ratio = MAX_LEVERAGE_RATIO;
         }
     }
