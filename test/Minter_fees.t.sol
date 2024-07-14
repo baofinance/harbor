@@ -113,10 +113,11 @@ contract TestMinterFees is TestMinter {
         (incentiveRatio, maxCollateral) = IMinter(minter).mintPeggedTokenIncentiveRatio(iTotalMint * 1 ether);
         totalFee = (int256(maxCollateral) * incentiveRatio) / 1 ether;
         uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+
         for (uint i = 0; i < iTotalMint; i++) {
             uint256 beforeMint = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
             int256 expected;
-            (expected, maxCollateral) = IMinter(minter).mintPeggedTokenIncentiveRatio(1 ether);
+            (incentiveRatio, maxCollateral) = IMinter(minter).mintPeggedTokenIncentiveRatio(1 ether);
             expected = (int256(maxCollateral) * incentiveRatio) / 1 ether;
             vm.prank(user.addr);
             try IMinter(minter).mintPeggedToken(1 ether, user.addr, 0) returns (uint256) {} catch {}
@@ -135,7 +136,7 @@ contract TestMinterFees is TestMinter {
         );
     }
 
-    function test_mintPeggedFeesAreIntegrals() private {
+    function test_mintPeggedFeesAreIntegrals() public {
         // critical CRs = 131% (disallow), 140% (danger)
         // TODO: check the above is the case
         setUp_collateral(18 ether, 10 ether); // CR = 28/18 = 155%
