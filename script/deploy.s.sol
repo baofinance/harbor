@@ -10,7 +10,7 @@ import { Options } from "openzeppelin-foundry-upgrades/Options.sol";
 import "src/minter/LeveragedToken_v1.sol";
 import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
-import "src/minter/Minter_v1.sol";
+import { Minter_v1 } from "src/minter/Minter_v1.sol";
 
 // functions are called in this sequence
 // 1) Deploy*

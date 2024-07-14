@@ -8,6 +8,7 @@ import { Vm } from "forge-std/Vm.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
 import { deployed } from "test/deployed.sol";
@@ -27,10 +28,10 @@ contract TestMinterGraphs is Array, TestMinter {
         setUpConfig(
             130,
             250,
-            ic(ua(130, 140), ia(disallow, 100, 50)),
-            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)),
-            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)),
-            ic(ua(105, 135), ia(disallow, 150, 120))
+            ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
+            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
+            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+            ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
         );
     }
 
@@ -67,7 +68,8 @@ contract TestMinterGraphs is Array, TestMinter {
     }
 
     function getIncentives(
-        uint256 collateral
+        uint256 collateral,
+        uint256 price
     )
         private
         view
@@ -79,13 +81,15 @@ contract TestMinterGraphs is Array, TestMinter {
         )
     {
         (mintPeggedIncentive, ) = IMinter(minter).mintPeggedTokenIncentiveRatio(collateral);
-        redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio(collateral);
+        redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio((collateral * price) / 1 ether);
         mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio(collateral);
-        (redeemLeveragedIncentive, ) = IMinter(minter).redeemLeveragedTokenIncentiveRatio(collateral);
+        (redeemLeveragedIncentive, ) = IMinter(minter).redeemLeveragedTokenIncentiveRatio(collateral * 1000);
     }
 
-    function test_CRgraphs() public {
+    function test_CRGraphs() public {
         setUp_collateral(10 ether, 10 ether);
+        deal(address(deployed.wstETH), reservePool, 10 ether);
+
         uint256 startCR = 2 ether;
         assertEq(IMinter(minter).collateralRatio(), startCR);
         (, uint256 startPrice, , ) = IPriceOracle(priceOracle).getPrice();
@@ -157,13 +161,13 @@ contract TestMinterGraphs is Array, TestMinter {
             assertEq(cr, IMinter(minter).collateralRatio(), "crs must match");
 
             // zero collateral (instantaneous) incentives
-            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(0);
+            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(0, price);
             writeLine(
                 feesFile,
                 ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)
             );
 
-            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(1 ether);
+            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(1 ether, price);
             writeLine(
                 fees1File,
                 ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)

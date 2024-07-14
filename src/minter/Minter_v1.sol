@@ -20,7 +20,7 @@ import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
-import { console } from "forge-std/console.sol";
+import { console2 as console } from "forge-std/console2.sol";
 
 /// @title
 /// @author
@@ -74,7 +74,6 @@ contract Minter_v1 is
     // slot accessors below
     struct ActionIncentive {
         bytes32 slot0;
-        // we store the disallow bound as the first uint32
         // uint32[maxBounds] collateralRatioUpperBounds;      0:192
         // uint32 collateralRatioBandCount;                 192: 32
         bytes32 slot1;
@@ -112,26 +111,11 @@ contract Minter_v1 is
         address collateralToken; //                     160
         //                                             slot
         address reservePool; //                         160
-        // token balances: can't rely on balanceOf(address(this)) for key values
-        // pegged token balance - we have to track pegged tokens
-        // because we possibly are not the only minters of these pegged tokens
-        // we are not likely to use these tokens as bonus because during a bonus period pegged minting
-        // will not be allowed
         //                                             slot
-        // we keep track of pegged tokens and collateral tokens because they both have a life
-        // outside of this system. Leverage tokens, however, only exist in the context of this system
-        // so we use their totalSupply number instead.
-        // this should be tracked by the pegged token itself, recording how much is minted/redeemed by each minter
+        // we keep track of pegged tokens as they can be minted through other rmeans
         uint256 peggedTokenBalance; //                  256
         //                                             slot
-        // uint256 leveragedTokenBalance; //               256
-        // collateralTokenBalance - we track this here because this contract can also own collateral tokens
-        // that will be used for the reserve pool
         // TODO: do we want a collateral cap?
-        // it's just the ownership of collateralTokens
-        // so: reserve pool is a separate contract
-        //                                             slot
-        //uint256 collateralTokenBalance; //              256
         //                                             slot
         address priceOracle; //                         160
         //                                             slot
@@ -390,7 +374,6 @@ contract Minter_v1 is
         }
     }
 
-    // TODO: should be fees lower/bonus higher for higher leveraged token redeem amount
     function mintLeveragedTokenIncentiveRatio(
         uint256 collateralIn
     ) external view override returns (int256 incentiveRatio) {
@@ -449,7 +432,6 @@ contract Minter_v1 is
                 price,
                 peggedTokenBalance_
             );
-
             incentiveRatio = int256(maxCollateral == 0 ? 1 ether : (fee * 1 ether) / maxCollateral);
         }
     }
@@ -811,7 +793,7 @@ contract Minter_v1 is
 
         setCollateralRatioBandCount(out, config_.incentiveRatios.length);
 
-        // check monotonically increasing, and greater than disallow ratio, and then copy
+        // check strictly increasing and then copy
         uint256 min = 0;
         for (uint i = 0; i < config_.collateralRatioBandUpperBounds.length; i++) {
             uint256 value = config_.collateralRatioBandUpperBounds[i];
@@ -823,8 +805,8 @@ contract Minter_v1 is
             _setCollateralRatioUpperBounds(out, i, value);
         }
         // if disallowNotDiscount (i.e. mint pegged or redeem leveraged)
-        // then check against interval [0, 1] i.e. zero fees to some fees to disallow
-        // else check against interval (-1, 1) i.e. discount to some fees
+        // then check against interval [0, 1] i.e. zero fees to some fees to disallow (100% fees)
+        // else check against interval (-1, 1) i.e. some discount to zero to some fees
         // and copy
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
             int256 value = config_.incentiveRatios[i];
@@ -832,7 +814,7 @@ contract Minter_v1 is
                 if (value < 0 ether || value > 1 ether) {
                     revert InvalidIncentiveRatioValue(value);
                 }
-                // disallows must be at index 0
+                // disallows, if they exist, must be at index 0
                 if (value == 1 ether && i != 0) {
                     revert InvalidIncentiveRatioValue(value);
                 }
@@ -840,11 +822,6 @@ contract Minter_v1 is
             /* discountNotDisallow */
             else {
                 if (value <= -1 ether || value >= 1 ether) {
-                    revert InvalidIncentiveRatioValue(value);
-                }
-                // any bonus ratio cannot be in the highest collateral band
-                // TODO: why?
-                if (i == config_.incentiveRatios.length && value < 0) {
                     revert InvalidIncentiveRatioValue(value);
                 }
             }
@@ -1177,9 +1154,8 @@ contract Minter_v1 is
                 // can't have more collateral in the band that there is collateral left
                 collateralInBand = Math.min(collateralIn, collateralInBand);
             }
-            uint256 bandFee = 0;
             if (bandIncentiveRatio > 0) {
-                bandFee = (collateralInBand * uint256(bandIncentiveRatio)) / 1 ether;
+                uint256 bandFee = (collateralInBand * uint256(bandIncentiveRatio)) / 1 ether;
                 // tally the weighted fee ratios
                 fee += bandFee;
             } else if (bandIncentiveRatio < 0) {
@@ -1272,29 +1248,28 @@ contract Minter_v1 is
         // simulate minting until we run out of collateral, adding the fee & bonus as we go
         while (true) {
             int256 bandIncentiveRatio = _incentiveRatio(config_, band);
-
-            if (band == collateralRatioBandCount(config_) - 1) {
-                // in last band for mint leveraged, note that it cannot be negative by config update check
-                fee += (collateralIn * uint256(bandIncentiveRatio)) / 1 ether;
-                // there should be no extra collateral here
-                // TODO: make sure in updateConfig that there is no discount at the top band
-                break;
-            }
             uint256 bandFeeRatio = uint256(SignedMath.max(0, bandIncentiveRatio));
-            // the collateral in the band given the band fee
-            uint256 collateralInBand = ((bandUpperBound * peggedTokenBalance_ - collateralTokenBalance_ * price) *
-                1 ether) / (price * (1 ether - bandFeeRatio));
 
-            // can't have more collateral in the band that there is collateral left
-            collateralInBand = Math.min(collateralIn, collateralInBand);
-            uint256 extraCollateralInBand = 0;
-            uint256 bandFee = 0;
+            uint256 collateralInBand;
+            if (band == collateralRatioBandCount(config_) - 1) {
+                // the last band goes on forever
+                collateralInBand = collateralIn;
+            } else {
+                // the collateral needed to be deposited to reach the upper bound of the band
+                // given the band fee is also deducted/added (as it may be a discount)
+                collateralInBand =
+                    ((bandUpperBound * peggedTokenBalance_ - collateralTokenBalance_ * price) * 1 ether) /
+                    (price * (1 ether - bandFeeRatio));
+                // can't have more collateral in the band that there is collateral left
+                collateralInBand = Math.min(collateralIn, collateralInBand);
+            }
+
             if (bandIncentiveRatio > 0) {
-                bandFee = (collateralInBand * uint256(bandIncentiveRatio)) / 1 ether;
+                uint256 bandFee = (collateralInBand * uint256(bandIncentiveRatio)) / 1 ether;
                 // tally the weighted fee ratios
                 fee += bandFee;
             } else if (bandIncentiveRatio < 0) {
-                extraCollateralInBand = (collateralInBand * uint256(-bandIncentiveRatio)) / 1 ether;
+                uint256 extraCollateralInBand = (collateralInBand * uint256(-bandIncentiveRatio)) / 1 ether;
                 // tally the discounts
                 if (extraCollateralInBand <= reservePoolBalance_) {
                     reservePoolBalance_ -= extraCollateralInBand;
@@ -1306,9 +1281,8 @@ contract Minter_v1 is
             }
             collateralIn -= collateralInBand;
             if (collateralIn == 0) break;
-            // still some collateral left and we're allowed to mint or redeem
-            // add the incentiveRatio for this band
-            collateralTokenBalance_ += collateralInBand - bandFee + extraCollateralInBand;
+            // still some collateral left, so add this collateral to take us to the next band
+            collateralTokenBalance_ += collateralInBand;
 
             band++;
             bandUpperBound = _collateralRatioUpperBounds(config_, band);
@@ -1329,18 +1303,20 @@ contract Minter_v1 is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_);
         uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
-        // simulate minting until we run out of collateral, adding the fee & collateral as we go
+        // simulate redeeming until we run out of collateral, adding the fee & collateral as we go
         fee = 0;
         maxCollateral = 0;
         while (true) {
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
-            if (bandFeeRatio == 1 ether || bandLowerBound == 1 ether) {
+            if (bandFeeRatio == 1 ether) {
                 // at this collateral ratio, redeeming leveraged is disallowed
+                // this must also be the lowest bans
                 break;
             }
             uint256 collateralInBand = ((collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) *
                 1 ether) / (price * (1 ether - bandFeeRatio));
             collateralInBand = Math.min(collateralIn, collateralInBand);
+
             uint256 bandFee = (collateralInBand * uint256(bandFeeRatio)) / 1 ether;
             maxCollateral += collateralInBand;
             fee += bandFee;
@@ -1351,18 +1327,18 @@ contract Minter_v1 is
             }
             // still some collateral left and we're allowed to mint or redeem, so simulate
             collateralTokenBalance_ += collateralInBand - bandFee;
-
+            band--;
             if (band == 0) {
-                // we are now in depeg zone, so exit
+                // no more bands, bail
                 break;
             }
-            band--;
             bandLowerBound = _collateralRatioUpperBounds(config_, band - 1);
         }
     }
 
     function _collateralRatioLowerBounds(ActionIncentive memory config_, uint index) private pure returns (uint256) {
-        return index == 0 ? 1 ether : (_collateralRatioUpperBounds(config_, index - 1) + 1);
+        // if we are in the lowest band, the lower bound is 0
+        return index == 0 ? 0 ether : (_collateralRatioUpperBounds(config_, index - 1) + 1);
     }
 
     function _findBand(
