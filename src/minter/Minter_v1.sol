@@ -96,7 +96,6 @@ contract Minter_v1 is
     function _incentiveRatio(ActionIncentive memory config_, uint index) private pure returns (int256) {
         return config_.slot1.decodeInt(index * 32, 32) * int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS));
     }
-
     function _setIncentiveRatio(ActionIncentive memory config_, uint index, int256 value) private pure {
         config_.slot1 = config_.slot1.insertInt(value / int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS)), index * 32, 32);
     }
@@ -1556,7 +1555,7 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
-    ) private view returns (uint256 ratio) {
+    ) private pure returns (uint256 ratio) {
         if (_isNearlyDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
             // under collateral, assume infinite leverage
             // TODO: max leverage ratio (Aladdin use 100e18)
