@@ -272,7 +272,7 @@ contract TestMinterFees is TestMinter {
     // TODO: check the bonus if properly paid - do this with the reserve pool
 
     function _checkMintLeveragedIntegral(uint iTotalMint, uint step, uint tolerance) private returns (int256 totalFee) {
-        bool log = step == 4;
+        bool log = false;
         console.log("_checkMintLeveragedIntegral(%s, %s)", iTotalMint, step);
         // console.log("------------------------------------------");
         uint256 collateral = iTotalMint * 1 ether;
@@ -282,21 +282,25 @@ contract TestMinterFees is TestMinter {
         if (log) clog("  expected fees", totalFee);
         uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
         if (log) console.log("  starting fees=%s", start);
+
         for (uint i = 0; i < iTotalMint; i++) {
             console.log("    step %s mint %s of %s", step, i + 1, iTotalMint);
             uint256 beforeMint = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-            // uint256 expected = 1 ether * uint256(IMinter(minter).mintLeveragedTokenIncentiveRatio(1 ether));
+            if (log) clog("    collateralRatio", IMinter(minter).collateralRatio());
+            uint256 expected = uint256(IMinter(minter).mintLeveragedTokenIncentiveRatio(1 ether));
+            if (log) clog("    expected fees this mint", expected);
             vm.prank(user.addr);
             IMinter(minter).mintLeveragedToken(1 ether, user.addr, 0);
-            if (log) clog("    fees this mint", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint);
-            // assertApproxEqAbs(
-            //     IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint,
-            //     expected,
-            //     2,
-            //     string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
-            // );
-            // if (log)
-            //     clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+            if (log)
+                clog("    actual   fees this mint", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint);
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint,
+                expected,
+                2,
+                string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
+            );
+            if (log)
+                clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
         }
         if (log) clog(" actual fees  ", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
         // clog(" all (pre-calc'd) ", totalFee);
@@ -310,8 +314,8 @@ contract TestMinterFees is TestMinter {
         console.log("_checkMintLeveragedIntegral() -> %s", totalFee);
     }
 
-    function test_mintLeveragedFeesAreIntegrals() private {
-        // critical CRs = 110% (bonus), 120% (free), 140% (danger)
+    function test_mintLeveragedFeesAreIntegrals() public {
+        // critical CRs (upper bounds) = 110% (bonus, -50), 120% (free, 0), 140% (danger, 20), -> (70)
         // TODO: check the above is the case
         setUp_collateral(150 ether, 10 ether); // CR = 160/150 = 107%, bonus
         assertGt(
