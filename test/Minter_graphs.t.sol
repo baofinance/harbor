@@ -21,9 +21,7 @@ import { Array } from "test/Array.sol";
 
 // TODO: need to test discounts
 
-contract TestMinterGraphs is Array, TestMinter {
-    Vm.Wallet user;
-
+contract TestMinterGraphs is TestMinter {
     function setUpConfig() public override {
         setUpConfig(
             130,
@@ -37,11 +35,8 @@ contract TestMinterGraphs is Array, TestMinter {
 
     function setUp() public virtual override {
         super.setUp();
-        user = vm.createWallet("user");
         setUp_permissions();
 
-        deal(address(deployed.wstETH), user.addr, 100 ether);
-        vm.prank(user.addr);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);
     }
 

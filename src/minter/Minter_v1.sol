@@ -1071,17 +1071,15 @@ contract Minter_v1 is
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_);
-        uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
         fee = 0;
         maxCollateral = 0;
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
+            uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
 
-            if (bandFeeRatio == 1 ether || bandLowerBound == 1 ether) {
-                // TODO: test a lower bound = 1e18 + 1, etc.
-                // fee ratio of 100% means the action is disabled
-                // also if the collateral ratio lower bound = 1, we can't mint any pegged
+            if (bandFeeRatio == 1 ether) {
+                // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
 
@@ -1102,12 +1100,10 @@ contract Minter_v1 is
             peggedTokenBalance_ += ((collateralInBand - bandFee) * price) / 1 ether;
 
             if (band == 0) {
-                // we are now in depeg zone, so exit
+                // we are now in the lowest band, so exit
                 break;
             }
             band--;
-
-            bandLowerBound = _collateralRatioLowerBounds(config_, band);
         }
     }
 
@@ -1135,9 +1131,9 @@ contract Minter_v1 is
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_);
-        uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);
         // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
         while (true) {
+            uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);
             int256 bandIncentiveRatio = _incentiveRatio(config_, band);
             uint256 bandFeeRatio = uint256(SignedMath.max(0, bandIncentiveRatio));
             uint256 collateralInBand;
@@ -1181,7 +1177,6 @@ contract Minter_v1 is
             peggedTokenBalance_ -= ((collateralInBand * price) / 1 ether);
 
             band++;
-            bandUpperBound = _collateralRatioUpperBounds(config_, band);
         }
     }
 
@@ -1242,11 +1237,11 @@ contract Minter_v1 is
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ration which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
-
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_);
-        uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);
+
         // simulate minting until we run out of collateral, adding the fee & bonus as we go
         while (true) {
+            uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);
             int256 bandIncentiveRatio = _incentiveRatio(config_, band);
             uint256 bandFeeRatio = uint256(SignedMath.max(0, bandIncentiveRatio));
 
@@ -1285,7 +1280,6 @@ contract Minter_v1 is
             collateralTokenBalance_ += collateralInBand;
 
             band++;
-            bandUpperBound = _collateralRatioUpperBounds(config_, band);
         }
     }
     function _redeemLeveragedAdjustments(
@@ -1302,17 +1296,17 @@ contract Minter_v1 is
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_);
-        uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
         // simulate redeeming until we run out of collateral, adding the fee & collateral as we go
         fee = 0;
         maxCollateral = 0;
         while (true) {
+            uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
             if (bandFeeRatio == 1 ether) {
-                // at this collateral ratio, redeeming leveraged is disallowed
-                // this must also be the lowest bans
+                // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
+
             uint256 collateralInBand = ((collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) *
                 1 ether) / (price * (1 ether - bandFeeRatio));
             collateralInBand = Math.min(collateralIn, collateralInBand);
@@ -1327,12 +1321,11 @@ contract Minter_v1 is
             }
             // still some collateral left and we're allowed to mint or redeem, so simulate
             collateralTokenBalance_ += collateralInBand - bandFee;
-            band--;
             if (band == 0) {
-                // no more bands, bail
+                // we are now in the lowest band, so exit
                 break;
             }
-            bandLowerBound = _collateralRatioUpperBounds(config_, band - 1);
+            band--;
         }
     }
 

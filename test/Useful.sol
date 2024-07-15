@@ -46,6 +46,13 @@ contract Clog {
         clog(string.concat(name, "[", _i2s(i), "]"), value);
     }
 
+    // TODO: make this usable in a pure function by using transient storage (see reentrancy guard)?
+    modifier clogit(string memory func) {
+        into(func);
+        _;
+        out();
+    }
+
     function into(string memory func) public {
         _clog(string.concat(func, "..."));
         stack.push(func);
