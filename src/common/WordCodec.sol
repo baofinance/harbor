@@ -11,7 +11,7 @@ pragma solidity ^0.8.0;
 library WordCodec {
     /// @dev Inserts an unsigned integer of bitLength, shifted by an offset, into a 256 bit word,
     /// replacing the old value. Returns the new word.
-    function insertUint(
+    function encodeUint(
         bytes32 word,
         uint256 value,
         uint256 offset,
@@ -47,7 +47,7 @@ library WordCodec {
     /// the new word.
     ///
     /// Assumes `value` can be represented using `bitLength` bits.
-    function insertInt(bytes32 word, int256 value, uint256 offset, uint256 bitLength) internal pure returns (bytes32) {
+    function encodeInt(bytes32 word, int256 value, uint256 offset, uint256 bitLength) internal pure returns (bytes32) {
         unchecked {
             uint256 mask = (1 << bitLength) - 1;
             bytes32 clearedWord = bytes32(uint256(word) & ~(mask << offset));
@@ -86,7 +86,7 @@ library WordCodec {
 
     /// @dev Inserts a boolean value shifted by an offset into a 256 bit word, replacing the old value. Returns the new
     /// word.
-    function insertBool(bytes32 word, bool value, uint256 offset) internal pure returns (bytes32 result) {
+    function encodeBool(bytes32 word, bool value, uint256 offset) internal pure returns (bytes32 result) {
         // Equivalent to:
         // bytes32 clearedWord = bytes32(uint256(word) & ~(1 << offset));
         // bytes32 referenceInsertBool = clearedWord | bytes32(uint256(value ? 1 : 0) << offset);

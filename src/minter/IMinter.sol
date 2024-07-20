@@ -194,11 +194,14 @@ interface IMinter {
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
 
-    error TooManyCollateralRatioBounds(uint count);
+    error TooManyCollateralRatioBounds(uint count, uint max);
     error InvalidCollateralRatioBoundValue(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
-    error TooManyIncentiveRatios(uint count);
+    error TooManyIncentiveRatios(uint count, uint max);
+    error TooFewIncentiveRatios(uint count, uint min);
     error InvalidIncentiveRatioValue(int256 shouldBeMinusOnetoOne);
+    error IncentiveRatioTooPrecise(int256 value);
     error CollateralRatioBoundsIncentivesLengthsMismatch(uint256 oneLess, uint256 oneMore);
+    error CollateralRatioBoundTooPrecise(uint256 value);
 
     /// @dev thrown when an action is paused, for example if the protocol is not initialised
     error ActionPaused();
@@ -234,7 +237,7 @@ interface IMinter {
     /// @notice Return the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and discounts
     function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 leveragedTokens);
     function priceOracle() external view returns (address);
-
+    function reservePool() external view returns (address);
     function feeReceiver() external view returns (address);
 
     // @notice Returns the totalAmount of tokens minted and not redeemed by the minter

@@ -8,4 +8,36 @@ remappings = [
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
   "src/=src/",
+  "test/=test/",
+]
+
+[detectors]
+exclude = [
+  "abi-encode-with-signature",
+  "axelar-proxy-contract-id",
+  "balance-relied-on",
+  "calldata-tuple-reencoding-head-overflow-bug",
+  "call-options-not-called",
+  "empty-byte-array-copy-bug",
+  "msg-value-nonpayable-function",
+  "unchecked-return-value",
+]
+
+[lsp.code_lens]
+enable = true
+
+[printers]
+exclude = [
+  "control-flow-graph",
+  "imports-graph",
+  "inheritance-graph",
+  "inheritance-tree",
+  "lsp-control-flow-graph",
+  "lsp-inheritance-graph",
+  "lsp-linearized-inheritance-graph",
+  "lsp-selectors",
+  "modifiers",
+  "state-changes",
+  "storage-layout",
+  "tokens",
 ]

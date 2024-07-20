@@ -46,6 +46,36 @@ contract Array {
         result[4] = e;
         result[5] = f;
     }
+    function ua(uint a_, uint b, uint c, uint d, uint e, uint f, uint g) internal pure returns (uint[] memory result) {
+        result = new uint[](7);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+    }
+    function ua(
+        uint a_,
+        uint b,
+        uint c,
+        uint d,
+        uint e,
+        uint f,
+        uint g,
+        uint h
+    ) internal pure returns (uint[] memory result) {
+        result = new uint[](8);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+    }
 
     function ia() internal pure returns (int[] memory result) {
         result = new int[](0);
@@ -88,6 +118,49 @@ contract Array {
         result[3] = d;
         result[4] = e;
         result[5] = f;
+    }
+    function ia(int a_, int b, int c, int d, int e, int f, int g) internal pure returns (int[] memory result) {
+        result = new int[](7);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+    }
+    function ia(int a_, int b, int c, int d, int e, int f, int g, int h) internal pure returns (int[] memory result) {
+        result = new int[](8);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+    }
+    function ia(
+        int a_,
+        int b,
+        int c,
+        int d,
+        int e,
+        int f,
+        int g,
+        int h,
+        int i
+    ) internal pure returns (int[] memory result) {
+        result = new int[](9);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
     }
 
     function aa() internal pure returns (address[] memory result) {
