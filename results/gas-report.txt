@@ -76,4 +76,3 @@
 | requestBonus                                          | 3012            | 21611 | 22915  | 40232 | 7       |
 | supportsInterface                                     | 409             | 526   | 526    | 644   | 2       |
 | transferToken                                         | 3030            | 3030  | 3030   | 3030  | 1       |
-
