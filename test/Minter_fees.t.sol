@@ -611,4 +611,115 @@ contract TestMinterFees is TestMinter {
         assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFeeExpected), 2);
         vm.stopPrank();
     }
+
+    function _checkRedeemLeveragedIntegral(
+        uint iTotalRedeem,
+        uint step,
+        uint tolerance
+    ) private returns (int256 totalFee) {
+        // bool log = true; // step == 6;
+        // console.log("_checkRedeemLeveragedIntegral(%s, %s)", iTotalRedeem, step);
+        (, uint256 price, , ) = priceOracle.getPrice();
+        // console.log("------------------------------------------");
+        (int256 incentiveRatio, uint256 collateral) = IMinter(minter).redeemLeveragedTokenIncentiveRatio(
+            iTotalRedeem * price
+        );
+        // if (log) clog("  incentiveRatio", incentiveRatio);
+        totalFee = (int256(collateral) * incentiveRatio) / 1 ether;
+        // if (log) clog("  expected fees", totalFee);
+        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        // if (log) console.log("  starting fees=%s", start);
+        for (uint i = 0; i < iTotalRedeem; i++) {
+            // console.log("    step %s redeem %s of %s", step, i + 1, iTotalRedeem);
+            uint256 beforeRedeem = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+            (incentiveRatio, collateral) = IMinter(minter).redeemLeveragedTokenIncentiveRatio(price);
+            uint256 expected = (uint256(incentiveRatio) * collateral) / 1 ether;
+            vm.prank(user.addr);
+            IMinter(minter).redeemLeveragedToken(price, user.addr, 0);
+            // if (log) clog("    fees this redeem", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeRedeem);
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeRedeem,
+                expected,
+                2,
+                string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
+            );
+            // if (log)
+            //     clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+        }
+        // if (log) clog(" actual fees  ", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+        // clog(" all (pre-calc'd) ", totalFee);
+        assertApproxEqAbs(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
+            uint256(SignedMath.max(totalFee, 0)), // ignore bonuses here for now
+            // TODO: do another loop like this for bonuses
+            tolerance,
+            Useful.toString(step)
+        );
+        // console.log("_checkRedeemLeveragedIntegral() -> %s", totalFee);
+    }
+
+    function test_redeemLeveragedFeesAreIntegrals() public {
+        // ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
+        (, uint256 price, , ) = priceOracle.getPrice();
+        setUp_collateral(40 ether, 20 ether); // CR = 60/40 = 150%, normal
+        assertLt(
+            ultimate(config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds),
+            IMinter(minter).collateralRatio(),
+            "test must start with CR nromal ml"
+        );
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
+
+        // check fees:
+        uint[5] memory redeemStep = [
+            // 1) completely in the first band: redeem(4), CR = 56/40 = 140%
+            uint(4),
+            // 2) straddling the first boundary: redeem(4), CR = 52/40 = 130%
+            uint(4),
+            // 3) remaining in the second band: redeem(4), CR= 46/40 = 115%
+            uint(4),
+            // 4) straddling the second boundary: redeem(5), CR = 41/40 = 102.5%
+            uint(5),
+            // 5) entering depeg: redeem(1), CR = 40/40 = 100%
+            uint(1)
+        ];
+
+        uint256[] memory maxCollaterals = new uint256[](redeemStep.length);
+        int256[] memory totalFeeRatios = new int256[](redeemStep.length);
+        int256[] memory totalFees = new int256[](redeemStep.length);
+        uint256 collateralInSum = 0;
+        for (uint i = 0; i < redeemStep.length; i++) {
+            // clog("step(setup)", i + 1);
+            collateralInSum += (redeemStep[i] * 1 ether);
+            // clog("collateralInSum", collateralInSum);
+            (totalFeeRatios[i], maxCollaterals[i]) = IMinter(minter).redeemLeveragedTokenIncentiveRatio(
+                (collateralInSum * price) / 1 ether
+            );
+            // clog("totalFeeRatios[i]", totalFeeRatios[i]);
+            totalFees[i] = (int256(collateralInSum) * totalFeeRatios[i]) / 1 ether;
+            // clog("totalFees[i]", totalFees[i]);
+        }
+
+        deal(leveragedToken, user.addr, IMinter(minter).leveragedTokenBalance());
+        vm.prank(user.addr);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+
+        int256 totalFee = 0;
+        for (uint i = 0; i < redeemStep.length; i++) {
+            uint step = i + 1;
+            // clog("step(run)", step);
+            totalFee += _checkRedeemLeveragedIntegral(redeemStep[i], step, 0);
+            assertApproxEqAbs(
+                totalFee,
+                totalFees[i],
+                step == 4 ? 5 : 0,
+                string.concat(Useful.toString(step), ", running sum")
+            );
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+                uint256(SignedMath.max(0, totalFee)),
+                0,
+                string.concat("step ", Useful.toString(step))
+            );
+        }
+    }
 }

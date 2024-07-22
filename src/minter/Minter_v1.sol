@@ -1172,7 +1172,6 @@ contract Minter_v1 is
         while (true) {
             uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
-
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
@@ -1203,7 +1202,6 @@ contract Minter_v1 is
             // still some collateral left and we're allowed to mint or redeem, so simulate
             collateralTokenBalance_ += collateralInBand - bandFee;
             peggedTokenBalance_ += ((collateralInBand - bandFee) * price) / 1 ether;
-
             if (band == 0) {
                 // we are now in the lowest band, so exit
                 break;
@@ -1419,7 +1417,6 @@ contract Minter_v1 is
     ) private pure returns (uint256 fee, uint256 maxCollateral) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
-        if (_isDepegged(collateralTokenBalance_, price, peggedTokenBalance_)) return (0, 0);
 
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
@@ -1435,8 +1432,9 @@ contract Minter_v1 is
                 break;
             }
 
-            uint256 collateralInBand = ((collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) *
-                1 ether) / (price * (1 ether - bandFeeRatio));
+            // uint256 collateralInBand = ((collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) *
+            //     1 ether) / (price * (1 ether - bandFeeRatio));
+            uint256 collateralInBand = (collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) / price;
             collateralInBand = Math.min(collateralIn, collateralInBand);
 
             uint256 bandFee = (collateralInBand * uint256(bandFeeRatio)) / 1 ether;
