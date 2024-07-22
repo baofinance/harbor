@@ -76,7 +76,7 @@ contract TestMinterGraphs is TestMinter {
         )
     {
         (mintPeggedIncentive, ) = IMinter(minter).mintPeggedTokenIncentiveRatio(collateral);
-        redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio((collateral * price) / 1 ether);
+        (redeemPeggedIncentive, ) = IMinter(minter).redeemPeggedTokenIncentiveRatio((collateral * price) / 1 ether);
         mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio(collateral);
         (redeemLeveragedIncentive, ) = IMinter(minter).redeemLeveragedTokenIncentiveRatio(collateral * 1000);
     }
