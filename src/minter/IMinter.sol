@@ -249,7 +249,9 @@ interface IMinter {
         uint256 additionalCollateral
     ) external view returns (int256 incentiveRatio, uint256 maxCollateral);
 
-    function redeemPeggedTokenIncentiveRatio(uint256 peggedIn) external view returns (int256 incentiveRatio);
+    function redeemPeggedTokenIncentiveRatio(
+        uint256 peggedIn
+    ) external view returns (int256 incentiveRatio, uint256 maxCollateral);
 
     function mintLeveragedTokenIncentiveRatio(uint256 collateralIn) external view returns (int256 incentiveRatio);
 
