@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity 0.8.25;
 
-import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
+import { AccessControl } from "src/common/TokenOwner.sol";
+
 import { IMultipleRewardDistributor } from "./IMultipleRewardDistributor.sol";
 import { LinearReward } from "./LinearReward.sol";
+
+import { console2 as console } from "forge-std/console2.sol";
 
 // solhint-disable no-empty-blocks
 // solhint-disable not-rely-on-time
 
-abstract contract LinearMultipleRewardDistributor is
-    AccessControlDefaultAdminRulesUpgradeable,
-    IMultipleRewardDistributor
-{
+// AccessControl,
+abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor, AccessControl {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
@@ -51,7 +52,7 @@ abstract contract LinearMultipleRewardDistributor is
     // keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff));
     // TODO:
     bytes32 private constant LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE =
-        0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
+        0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
 
     function _getLinearMultipleRewardDistributorStorage()
         private
@@ -67,12 +68,7 @@ abstract contract LinearMultipleRewardDistributor is
      * Constructor *
      ***************/
     // solhint-disable-next-line func-name-mixedcase
-    function __LinearMultipleRewardDistributor_init(
-        uint40 periodLength_,
-        uint48 initialDelay,
-        address initialDefaultAdmin
-    ) internal onlyInitializing {
-        __AccessControlDefaultAdminRules_init(initialDelay, initialDefaultAdmin);
+    function __LinearMultipleRewardDistributor_init(uint40 periodLength_) internal onlyInitializing {
         __LinearMultipleRewardDistributor_init_unchained(periodLength_);
     }
 

@@ -14,7 +14,7 @@
 | decimals                                                    | 222             | 222    | 222    | 222    | 36      |
 | grantRole                                                   | 5231            | 19607  | 29948  | 29948  | 54      |
 | hasRole                                                     | 2750            | 2750   | 2750   | 2750   | 5       |
-| initialize                                                  | 3591            | 182762 | 190613 | 190613 | 45      |
+| initialize                                                  | 3591            | 183402 | 190613 | 190613 | 49      |
 | mint                                                        | 2965            | 17618  | 13187  | 49387  | 194     |
 | name                                                        | 3271            | 3271   | 3271   | 3271   | 36      |
 | nonces                                                      | 2689            | 2689   | 2689   | 2689   | 1       |
@@ -63,6 +63,20 @@
 | reservePool                                 | 2492            | 2492   | 2492   | 2492   | 1       |
 | supportsInterface                           | 482             | 585    | 520    | 755    | 3       |
 | updateConfig                                | 21196           | 50994  | 35812  | 126182 | 18      |
+
+--
+| src/minter/RebalancePool_v1.sol:RebalancePool_v1 contract |                 |        |        |        |         |
+|-----------------------------------------------------------|-----------------|--------|--------|--------|---------|
+| Deployment Cost                                           | Deployment Size |        |        |        |         |
+| 5241784                                                   | 24126           |        |        |        |         |
+| Function Name                                             | min             | avg    | median | max    | # calls |
+| assetBalanceOf                                            | 1599            | 1599   | 1599   | 1599   | 1       |
+| assetToken                                                | 2525            | 2525   | 2525   | 2525   | 1       |
+| collateralToken                                           | 2502            | 2502   | 2502   | 2502   | 1       |
+| deposit                                                   | 18239           | 72281  | 72281  | 126323 | 2       |
+| hasRole                                                   | 2774            | 2774   | 2774   | 2774   | 1       |
+| initialize                                                | 276510          | 276510 | 276510 | 276510 | 5       |
+| totalAssetSupply                                          | 2455            | 2455   | 2455   | 2455   | 1       |
 
 --
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |

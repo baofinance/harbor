@@ -356,6 +356,8 @@ contract TestMinterInit is TestMinter {
 
         // TODO: add configuration check - also add it to the setup config function
 
+        // also add checks for leveraged price, etc - all the view functions
+
         // no pegged tokens so divide by zero
         assertEq(
             IMinter(minter).collateralRatio(),

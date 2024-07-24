@@ -11,6 +11,9 @@ gas_reports = [
   "Minter_v1",
   "ReservePool_v1",
   "FeeSplitter_v1",
+  "RebalancePool_v1",
+  "Genesis_v1.sol",
+  "TokenDistributor_v1.sol",
 ]
 fs_permissions = [
   { access = "read", path = "./" },

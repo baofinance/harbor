@@ -11,6 +11,8 @@ import { IMultipleRewardAccumulator } from "./IMultipleRewardAccumulator.sol";
 import { DecrementalFloatingPoint } from "../../math/DecrementalFloatingPoint.sol";
 import { LinearMultipleRewardDistributor } from "../distributor/LinearMultipleRewardDistributor.sol";
 
+import { console2 as console } from "forge-std/console2.sol";
+
 // solhint-disable not-rely-on-time
 
 /// @title MultipleRewardCompoundingAccumulator
@@ -167,9 +169,8 @@ abstract contract MultipleRewardCompoundingAccumulator is
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.MultipleRewardCompoundingAccumulator")) - 1)) & ~bytes32(uint256(0xff));
-    // TODO:
     bytes32 private constant MULTIPLEREWARDCOMPOUNDINGACCUMULATOR_STORAGE =
-        0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
+        0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
 
     function _getMultipleRewardCompoundingAccumulatorStorage()
         private
@@ -186,12 +187,8 @@ abstract contract MultipleRewardCompoundingAccumulator is
      ***************/
 
     // solhint-disable-next-line func-name-mixedcase
-    function __MultipleRewardCompoundingAccumulator_init(
-        uint40 periodLength,
-        uint48 initialDelay,
-        address initialDefaultAdmin
-    ) internal onlyInitializing {
-        __LinearMultipleRewardDistributor_init(periodLength, initialDelay, initialDefaultAdmin);
+    function __MultipleRewardCompoundingAccumulator_init(uint40 periodLength) internal onlyInitializing {
+        __LinearMultipleRewardDistributor_init(periodLength);
         __MultipleRewardCompoundingAccumulator_init_unchained();
     }
 
@@ -321,12 +318,16 @@ abstract contract MultipleRewardCompoundingAccumulator is
     /// @param account The address of user to update. Use zero address
     ///        if you only want to update global snapshot.
     function _checkpoint(address account) internal virtual {
+        console.log("_distributePendingReward...");
         _distributePendingReward();
+        console.log("_distributePendingReward.");
 
         if (account != address(0)) {
             // checkpoint active reward tokens
             address[] memory rewardTokens = getActiveRewardTokens();
+            console.log("rewardTokens.length=%s", rewardTokens.length);
             for (uint256 i = 0; i < rewardTokens.length; i++) {
+                console.log("i=%s", i);
                 _updateSnapshot(account, rewardTokens[i]);
             }
 

@@ -63,24 +63,18 @@ interface IRebalancePool {
      * Public View Functions *
      *************************/
 
-    /// @notice Return the address of treasury contract.
-    function treasury() external view returns (address);
-
-    /// @notice Return the address of market contract.
-    function market() external view returns (address);
-
     /// @notice Return the address of base token.
-    function baseToken() external view returns (address);
+    function collateralToken() external view returns (address);
 
     /// @notice Return the address of underlying token of this contract.
-    function asset() external view returns (address);
+    function assetToken() external view returns (address);
 
     /// @notice Return the total amount of asset deposited to this contract.
-    function totalSupply() external view returns (uint256);
+    function totalAssetSupply() external view returns (uint256);
 
     /// @notice Return the amount of deposited asset for some specific user.
     /// @param account The address of user to query.
-    function balanceOf(address account) external view returns (uint256);
+    function assetBalanceOf(address account) external view returns (uint256);
 
     /// @notice Return the current boost ratio for some specific user.
     /// @param account The address of user to query, multiplied by 1e18.
