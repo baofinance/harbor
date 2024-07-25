@@ -18,6 +18,7 @@ import "test/Useful.sol";
 import { TestMinter } from "test/Minter_base.t.sol";
 
 // TODO: need to test discounts
+// TODO: test fee distribution integration
 
 contract TestMinterFees is TestMinter {
     Vm.Wallet user;
@@ -473,56 +474,98 @@ contract TestMinterFees is TestMinter {
 
     // TODO: check the bonus if properly paid - do this with the reserve pool?
 
-    function _checkRedeemPeggedIntegral(
-        uint iTotalRedeem,
-        uint step,
-        uint tolerance
-    ) private returns (int256 totalFee) {
-        // bool log = true; // step == 6;
-        // console.log("_checkRedeemPeggedIntegral(%s, %s)", iTotalRedeem, step);
-        (, uint256 price, , ) = priceOracle.getPrice();
-        // console.log("------------------------------------------");
-        (int256 incentiveRatio, uint256 collateral) = IMinter(minter).redeemPeggedTokenIncentiveRatio(
-            iTotalRedeem * price
-        );
-        // if (log) clog("  incentiveRatio", incentiveRatio);
-        totalFee = (int256(collateral) * incentiveRatio) / 1 ether;
-        // if (log) clog("  expected fees", totalFee);
-        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        // if (log) console.log("  starting fees=%s", start);
-        for (uint i = 0; i < iTotalRedeem; i++) {
-            // console.log("    step %s redeem %s of %s", step, i + 1, iTotalRedeem);
-            uint256 beforeRedeem = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-            (incentiveRatio, collateral) = IMinter(minter).redeemPeggedTokenIncentiveRatio(price);
-            uint256 expected = (uint256(incentiveRatio) * collateral) / 1 ether;
-            vm.prank(user.addr);
-            IMinter(minter).redeemPeggedToken(price, user.addr, 0);
-            // if (log) clog("    fees this redeem", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeRedeem);
-            assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeRedeem,
-                expected,
-                2,
-                string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
-            );
-            // if (log)
-            //     clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
-        }
-        // if (log) clog(" actual fees  ", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
-        // clog(" all (pre-calc'd) ", totalFee);
-        assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
-            uint256(SignedMath.max(totalFee, 0)), // ignore bonuses here for now
-            // TODO: do another loop like this for bonuses
-            tolerance,
-            Useful.toString(step)
-        );
-        // console.log("_checkRedeemPeggedIntegral() -> %s", totalFee);
+    // to reduce stack space
+    struct BeforeActionBalance {
+        uint256 feeReceiver;
+        uint256 userCollateral;
+        uint256 userPegged;
     }
 
-    function test_redeemPeggedFeesAreIntegrals() public {
+    struct Total {
+        uint256 peggedRedeemed;
+        uint256 collateralReturned;
+        uint256 fee;
+        uint256 reserveCollateralUsed;
+    }
+
+    function _checkRedeemPeggedIntegral(
+        uint iTotalRedeem,
+        uint step
+    ) private returns (uint256 peggedRedeemed, uint256 collateralReturned, uint256 fee, uint256 reserveCollateralUsed) {
+        (, , , uint256 price) = priceOracle.getPrice();
+        (peggedRedeemed, collateralReturned, fee, reserveCollateralUsed, ) = IMinter(minter).redeemPeggedTokenDryRun(
+            iTotalRedeem * price
+        );
+        BeforeActionBalance memory beforeAll;
+        beforeAll.feeReceiver = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        beforeAll.userCollateral = IERC20(deployed.wstETH).balanceOf(user.addr);
+        beforeAll.userPegged = IERC20(deployed.BaoUSD).balanceOf(user.addr);
+        for (uint i = 0; i < iTotalRedeem; i++) {
+            // console.log("    step %s redeem %s of %s", step, i + 1, iTotalRedeem);
+            BeforeActionBalance memory before;
+            before.feeReceiver = uint128(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr));
+            before.userCollateral = uint128(IERC20(deployed.wstETH).balanceOf(user.addr));
+            before.userPegged = IERC20(deployed.BaoUSD).balanceOf(user.addr);
+            Total memory one;
+            (one.peggedRedeemed, one.collateralReturned, one.fee, one.reserveCollateralUsed, ) = IMinter(minter)
+                .redeemPeggedTokenDryRun(price);
+            vm.prank(user.addr);
+            IMinter(minter).redeemPeggedToken(price, user.addr, 0);
+            // ---------------------------------------------------
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - before.feeReceiver,
+                one.fee,
+                0,
+                string.concat("fee calc in ", Useful.toString(i), "th iteration in step ", Useful.toString(step))
+            );
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(user.addr) - before.userCollateral,
+                one.collateralReturned,
+                0,
+                string.concat(
+                    "collateral returned calc in ",
+                    Useful.toString(i),
+                    "th iteration in step ",
+                    Useful.toString(step)
+                )
+            );
+            assertApproxEqAbs(
+                before.userPegged - IERC20(deployed.BaoUSD).balanceOf(user.addr),
+                one.peggedRedeemed,
+                0,
+                string.concat(
+                    "pegged redeemed calc in ",
+                    Useful.toString(i),
+                    "th iteration in step ",
+                    Useful.toString(step)
+                )
+            );
+            // TODO: check the reserve pool balances
+        }
+        assertApproxEqAbs(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeAll.feeReceiver,
+            fee,
+            0,
+            string.concat("fee calc in step ", Useful.toString(step))
+        );
+        assertApproxEqAbs(
+            IERC20(deployed.wstETH).balanceOf(user.addr) - beforeAll.userCollateral,
+            collateralReturned,
+            0,
+            string.concat("collateral returned calc in step", Useful.toString(step))
+        );
+        assertApproxEqAbs(
+            beforeAll.userPegged - IERC20(deployed.BaoUSD).balanceOf(user.addr),
+            peggedRedeemed,
+            0,
+            string.concat("pegged redeemed calc in step ", Useful.toString(step))
+        );
+    }
+
+    function _checkRedeemPeggedFeesIntegralList() private {
         // ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
         // critical CRs = 105% (big bonus 75), 115% (small bonus 25), 150% (danger, 60), -> 80
-        (, uint256 price, , ) = priceOracle.getPrice();
+        (, , , uint256 price) = priceOracle.getPrice();
         setUp_collateral(100 ether, 4 ether); // CR = 104/100 = 104%, bonus
         assertGt(
             initial(config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -550,44 +593,78 @@ contract TestMinterFees is TestMinter {
             uint(3)
         ];
 
-        int256[] memory totalFeeRatios = new int256[](redeemStep.length);
-        int256[] memory totalFees = new int256[](redeemStep.length);
+        Total[] memory totals = new Total[](redeemStep.length);
         uint256 collateralInSum = 0;
         for (uint i = 0; i < redeemStep.length; i++) {
             // TODO: check the CRs in comments above against the config
-            // clog("step(setup)", i + 1);
+            clog("step(setup)", i + 1);
             collateralInSum += (redeemStep[i] * 1 ether);
-            // clog("collateralInSum", collateralInSum);
-            (totalFeeRatios[i], ) = IMinter(minter).redeemPeggedTokenIncentiveRatio(
-                (collateralInSum * price) / 1 ether
-            );
-            // clog("totalFeeRatios[i]", totalFeeRatios[i]);
-            totalFees[i] = (int256(collateralInSum) * totalFeeRatios[i]) / 1 ether;
-            // clog("totalFees[i]", totalFees[i]);
+            clog("collateralInSum", collateralInSum);
+            (
+                totals[i].peggedRedeemed,
+                totals[i].collateralReturned,
+                totals[i].fee,
+                totals[i].reserveCollateralUsed,
+
+            ) = IMinter(minter).redeemPeggedTokenDryRun((collateralInSum * price) / 1 ether);
         }
 
+        // TODO: also check for minter balances reducing
         deal(address(deployed.BaoUSD), user.addr, IMinter(minter).peggedTokenBalance());
+        uint256 userPegged = IERC20(deployed.BaoUSD).balanceOf(user.addr);
         vm.prank(user.addr);
         IERC20(deployed.BaoUSD).approve(minter, type(uint256).max);
 
-        int256 totalFee = 0;
+        uint256 beforeUserCollateral = IERC20(deployed.wstETH).balanceOf(user.addr);
+
+        Total memory total;
         for (uint i = 0; i < redeemStep.length; i++) {
-            uint step = i + 1;
-            // clog("step(run)", step);
-            totalFee += _checkRedeemPeggedIntegral(redeemStep[i], step, step * 2);
+            clog("step(run)", i + 1);
+            (
+                uint256 peggedRedeemed,
+                uint256 collateralReturned,
+                uint256 fee,
+                uint256 reserveCollateralUsed
+            ) = _checkRedeemPeggedIntegral(redeemStep[i], i + 1);
+            total.peggedRedeemed += peggedRedeemed;
+            total.collateralReturned += collateralReturned;
+            total.fee += fee;
+            total.reserveCollateralUsed += reserveCollateralUsed;
             assertApproxEqAbs(
-                totalFee,
-                totalFees[i],
-                step == 7 ? 94 : step * 9,
-                string.concat(Useful.toString(step), ", running sum")
+                total.fee,
+                totals[i].fee,
+                0,
+                string.concat("step ", Useful.toString(i + 1), ", calculated fee")
             );
             assertApproxEqAbs(
                 IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
-                uint256(SignedMath.max(0, totalFee)),
-                step * 2,
-                string.concat("step ", Useful.toString(step))
+                total.fee,
+                0,
+                string.concat("step ", Useful.toString(i + 1), ", actual fee")
+            );
+            assertApproxEqAbs(
+                IERC20(deployed.wstETH).balanceOf(user.addr) - beforeUserCollateral,
+                total.collateralReturned,
+                0,
+                string.concat("step ", Useful.toString(i + 1), ", actual returned")
+            );
+            assertApproxEqAbs(
+                IERC20(deployed.BaoUSD).balanceOf(user.addr),
+                userPegged - total.peggedRedeemed,
+                0,
+                string.concat("step ", Useful.toString(i + 1), ", actual redemption")
             );
         }
+    }
+
+    function test_redeemPeggedFeesAreIntegralsOnlyFee() public {
+        _checkRedeemPeggedFeesIntegralList();
+    }
+
+    function test_redeemPeggedFeesAreIntegralsWithReserve() public {
+        // add to reserve pool
+        deal(deployed.wstETH, reservePool, 100 ether);
+        _checkRedeemPeggedFeesIntegralList();
     }
 
     function test_redeemPeggedFeesAreIntegralsBoundary() public {

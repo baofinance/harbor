@@ -253,6 +253,30 @@ interface IMinter {
         uint256 peggedIn
     ) external view returns (int256 incentiveRatio, uint256 maxCollateral);
 
+    /// @notice Returns values that will be used if an actual redeemPeggedToken function call is made
+    /// The following can be calculated:
+    /// the amount of collateral extracted from the pegged tokens redeemed is given by peggedRedeemed
+    /// the amount of fee in collateral deducted is given by 'fee'
+    /// the amount of collateral returned to the user is given by peggedRedeemed / price - fee + extraCollateral
+    /// @param peggedIn is the amount of pegged token to be redeemed
+    /// @return peggedRedeemed is the maximum collateral value of the pegged token passed in that are allowed to be converted to collateral
+    /// @return collateralReturned is the amount of collateral returned from the reserve pool and passed to the caller
+    /// @return fee this is the amount deducted from the returned collateral as a fee
+    /// @return reserveCollateralUsed this is the amount deducted from the reserve pool a a discount
+    /// @return price is the price of collateral in terms of pegged tokens used in the calculations
+    function redeemPeggedTokenDryRun(
+        uint256 peggedIn
+    )
+        external
+        view
+        returns (
+            uint256 peggedRedeemed,
+            uint256 collateralReturned,
+            uint256 fee,
+            uint256 reserveCollateralUsed,
+            uint256 price
+        );
+
     function mintLeveragedTokenIncentiveRatio(uint256 collateralIn) external view returns (int256 incentiveRatio);
 
     function redeemLeveragedTokenIncentiveRatio(

@@ -150,15 +150,14 @@ library Useful {
             ptr := add(buffer, add(32, digits))
         }
 
-        uint256 digit = 0;
-        while (digit < digits) {
+        while (true) {
             ptr--;
             /// @solidity memory-safe-assembly
             assembly {
                 mstore8(ptr, byte(mod(value, base), _SYMBOLS))
             }
-            digit++;
             value /= base;
+            if (value == 0) break;
         }
     }
 
