@@ -402,8 +402,8 @@ contract Minter_v1 is
         price = _fetchMaxPrice($.priceOracle);
         ActionIncentive memory config_ = $.redeemPeggedIncentiveConfig;
         address collateralToken_ = $.collateralToken;
-        uint256 maxCollateral;
-        (fee, maxCollateral, reserveCollateralUsed) = _redeemPeggedAdjustments(
+        uint256 peggedFee;
+        (peggedFee, peggedRedeemed, reserveCollateralUsed) = _redeemPeggedAdjustments(
             config_,
             peggedIn,
             _collateralTokenBalance(collateralToken_),
@@ -411,8 +411,8 @@ contract Minter_v1 is
             $.peggedTokenBalance,
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
-        peggedRedeemed = (maxCollateral * price) / 1 ether;
-        collateralReturned = maxCollateral + reserveCollateralUsed - fee;
+        fee = (peggedFee * 1 ether) / price;
+        collateralReturned = ((peggedRedeemed - peggedFee) * 1 ether) / price + reserveCollateralUsed;
     }
 
     function redeemPeggedTokenIncentiveRatio(
@@ -601,9 +601,8 @@ contract Minter_v1 is
         peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
 
         uint256 price = _fetchMaxPrice($.priceOracle);
-        uint256 extraCollateral;
-        uint256 fee;
-        (fee, collateralOut, extraCollateral) = _redeemPeggedAdjustments(
+        uint256 peggedFee;
+        (peggedFee, peggedIn, collateralOut) = _redeemPeggedAdjustments(
             $.redeemPeggedIncentiveConfig,
             peggedIn,
             _collateralTokenBalance(collateralToken_),
@@ -611,24 +610,17 @@ contract Minter_v1 is
             peggedTokenBalance_,
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
-        // TODO:make sure this is done for other actions
-        // TODO: have the adjustments do this calc, to eliminate rounding errors
-        peggedIn = (collateralOut * price) / 1 ether;
-        collateralOut -= fee;
         // add any extra collateral
-        if (extraCollateral > 0) {
+        if (collateralOut > 0) {
             // it's a discount
             // collect the extra collateral, if availablex
             // wake-disable-next-line reentrancy // reservePool is trusted
-            extraCollateral = IReservePool($.reservePool).requestBonus(
-                collateralToken_,
-                address(this),
-                extraCollateral
-            );
-            collateralOut += extraCollateral;
+            collateralOut = IReservePool($.reservePool).requestBonus(collateralToken_, address(this), collateralOut);
         }
+        // add the redeemed pegged minus the fees
+        collateralOut += ((peggedIn - peggedFee) * 1 ether) / price;
 
-        // calculate the collateral returned and make sure it meets the minimum requirements
+        // make sure it meets the minimum requirements
         if (collateralOut < minCollateralOut) {
             revert ReturnInsufficientAmount(collateralToken_, minCollateralOut, collateralOut);
         }
@@ -636,9 +628,9 @@ contract Minter_v1 is
         // redeem pegged tokens and send the remainder of the collateral
         _redeemPeggedToken(peggedToken_, peggedIn, collateralToken_, collateralOut, recipient);
 
-        if (fee > 0) {
+        if (peggedFee > 0) {
             // send the fee
-            IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+            IERC20(collateralToken_).safeTransfer($.feeReceiver, (peggedFee * 1 ether) / price);
         }
 
         // update our records
@@ -1243,12 +1235,14 @@ contract Minter_v1 is
         }
     }
 
-    /**
-     * @param peggedIn the given amount of peggedTokens
-     * @return fee the fee charged in collateral tokens. the fee ratio is then 'fee' / ('collateralOut' + extraCollateral')
-     * @return collateralOut the collateral returnable from 'peggedIn' pegged tokens. This has the fee deducted.
-     * @return extraCollateral the collateral to be got from the reserve pool
-     */
+    /// @param peggedIn the given amount of peggedTokens
+    /// @param collateralTokenBalance_ the amount of collateral held
+    /// @param price the value in pegged of each collateal token
+    /// @param peggedTokenBalance_ the balance of pegged tokens minted
+    /// @param reservePoolBalance_ the current balance of the reserve pool
+    /// @return peggedFee the fee charged in collateral tokens. the fee ratio is then 'fee' / ('collateralOut' + extraCollateral')
+    /// @return peggedRedeemed the collateral returnable from 'peggedIn' pegged tokens. This has the fee deducted.
+    /// @return extraCollateral the collateral to be got from the reserve pool
 
     function _redeemPeggedAdjustments(
         ActionIncentive memory config_,
@@ -1257,7 +1251,7 @@ contract Minter_v1 is
         uint256 price,
         uint256 peggedTokenBalance_,
         uint256 reservePoolBalance_
-    ) private pure returns (uint256 fee, uint256 collateralOut, uint256 extraCollateral) {
+    ) private pure returns (uint256 peggedFee, uint256 peggedRedeemed, uint256 extraCollateral) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
@@ -1290,12 +1284,13 @@ contract Minter_v1 is
                     peggedInBand = Math.min(peggedIn, peggedInBand);
                 }
             }
-            collateralOut += (peggedInBand * 1 ether) / price;
+            peggedRedeemed += peggedInBand;
             if (bandIncentiveRatio > 0) {
-                uint256 bandFee = (peggedInBand * uint256(bandIncentiveRatio)) / price;
                 // tally the weighted fee ratios
-                fee += bandFee;
+                // TODO: remove those divisions till the end
+                peggedFee += (peggedInBand * uint256(bandIncentiveRatio)) / 1 ether;
             } else if (bandIncentiveRatio < 0) {
+                // any truncation below, benefits the
                 uint256 extraCollateralInBand = (peggedInBand * uint256(-bandIncentiveRatio)) / price;
                 // tally the discounts
                 if (extraCollateralInBand <= reservePoolBalance_) {
@@ -1312,10 +1307,7 @@ contract Minter_v1 is
                 // no pegged tokens left to simulate redeeming them
                 break;
             }
-            // still some pegged tolens left and we're allowed to redeem
-            // TODO: what happens if subtracted, above, is greater than the balance, below?
-            // we need to check for this before we leave the loop above
-            // TODO: add a test for this
+            // still some pegged tokens left and we're allowed to redeem
             peggedTokenBalance_ -= peggedInBand;
             collateralTokenBalance_ -= (peggedInBand * 1 ether) / price;
 

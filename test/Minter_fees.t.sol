@@ -668,7 +668,7 @@ contract TestMinterFees is TestMinter {
     }
 
     function test_redeemPeggedFeesAreIntegralsBoundary() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        (, , , uint256 price) = priceOracle.getPrice();
         setUp_collateral(10 ether, 4 ether); // CR = 14/10 = 140%
 
         deal(address(deployed.BaoUSD), user.addr, IMinter(minter).peggedTokenBalance());
@@ -676,16 +676,17 @@ contract TestMinterFees is TestMinter {
         IERC20(deployed.BaoUSD).approve(minter, type(uint256).max);
 
         uint lots = 3;
-        // clog("collateralRatio", IMinter(minter).collateralRatio());
-        (int256 totalFeeRatio, uint256 collateral) = IMinter(minter).redeemPeggedTokenIncentiveRatio(lots * price);
-        uint256 totalFeeExpected = (uint256(totalFeeRatio) * collateral) / 1 ether;
-        // clog("totalFeeExpected", totalFeeExpected);
+        (, , uint256 totalFeeExpected, , ) = IMinter(minter).redeemPeggedTokenDryRun(lots * price);
 
         for (uint i = 0; i < lots; i++) {
             IMinter(minter).redeemPeggedToken(price, user.addr, 0);
-            // clog("collateralRatio", IMinter(minter).collateralRatio());
         }
-        assertApproxEqAbs(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), uint256(totalFeeExpected), 2);
+        assertApproxEqAbs(
+            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            uint256(totalFeeExpected),
+            0,
+            "test total fee"
+        );
         vm.stopPrank();
     }
 

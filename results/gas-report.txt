@@ -29,7 +29,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4901144                                     | 22550           |        |        |        |         |
+| 4912986                                     | 22605           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5423            | 5423   | 5423   | 5423   | 7       |
 | collateralRatio                             | 450             | 3468   | 3511   | 3511   | 872     |
@@ -58,9 +58,9 @@
 | priceOracle                                 | 2447            | 2447   | 2447   | 2447   | 1       |
 | redeemLeveragedToken                        | 2774            | 69401  | 84575  | 118057 | 29      |
 | redeemLeveragedTokenIncentiveRatio          | 6911            | 8970   | 8007   | 14843  | 1430    |
-| redeemPeggedToken                           | 7278            | 110743 | 114846 | 156147 | 208     |
-| redeemPeggedTokenDryRun                     | 10106           | 11496  | 11110  | 18526  | 220     |
-| redeemPeggedTokenIncentiveRatio             | 5591            | 9388   | 8501   | 21800  | 1407    |
+| redeemPeggedToken                           | 7278            | 110669 | 114911 | 155979 | 208     |
+| redeemPeggedTokenDryRun                     | 10103           | 11511  | 11107  | 21602  | 221     |
+| redeemPeggedTokenIncentiveRatio             | 5591            | 9305   | 8501   | 17476  | 1406    |
 | reservePool                                 | 2448            | 2448   | 2448   | 2448   | 1       |
 | supportsInterface                           | 505             | 608    | 543    | 778    | 3       |
 | updateConfig                                | 21241           | 51039  | 35857  | 126227 | 18      |
