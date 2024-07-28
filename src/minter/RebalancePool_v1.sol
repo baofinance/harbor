@@ -13,11 +13,6 @@ import { MultipleRewardCompoundingAccumulator } from "src/common/rewards/accumul
 import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
-/*
-import { IFxMarket } from "../../interfaces/f(x)/IFxMarket.sol";
-import { IFxTokenWrapper } from "../../interfaces/f(x)/IFxTokenWrapper.sol";
-import { IFxTreasury } from "../../interfaces/f(x)/IFxTreasury.sol";
-*/
 import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
 import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
 import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
@@ -599,7 +594,8 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         TokenBalance memory supply = $.totalSupply;
         TokenBalance memory balance = $.balances[sender];
         TokenBalance memory ownerBalance;
-        if (amount > balance.amount) amount = balance.amount;
+        if (amount == type(uint256).max) amount = balance.amount;
+        if (amount > balance.amount) revert WithdrawAmountExceedsBalance(amount, balance.amount);
         if (amount == 0) revert WithdrawZeroAmount();
 
         unchecked {
@@ -623,6 +619,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         $.balances[sender] = balance;
 
         // update boost checkpoint at last
+        // TODO: this is done in _checkpoint so why are we doing it again here?
         _updateBoostCheckpoint(sender, owner, balance, ownerBalance, supply);
 
         IERC20($.assetToken).safeTransfer(receiver, amount);

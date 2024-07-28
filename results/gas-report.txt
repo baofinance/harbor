@@ -72,15 +72,16 @@
 | src/minter/RebalancePool_v1.sol:RebalancePool_v1 contract |                 |        |        |        |         |
 |-----------------------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                                           | Deployment Size |        |        |        |         |
-| 5062030                                                   | 23294           |        |        |        |         |
+| 5076966                                                   | 23363           |        |        |        |         |
 | Function Name                                             | min             | avg    | median | max    | # calls |
-| assetBalanceOf                                            | 1599            | 1599   | 1599   | 1599   | 1       |
+| assetBalanceOf                                            | 1052            | 1507   | 1599   | 1599   | 6       |
 | assetToken                                                | 2525            | 2525   | 2525   | 2525   | 1       |
 | collateralToken                                           | 2502            | 2502   | 2502   | 2502   | 1       |
-| deposit                                                   | 13854           | 65460  | 65460  | 117066 | 2       |
+| deposit                                                   | 13854           | 68862  | 72265  | 117066 | 4       |
 | hasRole                                                   | 2774            | 2774   | 2774   | 2774   | 1       |
 | initialize                                                | 276510          | 276510 | 276510 | 276510 | 5       |
 | totalAssetSupply                                          | 2455            | 2455   | 2455   | 2455   | 1       |
+| withdraw                                                  | 22605           | 46593  | 58550  | 58625  | 3       |
 
 --
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |

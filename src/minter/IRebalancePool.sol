@@ -56,6 +56,9 @@ interface IRebalancePool {
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawZeroAmount();
 
+    /// @dev Thrown when the withdrawn amount is zero.
+    error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
+
     /// @dev Thrown the cannot liquidate.
     error CannotLiquidate();
 
