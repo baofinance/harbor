@@ -273,7 +273,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     /// @inheritdoc IRebalancePool
     function deposit(uint256 amount, address receiver) external override {
         if (hasRole(VE_SHARING_ROLE, receiver)) revert ErrorVoteOwnerCannotStake();
-        console.log("deposit(amount=%s)", amount);
+        // console.log("deposit(amount=%s)", amount);
         address sender = _msgSender();
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
 
@@ -282,15 +282,15 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         if (amount == type(uint256).max) {
             amount = IERC20(assetToken_).balanceOf(sender);
         }
-        console.log("amount=%s", amount);
+        // console.log("amount=%s", amount);
         if (amount == 0) revert DepositZeroAmount();
-        console.log("transferring...");
+        // console.loglogloglogloglogloglog("transferring...");
         IERC20(assetToken_).safeTransferFrom(sender, address(this), amount);
 
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
-        console.log("checkpoint...");
+        // console.log("checkpoint...");
         _checkpoint(receiver);
-        console.log("checkpoint.");
+        // console.log("checkpoint.");
 
         // It should never exceed `type(uint104).max`.
         TokenBalance memory supply = $.totalSupply;
@@ -311,13 +311,13 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // balance.updatedAt = uint40(block.timestamp);
         // ownerBalance.updatedAt = uint40(block.timestamp);
 
-        console.log("recordTotalSupply...");
+        // console.log("recordTotalSupply...");
         _recordTotalSupply(supply);
         $.balances[receiver] = balance;
-        console.log("recordTotalSupply.");
+        // console.log("recordTotalSupply.");
 
         // update boost checkpoint at last
-        console.log("updateBoostCheckpoint...");
+        // console.log("updateBoostCheckpoint...");
         _updateBoostCheckpoint(receiver, owner, balance, ownerBalance, supply);
 
         emit Deposit(sender, receiver, amount);
@@ -529,7 +529,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         address owner = $.getStakerVoteOwner[account];
         /*
         if (account != address(0)) {
-            console.log("veHelper=%s", veHelper);
+            // console.log("veHelper=%s", veHelper);
             IVotingEscrowHelper($.veHelper).checkpoint(owner == address(0) ? account : owner);
         }
         */

@@ -240,25 +240,41 @@ interface IMinter {
     function reservePool() external view returns (address);
     function feeReceiver() external view returns (address);
 
-    // @notice Returns the totalAmount of tokens minted and not redeemed by the minter
+    /// @notice Returns the totalAmount of tokens minted and not redeemed by the minter
     function peggedTokenBalance() external view returns (uint256);
     function leveragedTokenBalance() external view returns (uint256);
     function collateralTokenBalance() external view returns (uint256);
 
-    function mintPeggedTokenIncentiveRatio(
-        uint256 additionalCollateral
-    ) external view returns (int256 incentiveRatio, uint256 maxCollateral);
+    /// @notice Returns the current incentive ratio for minting pegged tokens
+    function mintPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
-    function redeemPeggedTokenIncentiveRatio(
-        uint256 peggedIn
-    ) external view returns (int256 incentiveRatio, uint256 maxCollateral);
+    function redeemPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
+
+    function mintLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
+
+    function redeemLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
+
+    // dry run functions are like the incentive ratio functions but perform a definite integral on the fee function
+    // over the range between the current colateral ratio and the collateral ratio that would be achieved if the action was performed
+    // The functions don't return an incentive ration but the actual amounts of tokens expected to be transferred as part of the action
+
+    function mintPeggedTokenDryRun(
+        uint256 collateralIn
+    )
+        external
+        view
+        returns (
+            int256 incentiveRatio,
+            uint256 collateralUsed,
+            uint256 peggedMinted,
+            uint256 fee,
+            uint256 reserveCollateralUsed,
+            uint256 price
+        );
 
     /// @notice Returns values that will be used if an actual redeemPeggedToken function call is made
-    /// The following can be calculated:
-    /// the amount of collateral extracted from the pegged tokens redeemed is given by peggedRedeemed
-    /// the amount of fee in collateral deducted is given by 'fee'
-    /// the amount of collateral returned to the user is given by peggedRedeemed / price - fee + extraCollateral
     /// @param peggedIn is the amount of pegged token to be redeemed
+    /// @return incentiveRatio the effective incentive ratio for 'peggedIn' pegged tokens
     /// @return peggedRedeemed is the maximum collateral value of the pegged token passed in that are allowed to be converted to collateral
     /// @return collateralReturned is the amount of collateral returned from the reserve pool and passed to the caller
     /// @return fee this is the amount deducted from the returned collateral as a fee
@@ -270,6 +286,7 @@ interface IMinter {
         external
         view
         returns (
+            int256 incentiveRatio,
             uint256 peggedRedeemed,
             uint256 collateralReturned,
             uint256 fee,
@@ -277,11 +294,33 @@ interface IMinter {
             uint256 price
         );
 
-    function mintLeveragedTokenIncentiveRatio(uint256 collateralIn) external view returns (int256 incentiveRatio);
+    function mintLeveragedTokenDryRun(
+        uint256 collateralIn
+    )
+        external
+        view
+        returns (
+            int256 incentiveRatio,
+            uint256 collateralUsed,
+            uint256 leveragedMinted,
+            uint256 fee,
+            uint256 reserveCollateralUsed,
+            uint256 price
+        );
 
-    function redeemLeveragedTokenIncentiveRatio(
+    function redeemLeveragedTokenDryRun(
         uint256 leveragedIn
-    ) external view returns (int256 incentiveRatio, uint256 maxLeveragedTokens);
+    )
+        external
+        view
+        returns (
+            int256 incentiveRatio,
+            uint256 levergedRedeemed,
+            uint256 collateralReturned,
+            uint256 fee,
+            uint256 reserveCollateralUsed,
+            uint256 price
+        );
 
     /********************************
      * Public Mutator Functions     *

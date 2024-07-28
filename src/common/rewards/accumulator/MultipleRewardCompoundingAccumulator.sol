@@ -318,16 +318,16 @@ abstract contract MultipleRewardCompoundingAccumulator is
     /// @param account The address of user to update. Use zero address
     ///        if you only want to update global snapshot.
     function _checkpoint(address account) internal virtual {
-        console.log("_distributePendingReward...");
+        // console.log("_distributePendingReward...");
         _distributePendingReward();
-        console.log("_distributePendingReward.");
+        // console.log("_distributePendingReward.");
 
         if (account != address(0)) {
             // checkpoint active reward tokens
             address[] memory rewardTokens = getActiveRewardTokens();
-            console.log("rewardTokens.length=%s", rewardTokens.length);
+            // console.log("rewardTokens.length=%s", rewardTokens.length);
             for (uint256 i = 0; i < rewardTokens.length; i++) {
-                console.log("i=%s", i);
+                // console.log("i=%s", i);
                 _updateSnapshot(account, rewardTokens[i]);
             }
 

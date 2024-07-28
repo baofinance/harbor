@@ -238,7 +238,7 @@ contract TestMinterInit is TestMinter {
     function test_notERC20() private {
         //                   -------
         /*
-        console.log("good deploy");
+        // console.log("good deploy");
         UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1()), // "Minter_v1.sol",
             abi.encodeCall(
@@ -256,7 +256,7 @@ contract TestMinterInit is TestMinter {
         */
 
         // not a contract
-        console.log("not a contract");
+        // console.log("not a contract");
         vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner.addr));
 
         UnsafeUpgrades.deployUUPSProxy(
@@ -275,7 +275,7 @@ contract TestMinterInit is TestMinter {
         );
 
         // contract but not ERC20
-        console.log("not an ERC20");
+        // console.log("not an ERC20");
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, address(priceOracle)));
         UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1()), // "Minter_v1.sol",

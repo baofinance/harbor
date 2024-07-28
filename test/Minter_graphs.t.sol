@@ -62,6 +62,22 @@ contract TestMinterGraphs is TestMinter {
         vm.writeLine(file, Useful.join(strData, ","));
     }
 
+    function getIncentives()
+        private
+        view
+        returns (
+            int256 mintPeggedIncentive,
+            int256 redeemPeggedIncentive,
+            int256 mintLeveragedIncentive,
+            int256 redeemLeveragedIncentive
+        )
+    {
+        mintPeggedIncentive = IMinter(minter).mintPeggedTokenIncentiveRatio();
+        redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio();
+        mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
+        redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
+    }
+
     function getIncentives(
         uint256 collateral,
         uint256 price
@@ -75,10 +91,10 @@ contract TestMinterGraphs is TestMinter {
             int256 redeemLeveragedIncentive
         )
     {
-        (mintPeggedIncentive, ) = IMinter(minter).mintPeggedTokenIncentiveRatio(collateral);
-        (redeemPeggedIncentive, ) = IMinter(minter).redeemPeggedTokenIncentiveRatio((collateral * price) / 1 ether);
-        mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio(collateral);
-        (redeemLeveragedIncentive, ) = IMinter(minter).redeemLeveragedTokenIncentiveRatio(collateral * 1000);
+        (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateral);
+        (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun((collateral * price) / 1 ether);
+        (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(collateral);
+        (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(collateral * 1000);
     }
 
     function test_CRGraphs() public {
@@ -92,7 +108,7 @@ contract TestMinterGraphs is TestMinter {
         /*
         // test fees at the extremities, around rebalance and danger
         // CR is proportional to price
-        console.log(
+        // console.log(
             "startPrice (%s) * config.rebalanceCollateralRatioUpperBound (%s)",
             startPrice,
             config.rebalanceCollateralRatioUpperBound
@@ -156,7 +172,7 @@ contract TestMinterGraphs is TestMinter {
             assertEq(cr, IMinter(minter).collateralRatio(), "crs must match");
 
             // zero collateral (instantaneous) incentives
-            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(0, price);
+            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives();
             writeLine(
                 feesFile,
                 ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)
