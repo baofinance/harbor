@@ -20,9 +20,6 @@ interface ILiquidator {
      * Public View Functions *
      *************************/
 
-    /// @notice Return the address of base token.
-    function collateralToken() external view returns (address);
-
     /// @notice Return the address of underlying token of this contract.
     function assetToken() external view returns (address);
 
@@ -33,6 +30,8 @@ interface ILiquidator {
     /// @notice Liquidate asset.
     /// This function transfers a given amount of assets to the receiver.
     /// In return it is assumed the receiver will transfer a suitable amount of reward tokens via the 'accumulateReward function below.
-    /// @param receiver The contract that receives the liquidation reward.
-    function liquidate(address receiver) external;
+    /// @param minLiquidation The minimum amount of liquidated asset (get this from the reservePool)
+    /// @param rewardReceiver The contract that receives the liquidation reward.
+    /// @return liquidated The amount actually liquidated
+    function liquidate(address rewardReceiver, uint256 minLiquidation) external returns (uint256 liquidated);
 }

@@ -8,7 +8,6 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
-import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { ILiquidator } from "src/minter/ILiquidator.sol";
 import { AccessControl } from "src/common/AccessControl.sol";
@@ -36,20 +35,8 @@ contract Liquidator_v1 is
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.Genesis
     struct LiquidatorStorage {
-        /// @notice The address of minter contract.
-        address minter;
         /// @notice The address of rebalancePool contract.
         address rebalancePool;
-        /// @notice The collateralRatio the liquidation can start at
-        uint96 rebalanceCollateralRatio;
-        // @notice the token returned to the asset/peggedToken owner for the liquidated peggedTokens
-        address returnToken;
-        /// @notice The address of collateral token.
-        address collateralToken;
-        /// @notice The address of peggedToken token.
-        address peggedToken;
-        /// @notice The address of leveragedToken token.
-        address leveragedToken;
         /// @notice the reward given to a successful liquidator
         address rewardToken;
         /// @notice the ampount of reward to be given to the liquidator caller
@@ -65,9 +52,6 @@ contract Liquidator_v1 is
     function initialize(
         address owner,
         address rebalancePool,
-        address minter,
-        uint256 rebalanceCollateralRatio,
-        address returnToken,
         address rewardToken,
         uint256 rewardAmount
     ) public initializer {
@@ -78,17 +62,9 @@ contract Liquidator_v1 is
             revert NeedsRole(LIQUIDATOR_ROLE, address(this));
 
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-
-        $.minter = minter;
         $.rebalancePool = rebalancePool;
-        $.rebalanceCollateralRatio = uint96(rebalanceCollateralRatio);
-        $.returnToken = returnToken;
         $.rewardToken = rewardToken;
         $.rewardAmount = uint96(rewardAmount);
-
-        $.peggedToken = IMinter(minter).peggedToken();
-        $.collateralToken = IMinter(minter).collateralToken();
-        $.leveragedToken = IMinter(minter).leveragedToken();
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -106,49 +82,24 @@ contract Liquidator_v1 is
     }
 
     /// @inheritdoc ILiquidator
-    function collateralToken() external view returns (address) {
-        LiquidatorStorage storage $ = _getLiquidatorStorage();
-        return $.collateralToken;
-    }
-
-    /// @inheritdoc ILiquidator
     function assetToken() external view returns (address) {
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-        return $.peggedToken;
+        return IRebalancePool($.rebalancePool).assetToken();
     }
 
+    // TODO: add functions to update rewards
+    // TODO: make this inherit TokenOwner to make recovery of owned tokens easier
+
     /// @inheritdoc ILiquidator
-    function liquidate(address rewardReceiver) public virtual nonReentrant {
+    function liquidate(
+        address rewardReceiver,
+        uint256 minLiquidation
+    ) public virtual nonReentrant returns (uint256 liquidated) {
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-
         address rebalancePool = $.rebalancePool;
-        uint256 rebalanceCollateralRatio_ = $.rebalanceCollateralRatio;
-        address minter = $.minter;
-        address returnToken = $.returnToken;
-        address collateralToken_ = $.collateralToken;
-        address leveragedToken = $.leveragedToken;
 
-        // depending on the token, determine the amount that needs to be liquidated
-        uint256 peggedTokensToLiquidate;
-        if (returnToken == collateralToken_) {
-            peggedTokensToLiquidate = IMinter(minter).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
-        } else if (returnToken == leveragedToken) {
-            peggedTokensToLiquidate = IMinter(minter).swapPeggedForleveragedForCollateralRatio(
-                rebalanceCollateralRatio_
-            );
-        }
+        liquidated = IRebalancePool(rebalancePool).liquidate(minLiquidation);
 
-        uint256 peggedLiquidated = IRebalancePool(rebalancePool).liquidate(peggedTokensToLiquidate, minter);
-
-        uint256 returnAmount;
-        if (returnToken == collateralToken_) {
-            returnAmount = IMinter(minter).redeemPeggedToken(peggedLiquidated, rebalancePool, 0);
-        } else if (returnToken == leveragedToken) {
-            returnAmount = IMinter(minter).freeSwapPeggedForLeveraged(peggedLiquidated, rebalancePool);
-        }
-
-        IRebalancePool(rebalancePool).accumulateReward(returnToken, returnAmount);
-
-        // TODO: send the reward token to the receiver
+        IERC20($.rewardToken).safeTransfer(rewardReceiver, $.rewardAmount);
     }
 }

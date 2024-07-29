@@ -66,6 +66,9 @@ interface IRebalancePool {
     /// @dev Thrown the cannot liquidate.
     error CannotLiquidate();
 
+    /// @dev Thrown when the amount requested to be liquidated isn't met
+    error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
+
     /*************************
      * Public View Functions *
      *************************/
@@ -107,15 +110,14 @@ interface IRebalancePool {
     /// @notice Liquidate asset.
     /// This function transfers a given amount of assets to the receiver.
     /// In return it is assumed the receiver will transfer a suitable amount of reward tokens via the 'accumulateReward function below.
-    /// @param peggedAmount The amount of asset to liquidate.
-    /// @param receiver The contract that receives the liquidated assets.
+    /// @param minPeggedAmount The minimum amount of asset to liquidate.
     /// @return liquidated The amount of asset liquidated.
-    function liquidate(uint256 peggedAmount, address receiver) external returns (uint256 liquidated);
+    function liquidate(uint256 minPeggedAmount) external returns (uint256 liquidated);
 
     /// @notice send reward tokens to the pool stakers
     /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
     /// Other reward tokens can also be added using this function
-    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+    // function accumulateReward(address rewardToken, uint256 rewardAmount) external;
 
     // SHAREABLE part
     /**********

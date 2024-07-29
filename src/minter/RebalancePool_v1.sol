@@ -13,6 +13,7 @@ import { MultipleRewardCompoundingAccumulator } from "src/common/rewards/accumul
 import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
+import { IMinter } from "src/minter/IMinter.sol";
 import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
 import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
 import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
@@ -108,14 +109,11 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         address ve;
         /// @notice The address of VotingEscrowHelper contract.
         // address veHelper; TODO: add back in (here and elsewhere) when we know how to integrate it
-        /// @inheritdoc IRebalancePool
-        address treasury;
-        /// @inheritdoc IRebalancePool
-        address market;
         /// @notice The gauge struct.
         Gauge gauge;
         /// @inheritdoc IRebalancePool
-        address collateralToken;
+        address liquidationToken;
+        bool liquidationTokenIsCollateral;
         /// @inheritdoc IRebalancePool
         address assetToken;
         /// @dev The TokenBalance struct for current total supply.
@@ -160,12 +158,11 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
     function initialize(
         address owner,
-        address assetToken_,
-        address collateralToken_
+        address minter_,
+        address liquidationToken_
     )
         external
         /*
-        address minter_,
         address gauge,
         address fxn_,
         address curveTokenMinter,
@@ -189,8 +186,11 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
 
-        $.collateralToken = collateralToken_;
-        $.assetToken = assetToken_;
+        $.liquidationToken = liquidationToken_;
+        $.liquidationTokenIsCollateral = liquidationToken_ == IMinter(minter_).collateralToken();
+        // TODO: check it is the leveraged token
+        $.assetToken = IMinter(minter_).peggedToken();
+
         // TODO: what purpose does the wrapper give.
         // I'm guessing that this contract wraps because it keeps a track of shares
         // wrapper = address(this);
@@ -342,11 +342,9 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     }
 
     /// @inheritdoc IRebalancePool
-    function liquidate(
-        uint256 peggedAmount,
-        address receiver
-    ) external virtual override onlyRole(LIQUIDATOR_ROLE) returns (uint256 liquidated) {
+    function liquidate(uint256 minLiquidated) external virtual override returns (uint256 liquidated) {
         _checkpoint(address(0));
+
         // liquidate simply gives up a given amount of assets and collateral
         // and record the event
         // another contract (LIQUIDATOR_ROLE) calculates the amount of assets to be liquidated and
@@ -354,21 +352,41 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // This contract doesn't disallow it in any way other than via the role mechanism.
 
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        address minter_ = $.minter;
 
-        // TODO: this should calculate the collateral needed to achieve the liquidatable Collateral Ratio
-        // then work out how many of the pegged tokens are needed to be swaped for either the leveraged
-        // token or collateral token
-        // TODO: should this function even be here as it's the only place the minter is needed
-        // instead this should provide a protected function to relinquish ownership of pegged tokens
-        // TODO: the minter contract should work out how much is needed to be liquidated (depending on what
-        // the asset is liquidated into collateral or leveraged), then call a function here to do all the stuff
-        // it needs to: burn the asset, update it's shares, and transfer the liquidated-to token to the owner
+        // check we are in the right collateral ratio band
+        uint256 rebalanceCollateralRatio_ = IMinter(minter_).rebalanceCollateralRatio();
+        if (IMinter(minter_).collateralRatio() > rebalanceCollateralRatio_) {
+            revert(CannotLiquidate);
+        }
 
-        emit Liquidate(peggedAmount);
+        address liquidationToken_ = $.liquidationToken;
+        bool liquidationTokenIsCollateral = $.liquidationTokenIsCollateral;
+        // depending on the token, determine the amount that needs to be liquidated
+        uint256 peggedTokensToLiquidate;
 
-        IERC20($.assetToken).safeTransfer(receiver, peggedAmount);
+        if (liquidationTokenIsCollateral) {
+            peggedTokensToLiquidate = IMinter(minter_).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
+        } else {
+            peggedTokensToLiquidate = IMinter(minter_).swapPeggedForleveragedForCollateralRatio(
+                rebalanceCollateralRatio_
+            );
+        }
+        if (peggedTokensToLiquidate < minLiquidated) {
+            revert NotEnoughTokensToLiquidate(peggedTokensToLiquidate, minLiquidated);
+        }
 
-        // TODO: check if this can be done here or must happen after the accumulateReward (below)
+        uint256 returnAmount;
+        if (liquidationTokenIsCollateral) {
+            returnAmount = IMinter(minter_).redeemPeggedToken(peggedTokensToLiquidate, address(this), 0);
+        } else {
+            returnAmount = IMinter(minter_).freeSwapPeggedForLeveraged(peggedTokensToLiquidate, address(this));
+        }
+
+        emit Liquidate(peggedTokensToLiquidate);
+
+        _accumulateReward(liquidationToken_, returnAmount);
+
         // notify loss
         _notifyLoss(liquidated);
     }
