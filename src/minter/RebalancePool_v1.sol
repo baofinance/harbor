@@ -41,6 +41,9 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     /// @notice The role for liquidator.
     bytes32 public constant LIQUIDATOR_ROLE = keccak256("LIQUIDATOR_ROLE");
 
+    /// @notice The role for any reward sender, including the liquidator
+    bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+
     /// @notice The role for ve balance sharing.
     bytes32 public constant VE_SHARING_ROLE = keccak256("VE_SHARING_ROLE");
 
@@ -267,7 +270,10 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
     /// @inheritdoc IRebalancePool
     function deposit(uint256 amount, address receiver) external override {
+        // TODO: check if we need this:
         if (hasRole(VE_SHARING_ROLE, receiver)) revert ErrorVoteOwnerCannotStake();
+
+        // TODO: must we ensure that we don't accept more tokens than the minter we are paired with has?
         // console.log("deposit(amount=%s)", amount);
         address sender = _msgSender();
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
@@ -337,10 +343,17 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
     /// @inheritdoc IRebalancePool
     function liquidate(
-        uint256 maxAmount,
-        uint256 minBaseOut
-    ) external virtual override onlyRole(LIQUIDATOR_ROLE) returns (uint256 liquidated, uint256 baseOut) {
+        uint256 peggedAmount,
+        address receiver
+    ) external virtual override onlyRole(LIQUIDATOR_ROLE) returns (uint256 liquidated) {
         _checkpoint(address(0));
+        // liquidate simply gives up a given amount of assets and collateral
+        // and record the event
+        // another contract (LIQUIDATOR_ROLE) calculates the amount of assets to be liquidated and
+        // distributes the plunder appropriately.
+        // This contract doesn't disallow it in any way other than via the role mechanism.
+
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
 
         // TODO: this should calculate the collateral needed to achieve the liquidatable Collateral Ratio
         // then work out how many of the pegged tokens are needed to be swaped for either the leveraged
@@ -350,48 +363,19 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // TODO: the minter contract should work out how much is needed to be liquidated (depending on what
         // the asset is liquidated into collateral or leveraged), then call a function here to do all the stuff
         // it needs to: burn the asset, update it's shares, and transfer the liquidated-to token to the owner
-        /*
-        IFxTreasury treasury = IFxTreasuryV2(treasury);
-        if (treasury.collateralRatio() >= liquidatableCollateralRatio) {
-            revert CannotLiquidate();
-        }
-        (, uint256 maxLiquidatable) = treasury.maxRedeemableFToken(liquidatableCollateralRatio);
 
-        uint256 amount = maxLiquidatable;
-        if (amount > maxAmount) {
-            amount = maxAmount;
-        }
+        emit Liquidate(peggedAmount);
 
-        address assetToken_ = $.assetToken;
-        address market = market;
-        address wrapper = wrapper;
+        IERC20($.assetToken).safeTransfer(receiver, peggedAmount);
 
-        liquidated = IERC20(assetToken).balanceOf(address(this));
-        if (amount > liquidated) {
-            // cannot liquidate more than assets in this contract.
-            amount = liquidated;
-        }
-        IERC20(assetToken).safeApprove(market, 0);
-        IERC20(assetToken).safeApprove(market, amount);
-        // TODO: should liquidation have fees
-        (baseOut, ) = IFxMarket(market).redeemFToken(amount, 0, wrapper, minBaseOut);
-        liquidated = liquidated - IERC20(assetToken).balanceOf(address(this));
-
-        emit Liquidate(liquidated, baseOut);
-
-        // wrap base token if needed
-        address token = collateralToken;
-        if (wrapper != address(this)) {
-            baseOut = IFxTokenWrapper(wrapper).wrap(baseOut);
-            token = IFxTokenWrapper(wrapper).dst();
-        }
-
-        // distribute liquidated base token
-        _accumulateReward(token, baseOut);
-
+        // TODO: check if this can be done here or must happen after the accumulateReward (below)
         // notify loss
         _notifyLoss(liquidated);
-        */
+    }
+
+    /// @inheritdoc IRebalancePool
+    function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRole(REWARDER_ROLE) {
+        _accumulateReward(rewardToken, rewardAmount);
     }
 
     /// @inheritdoc IRebalancePool

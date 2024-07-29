@@ -19,7 +19,7 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
-import { IMinterTreasury, IMinter } from "src/minter/IMinter.sol";
+import { IMinter } from "src/minter/IMinter.sol";
 
 import { Genesis_v1 } from "src/minter/Genesis_v1.sol";
 

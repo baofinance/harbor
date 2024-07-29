@@ -27,8 +27,12 @@ interface IRebalancePool {
 
     /// @notice Emitted when liquidation happens.
     /// @param liquidated The amount of asset liquidated.
-    /// @param baseGained The amount of base token gained.
-    event Liquidate(uint256 liquidated, uint256 baseGained);
+    event Liquidate(uint256 liquidated);
+
+    /// @notice Emitted when a reward token is gained.
+    /// @param rewardToken address of the reward token
+    /// @param rewardAmount The amount of token gained.
+    event RewardReceived(address rewardToken, uint256 rewardAmount);
 
     /// @notice Emitted when the address of reward wrapper is updated.
     /// @param oldWrapper The address of previous reward wrapper.
@@ -84,7 +88,7 @@ interface IRebalancePool {
     function getBoostRatio(address account) external view returns (uint256);
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Deposit some asset to this contract.
@@ -96,12 +100,22 @@ interface IRebalancePool {
     /// @notice Withdraw asset from this contract.
     function withdraw(uint256 amount, address receiver) external;
 
-    /// @notice Liquidate asset for base token.
-    /// @param maxAmount The maximum amount of asset to liquidate.
-    /// @param minBaseOut The minimum amount of base token should receive.
+    /*******************************
+     * Protected Mutator Functions *
+     *******************************/
+
+    /// @notice Liquidate asset.
+    /// This function transfers a given amount of assets to the receiver.
+    /// In return it is assumed the receiver will transfer a suitable amount of reward tokens via the 'accumulateReward function below.
+    /// @param peggedAmount The amount of asset to liquidate.
+    /// @param receiver The contract that receives the liquidated assets.
     /// @return liquidated The amount of asset liquidated.
-    /// @return baseOut The amount of base token received.
-    function liquidate(uint256 maxAmount, uint256 minBaseOut) external returns (uint256 liquidated, uint256 baseOut);
+    function liquidate(uint256 peggedAmount, address receiver) external returns (uint256 liquidated);
+
+    /// @notice send reward tokens to the pool stakers
+    /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
+    /// Other reward tokens can also be added using this function
+    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
 
     // SHAREABLE part
     /**********

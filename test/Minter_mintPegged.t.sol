@@ -10,7 +10,7 @@ import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/ac
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
+import { IMinter } from "src/minter/IMinter.sol";
 import { deployed } from "test/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
@@ -51,7 +51,7 @@ contract TestMinterMintPegged is TestMinterMint {
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintPeggedToken(owner.addr, receiver.addr, ownerCollateralDecrease, receiverBaoUSDIncrease);
         vm.prank(owner.addr);
-        uint256 minted = IMinterTreasury(minter).freeMintPeggedToken(collateralIn, receiver.addr);
+        uint256 minted = IMinter(minter).freeMintPeggedToken(collateralIn, receiver.addr);
         //               ------------------------------------------------------------------------
         assertEq(minted, receiverBaoUSDIncrease, "unexpected amount minted compared to price");
         assertEq(
@@ -82,26 +82,26 @@ contract TestMinterMintPegged is TestMinterMint {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, receiver.addr, zeroFeeRole)
         );
         vm.prank(receiver.addr);
-        IMinterTreasury(minter).freeMintPeggedToken(1 ether, receiver.addr);
+        IMinter(minter).freeMintPeggedToken(1 ether, receiver.addr);
         //-------------------------------------------------------------
 
         // zero input, when none
         assertEq(IERC20(deployed.wstETH).balanceOf(owner.addr), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintPeggedToken(0, receiver.addr);
+        IMinter(minter).freeMintPeggedToken(0, receiver.addr);
         //-------------------------------------------------------
 
         // some input, when none
         vm.expectRevert("ERC20: transfer amount exceeds balance");
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintPeggedToken(1 ether, receiver.addr);
+        IMinter(minter).freeMintPeggedToken(1 ether, receiver.addr);
         //-------------------------------------------------------------
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintPeggedToken(type(uint256).max, receiver.addr);
+        IMinter(minter).freeMintPeggedToken(type(uint256).max, receiver.addr);
         //-----------------------------------------------------------------------
 
         // get collateral & allowance
@@ -112,7 +112,7 @@ contract TestMinterMintPegged is TestMinterMint {
         // zero input, when some
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.wstETH));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintPeggedToken(0, receiver.addr);
+        IMinter(minter).freeMintPeggedToken(0, receiver.addr);
         //-----------------------------------------------------------
 
         (, uint256 price, , ) = priceOracle.getPrice();

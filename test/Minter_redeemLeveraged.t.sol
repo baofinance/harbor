@@ -11,7 +11,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
-import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
+import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { deployed } from "test/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
@@ -59,7 +59,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             receiverCollateralIncrease
         );
         vm.prank(owner.addr);
-        uint256 returned = IMinterTreasury(minter).freeRedeemLeveragedToken(leveragedIn, receiver.addr);
+        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(leveragedIn, receiver.addr);
         //                 ----------------------------------------------------------------------
         assertEq(
             returned,
@@ -94,27 +94,27 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, sender.addr, zeroFeeRole)
         );
         vm.prank(sender.addr);
-        IMinterTreasury(minter).freeRedeemLeveragedToken(price, receiver.addr);
+        IMinter(minter).freeRedeemLeveragedToken(price, receiver.addr);
         // 1 -----------------------------------------------------------------
 
         // zero input, when none
         assertEq(IERC20(deployed.wstETH).balanceOf(owner.addr), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemLeveragedToken(0, receiver.addr);
+        IMinter(minter).freeRedeemLeveragedToken(0, receiver.addr);
         // 2 -------------------------------------------------------------
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemLeveragedToken(type(uint256).max, receiver.addr);
+        IMinter(minter).freeRedeemLeveragedToken(type(uint256).max, receiver.addr);
         // 3 -----------------------------------------------------------------------------
 
         // some input, when none
         //vm.expectRevert("ERC20: transfer amount exceeds balance");
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemLeveragedToken(price, receiver.addr);
+        IMinter(minter).freeRedeemLeveragedToken(price, receiver.addr);
         // 4 -----------------------------------------------------------------
 
         // some input, when none, but minter has some
@@ -124,13 +124,13 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         vm.prank(owner.addr);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintLeveragedToken(1 ether, sender.addr); // not owner
+        IMinter(minter).freeMintLeveragedToken(1 ether, sender.addr); // not owner
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         //vm.expectRevert("ERC20: transfer amount exceeds balance");
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, owner.addr, 0, 1 ether));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemLeveragedToken(1 ether, receiver.addr);
+        IMinter(minter).freeRedeemLeveragedToken(1 ether, receiver.addr);
         // 5 -----------------------------------------------------------------
 
         uint256 leveragedTotalSupplyBefore = IERC20(leveragedToken).totalSupply();
@@ -138,7 +138,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
         uint256 mintedLeveraged = price;
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintLeveragedToken(1 ether, owner.addr);
+        IMinter(minter).freeMintLeveragedToken(1 ether, owner.addr);
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         assertEq(leveragedTotalSupplyBefore + mintedLeveraged, IERC20(leveragedToken).totalSupply());
@@ -148,12 +148,12 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // zero input, when some
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemLeveragedToken(0, receiver.addr);
+        IMinter(minter).freeRedeemLeveragedToken(0, receiver.addr);
         // 6 -------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(owner.addr), mintedLeveraged, "nothing redeemed");
 
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintLeveragedToken(1 ether, owner.addr);
+        IMinter(minter).freeMintLeveragedToken(1 ether, owner.addr);
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         assertEq(IERC20(leveragedToken).balanceOf(owner.addr), mintedLeveraged + price, "minted more 1:price");
 
@@ -164,14 +164,14 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.RedeemLeveragedToken(owner.addr, receiver.addr, price, 1 ether);
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemLeveragedToken(price, receiver.addr);
+        IMinter(minter).freeRedeemLeveragedToken(price, receiver.addr);
         // 7 -----------------------------------------------------------------
         assertEq(IMinter(minter).leveragedTokenBalance(), mintedLeveraged + 1 * price);
         assertEq(IERC20(deployed.wstETH).balanceOf(receiver.addr), 1 ether);
 
         // first normal redeem
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintLeveragedToken(6 ether, owner.addr);
+        IMinter(minter).freeMintLeveragedToken(6 ether, owner.addr);
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         _freeRedeemLeveragedToken(price);

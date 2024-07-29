@@ -8,7 +8,7 @@ import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.s
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IMinterTreasury, IMinter } from "src/minter/IMinter.sol";
+import { IMinter } from "src/minter/IMinter.sol";
 import { Token } from "src/common/Token.sol";
 import { AccessControl } from "src/common/AccessControl.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
@@ -189,8 +189,8 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessCo
         uint256 totalCollateral = IERC20($.collateralToken).balanceOf(address(this));
         uint256 peggedCollateral = totalCollateral / 2;
         address minter_ = $.minter;
-        IMinterTreasury(minter_).freeMintPeggedToken(peggedCollateral, address(this));
-        IMinterTreasury(minter_).freeMintLeveragedToken(totalCollateral - peggedCollateral, address(this));
+        IMinter(minter_).freeMintPeggedToken(peggedCollateral, address(this));
+        IMinter(minter_).freeMintLeveragedToken(totalCollateral - peggedCollateral, address(this));
 
         $.genesisEnded = true;
     }

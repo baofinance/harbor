@@ -10,7 +10,7 @@ import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/ac
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
+import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import { deployed } from "test/deployed.sol";
@@ -54,7 +54,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.RedeemPeggedToken(owner.addr, receiver.addr, ownerPeggedDecrease, receiverCollateralIncrease);
         vm.prank(owner.addr);
-        uint256 returned = IMinterTreasury(minter).freeRedeemPeggedToken(peggedIn, receiver.addr);
+        uint256 returned = IMinter(minter).freeRedeemPeggedToken(peggedIn, receiver.addr);
         //                 ----------------------------------------------------------------------
         assertEq(
             returned,
@@ -88,26 +88,26 @@ contract TestMinterRedeemPegged is TestMinterMint {
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, sender.addr, zeroFeeRole)
         );
         vm.prank(sender.addr);
-        IMinterTreasury(minter).freeRedeemPeggedToken(price, receiver.addr);
+        IMinter(minter).freeRedeemPeggedToken(price, receiver.addr);
         // 1 ----------------------------------------------------------------
 
         // zero input, when none
         assertEq(IERC20(deployed.wstETH).balanceOf(owner.addr), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.BaoUSD));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemPeggedToken(0, receiver.addr);
+        IMinter(minter).freeRedeemPeggedToken(0, receiver.addr);
         // 2 ----------------------------------------------------------
 
         // some input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, deployed.BaoUSD));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemPeggedToken(price, receiver.addr);
+        IMinter(minter).freeRedeemPeggedToken(price, receiver.addr);
         // 3 ----------------------------------------------------------------
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.BaoUSD));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemPeggedToken(type(uint256).max, receiver.addr);
+        IMinter(minter).freeRedeemPeggedToken(type(uint256).max, receiver.addr);
         // 4 --------------------------------------------------------------------------
 
         uint256 BaoUSDTotalSupplyBefore = IERC20(deployed.BaoUSD).totalSupply();
@@ -129,7 +129,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // zero input, when some
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, deployed.BaoUSD));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemPeggedToken(0, receiver.addr);
+        IMinter(minter).freeRedeemPeggedToken(0, receiver.addr);
         // 5 -----------------------------------------------------------
 
         assertTrue(AccessControlUpgradeable(minter).hasRole(ownerRole, owner.addr));
@@ -138,7 +138,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // TODO: check this for non-free redeems
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, deployed.BaoUSD));
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemPeggedToken(price, receiver.addr);
+        IMinter(minter).freeRedeemPeggedToken(price, receiver.addr);
         // 6 ----------------------------------------------------------------
         assertEq(IERC20(deployed.wstETH).balanceOf(receiver.addr), 0);
 
@@ -148,7 +148,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         assertEq(IERC20(deployed.BaoUSD).balanceOf(owner.addr), mintedBaoUSD);
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintPeggedToken(1 ether, owner.addr);
+        IMinter(minter).freeMintPeggedToken(1 ether, owner.addr);
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         assertEq(IERC20(deployed.BaoUSD).balanceOf(owner.addr), mintedBaoUSD + price);
 
@@ -159,14 +159,14 @@ contract TestMinterRedeemPegged is TestMinterMint {
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.RedeemPeggedToken(owner.addr, receiver.addr, price, 1 ether);
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeRedeemPeggedToken(price, receiver.addr);
+        IMinter(minter).freeRedeemPeggedToken(price, receiver.addr);
         // 7 ----------------------------------------------------------------
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
         assertEq(IERC20(deployed.wstETH).balanceOf(receiver.addr), 1 ether);
 
         // first normal redeem
         vm.prank(owner.addr);
-        IMinterTreasury(minter).freeMintPeggedToken(6 ether, owner.addr);
+        IMinter(minter).freeMintPeggedToken(6 ether, owner.addr);
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio = 1");
         _freeRedeemPeggedToken(price);

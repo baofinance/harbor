@@ -146,6 +146,18 @@ interface IMinter {
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
     /// @param sender The address of peggedToken and leveragedToken owner.
     /// @param recipient The address of receiver for collateral token.
+    /// @param peggedTokenBurned The amount of peggedToken burned.
+    /// @param leveragedTokenOut The amount of collateral token redeemed.
+    event SwapPeggedForLeveraged(
+        address indexed sender,
+        address indexed recipient,
+        uint256 peggedTokenBurned,
+        uint256 leveragedTokenOut
+    );
+
+    /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
+    /// @param sender The address of peggedToken and leveragedToken owner.
+    /// @param recipient The address of receiver for collateral token.
     /// @param leveragedTokenBurned The amount of leveragedToken burned.
     /// @param collateralTokenOut The amount of collateral token redeemed.
     event RedeemLeveragedToken(
@@ -234,6 +246,12 @@ interface IMinter {
     function peggedTokenPrice() external view returns (uint256);
 
     function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
+
+    function redeemPeggedForCollateralRatio(uint256 targetCollateralRatio) external view returns (uint256 peggedTokens);
+    function swapPeggedForleveragedForCollateralRatio(
+        uint256 targetCollateralRatio
+    ) external view returns (uint256 peggedTokens);
+
     /// @notice Return the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and discounts
     function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 leveragedTokens);
     function priceOracle() external view returns (address);
@@ -359,6 +377,12 @@ interface IMinter {
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
 
+    function swapPeggedForleveraged(
+        uint256 peggedTokenIn,
+        address recipient,
+        uint256 minCollateralOut
+    ) external returns (uint256 leveragedOut);
+
     /// @notice Redeem collateral token with leveragedToken.
     /// @param leveragedTokenIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
     /// @param recipient The address of receiver for collateral token.
@@ -374,15 +398,14 @@ interface IMinter {
 
     function updateFeeReceiver(address feeReceiver_) external;
     function updateReservePool(address reservePool_) external;
-}
 
-interface IMinterTreasury {
     /********************************
-     * Public Mutator Functions     *
+     * Protected Mutator Functions  *
      ********************************/
 
     function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedOut);
     function freeRedeemPeggedToken(uint256 peggedIn, address recipient) external returns (uint256 collateralOut);
     function freeMintLeveragedToken(uint256 collateralIn, address recipient) external returns (uint256 leveragedOut);
     function freeRedeemLeveragedToken(uint256 leveragedIn, address recipient) external returns (uint256 collateralOut);
+    function freeSwapPeggedForLeveraged(uint256 peggedIn, address recipient) external returns (uint256 leveragedOut);
 }

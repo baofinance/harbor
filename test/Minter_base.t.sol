@@ -18,7 +18,7 @@ import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 
-import { IMinter, IMinterTreasury } from "src/minter/IMinter.sol";
+import { IMinter } from "src/minter/IMinter.sol";
 import { Token } from "src/common/Token.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
@@ -211,11 +211,11 @@ contract TestMinter is Test, Clog, Array {
         IERC20(deployed.wstETH).approve(minter, totalAmount);
         if (collateralForPegged > 0) {
             vm.prank(owner.addr);
-            peggedTokens = IMinterTreasury(minter).freeMintPeggedToken(collateralForPegged, recipient);
+            peggedTokens = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
         }
         if (collateralForLeveraged > 0) {
             vm.prank(owner.addr);
-            leveragedTokens = IMinterTreasury(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
+            leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
     }
 }
@@ -370,10 +370,7 @@ contract TestMinterInit is TestMinter {
 contract TestMinterBasics is TestMinter {
     function test_introspection() public view {
         assertTrue(Minter_v1(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
-        assertTrue(
-            Minter_v1(minter).supportsInterface(type(IMinterTreasury).interfaceId),
-            "should support IMinterTreasury"
-        );
+        assertTrue(Minter_v1(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
         assertFalse(Minter_v1(minter).supportsInterface(bytes4(0)), "doesn't support 0");
     }
 
