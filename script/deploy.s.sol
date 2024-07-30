@@ -150,7 +150,7 @@ contract DeployMinter is Script, Deployed {
         run(vm.envAddress("PUBLIC_KEY"));
     }
 
-    function run(address owner) private {
+    function run(address /*owner*/) private {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
         // Upgrades.deployUUPSProxy("Minter_v1.sol", abi.encodeCall(Minter_v1.initialize, owner));

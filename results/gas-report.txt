@@ -72,7 +72,7 @@
 | src/minter/RebalancePool_v1.sol:RebalancePool_v1 contract |                 |        |        |        |         |
 |-----------------------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                                           | Deployment Size |        |        |        |         |
-| 5482973                                                   | 25241           |        |        |        |         |
+| 5526277                                                   | 25441           |        |        |        |         |
 | Function Name                                             | min             | avg    | median | max    | # calls |
 | assetBalanceOf                                            | 1046            | 1501   | 1593   | 1593   | 6       |
 | assetToken                                                | 2525            | 2525   | 2525   | 2525   | 1       |

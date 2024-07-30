@@ -107,9 +107,7 @@ interface IRebalancePool {
      * Protected Mutator Functions *
      *******************************/
 
-    /// @notice Liquidate asset.
-    /// This function transfers a given amount of assets to the receiver.
-    /// In return it is assumed the receiver will transfer a suitable amount of reward tokens via the 'accumulateReward function below.
+    /// @notice Liquidate asset. Calling into the minter to
     /// @param minPeggedAmount The minimum amount of asset to liquidate.
     /// @return liquidated The amount of asset liquidated.
     function liquidate(uint256 minPeggedAmount) external returns (uint256 liquidated);

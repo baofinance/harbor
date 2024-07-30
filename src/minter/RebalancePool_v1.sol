@@ -229,14 +229,10 @@ contract RebalancePool_v1 is
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         return $.assetToken;
     }
-    function distributors(address token) external view returns (address) {
-        return address(0);
-    }
+
     function getStakerVoteOwner(address account) external view returns (address) {
-        return address(0);
-    }
-    function rewardReceiver(address account) external view returns (address) {
-        return address(0);
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        return $.getStakerVoteOwner[account];
     }
 
     /// @inheritdoc IRebalancePool

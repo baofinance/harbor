@@ -83,6 +83,11 @@ abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor,
      * Public View Functions *
      *************************/
 
+    function distributors(address token) external view returns (address) {
+        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
+        return $.distributors[token];
+    }
+
     /// @inheritdoc IMultipleRewardDistributor
     function getActiveRewardTokens() public view override returns (address[] memory rewardTokens) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();

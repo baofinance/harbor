@@ -207,6 +207,11 @@ abstract contract MultipleRewardCompoundingAccumulator is
      * Public View Functions *
      *************************/
 
+    function rewardReceiver(address account) external view returns (address) {
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+        return $.rewardReceiver[account];
+    }
+
     /// @inheritdoc IMultipleRewardAccumulator
     function claimable(address account, address token) public view virtual override returns (uint256) {
         return _claimable(account, token);
