@@ -16,30 +16,12 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";
-import { TestMinter } from "test/Minter_base.t.sol";
+import { TestMinterFeeSetup } from "test/Minter_fees.t.sol";
 import { Array } from "test/Array.sol";
 
 // TODO: need to test discounts
 
-contract TestMinterGraphs is TestMinter {
-    function setUpConfig() public override {
-        setUpConfig(
-            130,
-            250,
-            ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
-            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
-            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
-            ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
-        );
-    }
-
-    function setUp() public virtual override {
-        super.setUp();
-        setUp_permissions();
-
-        IERC20(deployed.wstETH).approve(minter, type(uint256).max);
-    }
-
+contract TestMinterGraphs is TestMinterFeeSetup {
     function openFile(string memory name, string[] memory header) private returns (string memory file) {
         file = string.concat("./results/", name, ".csv");
         if (vm.exists(file)) vm.removeFile(file);

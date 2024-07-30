@@ -76,9 +76,7 @@ interface IMinter {
      *
      *
      */
-    // TODO: add getter functions for Incentive config
-    // TODO: add getter functions for the other 4 config items
-    // TODO: and test them
+
     struct IncentiveConfig {
         // note: incentive ratios have one more entry than the band bounds do
         // the boundaries of the collateral ratio where the incentive ratios apply
@@ -237,10 +235,15 @@ interface IMinter {
     /// @notice Return the current collateral ratio of the peggedToken to the collateral token (18 decimals).
     function collateralRatio() external view returns (uint256);
 
+    /// @notice Return the upper bound of the collateral ratio when  the rebalance pools allow liquidation
+    function rebalanceCollateralRatio() external view returns (uint256);
+
+    /// @notice Return the current leveraged ratio of the leveragedToken (18 decimals).
     function leverageRatio() external view returns (uint256);
 
     /// @notice Return the price of a leveraged token in terms of the pegged token's underlying
     function leveragedTokenPrice() external view returns (uint256);
+
     /// @notice Return the price of a pegged token in terms of the pegged token's underlying
     /// this should normally be 1 ether. If the token depegs then this number will be this token's share of the collateral
     function peggedTokenPrice() external view returns (uint256);
@@ -248,7 +251,7 @@ interface IMinter {
     function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
 
     function redeemPeggedForCollateralRatio(uint256 targetCollateralRatio) external view returns (uint256 peggedTokens);
-    function swapPeggedForleveragedForCollateralRatio(
+    function swapPeggedForLeveragedForCollateralRatio(
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens);
 
@@ -376,12 +379,6 @@ interface IMinter {
         address recipient,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
-
-    function swapPeggedForleveraged(
-        uint256 peggedTokenIn,
-        address recipient,
-        uint256 minCollateralOut
-    ) external returns (uint256 leveragedOut);
 
     /// @notice Redeem collateral token with leveragedToken.
     /// @param leveragedTokenIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.

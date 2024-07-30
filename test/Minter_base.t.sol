@@ -79,7 +79,7 @@ contract TestMinter is Test, Clog, Array {
         IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemPegged,
         IMinter.IncentiveConfig memory redeemLeveraged
-    ) public {
+    ) public virtual {
         config.rebalanceCollateralRatioUpperBound = _percentToEther(rebalance);
         config.harvestCollateralRatioUpperBound = _percentToEther(harvest);
         config.mintPeggedIncentiveConfig = mintPegged;

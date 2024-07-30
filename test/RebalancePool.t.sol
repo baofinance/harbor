@@ -25,33 +25,20 @@ import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
+import { TestMinter } from "test/Minter_base.t.sol";
 
-contract TestRebalancePool is Test, Clog {
-    address rebalancePool;
+contract TestRebalancePool is TestMinter {
     address peggedToken = deployed.BaoUSD;
     address collateralToken = deployed.wstETH;
-    address leveragedToken;
-    MockPriceOracle priceOracle;
 
-    Vm.Wallet owner;
-    bytes32 ownerRole = 0;
+    address rebalancePool;
 
-    function setUp() public virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
-
-        owner = vm.createWallet("owner");
-        deal(address(deployed.wstETH), address(this), 20 ether);
-
-        priceOracle = new MockPriceOracle();
-
-        leveragedToken = UnsafeUpgrades.deployUUPSProxy(
-            address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoUSDLwstETH"))
-        );
+    function setUp() public virtual override(TestMinter) {
+        super.setUp();
 
         rebalancePool = UnsafeUpgrades.deployUUPSProxy(
             address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner.addr, peggedToken, collateralToken))
+            abi.encodeCall(RebalancePool_v1.initialize, (owner.addr, minter, collateralToken))
         );
     }
 }
@@ -79,7 +66,7 @@ contract TestRebalancePoolInit is TestRebalancePool {
 
         UnsafeUpgrades.deployUUPSProxy(
             address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner.addr, peggedToken, collateralToken))
+            abi.encodeCall(RebalancePool_v1.initialize, (owner.addr, minter, collateralToken))
         );
     }
 
@@ -89,7 +76,6 @@ contract TestRebalancePoolInit is TestRebalancePool {
 
         assertTrue(IAccessControl(rebalancePool).hasRole(ownerRole, owner.addr));
         assertEq(IRebalancePool(rebalancePool).assetToken(), peggedToken);
-        assertEq(IRebalancePool(rebalancePool).collateralToken(), collateralToken);
 
         assertEq(IRebalancePool(rebalancePool).totalAssetSupply(), 0);
     }
@@ -97,7 +83,6 @@ contract TestRebalancePoolInit is TestRebalancePool {
 
 contract TestRebalancePoolDepositWithraw is TestRebalancePool {
     Vm.Wallet user1;
-    Vm.Wallet user2;
 
     function setUp() public override(TestRebalancePool) {
         super.setUp();
@@ -105,14 +90,9 @@ contract TestRebalancePoolDepositWithraw is TestRebalancePool {
         user1 = vm.createWallet("user1");
         vm.prank(user1.addr);
         IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
-
-        user2 = vm.createWallet("user2");
-
-        vm.prank(user2.addr);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
     }
 
-    function test_deposit() public {
+    function test_depositWithdraw() public {
         // more than holding
         deal(address(peggedToken), user1.addr, 10 ether);
         vm.expectRevert();

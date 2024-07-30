@@ -69,12 +69,12 @@ interface IRebalancePool {
     /// @dev Thrown when the amount requested to be liquidated isn't met
     error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
 
+    // @dev Thrown when initiaising with an invalid liquidation token
+    error LiquidationTokenMustBeCollateralOrLeveraged(address token);
+
     /*************************
      * Public View Functions *
      *************************/
-
-    /// @notice Return the address of base token.
-    function collateralToken() external view returns (address);
 
     /// @notice Return the address of underlying token of this contract.
     function assetToken() external view returns (address);

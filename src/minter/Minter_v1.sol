@@ -8,7 +8,6 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
-import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
@@ -272,6 +271,11 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         config_.redeemLeveragedIncentiveConfig = _copyBandsBack($.redeemLeveragedIncentiveConfig);
     }
 
+    function rebalanceCollateralRatio() external view returns (uint256) {
+        MinterStorage storage $ = _getMinterStorage();
+        return $.rebalanceCollateralRatioUpperBound;
+    }
+
     function collateralRatio() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
         if ($.peggedTokenBalance == 0) {
@@ -343,17 +347,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         );
     }
 
-    function _redeemPeggedForCollateralRatio(
-        uint256 targetCollateralRatio,
-        uint256 collateralTokenBalance_,
-        uint256 price,
-        uint256 peggedTokenBalance_
-    ) private pure returns (uint256 peggedTokens) {
-        peggedTokens =
-            (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
-            (targetCollateralRatio - 1 ether);
-    }
-
     // @InheritDoc IMinter
     function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
@@ -369,9 +362,16 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     }
 
     // @InheritDoc IMinter
-    function swapPeggedForleveragedForCollateralRatio(
+    function swapPeggedForLeveragedForCollateralRatio(
         uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedTokens) {}
+    ) external view returns (uint256 peggedTokens) {
+        MinterStorage storage $ = _getMinterStorage();
+        // TODO: check the price
+        uint256 price = _fetchMaxPrice($.priceOracle);
+        uint256 collateralTokenBalance_ = _collateralTokenBalance($.collateralToken);
+        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        peggedTokens = (collateralTokenBalance_ * price) / targetCollateralRatio - peggedTokenBalance_;
+    }
 
     // incentive ratios
     // ----------------
@@ -660,7 +660,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         if (collateralOut > 0) {
             // it's a discount
             // collect the extra collateral, if availablex
-            // wake-disable-next-line reentrancy // reservePool is trusted
+            // wake-disable-next-line reentrancy // reservePool is trusted and reentrancy guard
             collateralOut = IReservePool($.reservePool).requestBonus(collateralToken_, address(this), collateralOut);
         }
         // add the redeemed pegged minus the fees
@@ -681,27 +681,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
-    }
-
-    /// @inheritdoc IMinter
-    function swapPeggedForleveraged(
-        uint256 peggedTokenIn,
-        address recipient,
-        uint256 minCollateralOut
-    ) external returns (uint256 leveragedOut) {
-        revert("Not Implemented");
-        /*
-        MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchMaxPrice($.priceOracle);
-
-        uint256 collateral = (peggedTokenIn * 1 ether) / price;
-
-        _leveragedTokensForCollateral(            forCollateral,
-            _leveragedTokenBalance($.leveragedToken),
-            $.peggedTokenBalance,
-            _collateralTokenBalance($.collateralToken),
-            price);
-            */
     }
 
     /// @inheritdoc IMinter
@@ -972,9 +951,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 if (incentiveRatio == 1 ether && i != 0) {
                     revert InvalidIncentiveRatioValue(config_.incentiveRatios[i]);
                 }
-            }
-            /* discountNotDisallow */
-            else {
+            } else {
+                // discountNotDisallow
                 if (incentiveRatio <= -1 ether || incentiveRatio >= 1 ether) {
                     revert InvalidIncentiveRatioValue(config_.incentiveRatios[i]);
                 }
@@ -1806,6 +1784,17 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 (forLeveraged * (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether)) /
                 (collateralPrice * leveragedTokenBalance_);
         }
+    }
+
+    function _redeemPeggedForCollateralRatio(
+        uint256 targetCollateralRatio,
+        uint256 collateralTokenBalance_,
+        uint256 price,
+        uint256 peggedTokenBalance_
+    ) private pure returns (uint256 peggedTokens) {
+        peggedTokens =
+            (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
+            (targetCollateralRatio - 1 ether);
     }
 
     function _isDepegged(

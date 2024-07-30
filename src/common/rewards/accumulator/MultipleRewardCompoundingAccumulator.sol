@@ -4,7 +4,7 @@ pragma solidity 0.8.25;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
 import { IMultipleRewardAccumulator } from "./IMultipleRewardAccumulator.sol";
 
@@ -81,7 +81,7 @@ import { console2 as console } from "forge-std/console2.sol";
 /// @dev The method comes from liquity's StabilityPool, the paper is in
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
 abstract contract MultipleRewardCompoundingAccumulator is
-    ReentrancyGuardUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
     LinearMultipleRewardDistributor,
     IMultipleRewardAccumulator
 {
@@ -189,6 +189,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
     // solhint-disable-next-line func-name-mixedcase
     function __MultipleRewardCompoundingAccumulator_init(uint40 periodLength) internal onlyInitializing {
         __LinearMultipleRewardDistributor_init(periodLength);
+        __ReentrancyGuardTransient_init();
         __MultipleRewardCompoundingAccumulator_init_unchained();
     }
 

@@ -98,6 +98,7 @@ contract Liquidator_v1 is
         LiquidatorStorage storage $ = _getLiquidatorStorage();
         address rebalancePool = $.rebalancePool;
 
+        // wake-disable-next-line reentrancy // rebalancePool is trusted and reentrancy guard
         liquidated = IRebalancePool(rebalancePool).liquidate(minLiquidation);
 
         IERC20($.rewardToken).safeTransfer(rewardReceiver, $.rewardAmount);

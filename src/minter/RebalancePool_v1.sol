@@ -12,6 +12,7 @@ import { IMultipleRewardAccumulator } from "src/common/rewards/accumulator/IMult
 import { MultipleRewardCompoundingAccumulator } from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
 import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
+import { AccessControl } from "src/common/TokenOwner.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
@@ -31,7 +32,13 @@ import { console2 as console } from "forge-std/console2.sol";
 ///   2. veSupply[w] is the total ve supply at the beginning of week `w`.
 ///   3. ve[u][w] is the ve balance for user `u` at the beginning of week `w`.
 ///   4. balance[u][w] is the amount of token staked for user `u` at the beginning of week `w`.
-contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompoundingAccumulator, IRebalancePool {
+contract RebalancePool_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    AccessControl,
+    MultipleRewardCompoundingAccumulator,
+    IRebalancePool
+{
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
 
@@ -111,6 +118,8 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // address veHelper; TODO: add back in (here and elsewhere) when we know how to integrate it
         /// @notice The gauge struct.
         Gauge gauge;
+        /// @notice The minter contract this rebalance pool operates for
+        address minter;
         /// @inheritdoc IRebalancePool
         address liquidationToken;
         bool liquidationTokenIsCollateral;
@@ -174,21 +183,24 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // __Context_init(); // from ContextUpgradeable, comment out to reduce codesize
         // __ERC165_init(); // from ERC165Upgradeable, comment out to reduce codesize
         __AccessControl_init(owner);
-        __ReentrancyGuard_init(); // from ReentrancyGuardUpgradeable
-
         __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator
 
-        // access control
-        // AccessControlUpgradeable._grantRole(DEFAULT_ADMIN_ROLE, _msgSender());
-        super._grantRole(REWARD_MANAGER_ROLE, _msgSender());
+        // TODO: pass in a reward manager - whatever that is
+        // super._grantRole(REWARD_MANAGER_ROLE, _msgSender());
 
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
 
         $.liquidationToken = liquidationToken_;
-        $.liquidationTokenIsCollateral = liquidationToken_ == IMinter(minter_).collateralToken();
-        // TODO: check it is the leveraged token
+        if (liquidationToken_ == IMinter(minter_).collateralToken()) {
+            $.liquidationTokenIsCollateral = true;
+        } else if (liquidationToken_ == IMinter(minter_).leveragedToken()) {
+            $.liquidationTokenIsCollateral = false;
+        } else {
+            revert LiquidationTokenMustBeCollateralOrLeveraged(liquidationToken_);
+        }
+
         $.assetToken = IMinter(minter_).peggedToken();
 
         // TODO: what purpose does the wrapper give.
@@ -216,10 +228,6 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     function assetToken() external view returns (address) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         return $.assetToken;
-    }
-    function collateralToken() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.collateralToken;
     }
     function distributors(address token) external view returns (address) {
         return address(0);
@@ -357,7 +365,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // check we are in the right collateral ratio band
         uint256 rebalanceCollateralRatio_ = IMinter(minter_).rebalanceCollateralRatio();
         if (IMinter(minter_).collateralRatio() > rebalanceCollateralRatio_) {
-            revert(CannotLiquidate);
+            revert CannotLiquidate();
         }
 
         address liquidationToken_ = $.liquidationToken;
@@ -368,7 +376,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         if (liquidationTokenIsCollateral) {
             peggedTokensToLiquidate = IMinter(minter_).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
         } else {
-            peggedTokensToLiquidate = IMinter(minter_).swapPeggedForleveragedForCollateralRatio(
+            peggedTokensToLiquidate = IMinter(minter_).swapPeggedForLeveragedForCollateralRatio(
                 rebalanceCollateralRatio_
             );
         }
@@ -378,7 +386,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
         uint256 returnAmount;
         if (liquidationTokenIsCollateral) {
-            returnAmount = IMinter(minter_).redeemPeggedToken(peggedTokensToLiquidate, address(this), 0);
+            returnAmount = IMinter(minter_).freeRedeemPeggedToken(peggedTokensToLiquidate, address(this));
         } else {
             returnAmount = IMinter(minter_).freeSwapPeggedForLeveraged(peggedTokensToLiquidate, address(this));
         }
@@ -391,7 +399,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         _notifyLoss(liquidated);
     }
 
-    /// @inheritdoc IRebalancePool
+    // TODO: consider keeping this function for random rewards given, e.g. harvests
     function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRole(REWARDER_ROLE) {
         _accumulateReward(rewardToken, rewardAmount);
     }

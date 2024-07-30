@@ -17,13 +17,10 @@ import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import "test/Useful.sol";
 import { TestMinter } from "test/Minter_base.t.sol";
 
-// TODO: need to test discounts
 // TODO: test fee distribution integration
 
-contract TestMinterFees is TestMinter {
-    Vm.Wallet user;
-
-    function setUpConfig() public override {
+contract TestMinterFeeSetup is TestMinter {
+    function setUpConfig() public virtual override {
         setUpConfig(
             130,
             250,
@@ -36,9 +33,16 @@ contract TestMinterFees is TestMinter {
 
     function setUp() public virtual override {
         super.setUp();
-        user = vm.createWallet("user");
         setUp_permissions();
+    }
+}
 
+contract TestMinterFees is TestMinterFeeSetup {
+    Vm.Wallet user;
+
+    function setUp() public virtual override(TestMinterFeeSetup) {
+        super.setUp();
+        user = vm.createWallet("user");
         deal(address(deployed.wstETH), user.addr, 100 ether);
         vm.prank(user.addr);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);
@@ -262,6 +266,7 @@ contract TestMinterFees is TestMinter {
         );
         vm.prank(user.addr);
         IMinter(minter).mintLeveragedToken(collateral, user.addr, 0);
+        // ---------------------------------------------------------
         assertEq(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
             uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
