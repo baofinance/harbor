@@ -35,6 +35,9 @@ contract TestMinter is Test, Clog, Array {
     IMinter.Config config;
     int constant disallow = 10000;
 
+    address peggedToken = deployed.BaoUSD;
+    address collateralToken = deployed.wstETH;
+
     address leveragedToken;
     address reservePool;
     MockPriceOracle priceOracle;
@@ -352,6 +355,7 @@ contract TestMinterInit is TestMinter {
         assertEq(IMinter(minter).feeReceiver(), feeReceiver.addr);
         assertEq(IMinter(minter).reservePool(), reservePool);
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
+        assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
         _assertEqConfig(IMinter(minter).config(), config);
 
         // TODO: add configuration check - also add it to the setup config function

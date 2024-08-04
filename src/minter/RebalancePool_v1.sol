@@ -347,14 +347,7 @@ contract RebalancePool_v1 is
 
     /// @inheritdoc IRebalancePool
     function liquidate(uint256 minLiquidated) external virtual override returns (uint256 liquidated) {
-        _checkpoint(address(0));
-
-        // liquidate simply gives up a given amount of assets and collateral
-        // and record the event
-        // another contract (LIQUIDATOR_ROLE) calculates the amount of assets to be liquidated and
-        // distributes the plunder appropriately.
-        // This contract doesn't disallow it in any way other than via the role mechanism.
-
+        // can only liquidate if the collateral ration is below a certain value
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         address minter_ = $.minter;
 
@@ -376,7 +369,7 @@ contract RebalancePool_v1 is
                 rebalanceCollateralRatio_
             );
         }
-        if (peggedTokensToLiquidate < minLiquidated) {
+        if (peggedTokensToLiquidate == 0 || peggedTokensToLiquidate < minLiquidated) {
             revert NotEnoughTokensToLiquidate(peggedTokensToLiquidate, minLiquidated);
         }
 
@@ -389,6 +382,7 @@ contract RebalancePool_v1 is
 
         emit Liquidate(peggedTokensToLiquidate);
 
+        _checkpoint(address(0));
         _accumulateReward(liquidationToken_, returnAmount);
 
         // notify loss

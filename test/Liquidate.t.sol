@@ -14,6 +14,7 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import { IMinter } from "src/minter/IMinter.sol";
 import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
@@ -54,8 +55,23 @@ contract TestLiquidate is TestRebalancePool {
 
     function test_liquidate() public {
         // set up collateral
+        (, uint256 price, , ) = priceOracle.getPrice();
+        setUp_collateral(14 ether, 5 ether); // cr=19/14 = 136%
+        assertEq(IMinter(minter).collateralRatio(), uint256(19 ether) / 14);
+
+        // not in rebalance mode
+        //vm.expectRevert("ERC20: transfer amount exceeds balance");
+        //uint256 liquidated = IRebalancePool(rebalancePool).liquidate(0);
+
         // mint pegged
+
         // deposit it
+
+        // deposit mode than have been minted
+
         // liquidate it
+
+        price /= 2;
+        priceOracle.setPrice(price);
     }
 }

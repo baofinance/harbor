@@ -18,29 +18,57 @@ import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import "test/Useful.sol";
 import { TestMinterFeeSetup } from "test/Minter_fees.t.sol";
 
-contract TestMinterMint is TestMinterFeeSetup {
+contract TestMinterLiquidate is TestMinterFeeSetup {
     using SafeERC20 for IERC20;
+    uint256 price;
 
-    Vm.Wallet system;
-    Vm.Wallet sender;
-    Vm.Wallet receiver;
-
-    function setUpConfig() public override {
-        setUpConfig(
-            130,
-            250,
-            ic(ua(131), ia(disallow, 50)),
-            ic(ua(), ia(70)),
-            ic(ua(), ia(80)),
-            ic(ua(110), ia(disallow, 120))
-        );
+    function setUp() public override(TestMinterFeeSetup) {
+        super.setUp();
+        (, price, , ) = priceOracle.getPrice();
+        vm.prank(owner.addr);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
     }
 
-    function setUp() public virtual override {
-        super.setUp();
-        system = vm.createWallet("system");
-        sender = vm.createWallet("sender");
-        receiver = vm.createWallet("receiver");
-        setUp_permissions();
+    // no leveraged tokens
+    function test_liquidateRedeem0() public {
+        setUp_collateral(10 ether, 0 ether); // cr=10/10 = 100%
+        assertEq(IERC20(peggedToken).balanceOf(owner.addr), price * 10, "owner should have pegged");
+        assertEq(IMinter(minter).collateralRatio(), 1 ether);
+
+        uint256 peggedTokens = IMinter(minter).redeemPeggedForCollateralRatio(11 ether / 10);
+        assertEq(peggedTokens, IMinter(minter).peggedTokenBalance(), "should be all tokens");
+        vm.prank(owner.addr);
+        IMinter(minter).freeRedeemPeggedToken(peggedTokens, owner.addr);
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "should have liquidated all");
+    }
+
+    function _liquidateRedeemToCR(uint256 targetCR) private {
+        uint256 startCR = IMinter(minter).collateralRatio();
+        uint256 peggedTokens = IMinter(minter).redeemPeggedForCollateralRatio(targetCR);
+        if (peggedTokens > 0) {
+            vm.prank(owner.addr);
+            IMinter(minter).freeRedeemPeggedToken(peggedTokens, owner.addr);
+            if (targetCR < startCR) {
+                assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");
+            } else {
+                assertEq(IMinter(minter).collateralRatio(), targetCR, "should have reached target collateral ratio");
+            }
+        }
+    }
+
+    function test_liquidateRedeemSame100() public {
+        setUp_collateral(10 ether, 0 ether); // cr=10/10 = 100%
+        assertEq(IMinter(minter).collateralRatio(), 1 ether); // CR= 110%
+        _liquidateRedeemToCR(1 ether); // 100%
+    }
+
+    function test_liquidateRedeemSame110() public {
+        setUp_collateral(10 ether, 1 ether); // cr=11/10 = 110%
+        _liquidateRedeemToCR(11 ether / 10); // 110%
+    }
+
+    function test_liquidateRedeem1() public {
+        setUp_collateral(10 ether, 1 ether); // cr=11/10 = 110%
+        _liquidateRedeemToCR(12 ether / 10); // 120%
     }
 }

@@ -9,6 +9,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
@@ -19,7 +20,9 @@ import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
-import { console2 as console } from "forge-std/console2.sol";
+// import { console2 as console } from "forge-std/console2.sol";
+
+import "test/clog.sol";
 
 /// @title
 /// @author
@@ -352,13 +355,19 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchMaxPrice($.priceOracle);
-        peggedTokens = _redeemPeggedForCollateralRatio(
-            targetCollateralRatio,
-            _collateralTokenBalance($.collateralToken),
-            price,
-            $.peggedTokenBalance
-        );
+        uint256 collateralPrice = _fetchMaxPrice($.priceOracle);
+        uint256 collateralTokenBalance_ = _collateralTokenBalance($.collateralToken);
+        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+            peggedTokens = _redeemPeggedForCollateralRatio(
+                targetCollateralRatio,
+                collateralTokenBalance_,
+                collateralPrice,
+                peggedTokenBalance_
+            );
+        } else {
+            peggedTokens = 0;
+        }
     }
 
     // @InheritDoc IMinter
@@ -366,11 +375,15 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        // TODO: check the price
-        uint256 price = _fetchMaxPrice($.priceOracle);
+        // TODO: check the price - redeeming pegged is at max price, minting leveraged is at safe price
+        uint256 collateralPrice = _fetchMaxPrice($.priceOracle);
         uint256 collateralTokenBalance_ = _collateralTokenBalance($.collateralToken);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        peggedTokens = (collateralTokenBalance_ * price) / targetCollateralRatio - peggedTokenBalance_;
+        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+            peggedTokens = (collateralTokenBalance_ * collateralPrice) / targetCollateralRatio - peggedTokenBalance_;
+        } else {
+            peggedTokens = 0;
+        }
     }
 
     // incentive ratios
@@ -447,7 +460,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             uint256 price
         )
     {
-        // console.log("mintPeggedTokenDryRun...");
+        // c.log("mintPeggedTokenDryRun...");
         MinterStorage storage $ = _getMinterStorage();
         price = _fetchSafePrice($.priceOracle);
         (fee, collateralUsed) = _mintPeggedAdjustments(
@@ -524,9 +537,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
         collateralUsed = collateralIn; // we never disallow minting leveraged tokens
-        // console.log("collateralUsed=%s", collateralUsed);
+        // c.log("collateralUsed", collateralUsed);
         incentiveRatio = ((int256(fee) - int256(reserveCollateralUsed)) * 1 ether) / int256(collateralUsed);
-        // console.log("incentiveRatio=%s", incentiveRatio);
+        // c.log("incentiveRatio", incentiveRatio);
         leveragedMinted = _leveragedTokensForCollateral(
             collateralIn + reserveCollateralUsed - fee,
             _leveragedTokenBalance($.leveragedToken),
@@ -534,7 +547,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             collateralTokenBalance_,
             price
         );
-        // console.log("leveragedMinted=%s", leveragedMinted);
+        // c.log("leveragedMinted", leveragedMinted);
     }
 
     function redeemLeveragedTokenDryRun(
@@ -627,8 +640,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
 
         _mintPeggedToken(collateralToken_, collateralIn, peggedToken_, peggedTokenOut, recipient);
 
-        IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
-
+        if (fee > 0) {
+            // c.log("transfer fee", fee);
+            IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+        }
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ + peggedTokenOut;
     }
@@ -692,20 +707,23 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
         collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
+        // c.log("collateralIn", collateralIn);
         uint256 price = _fetchSafePrice($.priceOracle);
+        // c.log("price", price);
 
         address leveragedToken_ = $.leveragedToken;
 
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
-        // uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         (uint256 fee, uint256 extraCollateral) = _mintLeveragedAdjustments(
             $.mintLeveragedIncentiveConfig,
             collateralIn,
             collateralTokenBalance_,
             price,
-            $.peggedTokenBalance,
+            peggedTokenBalance_,
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
+        // c.log("fee, extraCollateral", fee, extraCollateral);
         // net out the fee & extra collateral
         if (extraCollateral > 0) {
             // it's a discount
@@ -721,7 +739,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         leveragedTokenOut = _leveragedTokensForCollateral(
             collateralIn + extraCollateral - fee,
             _leveragedTokenBalance(leveragedToken_),
-            $.peggedTokenBalance,
+            peggedTokenBalance_,
             collateralTokenBalance_,
             price
         );
@@ -732,7 +750,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // mint the leveraged tokens and take collateralIn
         _mintLeveragedToken(collateralToken_, collateralIn, leveragedToken_, leveragedTokenOut, recipient);
         // take the fee
-        IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+        if (fee > 0) {
+            IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+        }
     }
 
     /// @inheritdoc IMinter
@@ -752,7 +772,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
-        // console.log("leveragedIn=%s", leveragedIn);
+        // c.log("leveragedIn", leveragedIn);
         uint256 fee;
         (fee, leveragedIn, collateralOut) = _redeemLeveragedAdjustments(
             $.redeemLeveragedIncentiveConfig,
@@ -762,7 +782,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             peggedTokenBalance_,
             leveragedTokenBalance_
         );
-        // console.log("leveragedIn=%s", leveragedIn);
+        // c.log("leveragedIn", leveragedIn);
 
         if (collateralOut < minCollateralOut) {
             revert ReturnInsufficientAmount(collateralToken_, minCollateralOut, collateralOut);
@@ -1081,11 +1101,11 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         incentiveRatio = 0;
         // find the index, l, where lowerCollateralRatio falls
         uint l;
-        // console.log("      collateralRatioBandCount - 1=%s", collateralRatioBandCount(config_) - 1);
+        // c.log("      collateralRatioBandCount - 1", collateralRatioBandCount(config_) - 1);
         for (l = 0; l < collateralRatioBandCount(config_) - 1; l++) {
             if (lowerCollateralRatio <= _collateralRatioUpperBounds(config_, l)) {
-                // console.log(
-                //     "      lowerCollateralRatio=%s, collateralRatioUpperBounds[%s]=%s",
+                // c.log(
+                //     "      lowerCollateralRatio, collateralRatioUpperBounds[%s]",
                 //     lowerCollateralRatio,
                 //     l,
                 //     _collateralRatioUpperBounds(config_, l)
@@ -1097,8 +1117,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint u;
         for (u = l; u < collateralRatioBandCount(config_) - 1; u++) {
             if (upperCollateralRatio <= _collateralRatioUpperBounds(config_, u)) {
-                // console.log(
-                //     "      upperCollateralRatio=%s, collateralRatioUpperBounds[%s]=%s",
+                // c.log(
+                //     "      upperCollateralRatio, collateralRatioUpperBounds[%s]",
                 //     lowerCollateralRatio,
                 //     u,
                 //     _collateralRatioToEther(collateralRatioUpperBounds[u])
@@ -1110,26 +1130,26 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // Calculate pro-rated fee
         if (l == u) {
             incentiveRatio = _incentiveRatio(config_, l);
-            // console.log("      incentiveRatio=%s, u=l=%s", uint256(incentiveRatio), l);
+            // c.log("      incentiveRatio, u=l", uint256(incentiveRatio), l);
         } else {
             // Calculate pro-rated fee for the portion of lowerCollateralRatio in band l
             incentiveRatio = (int256(_collateralRatioUpperBounds(config_, l) - lowerCollateralRatio + 1) *
                 _incentiveRatio(config_, l));
-            // console.log("     incentiveRatioeRatio=%s, l=%s", uint256(incentiveRatio), l);
+            // c.log("     incentiveRatioeRatio, l", uint256(incentiveRatio), l);
 
             // Calculate pro-rated fee for the full intervals between l and u
             for (uint256 k = l + 1; k < u; k++) {
                 incentiveRatio += (int256(_collateralRatioUpperBounds(config_, k) - _collateralRatioUpperBounds(config_, k + 1)) *
                     _incentiveRatio(config_, k));
-                // console.log("      incentiveRatio=%s, k=%s", uint256(incentiveRatio), l);
+                // c.log("      incentiveRatio, k", uint256(incentiveRatio), l);
             }
 
             // Calculate pro-rated fee for the portion of upperCollateralRatio in band u
             incentiveRatio += (int256(upperCollateralRatio - _collateralRatioUpperBounds(config_, u - 1)) *
                 _incentiveRatio(config_, u));
-            // console.log("      incentiveRatio=%s, u=%s", uint256(incentiveRatio), l);
+            // c.log("      incentiveRatio, u", uint256(incentiveRatio), l);
             incentiveRatio /= int256(upperCollateralRatio - lowerCollateralRatio); // Normalize fee based on range
-            // console.log("      incentiveRatio=%s", uint256(incentiveRatio));
+            // c.log("      incentiveRatio", uint256(incentiveRatio));
         }
     }
     */
@@ -1155,8 +1175,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // mint the tokens to the recipient
         // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
         IMintable(peggedToken_).mint(recipient, peggedTokenOut);
+        // c.log("transfer pegged", peggedTokenOut);
         // take the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        // c.log("transfer collateralIn", collateralIn);
     }
 
     function _redeemPeggedToken(
@@ -1169,10 +1191,13 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // tell the world
         emit RedeemPeggedToken(_msgSender(), recipient, peggedIn, collateralOut);
         // burn the tokens from the sender - get them first then burn them
+        // c.log("transfer peggedIn to minter", peggedIn);
         IERC20(peggedToken_).safeTransferFrom(_msgSender(), address(this), peggedIn);
         // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
+        // c.log("burn peggedIn", peggedIn);
         IBurnable(peggedToken_).burn(peggedIn);
         // return the collateral
+        // c.log("transfer collateralOut", collateralOut);
         IERC20(collateralToken_).safeTransfer(recipient, collateralOut);
     }
 
@@ -1208,8 +1233,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // mint the tokens to the recipient
         // wake-disable-next-line reentrancy
         IMintable(leveragedToken_).mint(recipient, leveragedTokenOut);
+        // c.log("transfer leveraged out", leveragedTokenOut);
         // take the collateral
         IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        // c.log("transfer collateral in", collateralIn);
     }
 
     function _redeemLeveragedToken(
@@ -1266,11 +1293,11 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 price,
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 fee, uint256 maxCollateral) {
-        // console.log("_mintPeggedAdjustments...");
-        // console.log("collateralIn=%s", collateralIn);
-        // console.log("collateralTokenBalance_=%s", collateralTokenBalance_);
-        // console.log("price=%s", price);
-        // console.log("peggedTokenBalance_=%s", peggedTokenBalance_);
+        // c.log("_mintPeggedAdjustments...");
+        // c.log("collateralIn", collateralIn);
+        // c.log("collateralTokenBalance_", collateralTokenBalance_);
+        // c.log("price", price);
+        // c.log("peggedTokenBalance_", peggedTokenBalance_);
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         // this calculation doesn't work if we are depegged
@@ -1283,11 +1310,11 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         maxCollateral = 0;
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
-            // console.log("band=%s", band);
+            // c.log("band", band);
             uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
-            // console.log("bandLowerBound=%s", bandLowerBound);
+            // c.log("bandLowerBound", bandLowerBound);
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
-            // console.log("bandFeeRatio=%s", bandFeeRatio);
+            // c.log("bandFeeRatio", bandFeeRatio);
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
@@ -1302,8 +1329,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 ((bandLowerBound * peggedTokenBalance_) * 1 ether * 1 ether) /
                 (price * phi);
             // if (collateralInBand != collateralInBand1) {
-            //     console.log("collateralInBand =%s", collateralInBand);
-            //     console.log("collateralInBand1=%s", collateralInBand1);
+            //     c.log("collateralInBand ", collateralInBand);
+            //     c.log("collateralInBand1", collateralInBand1);
             //     revert("better calculation");
             // }
             collateralInBand = Math.min(collateralIn, collateralInBand);
@@ -1312,7 +1339,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             fee += bandFee;
             collateralIn -= collateralInBand;
             if (collateralIn == 0) {
-                // we run out of collateral for the simulation
+                // we haverun out of collateral for the simulation
                 break;
             }
             // still some collateral left and we're allowed to mint or redeem, so simulate
@@ -1324,7 +1351,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             }
             band--;
         }
-        // console.log("fee=%s, maxCollateral=%s", fee, maxCollateral);
+        // c.log("fee, maxCollateral", fee, maxCollateral);
     }
 
     /// @param peggedIn the given amount of peggedTokens
@@ -1344,12 +1371,12 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 peggedTokenBalance_,
         uint256 reservePoolBalance_
     ) private pure returns (uint256 peggedFee, uint256 peggedRedeemed, uint256 extraCollateral) {
-        // console.log("_redeemPeggedAdjustments...");
-        // console.log("peggedIn=%s", peggedIn);
-        // console.log("collateralTokenBalance_=%s", collateralTokenBalance_);
-        // console.log("price=%s", price);
-        // console.log("peggedTokenBalance_=%s", peggedTokenBalance_);
-        // console.log("reservePoolBalance_=%s", reservePoolBalance_);
+        // c.log("_redeemPeggedAdjustments...");
+        // c.log("peggedIn", peggedIn);
+        // c.log("collateralTokenBalance_", collateralTokenBalance_);
+        // c.log("price", price);
+        // c.log("peggedTokenBalance_", peggedTokenBalance_);
+        // c.log("reservePoolBalance_", reservePoolBalance_);
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
@@ -1362,9 +1389,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, true);
         // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
         while (true) {
-            // console.log("band=%s", band);
+            // c.log("band", band);
             int256 bandIncentiveRatio = _incentiveRatio(config_, band);
-            // console.log("bandIncentiveRatio=%s", bandIncentiveRatio);
+            // c.log("bandIncentiveRatio", bandIncentiveRatio);
             uint256 peggedInBand;
             if (band == _collateralRatioBandCount(config_) - 1) {
                 // the last band goes on forever
@@ -1416,7 +1443,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
 
             band++;
         }
-        // console.log("peggedFee=%s, peggedRedeemed=%s, extraCollateral=%s", peggedFee, peggedRedeemed, extraCollateral);
+        // c.log("peggedFee, peggedRedeemed, extraCollateral", peggedFee, peggedRedeemed, extraCollateral);
     }
 
     /*
@@ -1439,18 +1466,18 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     //     // TODO: make this a uint256 and ignre all negative fees
     //     int256 incentiveRatio
     // ) private pure returns (uint256 collateralTokens) {
-    //     // console.log("      targetCollateralRatio=%s", targetCollateralRatio);
-    //     // console.log("      collateralTokenBalance_=%s", collateralTokenBalance_);
-    //     // console.log("      price=%s", price);
-    //     // console.log("      peggedTokenBalance_=%s", peggedTokenBalance_);
-    //     // console.log("      incentiveRatio=%s", uint256(incentiveRatio));
+    //     // c.log("      targetCollateralRatio", targetCollateralRatio);
+    //     // c.log("      collateralTokenBalance_", collateralTokenBalance_);
+    //     // c.log("      price", price);
+    //     // c.log("      peggedTokenBalance_", peggedTokenBalance_);
+    //     // c.log("      incentiveRatio", uint256(incentiveRatio));
 
     //     collateralTokens =
     //         ((collateralTokenBalance_ * price - targetCollateralRatio * peggedTokenBalance_) * 1 ether) /
     //         uint256(
     //             int256(price) * ((int256(targetCollateralRatio) * (1 ether - incentiveRatio)) / 1 ether - 1 ether + incentiveRatio)
     //         );
-    //     // console.log("      collateralTokens=%s", collateralTokens);
+    //     // c.log("      collateralTokens", collateralTokens);
     // }
 
     /**
@@ -1466,12 +1493,12 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 peggedTokenBalance_,
         uint256 reservePoolBalance_
     ) private pure returns (uint256 fee, uint256 extraCollateral) {
-        // console.log("_mintLeveragedAdjustments...");
-        // console.log("collateralIn=%s", collateralIn);
-        // console.log("collateralTokenBalance_=%s", collateralTokenBalance_);
-        // console.log("price=%s", price);
-        // console.log("peggedTokenBalance_=%s", peggedTokenBalance_);
-        // console.log("reservePoolBalance_=%s", reservePoolBalance_);
+        // c.log("_mintLeveragedAdjustments...");
+        // c.log("collateralIn", collateralIn);
+        // c.log("collateralTokenBalance_", collateralTokenBalance_);
+        // c.log("price", price);
+        // c.log("peggedTokenBalance_", peggedTokenBalance_);
+        // c.log("reservePoolBalance_", reservePoolBalance_);
 
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
@@ -1487,39 +1514,45 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
 
         // simulate minting until we run out of collateral, adding the fee & bonus as we go
         while (true) {
-            // console.log("band=%s", band);
+            // c.log("_collateralRatio", _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_));
+            // c.log("band", band);
             uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);
-            // console.log("bandUpperBound=%s", bandUpperBound);
+            // c.log("bandUpperBound", bandUpperBound);
             int256 bandIncentiveRatio = _incentiveRatio(config_, band);
-            // console.log("bandIncentiveRatio=%s", bandIncentiveRatio);
-            // uint256 bandFeeRatio = uint256(SignedMath.max(0, bandIncentiveRatio));
-            // console.log("bandFeeRatio=%s", bandFeeRatio);
+            // c.log("bandIncentiveRatio", bandIncentiveRatio);
+            uint256 bandFeeRatio = uint256(SignedMath.max(0, bandIncentiveRatio));
+            // c.log("bandFeeRatio", bandFeeRatio);
 
             uint256 collateralInBand;
             if (band == _collateralRatioBandCount(config_) - 1) {
-                // the last band goes on forever
+                // the last band has no upper bound
                 collateralInBand = collateralIn;
+                // c.log("last band");
             } else {
                 // the collateral needed to be deposited to reach the upper bound of the band
                 // given the band fee is also deducted/added (as it may be a discount)
-                // note that 1 - bandIncentiveRatio must always be positive
+                // note that 1 - bandFeeRatio must always be positive
                 // Note that we calculate the collateral in band even if there is insufficient
                 // collateral in the reserve pool to meet the band incentive ratio target
                 // TODO: add a test for this situation
                 collateralInBand =
                     ((bandUpperBound * peggedTokenBalance_ - collateralTokenBalance_ * price) * 1 ether) /
-                    (price * uint256(1 ether - bandIncentiveRatio));
+                    (price * (1 ether - bandFeeRatio));
+                // c.log("mid band collateralInBand", collateralInBand);
                 // can't have more collateral in the band that there is collateral left
                 collateralInBand = Math.min(collateralIn, collateralInBand);
             }
-            // console.log("collateralInBand=%s", collateralInBand);
-
+            // c.log("collateralInBand", collateralInBand);
+            uint256 bandFee = 0;
+            uint256 extraCollateralInBand = 0;
             if (bandIncentiveRatio > 0) {
-                uint256 bandFee = (collateralInBand * uint256(bandIncentiveRatio)) / 1 ether;
+                bandFee = (collateralInBand * uint256(bandIncentiveRatio)) / 1 ether;
+                // c.log("bandFee", bandFee);
                 // tally the weighted fee ratios
                 fee += bandFee;
             } else if (bandIncentiveRatio < 0) {
-                uint256 extraCollateralInBand = (collateralInBand * uint256(-bandIncentiveRatio)) / 1 ether;
+                extraCollateralInBand = (collateralInBand * uint256(-bandIncentiveRatio)) / 1 ether;
+                // c.log("extraCollateralInBand", extraCollateralInBand);
                 // tally the discounts
                 if (extraCollateralInBand <= reservePoolBalance_) {
                     reservePoolBalance_ -= extraCollateralInBand;
@@ -1531,13 +1564,23 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 extraCollateral += extraCollateralInBand;
             }
             collateralIn -= collateralInBand;
-            if (collateralIn == 0) break;
+            if (collateralIn == 0) {
+                // we have run out of collateral for the simulation
+                // collateralTokenBalance_ += collateralInBand - bandFee + extraCollateralInBand;
+                // c.log("collateralTokenBalance_", collateralTokenBalance_);
+                // c.log("_collateralRatio", _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_));
+                break;
+            }
             // still some collateral left, so add this collateral to take us to the next band
-            collateralTokenBalance_ += collateralInBand;
+            // here the reserve pool discount results in more collateral ending up in the minter
+            collateralTokenBalance_ += collateralInBand - bandFee + extraCollateralInBand;
+            // c.log("collateralTokenBalance_", collateralTokenBalance_);
+            // c.log("_collateralRatio", _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_));
 
             band++;
         }
-        // console.log("fee=%s, extraCollateral=%s", fee, extraCollateral);
+        // c.log("fee", fee);
+        // c.log("extraCollateral", extraCollateral);
     }
 
     function _redeemLeveragedAdjustments(
@@ -1550,7 +1593,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     ) private pure returns (uint256 fee, uint256 leveragedRedeemed, uint256 collateralOut) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
-        // console.log("leveragedIn=%s", leveragedIn);
+        // c.log("leveragedIn", leveragedIn);
         uint256 collateralIn = _collateralForLeveragedTokens(
             leveragedIn,
             leveragedTokenBalance_,
@@ -1558,7 +1601,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             startCollateralTokenBalance,
             price
         );
-        // console.log("collateralIn=%s", collateralIn);
+        // c.log("collateralIn", collateralIn);
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, startCollateralTokenBalance, price, peggedTokenBalance_, false);
@@ -1567,17 +1610,17 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         collateralOut = 0;
         uint256 collateralTokenBalance_ = startCollateralTokenBalance;
         while (true) {
-            // console.log("band=%s", band);
+            // c.log("band", band);
             uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
-            // console.log("bandLowerBound=%s", bandLowerBound);
+            // c.log("bandLowerBound", bandLowerBound);
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
-            // console.log("bandFeeRatio=%s", bandFeeRatio);
+            // c.log("bandFeeRatio", bandFeeRatio);
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
             uint256 collateralInBand = (collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) / price;
-            // console.log("collateralInBand=%s", collateralInBand);
+            // c.log("collateralInBand", collateralInBand);
             collateralInBand = Math.min(collateralIn, collateralInBand);
 
             uint256 bandFee = (collateralInBand * uint256(bandFeeRatio)) / 1 ether;
@@ -1596,7 +1639,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             }
             band--;
         }
-        // console.log("collateralOut=%$s", collateralOut);
+        // c.log("collateralOut=%$s", collateralOut);
         leveragedRedeemed = _leveragedTokensForCollateral(
             collateralOut + fee,
             leveragedTokenBalance_,
@@ -1604,7 +1647,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             startCollateralTokenBalance,
             price
         );
-        // console.log("leveragedRedeemed=%$s", leveragedRedeemed);
+        // c.log("leveragedRedeemed=%$s", leveragedRedeemed);
     }
 
     function _collateralRatioLowerBounds(ActionIncentive memory config_, uint index) private pure returns (uint256) {
@@ -1621,11 +1664,11 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         bool atLower
     ) private pure returns (uint band) {
         uint256 collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
-        // console.log("findBand.collateralRatio=%s", collateralRatio_);
+        // c.log("findBand.collateralRatio", collateralRatio_);
         for (band = 0; band < _collateralRatioBandCount(config_) - 1; band++) {
-            // console.log("findBand.band=%s", band);
-            // console.log(
-            //     "findBand._collateralRatioUpperBounds(config_, band)=%s",
+            // c.log("findBand.band", band);
+            // c.log(
+            //     "findBand._collateralRatioUpperBounds(config_, band)",
             //     _collateralRatioUpperBounds(config_, band)
             // );
             uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);
@@ -1635,7 +1678,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 if (collateralRatio_ <= bandUpperBound) break;
             }
         }
-        // console.log("findBand.band=%s.", band);
+        // c.log("findBand.band.", band);
     }
 
     // TODO: add a function that shifts and scales on x and y and also inverts.
@@ -1648,7 +1691,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     //     // input is in terms of collateral ratio which could be any number > 0
     //     // it need to be clamped between 0 and criticalCollateralRatio - 1
     //     // and as the output is 0 - 100% fee the clamping is normalised
-    //     // console.log("newCollateralRatio=%s", newCollateralRatio);
+    //     // c.log("newCollateralRatio", newCollateralRatio);
 
     //     // TODO: check this for very small x, because, e.g. x*x is even smaller.
     //     if (x <= edge0) {
@@ -1733,12 +1776,12 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 leveragedTokens) {
-        // console.log("_leveragedTokensForCollateral...");
-        // console.log("forCollateral=%s", forCollateral);
-        // console.log("leveragedTokenBalance_=%s", leveragedTokenBalance_);
-        // console.log("peggedTokenBalance_=%s", peggedTokenBalance_);
-        // console.log("collateralTokenBalance_=%s", collateralTokenBalance_);
-        // console.log("collateralPrice=%s", collateralPrice);
+        // c.log("_leveragedTokensForCollateral...");
+        // c.log("forCollateral", forCollateral);
+        // c.log("leveragedTokenBalance_", leveragedTokenBalance_);
+        // c.log("peggedTokenBalance_", peggedTokenBalance_);
+        // c.log("collateralTokenBalance_", collateralTokenBalance_);
+        // c.log("collateralPrice", collateralPrice);
         // the following assumes that the collateral change is small compared to the overall collateral
         // because it is the first derivative of the legeraged balance with respect to the collateral balance
         // using the invariant collateral value = leveraged value + pegged value.
@@ -1763,6 +1806,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         } else {
             leveragedTokens = (forCollateral * collateralPrice) / 1 ether; // TODO: check if there can be any starting price seems moire natural to price it on the same scale as the collateral token
         }
+        // c.log("...leveragedTokens", leveragedTokens);
     }
 
     /**
@@ -1792,6 +1836,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 price,
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 peggedTokens) {
+        // c.log("targetCollateralRatio", targetCollateralRatio);
+        // c.log("collateralTokenBalance_", collateralTokenBalance_);
+        // c.log("price", price);
+        // c.log("", peggedTokenBalance_);
         peggedTokens =
             (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
             (targetCollateralRatio - 1 ether);

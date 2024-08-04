@@ -250,7 +250,12 @@ interface IMinter {
 
     function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
 
+    /// @notice returns the amount of Pegged tokens that need to be redeemed to achieve a given collateral ratio
+    /// This is based on the fact that redeeming pegged tokens has a upward pressure on collateral ratio
+    /// If, however, there are no leveraged tokens then no amount of redemption can change the collateral ratio.
+    /// In the case of no leveraged tokens we return the total supply minted by this minter
     function redeemPeggedForCollateralRatio(uint256 targetCollateralRatio) external view returns (uint256 peggedTokens);
+
     function swapPeggedForLeveragedForCollateralRatio(
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens);

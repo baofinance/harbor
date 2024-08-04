@@ -28,9 +28,6 @@ import "test/Useful.sol";
 import { TestMinter } from "test/Minter_base.t.sol";
 
 contract TestRebalancePool is TestMinter {
-    address peggedToken = deployed.BaoUSD;
-    address collateralToken = deployed.wstETH;
-
     address rebalancePool;
 
     function setUp() public virtual override(TestMinter) {
