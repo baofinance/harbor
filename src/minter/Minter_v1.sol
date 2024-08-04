@@ -380,7 +380,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 collateralTokenBalance_ = _collateralTokenBalance($.collateralToken);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
-            peggedTokens = (collateralTokenBalance_ * collateralPrice) / targetCollateralRatio - peggedTokenBalance_;
+            // from the definition of collateral ratio with no change in collateral only change in pegged
+            peggedTokens = peggedTokenBalance_ - (collateralTokenBalance_ * collateralPrice) / targetCollateralRatio;
         } else {
             peggedTokens = 0;
         }

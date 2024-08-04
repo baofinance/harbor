@@ -71,4 +71,39 @@ contract TestMinterLiquidate is TestMinterFeeSetup {
         setUp_collateral(10 ether, 1 ether); // cr=11/10 = 110%
         _liquidateRedeemToCR(12 ether / 10); // 120%
     }
+
+    function _liquidateSwapToCR(uint256 targetCR) private {
+        uint256 startCR = IMinter(minter).collateralRatio();
+        uint256 peggedTokens = IMinter(minter).swapPeggedForLeveragedForCollateralRatio(targetCR);
+        if (peggedTokens > 0) {
+            vm.prank(owner.addr);
+            IMinter(minter).freeSwapPeggedForLeveraged(peggedTokens, owner.addr);
+            if (targetCR < startCR) {
+                assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");
+            } else {
+                assertEq(IMinter(minter).collateralRatio(), targetCR, "should have reached target collateral ratio");
+            }
+        }
+    }
+
+    function test_liquidateSwap0() public {
+        setUp_collateral(10 ether, 0 ether); // cr=10/10 = 100%
+        _liquidateSwapToCR(12 ether / 10); // 120%
+    }
+
+    function test_liquidateSwapSame100() public {
+        setUp_collateral(10 ether, 0 ether); // cr=10/10 = 100%
+        assertEq(IMinter(minter).collateralRatio(), 1 ether); // CR= 100%
+        _liquidateSwapToCR(1 ether); // 100%
+    }
+
+    function test_liquidateSwapSame110() public {
+        setUp_collateral(10 ether, 1 ether); // cr=11/10 = 110%
+        _liquidateSwapToCR(11 ether / 10); // 110%
+    }
+
+    function test_liquidateSwap1() public {
+        setUp_collateral(10 ether, 1 ether); // cr=11/10 = 110%
+        _liquidateSwapToCR(12 ether / 10); // 120%
+    }
 }
