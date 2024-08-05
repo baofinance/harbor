@@ -15,6 +15,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
+import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
@@ -27,6 +28,8 @@ import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import { TestRebalancePool } from "test/RebalancePool.t.sol";
+
+import "test/clog.sol";
 
 contract TestLiquidate is TestRebalancePool {
     address rebalancePoolLeveraged;
@@ -51,25 +54,66 @@ contract TestLiquidate is TestRebalancePool {
             address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
             abi.encodeCall(RebalancePool_v1.initialize, (owner.addr, minter, leveragedToken))
         );
+
+        vm.prank(owner.addr);
+        IAccessControl(minter).grantRole(zeroFeeRole, rebalancePool);
+        vm.prank(rebalancePool);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+
+        vm.prank(owner.addr);
+        IAccessControl(minter).grantRole(zeroFeeRole, rebalancePoolLeveraged);
+        vm.prank(rebalancePoolLeveraged);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
     }
+
+    function _liquidate(uint256 target) private {}
 
     function test_liquidate() public {
         // set up collateral
         (, uint256 price, , ) = priceOracle.getPrice();
-        setUp_collateral(14 ether, 5 ether); // cr=19/14 = 136%
-        assertEq(IMinter(minter).collateralRatio(), uint256(19 ether) / 14);
+        // 130% = 13/10
+        setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
+        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
 
         // not in rebalance mode
-        //vm.expectRevert("ERC20: transfer amount exceeds balance");
-        //uint256 liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, uint256(12 ether) / 9, 130 ether / 100)
+        );
+        uint256 liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (1) --------------------------------------------------------
+        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
 
         // mint pegged
+        setUp_collateral(2 ether, 0 ether, user1.addr); // cr =14/11 = 127%
+        vm.prank(user1.addr);
+
+        // liquidate with 0 deposited
+        vm.expectRevert("SafeMath: subtraction underflow");
+        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (2) --------------------------------------------------------
 
         // deposit it
+        // only need 1 price deposit to do a successful liquidation
+        vm.prank(user1.addr);
+        IRebalancePool(rebalancePool).deposit(2 * price, user1.addr);
+
+        uint256 poolPegged = IERC20(peggedToken).balanceOf(rebalancePool);
+        uint256 poolCollateral = IERC20(collateralToken).balanceOf(rebalancePool);
+        uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(rebalancePool);
+        assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR");
+        // liquidate it
+        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (3) --------------------------------------------------------
+        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
+        assertEq(poolPegged - IERC20(peggedToken).balanceOf(rebalancePool), 1 * price, "wrong amount of pegged");
+        assertEq(
+            IERC20(collateralToken).balanceOf(rebalancePool) - poolCollateral,
+            1 ether,
+            "wrong amount of collateral"
+        );
+        assertEq(poolLeveraged, IERC20(leveragedToken).balanceOf(rebalancePool), "wrong amount of leveraged");
 
         // deposit mode than have been minted
-
-        // liquidate it
 
         price /= 2;
         priceOracle.setPrice(price);

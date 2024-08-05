@@ -3,7 +3,7 @@ pragma solidity 0.8.25;
 
 interface IMintable {
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Mint some token to someone.
@@ -14,7 +14,7 @@ interface IMintable {
 
 interface IBurnableFrom {
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Burn some token from someone.
@@ -25,7 +25,7 @@ interface IBurnableFrom {
 
 interface IBurnable {
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Burn some token from someone.

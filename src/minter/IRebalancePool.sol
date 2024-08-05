@@ -63,8 +63,8 @@ interface IRebalancePool {
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
 
-    /// @dev Thrown the cannot liquidate.
-    error CannotLiquidate();
+    /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
+    error NotInRebalanceMode(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
 
     /// @dev Thrown when the amount requested to be liquidated isn't met
     error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
@@ -75,6 +75,8 @@ interface IRebalancePool {
     /*************************
      * Public View Functions *
      *************************/
+
+    function minter() external view returns (address);
 
     /// @notice Return the address of underlying token of this contract.
     function assetToken() external view returns (address);
@@ -169,7 +171,7 @@ interface IRebalancePool {
     function getStakerVoteOwner(address account) external view returns (address);
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Withdraw asset from this contract on behalf of someone
