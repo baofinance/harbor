@@ -119,7 +119,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessCo
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Deposit collateral token to this contract.

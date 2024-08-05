@@ -1192,13 +1192,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // tell the world
         emit RedeemPeggedToken(_msgSender(), recipient, peggedIn, collateralOut);
         // burn the tokens from the sender - get them first then burn them
-        // c.log("transfer peggedIn to minter", peggedIn);
         IERC20(peggedToken_).safeTransferFrom(_msgSender(), address(this), peggedIn);
         // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
-        // c.log("burn peggedIn", peggedIn);
         IBurnable(peggedToken_).burn(peggedIn);
         // return the collateral
-        // c.log("transfer collateralOut", collateralOut);
         IERC20(collateralToken_).safeTransfer(recipient, collateralOut);
     }
 
@@ -1320,20 +1317,12 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
-
-            // uint256 collateralInBand1 = ((collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) *
-            //     1 ether) / (price * ((bandLowerBound * (1 ether - bandFeeRatio)) / 1 ether + bandFeeRatio - 1 ether));
-
             uint256 phi = (bandLowerBound * (1 ether - bandFeeRatio)) + bandFeeRatio * 1 ether - 1 ether * 1 ether;
             uint256 collateralInBand = (collateralTokenBalance_ * 1 ether * 1 ether) /
                 phi -
                 ((bandLowerBound * peggedTokenBalance_) * 1 ether * 1 ether) /
                 (price * phi);
-            // if (collateralInBand != collateralInBand1) {
-            //     c.log("collateralInBand ", collateralInBand);
-            //     c.log("collateralInBand1", collateralInBand1);
-            //     revert("better calculation");
-            // }
+
             collateralInBand = Math.min(collateralIn, collateralInBand);
             uint256 bandFee = (collateralInBand * bandFeeRatio) / 1 ether;
             maxCollateral += collateralInBand;
@@ -1352,7 +1341,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             }
             band--;
         }
-        // c.log("fee, maxCollateral", fee, maxCollateral);
     }
 
     /// @param peggedIn the given amount of peggedTokens

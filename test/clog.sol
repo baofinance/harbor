@@ -10,6 +10,10 @@ library c {
         _clog(value);
     }
 
+    function log(bytes32 v) internal pure {
+        console2.logBytes32(v);
+    }
+
     /// @dev logs a named uint
     function log(string memory name, uint256 value) internal pure {
         _clog(name, value, _format(value));

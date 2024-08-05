@@ -68,74 +68,84 @@ contract TestRebalancePoolInit is TestRebalancePool {
     }
 
     function test_init() public view {
-        bytes32 id = keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
-        assertEq(id, 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00);
-
         assertTrue(IAccessControl(rebalancePool).hasRole(ownerRole, owner.addr));
         assertEq(IRebalancePool(rebalancePool).assetToken(), peggedToken);
-
+        assertEq(IRebalancePool(rebalancePool).minter(), minter);
         assertEq(IRebalancePool(rebalancePool).totalAssetSupply(), 0);
     }
 }
 
 contract TestRebalancePoolDepositWithraw is TestRebalancePool {
     Vm.Wallet user1;
+    Vm.Wallet user2;
 
     function setUp() public override(TestRebalancePool) {
         super.setUp();
 
         user1 = vm.createWallet("user1");
+        user2 = vm.createWallet("user2");
         vm.prank(user1.addr);
         IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
     }
 
-    function test_depositWithdraw() public {
+    function _depositWithdraw(address receiver) private {
         // more than holding
         deal(address(peggedToken), user1.addr, 10 ether);
         vm.expectRevert();
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(20 ether, user1.addr);
+        IRebalancePool(rebalancePool).deposit(20 ether, receiver);
         // --------------------------------------------------------
 
         // $2 deposit
         assertEq(IERC20(peggedToken).balanceOf(user1.addr), 10 ether);
+        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 0);
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(2 ether, user1.addr);
+        IRebalancePool(rebalancePool).deposit(2 ether, receiver);
         // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(user1.addr), 2 ether);
+        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 2 ether);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 ether);
         assertEq(IERC20(peggedToken).balanceOf(user1.addr), 8 ether);
 
         // $3 withdrawal
         vm.prank(user1.addr);
         vm.expectRevert(abi.encodeWithSelector(IRebalancePool.WithdrawAmountExceedsBalance.selector, 3 ether, 2 ether));
-        IRebalancePool(rebalancePool).withdraw(3 ether, user1.addr);
+        IRebalancePool(rebalancePool).withdraw(3 ether, receiver);
         // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(user1.addr), 2 ether);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 ether);
 
         // $5 second deposit
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(5 ether, user1.addr);
+        IRebalancePool(rebalancePool).deposit(5 ether, receiver);
         // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(user1.addr), 7 ether);
+        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 7 ether);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 7 ether);
 
         // withdraw some
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).withdraw(4 ether, user1.addr);
+        IRebalancePool(rebalancePool).withdraw(4 ether, receiver);
         // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(user1.addr), 3 ether);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 3 ether);
 
         // withdraw rest
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).withdraw(type(uint256).max, user1.addr);
+        IRebalancePool(rebalancePool).withdraw(type(uint256).max, receiver);
         // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(user1.addr), 0 ether);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 0 ether);
 
         // deposit -1
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(type(uint256).max, user1.addr);
+        IRebalancePool(rebalancePool).deposit(type(uint256).max, receiver);
         // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(user1.addr), 10 ether);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 10 ether);
         assertEq(IERC20(peggedToken).balanceOf(user1.addr), 0 ether);
+    }
+
+    function test_depositWithdraw1() public {
+        _depositWithdraw(user1.addr);
+    }
+
+    function test_depositWithdraw2() private {
+        _depositWithdraw(user2.addr);
     }
 
     // TODO: check stake owners

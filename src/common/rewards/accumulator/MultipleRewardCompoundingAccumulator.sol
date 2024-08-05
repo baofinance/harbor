@@ -224,7 +224,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
     }
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @inheritdoc IMultipleRewardAccumulator

@@ -77,7 +77,7 @@ interface IMultipleRewardDistributor {
     function pendingRewards(address token) external view returns (uint256 distributable, uint256 undistributed);
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Deposit new rewards to this contract.

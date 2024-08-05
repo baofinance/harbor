@@ -48,7 +48,7 @@ interface IMultipleRewardAccumulator {
     function claimed(address account, address token) external view returns (uint256 amount);
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @notice Set the default reward receiver for the caller.

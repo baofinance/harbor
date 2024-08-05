@@ -107,7 +107,7 @@ abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor,
     }
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @inheritdoc IMultipleRewardDistributor

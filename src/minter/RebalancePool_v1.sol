@@ -19,7 +19,7 @@ import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
 import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
 import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
 
-import { console2 as console } from "forge-std/console2.sol";
+import "test/clog.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -192,6 +192,9 @@ contract RebalancePool_v1 is
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
 
+        $.minter = minter_;
+        $.assetToken = IMinter(minter_).peggedToken();
+
         $.liquidationToken = liquidationToken_;
         if (liquidationToken_ == IMinter(minter_).collateralToken()) {
             $.liquidationTokenIsCollateral = true;
@@ -200,8 +203,6 @@ contract RebalancePool_v1 is
         } else {
             revert LiquidationTokenMustBeCollateralOrLeveraged(liquidationToken_);
         }
-
-        $.assetToken = IMinter(minter_).peggedToken();
 
         // TODO: what purpose does the wrapper give.
         // I'm guessing that this contract wraps because it keeps a track of shares
@@ -228,6 +229,11 @@ contract RebalancePool_v1 is
     function assetToken() external view returns (address) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         return $.assetToken;
+    }
+
+    function minter() external view returns (address) {
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        return $.minter;
     }
 
     function getStakerVoteOwner(address account) external view returns (address) {
@@ -269,7 +275,7 @@ contract RebalancePool_v1 is
     }
 
     /****************************
-     * Public Mutated Functions *
+     * Public Mutator Functions *
      ****************************/
 
     /// @inheritdoc IRebalancePool
@@ -289,7 +295,7 @@ contract RebalancePool_v1 is
         }
         // console.log("amount=%s", amount);
         if (amount == 0) revert DepositZeroAmount();
-        // console.loglogloglogloglogloglog("transferring...");
+
         IERC20(assetToken_).safeTransferFrom(sender, address(this), amount);
 
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
@@ -354,7 +360,7 @@ contract RebalancePool_v1 is
         // check we are in the right collateral ratio band
         uint256 rebalanceCollateralRatio_ = IMinter(minter_).rebalanceCollateralRatio();
         if (IMinter(minter_).collateralRatio() > rebalanceCollateralRatio_) {
-            revert CannotLiquidate();
+            revert NotInRebalanceMode(IMinter(minter_).collateralRatio(), rebalanceCollateralRatio_);
         }
 
         address liquidationToken_ = $.liquidationToken;
