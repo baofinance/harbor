@@ -87,7 +87,6 @@ contract Liquidator_v1 is
         return IRebalancePool($.rebalancePool).assetToken();
     }
 
-    // TODO: add functions to update rewards
     // TODO: make this inherit TokenOwner to make recovery of owned tokens easier
 
     /// @inheritdoc ILiquidator

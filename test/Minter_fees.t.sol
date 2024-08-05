@@ -17,7 +17,7 @@ import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import "test/Useful.sol";
 import { TestMinter } from "test/Minter_base.t.sol";
 
-// TODO: test fee distribution integration
+// TODO: check what happens when safe price is invalid
 
 contract TestMinterFeeSetup is TestMinter {
     function setUpConfig() public virtual override {
@@ -150,7 +150,6 @@ contract TestMinterFees is TestMinterFeeSetup {
     function test_mintPeggedFeesAreIntegrals() public {
         // ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
         // critical CRs = 130% (disallow), 140% (danger)
-        // TODO: check the above is the case
         setUp_collateral(18 ether, 10 ether); // CR = 28/18 = 155%
         assertLt(
             penultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -286,8 +285,6 @@ contract TestMinterFees is TestMinterFeeSetup {
         );
     }
 
-    // TODO: check the bonus if properly paid - do this with the reserve pool
-
     function _checkMintLeveragedIntegral(
         uint iTotalMint,
         uint step
@@ -367,7 +364,6 @@ contract TestMinterFees is TestMinterFeeSetup {
     function _checkMintLeveragedFeesIntegralList() public {
         // ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
         // critical CRs (upper bounds) = 110% (bonus, -50), 120% (free, 0), 140% (danger, 20), -> (70)
-        // TODO: check the above is the case
         setUp_collateral(150 ether, 10 ether); // CR = 160/150 = 106.6%, bonus
         assertGt(
             initial(config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds),
