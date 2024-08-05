@@ -66,11 +66,8 @@ contract TestLiquidate is TestRebalancePool {
         IERC20(peggedToken).approve(minter, type(uint256).max);
     }
 
-    function _liquidate(uint256 target) private {}
-
-    function test_liquidate() public {
+    function test_liquidateFailure() public {
         // set up collateral
-        (, uint256 price, , ) = priceOracle.getPrice();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
@@ -84,28 +81,40 @@ contract TestLiquidate is TestRebalancePool {
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
 
         // mint pegged
-        setUp_collateral(2 ether, 0 ether, user1.addr); // cr =14/11 = 127%
-        vm.prank(user1.addr);
+        setUp_collateral(2 ether, 0 ether); // cr =14/11 = 127%
 
         // liquidate with 0 deposited
         vm.expectRevert("SafeMath: subtraction underflow");
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
         // (2) --------------------------------------------------------
+    }
+
+    function _liquidate(uint256 target) private {}
+
+    function test_liquidate() public {
+        (, uint256 price, , ) = priceOracle.getPrice();
+        // 130% = 13/10
+        setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
+        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
+
+        // mint pegged
+        setUp_collateral(2 ether, 0 ether, user1.addr); // cr =14/11 = 127%
 
         // deposit it
         // only need 1 price deposit to do a successful liquidation
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(2 * price, user1.addr);
+        IRebalancePool(rebalancePool).deposit(2 * price, user1.addr, 0);
 
         uint256 poolPegged = IERC20(peggedToken).balanceOf(rebalancePool);
         uint256 poolCollateral = IERC20(collateralToken).balanceOf(rebalancePool);
         uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(rebalancePool);
         assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR");
         // liquidate it
-        liquidated = IRebalancePool(rebalancePool).liquidate(0);
-        // (3) --------------------------------------------------------
+        uint256 liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (1) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
         assertEq(poolPegged - IERC20(peggedToken).balanceOf(rebalancePool), 1 * price, "wrong amount of pegged");
+        assertEq(liquidated, 1 * price, "wrong amount of pegged 1");
         assertEq(
             IERC20(collateralToken).balanceOf(rebalancePool) - poolCollateral,
             1 ether,
@@ -113,7 +122,22 @@ contract TestLiquidate is TestRebalancePool {
         );
         assertEq(poolLeveraged, IERC20(leveragedToken).balanceOf(rebalancePool), "wrong amount of leveraged");
 
-        // deposit mode than have been minted
+        // collateral ratio has gone to rebalance, liquidate it, with no effect
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, 13 ether / 10, 13 ether / 10)
+        );
+        IRebalancePool(rebalancePool).liquidate(0);
+        // (2) --------------------------------------------------------
+        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130 still");
+
+        // move the CR up a bit, liquidate it, with no effect
+        setUp_collateral(0 ether, 1 ether); // cr=14/10 = 140%
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, 14 ether / 10, 13 ether / 10)
+        );
+        IRebalancePool(rebalancePool).liquidate(1 ether);
+        // (3) --------------------------------------------------------
+        assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 10, "collateral ratio should still be 140");
 
         price /= 2;
         priceOracle.setPrice(price);

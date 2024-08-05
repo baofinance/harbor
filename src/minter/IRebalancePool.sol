@@ -57,6 +57,9 @@ interface IRebalancePool {
     /// @dev Thrown when the deposited amount is zero.
     error DepositZeroAmount();
 
+    /// @dev Thrown when the deposited amount is less than the minimum.
+    error DepositAmountLessThanMinimum(uint256 amount, uint256 minAmount);
+
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawZeroAmount();
 
@@ -100,19 +103,21 @@ interface IRebalancePool {
     /// @dev Use `amount=uint256(-1)` if you want to deposit all asset held.
     /// @param amount The amount of asset to deposit.
     /// @param receiver The address of recipient for the deposited asset.
-    function deposit(uint256 amount, address receiver) external;
+    /// @param minAmount The minimum amount to deposit
+    /// @return amountDeposited the amount actually deposited
+    function deposit(uint256 amount, address receiver, uint256 minAmount) external returns (uint256 amountDeposited);
 
     /// @notice Withdraw asset from this contract.
-    function withdraw(uint256 amount, address receiver) external;
-
-    /*******************************
-     * Protected Mutator Functions *
-     *******************************/
+    function withdraw(uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
 
     /// @notice Liquidate asset. Calling into the minter to
     /// @param minPeggedAmount The minimum amount of asset to liquidate.
     /// @return liquidated The amount of asset liquidated.
     function liquidate(uint256 minPeggedAmount) external returns (uint256 liquidated);
+
+    /*******************************
+     * Protected Mutator Functions *
+     *******************************/
 
     /// @notice send reward tokens to the pool stakers
     /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
@@ -174,8 +179,12 @@ interface IRebalancePool {
      * Public Mutator Functions *
      ****************************/
 
+    /*******************************
+     * Protected Mutator Functions *
+     *******************************/
+
     /// @notice Withdraw asset from this contract on behalf of someone
-    function withdrawFrom(address owner, uint256 amount, address receiver) external;
+    function withdrawFrom(address owner, uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
 
     /// @notice Owner changes the vote sharing state for some user.
     /// @param staker The address of user to change.

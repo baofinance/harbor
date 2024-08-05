@@ -279,12 +279,14 @@ contract RebalancePool_v1 is
      ****************************/
 
     /// @inheritdoc IRebalancePool
-    function deposit(uint256 amount, address receiver) external override {
+    function deposit(
+        uint256 amount,
+        address receiver,
+        uint256 minAmount
+    ) external override returns (uint256 depositedAmount) {
         // TODO: check if we need this:
         if (hasRole(VE_SHARING_ROLE, receiver)) revert ErrorVoteOwnerCannotStake();
 
-        // TODO: must we ensure that we don't accept more tokens than the minter we are paired with has?
-        // console.log("deposit(amount=%s)", amount);
         address sender = _msgSender();
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
 
@@ -293,15 +295,22 @@ contract RebalancePool_v1 is
         if (amount == type(uint256).max) {
             amount = IERC20(assetToken_).balanceOf(sender);
         }
-        // console.log("amount=%s", amount);
+
+        // we ensure that we don't deposit more tokens than the minter we are paired with has
+        uint256 minterMinted = IMinter($.minter).peggedTokenBalance();
+        uint256 thisBalance = IERC20(assetToken_).balanceOf(address(this));
+        if (amount > minterMinted - thisBalance) {
+            amount = minterMinted - thisBalance;
+        }
+
         if (amount == 0) revert DepositZeroAmount();
+        if (amount < minAmount) revert DepositAmountLessThanMinimum(amount, minAmount);
+        depositedAmount = amount;
 
         IERC20(assetToken_).safeTransferFrom(sender, address(this), amount);
 
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
-        // console.log("checkpoint...");
         _checkpoint(receiver);
-        // console.log("checkpoint.");
 
         // It should never exceed `type(uint104).max`.
         TokenBalance memory supply = $.totalSupply;
@@ -336,10 +345,10 @@ contract RebalancePool_v1 is
     }
 
     /// @inheritdoc IRebalancePool
-    function withdraw(uint256 amount, address receiver) external virtual override {
+    function withdraw(uint256 amount, address receiver) external virtual override returns (uint256 amountWithdrawn) {
         // TODO: not allowed to withdraw as fToken in fxUSD.
         // what should we do for BaoUSD?
-        _withdraw(_msgSender(), amount, receiver);
+        amountWithdrawn = _withdraw(_msgSender(), amount, receiver);
     }
 
     /// @inheritdoc IRebalancePool
@@ -347,8 +356,8 @@ contract RebalancePool_v1 is
         address owner,
         uint256 amount,
         address receiver
-    ) external override onlyRole(WITHDRAW_FROM_ROLE) {
-        _withdraw(owner, amount, receiver);
+    ) external override onlyRole(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
+        amountWithdrawn = _withdraw(owner, amount, receiver);
     }
 
     /// @inheritdoc IRebalancePool
@@ -359,34 +368,31 @@ contract RebalancePool_v1 is
 
         // check we are in the right collateral ratio band
         uint256 rebalanceCollateralRatio_ = IMinter(minter_).rebalanceCollateralRatio();
-        if (IMinter(minter_).collateralRatio() > rebalanceCollateralRatio_) {
+        if (IMinter(minter_).collateralRatio() >= rebalanceCollateralRatio_) {
             revert NotInRebalanceMode(IMinter(minter_).collateralRatio(), rebalanceCollateralRatio_);
         }
 
         address liquidationToken_ = $.liquidationToken;
         bool liquidationTokenIsCollateral = $.liquidationTokenIsCollateral;
-        // depending on the token, determine the amount that needs to be liquidated
-        uint256 peggedTokensToLiquidate;
 
+        // depending on the token, determine the amount that needs to be liquidated
         if (liquidationTokenIsCollateral) {
-            peggedTokensToLiquidate = IMinter(minter_).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
+            liquidated = IMinter(minter_).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
         } else {
-            peggedTokensToLiquidate = IMinter(minter_).swapPeggedForLeveragedForCollateralRatio(
-                rebalanceCollateralRatio_
-            );
+            liquidated = IMinter(minter_).swapPeggedForLeveragedForCollateralRatio(rebalanceCollateralRatio_);
         }
-        if (peggedTokensToLiquidate == 0 || peggedTokensToLiquidate < minLiquidated) {
-            revert NotEnoughTokensToLiquidate(peggedTokensToLiquidate, minLiquidated);
+        if (liquidated == 0 || liquidated < minLiquidated) {
+            revert NotEnoughTokensToLiquidate(liquidated, minLiquidated);
         }
 
         uint256 returnAmount;
         if (liquidationTokenIsCollateral) {
-            returnAmount = IMinter(minter_).freeRedeemPeggedToken(peggedTokensToLiquidate, address(this));
+            returnAmount = IMinter(minter_).freeRedeemPeggedToken(liquidated, address(this));
         } else {
-            returnAmount = IMinter(minter_).freeSwapPeggedForLeveraged(peggedTokensToLiquidate, address(this));
+            returnAmount = IMinter(minter_).freeSwapPeggedForLeveraged(liquidated, address(this));
         }
 
-        emit Liquidate(peggedTokensToLiquidate);
+        emit Liquidate(liquidated);
 
         _checkpoint(address(0));
         _accumulateReward(liquidationToken_, returnAmount);
@@ -592,7 +598,7 @@ contract RebalancePool_v1 is
     /// @param sender The address of owner to withdraw from.
     /// @param amount The amount of token to withdraw.
     /// @param receiver The address of token receiver.
-    function _withdraw(address sender, uint256 amount, address receiver) internal {
+    function _withdraw(address sender, uint256 amount, address receiver) internal returns (uint256 amountWithdrawn) {
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         _checkpoint(sender);
@@ -629,6 +635,7 @@ contract RebalancePool_v1 is
         _updateBoostCheckpoint(sender, owner, balance, ownerBalance, supply);
 
         IERC20($.assetToken).safeTransfer(receiver, amount);
+        amountWithdrawn = amount;
 
         emit Withdraw(sender, receiver, amount);
         emit UserDepositChange(sender, balance.amount, 0);

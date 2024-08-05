@@ -14,6 +14,7 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import { IMinter } from "src/minter/IMinter.sol";
 import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
@@ -24,7 +25,7 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
-import "test/Useful.sol";
+import "test/clog.sol";
 import { TestMinter } from "test/Minter_base.t.sol";
 
 contract TestRebalancePool is TestMinter {
@@ -89,55 +90,92 @@ contract TestRebalancePoolDepositWithraw is TestRebalancePool {
     }
 
     function _depositWithdraw(address receiver) private {
+        (, uint256 price, , ) = priceOracle.getPrice();
         // more than holding
-        deal(address(peggedToken), user1.addr, 10 ether);
-        vm.expectRevert();
+        setUp_collateral(20 ether, 0 ether);
+        deal(peggedToken, user1.addr, 10 * price);
+        assertEq(IERC20(peggedToken).balanceOf(user1.addr), 10 * price, "user1 has");
+        vm.expectRevert("SafeMath: subtraction underflow"); // should be amount exceeds balance, but hey-ho
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(20 ether, receiver);
+        IRebalancePool(rebalancePool).deposit(20 * price, receiver, 0);
         // --------------------------------------------------------
 
         // $2 deposit
-        assertEq(IERC20(peggedToken).balanceOf(user1.addr), 10 ether);
+        assertEq(IERC20(peggedToken).balanceOf(user1.addr), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 0);
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(2 ether, receiver);
-        // --------------------------------------------------------
-        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 2 ether);
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 ether);
-        assertEq(IERC20(peggedToken).balanceOf(user1.addr), 8 ether);
+        uint256 deposited = IRebalancePool(rebalancePool).deposit(2 * price, receiver, 0);
+        // 1 deposit --------------------------------------------------------------------
+        assertEq(deposited, 2 * price, "returned value");
+        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 2 * price);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 * price);
+        assertEq(IERC20(peggedToken).balanceOf(user1.addr), 8 * price);
 
         // $3 withdrawal
         vm.prank(user1.addr);
-        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.WithdrawAmountExceedsBalance.selector, 3 ether, 2 ether));
-        IRebalancePool(rebalancePool).withdraw(3 ether, receiver);
-        // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
+        );
+        IRebalancePool(rebalancePool).withdraw(3 * price, receiver);
+        // 1 withdraw ---------------------------------------------
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 * price);
 
         // $5 second deposit
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(5 ether, receiver);
-        // --------------------------------------------------------
-        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 7 ether);
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 7 ether);
+        deposited = IRebalancePool(rebalancePool).deposit(5 * price, receiver, 0);
+        // 2 deposit ------------------------------------------------------------
+        assertEq(deposited, 5 * price, "returned value 5");
+        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 7 * price);
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 7 * price);
 
         // withdraw some
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).withdraw(4 ether, receiver);
-        // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 3 ether);
+        uint256 withdrawn = IRebalancePool(rebalancePool).withdraw(4 * price, receiver);
+        // 2 withdraw -----------------------------------------------------------------
+        assertEq(withdrawn, 4 * price, "withdraw 4");
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 3 * price);
 
         // withdraw rest
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).withdraw(type(uint256).max, receiver);
-        // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 0 ether);
+        withdrawn = IRebalancePool(rebalancePool).withdraw(type(uint256).max, receiver);
+        // 3 withdraw -----------------------------------------------------------------
+        assertEq(withdrawn, 3 * price, "withdraw 3 (-1)");
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 0);
 
         // deposit -1
         vm.prank(user1.addr);
-        IRebalancePool(rebalancePool).deposit(type(uint256).max, receiver);
-        // --------------------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 10 ether);
-        assertEq(IERC20(peggedToken).balanceOf(user1.addr), 0 ether);
+        deposited = IRebalancePool(rebalancePool).deposit(type(uint256).max, receiver, 0);
+        // 3 deposit --------------------------------------------------------------------
+        assertEq(deposited, 10 * price, "returned value 10");
+        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 10 * price);
+        assertEq(IERC20(peggedToken).balanceOf(user1.addr), 0);
+
+        // deposit for more than the minter has minted, deposits up to the minter's balance
+        // mint from another source, not minter
+        setUp_collateral(1 ether, 0 ether); // add more minter
+        assertEq(IMinter(minter).peggedTokenBalance(), 21 * price, "minted by minter");
+        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 10 * price);
+        deal(address(peggedToken), user1.addr, 20 * price);
+        vm.prank(user1.addr);
+        deposited = IRebalancePool(rebalancePool).deposit(20 * price, receiver, 0);
+        // 4 deposit -------------------------------------------------------------
+        assertEq(deposited, 11 * price, "returned value 11, not 20");
+
+        // minter has none left, so zero deposit
+        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.DepositZeroAmount.selector));
+        vm.prank(user1.addr);
+        deposited = IRebalancePool(rebalancePool).deposit(9 * price, receiver, 0);
+        // 5 deposit -------------------------------------------------------------
+
+        // check min deposit amount
+        setUp_collateral(1 ether, 0 ether); // add more minter
+        deal(address(peggedToken), user1.addr, 3 * price);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
+        );
+        vm.prank(user1.addr);
+        IRebalancePool(rebalancePool).deposit(3 * price, receiver, 2 * price);
+        // 6 deposit --------------------------------------------------------
     }
 
     function test_depositWithdraw1() public {
