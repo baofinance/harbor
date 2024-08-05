@@ -29,7 +29,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 5153820                                     | 23718           |        |        |        |         |
+| 5153808                                     | 23718           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5423            | 5423   | 5423   | 5423   | 7       |
 | collateralRatio                             | 493             | 3572   | 3554   | 22554  | 902     |
