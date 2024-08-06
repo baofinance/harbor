@@ -26,30 +26,32 @@ import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/clog.sol";
-import { TestMinter } from "test/Minter_base.t.sol";
+import { TestMinterFeeSetUp } from "test/Minter_fees.t.sol";
 
-contract TestRebalancePool is TestMinter {
+contract TestRebalancePoolSetUp is TestMinterFeeSetUp {
     address rebalancePool;
+    Vm.Wallet user1;
+    Vm.Wallet user2;
 
-    function setUp() public virtual override(TestMinter) {
+    function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
         rebalancePool = UnsafeUpgrades.deployUUPSProxy(
             address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
             abi.encodeCall(RebalancePool_v1.initialize, (owner.addr, minter, collateralToken))
         );
+
+        user1 = vm.createWallet("user1");
+        vm.prank(user1.addr);
+        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+
+        user2 = vm.createWallet("user2");
+        vm.prank(user2.addr);
+        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
     }
 }
 
-contract TestRebalancePoolSetUp is TestRebalancePool {
-    function setUp() public override {}
-
-    function test_setUp() public {
-        super.setUp();
-    }
-}
-
-contract TestRebalancePoolInit is TestRebalancePool {
+contract TestRebalancePoolInit is TestRebalancePoolSetUp {
     using SafeERC20 for IERC20;
 
     function test_initEvents() public {
@@ -76,20 +78,9 @@ contract TestRebalancePoolInit is TestRebalancePool {
     }
 }
 
-contract TestRebalancePoolDepositWithdraw is TestRebalancePool {
-    Vm.Wallet user1;
-    Vm.Wallet user2;
-
-    function setUp() public virtual override(TestRebalancePool) {
+contract TestRebalancePoolDepositWithdraw is TestRebalancePoolSetUp {
+    function setUp() public virtual override(TestRebalancePoolSetUp) {
         super.setUp();
-
-        user1 = vm.createWallet("user1");
-        vm.prank(user1.addr);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
-
-        user2 = vm.createWallet("user2");
-        vm.prank(user2.addr);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
     }
 
     function _depositWithdraw(address receiver) private {

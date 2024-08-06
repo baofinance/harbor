@@ -27,14 +27,14 @@ import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
-import { TestRebalancePoolDepositWithdraw } from "test/RebalancePool.t.sol";
+import { TestRebalancePoolSetUp } from "test/RebalancePool.t.sol";
 
 import "test/clog.sol";
 
-contract TestLiquidate is TestRebalancePoolDepositWithdraw {
+contract TestRebalancePool2SetUp is TestRebalancePoolSetUp {
     address rebalancePoolLeveraged;
 
-    function setUp() public override(TestRebalancePoolDepositWithdraw) {
+    function setUp() public virtual override(TestRebalancePoolSetUp) {
         super.setUp();
 
         deal(address(peggedToken), user1.addr, 1000 ether);
@@ -59,7 +59,9 @@ contract TestLiquidate is TestRebalancePoolDepositWithdraw {
         vm.prank(rebalancePoolLeveraged);
         IERC20(peggedToken).approve(minter, type(uint256).max);
     }
+}
 
+contract TestLiquidate is TestRebalancePool2SetUp {
     function test_liquidateFailure() public {
         (, uint256 price, , ) = priceOracle.getPrice();
         uint256 liquidated;

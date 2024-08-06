@@ -16,13 +16,13 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";
-import { TestMinterFeeSetup } from "test/Minter_fees.t.sol";
+import { TestMinterFeeSetUp } from "test/Minter_fees.t.sol";
 
-contract TestMinterLiquidate is TestMinterFeeSetup {
+contract TestMinterLiquidate is TestMinterFeeSetUp {
     using SafeERC20 for IERC20;
     uint256 price;
 
-    function setUp() public override(TestMinterFeeSetup) {
+    function setUp() public override(TestMinterFeeSetUp) {
         super.setUp();
         (, price, , ) = priceOracle.getPrice();
         vm.prank(owner.addr);
