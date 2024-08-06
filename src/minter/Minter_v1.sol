@@ -859,10 +859,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
 
         uint256 price = _fetchSafePrice($.priceOracle);
 
-        leveragedOut = _leveragedTokensForCollateral(
-            (peggedIn * 1 ether) / price,
+        leveragedOut = _leveragedTokensForPegged(
+            peggedIn,
             _leveragedTokenBalance(leveragedToken_),
-            $.peggedTokenBalance,
+            peggedTokenBalance_,
             _collateralTokenBalance(collateralToken_),
             price
         );
@@ -1759,26 +1759,20 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
      * @dev pegged value must not be greater than collateral value, i.e. it's depegged
      */
     function _leveragedTokensForCollateral(
-        uint256 forCollateral,
+        uint256 collateralIn,
         uint256 leveragedTokenBalance_,
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 leveragedTokens) {
         // c.log("_leveragedTokensForCollateral...");
-        // c.log("forCollateral", forCollateral);
+        // c.log("collateralIn", collateralIn);
         // c.log("leveragedTokenBalance_", leveragedTokenBalance_);
         // c.log("peggedTokenBalance_", peggedTokenBalance_);
         // c.log("collateralTokenBalance_", collateralTokenBalance_);
         // c.log("collateralPrice", collateralPrice);
-        // the following assumes that the collateral change is small compared to the overall collateral
-        // because it is the first derivative of the legeraged balance with respect to the collateral balance
-        // using the invariant collateral value = leveraged value + pegged value.
-        // this may well be a reasonable assumption
-        // TODO: work out the acceptable amount of collateral as a ratio that can be added in one go
-        // and split this equation into a series of steps, i.e. do a piecewise differentiation, or
-        // work out how leveraged nav varies with collateral tokens without using the invariant (if that's possible)
-        // or investigate if this is why Aladdin are using the moving average for leverage ratio
+        // this is the first derivative of the legeraged balance with respect to the collateral balance
+        // in the invariant: collateral value = leveraged value + pegged value.
         // Note: if leveraged balance is 0 this returns 0, so we have to bootstrap this contract with some leveraged tokens
         //       or work out the correct equation, assuming there is one solution:
         //           leveraged nav can vary or leveraged balance can vary
@@ -1789,13 +1783,35 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 leveragedTokens = 0;
             } else {
                 leveragedTokens =
-                    (forCollateral * collateralPrice * leveragedTokenBalance_) /
+                    (collateralIn * collateralPrice * leveragedTokenBalance_) /
                     (collateralValue - peggedValue);
             }
         } else {
-            leveragedTokens = (forCollateral * collateralPrice) / 1 ether; // TODO: check if there can be any starting price seems moire natural to price it on the same scale as the collateral token
+            leveragedTokens = (collateralIn * collateralPrice) / 1 ether; // TODO: check if there can be any starting price seems moire natural to price it on the same scale as the collateral token
         }
         // c.log("...leveragedTokens", leveragedTokens);
+    }
+
+    function _leveragedTokensForPegged(
+        uint256 peggedIn,
+        uint256 leveragedTokenBalance_,
+        uint256 peggedTokenBalance_,
+        uint256 collateralTokenBalance_,
+        uint256 collateralPrice
+    ) private pure returns (uint256 leveragedTokens) {
+        // this is the first derivative of the legeraged balance with respect to the collateral balance
+        // in the invariant: collateral value = leveraged value + pegged value.
+        if (leveragedTokenBalance_ > 0) {
+            uint256 collateralValue = collateralTokenBalance_ * collateralPrice;
+            uint256 peggedValue = peggedTokenBalance_ * 1 ether;
+            if (peggedValue >= collateralValue) {
+                leveragedTokens = 0;
+            } else {
+                leveragedTokens = (peggedIn * 1 ether * leveragedTokenBalance_) / (collateralValue - peggedValue);
+            }
+        } else {
+            leveragedTokens = peggedIn; // TODO: check if there can be any starting price seems moire natural to price it on the same scale as the collateral token
+        }
     }
 
     /**

@@ -27,33 +27,27 @@ import { deployed } from "test/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
-import { TestRebalancePool } from "test/RebalancePool.t.sol";
+import { TestRebalancePoolDepositWithdraw } from "test/RebalancePool.t.sol";
 
 import "test/clog.sol";
 
-contract TestLiquidate is TestRebalancePool {
+contract TestLiquidate is TestRebalancePoolDepositWithdraw {
     address rebalancePoolLeveraged;
 
-    Vm.Wallet user1;
-    Vm.Wallet user2;
-
-    function setUp() public override(TestRebalancePool) {
+    function setUp() public override(TestRebalancePoolDepositWithdraw) {
         super.setUp();
 
-        user1 = vm.createWallet("user1");
-        deal(address(deployed.BaoUSD), user1.addr, 1000 ether);
-        vm.prank(user1.addr);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
-
-        user2 = vm.createWallet("user2");
-        deal(address(deployed.BaoUSD), user1.addr, 2000 ether);
-        vm.prank(user2.addr);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+        deal(address(peggedToken), user1.addr, 1000 ether);
+        deal(address(peggedToken), user2.addr, 2000 ether);
 
         rebalancePoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
             address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
             abi.encodeCall(RebalancePool_v1.initialize, (owner.addr, minter, leveragedToken))
         );
+        vm.prank(user1.addr);
+        IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
+        vm.prank(user2.addr);
+        IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
 
         vm.prank(owner.addr);
         IAccessControl(minter).grantRole(zeroFeeRole, rebalancePool);
@@ -89,8 +83,6 @@ contract TestLiquidate is TestRebalancePool {
         // (2) --------------------------------------------------------
     }
 
-    function _liquidate(uint256 target) private {}
-
     function test_liquidate() public {
         (, uint256 price, , ) = priceOracle.getPrice();
         // 130% = 13/10
@@ -113,14 +105,14 @@ contract TestLiquidate is TestRebalancePool {
         uint256 liquidated = IRebalancePool(rebalancePool).liquidate(0);
         // (1) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
-        assertEq(poolPegged - IERC20(peggedToken).balanceOf(rebalancePool), 1 * price, "wrong amount of pegged");
         assertEq(liquidated, 1 * price, "wrong amount of pegged 1");
+        assertEq(poolPegged - IERC20(peggedToken).balanceOf(rebalancePool), 1 * price, "wrong amount of pegged");
         assertEq(
             IERC20(collateralToken).balanceOf(rebalancePool) - poolCollateral,
             1 ether,
             "wrong amount of collateral"
         );
-        assertEq(poolLeveraged, IERC20(leveragedToken).balanceOf(rebalancePool), "wrong amount of leveraged");
+        assertEq(poolLeveraged, IERC20(leveragedToken).balanceOf(rebalancePoolLeveraged), "wrong amount of leveraged");
 
         // collateral ratio has gone to rebalance, liquidate it, with no effect
         vm.expectRevert(
@@ -138,8 +130,68 @@ contract TestLiquidate is TestRebalancePool {
         IRebalancePool(rebalancePool).liquidate(1 ether);
         // (3) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 10, "collateral ratio should still be 140");
+    }
 
-        price /= 2;
-        priceOracle.setPrice(price);
+    function test_liquidateLeveraged() public {
+        (, uint256 price, , ) = priceOracle.getPrice();
+        // 130% = 13/10
+        setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
+        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
+
+        // mint pegged
+        setUp_collateral(2 ether, 0 ether, user1.addr); // cr =14/11 = 127%
+
+        // deposit it
+        // only need 1 price deposit to do a successful liquidation
+        vm.prank(user1.addr);
+        IRebalancePool(rebalancePoolLeveraged).deposit(2 * price, user1.addr, 0);
+
+        uint256 poolPegged = IERC20(peggedToken).balanceOf(rebalancePoolLeveraged); // 2 * price
+        uint256 poolCollateral = IERC20(collateralToken).balanceOf(rebalancePoolLeveraged); // 0
+        uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(rebalancePoolLeveraged); // 0
+        assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR"); // 127%
+        // liquidate it 0.23 * price vs 1 * price for liquidate to collateral
+        uint256 liquidated = IRebalancePool(rebalancePoolLeveraged).liquidate(0);
+        // (1) --------------------------------------------------------
+        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
+        assertEq(liquidated, 461538461538461538462, "wrong amount of pegged");
+        assertEq(
+            poolPegged - IERC20(peggedToken).balanceOf(rebalancePoolLeveraged),
+            liquidated,
+            "wrong amount of pegged"
+        );
+        assertEq(
+            IERC20(collateralToken).balanceOf(rebalancePoolLeveraged) - poolCollateral,
+            0,
+            "wrong amount of collateral"
+        );
+        assertEq(
+            IERC20(leveragedToken).balanceOf(rebalancePoolLeveraged) - poolLeveraged,
+            liquidated, // TODO: why is this exactly the same as the liquidated pegged?
+            "wrong amount of leveraged"
+        );
+
+        // collateral ratio has gone to rebalance, liquidate it, with no effect
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, 13 ether / 10, 13 ether / 10)
+        );
+        IRebalancePool(rebalancePoolLeveraged).liquidate(0);
+        // (2) --------------------------------------------------------
+        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130 still");
+
+        // move the CR up a bit, liquidate it, with no effect
+        setUp_collateral(0 ether, 2 ether);
+        uint256 beforeCR = IMinter(minter).collateralRatio();
+        assertGt(beforeCR, uint256(13 ether) / 10);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IRebalancePool.NotInRebalanceMode.selector,
+                IMinter(minter).collateralRatio(),
+                13 ether / 10
+            )
+        );
+        IRebalancePool(rebalancePoolLeveraged).liquidate(1 ether);
+        // (3) --------------------------------------------------------
+        assertEq(IMinter(minter).collateralRatio(), beforeCR, "collateral ratio should still be 140");
     }
 }

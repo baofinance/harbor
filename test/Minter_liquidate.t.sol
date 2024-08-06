@@ -73,16 +73,20 @@ contract TestMinterLiquidate is TestMinterFeeSetup {
     }
 
     function _liquidateSwapToCR(uint256 targetCR) private {
-        uint256 startCR = IMinter(minter).collateralRatio();
-        uint256 peggedTokens = IMinter(minter).swapPeggedForLeveragedForCollateralRatio(targetCR);
-        if (peggedTokens > 0) {
+        // uint256 startCR = IMinter(minter).collateralRatio();
+        uint256 pegged = IMinter(minter).swapPeggedForLeveragedForCollateralRatio(targetCR);
+        if (pegged > 0) {
+            uint256 startPegged = IERC20(peggedToken).balanceOf(owner.addr);
             vm.prank(owner.addr);
-            IMinter(minter).freeSwapPeggedForLeveraged(peggedTokens, owner.addr);
-            if (targetCR < startCR) {
-                assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");
-            } else {
-                assertEq(IMinter(minter).collateralRatio(), targetCR, "should have reached target collateral ratio");
-            }
+            uint256 actualPegged = IMinter(minter).freeSwapPeggedForLeveraged(pegged, owner.addr);
+            assertEq(actualPegged, pegged, "swapped requested");
+            assertEq(startPegged - IERC20(peggedToken).balanceOf(owner.addr), pegged, "gave up correct pegged");
+
+            // if (targetCR < startCR) {
+            // assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");
+            // } else {
+            assertEq(IMinter(minter).collateralRatio(), targetCR, "should have reached target collateral ratio");
+            // }
         }
     }
 

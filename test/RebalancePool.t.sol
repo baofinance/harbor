@@ -76,16 +76,19 @@ contract TestRebalancePoolInit is TestRebalancePool {
     }
 }
 
-contract TestRebalancePoolDepositWithraw is TestRebalancePool {
+contract TestRebalancePoolDepositWithdraw is TestRebalancePool {
     Vm.Wallet user1;
     Vm.Wallet user2;
 
-    function setUp() public override(TestRebalancePool) {
+    function setUp() public virtual override(TestRebalancePool) {
         super.setUp();
 
         user1 = vm.createWallet("user1");
-        user2 = vm.createWallet("user2");
         vm.prank(user1.addr);
+        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+
+        user2 = vm.createWallet("user2");
+        vm.prank(user2.addr);
         IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
     }
 
