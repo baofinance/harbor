@@ -19,7 +19,7 @@ import { TestMinter } from "test/Minter_base.t.sol";
 
 // TODO: check what happens when safe price is invalid
 
-contract TestMinterFeeSetup is TestMinter {
+contract TestMinterFeeSetUp is TestMinter {
     function setUpConfig() public virtual override {
         setUpConfig(
             130,
@@ -37,10 +37,10 @@ contract TestMinterFeeSetup is TestMinter {
     }
 }
 
-contract TestMinterFees is TestMinterFeeSetup {
+contract TestMinterFees is TestMinterFeeSetUp {
     Vm.Wallet user;
 
-    function setUp() public virtual override(TestMinterFeeSetup) {
+    function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
         user = vm.createWallet("user");
         deal(address(deployed.wstETH), user.addr, 100 ether);

@@ -6,22 +6,22 @@
 | DEFAULT_ADMIN_ROLE                                          | 326             | 326    | 326    | 326    | 6       |
 | DOMAIN_SEPARATOR                                            | 6535            | 6535   | 6535   | 6535   | 1       |
 | MINTER_ROLE                                                 | 292             | 292    | 292    | 292    | 6       |
-| allowance                                                   | 867             | 2761   | 2867   | 2867   | 57      |
+| allowance                                                   | 867             | 2757   | 2867   | 2867   | 55      |
 | approve                                                     | 4954            | 16325  | 24854  | 24854  | 7       |
-| balanceOf                                                   | 736             | 978    | 736    | 2736   | 644     |
+| balanceOf                                                   | 736             | 972    | 736    | 2736   | 642     |
 | burn                                                        | 5296            | 8577   | 5296   | 15141  | 3       |
 | burnFrom                                                    | 2899            | 11781  | 13158  | 15158  | 32      |
-| decimals                                                    | 222             | 222    | 222    | 222    | 55      |
-| grantRole                                                   | 5231            | 18444  | 7711   | 29948  | 93      |
+| decimals                                                    | 222             | 222    | 222    | 222    | 53      |
+| grantRole                                                   | 5231            | 18340  | 7711   | 29948  | 96      |
 | hasRole                                                     | 2750            | 2750   | 2750   | 2750   | 5       |
-| initialize                                                  | 3591            | 185092 | 190613 | 190613 | 64      |
+| initialize                                                  | 3591            | 184914 | 190613 | 190613 | 62      |
 | mint                                                        | 2965            | 17890  | 13187  | 49387  | 270     |
-| name                                                        | 3271            | 3271   | 3271   | 3271   | 55      |
+| name                                                        | 3271            | 3271   | 3271   | 3271   | 53      |
 | nonces                                                      | 2689            | 2689   | 2689   | 2689   | 1       |
 | permit                                                      | 57640           | 57640  | 57640  | 57640  | 1       |
 | supportsInterface                                           | 500             | 627    | 595    | 887    | 6       |
-| symbol                                                      | 3261            | 3261   | 3261   | 3261   | 55      |
-| totalSupply                                                 | 348             | 602    | 348    | 2348   | 2794    |
+| symbol                                                      | 3261            | 3261   | 3261   | 3261   | 53      |
+| totalSupply                                                 | 348             | 600    | 348    | 2348   | 2792    |
 | transfer                                                    | 2907            | 16445  | 16445  | 29983  | 2       |
 | transferFrom                                                | 3033            | 13852  | 8711   | 35793  | 5       |
 
@@ -33,18 +33,18 @@
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5419            | 5419   | 5419   | 5419   | 7       |
 | collateralRatio                             | 493             | 3758   | 3554   | 22554  | 921     |
-| collateralToken                             | 2513            | 2513   | 2513   | 2513   | 17      |
+| collateralToken                             | 2513            | 2513   | 2513   | 2513   | 16      |
 | collateralTokenBalance                      | 1427            | 1564   | 1427   | 5427   | 58      |
 | config                                      | 30842           | 44626  | 40316  | 57992  | 5       |
 | feeReceiver                                 | 2468            | 2468   | 2468   | 2468   | 1       |
 | freeMintLeveragedToken                      | 2927            | 78914  | 74129  | 125025 | 138     |
-| freeMintPeggedToken                         | 2992            | 98154  | 120685 | 120685 | 60      |
+| freeMintPeggedToken                         | 2992            | 98769  | 120685 | 120685 | 57      |
 | freeRedeemLeveragedToken                    | 2949            | 37553  | 31065  | 83584  | 10      |
 | freeRedeemPeggedToken                       | 3216            | 57470  | 78151  | 105701 | 16      |
 | freeSwapPeggedForLeveraged                  | 3239            | 66357  | 102144 | 137691 | 13      |
 | grantRole                                   | 29904           | 29904  | 29904  | 29904  | 8       |
 | hasRole                                     | 807             | 2640   | 2807   | 2807   | 12      |
-| initialize                                  | 3313            | 607193 | 637144 | 637144 | 55      |
+| initialize                                  | 3313            | 606063 | 637144 | 637144 | 53      |
 | leverageRatio                               | 3526            | 3911   | 3976   | 3976   | 701     |
 | leverageTokensForCollateral                 | 5226            | 5259   | 5226   | 8822   | 107     |
 | leveragedToken                              | 2490            | 2490   | 2490   | 2490   | 8       |
@@ -56,8 +56,8 @@
 | mintPeggedToken                             | 3116            | 69850  | 89507  | 127724 | 37      |
 | mintPeggedTokenDryRun                       | 4346            | 7940   | 6364   | 15276  | 735     |
 | mintPeggedTokenIncentiveRatio               | 5413            | 5868   | 5413   | 10509  | 703     |
-| peggedToken                                 | 2443            | 2443   | 2443   | 2443   | 17      |
-| peggedTokenBalance                          | 484             | 1139   | 484    | 2484   | 61      |
+| peggedToken                                 | 2443            | 2443   | 2443   | 2443   | 16      |
+| peggedTokenBalance                          | 484             | 974    | 484    | 2484   | 53      |
 | peggedTokenPrice                            | 3594            | 3617   | 3594   | 3758   | 701     |
 | priceOracle                                 | 2447            | 2447   | 2447   | 2447   | 1       |
 | rebalanceCollateralRatio                    | 2419            | 2419   | 2419   | 2419   | 13      |
@@ -79,15 +79,15 @@
 | Deployment Cost                                           | Deployment Size |        |        |        |         |
 | 5696473                                                   | 26228           |        |        |        |         |
 | Function Name                                             | min             | avg    | median | max    | # calls |
-| assetBalanceOf                                            | 1035            | 1490   | 1582   | 1582   | 12      |
+| assetBalanceOf                                            | 1035            | 1490   | 1582   | 1582   | 6       |
 | assetToken                                                | 2459            | 2459   | 2459   | 2459   | 1       |
-| deposit                                                   | 22925           | 79062  | 78023  | 131386 | 19      |
+| deposit                                                   | 22925           | 87045  | 95799  | 131386 | 12      |
 | hasRole                                                   | 2806            | 2806   | 2806   | 2806   | 1       |
-| initialize                                                | 265446          | 266473 | 265446 | 268785 | 13      |
+| initialize                                                | 265446          | 266559 | 265446 | 268785 | 12      |
 | liquidate                                                 | 40377           | 101685 | 52090  | 214217 | 12      |
 | minter                                                    | 2481            | 2481   | 2481   | 2481   | 1       |
 | totalAssetSupply                                          | 2466            | 2466   | 2466   | 2466   | 1       |
-| withdraw                                                  | 22609           | 46638  | 58616  | 58691  | 6       |
+| withdraw                                                  | 22609           | 46638  | 58616  | 58691  | 3       |
 
 --
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |
@@ -96,8 +96,8 @@
 | 1620009                                               | 7374            |       |        |       |         |
 | Function Name                                         | min             | avg   | median | max   | # calls |
 | REQUESTER_ROLE                                        | 217             | 217   | 217    | 217   | 4       |
-| grantRole                                             | 5209            | 18544 | 7689   | 29926 | 94      |
-| initialize                                            | 2760            | 92894 | 94476  | 94476 | 58      |
+| grantRole                                             | 5209            | 18438 | 7689   | 29926 | 97      |
+| initialize                                            | 2760            | 92838 | 94476  | 94476 | 56      |
 | requestBonus                                          | 3012            | 17037 | 16632  | 40232 | 86      |
 | supportsInterface                                     | 409             | 526   | 526    | 644   | 2       |
 | transferToken                                         | 3030            | 3030  | 3030   | 3030  | 1       |

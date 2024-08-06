@@ -16,12 +16,10 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";
-import { TestMinterFeeSetup } from "test/Minter_fees.t.sol";
+import { TestRebalancePool2SetUp } from "test/Liquidate.t.sol";
 import { Array } from "test/Array.sol";
 
-// TODO: need to test discounts
-
-contract TestMinterGraphs is TestMinterFeeSetup {
+contract TestGraphs is TestRebalancePool2SetUp {
     function openFile(string memory name, string[] memory header) private returns (string memory file) {
         file = string.concat("./results/", name, ".csv");
         if (vm.exists(file)) vm.removeFile(file);
@@ -125,16 +123,28 @@ contract TestMinterGraphs is TestMinterFeeSetup {
         */
 
         // write a gnuplot data file for fees
-        string[] memory feesHeaders = sa(
-            "Price",
-            "Collateral Ratio",
-            "Mint Pegged Fees",
-            "Redeem Pegged Fees",
-            "Mint Leveraged Fees",
-            "Redeem Leveraged Fees"
+        string memory feesFile = openFile(
+            "fees",
+            sa(
+                "Price",
+                "Collateral Ratio",
+                "Mint Pegged Config",
+                "Redeem Pegged Config",
+                "Mint Leveraged Config",
+                "Redeem Leveraged Config"
+            )
         );
-        string memory feesFile = openFile("fees", feesHeaders);
-        string memory fees1File = openFile("fees1", feesHeaders);
+        string memory fees1File = openFile(
+            "fees1",
+            sa(
+                "Price",
+                "Collateral Ratio",
+                "Mint Pegged Fees",
+                "Redeem Pegged Fees",
+                "Mint Leveraged Fees",
+                "Redeem Leveraged Fees"
+            )
+        );
         string memory invariantFile = openFile(
             "invariant",
             sa("Collateral Ratio", "Leveraged Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
