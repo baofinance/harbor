@@ -6,6 +6,7 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { DecrementalFloatingPoint } from "src/common/math/DecrementalFloatingPoint.sol";
 import { IMultipleRewardAccumulator } from "src/common/rewards/accumulator/IMultipleRewardAccumulator.sol";
@@ -381,6 +382,9 @@ contract RebalancePool_v1 is
         } else {
             liquidated = IMinter(minter_).swapPeggedForLeveragedForCollateralRatio(rebalanceCollateralRatio_);
         }
+        _checkpoint(address(0));
+        liquidated = Math.min(liquidated, $.totalSupply.amount);
+
         if (liquidated == 0 || liquidated < minLiquidated) {
             revert NotEnoughTokensToLiquidate(liquidated, minLiquidated);
         }
@@ -394,7 +398,6 @@ contract RebalancePool_v1 is
 
         emit Liquidate(liquidated);
 
-        _checkpoint(address(0));
         _accumulateReward(liquidationToken_, returnAmount);
 
         // notify loss

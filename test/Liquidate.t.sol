@@ -61,26 +61,63 @@ contract TestLiquidate is TestRebalancePoolDepositWithdraw {
     }
 
     function test_liquidateFailure() public {
-        // set up collateral
+        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 liquidated;
+
+        // set up - no leveraged tokens
+        setUp_collateral(8 ether, 0 ether); // 8:0 CR = 1
+
+        // liquidate with 0 deposited
+        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.NotEnoughTokensToLiquidate.selector, 0, 0));
+        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (1) -------------------------------------------------
+
+        // some deposits - liquidate more than deposit?
+        setUp_collateral(1 ether, 0 ether, user1.addr); // 9:0 CR = 1
+        vm.prank(user1.addr);
+        IRebalancePool(rebalancePool).deposit(1 * price, user1.addr, 0);
+        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (2) -------------------------------------------------
+        assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
+
+        // does it work when depegged?
+        setUp_collateral(1 ether, 0 ether, user1.addr); // CR = 1
+        priceOracle.setPrice(price / 2); // depeg: CR = 0.5
+        vm.prank(user1.addr);
+        IRebalancePool(rebalancePool).deposit(1 * price, user1.addr, 0);
+        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (3) -------------------------------------------------
+        assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
+
+        priceOracle.setPrice(price); // CR = 1 again
+        // some deposits - liquidate more than min
+        setUp_collateral(1 ether, 0 ether, user1.addr); // CR = 1
+        vm.prank(user1.addr);
+        IRebalancePool(rebalancePool).deposit(1 * price, user1.addr, 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.NotEnoughTokensToLiquidate.selector, 1 * price, 2 * price)
+        );
+        liquidated = IRebalancePool(rebalancePool).liquidate(2 * price);
+        // (4) --------------------------------------------------------
+
         // 130% = 13/10
-        setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
+        setUp_collateral(0 ether, 4 ether); // cr=12/9 = 133%
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
 
         // not in rebalance mode
         vm.expectRevert(
             abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, uint256(12 ether) / 9, 130 ether / 100)
         );
-        uint256 liquidated = IRebalancePool(rebalancePool).liquidate(0);
-        // (1) --------------------------------------------------------
+        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        // (5) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
 
-        // mint pegged
+        // mint more pegged to move CR
         setUp_collateral(2 ether, 0 ether); // cr =14/11 = 127%
 
-        // liquidate with 0 deposited
-        vm.expectRevert("SafeMath: subtraction underflow");
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
-        // (2) --------------------------------------------------------
+        // (6) ------------------------------------------------
+        assertEq(liquidated, 1 * price, "should have liquidated 2");
     }
 
     function test_liquidate() public {

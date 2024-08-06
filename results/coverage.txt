@@ -4,7 +4,7 @@
 | src/common/Token.sol                                                    | 100.00% (18/18)    | 100.00% (27/27)    | 90.00% (9/10)    | 100.00% (5/5)    |
 | src/common/TokenOwner.sol                                               | 100.00% (4/4)      | 100.00% (4/4)      | 100.00% (0/0)    | 100.00% (1/1)    |
 | src/common/WordCodec.sol                                                | 78.57% (11/14)     | 81.82% (18/22)     | 100.00% (0/0)    | 75.00% (6/8)     |
-| src/common/math/DecrementalFloatingPoint.sol                            | 70.59% (12/17)     | 77.27% (17/22)     | 25.00% (1/4)     | 100.00% (6/6)    |
+| src/common/math/DecrementalFloatingPoint.sol                            | 88.24% (15/17)     | 90.91% (20/22)     | 50.00% (2/4)     | 100.00% (6/6)    |
 | src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol | 20.20% (20/99)     | 18.59% (29/156)    | 15.00% (3/20)    | 22.73% (5/22)    |
 | src/common/rewards/distributor/LinearMultipleRewardDistributor.sol      | 17.46% (11/63)     | 19.19% (19/99)     | 7.14% (2/28)     | 28.57% (4/14)    |
 | src/common/rewards/distributor/LinearReward.sol                         | 0.00% (0/24)       | 0.00% (0/29)       | 0.00% (0/6)      | 0.00% (0/2)      |
@@ -12,7 +12,7 @@
 | src/minter/LeveragedToken_v1.sol                                        | 100.00% (15/15)    | 100.00% (20/20)    | 100.00% (0/0)    | 83.33% (5/6)     |
 | src/minter/Liquidator_v1.sol                                            | 0.00% (0/16)       | 0.00% (0/21)       | 0.00% (0/2)      | 0.00% (0/6)      |
 | src/minter/Minter_v1.sol                                                | 96.79% (482/498)   | 97.26% (638/656)   | 80.00% (112/140) | 95.40% (83/87)   |
-| src/minter/RebalancePool_v1.sol                                         | 55.04% (153/278)   | 55.47% (208/375)   | 44.32% (39/88)   | 55.56% (20/36)   |
+| src/minter/RebalancePool_v1.sol                                         | 57.35% (160/279)   | 57.18% (215/376)   | 47.73% (42/88)   | 55.56% (20/36)   |
 | src/minter/ReservePool_v1.sol                                           | 100.00% (11/11)    | 100.00% (15/15)    | 100.00% (4/4)    | 75.00% (3/4)     |
 | src/minter/TokenDistributor_v1.sol                                      | 98.59% (70/71)     | 96.33% (105/109)   | 54.17% (13/24)   | 92.31% (12/13)   |
-| Total                                                                   | 67.78% (1077/1589) | 67.34% (1408/2091) | 56.54% (216/382) | 60.00% (207/345) |
+| Total                                                                   | 68.36% (1087/1590) | 67.78% (1418/2092) | 57.59% (220/382) | 60.00% (207/345) |
