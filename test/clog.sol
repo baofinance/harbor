@@ -10,7 +10,8 @@ library c {
         _clog(value);
     }
 
-    function log(bytes32 v) internal pure {
+    function log(string memory name, bytes32 v) internal pure {
+        console2.log(string.concat(name, "="));
         console2.logBytes32(v);
     }
 

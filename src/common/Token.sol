@@ -19,7 +19,9 @@ import { console2 as console } from "forge-std/console2.sol";
 // Attribution: string basics stolen from OpenZeppelin
 
 library Token {
+    /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero
     error ZeroInputBalance(address token);
+
     error ZeroAddress();
     error NotContractAddress(address addr);
     error NotERC20Token(address token);

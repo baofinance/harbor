@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
+import "src/common/Token.sol";
+
 interface IMinter {
     /********************************
      * Data Structures              *
@@ -188,22 +190,26 @@ interface IMinter {
 
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
-
     /// @dev Thrown when the oracle price is zero.
     error ZeroOraclePrice();
 
+    // @inderitdoc Token
     /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero
     error ZeroInputBalance(address token);
-    /// @dev Thrown when collateral is passed but mint is prevented for some other reason.
+
+    /// @dev Thrown when collateral is passed but minting is prevented for some other reason.
     error MintZeroAmount(address mintingToken);
-    /// @dev Thrown when collateral is passed but mint is reduced below the miniumum requested.
+    /// @dev Thrown when collateral is passed but minting is reduced below the miniumum requested.
     error MintInsufficientAmount(address mintingToken, uint256 miniumum, uint256 actual);
+    /// @dev Thrown when pegged or leveraged is passed but redeeming is prevented for some other reason.
+    error ReturnZeroAmount(address returningToken);
+    /// @dev Thrown when pegged or leveraged is passed but redeeming is reduced below the miniumum requested.
     error ReturnInsufficientAmount(address returningToken, uint256 miniumum, uint256 actual);
     error NoRedeemableTokens(address redeemingToken);
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
-
+    // TODO: make these expected, actual.
     error TooManyCollateralRatioBounds(uint count, uint max);
     error InvalidCollateralRatioBoundValue(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
     error TooManyIncentiveRatios(uint count, uint max);

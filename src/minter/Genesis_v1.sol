@@ -4,7 +4,7 @@ pragma solidity 0.8.25;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -27,7 +27,7 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 ///     There is no advantage to withdrawing or claiming then redeeming as far as fees are concerned.
 /// @dev uses UUPS proxy, erc7201 storage
 
-contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessControl, TokenOwner {
+contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     using SafeERC20 for IERC20;
 
     /**********
@@ -100,6 +100,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessCo
         // initialise all the state variables
         __AccessControl_init(owner);
         __UUPSUpgradeable_init();
+        __ReentrancyGuardTransient_init();
 
         GenesisStorage storage $ = _getGenesisStorage();
         // balance tokens
@@ -148,6 +149,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessCo
 
         address minter_ = $.minter;
         // we redeem the leveraged first because that potentially reduces the fee for redeeming the pegged
+        // wake-disable-next-line reentrancy // minter is trusted
         collateralOut += IMinter(minter_).redeemLeveragedToken(leveragedAmount, recipient, 0);
         collateralOut += IMinter(minter_).redeemPeggedToken(peggedAmount, recipient, 0);
 
@@ -189,6 +191,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ReentrancyGuard, AccessCo
         uint256 totalCollateral = IERC20($.collateralToken).balanceOf(address(this));
         uint256 peggedCollateral = totalCollateral / 2;
         address minter_ = $.minter;
+        // wake-disable-next-line reentrancy // minter is trusted
         IMinter(minter_).freeMintPeggedToken(peggedCollateral, address(this));
         IMinter(minter_).freeMintLeveragedToken(totalCollateral - peggedCollateral, address(this));
 

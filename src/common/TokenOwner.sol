@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
+import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { AccessControl } from "src/common/AccessControl.sol";
 import { Token } from "src/common/Token.sol";
 
-abstract contract TokenOwner is AccessControl {
+abstract contract TokenOwner is AccessControl, ReentrancyGuardTransientUpgradeable {
     using SafeERC20 for IERC20;
 
     /// @notice function to transfer owned owned balance of a token
@@ -17,10 +18,13 @@ abstract contract TokenOwner is AccessControl {
         address token,
         address receiver,
         uint256 amount
-    ) public virtual onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) public virtual nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         Token.ensureNonZeroAddress(receiver);
         amount = Token.allOf(address(this), token, amount);
-        IERC20(token).approve(address(this), amount);
-        IERC20(token).safeTransferFrom(address(this), receiver, amount);
+        if (amount > 0) {
+            // wake-disable-next-line reentrancy
+            IERC20(token).safeIncreaseAllowance(address(this), amount);
+            IERC20(token).safeTransferFrom(address(this), receiver, amount);
+        }
     }
 }
