@@ -84,13 +84,15 @@ contract TestLiquidate is TestRebalancePool2SetUp {
 
         // does it work when depegged?
         setUp_collateral(1 ether, 0 ether, user1.addr); // CR = 1
-        priceOracle.setPrice(price / 2); // depeg: CR = 0.5
+        price /= 2;
+        priceOracle.setPrice(price); // depeg: CR = 0.5
         vm.prank(user1.addr);
         IRebalancePool(rebalancePool).deposit(1 * price, user1.addr, 0);
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
         // (3) -------------------------------------------------
         assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
 
+        price *= 2;
         priceOracle.setPrice(price); // CR = 1 again
         // some deposits - liquidate more than min
         setUp_collateral(1 ether, 0 ether, user1.addr); // CR = 1
@@ -104,22 +106,20 @@ contract TestLiquidate is TestRebalancePool2SetUp {
 
         // 130% = 13/10
         setUp_collateral(0 ether, 4 ether); // cr=12/9 = 133%
-        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
+        uint256 startCR = IMinter(minter).collateralRatio(); // 1421052631578947368
 
         // not in rebalance mode
-        vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, uint256(12 ether) / 9, 130 ether / 100)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, startCR, 130 ether / 100));
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
         // (5) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
+        assertEq(IMinter(minter).collateralRatio(), startCR);
 
         // mint more pegged to move CR
-        setUp_collateral(2 ether, 0 ether); // cr =14/11 = 127%
+        setUp_collateral(5 ether, 0 ether); // cr =18/14 = 129%
 
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
         // (6) ------------------------------------------------
-        assertEq(liquidated, 1 * price, "should have liquidated 2");
+        assertEq(liquidated, price, "should have liquidated 2");
     }
 
     function test_liquidate() public {

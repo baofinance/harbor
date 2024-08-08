@@ -90,43 +90,6 @@ contract TestGraphs is TestRebalancePool2SetUp {
         assertEq(IMinter(minter).collateralRatio(), startCR);
         (, uint256 startPrice, , ) = IPriceOracle(priceOracle).getPrice();
 
-        /*
-        // test fees at the extremities, around rebalance and danger
-        // CR is proportional to price
-        // console.log(
-            "startPrice (%s) * config.rebalanceCollateralRatioUpperBound (%s)",
-            startPrice,
-            config.rebalanceCollateralRatioUpperBound
-        );
-        uint256 priceForCollateral = (startPrice * config.rebalanceCollateralRatioUpperBound) / 1 ether;
-        for (uint256 price = priceForCollateral - 100000; price < priceForCollateral + 100000; price += 100) {
-            MockPriceOracle(priceOracle).setPrice(price);
-            uint256 cr = IMinter(minter).collateralRatio();
-            // TODO: check the results against the expected behavior:
-            // always rising/falling or staying the same and last value is geater/less than the first, etc.
-            // inflection point is around the config collateral ratio
-            //console.log("%s - %s - %s", price, config.rebalanceCollateralRatioUpperBound, cr);
-            (
-                uint256 mintPeggedFees,
-                uint256 redeemPeggedFees,
-                uint256 mintLeveragedFees,
-                uint256 redeemLeveragedFees
-            ) = IncentiveRatio(();
-        }
-        // TODO: merge the two checks into one.
-        priceForCollateral = (startPrice * penultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds)) / 1 ether;
-        for (uint256 price = priceForCollateral - 100000; price < priceForCollateral + 100000; price += 100) {
-            MockPriceOracle(priceOracle).setPrice(price);
-            uint256 cr = IMinter(minter).collateralRatio();
-            (
-                uint256 mintPeggedFees,
-                uint256 redeemPeggedFees,
-                uint256 mintLeveragedFees,
-                uint256 redeemLeveragedFees
-            ) = IncentiveRatio(();
-        }
-        */
-
         // write a gnuplot data file for fees
         string memory feesFile = openFile(
             "fees",
