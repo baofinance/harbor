@@ -35,7 +35,11 @@ contract MockPriceOracle is IPriceOracle {
     {
         isValid_ = isValid;
         safePrice = price;
-        minUnsafePrice = price - spread;
+        if (spread >= price) {
+            minUnsafePrice = 1; // lowest non-zero price
+        } else {
+            minUnsafePrice = price - spread;
+        }
         maxUnsafePrice = price + spread;
     }
 }

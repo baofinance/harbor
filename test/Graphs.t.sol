@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
+import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { deployed } from "test/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
@@ -74,12 +75,16 @@ contract TestGraphs is TestRebalancePool2SetUp {
         (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateral);
         (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun((collateral * price) / 1 ether);
         (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(collateral);
-        (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(collateral * 1000);
+        (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(
+            (collateral * price) / 1 ether
+        );
     }
 
     function test_CRGraphs() public {
-        setUp_collateral(10 ether, 10 ether);
-        deal(address(deployed.wstETH), reservePool, 10 ether);
+        setUp_collateral(10 ether, 10 ether, address(this));
+        deal(address(deployed.wstETH), reservePool, 1000 ether);
+        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+        IERC20(deployed.BaoUSD).approve(rebalancePoolLeveraged, type(uint256).max);
 
         uint256 startCR = 2 ether;
         assertEq(IMinter(minter).collateralRatio(), startCR);
@@ -145,9 +150,17 @@ contract TestGraphs is TestRebalancePool2SetUp {
                 "Redeem Leveraged Fees"
             )
         );
+
         string memory invariantFile = openFile(
             "invariant",
             sa("Collateral Ratio", "Leveraged Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
+        );
+
+        IRebalancePool(rebalancePool).deposit(4 * startPrice, address(this), 0);
+        IRebalancePool(rebalancePoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        string memory liquidateFile = openFile(
+            "liquidate",
+            sa("before CR", "liquidate to collateral", "liquidate to leveraged")
         );
 
         //for (uint256 price = (startPrice * 9) / 10; price < (startPrice * 15) / 10; price += 10 ether)
@@ -156,7 +169,8 @@ contract TestGraphs is TestRebalancePool2SetUp {
         int256 mintLeveragedFees;
         int256 redeemLeveragedFees;
 
-        for (uint256 cr = 9 ether / 10; cr <= 16 ether / 10; cr += 1 ether / 1000) {
+        uint256 inc = 1 ether / 500;
+        for (uint256 cr = inc / 10; cr <= 16 ether / 10; cr += inc) {
             // for (uint256 cr = 11 ether / 10; cr <= 15 ether / 10; cr += 5 ether / 100) {
             uint256 price = (startPrice * cr) / startCR;
 
@@ -170,7 +184,10 @@ contract TestGraphs is TestRebalancePool2SetUp {
                 ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)
             );
 
-            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(1 ether, price);
+            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(
+                1 ether,
+                1000 ether
+            );
             writeLine(
                 fees1File,
                 ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)
@@ -186,6 +203,22 @@ contract TestGraphs is TestRebalancePool2SetUp {
                     price
                 )
             );
+
+            uint256 afterLiquidate;
+            uint256 afterLiquidateLeveraged;
+            if (cr < 13 ether / 10) {
+                uint256 snap = vm.snapshot();
+                IRebalancePool(rebalancePool).liquidate(0);
+                afterLiquidate = IMinter(minter).collateralRatio();
+                vm.revertTo(snap);
+                IRebalancePool(rebalancePoolLeveraged).liquidate(0);
+                afterLiquidateLeveraged = IMinter(minter).collateralRatio();
+                vm.revertTo(snap);
+            } else {
+                afterLiquidate = IMinter(minter).collateralRatio();
+                afterLiquidateLeveraged = afterLiquidate;
+            }
+            writeLine(liquidateFile, ua(cr, afterLiquidate, afterLiquidateLeveraged));
         }
         vm.closeFile(feesFile);
         vm.closeFile(fees1File);

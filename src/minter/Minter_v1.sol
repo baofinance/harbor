@@ -856,7 +856,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
 
         uint256 price = _fetchMaxPrice($.priceOracle);
-        collateralOut = (peggedIn * 1 ether) / price;
+        collateralOut =
+            (peggedIn * _peggedTokenPrice$(peggedTokenBalance_, _collateralTokenBalance(collateralToken_), price)) /
+            (price * 1 ether);
 
         // burn pegged tokens and send the collateral to the receiver
         _redeemPeggedToken(peggedToken_, peggedIn, collateralToken_, collateralOut, recipient);
