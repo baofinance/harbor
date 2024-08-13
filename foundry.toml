@@ -23,7 +23,7 @@ auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"
 optimizer = true
 optimizer_runs = 1000
-#via_ir = true
+# via_ir = true, now causes a stack overflow that doesn't happen without this
 # deny_warnings = true # enable to stop compilations if there are warnings
 
 [etherscan]
