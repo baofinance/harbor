@@ -19,6 +19,11 @@ lcov.info
 # wake
 .wake/build/
 
+# generated resulyts
+results/*.svg
+results/*.png
+
+
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/

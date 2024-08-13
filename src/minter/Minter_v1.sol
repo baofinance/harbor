@@ -665,6 +665,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // add any extra collateral (we reuse the collateralOut variable)
         if (extraCollateral > 0) {
             // it's a discount, so collect the extra collateral, if available
+            // TODO: check rebalance pools are exhausted before discounts are handed out?
             // wake-disable-next-line reentrancy // reservePool is trusted and reentrancy guard
             extraCollateral = IReservePool($.reservePool).requestBonus(
                 collateralToken_,
@@ -700,7 +701,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         address recipient,
         uint256 minLeveragedTokenOut
     ) external override nonReentrant returns (uint256 leveragedTokenOut) {
-        // TODO: disallow if depegged as leveraged tokens are worthless?
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
         collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
@@ -724,14 +724,15 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         }
         // net out the fee & extra collateral
         if (extraCollateral > 0) {
-            // it's a discount
-            // collect the extra collateral, if available
+            // TODO: check rebalance pools are exhausted before discounts are handed out?
+            // it's a discount, so collect the extra collateral, if available
             // wake-disable-next-line reentrancy // reservePool is trusted
             extraCollateral = IReservePool($.reservePool).requestBonus(
                 collateralToken_,
                 address(this),
                 extraCollateral
             );
+            // TODO: what happens if extraCollateral is not available, and the leveragedTokenOut value is therefore wrong?
         }
         // make sure it meets the minimum requirements
         if (leveragedTokenOut < minLeveragedTokenOut) {
@@ -961,7 +962,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             // else (i.e. redeem pegged or mint leveraged)
             // check against interval (-1, 1) i.e. some discount; to zero; to some fees
             if (disallowNotDiscount) {
-                // TODO: check these after they have been cycled through the storage
                 if (incentiveRatio < 0 ether || incentiveRatio > 1 ether) {
                     revert InvalidIncentiveRatioValue(config_.incentiveRatios[i]);
                 }
@@ -980,6 +980,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             // also, as the pegged price changes at a collateralRatio < 1, we insert an extra boundary at that level
             // but only if one doesn't already exist.
             // if we didn't do it here, we would have to do it in each of the fee calculation functions
+            // TODO: only allow a single depegged incentive ratio.
             uint256 currentUpperBound;
             if (i < config_.collateralRatioBandUpperBounds.length) {
                 currentUpperBound = _collateralRatioToStorage(config_.collateralRatioBandUpperBounds[i]);
@@ -999,6 +1000,12 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             // check for missing depeg boundary and add one unless there is already one
             // also don't add a depeg boundary if it is a disallow band
             if (prevUpperBound < 1 ether && currentUpperBound > 1 ether && incentiveRatio != 1 ether) {
+                // TODO: revert with a better error message: OnlyOneDepeggedIncentiveRatioAllowed();
+                // this makes the check against band == 0 the same as a check for depegged
+                // it also makes the math simpler - how do we manage multiple incentive ratios for the depegged situatiob
+                // especially as the actual collateral ratio (not the one we calculate as collateralRatio()) never goes below 1 ether
+                // (because the pegged price changes with the collateral price to ensure the collateral ration (collateral value / pegged value) always remains at 1)
+                if (prevUpperBound != 0) revert InvalidCollateralRatioBoundValue(currentUpperBound, prevUpperBound);
                 // this is the band that needs to be split
                 // use the same incentive ratio on each side of the split
                 _setIncentiveRatio(out, iOut, incentiveRatio);
@@ -1039,7 +1046,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     }
 
     function _updateConfig(Config calldata config_) private {
-        // TODO: check rebalance pools are exhausted before discounts are handed out?
         // or is this handled by the fact that the CR for discount is much lower than the rebalance CR
         emit UpdateConfig(config_); // the code below may alter the config so emit it soon
 
@@ -1235,6 +1241,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             uint256 collateralInBand;
             if (band == 0) {
                 // TODO: band 0 doesn't exactly equal _depegged (out by one)
+                // TODO: band 1 may also be depegged! - maybe we only allow a single depegged band
                 // if we check for _depegged then the phi calc below results in an underflow as band lower bound is 0
                 collateralInBand = collateralIn;
             } else {

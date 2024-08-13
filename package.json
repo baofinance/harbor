@@ -11,7 +11,9 @@
     "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,incorrect-versions-of-solidity --filter-paths \"lib/openzeppelin.*|lib/forge-std.*\"",
     "script": "forge script --force --ffi",
     "disabled": "echo 'disabled tests:' && grep -n -e '^\\s*function\\s*test.*(.*).*private' test/**/*.t.sol",
-    "doc": "forge doc"
+    "doc": "forge doc",
+    "svg": "cd results && find . -name \"*.gp\" -exec gnuplot -e \"set output '{}.svg'\" {} \\;",
+    "png": "cd results && find . -name \"*.svg\" -exec convert {} {}.png \\;"
   },
   "dependencies": {
     "prettier": "^3.2.5",
