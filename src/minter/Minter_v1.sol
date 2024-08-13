@@ -666,7 +666,11 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         if (extraCollateral > 0) {
             // it's a discount, so collect the extra collateral, if available
             // wake-disable-next-line reentrancy // reservePool is trusted and reentrancy guard
-            extraCollateral = IReservePool($.reservePool).requestBonus(collateralToken_, address(this), collateralOut);
+            extraCollateral = IReservePool($.reservePool).requestBonus(
+                collateralToken_,
+                address(this),
+                extraCollateral
+            );
         }
 
         // make sure it meets the minimum requirements

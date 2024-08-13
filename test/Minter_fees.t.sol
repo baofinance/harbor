@@ -339,7 +339,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             assertEq(
                 before.reservePool - IERC20(deployed.wstETH).balanceOf(reservePool),
                 one.reserveCollateralUsed,
-                "reserve pool has given up some collateral"
+                "one: reserve pool has given up some collateral"
             );
         }
         assertApproxEqAbs(
@@ -363,7 +363,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         assertEq(
             beforeAll.reservePool - IERC20(deployed.wstETH).balanceOf(reservePool),
             reserveCollateralUsed,
-            "reserve pool has given up some collateral"
+            "all: reserve pool has given up some collateral"
         );
     }
 
@@ -653,7 +653,12 @@ contract TestMinterFees is TestMinterFeeSetUp {
             assertEq(
                 before.reservePool - IERC20(deployed.wstETH).balanceOf(reservePool),
                 one.reserveCollateralUsed,
-                "reserve pool has given up some collateral"
+                string.concat(
+                    "redeemPegged one: reserve pool has given up some collateral in ",
+                    Useful.toString(i),
+                    "th iteration in step ",
+                    Useful.toString(step)
+                )
             );
         }
         assertApproxEqAbs(
@@ -677,7 +682,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         assertEq(
             beforeAll.reservePool - IERC20(deployed.wstETH).balanceOf(reservePool),
             reserveCollateralUsed,
-            "reserve pool has given up some collateral"
+            "redeemPegged all: reserve pool has given up some collateral"
         );
     }
 

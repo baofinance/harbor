@@ -8,7 +8,7 @@
 | MINTER_ROLE                                                 | 292             | 292    | 292    | 292    | 6       |
 | allowance                                                   | 867             | 2765   | 2867   | 2867   | 59      |
 | approve                                                     | 4954            | 19426  | 24854  | 24854  | 11      |
-| balanceOf                                                   | 736             | 1556   | 736    | 2736   | 2145    |
+| balanceOf                                                   | 736             | 1519   | 736    | 2736   | 2246    |
 | burn                                                        | 5296            | 8577   | 5296   | 15141  | 3       |
 | burnFrom                                                    | 2899            | 11781  | 13158  | 15158  | 32      |
 | decimals                                                    | 222             | 222    | 222    | 222    | 57      |
@@ -65,8 +65,8 @@
 | redeemLeveragedTokenDryRun                  | 8251            | 9994   | 9168   | 15903  | 2428    |
 | redeemLeveragedTokenIncentiveRatio          | 5645            | 6005   | 5645   | 9645   | 1600    |
 | redeemPeggedForCollateralRatio              | 3796            | 4248   | 4249   | 4249   | 1308    |
-| redeemPeggedToken                           | 7326            | 102403 | 103658 | 147092 | 114     |
-| redeemPeggedTokenDryRun                     | 10362           | 11419  | 10362  | 23440  | 2522    |
+| redeemPeggedToken                           | 7326            | 111967 | 115922 | 157519 | 209     |
+| redeemPeggedTokenDryRun                     | 10362           | 11465  | 10362  | 23440  | 2623    |
 | redeemPeggedTokenIncentiveRatio             | 5613            | 6541   | 5613   | 12334  | 1602    |
 | reservePool                                 | 2448            | 2448   | 2448   | 2448   | 1       |
 | supportsInterface                           | 488             | 566    | 488    | 723    | 3       |
@@ -98,7 +98,7 @@
 | REQUESTER_ROLE                                        | 217             | 217   | 217    | 217   | 4       |
 | grantRole                                             | 5209            | 18466 | 7689   | 29926 | 105     |
 | initialize                                            | 2760            | 92947 | 94476  | 94476 | 60      |
-| requestBonus                                          | 3012            | 19313 | 16632  | 40232 | 13      |
+| requestBonus                                          | 3012            | 17037 | 16632  | 40232 | 86      |
 | supportsInterface                                     | 409             | 526   | 526    | 644   | 2       |
 | transferToken                                         | 3318            | 3318  | 3318   | 3318  | 1       |
 
