@@ -1,5 +1,5 @@
-datafile = "fees.csv"
-datafile1 = "fees1.csv"
+datafile = "fees_noDisallow.csv"
+datafile1 = "fees1_noDisallow.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
 set terminal svg enhanced size 600 400 background rgb "gray90"

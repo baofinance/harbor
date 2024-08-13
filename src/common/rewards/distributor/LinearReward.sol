@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.25;
+pragma solidity 0.8.26;
 
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
-
-import { console2 as console } from "forge-std/console2.sol";
 
 // solhint-disable not-rely-on-time
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.25;
+pragma solidity ^0.8.26;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -14,7 +14,6 @@ function transferFrom(address from, address to, uint256 value) external returns 
 */
 
 // import {DateUtils} from "DateUtils/DateUtils.sol";
-import { console2 as console } from "forge-std/console2.sol";
 
 // Attribution: string basics stolen from OpenZeppelin
 

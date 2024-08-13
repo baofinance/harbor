@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.25;
+pragma solidity 0.8.26;
 
 interface IPriceOracle {
     /// @notice Return the oracle price with 18 decimal places.

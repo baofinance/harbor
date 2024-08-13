@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.25;
+pragma solidity ^0.8.26;
 
 //import { Test } from "forge-std/Test.sol";
 import { console2 as console } from "forge-std/console2.sol";
@@ -20,15 +20,8 @@ import { TestMinter } from "test/Minter_base.t.sol";
 // TODO: check what happens when safe price is invalid
 
 contract TestMinterFeeSetUp is TestMinter {
-    function setUpConfig() public virtual override {
-        setUpConfig(
-            130,
-            250,
-            ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
-            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
-            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
-            ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
-        );
+    function setUpConfig() internal virtual override {
+        setUpConfig_likely();
     }
 
     function setUp() public virtual override {
@@ -49,9 +42,15 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     function test_mintPeggedFeeCalcs() public {
-        // ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
+        _assertEqIncentiveConfig(
+            config.mintPeggedIncentiveConfig,
+            ic(ua(130, 140), ia(disallow, 100, 50)),
+            "mint pegged incentive config"
+        );
+
         (, uint256 price, , ) = priceOracle.getPrice();
         setUp_collateral(2 ether, 1 ether); // CR = 3/2 = 1.5
+        assertEq(IMinter(minter).collateralRatio(), 15 ether / 10);
         assertLt(
             ultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
             IMinter(minter).collateralRatio(),
@@ -64,7 +63,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
         // fees crossing into danger
         uint256 collateral = 1 ether; // CR -> 4/3 = 1.33 i.e. crossing into danger
-        (incentiveRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateral);
+        uint256 collateralUsed;
+        uint256 peggedMinted;
+        uint256 fee;
+        (incentiveRatio, collateralUsed, peggedMinted, fee, , ) = IMinter(minter).mintPeggedTokenDryRun(collateral);
         assertGt(
             incentiveRatio,
             ultimate(config.mintPeggedIncentiveConfig.incentiveRatios),
@@ -81,7 +83,8 @@ contract TestMinterFees is TestMinterFeeSetUp {
         // check that the fees match the reported value, both emit and that transferred
         int256 expectedFees = (incentiveRatio * int256(collateral)) / 1 ether;
         uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        vm.expectEmit(true, true, false, true, minter);
+        vm.expectEmit(minter);
+        // emit IMinter.MintPeggedToken(user.addr, user.addr, collateral, peggedMinted);
         emit IMinter.MintPeggedToken(
             user.addr,
             user.addr,
@@ -89,13 +92,16 @@ contract TestMinterFees is TestMinterFeeSetUp {
             uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether
         );
         vm.prank(user.addr);
-        IMinter(minter).mintPeggedToken(collateral, user.addr, 0);
+        uint256 minted = IMinter(minter).mintPeggedToken(collateral, user.addr, 0);
+        assertEq(minted, peggedMinted, "pegged minted");
+        // assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), feeReceiverCollateralBalanceBefore + fee);
         assertEq(
             IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
             uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
         );
 
         // we are now in danger (CR=1.33), so check the fee here
+        // assertEq(IMinter(minter).collateralRatio(), uint256(4 ether) / 3);
         assertGt(
             ultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
             IMinter(minter).collateralRatio(),
@@ -503,7 +509,11 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     function test_redeemPeggedFeeCalcs() public {
-        // fee config is ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+        _assertEqIncentiveConfig(
+            config.redeemPeggedIncentiveConfig,
+            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)),
+            "redeem pegged incentive config"
+        );
         // TODO: start in critical 115, then go to danger 150, then normal
         // TODO: add bonus band in. Also in mintLeveraged
         (, uint256 price, , ) = priceOracle.getPrice();

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.25;
+pragma solidity ^0.8.26;
 
 import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -75,6 +75,47 @@ contract TestMinter is Test, Clog, Array {
         }
     }
 
+    function setUpConfig_free() internal {
+        setUpConfig(130, 250, ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)));
+    }
+
+    function setUpConfig_basic() internal {
+        setUpConfig(130, 250, ic(ua(), ia(50)), ic(ua(), ia(70)), ic(ua(), ia(80)), ic(ua(), ia(120)));
+    }
+
+    function setUpConfig_basicWithDisallow() internal {
+        setUpConfig(
+            130,
+            250,
+            ic(ua(131), ia(disallow, 50)),
+            ic(ua(), ia(70)),
+            ic(ua(), ia(80)),
+            ic(ua(110), ia(disallow, 120))
+        );
+    }
+
+    function setUpConfig_likely() internal {
+        setUpConfig(
+            130,
+            250,
+            ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
+            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
+            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+            ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
+        );
+    }
+
+    function setUpConfig_likelyNoDisallow() internal {
+        setUpConfig(
+            130,
+            250,
+            ic(ua(140), ia(100, 50)), // mint pegged
+            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
+            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+            ic(ua(135), ia(150, 120)) // redeem leveraged
+        );
+    }
+
     function setUpConfig(
         uint rebalance,
         uint harvest,
@@ -82,7 +123,7 @@ contract TestMinter is Test, Clog, Array {
         IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemPegged,
         IMinter.IncentiveConfig memory redeemLeveraged
-    ) public virtual {
+    ) public {
         config.rebalanceCollateralRatioUpperBound = _percentToEther(rebalance);
         config.harvestCollateralRatioUpperBound = _percentToEther(harvest);
         config.mintPeggedIncentiveConfig = mintPegged;
@@ -93,18 +134,19 @@ contract TestMinter is Test, Clog, Array {
 
     function _assertEqIncentiveConfig(
         IMinter.IncentiveConfig memory actual,
-        IMinter.IncentiveConfig memory expected
+        IMinter.IncentiveConfig memory expected,
+        string memory name
     ) internal pure {
         assertEq(
             actual.collateralRatioBandUpperBounds.length,
             expected.collateralRatioBandUpperBounds.length,
-            "collateralRatioBandUpperBounds.length differ "
+            string.concat(name, " collateralRatioBandUpperBounds.length differ")
         );
         for (uint i = 0; i < actual.collateralRatioBandUpperBounds.length; i++) {
             assertEq(
                 actual.collateralRatioBandUpperBounds[i],
                 expected.collateralRatioBandUpperBounds[i],
-                string.concat("collateralRatioBandUpperBounds[", Useful.toString(i), "] differ")
+                string.concat(name, " collateralRatioBandUpperBounds[", Useful.toString(i), "] differ")
             );
         }
         assertEq(actual.incentiveRatios.length, expected.incentiveRatios.length, "incentiveRatios.length differ ");
@@ -112,7 +154,7 @@ contract TestMinter is Test, Clog, Array {
             assertEq(
                 actual.incentiveRatios[i],
                 expected.incentiveRatios[i],
-                string.concat("incentiveRatios[", Useful.toString(i), "] differ")
+                string.concat(name, " incentiveRatios[", Useful.toString(i), "] differ")
             );
         }
     }
@@ -128,12 +170,24 @@ contract TestMinter is Test, Clog, Array {
             expected.harvestCollateralRatioUpperBound,
             "harvestCollateralRatioUpperBound differ"
         );
-        _assertEqIncentiveConfig(actual.mintPeggedIncentiveConfig, expected.mintPeggedIncentiveConfig);
-        _assertEqIncentiveConfig(actual.mintLeveragedIncentiveConfig, expected.mintLeveragedIncentiveConfig);
-        _assertEqIncentiveConfig(actual.redeemPeggedIncentiveConfig, expected.redeemPeggedIncentiveConfig);
-        _assertEqIncentiveConfig(actual.redeemLeveragedIncentiveConfig, expected.redeemLeveragedIncentiveConfig);
+        _assertEqIncentiveConfig(actual.mintPeggedIncentiveConfig, expected.mintPeggedIncentiveConfig, "mint pegged");
+        _assertEqIncentiveConfig(
+            actual.mintLeveragedIncentiveConfig,
+            expected.mintLeveragedIncentiveConfig,
+            "mint leveraged"
+        );
+        _assertEqIncentiveConfig(
+            actual.redeemPeggedIncentiveConfig,
+            expected.redeemPeggedIncentiveConfig,
+            "redeem pegged"
+        );
+        _assertEqIncentiveConfig(
+            actual.redeemLeveragedIncentiveConfig,
+            expected.redeemLeveragedIncentiveConfig,
+            "redeem leveraged"
+        );
     }
-    function setUpConfig() public virtual {
+    function setUpConfig() internal virtual {
         setUpConfig(
             130,
             250,

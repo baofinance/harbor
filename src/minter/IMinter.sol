@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.25;
+pragma solidity 0.8.26;
 
 import "src/common/Token.sol";
 
@@ -93,7 +93,7 @@ interface IMinter {
     struct Config {
         // points at which specific activity commences
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        uint256 harvestCollateralRatioUpperBound; // above this harvesting of collateral can begin // TODO: implement this
+        uint256 harvestCollateralRatioUpperBound; // above this harvesting of collateral can begin // TODO: implement harvesting
         // bonus/fees
         IncentiveConfig mintPeggedIncentiveConfig;
         // leverage tokens have their own intrinsic value in that they increase in leverage the lower the collateral ratio

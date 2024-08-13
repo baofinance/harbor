@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.25;
+pragma solidity ^0.8.26;
 
 //import { Test } from "forge-std/Test.sol";
 import { console2 as console } from "forge-std/console2.sol";
@@ -9,6 +9,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
@@ -17,10 +18,69 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";
-import { TestRebalancePool2SetUp } from "test/Liquidate.t.sol";
+import { TestCollateralRatioRangeSetUp } from "test/CollateralRatio.t.sol";
 import { Array } from "test/Array.sol";
 
-contract TestGraphs is TestRebalancePool2SetUp {
+contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
+    string feesFile;
+    string fees1File;
+    string invariantFile;
+    string liquidateFile;
+
+    function setUpConfig() internal virtual override {
+        setUpConfig_likely();
+    }
+
+    function context() internal pure virtual returns (string memory) {
+        return "";
+    }
+
+    function setUp() public override {
+        super.setUp();
+        deal(address(collateralToken), reservePool, 1000 ether);
+
+        feesFile = openFile(
+            string.concat("fees", context()),
+            sa(
+                "Price",
+                "Collateral Ratio",
+                "Mint Pegged Config",
+                "Redeem Pegged Config",
+                "Mint Leveraged Config",
+                "Redeem Leveraged Config"
+            )
+        );
+        fees1File = openFile(
+            string.concat("fees1", context()),
+            sa(
+                "Price",
+                "Collateral Ratio",
+                "Mint Pegged Fees",
+                "Redeem Pegged Fees",
+                "Mint Leveraged Fees",
+                "Redeem Leveraged Fees"
+            )
+        );
+
+        invariantFile = openFile(
+            string.concat("invariant", context()),
+            sa("Collateral Ratio", "Leveraged Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
+        );
+
+        IRebalancePool(rebalancePool).deposit(4 * startPrice, address(this), 0);
+        IRebalancePool(rebalancePoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        liquidateFile = openFile(
+            string.concat("liquidate", context()),
+            sa("antes CR", "liquidate to collateral", "liquidate to leveraged")
+        );
+    }
+
+    function setDown() internal override {
+        vm.closeFile(feesFile);
+        vm.closeFile(fees1File);
+        vm.closeFile(invariantFile);
+    }
+
     function openFile(string memory name, string[] memory header) private returns (string memory file) {
         file = string.concat("./results/", name, ".csv");
         if (vm.exists(file)) vm.removeFile(file);
@@ -43,7 +103,7 @@ contract TestGraphs is TestRebalancePool2SetUp {
         vm.writeLine(file, Useful.join(strData, ","));
     }
 
-    function getIncentives()
+    function getInstantIncentives()
         private
         view
         returns (
@@ -59,9 +119,8 @@ contract TestGraphs is TestRebalancePool2SetUp {
         redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
     }
 
-    function getIncentives(
-        uint256 collateral,
-        uint256 price
+    function getDryRunIncentives(
+        uint256 multiplier
     )
         private
         view
@@ -72,119 +131,83 @@ contract TestGraphs is TestRebalancePool2SetUp {
             int256 redeemLeveragedIncentive
         )
     {
-        (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateral);
-        (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun((collateral * price) / 1 ether);
-        (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(collateral);
-        (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(
-            (collateral * price) / 1 ether
-        );
+        // collect the data and check against actuals
+        (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(multiplier * 1 ether);
+        (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
+        (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether);
+        (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether);
     }
 
-    function test_CRGraphs() public {
-        setUp_collateral(10 ether, 10 ether, address(this));
-        deal(address(deployed.wstETH), reservePool, 1000 ether);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
-        IERC20(deployed.BaoUSD).approve(rebalancePoolLeveraged, type(uint256).max);
+    function doOneCollateralRatio() internal override {
+        // write a gnuplot data file line for fees, invariant and liquidation
 
-        uint256 startCR = 2 ether;
-        assertEq(IMinter(minter).collateralRatio(), startCR);
-        (, uint256 startPrice, , ) = IPriceOracle(priceOracle).getPrice();
-
-        // write a gnuplot data file for fees
-        string memory feesFile = openFile(
-            "fees",
-            sa(
-                "Price",
-                "Collateral Ratio",
-                "Mint Pegged Config",
-                "Redeem Pegged Config",
-                "Mint Leveraged Config",
-                "Redeem Leveraged Config"
-            )
-        );
-        string memory fees1File = openFile(
-            "fees1",
-            sa(
-                "Price",
-                "Collateral Ratio",
-                "Mint Pegged Fees",
-                "Redeem Pegged Fees",
-                "Mint Leveraged Fees",
-                "Redeem Leveraged Fees"
-            )
-        );
-
-        string memory invariantFile = openFile(
-            "invariant",
-            sa("Collateral Ratio", "Leveraged Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
-        );
-
-        IRebalancePool(rebalancePool).deposit(4 * startPrice, address(this), 0);
-        IRebalancePool(rebalancePoolLeveraged).deposit(4 * startPrice, address(this), 0);
-        string memory liquidateFile = openFile(
-            "liquidate",
-            sa("before CR", "liquidate to collateral", "liquidate to leveraged")
-        );
-
-        //for (uint256 price = (startPrice * 9) / 10; price < (startPrice * 15) / 10; price += 10 ether)
         int256 mintPeggedFees;
         int256 redeemPeggedFees;
         int256 mintLeveragedFees;
         int256 redeemLeveragedFees;
 
-        uint256 inc = 1 ether / 500;
-        for (uint256 cr = inc / 10; cr <= 16 ether / 10; cr += inc) {
-            // for (uint256 cr = 11 ether / 10; cr <= 15 ether / 10; cr += 5 ether / 100) {
-            uint256 price = (startPrice * cr) / startCR;
+        // zero collateral (instantaneous) incentives
+        (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getInstantIncentives();
+        writeLine(
+            feesFile,
+            ia(
+                int(currentPrice),
+                int(currentCollateralRatio),
+                mintPeggedFees,
+                redeemPeggedFees,
+                mintLeveragedFees,
+                redeemLeveragedFees
+            )
+        );
 
-            MockPriceOracle(priceOracle).setPrice(price);
-            assertEq(cr, IMinter(minter).collateralRatio(), "crs must match");
+        (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getDryRunIncentives(1);
+        writeLine(
+            fees1File,
+            ia(
+                int(currentPrice),
+                int(currentCollateralRatio),
+                mintPeggedFees,
+                redeemPeggedFees,
+                mintLeveragedFees,
+                redeemLeveragedFees
+            )
+        );
 
-            // zero collateral (instantaneous) incentives
-            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives();
-            writeLine(
-                feesFile,
-                ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)
-            );
+        writeLine(
+            invariantFile,
+            ua(
+                currentCollateralRatio,
+                IMinter(minter).leverageRatio(),
+                IMinter(minter).peggedTokenPrice(),
+                IMinter(minter).leveragedTokenPrice(),
+                currentPrice
+            )
+        );
 
-            (mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees) = getIncentives(
-                1 ether,
-                1000 ether
-            );
-            writeLine(
-                fees1File,
-                ia(int(price), int(cr), mintPeggedFees, redeemPeggedFees, mintLeveragedFees, redeemLeveragedFees)
-            );
-
-            writeLine(
-                invariantFile,
-                ua(
-                    cr,
-                    IMinter(minter).leverageRatio(),
-                    IMinter(minter).peggedTokenPrice(),
-                    IMinter(minter).leveragedTokenPrice(),
-                    price
-                )
-            );
-
-            uint256 afterLiquidate;
-            uint256 afterLiquidateLeveraged;
-            if (cr < 13 ether / 10) {
-                uint256 snap = vm.snapshot();
-                IRebalancePool(rebalancePool).liquidate(0);
-                afterLiquidate = IMinter(minter).collateralRatio();
-                vm.revertTo(snap);
-                IRebalancePool(rebalancePoolLeveraged).liquidate(0);
-                afterLiquidateLeveraged = IMinter(minter).collateralRatio();
-                vm.revertTo(snap);
-            } else {
-                afterLiquidate = IMinter(minter).collateralRatio();
-                afterLiquidateLeveraged = afterLiquidate;
-            }
-            writeLine(liquidateFile, ua(cr, afterLiquidate, afterLiquidateLeveraged));
+        uint256 afterLiquidate;
+        uint256 afterLiquidateLeveraged;
+        if (currentCollateralRatio < 13 ether / 10) {
+            uint256 snap = vm.snapshot();
+            IRebalancePool(rebalancePool).liquidate(0);
+            afterLiquidate = IMinter(minter).collateralRatio();
+            vm.revertTo(snap);
+            IRebalancePool(rebalancePoolLeveraged).liquidate(0);
+            afterLiquidateLeveraged = IMinter(minter).collateralRatio();
+            vm.revertTo(snap);
+        } else {
+            afterLiquidate = IMinter(minter).collateralRatio();
+            afterLiquidateLeveraged = afterLiquidate;
         }
-        vm.closeFile(feesFile);
-        vm.closeFile(fees1File);
-        vm.closeFile(invariantFile);
+        writeLine(liquidateFile, ua(currentCollateralRatio, afterLiquidate, afterLiquidateLeveraged));
+    }
+}
+
+contract TestGraphsNoDisallow is TestGraphsDisallow {
+    function setUpConfig() internal override {
+        setUpConfig_likelyNoDisallow();
+    }
+
+    function context() internal pure override returns (string memory) {
+        return "_noDisallow";
     }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.25;
+pragma solidity 0.8.26;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -10,8 +10,6 @@ import { IMultipleRewardAccumulator } from "./IMultipleRewardAccumulator.sol";
 
 import { DecrementalFloatingPoint } from "../../math/DecrementalFloatingPoint.sol";
 import { LinearMultipleRewardDistributor } from "../distributor/LinearMultipleRewardDistributor.sol";
-
-import { console2 as console } from "forge-std/console2.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -324,16 +322,12 @@ abstract contract MultipleRewardCompoundingAccumulator is
     /// @param account The address of user to update. Use zero address
     ///        if you only want to update global snapshot.
     function _checkpoint(address account) internal virtual {
-        // console.log("_distributePendingReward...");
         _distributePendingReward();
-        // console.log("_distributePendingReward.");
 
         if (account != address(0)) {
             // checkpoint active reward tokens
             address[] memory rewardTokens = getActiveRewardTokens();
-            // console.log("rewardTokens.length=%s", rewardTokens.length);
             for (uint256 i = 0; i < rewardTokens.length; i++) {
-                // console.log("i=%s", i);
                 _updateSnapshot(account, rewardTokens[i]);
             }
 
