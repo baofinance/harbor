@@ -77,12 +77,12 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // int32[8] incentiveRatios;                  0:255
     }
 
-    function _incentiveRatioToStorage(int256 ratio) private pure returns (int256) {
+    function _incentiveRatioToStoragePrecision(int256 ratio) private pure returns (int256) {
         int256 factor = int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS));
         return ((ratio / factor) * factor);
     }
 
-    function _collateralRatioToStorage(uint256 ratio) private pure returns (uint256) {
+    function _collateralRatioToStoragePrecision(uint256 ratio) private pure returns (uint256) {
         uint256 factor = 10 ** (18 - COLLATERAL_RATIO_DECIMALS);
         return ((ratio / factor) * factor);
     }
@@ -948,17 +948,19 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             );
         }
 
-        uint256 prevUpperBound = 0;
+        uint256 prevUpperBound;
         uint iOut = 0;
-        _setDepegBandAdded(out, false);
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
-            int256 incentiveRatio = _incentiveRatioToStorage(config_.incentiveRatios[i]);
+            int256 incentiveRatio = _incentiveRatioToStoragePrecision(config_.incentiveRatios[i]);
+            // incentive ratios cannot be too precise for the storage schema
             if (incentiveRatio != config_.incentiveRatios[i]) {
                 revert IncentiveRatioTooPrecise(config_.incentiveRatios[i]);
             }
+
             // check the incentive array values given
             // if disallowNotDiscount (i.e. mint pegged or redeem leveraged) then
             // check against interval [0, 1] i.e. zero fees to some fees to disallow (100% fees)
+            //    also disallow is only valid in the first band
             // else (i.e. redeem pegged or mint leveraged)
             // check against interval (-1, 1) i.e. some discount; to zero; to some fees
             if (disallowNotDiscount) {
@@ -977,43 +979,50 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             }
 
             // check collateral ratio upper bounds are strictly increasing and then copy
-            // also, as the pegged price changes at a collateralRatio < 1, we insert an extra boundary at that level
-            // but only if one doesn't already exist.
-            // if we didn't do it here, we would have to do it in each of the fee calculation functions
-            // TODO: only allow a single depegged incentive ratio.
             uint256 currentUpperBound;
             if (i < config_.collateralRatioBandUpperBounds.length) {
-                currentUpperBound = _collateralRatioToStorage(config_.collateralRatioBandUpperBounds[i]);
+                currentUpperBound = _collateralRatioToStoragePrecision(config_.collateralRatioBandUpperBounds[i]);
                 if (currentUpperBound != config_.collateralRatioBandUpperBounds[i]) {
                     revert CollateralRatioBoundTooPrecise(config_.collateralRatioBandUpperBounds[i]);
                 }
-                // must be strictly increasing
-                if (currentUpperBound <= prevUpperBound) {
-                    revert InvalidCollateralRatioBoundValue(
-                        config_.collateralRatioBandUpperBounds[i],
-                        i == 0 ? 0 : config_.collateralRatioBandUpperBounds[i - 1]
-                    );
+                if ((i == 0 && currentUpperBound < 1 ether) || (i > 0 && currentUpperBound <= 1 ether)) {
+                    revert InvalidCollateralRatioBoundValue(currentUpperBound, i);
                 }
             } else {
                 currentUpperBound = type(uint256).max;
             }
-            // check for missing depeg boundary and add one unless there is already one
-            // also don't add a depeg boundary if it is a disallow band
-            if (prevUpperBound < 1 ether && currentUpperBound > 1 ether && incentiveRatio != 1 ether) {
-                // TODO: revert with a better error message: OnlyOneDepeggedIncentiveRatioAllowed();
-                // this makes the check against band == 0 the same as a check for depegged
-                // it also makes the math simpler - how do we manage multiple incentive ratios for the depegged situatiob
-                // especially as the actual collateral ratio (not the one we calculate as collateralRatio()) never goes below 1 ether
-                // (because the pegged price changes with the collateral price to ensure the collateral ration (collateral value / pegged value) always remains at 1)
-                if (prevUpperBound != 0) revert InvalidCollateralRatioBoundValue(currentUpperBound, prevUpperBound);
-                // this is the band that needs to be split
-                // use the same incentive ratio on each side of the split
-                _setIncentiveRatio(out, iOut, incentiveRatio);
-                _setCollateralRatioUpperBounds(out, iOut, 1 ether);
-                _setDepegBandAdded(out, true);
-                iOut++;
-            }
 
+            if (i == 0) {
+                // add a depeg boundary as the first band one unless
+                //  - there is already one
+                //  - it is a disallow band
+                // if we didn't do it here, we would have to do it in each of the fee calculation functions
+                // this makes the check against band == 0 the same as a check for depegged
+                // it also makes the math simpler - how do we manage multiple incentive ratios for the depegged situation?
+                // especially as the actual collateral ratio (not the one we calculate as collateralRatio()) never goes below 1 ether
+                if (currentUpperBound == 1 ether || incentiveRatio == 1 ether) {
+                    // we have a user defined depegged boundary or a disallow bound
+                    _setDepegBandAdded(out, false);
+                } else {
+                    // add the depeg and use the same incentive ratio on each side of the depeg boundary
+                    _setIncentiveRatio(out, iOut, incentiveRatio);
+                    _setCollateralRatioUpperBounds(out, iOut, 1 ether);
+                    _setDepegBandAdded(out, true);
+                    iOut++;
+                }
+            } else {
+                // each subsequent must be strictly increasing (at the storage precision)
+                if (currentUpperBound <= prevUpperBound) {
+                    revert CollateralRatioBoundValueNotIncreasing(
+                        config_.collateralRatioBandUpperBounds[i],
+                        i,
+                        config_.collateralRatioBandUpperBounds[i - 1]
+                    );
+                }
+            }
+            if (iOut >= maxBands) {
+                revert TooManyIncentiveRatios(config_.incentiveRatios.length, config_.incentiveRatios.length - 1);
+            }
             _setIncentiveRatio(out, iOut, incentiveRatio);
             if (i < config_.collateralRatioBandUpperBounds.length) {
                 _setCollateralRatioUpperBounds(out, iOut, currentUpperBound);
@@ -1021,11 +1030,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             }
             iOut++;
         }
-
-        if (iOut > maxBands) {
-            revert TooManyIncentiveRatios(config_.incentiveRatios.length, maxBands);
-        }
-
         _setCollateralRatioBandCount(out, iOut);
     }
 
@@ -1454,12 +1458,14 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 // the collateral needed to be deposited to reach the upper bound of the band taking fees into account
                 // The fee is deducted because it goes to the fee receiver
                 // The discount is added because it ends up in the collateral balance and more leveraged tokens go to the receiver
-                // note that 1 - bandFeeRatio must always be positive, which it is as:
+                // note that 1 - bandIncentiveRatio must always be positive, which it is as:
                 //   * fees < 1 ether. if is was = 1 ether then this would be a disallow band.
                 //   * discount < 0
                 // Note that we calculate the collateral in band even if there is insufficient
                 // collateral in the reserve pool to meet the band incentive ratio target
                 // TODO: add a test for this situation
+                // TODO: what if the incentive ratio cannot be met because the reserve pool is exhausted - this only mattes when incentive ration < 1
+
                 collateralInBand =
                     ((_collateralRatioUpperBounds(config_, band) * balanceOf.pegged - balanceOf.collateral * price) *
                         1 ether) /
@@ -1478,7 +1484,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 // tally the discounts
                 if (extraCollateralInBand <= reservePoolBalance_) {
                     reservePoolBalance_ -= extraCollateralInBand;
-                    // TODO: recalculate the band incentive ratio
+                    // TODO: recalculate the band incentive ratio because the band incentive ratio can't be made?
                 } else {
                     extraCollateralInBand = reservePoolBalance_;
                     reservePoolBalance_ = 0;

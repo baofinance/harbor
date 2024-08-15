@@ -211,7 +211,12 @@ interface IMinter {
     error InvalidRatio();
     // TODO: make these expected, actual.
     error TooManyCollateralRatioBounds(uint count, uint max);
-    error InvalidCollateralRatioBoundValue(uint256 shouldBeLessOrEqual, uint256 shouldBeGreaterOrEqual);
+    error InvalidCollateralRatioBoundValue(uint256 value, uint index);
+    error CollateralRatioBoundValueNotIncreasing(
+        uint256 shouldBeLessOrEqual,
+        uint index,
+        uint256 shouldBeGreaterOrEqual
+    );
     error TooManyIncentiveRatios(uint count, uint max);
     error TooFewIncentiveRatios(uint count, uint min);
     error InvalidIncentiveRatioValue(int256 shouldBeMinusOnetoOne);
