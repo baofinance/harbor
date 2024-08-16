@@ -9,18 +9,22 @@
 | allowance                                                   | 833             | 2739   | 2833   | 2833   | 64      |
 | approve                                                     | 4922            | 20842  | 24822  | 24822  | 15      |
 | balanceOf                                                   | 682             | 1149   | 682    | 2682   | 5233    |
+| balanceOf                                                   | 682             | 1149   | 682    | 2682   | 5233    |
 | burn                                                        | 5133            | 8416   | 5133   | 14984  | 3       |
+| burnFrom                                                    | 2813            | 12890  | 13046  | 15046  | 284     |
 | burnFrom                                                    | 2813            | 12890  | 13046  | 15046  | 284     |
 | decimals                                                    | 245             | 245    | 245    | 245    | 62      |
 | grantRole                                                   | 5070            | 18062  | 7448   | 29685  | 115     |
 | hasRole                                                     | 2729            | 2729   | 2729   | 2729   | 5       |
 | initialize                                                  | 3572            | 185300 | 190268 | 190268 | 71      |
 | mint                                                        | 2834            | 13579  | 7430   | 49230  | 1829    |
+| mint                                                        | 2834            | 13579  | 7430   | 49230  | 1829    |
 | name                                                        | 3239            | 3239   | 3239   | 3239   | 62      |
 | nonces                                                      | 2712            | 2712   | 2712   | 2712   | 1       |
 | permit                                                      | 57497           | 57497  | 57497  | 57497  | 1       |
 | supportsInterface                                           | 494             | 604    | 574    | 839    | 6       |
 | symbol                                                      | 3207            | 3207   | 3207   | 3207   | 62      |
+| totalSupply                                                 | 371             | 1156   | 371    | 2371   | 5559    |
 | totalSupply                                                 | 371             | 1156   | 371    | 2371   | 5559    |
 | transfer                                                    | 2892            | 16433  | 16433  | 29974  | 2       |
 | transferFrom                                                | 2963            | 13746  | 8577   | 35665  | 5       |
@@ -33,6 +37,7 @@
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5650            | 5650   | 5650   | 5650   | 7       |
 | collateralRatio                             | 491             | 9634   | 3778   | 22778  | 8476    |
+| collateralRatio                             | 491             | 9634   | 3778   | 22778  | 8476    |
 | collateralToken                             | 2485            | 2485   | 2485   | 2485   | 28      |
 | collateralTokenBalance                      | 1453            | 1586   | 1453   | 5453   | 60      |
 | config                                      | 24597           | 43442  | 40397  | 58073  | 5       |
@@ -44,6 +49,7 @@
 | freeSwapPeggedForLeveraged                  | 3130            | 84213  | 79111  | 137665 | 1311    |
 | grantRole                                   | 29663           | 29663  | 29663  | 29663  | 27      |
 | hasRole                                     | 763             | 2596   | 2763   | 2763   | 12      |
+| initialize                                  | 3301            | 609131 | 637243 | 637243 | 62      |
 | initialize                                  | 3301            | 609131 | 637243 | 637243 | 62      |
 | leverageRatio                               | 3778            | 3946   | 3778   | 4228   | 1600    |
 | leverageTokensForCollateral                 | 5488            | 5521   | 5488   | 9054   | 107     |
@@ -58,9 +64,13 @@
 | mintPeggedTokenIncentiveRatio               | 5651            | 5938   | 5651   | 10747  | 1602    |
 | peggedToken                                 | 2410            | 2410   | 2410   | 2410   | 28      |
 | peggedTokenBalance                          | 424             | 431    | 424    | 2424   | 4635    |
+| peggedTokenBalance                          | 424             | 431    | 424    | 2424   | 4635    |
 | peggedTokenPrice                            | 3883            | 4042   | 4138   | 4138   | 1600    |
 | priceOracle                                 | 2387            | 2387   | 2387   | 2387   | 1       |
 | rebalanceCollateralRatio                    | 2359            | 2359   | 2359   | 2359   | 2609    |
+| redeemLeveragedToken                        | 2810            | 92486  | 102862 | 119244 | 284     |
+| redeemLeveragedTokenDryRun                  | 9263            | 12082  | 11984  | 16173  | 750     |
+| redeemLeveragedTokenIncentiveRatio          | 5649            | 6596   | 6556   | 6745   | 600     |
 | redeemLeveragedToken                        | 2810            | 92486  | 102862 | 119244 | 284     |
 | redeemLeveragedTokenDryRun                  | 9263            | 12082  | 11984  | 16173  | 750     |
 | redeemLeveragedTokenIncentiveRatio          | 5649            | 6596   | 6556   | 6745   | 600     |
@@ -71,6 +81,7 @@
 | reservePool                                 | 2388            | 2388   | 2388   | 2388   | 1       |
 | supportsInterface                           | 482             | 554    | 482    | 699    | 3       |
 | swapPeggedForLeveragedForCollateralRatio    | 3769            | 4004   | 4005   | 4005   | 1303    |
+| updateConfig                                | 21143           | 55849  | 36531  | 142117 | 28      |
 | updateConfig                                | 21143           | 55849  | 36531  | 142117 | 28      |
 
 --
@@ -99,6 +110,6 @@
 | grantRole                                             | 5026            | 18118 | 7404   | 29641 | 116     |
 | initialize                                            | 2748            | 92844 | 94252  | 94252 | 65      |
 | requestBonus                                          | 2891            | 16611 | 16505  | 40105 | 327     |
+| requestBonus                                          | 2891            | 16611 | 16505  | 40105 | 327     |
 | supportsInterface                                     | 426             | 534   | 534    | 643   | 2       |
 | transferToken                                         | 3241            | 3241  | 3241   | 3241  | 1       |
-
