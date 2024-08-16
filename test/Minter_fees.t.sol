@@ -926,3 +926,40 @@ contract TestMinterFees is TestMinterFeeSetUp {
         }
     }
 }
+
+contract TestMinterNoneMinted is TestMinterFeeSetUp {
+    function setUp() public virtual override(TestMinterFeeSetUp) {
+        super.setUp();
+    }
+
+    function test_all() public {
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
+        IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
+
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
+        IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
+    }
+}
+
+contract TestMinterDepeg is TestMinterFeeSetUp {
+    function setUp() public virtual override(TestMinterFeeSetUp) {
+        super.setUp();
+        setUp_collateral(10 ether, 10 ether);
+        deal(address(collateralToken), address(this), 100 ether);
+        IERC20(collateralToken).approve(minter, type(uint256).max);
+        deal(address(peggedToken), address(this), 5000 ether);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        deal(address(leveragedToken), address(this), 5000 ether);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        // go depegged
+        priceOracle.setPrice(500 ether);
+    }
+
+    function test_leveraged() public {
+        vm.expectRevert(IMinter.ActionPaused.selector);
+        IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+
+        vm.expectRevert(IMinter.ActionPaused.selector);
+        IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
+    }
+}

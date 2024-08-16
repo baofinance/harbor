@@ -26,6 +26,8 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     string fees1File;
     string invariantFile;
     string liquidateFile;
+    int256 NaN = type(int256).max;
+    uint256 uNaN = type(uint256).max;
 
     function setUpConfig() internal virtual override {
         setUpConfig_likely();
@@ -90,7 +92,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     function writeLine(string memory file, int[] memory data) private {
         string[] memory strData = new string[](data.length);
         for (uint i = 0; i < data.length; i++) {
-            strData[i] = Useful.toStringScaled(data[i], 18);
+            strData[i] = data[i] == NaN ? "NaN" : Useful.toStringScaled(data[i], 18);
         }
         vm.writeLine(file, Useful.join(strData, ","));
     }
@@ -98,7 +100,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     function writeLine(string memory file, uint[] memory data) private {
         string[] memory strData = new string[](data.length);
         for (uint i = 0; i < data.length; i++) {
-            strData[i] = Useful.toStringScaled(data[i], 18);
+            strData[i] = data[i] == uNaN ? "NaN" : Useful.toStringScaled(data[i], 18);
         }
         vm.writeLine(file, Useful.join(strData, ","));
     }
@@ -115,8 +117,13 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     {
         mintPeggedIncentive = IMinter(minter).mintPeggedTokenIncentiveRatio();
         redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio();
-        mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
-        redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
+        if (pegged()) {
+            mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
+            redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
+        } else {
+            mintLeveragedIncentive = NaN;
+            redeemLeveragedIncentive = NaN;
+        }
     }
 
     function getDryRunIncentives(
@@ -134,8 +141,13 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         // collect the data and check against actuals
         (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(multiplier * 1 ether);
         (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
-        (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether);
-        (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether);
+        if (pegged()) {
+            (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether);
+            (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether);
+        } else {
+            mintLeveragedIncentive = NaN;
+            redeemLeveragedIncentive = NaN;
+        }
     }
 
     function doOneCollateralRatio() internal override {

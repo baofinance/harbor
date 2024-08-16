@@ -1438,7 +1438,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (balanceOf.pegged == 0) revert ActionPaused();
         // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
-        // TODO: handle depegged situation, where leveraged token is worth 0 and pegged is worth it's share of collateral
+        // we can't meaningfully do anything with leveraged tokens as their value is zero
+        if (_isDepegged(balanceOf.collateral, price, balanceOf.pegged)) revert ActionPaused();
 
         // simulate minting or redeeming tokens from current collateral ratio upwards or downwards,
         // extracting the fee at the correct ratio as we go.
@@ -1525,6 +1526,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     ) private pure returns (uint256 fee, uint256 leveragedRedeemed, uint256 collateralOut) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
+        // we can't meaningfully do anything with leveraged tokens as their value is zero
+        if (_isDepegged(startCollateralTokenBalance, price, peggedTokenBalance_)) revert ActionPaused();
+
         uint256 collateralIn = _collateralForLeveragedTokens(
             leveragedIn,
             leveragedTokenBalance_,
@@ -1536,6 +1540,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, startCollateralTokenBalance, price, peggedTokenBalance_, false);
         // simulate redeeming until we run out of leveraged tokens, adding the fee & reserve collateral as we go
+
         fee = 0;
         collateralOut = 0;
         uint256 collateralTokenBalance_ = startCollateralTokenBalance;
