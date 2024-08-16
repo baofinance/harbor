@@ -938,6 +938,12 @@ contract TestMinterNoneMinted is TestMinterFeeSetUp {
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
+
+        vm.expectRevert(IMinter.ActionPaused.selector);
+        IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+
+        vm.expectRevert(IMinter.ActionPaused.selector);
+        IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
     }
 }
 

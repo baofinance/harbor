@@ -1442,7 +1442,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     ) private pure returns (uint256 fee, uint256 leveragedMinted, uint256 extraCollateral) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (balanceOf.pegged == 0) revert ActionPaused();
-        // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         if (_isDepegged(balanceOf.collateral, price, balanceOf.pegged)) revert ActionPaused();
 
@@ -1472,8 +1471,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 //   * discount < 0
                 // Note that we calculate the collateral in band even if there is insufficient
                 // collateral in the reserve pool to meet the band incentive ratio target
-                // TODO: add a test for this situation
-                // TODO: what if the incentive ratio cannot be met because the reserve pool is exhausted - this only mattes when incentive ration < 1
+                // TODO: if there is insufficient collateral in the reserve pool then we comtinue the loop at the same band, taking out the discount
 
                 collateralInBand =
                     ((_collateralRatioUpperBounds(config_, band) * balanceOf.pegged - balanceOf.collateral * price) *
@@ -1493,7 +1491,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 // tally the discounts
                 if (extraCollateralInBand <= reservePoolBalance_) {
                     reservePoolBalance_ -= extraCollateralInBand;
-                    // TODO: recalculate the band incentive ratio because the band incentive ratio can't be made?
                 } else {
                     extraCollateralInBand = reservePoolBalance_;
                     reservePoolBalance_ = 0;
