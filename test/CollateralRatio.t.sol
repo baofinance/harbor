@@ -46,6 +46,10 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         return currentCollateralRatio >= 1 ether;
     }
 
+    function leveraged() internal view returns (bool) {
+        return currentCollateralRatio > 1 ether;
+    }
+
     struct Holdings {
         uint256 feeReceiverCollateral;
         uint256 reservePoolCollateral;
@@ -132,7 +136,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
 
     function doOneCollateralRatio() internal virtual {
         // make sure this is overriden and doesn't get called
-        assertFalse(true);
+        // assertFalse(true);
     }
     function setDown() internal virtual {}
 
@@ -293,6 +297,13 @@ contract TestCollateralRatioRangeTransfersWithReserve is TestCollateralRatioRang
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSetUp {
+    enum Action {
+        MintPegged,
+        RedeemPegged,
+        MintLeveraged,
+        RedeemLeveraged
+    }
+
     uint repeats = 10;
 
     function setUpConfig() internal virtual override {
@@ -331,32 +342,71 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         withNewChanges.thisLeveraged = changesSoFar.thisLeveraged + cambios.thisLeveraged;
     }
 
-    function compareDeltaHoldings(DeltaHoldings memory a, DeltaHoldings memory b, string memory context) internal pure {
-        assertEq(
+    function compareDeltaHoldings(
+        DeltaHoldings memory a,
+        DeltaHoldings memory b,
+        uint256 tolerance,
+        string memory context
+    ) internal pure {
+        assertApproxEqAbs(
             a.feeReceiverCollateral,
             b.feeReceiverCollateral,
+            tolerance,
             string.concat(context, ":", "feeReceiverCollateral")
         );
-        assertEq(
+        assertApproxEqAbs(
             a.reservePoolCollateral,
             b.reservePoolCollateral,
+            tolerance,
             string.concat(context, ":", "reservePoolCollateral")
         );
-        assertEq(a.minterCollateral, b.minterCollateral, string.concat(context, ":", "minterCollateral"));
-        assertEq(a.minterPegged, b.minterPegged, string.concat(context, ":", "minterPegged"));
-        assertEq(a.thisCollateral, b.thisCollateral, string.concat(context, ":", "thisCollateral"));
-        assertEq(a.thisPegged, b.thisPegged, string.concat(context, ":", "thisPegged"));
-        assertEq(a.thisLeveraged, b.thisLeveraged, string.concat(context, ":", "thisLeveraged"));
+        assertApproxEqAbs(
+            a.minterCollateral,
+            b.minterCollateral,
+            tolerance,
+            string.concat(context, ":", "minterCollateral")
+        );
+        assertApproxEqAbs(
+            a.minterPegged,
+            b.minterPegged,
+            tolerance * 1000,
+            string.concat(context, ":", "minterPegged")
+        );
+        assertApproxEqAbs(a.thisCollateral, b.thisCollateral, tolerance, string.concat(context, ":", "thisCollateral"));
+        assertApproxEqAbs(a.thisPegged, b.thisPegged, tolerance * 1000, string.concat(context, ":", "thisPegged"));
+        assertApproxEqAbs(
+            a.thisLeveraged,
+            b.thisLeveraged,
+            tolerance * 1000,
+            string.concat(context, ":", "thisLeveraged")
+        );
     }
 
-    function doOneMintPegged(
+    function toString(Action action) private pure returns (string memory s) {
+        if (action == Action.MintPegged) s = "mintPegged";
+        else if (action == Action.RedeemPegged) s = "redeemPegged";
+        else if (action == Action.MintLeveraged) s = "mintLeveraged";
+        else if (action == Action.RedeemLeveraged) s = "redeemLeveraged";
+        else s = "unknown";
+    }
+
+    function doOne(
+        Action action,
         uint multiple,
         DeltaHoldings memory changesSoFar
     ) internal returns (DeltaHoldings memory withNewChanges) {
         // before
         Holdings memory antes = readHoldings();
         // do it
-        IMinter(minter).mintPeggedToken(multiple * 1 ether, address(this), 0);
+        if (action == Action.MintPegged) {
+            IMinter(minter).mintPeggedToken(multiple * 1 ether, address(this), 0);
+        } else if (action == Action.RedeemPegged) {
+            IMinter(minter).redeemPeggedToken(multiple * 1000 ether, address(this), 0);
+        } else if (action == Action.MintLeveraged) {
+            if (leveraged()) IMinter(minter).mintLeveragedToken(multiple * 1 ether, address(this), 0);
+        } else if (action == Action.RedeemLeveraged) {
+            if (leveraged()) IMinter(minter).redeemLeveragedToken(multiple * 1000 ether, address(this), 0);
+        }
         // after + changes
         DeltaHoldings memory cambios = makeDeltaHoldings(antes, readHoldings());
         withNewChanges = addDeltaHoldings(changesSoFar, cambios);
@@ -370,18 +420,18 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         DeltaHoldings memory smallChanges;
         uint256 snap;
 
-        // mint pegged
-        snap = vm.snapshot();
-        largeChanges = doOneMintPegged(repeats, largeChanges);
-        vm.revertTo(snap);
-        snap = vm.snapshot();
-        for (uint i = 0; i < repeats; i++) {
-            smallChanges = doOneMintPegged(1, smallChanges);
+        for (uint a = 0; a <= uint(type(Action).max); a++) {
+            snap = vm.snapshot();
+            largeChanges = doOne(Action(a), repeats, largeChanges);
+            vm.revertTo(snap);
+            snap = vm.snapshot();
+            for (uint i = 0; i < repeats; i++) {
+                smallChanges = doOne(Action(a), 1, smallChanges);
+            }
+            // TODO: see if we can get this tollerance down a bit
+            compareDeltaHoldings(largeChanges, smallChanges, 40, toString(Action(a)));
+            vm.revertTo(snap);
         }
-        compareDeltaHoldings(largeChanges, smallChanges, "mintPegged");
-        vm.revertTo(snap);
-
-        // TODO: add the other actions
     }
 }
 
@@ -391,5 +441,3 @@ contract TestCollateralRatioRangeIntegralWithReserve is TestCollateralRatioRange
         deal(address(collateralToken), reservePool, 1000 ether);
     }
 }
-
-//

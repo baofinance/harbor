@@ -720,7 +720,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
         if (leveragedTokenOut == 0) {
-            revert ReturnZeroAmount(collateralToken_);
+            revert ReturnZeroAmount(leveragedToken_);
         }
         // net out the fee & extra collateral
         if (extraCollateral > 0) {
@@ -947,7 +947,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 config_.incentiveRatios.length
             );
         }
-
+        out = ActionIncentive(0, 0);
         uint256 prevUpperBound;
         uint iOut = 0;
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
@@ -1234,6 +1234,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, false);
         fee = 0;
+        peggedMinted = 0;
         maxCollateral = 0;
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
@@ -1314,6 +1315,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
+        fee = 0;
+        peggedRedeemed = 0;
+        collateralReturned = 0;
+        extraCollateral = 0;
         while (true) {
             uint256 collateralInBand$;
             {
@@ -1449,6 +1454,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint band = _findBand(config_, balanceOf.collateral, price, balanceOf.pegged, true);
 
         // simulate minting until we run out of collateral, adding the fee & bonus as we go
+        fee = 0;
+        leveragedMinted = 0;
+        extraCollateral = 0;
         while (true) {
             int256 bandIncentiveRatio = _incentiveRatio(config_, band);
             uint256 collateralInBand;
@@ -1527,6 +1535,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         // we can't meaningfully do anything with leveraged tokens as their value is zero
+        // TODO: move this into the loop below - as we may become depegged as a result of this action?
         if (_isDepegged(startCollateralTokenBalance, price, peggedTokenBalance_)) revert ActionPaused();
 
         uint256 collateralIn = _collateralForLeveragedTokens(

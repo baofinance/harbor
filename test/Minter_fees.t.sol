@@ -951,15 +951,23 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
         IERC20(peggedToken).approve(minter, type(uint256).max);
         deal(address(leveragedToken), address(this), 5000 ether);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        // go depegged
-        priceOracle.setPrice(500 ether);
     }
 
     function test_leveraged() public {
+        // go depegged
+        priceOracle.setPrice(500 ether);
         vm.expectRevert(IMinter.ActionPaused.selector);
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
         vm.expectRevert(IMinter.ActionPaused.selector);
+        IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
+
+        // actually re-pegged but on the border where there be zero divides
+        priceOracle.setPrice(1000 ether);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, collateralToken));
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
     }
 }

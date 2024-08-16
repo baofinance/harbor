@@ -117,7 +117,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     {
         mintPeggedIncentive = IMinter(minter).mintPeggedTokenIncentiveRatio();
         redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio();
-        if (pegged()) {
+        if (leveraged()) {
             mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
             redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
         } else {
