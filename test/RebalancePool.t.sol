@@ -84,7 +84,7 @@ contract TestRebalancePoolDepositWithdraw is TestRebalancePoolSetUp {
     }
 
     function _depositWithdraw(address receiver) private {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         // more than holding
         setUp_collateral(20 ether, 0 ether);
         deal(peggedToken, user1.addr, 10 * price);

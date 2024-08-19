@@ -2,14 +2,15 @@
 
 pragma solidity 0.8.26;
 
+/// @notice Very small subset of IChainLinkOracle.
+/// Just enough information to extract a price and interpret the price correctly
+
 interface IPriceOracle {
-    /// @notice Return the oracle price with 18 decimal places.
-    /// @return isValid Whether the oracle is valid.
-    /// @return safePrice The safe oracle price when the oracle is valid.
-    /// @return minUnsafePrice The minimum unsafe oracle price when the oracle is invalid.
-    /// @return maxUnsafePrice The maximum unsafe oracle price when the oracle is invalid.
-    function getPrice()
-        external
-        view
-        returns (bool isValid, uint256 safePrice, uint256 minUnsafePrice, uint256 maxUnsafePrice);
+    /// @notice Return the oracle price.
+    /// @return price The price - get the decimals from the `decimals()` function
+    function latestAnswer() external view returns (uint256 price);
+
+    /// @notice Returns the precison of the returned answers from `latestAnswer()` function
+    /// @return decimals The number of decimals in the answers returned
+    function decimals() external view returns (uint8 decimals);
 }

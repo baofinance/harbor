@@ -30,7 +30,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _freeMintLeveragedToken(uint256 collateralIn) private {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         uint256 ownerCollateralDecrease;
         if (collateralIn == type(uint256).max) {
@@ -119,7 +119,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         IMinter(minter).freeMintLeveragedToken(0, receiver.addr);
         //--------------------------------------------------------------
 
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         // got to add some pegged tokens or collateral ratio checks don't work
 
         // first mint
@@ -156,7 +156,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _mintLeveragedToken(uint256 collateralIn) private {
-        //(, uint256 price, , ) = priceOracle.getPrice();
+        //uint256 price = priceOracle.latestAnswer();
 
         uint256 senderCollateralDecrease;
         if (collateralIn == type(uint256).max) {
@@ -309,7 +309,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
     function test_mintLeveraged() public {
         setUp_collateral(10 ether, 0);
-        priceOracle.setPrice(4000 ether); // put the collateral ratio to 2, so no excess fees
+        priceOracle.setLatestAnswer(4000 ether); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         // first mint

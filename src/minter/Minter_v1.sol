@@ -1994,41 +1994,25 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     // -------------------------------------------------------
 
     /// @notice Returns the safe price for the collateral token.
-    /// @dev Checks safe price is valid and no-zero.
+    /// @dev Checks safe price non-zero.
     function _fetchSafePrice(address priceOracle_) private view returns (uint256 safe) {
-        // slither-disable-next-line unused-return
-        (bool isValid, uint256 safe_, , ) = IPriceOracle(priceOracle_).getPrice();
-
-        if (!isValid) {
-            revert InvalidOraclePrice();
-        }
-        if (safe_ == 0) {
+        safe = IPriceOracle(priceOracle_).latestAnswer() * 10 ** (18 - IPriceOracle(priceOracle_).decimals());
+        if (safe == 0) {
             revert ZeroOraclePrice();
         }
-        safe = safe_;
     }
 
     /// @notice Returns the min price for the collateral token.
     /// If the safe price is valid it is returned, else the min price.
-    /// @dev Checks the returned price is no-zero.
+    /// @dev Checks the returned price is non-zero.
     function _fetchMinPrice(address priceOracle_) private view returns (uint256 min) {
-        // slither-disable-next-line unused-return
-        (bool isValid, uint256 safe, uint256 min_, ) = IPriceOracle(priceOracle_).getPrice();
-        min = isValid ? safe : min_;
-        if (min == 0) {
-            revert ZeroOraclePrice();
-        }
+        min = _fetchSafePrice(priceOracle_);
     }
 
     /// @notice Returns the max price for the collateral token.
     /// If the safe price is valid it is returned, else the max price.
-    /// @dev Checks the returned price is no-zero.
+    /// @dev Checks the returned price is non-zero.
     function _fetchMaxPrice(address priceOracle_) private view returns (uint256 max) {
-        // slither-disable-next-line unused-return
-        (bool isValid, uint256 safe, , uint256 max_) = IPriceOracle(priceOracle_).getPrice();
-        max = isValid ? safe : max_;
-        if (max == 0) {
-            revert ZeroOraclePrice();
-        }
+        max = _fetchSafePrice(priceOracle_);
     }
 }

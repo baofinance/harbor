@@ -5,41 +5,19 @@ pragma solidity ^0.8.26;
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
 contract MockPriceOracle is IPriceOracle {
-    uint256 public price;
-    uint256 public spread;
-    bool public isValid;
+    uint256 public latestAnswer;
+    uint8 public decimals;
 
     constructor() {
-        price = 2000 ether;
-        spread = 1 ether;
-        isValid = true;
+        latestAnswer = 2000 ether;
+        decimals = 18;
     }
 
-    function setSpread(uint256 spread_) external {
-        spread = spread_;
+    function setLatestAnswer(uint256 price_) public {
+        latestAnswer = price_;
     }
 
-    function setIsValid(bool newValue) external {
-        isValid = newValue;
-    }
-
-    function setPrice(uint256 price_) external {
-        price = price_;
-    }
-
-    function getPrice()
-        external
-        view
-        override
-        returns (bool isValid_, uint256 safePrice, uint256 minUnsafePrice, uint256 maxUnsafePrice)
-    {
-        isValid_ = isValid;
-        safePrice = price;
-        if (spread >= price) {
-            minUnsafePrice = 1; // lowest non-zero price
-        } else {
-            minUnsafePrice = price - spread;
-        }
-        maxUnsafePrice = price + spread;
+    function setDecimals(uint8 decimals_) public {
+        decimals = decimals_;
     }
 }

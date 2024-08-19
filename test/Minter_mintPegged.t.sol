@@ -30,7 +30,7 @@ contract TestMinterMintPegged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _freeMintPeggedToken(uint256 collateralIn) private {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         uint256 ownerCollateralDecrease;
         if (collateralIn == type(uint256).max) {
@@ -115,7 +115,7 @@ contract TestMinterMintPegged is TestMinterMint {
         IMinter(minter).freeMintPeggedToken(0, receiver.addr);
         //-----------------------------------------------------------
 
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         // first mint
         assertEq(IMinter(minter).collateralRatio(), type(uint256).max, "collateral ratio = 1/0");
@@ -140,7 +140,7 @@ contract TestMinterMintPegged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _mintPeggedToken(uint256 collateralIn) private {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         uint256 senderCollateralDecrease;
         if (collateralIn == type(uint256).max) {
@@ -332,7 +332,7 @@ contract TestMinterMintPegged is TestMinterMint {
     function test_mintPegged() public {
         // set up some collateral,
         setUp_collateral(10 ether, 10 ether);
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         // first mint

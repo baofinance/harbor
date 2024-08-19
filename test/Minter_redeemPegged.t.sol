@@ -32,7 +32,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _freeRedeemPeggedToken(uint256 peggedIn) private {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         uint256 ownerPeggedDecrease;
         if (peggedIn == type(uint256).max) {
@@ -80,7 +80,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     }
 
     function test_freeRedeemPegged() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         // mint noaccess
         assertFalse(AccessControlUpgradeable(minter).hasRole(zeroFeeRole, sender.addr));
@@ -227,7 +227,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     }
 
     function test_freeSwapPegged() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         // mint noaccess
         assertFalse(AccessControlUpgradeable(minter).hasRole(zeroFeeRole, sender.addr));
@@ -331,7 +331,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _redeemPeggedToken(uint256 peggedIn) private {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         uint256 senderPeggedDecrease;
         if (peggedIn == type(uint256).max) {
@@ -479,9 +479,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
     function test_redeemPegged() public {
         setUp_collateral(20 ether, 0);
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         price *= 2;
-        priceOracle.setPrice(price); // put the collateral ratio to 2, so no excess fees
+        priceOracle.setLatestAnswer(price); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         // first redeem
@@ -549,9 +549,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
     function test_redeemPeggedDepegged() public {
         setUp_collateral(20 ether, 0);
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         price /= 2;
-        priceOracle.setPrice(price); // put the collateral ratio to 0.5, tro depeg
+        priceOracle.setLatestAnswer(price); // put the collateral ratio to 0.5, tro depeg
         assertEq(IMinter(minter).collateralRatio(), 1 ether / 2);
 
         // first mint

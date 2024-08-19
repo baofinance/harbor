@@ -24,7 +24,7 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
 
     function setUp() public override(TestMinterFeeSetUp) {
         super.setUp();
-        (, price, , ) = priceOracle.getPrice();
+        price = priceOracle.latestAnswer();
         vm.prank(owner.addr);
         IERC20(peggedToken).approve(minter, type(uint256).max);
     }

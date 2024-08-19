@@ -63,7 +63,7 @@ contract TestRebalancePool2SetUp is TestRebalancePoolSetUp {
 
 contract TestLiquidate is TestRebalancePool2SetUp {
     function test_liquidateFailure() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         uint256 liquidated;
 
         // set up - no leveraged tokens
@@ -85,7 +85,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         // does it work when depegged?
         setUp_collateral(1 ether, 0 ether, user1.addr); // CR = 1
         price /= 2;
-        priceOracle.setPrice(price); // depeg: CR = 0.5
+        priceOracle.setLatestAnswer(price); // depeg: CR = 0.5
         vm.prank(user1.addr);
         IRebalancePool(rebalancePool).deposit(1 * price, user1.addr, 0);
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
@@ -93,7 +93,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
 
         price *= 2;
-        priceOracle.setPrice(price); // CR = 1 again
+        priceOracle.setLatestAnswer(price); // CR = 1 again
         // some deposits - liquidate more than min
         setUp_collateral(1 ether, 0 ether, user1.addr); // CR = 1
         vm.prank(user1.addr);
@@ -123,7 +123,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
     }
 
     function test_liquidate() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
@@ -172,7 +172,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
     }
 
     function test_liquidateLeveraged() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);

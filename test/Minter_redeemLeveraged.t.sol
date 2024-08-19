@@ -32,7 +32,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _freeRedeemLeveragedToken(uint256 leveragedIn) private {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
 
         uint256 ownerLeveragedDecrease;
         if (leveragedIn == type(uint256).max) {
@@ -85,7 +85,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     }
 
     function test_freeRedeemLeveraged() public {
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "should have no minted leveraged tokens");
 
         // mint noaccess
@@ -340,9 +340,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
     function test_redeemLeveraged() public {
         setUp_collateral(20 ether, 0);
-        (, uint256 price, , ) = priceOracle.getPrice();
+        uint256 price = priceOracle.latestAnswer();
         price *= 2;
-        priceOracle.setPrice(price); // put the collateral ratio to 2, so no excess fees
+        priceOracle.setLatestAnswer(price); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         setUp_collateral(0, 10 ether, sender.addr);
