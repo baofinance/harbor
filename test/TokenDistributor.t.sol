@@ -423,6 +423,12 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(IERC20(token2).balanceOf(recipient1), 0 ether);
         assertEq(IERC20(token2).balanceOf(recipient2), 0 ether);
 
+        // not owner
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
+        );
+        tokenDistributor.transferToken(token1, recipient1, 1 ether);
+
         vm.startPrank(owner);
 
         vm.expectRevert(Token.ZeroAddress.selector);

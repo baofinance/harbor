@@ -1,0 +1,20 @@
+#! /bin/sh
+# depends on inotify-tools
+# $ sudo apt-get install inotify-tools
+
+# Check if at least one argument is provided
+if [ "$#" -lt 2 ]; then
+    echo "Usage: $0 <directory_tree_to_watch> <command_to_run> [command_arguments...]"
+    exit 1
+fi
+
+FILE=$1
+# Shift the positional parameters so that $@ now contains only the command and its arguments
+shift
+
+# Monitor the directory tree for changes and run the command with its arguments when a modification occurs
+while inotifywait --quiet --event modify --recursive "$FILE"; do
+    "$@"
+    echo "done."
+done
+

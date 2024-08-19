@@ -3,81 +3,36 @@ pragma solidity 0.8.26;
 
 import "src/common/Token.sol";
 
+/// @title Bao Minter
+/// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
+/// @notice Provides an interface for minting and redeeming pegged and leveraged tokens, some with fees, others without.
+/// <br>
+/// For the fee'd fuctions equivalent "dry run" functions are available that could allow a user to know what
+/// fees, discounts, etc. are expected (modulo slippage). This id designed for a user interface to use.
+/// <br>
+/// Configuration functions are available such as for allowing setting of:
+/// <ul>
+/// <li>the fee/discount/disallow configuration
+/// <li>the collateral ratio that rebalancing and harvesting can start
+/// <li>the price oracle and rate (for wrapped) of the collateral
+/// <li>the fee receiver and discount provider (reserve pool)
+/// </ul>
+/// Various queries are provided such as:
+/// <ul>
+/// <li>the net asset values of the tokens,
+/// <li>leverage ratio of the leveraged tokens
+/// <li>collateral ratio of the system
+/// </ul>
 interface IMinter {
-    /********************************
-     * Data Structures              *
-     ********************************/
+    /////////////////////
+    // Data Structures //
+    /////////////////////
 
     struct BalanceTokens {
         address peggedToken;
         address leveragedToken;
         address collateralToken;
     }
-
-    /* TODO: rewrite this (or remove it)
-     * fees, rebalance and bonuses
-     * say, collateral value falls, and continues to fall, the sequence of stability measures is:
-     *   1) at CR = danger,
-     *       * fees for minting pegged and redeeming leveraged go up, discouraging users from
-     *         making CR drop more
-     *       * fees for redeeming pegged and minting leveraged go down encouraging users to make CR go up
-     *   2) at CR = rebalance,
-     *       * at this point fees are 100% and 0% respectively and rebalance starts.
-     *         On each liquidate call, rebalance pools burn pegged in exchange for something (collateral or
-     *         leveraged tokens) restoring CR to rebalance level
-     *   3) once rebalance pools are exhausted,
-     *       * bonuses start for redeeming pegged and minting leveraged, encouraging users to make CR go up.
-     *         Bonuses are governed by the reserve pool
-     *
-     *   * defaultMintPeggedTokenFeeRatio: the fee when collateral ratio after a mint is above criticalCollateralRatio
-     *   * defaultRedeemLeveragedTokenFeeRatio: the fee when collateral ratio after the redeem is above criticalCollateralRatio
-     *   * dangerCollateralRatio: when the fee for
-     *       * minting Pegged tokens starts to increase from the default
-     *       * redeeming Leveraged tokens starts to decrease from the default
-     *   * rebalanceCollateralRatio: when:
-     *       * the fee minting Pegged tokens and redeeming Leveraged tokens reaches 100%, effectively pausing it.
-     *       * redeeming Pegged tokens and minting Leveraged tokens adopts a lower level, the
-     *       * the rebalance pools come into action and respond to liquidate requests
-     *     this should be below the criticalCollateralRatio
-     *
-     *   rebalance pools are liquidated to maintain the rebalanceCollateralRatio
-     *   when the rebalance pools are exhausted then bonuses are paid from the reserve pool
-     *
-     */
-
-    // collateral ratio:
-    //  safe, e.g. 135%, fees are static, at the "safe" values for minting and redeeming pegged and leveraged tokens
-    //  danger, e.g. 130%, fees start to increase at this point reaching 100% at rebalance
-    //  rebalance, e.g. 125%, here fees are 100% so an effective pause. This should be mentioned, or a pause instituted,
-    //              in the UI so that customers don't get stung, non-web users have to look after themselves
-    //  bonus, when rebalance pools are exhausted and CR < rebalance
-    // because: we may want to increase mint pegged fees before reducing redeem leveraged, etc.
-    // need to also minimise storage accesses
-
-    /*
-     * fees are charged at a rate that would be the same if the action was performed one dollar at a time
-     * i.e. the fee is a definite integral of the piecewise function below
-     * this results in the correct incentive for users to be nudged in the direction that results in
-     * stability of the protocol
-     *
-     * mint pegged and redeem leveraged fees/bonus
-     * -------------------------------------------
-     *                         bonus CR                            danger
-     *                         v        rebalance fee ratio        v
-     *                         .-----------------------------------.
-     *                         |                                    \
-     *                         |                                     \         normal fee
-     *                         |                                      `----------------------
-     *                         |                                      ^
-     *                         |                                      normal
-     * 0-----------------------+-------------------------------------------------------------
-     *                         |
-     *    - bonus ratio        |
-     * ------------------------'
-     *
-     *
-     *
-     */
 
     struct IncentiveConfig {
         // note: incentive ratios have one more entry than the band bounds do
@@ -93,78 +48,73 @@ interface IMinter {
     struct Config {
         // points at which specific activity commences
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        uint256 harvestCollateralRatioUpperBound; // above this harvesting of collateral can begin // TODO: implement harvesting
+        uint256 harvestCollateralRatioLowerBound; // above this harvesting of collateral can begin.
         // bonus/fees
         IncentiveConfig mintPeggedIncentiveConfig;
-        // leverage tokens have their own intrinsic value in that they increase in leverage the lower the collateral ratio
-        // so there is a convenient intrinsic incentive to mint at low collateral ratios
+        // leverage tokens have their own intrinsic value in that they increase in leverage the lower the collateral
+        // ratio, so there is a convenient intrinsic incentive to mint at low collateral ratios
         IncentiveConfig mintLeveragedIncentiveConfig;
         IncentiveConfig redeemPeggedIncentiveConfig;
         IncentiveConfig redeemLeveragedIncentiveConfig;
     }
 
-    /********************************
-     * Events                       *
-     ********************************/
+    ////////////
+    // Events //
+    ////////////
 
     /// @notice Emitted when peggedToken is minted.
     /// @param sender The address of collateral token owner.
-    /// @param recipient The address of receiver for peggedToken or leveragedToken.
-    /// @param collateralTokenIn The amount of collateral token deposited.
-    /// @param peggedTokenOut The amount of peggedToken minted.
-    event MintPeggedToken(
-        address indexed sender,
-        address indexed recipient,
-        uint256 collateralTokenIn,
-        uint256 peggedTokenOut
-    );
+    /// @param receiver The address of receiver for peggedToken or leveragedToken.
+    /// @param collateralIn The amount of collateral token deposited.
+    /// @param peggedOut The amount of peggedToken minted.
+    event MintPeggedToken(address indexed sender, address indexed receiver, uint256 collateralIn, uint256 peggedOut);
 
     /// @notice Emitted when leveragedToken is minted.
     /// @param sender The address of collateral token owner.
-    /// @param recipient The address of receiver for peggedToken or leveragedToken.
-    /// @param collateralTokenIn The amount of collateral token deposited.
-    /// @param leveragedTokenOut The amount of leveragedToken minted.
+    /// @param receiver The address of receiver for peggedToken or leveragedToken.
+    /// @param collateralIn The amount of collateral token deposited.
+    /// @param leveragedOut The amount of leveragedToken minted.
     event MintLeveragedToken(
         address indexed sender,
-        address indexed recipient,
-        uint256 collateralTokenIn,
-        uint256 leveragedTokenOut
+        address indexed receiver,
+        uint256 collateralIn,
+        uint256 leveragedOut
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
     /// @param sender The address of peggedToken and leveragedToken owner.
-    /// @param recipient The address of receiver for collateral token.
+    /// @param receiver The address of receiver for collateral token.
     /// @param peggedTokenBurned The amount of peggedToken burned.
-    /// @param collateralTokenOut The amount of collateral token redeemed.
+    /// @param collateralOut The amount of collateral token redeemed.
     event RedeemPeggedToken(
         address indexed sender,
-        address indexed recipient,
+        address indexed receiver,
         uint256 peggedTokenBurned,
-        uint256 collateralTokenOut
+        uint256 collateralOut
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
     /// @param sender The address of peggedToken and leveragedToken owner.
-    /// @param recipient The address of receiver for collateral token.
+    /// @param receiver The address of receiver for collateral token.
     /// @param peggedTokenBurned The amount of peggedToken burned.
-    /// @param leveragedTokenOut The amount of collateral token redeemed.
+    /// @param leveragedOut The amount of collateral token redeemed.
     event SwapPeggedForLeveraged(
         address indexed sender,
-        address indexed recipient,
+        address indexed receiver,
         uint256 peggedTokenBurned,
-        uint256 leveragedTokenOut
+        uint256 leveragedOut
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
     /// @param sender The address of peggedToken and leveragedToken owner.
-    /// @param recipient The address of receiver for collateral token.
+    /// @param receiver The address of receiver for collateral token.
     /// @param leveragedTokenBurned The amount of leveragedToken burned.
-    /// @param collateralTokenOut The amount of collateral token redeemed.
+    /// @param collateralOut The amount of collateral token redeemed.
     event RedeemLeveragedToken(
         address indexed sender,
-        address indexed recipient,
+        address indexed receiver,
         uint256 leveragedTokenBurned,
-        uint256 collateralTokenOut
+        uint256 collateralOut
     );
 
     event UpdateConfig(Config config);
@@ -184,9 +134,9 @@ interface IMinter {
     /// @param newPriceOracle The address of current price oracle contract.
     event UpdatePriceOracle(address indexed oldPriceOracle, address indexed newPriceOracle);
 
-    /********************************
-     * Errors                       *
-     ********************************/
+    ////////////
+    // Errors //
+    ////////////
 
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
@@ -227,9 +177,9 @@ interface IMinter {
     /// @dev thrown when an action is paused, for example if the protocol is not initialised
     error ActionPaused();
 
-    /********************************
-     * Public View Functions        *
-     ********************************/
+    ///////////////////////////
+    // Public View Functions //
+    ///////////////////////////
 
     /// @notice Return the address of the collateral token
     function collateralToken() external view returns (address);
@@ -244,6 +194,10 @@ interface IMinter {
     function config() external view returns (Config memory);
 
     /// @notice Return the current collateral ratio of the peggedToken to the collateral token (18 decimals).
+    /// This function isn't technically correct if the pegged token depegs, when the collateral ratio is 1.
+    /// As that is not very useful and also makes the funtion piecewise, the number returned is the collateral ratio
+    /// assuming the assuming the pegged token price is exactly 1 (i.e. not depegged).
+    /// if there are no pegged tokens, `uint256(-1)` is returned.
     function collateralRatio() external view returns (uint256);
 
     /// @notice Return the upper bound of the collateral ratio when  the rebalance pools allow liquidation
@@ -252,49 +206,91 @@ interface IMinter {
     /// @notice Return the current leveraged ratio of the leveragedToken (18 decimals).
     function leverageRatio() external view returns (uint256);
 
-    /// @notice Return the price of a leveraged token in terms of the pegged token's underlying
+    /// @notice Return the price of a leveraged token in terms of the pegged token's underlying (18 decimals).
     function leveragedTokenPrice() external view returns (uint256);
 
-    /// @notice Return the price of a pegged token in terms of the pegged token's underlying
-    /// this should normally be 1 ether. If the token depegs then this number will be this token's share of the collateral
+    /// @notice Return the price of a pegged token in terms of the pegged token's underlying (18 decimals).
+    /// this should normally be 1 ether but if the token depegs then this number will be this token's share of the
+    /// collateral.
     function peggedTokenPrice() external view returns (uint256);
 
+    /// @notice Return the leveraged tokens that are the same value are the given collateral token (at the current
+    /// collateral ratio).
     function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
 
-    /// @notice returns the amount of Pegged tokens that need to be redeemed to achieve a given collateral ratio
+    /// @notice Returns the amount of Pegged tokens that need to be redeemed to achieve a given target collateral ratio
     /// This is based on the fact that redeeming pegged tokens has a upward pressure on collateral ratio
     /// If, however, there are no leveraged tokens then no amount of redemption can change the collateral ratio.
     /// In the case of no leveraged tokens we return the total supply minted by this minter
+    /// @param targetCollateralRatio The collateral ratio that we aim to meet by the returned pegged tokens redeemed.
+    /// @return peggedTokens The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
+    /// given the current collateral ratio
     function redeemPeggedForCollateralRatio(uint256 targetCollateralRatio) external view returns (uint256 peggedTokens);
 
+    /// @notice Returns the number of pegged tokens needed to be swapped for leveraged tokens to
+    /// achieve the `targetCollateralRatio`
+    /// @param targetCollateralRatio The target collateral ratio
+    /// @return peggedTokens The number of pegged tokens needed to be swapped to achieve the given
+    /// `targetCollateralRatio`
     function swapPeggedForLeveragedForCollateralRatio(
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens);
 
-    /// @notice Return the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and discounts
-    function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 leveragedTokens);
+    /// @notice Returns the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and
+    /// discounts
+    /// @param forLeveragedTokens The amount of leveraged tokens
+    /// @return collateral The amount of collateral tokens equivalent to `forLeveragedTokens`
+    function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 collateral);
+
+    /// @notice Returns the address of the price oracle contract
     function priceOracle() external view returns (address);
+
+    /// @notice Returns the address of the reserve pool contract that provides the collateral for discounts
     function reservePool() external view returns (address);
+
+    /// @notice Returns the address of the fee receiver contract
     function feeReceiver() external view returns (address);
 
-    /// @notice Returns the totalAmount of tokens minted and not redeemed by the minter
+    /// @notice Returns the totalAmount of pegged tokens minted, and not redeemed, by the minter
     function peggedTokenBalance() external view returns (uint256);
+
+    /// @notice Returns the totalAmount of leveraged tokens minted, and not redeemed, by the minter
+    /// This number is the same as the totelSupply of the leveraged token
     function leveragedTokenBalance() external view returns (uint256);
+
+    /// @notice Returns the totalAmount of collateral tokens received in exchange for pegged and leveraged tokens
+    /// (18 decimals)
     function collateralTokenBalance() external view returns (uint256);
 
-    /// @notice Returns the current incentive ratio for minting pegged tokens
+    /// @notice Returns the current instantaneous incentive ratio for minting pegged tokens (18 decimals).
+    /// A positive number is a fee ratio; a negative number indicates a discount.
     function mintPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
+    /// @notice Returns the current instantaneous incentive ratio for redeeming pegged tokens (18 decimals).
+    /// A positive number is a fee ratio; a negative number indicates a discount.
     function redeemPeggedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
+    /// @notice Returns the current instantaneous incentive ratio for minting leveraged tokens (18 decimals).
+    /// A positive number is a fee ratio; a negative number indicates a discount.
     function mintLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
+    /// @notice Returns the current instantaneous incentive ratio for redeeming leveraged tokens (18 decimals).
+    /// A positive number is a fee ratio; a negative number indicates a discount.
     function redeemLeveragedTokenIncentiveRatio() external view returns (int256 incentiveRatio);
 
-    // dry run functions are like the incentive ratio functions but perform a definite integral on the fee function
-    // over the range between the current colateral ratio and the collateral ratio that would be achieved if the action was performed
-    // The functions don't return an incentive ration but the actual amounts of tokens expected to be transferred as part of the action
-
+    /// @notice Returns values that will be used if an actual `mintPeggedToken` function call is made.
+    /// This function is useful to give a user an indication of the actual transfers that would occur if the function
+    /// was to be called.
+    /// @param collateralIn The amount of collateral to be exchanged for pegged tokens.
+    /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
+    /// a fee ratio; a negative number indicates a discount.
+    /// @return collateralUsed The amount of collateral used in the exchange.
+    /// This is usually the same as `collateralIn` but at certain collateral ratio levels minting pegged tokens may be
+    /// disallowed by configuration.
+    /// @return peggedMinted The amount of pegged tokens that would be minted.
+    /// @return fee The amount deducted from `collateralIn` as a fee.
+    /// @return reserveCollateralUsed The amount deducted from the reserve pool as a discount.
+    /// @return price The price of collateral in terms of pegged tokens used in the calculations.
     function mintPeggedTokenDryRun(
         uint256 collateralIn
     )
@@ -309,14 +305,15 @@ interface IMinter {
             uint256 price
         );
 
-    /// @notice Returns values that will be used if an actual redeemPeggedToken function call is made
-    /// @param peggedIn is the amount of pegged token to be redeemed
-    /// @return incentiveRatio the effective incentive ratio for 'peggedIn' pegged tokens
-    /// @return peggedRedeemed is the maximum collateral value of the pegged token passed in that are allowed to be converted to collateral
-    /// @return collateralReturned is the amount of collateral returned from the reserve pool and passed to the caller
-    /// @return fee this is the amount deducted from the returned collateral as a fee
-    /// @return reserveCollateralUsed this is the amount deducted from the reserve pool a a discount
-    /// @return price is the price of collateral in terms of pegged tokens used in the calculations
+    /// @notice Returns values that will be used if an actual `redeemPeggedToken` function call is made.
+    /// @param peggedIn The amount of pegged token to be redeemed.
+    /// @return incentiveRatio the effective incentive ratio for `peggedIn` pegged tokens.  A positive number is a fee
+    /// ratio; a negative number indicates a discount.
+    /// @return peggedRedeemed The amount of pegged tokens that would be redeemed.
+    /// @return collateralReturned The amount of collateral returned from the reserve pool and passed to the caller.
+    /// @return fee The amount deducted from the returned collateral as a fee.
+    /// @return reserveCollateralUsed The amount deducted from the reserve pool a a discount.
+    /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     function redeemPeggedTokenDryRun(
         uint256 peggedIn
     )
@@ -331,6 +328,17 @@ interface IMinter {
             uint256 price
         );
 
+    /// @notice Returns values that will be used if an actual `mintLeveragedToken` function call is made.
+    /// @param collateralIn The amount of collateral to be exchanged for leveraged tokens.
+    /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
+    /// a fee ratio; a negative number indicates a discount.
+    /// @return collateralUsed The amount of collateral used in the exchange.
+    /// This is usually the same as `collateralIn` but at certain collateral ratio levels minting pegged tokens may be
+    /// disallowed by configuration.
+    /// @return leveragedMinted The amount of leveraged tokens that would be minted.
+    /// @return fee The amount deducted from `collateralIn` as a fee.
+    /// @return reserveCollateralUsed The amount deducted from the reserve pool as a discount.
+    /// @return price is the price of collateral used in terms of pegged tokens used in the calculations.
     function mintLeveragedTokenDryRun(
         uint256 collateralIn
     )
@@ -345,6 +353,15 @@ interface IMinter {
             uint256 price
         );
 
+    /// @notice Returns values that will be used if an actual `redeemLeveragedToken` function call is made.
+    /// @param leveragedIn The amount of pegged token to be redeemed.
+    /// @return incentiveRatio the effective incentive ratio for `leveragedIn` pegged tokens.  A positive number is a
+    /// fee ratio; a negative number indicates a discount.
+    /// @return leveragedRedeemed The amount of leveraged tokens that would be redeemed.
+    /// @return collateralReturned The amount of collateral returned from the reserve pool and passed to the caller.
+    /// @return fee The amount deducted from the returned collateral as a fee.
+    /// @return reserveCollateralUsed The amount deducted from the reserve pool a a discount.
+    /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     function redeemLeveragedTokenDryRun(
         uint256 leveragedIn
     )
@@ -352,73 +369,114 @@ interface IMinter {
         view
         returns (
             int256 incentiveRatio,
-            uint256 levergedRedeemed,
+            uint256 leveragedRedeemed,
             uint256 collateralReturned,
             uint256 fee,
             uint256 reserveCollateralUsed,
             uint256 price
         );
 
-    /********************************
-     * Public Mutator Functions     *
-     ********************************/
+    //////////////////////////////
+    // Public Mutator Functions //
+    //////////////////////////////
 
-    /// @notice Mint some peggedToken with some collateral token.
-    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all collateral token.
-    /// @param recipient The address of receiver for peggedToken.
-    /// @param minPeggedTokenOut The minimum amount of peggedToken should be received. 0 means no check is made.
-    /// @return peggedTokenOut The amount of peggedToken should be received.
+    /// @notice Mint some pegged tokens in exchange for collateral tokens.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
+    /// collateral token.
+    /// @param receiver The address of receiver for peggedToken.
+    /// @param minPeggedOut The minimum amount of peggedToken should be received. 0 means no check is made.
+    /// @return peggedOut The amount of peggedToken should be received.
     function mintPeggedToken(
         uint256 collateralIn,
-        address recipient,
-        uint256 minPeggedTokenOut
-    ) external returns (uint256 peggedTokenOut);
+        address receiver,
+        uint256 minPeggedOut
+    ) external returns (uint256 peggedOut);
 
-    /// @notice Mint some leveragedToken with some collateral token.
-    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all collateral token.
-    /// @param recipient The address of receiver for leveragedToken.
-    /// @param minLeveragedTokenOut The minimum amount of leveragedToken should be received. 0 means no check is made.
-    /// @return leveragedTokenOut The amount of leveragedToken should be received.
-    function mintLeveragedToken(
-        uint256 collateralIn,
-        address recipient,
-        uint256 minLeveragedTokenOut
-    ) external returns (uint256 leveragedTokenOut);
-
-    /// @notice Redeem collateral token with peggedToken.
-    /// @param peggedTokenIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
-    /// @param recipient The address of receiver for collateral token.
-    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no check is made.
+    /// @notice Redeem some pegged tokens for collateral tokens.
+    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
+    /// @param receiver The address of receiver for collateral token.
+    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no
+    /// check is made.
     /// @return collateralOut The amount of wrapped value of collateral token should be received.
     function redeemPeggedToken(
-        uint256 peggedTokenIn,
-        address recipient,
+        uint256 peggedIn,
+        address receiver,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
 
-    /// @notice Redeem collateral token with leveragedToken.
-    /// @param leveragedTokenIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
-    /// @param recipient The address of receiver for collateral token.
-    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no check is made.
+    /// @notice Mint some leveraged tokens in exchange for collateral tokens.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
+    /// collateral token.
+    /// @param receiver The address of receiver for leveragedToken.
+    /// @param minLeveragedOut The minimum amount of leveragedToken should be received. 0 means no check is made.
+    /// @return leveragedOut The amount of leveragedToken should be received.
+    function mintLeveragedToken(
+        uint256 collateralIn,
+        address receiver,
+        uint256 minLeveragedOut
+    ) external returns (uint256 leveragedOut);
+
+    /// @notice Redeem some leveraged tokens for collateral tokens.
+    /// @param leveragedIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
+    /// @param receiver The address of receiver for collateral token.
+    /// @param minCollateralOut The minimum amount of wrapped value of collateral token should be received. 0 means no
+    /// check is made.
     /// @return collateralOut The amount of wrapped value of collateral token should be received.
     function redeemLeveragedToken(
-        uint256 leveragedTokenIn,
-        address recipient,
+        uint256 leveragedIn,
+        address receiver,
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
 
-    function updateConfig(Config calldata config) external;
+    /////////////////////////////////
+    // Protected Mutator Functions //
+    /////////////////////////////////
 
+    /// @notice Updates the config to the given config
+    /// @param config_ The new config
+    function updateConfig(Config calldata config_) external;
+
+    /// @notice Updates the fee receiver to the given address
+    /// @param feeReceiver_ The new fee receiver
     function updateFeeReceiver(address feeReceiver_) external;
+
+    /// @notice Updates the reserve pool to the given address
+    /// @param reservePool_ The new reserve pool
     function updateReservePool(address reservePool_) external;
 
-    /********************************
-     * Protected Mutator Functions  *
-     ********************************/
+    /// @notice Updates the price oracle to the given address
+    /// @param priceOracle_ The new price oracle
+    function updatePriceOracle(address priceOracle_) external;
 
-    function freeMintPeggedToken(uint256 collateralIn, address recipient) external returns (uint256 peggedOut);
-    function freeRedeemPeggedToken(uint256 peggedIn, address recipient) external returns (uint256 collateralOut);
-    function freeMintLeveragedToken(uint256 collateralIn, address recipient) external returns (uint256 leveragedOut);
-    function freeRedeemLeveragedToken(uint256 leveragedIn, address recipient) external returns (uint256 collateralOut);
-    function freeSwapPeggedForLeveraged(uint256 peggedIn, address recipient) external returns (uint256 leveragedOut);
+    /// @notice Mint some pegged tokens in exchange for collateral tokens.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
+    /// collateral token.
+    /// @param receiver The address of receiver for peggedToken.
+    /// @return peggedOut The amount of pegged tokens received.
+    function freeMintPeggedToken(uint256 collateralIn, address receiver) external returns (uint256 peggedOut);
+
+    /// @notice Redeem some pegged tokens for collateral tokens.
+    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
+    /// @param receiver The address of receiver for collateral token.
+    /// @return collateralOut The amount of collateral tokens received.
+    function freeRedeemPeggedToken(uint256 peggedIn, address receiver) external returns (uint256 collateralOut);
+
+    /// @notice Redeem some pegged tokens for collateral tokens.
+    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
+    /// @param receiver The address of receiver for collateral token.
+    /// @return leveragedOut The amount of leveraged tokens received.
+    function freeSwapPeggedForLeveraged(uint256 peggedIn, address receiver) external returns (uint256 leveragedOut);
+
+    /// @notice Mint some leveraged tokens in exchange for collateral tokens.
+    /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
+    /// collateral token.
+    /// @param receiver The address of receiver for leveraged Tokens.
+    /// @return leveragedOut The amount of leveraged tokens received.
+    function freeMintLeveragedToken(uint256 collateralIn, address receiver) external returns (uint256 leveragedOut);
+
+    /// @notice Redeem some leveraged tokens for collateral tokens.
+    /// @param leveragedIn the amount of leveragedToken to redeem, use `uint256(-1)` to redeem all leveragedToken.
+    /// @param receiver The address of receiver for collateral token.
+    /// @return collateralOut The amount of collateral tokens received.
+    function freeRedeemLeveragedToken(uint256 leveragedIn, address receiver) external returns (uint256 collateralOut);
 }

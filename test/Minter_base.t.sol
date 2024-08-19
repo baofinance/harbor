@@ -127,7 +127,7 @@ contract TestMinter is Test, Clog, Array {
         IMinter.IncentiveConfig memory redeemLeveraged
     ) public {
         config.rebalanceCollateralRatioUpperBound = _percentToEther(rebalance);
-        config.harvestCollateralRatioUpperBound = _percentToEther(harvest);
+        config.harvestCollateralRatioLowerBound = _percentToEther(harvest);
         config.mintPeggedIncentiveConfig = mintPegged;
         config.mintLeveragedIncentiveConfig = mintLeveraged;
         config.redeemPeggedIncentiveConfig = redeemPegged;
@@ -168,9 +168,9 @@ contract TestMinter is Test, Clog, Array {
             "rebalanceCollateralRatioUpperBound differ"
         );
         assertEq(
-            actual.harvestCollateralRatioUpperBound,
-            expected.harvestCollateralRatioUpperBound,
-            "harvestCollateralRatioUpperBound differ"
+            actual.harvestCollateralRatioLowerBound,
+            expected.harvestCollateralRatioLowerBound,
+            "harvestCollateralRatioLowerBound differ"
         );
         _assertEqIncentiveConfig(actual.mintPeggedIncentiveConfig, expected.mintPeggedIncentiveConfig, "mint pegged");
         _assertEqIncentiveConfig(

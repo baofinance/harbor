@@ -29,7 +29,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 5871046                                     | 27097           |        |        |        |         |
+| 5875630                                     | 27118           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5650            | 5650   | 5650   | 5650   | 7       |
 | collateralRatio                             | 491             | 9634   | 3778   | 22778  | 8476    |
@@ -44,14 +44,14 @@
 | freeSwapPeggedForLeveraged                  | 3130            | 84213  | 79111  | 137665 | 1311    |
 | grantRole                                   | 29663           | 29663  | 29663  | 29663  | 27      |
 | hasRole                                     | 763             | 2596   | 2763   | 2763   | 12      |
-| initialize                                  | 3301            | 609131 | 637243 | 637243 | 62      |
+| initialize                                  | 3301            | 609310 | 637425 | 637425 | 62      |
 | leverageRatio                               | 3778            | 3946   | 3778   | 4228   | 1600    |
 | leverageTokensForCollateral                 | 5488            | 5521   | 5488   | 9054   | 107     |
 | leveragedToken                              | 2496            | 2496   | 2496   | 2496   | 14      |
 | leveragedTokenBalance                       | 1569            | 2069   | 1569   | 12569  | 30      |
 | leveragedTokenPrice                         | 5081            | 5209   | 5081   | 16081  | 1600    |
-| mintLeveragedToken                          | 3092            | 102647 | 100204 | 147141 | 384     |
-| mintLeveragedTokenDryRun                    | 13036           | 15074  | 14765  | 28119  | 868     |
+| mintLeveragedToken                          | 3092            | 102656 | 100213 | 147150 | 384     |
+| mintLeveragedTokenDryRun                    | 13051           | 15089  | 14780  | 28134  | 868     |
 | mintLeveragedTokenIncentiveRatio            | 6514            | 7930   | 8328   | 12328  | 602     |
 | mintPeggedToken                             | 3138            | 96465  | 104472 | 128796 | 710     |
 | mintPeggedTokenDryRun                       | 6052            | 8014   | 7747   | 15997  | 1954    |
@@ -65,8 +65,8 @@
 | redeemLeveragedTokenDryRun                  | 9263            | 12082  | 11984  | 16173  | 750     |
 | redeemLeveragedTokenIncentiveRatio          | 5649            | 6596   | 6556   | 6745   | 600     |
 | redeemPeggedForCollateralRatio              | 3791            | 4243   | 4244   | 4244   | 1308    |
-| redeemPeggedToken                           | 7341            | 115430 | 115971 | 157429 | 882     |
-| redeemPeggedTokenDryRun                     | 10315           | 11531  | 10398  | 23476  | 2143    |
+| redeemPeggedToken                           | 7341            | 115442 | 115980 | 157447 | 882     |
+| redeemPeggedTokenDryRun                     | 10318           | 11534  | 10401  | 23479  | 2143    |
 | redeemPeggedTokenIncentiveRatio             | 5625            | 6553   | 5625   | 12346  | 1602    |
 | reservePool                                 | 2388            | 2388   | 2388   | 2388   | 1       |
 | supportsInterface                           | 482             | 554    | 482    | 699    | 3       |

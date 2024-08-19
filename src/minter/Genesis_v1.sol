@@ -15,14 +15,13 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 
 /// @title Genesis
 /// @author rootminus0x1 based on Aladdin's FX system
-/// @notice provides a mechanism for bootstrapping a minter with initial collateral
+/// @notice Provides a mechanism for bootstrapping a 'minter' with initial collateral
 /// The sequence is:
-///  1. users 'deposit' collateral tokens, their share being recorded
-///  2. at some point the admin for this contract mints the pegged and leveraged tokens.
-///  3. once minting has occurred, the users can either
-///     a. withdraw the collateral they deposited for a fee
-///     b. claim their share of pegged and leveraged tokens, for free. They can, of course, redeem them
-///        for a fee.
+/// 1. users `deposit` collateral tokens, their share being recorded
+/// 2. at some point the admin for this contract mints the pegged and leveraged tokens.
+/// 3. once minting has occurred, the users can either
+///     - withdraw the collateral they deposited for a fee
+///     - claim their share of pegged and leveraged tokens, for free. They can, of course, redeem them for a fee.
 /// TODO: check that the fee costs of withdrawing for a fee and claiming 50/50 split and redeeming them both
 ///     There is no advantage to withdrawing or claiming then redeeming as far as fees are concerned.
 /// @dev uses UUPS proxy, erc7201 storage
@@ -30,16 +29,16 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     using SafeERC20 for IERC20;
 
-    /**********
-     * Events *
-     **********/
+    ////////////
+    // Events //
+    ////////////
 
     /// @notice Emitted when the status of `genesisClaimable` is updated.
     event ClaimingEnabledUpdated(bool status);
 
-    /**********
-     * Errors *
-     **********/
+    ////////////
+    // Errors //
+    ////////////
 
     /// @dev Thrown when an attempt to withdraw both pegged and leveraged token.
     error GenesisIsNotEnded();
@@ -53,13 +52,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     /// @dev Thrown when withdraw before initialization.
     error ClaimingIsNotEnabled();
 
-    /*************
-     * Constants *
-     *************/
-
-    /*************
-     * Variables *
-     *************/
+    ///////////////
+    // Variables //
+    ///////////////
 
     // Share-with-proxy Storage
     // ------------------------
@@ -86,16 +81,18 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     // TODO:
     bytes32 private constant GENESIS_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
 
+    /// @notice Returns the storage for this contract
     function _getGenesisStorage() private pure returns (GenesisStorage storage $) {
         assembly {
             $.slot := GENESIS_STORAGE
         }
     }
 
-    /***************
-     * Constructor *
-     ***************/
+    //////////////////
+    // Construction //
+    //////////////////
 
+    /// @notice In UUPS proxies construction is performed by a function
     function initialize(address owner, address minter_) external initializer {
         // initialise all the state variables
         __AccessControl_init(owner);
@@ -111,17 +108,18 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
+    /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
+    /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     constructor() {
-        // stop the implementation being initialized to any version
-        // https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
         _disableInitializers();
     }
 
+    /// @notice In UUPS proxies the implementation is responsible for upgrading itself
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
-    /****************************
-     * Public Mutator Functions *
-     ****************************/
+    //////////////////////////////
+    // Public Mutator Functions //
+    //////////////////////////////
 
     /// @notice Deposit collateral token to this contract.
     /// @param collateralIn The amount of token to deposit.
@@ -179,9 +177,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
         leveragedAmount = (share_ * totalLeveragedToken) / totalShares_;
     }
 
-    /************************
-     * Restricted Functions *
-     ************************/
+    //////////////////////////
+    // Restricted Functions //
+    //////////////////////////
 
     /// @notice Initialize minter with the collateral in this contract.
     function endGenesis() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
