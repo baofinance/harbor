@@ -1,3 +1,14 @@
+| src/minter/Genesis_v1.sol:Genesis_v1 contract |                 |        |        |        |         |
+|-----------------------------------------------|-----------------|--------|--------|--------|---------|
+| Deployment Cost                               | Deployment Size |        |        |        |         |
+| 2500078                                       | 11490           |        |        |        |         |
+| Function Name                                 | min             | avg    | median | max    | # calls |
+| DEFAULT_ADMIN_ROLE                            | 260             | 260    | 260    | 260    | 2       |
+| hasRole                                       | 2728            | 2728   | 2728   | 2728   | 2       |
+| initialize                                    | 2844            | 150558 | 199797 | 199797 | 4       |
+| owner                                         | 2435            | 2435   | 2435   | 2435   | 1       |
+
+--
 | src/minter/LeveragedToken_v1.sol:LeveragedToken_v1 contract |                 |        |        |        |         |
 |-------------------------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                                             | Deployment Size |        |        |        |         |
@@ -101,4 +112,28 @@
 | requestBonus                                          | 2891            | 16611 | 16505  | 40105 | 327     |
 | supportsInterface                                     | 426             | 534   | 534    | 643   | 2       |
 | transferToken                                         | 3241            | 3241  | 3241   | 3241  | 1       |
+
+--
+| src/minter/TokenDistributor_v1.sol:TokenDistributor_v1 contract |                 |        |        |        |         |
+|-----------------------------------------------------------------|-----------------|--------|--------|--------|---------|
+| Deployment Cost                                                 | Deployment Size |        |        |        |         |
+| 3190877                                                         | 14688           |        |        |        |         |
+| Function Name                                                   | min             | avg    | median | max    | # calls |
+| CLAIMER_ROLE                                                    | 304             | 304    | 304    | 304    | 5       |
+| DEFAULT_ADMIN_ROLE                                              | 238             | 238    | 238    | 238    | 5       |
+| addRecipient                                                    | 2831            | 39656  | 38034  | 69741  | 7       |
+| addToken                                                        | 2789            | 50969  | 74549  | 91699  | 11      |
+| distribute                                                      | 2633            | 41142  | 17158  | 180683 | 7       |
+| distribution                                                    | 1137            | 2922   | 2337   | 5137   | 13      |
+| grantRole                                                       | 29663           | 29663  | 29663  | 29663  | 1       |
+| hasRole                                                         | 707             | 2373   | 2707   | 2707   | 6       |
+| initialize                                                      | 3152            | 102924 | 117178 | 117178 | 8       |
+| name                                                            | 3222            | 3222   | 3222   | 3222   | 1       |
+| owner                                                           | 2413            | 2413   | 2413   | 2413   | 1       |
+| removeRecipient                                                 | 2768            | 12965  | 11990  | 25112  | 4       |
+| removeToken                                                     | 2767            | 14522  | 18441  | 18441  | 4       |
+| setDistribution                                                 | 3142            | 30947  | 20298  | 76304  | 16      |
+| supportsInterface                                               | 426             | 513    | 513    | 600    | 2       |
+| tokens                                                          | 893             | 1449   | 1218   | 2893   | 15      |
+| transferToken                                                   | 2881            | 27903  | 5540   | 68962  | 7       |
 

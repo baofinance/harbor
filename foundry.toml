@@ -7,13 +7,12 @@ ast = true
 build_info = true
 extra_output = ["storageLayout"]
 gas_reports = [
+  "Genesis_v1",
   "LeveragedToken_v1",
   "Minter_v1",
-  "ReservePool_v1",
-  "FeeSplitter_v1",
   "RebalancePool_v1",
-  "Genesis_v1.sol",
-  "TokenDistributor_v1.sol",
+  "ReservePool_v1",
+  "TokenDistributor_v1",
 ]
 fs_permissions = [
   { access = "read", path = "./" },

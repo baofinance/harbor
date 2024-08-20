@@ -64,10 +64,12 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         // linear searches are sometimes performed.
         EnumerableSet.AddressSet tokens;
         Split[] distribution;
+        // storing totalShares instead of calculating it on the fly costs about the same for about 3 recipients
+        // but scales much better
         uint totalShares;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.TokenDistributor")) - 1)) & ~bytes32(uint256(0xff));
+    /// @dev keccak256(abi.encode(uint256(keccak256("bao.storage.TokenDistributor")) - 1)) & ~bytes32(uint256(0xff));
     bytes32 private constant TOKEN_DISTRIBUTOR_STORAGE =
         0xd0775fa9e06b22c4332c4ba2f31eb3c883151d167c94d1d0a605e68bca1dbb00;
 
