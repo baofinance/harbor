@@ -6,6 +6,6 @@ interface ITokenDistributor {
     // Public Mutator Functions //
     //////////////////////////////
 
-    /// @notice distribute owned tokens of all known tokens to all known recipients according to the recipient's share
+    /// @notice Distributes owned tokens of all known tokens to all known recipients according to the recipient's share
     function distribute() external;
 }

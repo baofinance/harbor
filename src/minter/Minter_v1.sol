@@ -87,8 +87,8 @@ import "test/clog.sol";
 /// pools as rewards and/or reserve pools, etc.
 // TODO: implement harvesting
 /// @dev Uses UUPS proxy, erc7201 storage
-
 /// @custom:oz-upgrades
+
 contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyGuardTransientUpgradeable, IMinter {
     using SafeERC20 for IERC20;
     using WordCodec for bytes32;
