@@ -66,7 +66,7 @@ contract Test_TokenDistributorBase is Test, Array {
         tokenDistributor = TokenDistributor_v1(
             UnsafeUpgrades.deployUUPSProxy(
                 address(new TokenDistributor_v1()), //"TokenDistributor_v1.sol",
-                abi.encodeCall(TokenDistributor_v1.initialize, (owner))
+                abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test distributor"))
             )
         );
     }
@@ -97,18 +97,21 @@ contract Test_TokenDistributorBase is Test, Array {
         emit Initializable.Initialized(1); // from the proxy delegate call
         UnsafeUpgrades.deployUUPSProxy(
             address(new TokenDistributor_v1()), //"TokenDistributor_v1.sol",
-            abi.encodeCall(TokenDistributor_v1.initialize, (owner))
+            abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
         );
     }
 
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        tokenDistributor.initialize(address(this));
+        tokenDistributor.initialize(address(this), "second init");
 
         // IERC165
         tokenDistributor.supportsInterface(type(ITokenDistributor).interfaceId);
         tokenDistributor.supportsInterface(type(IAccessControl).interfaceId);
+
+        // name
+        assertEq(tokenDistributor.name(), "test distributor");
 
         // check the data has been set up correctly
         assertEq(tokenDistributor.owner(), owner, "wrong owner");

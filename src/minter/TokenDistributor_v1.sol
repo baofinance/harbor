@@ -13,7 +13,18 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
-// import "forge-std/console.sol";
+/// @notice Distributes tokens to addresses
+/// This contract
+/// <ul>
+/// <li>owns tokens via ERC20 transfers.
+/// <li>maintains a list of tokens it knows about
+/// <li>maintains a list of addresses and share amounts for each address
+/// </ul>
+/// When `distribute()` is called each known token is distributed to each address according to its share.
+/// <br>
+/// Note: all tokens are treated in the same way. If you need different distribution amounts for each address/token
+/// pair, you need different TokenDistributor contracts. Each contract has a name that allows you to record its purpose,
+/// for example, "fee distributor", "harvest distributor", etc.
 
 contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenOwner {
     using SafeERC20 for IERC20;
@@ -26,10 +37,9 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     error TokenStillInUse(address token);
 
     bytes32 public constant CLAIMER_ROLE = keccak256("CLAIMER_ROLE");
-    uint32 private constant INVALID_TOTAL_SHARES = type(uint32).max;
 
-    // structure containing the recipient and the number of shares allocated
-    // occupies one slot
+    /// @notice Structure containing the recipient and the number of shares allocated to that recipient
+    /// @dev Occupies one storage slot.
     struct Split {
         // who receives
         address recipient; //   0:160
@@ -39,15 +49,20 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
 
     // Share-with-proxy Storage
     // ------------------------
+    /// @notice The contract state.
+    /// Contains a list of token addresses and recipient addresses and recipient shares
+    /// - a list of tokens
+    /// - a list of {recipient, share} pairs
+    ///
+    /// @dev this is the share-with-proxy storage
     /// @custom:storage-location erc7201:bao.storage.TokenDistributor
     struct TokenDistributorStorage {
+        // the name of the distributor - should be used to indicate the purpose of the distribution
+        string name;
         // a list of tokens, all tokens get distributed in the same way via the list of {recipient, share}
-        // this structure is optimised for distribution rather than set up, where linear searches are performed
-
+        // this structure is optimised for distribution where the data is efficiently iterable, rather than set up where
+        // linear searches are sometimes performed.
         EnumerableSet.AddressSet tokens;
-        // address recipient; //   0:160
-        // uint64 shares; // 160: 64 = 224
-        // EnumerableSet.Bytes32Set distribution;
         Split[] distribution;
         uint totalShares;
     }
@@ -62,14 +77,12 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         }
     }
 
-    function initialize(address owner) public initializer {
+    function initialize(address owner, string memory name_) public initializer {
         __AccessControl_init(owner);
         __UUPSUpgradeable_init();
         __ERC165_init();
-        // console.log("bao.storage.TokenDistributor");
-        // console.logBytes32(
-        //     keccak256(abi.encode(uint256(keccak256("bao.storage.TokenDistributor")) - 1)) & ~bytes32(uint256(0xff))
-        // );
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        $.name = name_;
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -79,27 +92,33 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
 
     function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
-    /**
-     * @dev See {IERC165-supportsInterface}.
-     */
+    /// @dev See {IERC165-supportsInterface}.
+
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return interfaceId == type(ITokenDistributor).interfaceId || super.supportsInterface(interfaceId);
     }
 
-    // storage interpreters
-    /*
-    function _split(bytes32 split) private returns (address recipient, uint64 shares) {
-        recipient = split.decodeAddress(0, 160);
-        shares = split.decodeUint64(160, 64);
-    }
-    */
+    ////////////////////////////
+    /// Public View Functions //
+    ////////////////////////////
 
-    // read functions
-    function tokens() public view returns (address[] memory) {
+    /// @notice Returns the name of the contract. The name should indicate the contract's purpose.
+    function name() public view returns (string memory name_) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
-        return $.tokens.values();
+        name_ = $.name;
     }
 
+    /// @notice Returns the list of tokens managed
+    /// @return tokens_ The list of tokens currently configured
+    function tokens() public view returns (address[] memory tokens_) {
+        TokenDistributorStorage storage $ = _getTokenDistributorStorage();
+        tokens_ = $.tokens.values();
+    }
+
+    /// @notice Returns the distribution {recipient, share} pairs.
+    /// @return recipients The list of recipients.
+    /// @return shares The corresponding list of shares each recipient holds.
+    /// @return totalShares The total of the above shares.
     function distribution()
         public
         view
@@ -115,6 +134,10 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         }
         totalShares = $.totalShares;
     }
+
+    /////////////////////////////////
+    // Protected Mutator Functions //
+    /////////////////////////////////
 
     function addToken(address token) public onlyRole(DEFAULT_ADMIN_ROLE) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
@@ -173,6 +196,13 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         }
     }
 
+    /// @notice Adds a recipient to the list of recipients, with the given number of shares. If the recipient already
+    /// exists in the list then the number of shares is adjusted accordingly.
+    /// @param recipient The address of the recipient to be added.
+    /// @param share The number of shares allocated to the recipient. This number cannot be 0: use the `removeRecipient`
+    ///        call to set the shares to 0.
+    /// @dev The share of every other recipient remains the same value but the `totalShares` is decreased, effectively
+    /// increasing the calculated share of each remaining recipient.
     function addRecipient(address recipient, uint256 share) public onlyRole(DEFAULT_ADMIN_ROLE) {
         Token.ensureNonZeroAddress(recipient);
 
@@ -196,6 +226,10 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         $.distribution.push(Split(recipient, uint64(share)));
     }
 
+    /// @notice Removes a recipient from the list of recipients
+    /// @param recipient The address of the recipient to be removed.
+    /// @dev The share of every other recipient remains the same value but the `totalShares` is decreased, effectively
+    /// increasing the calculated share of each remaining recipient.
     function removeRecipient(address recipient) public onlyRole(DEFAULT_ADMIN_ROLE) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         for (uint i = 0; i < $.distribution.length; i++) {
@@ -214,11 +248,14 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     }
 
     // TODO: what protections, if any should be on this?
+    // @inheritdoc ITokenDistributor
+
     function distribute() public onlyRole(CLAIMER_ROLE) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
 
         address[] memory tokens_ = $.tokens.values();
         Split[] memory dist = $.distribution;
+        // TODO: check if it is more gas efficient to calculate total shares rather than store it
         uint totalShares = $.totalShares;
 
         for (uint t = 0; t < tokens_.length; t++) {
@@ -233,7 +270,8 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         }
     }
 
-    // used to extract tokens that are no longer in use
+    /// @inheritdoc TokenOwner
+
     function transferToken(address token, address receiver, uint256 amount) public override {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         if ($.tokens.contains(token)) revert TokenStillInUse(token);

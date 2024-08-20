@@ -16,9 +16,11 @@ import { Minter_v1 } from "src/minter/Minter_v1.sol";
 // 1) Deploy*
 //      - deploys the proxy and the first implementation
 //      - you should save the file being deployed into the src/deployed directory.
-//          - If it's a test deployment (e.g. on Sepolia) then the filename should have a letter appended, e.g. X_v1.sol -> X_v1a.sol
+//          - If it's a test deployment (e.g. on Sepolia) then the filename should have a letter appended,
+//            e.g. X_v1.sol -> X_v1a.sol
 //          - this indicates that it is an alpha version in preparation for the v1 release
-//          - If it's a production deployment then the filename doesn't change. Any further develeopment happens in a new file e.g. X_v2.sol
+//          - If it's a production deployment then the filename doesn't change.
+//            Any further develeopment happens in a new file e.g. X_v2.sol
 //      - prints the address of the proxy (and the implementation for your information, but it's not used later)
 //      - the proxy address is used in the "Upgrade*" step below
 // 2, 4, 6, ...) PrepareUpgrade
@@ -107,14 +109,14 @@ contract DeployReservePool is Script, Deployed {
 ///////////////////////////////////////////////////////////////////////////
 // TokenDistributor
 // ---------------
-// $ yarn script script/deploy.s.sol:DeployTokenDistributor --rpc-url $MAINNET_RPC_URL --sig "run*()" --broadcast --verify
+// $ yarn script script/deploy.s.sol:DeployFeeDistributor --rpc-url $MAINNET_RPC_URL --sig "run*()" --broadcast --verify
 // log:
 // 1.sepolia, runDev
 //   proxy = 0xEd659E305FA62C29122A87FAF1c5e4400ED98444
 //   implementation (v1a) = 0x4d63e2a2F1C185F1e2a1D5f32671bcC0e1387981
 //   something went wrong with the proxy setup on sepolia - they wont accept it is a proxy
 
-contract DeployTokenDistributor is Script, Deployed {
+contract DeployFeeDistributor is Script, Deployed {
     function runProd() external {
         run(BAOMULTISIG);
     }
@@ -126,7 +128,10 @@ contract DeployTokenDistributor is Script, Deployed {
     function run(address owner) private {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
-        Upgrades.deployUUPSProxy("TokenDistributor_v1.sol", abi.encodeCall(TokenDistributor_v1.initialize, owner));
+        Upgrades.deployUUPSProxy(
+            "TokenDistributor_v1.sol",
+            abi.encodeCall(TokenDistributor_v1.initialize, (owner, "FeeDistributor"))
+        );
 
         vm.stopBroadcast();
     }
