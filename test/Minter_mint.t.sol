@@ -16,9 +16,9 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";
-import { TestMinter } from "test/Minter_base.t.sol";
+import { TestMinterSetUp } from "test/Minter_base.t.sol";
 
-contract TestMinterMint is TestMinter {
+contract TestMinterMint is TestMinterSetUp {
     using SafeERC20 for IERC20;
 
     Vm.Wallet system;

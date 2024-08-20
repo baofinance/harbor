@@ -10,9 +10,16 @@ library c {
         _clog(value);
     }
 
+    /// @dev logs a named bytes32
     function log(string memory name, bytes32 v) internal pure {
-        console2.log(string.concat(name, "="));
+        _clog(string.concat(name, "="));
+        // TODO: do a string conversion of bytes32
         console2.logBytes32(v);
+    }
+
+    /// @dev logs a named address
+    function log(string memory name, address v) internal pure {
+        console2.log(string.concat(name, "=%s"), v);
     }
 
     /// @dev logs a named uint

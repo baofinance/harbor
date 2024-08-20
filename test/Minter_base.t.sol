@@ -32,7 +32,7 @@ import { Array } from "test/Array.sol";
 
 import "test/clog.sol";
 
-contract TestMinter is Test, Clog, Array {
+contract TestMinterSetUp is Test, Clog, Array {
     address minter;
     IMinter.Config config;
     int constant disallow = 10000;
@@ -279,15 +279,7 @@ contract TestMinter is Test, Clog, Array {
     }
 }
 
-contract TestMinterSetUp is TestMinter {
-    function setUp() public override {}
-
-    function test_setUp() public {
-        super.setUp();
-    }
-}
-
-contract TestMinterInit is TestMinter {
+contract TestMinterInit is TestMinterSetUp {
     using SafeERC20 for IERC20;
 
     function setUp() public override {
@@ -427,7 +419,7 @@ contract TestMinterInit is TestMinter {
     }
 }
 
-contract TestMinterBasics is TestMinter {
+contract TestMinterBasics is TestMinterSetUp {
     function test_introspection() public view {
         assertTrue(Minter_v1(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
         assertTrue(Minter_v1(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");

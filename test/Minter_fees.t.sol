@@ -15,11 +15,11 @@ import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";
-import { TestMinter } from "test/Minter_base.t.sol";
+import { TestMinterSetUp } from "test/Minter_base.t.sol";
 
 // TODO: check what happens when safe price is invalid
 
-contract TestMinterFeeSetUp is TestMinter {
+contract TestMinterFeeSetUp is TestMinterSetUp {
     function setUpConfig() internal virtual override {
         setUpConfig_likely();
     }

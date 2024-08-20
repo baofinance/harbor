@@ -24,6 +24,8 @@ import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 import { Array } from "test/Array.sol";
 import { deployed, deployedSepolia } from "test/deployed.sol";
 
+//import "test/clog.sol";
+
 contract Test_TokenDistributorBase is Test, Array {
     using ECDSA for bytes32;
     using SafeERC20 for IERC20;
@@ -31,6 +33,7 @@ contract Test_TokenDistributorBase is Test, Array {
     TokenDistributor_v1 tokenDistributor;
 
     address owner;
+    string name;
     address token1 = deployed.wstETH;
     address token2 = deployed.BaoUSD;
     address token3 = deployed.BaoETH;
@@ -63,10 +66,11 @@ contract Test_TokenDistributorBase is Test, Array {
     }
 
     function setUpContract() public virtual {
+        name = "test distributor";
         tokenDistributor = TokenDistributor_v1(
             UnsafeUpgrades.deployUUPSProxy(
                 address(new TokenDistributor_v1()), //"TokenDistributor_v1.sol",
-                abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test distributor"))
+                abi.encodeCall(TokenDistributor_v1.initialize, (owner, name))
             )
         );
     }
@@ -111,7 +115,7 @@ contract Test_TokenDistributorBase is Test, Array {
         tokenDistributor.supportsInterface(type(IAccessControl).interfaceId);
 
         // name
-        assertEq(tokenDistributor.name(), "test distributor");
+        assertEq(tokenDistributor.name(), name);
 
         // check the data has been set up correctly
         assertEq(tokenDistributor.owner(), owner, "wrong owner");
@@ -479,6 +483,7 @@ contract Test_TokenDistributor_sepolia is Test_TokenDistributorBase {
     function setUpContract() public override {
         // vm.rpcUrl("sepolia");
         owner = deployedSepolia.owner;
-        tokenDistributor = TokenDistributor_v1(deployedSepolia.MinterFeeDistributor);
+        name = "FeeDistributor";
+        tokenDistributor = TokenDistributor_v1(deployedSepolia.FeeDistributor);
     }
 }
