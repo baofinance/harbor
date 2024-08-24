@@ -37,8 +37,8 @@ contract TestMinterSetUp is Test, Clog, Array {
     IMinter.Config config;
     int constant disallow = 10000;
 
-    address peggedToken = deployed.BaoUSD;
-    address collateralToken = deployed.wstETH;
+    address peggedToken;
+    address collateralToken;
 
     address leveragedToken;
     address reservePool;
@@ -81,7 +81,7 @@ contract TestMinterSetUp is Test, Clog, Array {
         setUpConfig(130, 250, ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)));
     }
 
-    function setUpConfig_basic() internal {
+    function setUpConfig_flat() internal {
         setUpConfig(130, 250, ic(ua(), ia(50)), ic(ua(), ia(70)), ic(ua(), ia(80)), ic(ua(), ia(120)));
     }
 
@@ -200,25 +200,39 @@ contract TestMinterSetUp is Test, Clog, Array {
         );
     }
 
-    function setUp() public virtual {
+    function setUp_leveragedToken() internal virtual {
+        leveragedToken = UnsafeUpgrades.deployUUPSProxy(
+            address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
+            abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoUSDLwstETH"))
+        );
+    }
+
+    function setUp_reservePool() internal virtual {
+        reservePool = UnsafeUpgrades.deployUUPSProxy(
+            address(new ReservePool_v1()), //"ReservePool_v1.sol",
+            abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
+        );
+    }
+
+    function setUpFork() public virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
         feeReceiver = vm.createWallet("feeReceiver");
 
         owner = vm.createWallet("owner");
-        deal(address(deployed.wstETH), address(this), 20 ether);
 
         priceOracle = new MockPriceOracle();
 
-        leveragedToken = UnsafeUpgrades.deployUUPSProxy(
-            address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoUSDLwstETH"))
-        );
+        setUp_leveragedToken();
+        peggedToken = deployed.BaoUSD;
+        collateralToken = deployed.wstETH;
 
-        reservePool = UnsafeUpgrades.deployUUPSProxy(
-            address(new ReservePool_v1()), //"ReservePool_v1.sol",
-            abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
-        );
+        setUp_reservePool();
+    }
+
+    function setUp() public virtual {
+        setUpFork();
+        deal(address(deployed.wstETH), address(this), 20 ether);
 
         setUpConfig();
 
@@ -439,6 +453,20 @@ contract TestMinterBasics is TestMinterSetUp {
         IMinter(minter).updateConfig(config);
         IMinter.Config memory readConfig = IMinter(minter).config();
         _assertEqConfig(readConfig, config);
+    }
+
+    // TODO: check other functions:
+    // free mint/redeem of leveraged/pegged
+    // swap
+    // mint/redeem of leveraged/pegged
+    // collateral ratio, leveraged ratio, prices
+    // all should be independent of the whether it is a mock or actual being called
+    // mocks are: priceOracle, feeReceiver, baousd & wstETH
+
+    function test_freeMint() public {
+        setUp_collateral(10 ether, 10 ether);
+        assertEq(IMinter(minter).collateralRatio(), 2 ether, "collateral ratio");
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "pegged token price");
     }
 
     function test_config() public {

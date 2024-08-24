@@ -4,42 +4,48 @@ pragma solidity 0.8.26;
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import { ERC20PermitUpgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
+import { IMintable, IBurnable } from "src/minter/IMintable.sol";
 
-import { AccessControl } from "src/common/AccessControl.sol";
-
-/// @title Bao Minter Leveraged Token
-/// @notice A simple ERC20 token used as the leveraged token for a Bao Minter
+/// @title Mock Bao USD
 /// @author rootminus0x1
+/// @notice A simple ERC20 token that optionally allows unprotected minting.
+/// It does not support burning from any address only from msgSender() as per the real BaoUSD.
+/// It is not a direct copy of BaoUSD but a re-implementation so that it can represent other candidate pegged tokens
+/// in the Minter framework.
+/// It is written as an upgradeable proxy so that features can be added or removed more easily for testing.
+/// This does not, of course, preclude deploying variants of potential pegged tokens under different proxies.
+/// There are two mint functions, both with the same parameters:
+/// - mint: the standard ERC20 form that is protected - only minters can call it
+/// - unprotectedMint: an unprotected one that anyone can call. This is for easily minting yourself some tokens for testing purposes.
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
-contract LeveragedToken_v1 is
+contract MockBaoUSD is
     Initializable,
     UUPSUpgradeable,
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
-    AccessControl,
+    OwnableUpgradeable,
+    AccessControlUpgradeable,
     IMintable,
-    IBurnable,
-    IBurnableFrom
+    IBurnable
 {
     using SafeERC20 for IERC20;
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     /// @notice initialise the UUPS proxy
-    /// @param name The name of the ERC20 token
-    /// @param symbol The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
-    function initialize(address owner, string memory name, string memory symbol) public initializer {
-        __AccessControl_init(owner);
+    function initialize(address owner) public initializer {
+        __Ownable_init(owner);
+        __AccessControl_init();
         __UUPSUpgradeable_init();
-        __ERC20_init(name, symbol);
-        __ERC20Permit_init(name);
+        __ERC20_init("Mock BaoUSD", "BaoUSD");
+        __ERC20Permit_init("BaoUSD");
         __ERC165_init();
     }
 
@@ -53,22 +59,17 @@ contract LeveragedToken_v1 is
     /// only DEFAULT_ADMIN_ROLE grantees can upgrade this contract.
     function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
-    /// @notice Returns true if a given interface is supported.
-    /// @dev See {IERC165-supportsInterface}.
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return
-            interfaceId == type(IMintable).interfaceId ||
-            interfaceId == type(IBurnableFrom).interfaceId ||
-            interfaceId == type(IBurnable).interfaceId ||
-            interfaceId == type(IERC20).interfaceId ||
-            interfaceId == type(IERC20Metadata).interfaceId ||
-            super.supportsInterface(interfaceId);
+    /// @notice Mints an amount of a token
+    /// @param to The receiver of the new tokens.
+    /// @param amount The amount of tokens minted.
+    function mint(address to, uint256 amount) public override onlyRole(MINTER_ROLE) {
+        _mint(to, amount);
     }
 
     /// @notice Mints an amount of a token
     /// @param to The receiver of the new tokens.
     /// @param amount The amount of tokens minted.
-    function mint(address to, uint256 amount) public override onlyRole(MINTER_ROLE) {
+    function unprotectedMint(address to, uint256 amount) public {
         _mint(to, amount);
     }
 
@@ -78,10 +79,9 @@ contract LeveragedToken_v1 is
         _burn(_msgSender(), amount);
     }
 
-    /// @notice Burns an amount of a token
-    /// @param from The address of the owner of the tokens being burned.
-    /// @param amount The amount of tokens burned. This amount must be owned `from`.
-    function burnFrom(address from, uint256 amount) public override onlyRole(MINTER_ROLE) {
-        _burn(from, amount);
+    /// @notice Adds a minter
+    /// @param minter_ The address of the new minter.
+    function addMinter(address minter_) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        _grantRole(MINTER_ROLE, minter_);
     }
 }

@@ -1,5 +1,5 @@
 [compiler.solc]
-exclude_paths = ["node_modules", "venv", ".venv", "lib", "script"]
+exclude_paths = ["node_modules", "venv", ".venv", "lib", "src_deployed"]
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
