@@ -29,7 +29,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        startPrice = priceOracle.latestAnswer();
+        startPrice = MockPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 10 ether, address(this));
         deal(address(collateralToken), address(this), 1000 ether);
         IERC20(collateralToken).approve(minter, type(uint256).max);
@@ -37,7 +37,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(rebalancePool, type(uint256).max);
         IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IAccessControl(minter).grantRole(zeroFeeRole, address(this));
         assertEq(0, IERC20(collateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
@@ -70,7 +70,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
     }
 
     function readHoldings() internal view returns (Holdings memory holdings) {
-        holdings.feeReceiverCollateral = IERC20(collateralToken).balanceOf(feeReceiver.addr);
+        holdings.feeReceiverCollateral = IERC20(collateralToken).balanceOf(feeReceiver);
         holdings.reservePoolCollateral = IERC20(collateralToken).balanceOf(reservePool);
         holdings.minterCollateral = IERC20(collateralToken).balanceOf(minter);
         holdings.minterPegged = IMinter(minter).peggedTokenBalance();

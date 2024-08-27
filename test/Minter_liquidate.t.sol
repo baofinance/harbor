@@ -24,21 +24,21 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
 
     function setUp() public override(TestMinterFeeSetUp) {
         super.setUp();
-        price = priceOracle.latestAnswer();
-        vm.prank(owner.addr);
+        price = MockPriceOracle(priceOracle).latestAnswer();
+        vm.prank(owner);
         IERC20(peggedToken).approve(minter, type(uint256).max);
     }
 
     // no leveraged tokens
     function test_liquidateRedeem0() public {
         setUp_collateral(10 ether, 0 ether); // cr=10/10 = 100%
-        assertEq(IERC20(peggedToken).balanceOf(owner.addr), price * 10, "owner should have pegged");
+        assertEq(IERC20(peggedToken).balanceOf(owner), price * 10, "owner should have pegged");
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
 
         uint256 peggedTokens = IMinter(minter).redeemPeggedForCollateralRatio(11 ether / 10);
         assertEq(peggedTokens, IMinter(minter).peggedTokenBalance(), "should be all tokens");
-        vm.prank(owner.addr);
-        IMinter(minter).freeRedeemPeggedToken(peggedTokens, owner.addr);
+        vm.prank(owner);
+        IMinter(minter).freeRedeemPeggedToken(peggedTokens, owner);
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "should have liquidated all");
     }
 
@@ -46,8 +46,8 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         uint256 startCR = IMinter(minter).collateralRatio();
         uint256 peggedTokens = IMinter(minter).redeemPeggedForCollateralRatio(targetCR);
         if (peggedTokens > 0) {
-            vm.prank(owner.addr);
-            IMinter(minter).freeRedeemPeggedToken(peggedTokens, owner.addr);
+            vm.prank(owner);
+            IMinter(minter).freeRedeemPeggedToken(peggedTokens, owner);
             if (targetCR < startCR) {
                 assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");
             } else {
@@ -76,11 +76,11 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         // uint256 startCR = IMinter(minter).collateralRatio();
         uint256 pegged = IMinter(minter).swapPeggedForLeveragedForCollateralRatio(targetCR);
         if (pegged > 0) {
-            uint256 startPegged = IERC20(peggedToken).balanceOf(owner.addr);
-            vm.prank(owner.addr);
-            uint256 actualPegged = IMinter(minter).freeSwapPeggedForLeveraged(pegged, owner.addr);
+            uint256 startPegged = IERC20(peggedToken).balanceOf(owner);
+            vm.prank(owner);
+            uint256 actualPegged = IMinter(minter).freeSwapPeggedForLeveraged(pegged, owner);
             assertEq(actualPegged, pegged, "swapped requested");
-            assertEq(startPegged - IERC20(peggedToken).balanceOf(owner.addr), pegged, "gave up correct pegged");
+            assertEq(startPegged - IERC20(peggedToken).balanceOf(owner), pegged, "gave up correct pegged");
 
             // if (targetCR < startCR) {
             // assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");

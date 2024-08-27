@@ -21,9 +21,9 @@ import { TestMinterSetUp } from "test/Minter_base.t.sol";
 contract TestMinterMint is TestMinterSetUp {
     using SafeERC20 for IERC20;
 
-    Vm.Wallet system;
-    Vm.Wallet sender;
-    Vm.Wallet receiver;
+    address system;
+    address sender;
+    address receiver;
 
     function setUpConfig() internal override {
         setUpConfig_basicWithDisallow();
@@ -31,9 +31,9 @@ contract TestMinterMint is TestMinterSetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        system = vm.createWallet("system");
-        sender = vm.createWallet("sender");
-        receiver = vm.createWallet("receiver");
+        system = vm.createWallet("system").addr;
+        sender = vm.createWallet("sender").addr;
+        receiver = vm.createWallet("receiver").addr;
         setUp_permissions();
     }
 }

@@ -28,10 +28,11 @@ contract Test_LeveragedToken is Test {
     string symbol = "BaoUSDLwstETH";
 
     LeveragedToken_v1 leveragedToken;
-    Vm.Wallet minter;
+    address minter;
     address owner;
-    Vm.Wallet user;
-    Vm.Wallet user2;
+    address user;
+    Vm.Wallet userWallet;
+    address user2;
 
     bytes32 minterRole;
     bytes32 ownerRole;
@@ -53,9 +54,10 @@ contract Test_LeveragedToken is Test {
     function setUp() public virtual {
         setUpFork();
 
-        minter = vm.createWallet("minter");
-        user = vm.createWallet("user");
-        user2 = vm.createWallet("user2");
+        minter = vm.createWallet("minter").addr;
+        userWallet = vm.createWallet("user");
+        user = userWallet.addr;
+        user2 = vm.createWallet("user2").addr;
 
         setUpContract();
 
@@ -65,9 +67,9 @@ contract Test_LeveragedToken is Test {
 
     function setUpMinterAccess() private {
         vm.expectEmit(true, true, true, false);
-        emit IAccessControl.RoleGranted(minterRole, minter.addr, owner);
+        emit IAccessControl.RoleGranted(minterRole, minter, owner);
         vm.prank(owner);
-        leveragedToken.grantRole(minterRole, minter.addr);
+        leveragedToken.grantRole(minterRole, minter);
     }
 
     function test_initEvents() public {
@@ -103,21 +105,21 @@ contract Test_LeveragedToken is Test {
         // minter role
         assertFalse(leveragedToken.hasRole(minterRole, address(this)), "this should not be minter");
         assertFalse(leveragedToken.hasRole(minterRole, owner), "owner should not be minter");
-        assertFalse(leveragedToken.hasRole(minterRole, minter.addr), "minter should not be minter (yet)");
+        assertFalse(leveragedToken.hasRole(minterRole, minter), "minter should not be minter (yet)");
     }
 
     function test_mintburn() public {
         // non-minter mint - minter
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, minter.addr, minterRole)
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, minter, minterRole)
         );
-        vm.prank(minter.addr);
+        vm.prank(minter);
         leveragedToken.mint(address(this), 1 ether);
         assertEq(leveragedToken.totalSupply(), 0, "nothing minted yet");
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, minter.addr, minterRole)
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, minter, minterRole)
         );
-        vm.prank(minter.addr);
+        vm.prank(minter);
         leveragedToken.burnFrom(address(this), 1 ether);
 
         // non-minter mint - owner
@@ -139,19 +141,17 @@ contract Test_LeveragedToken is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
         );
-        leveragedToken.grantRole(minterRole, minter.addr);
+        leveragedToken.grantRole(minterRole, minter);
 
         setUpMinterAccess();
 
         // burn when none
-        vm.startPrank(minter.addr);
+        vm.startPrank(minter);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 0, 2 ether)
         );
         leveragedToken.burnFrom(address(this), 2 ether);
-        vm.expectRevert(
-            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter.addr, 0, 2 ether)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter, 0, 2 ether));
         leveragedToken.burn(2 ether);
 
         // mint
@@ -160,9 +160,9 @@ contract Test_LeveragedToken is Test {
         leveragedToken.mint(address(this), 2 ether);
         assertEq(leveragedToken.totalSupply(), 2 ether, "2 ether minted");
         assertEq(leveragedToken.balanceOf(address(this)), 2 ether, "should have 2 ether");
-        leveragedToken.mint(minter.addr, 2 ether);
+        leveragedToken.mint(minter, 2 ether);
         assertEq(leveragedToken.totalSupply(), 4 ether, "4 ether minted");
-        assertEq(leveragedToken.balanceOf(minter.addr), 2 ether, "should have 2 ether");
+        assertEq(leveragedToken.balanceOf(minter), 2 ether, "should have 2 ether");
 
         // burn too much
         vm.expectRevert(
@@ -170,7 +170,7 @@ contract Test_LeveragedToken is Test {
         );
         leveragedToken.burnFrom(address(this), 3 ether);
         vm.expectRevert(
-            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter.addr, 2 ether, 3 ether)
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter, 2 ether, 3 ether)
         );
         leveragedToken.burn(3 ether);
 
@@ -182,7 +182,7 @@ contract Test_LeveragedToken is Test {
         assertEq(leveragedToken.balanceOf(address(this)), 1 ether, "should now have 1");
         leveragedToken.burn(1 ether);
         assertEq(leveragedToken.totalSupply(), 2 ether, "2 ether left now");
-        assertEq(leveragedToken.balanceOf(minter.addr), 1 ether, "should now have 1");
+        assertEq(leveragedToken.balanceOf(minter), 1 ether, "should now have 1");
 
         vm.stopPrank();
     }
@@ -195,63 +195,63 @@ contract Test_LeveragedToken is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 0, 1 ether)
         );
-        leveragedToken.transfer(user.addr, 1 ether);
+        leveragedToken.transfer(user, 1 ether);
 
         // mint some to this
-        vm.prank(minter.addr);
+        vm.prank(minter);
         leveragedToken.mint(address(this), 10 ether);
         assertEq(leveragedToken.balanceOf(address(this)), 10 ether, "start with none");
 
         // transfer to user
-        assertEq(leveragedToken.balanceOf(user.addr), 0, "user starts with none");
+        assertEq(leveragedToken.balanceOf(user), 0, "user starts with none");
         vm.expectEmit(true, true, false, true);
-        emit IERC20.Transfer(address(this), user.addr, 1 ether);
-        leveragedToken.transfer(user.addr, 1 ether);
+        emit IERC20.Transfer(address(this), user, 1 ether);
+        leveragedToken.transfer(user, 1 ether);
         assertEq(leveragedToken.balanceOf(address(this)), 9 ether, "moved 1");
-        assertEq(leveragedToken.balanceOf(user.addr), 1 ether, "received 1");
+        assertEq(leveragedToken.balanceOf(user), 1 ether, "received 1");
     }
 
     function test_allowance() public {
         setUpMinterAccess();
-        assertEq(leveragedToken.balanceOf(user.addr), 0, "user starts with none");
-        assertEq(leveragedToken.balanceOf(user2.addr), 0, "user starts with none");
+        assertEq(leveragedToken.balanceOf(user), 0, "user starts with none");
+        assertEq(leveragedToken.balanceOf(user2), 0, "user starts with none");
         assertEq(leveragedToken.balanceOf(address(this)), 0, "user starts with none");
 
         // try when no no allowance
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(this), 0, 1 ether)
         );
-        leveragedToken.transferFrom(user.addr, user2.addr, 1 ether);
+        leveragedToken.transferFrom(user, user2, 1 ether);
 
-        vm.prank(user.addr);
+        vm.prank(user);
         vm.expectEmit(true, true, false, true);
-        emit IERC20.Approval(user.addr, address(this), 1 ether);
+        emit IERC20.Approval(user, address(this), 1 ether);
         leveragedToken.approve(address(this), 1 ether);
-        assertEq(leveragedToken.allowance(user.addr, address(this)), 1 ether, "should have allowance");
+        assertEq(leveragedToken.allowance(user, address(this)), 1 ether, "should have allowance");
 
         // try when no no balance
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user.addr, 0, 1 ether));
-        leveragedToken.transferFrom(user.addr, user2.addr, 1 ether);
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user, 0, 1 ether));
+        leveragedToken.transferFrom(user, user2, 1 ether);
 
         // mint some to user
-        vm.prank(minter.addr);
-        leveragedToken.mint(user.addr, 10 ether);
-        assertEq(leveragedToken.balanceOf(user.addr), 10 ether, "start with none");
+        vm.prank(minter);
+        leveragedToken.mint(user, 10 ether);
+        assertEq(leveragedToken.balanceOf(user), 10 ether, "start with none");
 
         vm.expectEmit(true, true, false, true);
-        emit IERC20.Transfer(user.addr, user2.addr, 1 ether);
-        leveragedToken.transferFrom(user.addr, user2.addr, 1 ether);
-        assertEq(leveragedToken.balanceOf(user.addr), 9 ether, "moved 1");
-        assertEq(leveragedToken.balanceOf(user2.addr), 1 ether, "received 1");
+        emit IERC20.Transfer(user, user2, 1 ether);
+        leveragedToken.transferFrom(user, user2, 1 ether);
+        assertEq(leveragedToken.balanceOf(user), 9 ether, "moved 1");
+        assertEq(leveragedToken.balanceOf(user2), 1 ether, "received 1");
 
         // transfer with no allowance again
-        assertEq(leveragedToken.allowance(user.addr, address(this)), 0, "should have no allowance");
+        assertEq(leveragedToken.allowance(user, address(this)), 0, "should have no allowance");
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(this), 0, 1 ether)
         );
-        leveragedToken.transferFrom(user.addr, user2.addr, 1 ether);
+        leveragedToken.transferFrom(user, user2, 1 ether);
 
-        vm.startPrank(user.addr);
+        vm.startPrank(user);
         uint256 deadline = block.timestamp + 1000;
         bytes32 digest = keccak256(
             abi.encodePacked(
@@ -260,27 +260,27 @@ contract Test_LeveragedToken is Test {
                 keccak256(
                     abi.encode(
                         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
-                        user.addr,
+                        user,
                         address(this),
                         1 ether,
-                        leveragedToken.nonces(user.addr),
+                        leveragedToken.nonces(user),
                         deadline
                     )
                 )
             )
         );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user.privateKey, digest);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(userWallet.privateKey, digest);
         vm.expectEmit(true, true, false, true);
-        emit IERC20.Approval(user.addr, address(this), 1 ether);
-        leveragedToken.permit(user.addr, address(this), 1 ether, deadline, v, r, s);
+        emit IERC20.Approval(user, address(this), 1 ether);
+        leveragedToken.permit(user, address(this), 1 ether, deadline, v, r, s);
         vm.stopPrank();
-        assertEq(leveragedToken.allowance(user.addr, address(this)), 1 ether, "should have allowance");
+        assertEq(leveragedToken.allowance(user, address(this)), 1 ether, "should have allowance");
 
         vm.expectEmit(true, true, false, true);
-        emit IERC20.Transfer(user.addr, user2.addr, 1 ether);
-        leveragedToken.transferFrom(user.addr, user2.addr, 1 ether);
-        assertEq(leveragedToken.balanceOf(user.addr), 8 ether, "moved another 1");
-        assertEq(leveragedToken.balanceOf(user2.addr), 2 ether, "received another 1");
+        emit IERC20.Transfer(user, user2, 1 ether);
+        leveragedToken.transferFrom(user, user2, 1 ether);
+        assertEq(leveragedToken.balanceOf(user), 8 ether, "moved another 1");
+        assertEq(leveragedToken.balanceOf(user2), 2 ether, "received another 1");
     }
 
     function test_introspection() public view {

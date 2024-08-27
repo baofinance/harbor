@@ -42,10 +42,10 @@ contract TestMinterSetUp is Test, Clog, Array {
 
     address leveragedToken;
     address reservePool;
-    MockPriceOracle priceOracle;
+    address priceOracle;
 
-    Vm.Wallet feeReceiver;
-    Vm.Wallet owner;
+    address feeReceiver;
+    address owner;
     bytes32 ownerRole = 0;
     bytes32 zeroFeeRole = keccak256("ZERO_FEE_ROLE");
     bytes32 minterRole = keccak256("MINTER_ROLE");
@@ -203,48 +203,27 @@ contract TestMinterSetUp is Test, Clog, Array {
     function setUp_leveragedToken() internal virtual {
         leveragedToken = UnsafeUpgrades.deployUUPSProxy(
             address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner.addr, "Leveraged Token", "BaoUSDLwstETH"))
+            abi.encodeCall(LeveragedToken_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
         );
     }
 
     function setUp_reservePool() internal virtual {
         reservePool = UnsafeUpgrades.deployUUPSProxy(
             address(new ReservePool_v1()), //"ReservePool_v1.sol",
-            abi.encodeCall(ReservePool_v1.initialize, (owner.addr))
+            abi.encodeCall(ReservePool_v1.initialize, (owner))
         );
     }
 
-    function setUpFork() public virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
-
-        feeReceiver = vm.createWallet("feeReceiver");
-
-        owner = vm.createWallet("owner");
-
-        priceOracle = new MockPriceOracle();
-
-        setUp_leveragedToken();
-        peggedToken = deployed.BaoUSD;
-        collateralToken = deployed.wstETH;
-
-        setUp_reservePool();
-    }
-
-    function setUp() public virtual {
-        setUpFork();
-        deal(address(deployed.wstETH), address(this), 20 ether);
-
-        setUpConfig();
-
+    function setUp_minter() internal virtual {
         minter = UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1()), // "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
                 (
-                    owner.addr,
+                    owner,
                     IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
                     address(priceOracle),
-                    feeReceiver.addr,
+                    feeReceiver,
                     reservePool,
                     config
                 )
@@ -252,12 +231,37 @@ contract TestMinterSetUp is Test, Clog, Array {
         );
     }
 
+    function setUpFork() public virtual {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+
+        feeReceiver = vm.createWallet("feeReceiver").addr;
+
+        owner = vm.createWallet("owner").addr;
+
+        priceOracle = address(new MockPriceOracle());
+
+        setUp_leveragedToken();
+        peggedToken = deployed.BaoUSD;
+        collateralToken = deployed.wstETH;
+
+        setUp_reservePool();
+
+        setUp_minter();
+    }
+
+    function setUp() public virtual {
+        setUpConfig();
+
+        setUpFork();
+        deal(address(deployed.wstETH), address(this), 20 ether);
+    }
+
     function setUp_permissions() internal {
         vm.prank(IBaoUSD(deployed.BaoUSD).operator());
         IBaoUSD(deployed.BaoUSD).addMinter(minter);
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IAccessControl(leveragedToken).grantRole(minterRole, minter);
-        vm.prank(owner.addr);
+        vm.prank(owner);
         ReservePool_v1(reservePool).grantRole(requesterRole, minter);
     }
 
@@ -265,7 +269,7 @@ contract TestMinterSetUp is Test, Clog, Array {
         uint256 collateralForPegged,
         uint256 collateralForLeveraged
     ) internal returns (uint256 peggedTokens, uint256 leveragedTokens) {
-        return setUp_collateral(collateralForPegged, collateralForLeveraged, owner.addr);
+        return setUp_collateral(collateralForPegged, collateralForLeveraged, owner);
     }
 
     function setUp_collateral(
@@ -276,18 +280,18 @@ contract TestMinterSetUp is Test, Clog, Array {
         // put some collateral into the minter to bootstrap it
         // get collateral & allowance
         uint256 totalAmount = collateralForPegged + collateralForLeveraged;
-        deal(address(deployed.wstETH), owner.addr, totalAmount + 10 ether);
+        deal(address(deployed.wstETH), owner, totalAmount + 10 ether);
 
         setUp_permissions();
 
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IERC20(deployed.wstETH).approve(minter, totalAmount);
         if (collateralForPegged > 0) {
-            vm.prank(owner.addr);
+            vm.prank(owner);
             peggedTokens = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
         }
         if (collateralForLeveraged > 0) {
-            vm.prank(owner.addr);
+            vm.prank(owner);
             leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
     }
@@ -312,7 +316,7 @@ contract TestMinterInit is TestMinterSetUp {
                     address(this),
                     IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
                     address(priceOracle),
-                    feeReceiver.addr,
+                    feeReceiver,
                     reservePool,
                     config
                 )
@@ -322,7 +326,7 @@ contract TestMinterInit is TestMinterSetUp {
 
         // not a contract
         // console.log("not a contract");
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner.addr));
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
 
         UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1()), // "Minter_v1.sol",
@@ -330,9 +334,9 @@ contract TestMinterInit is TestMinterSetUp {
                 Minter_v1.initialize,
                 (
                     address(this),
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), owner.addr),
+                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), owner),
                     address(priceOracle),
-                    feeReceiver.addr,
+                    feeReceiver,
                     reservePool,
                     config
                 )
@@ -350,7 +354,7 @@ contract TestMinterInit is TestMinterSetUp {
                     address(this),
                     IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
                     address(priceOracle),
-                    feeReceiver.addr,
+                    feeReceiver,
                     reservePool,
                     config
                 )
@@ -364,17 +368,17 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectEmit(false, false, false, false);
         emit IERC1967.Upgraded(address(0)); // we don't know the address right now
         vm.expectEmit();
-        emit IAccessControl.RoleGranted(ownerRole, owner.addr, address(this));
+        emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
         vm.expectEmit();
         emit IMinter.UpdatePriceOracle(address(0), address(priceOracle));
         vm.expectEmit();
-        emit IMinter.UpdateFeeReceiver(address(0), feeReceiver.addr);
+        emit IMinter.UpdateFeeReceiver(address(0), feeReceiver);
         vm.expectEmit();
         emit IMinter.UpdateReservePool(address(0), address(reservePool));
         vm.expectEmit();
         emit IMinter.UpdateConfig(config);
         vm.expectEmit();
-        emit IAccessControl.RoleGranted(zeroFeeRole, owner.addr, address(this));
+        emit IAccessControl.RoleGranted(zeroFeeRole, owner, address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 
@@ -383,10 +387,10 @@ contract TestMinterInit is TestMinterSetUp {
             abi.encodeCall(
                 Minter_v1.initialize,
                 (
-                    owner.addr,
+                    owner,
                     IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
                     address(priceOracle),
-                    feeReceiver.addr,
+                    feeReceiver,
                     reservePool,
                     config
                 )
@@ -404,19 +408,11 @@ contract TestMinterInit is TestMinterSetUp {
             address(this),
             IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
             address(priceOracle),
-            feeReceiver.addr,
+            feeReceiver,
             reservePool,
             config
         );
 
-        assertTrue(IAccessControl(minter).hasRole(ownerRole, owner.addr));
-        assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
-        assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
-        assertEq(IMinter(minter).leveragedToken(), address(leveragedToken));
-        assertEq(IMinter(minter).priceOracle(), address(priceOracle));
-        assertEq(IMinter(minter).feeReceiver(), feeReceiver.addr);
-        assertEq(IMinter(minter).reservePool(), reservePool);
-        assertEq(IMinter(minter).peggedTokenBalance(), 0);
         assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
         _assertEqConfig(IMinter(minter).config(), config);
 
@@ -434,6 +430,13 @@ contract TestMinterInit is TestMinterSetUp {
 }
 
 contract TestMinterBasics is TestMinterSetUp {
+    address user;
+
+    function setUp() public override(TestMinterSetUp) {
+        super.setUp();
+        user = vm.createWallet("user").addr;
+    }
+
     function test_introspection() public view {
         assertTrue(Minter_v1(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
         assertTrue(Minter_v1(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
@@ -449,7 +452,7 @@ contract TestMinterBasics is TestMinterSetUp {
         IMinter.IncentiveConfig memory redeemLeveraged
     ) private {
         setUpConfig(rebalance, harvest, mintPegged, mintLeveraged, redeemPegged, redeemLeveraged);
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         IMinter.Config memory readConfig = IMinter(minter).config();
         _assertEqConfig(readConfig, config);
@@ -462,6 +465,26 @@ contract TestMinterBasics is TestMinterSetUp {
     // collateral ratio, leveraged ratio, prices
     // all should be independent of the whether it is a mock or actual being called
     // mocks are: priceOracle, feeReceiver, baousd & wstETH
+
+    function test_init() public view {
+        assertTrue(IAccessControl(minter).hasRole(ownerRole, owner));
+        assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
+        assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
+        assertEq(IMinter(minter).leveragedToken(), address(leveragedToken));
+        assertEq(IMinter(minter).priceOracle(), address(priceOracle));
+        assertEq(IMinter(minter).feeReceiver(), feeReceiver);
+        assertEq(IMinter(minter).reservePool(), reservePool);
+        assertEq(IMinter(minter).peggedTokenBalance(), 0);
+    }
+
+    function test_firstMint() public {
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
+        vm.expectRevert(IMinter.ActionPaused.selector);
+        vm.prank(owner);
+        IMinter(minter).mintPeggedToken(1 ether, user, 0);
+    }
+
+    function test_incentiveRatios() public {}
 
     function test_freeMint() public {
         setUp_collateral(10 ether, 10 ether);
@@ -510,13 +533,13 @@ contract TestMinterBasics is TestMinterSetUp {
         // mismatched length, too many bands
         config.mintPeggedIncentiveConfig = ic(ua(), ia(disallow, 100));
         vm.expectRevert(abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, 0, 2));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // mismatched length, too many bands
         config.mintPeggedIncentiveConfig = ic(ua(100), ia(100));
         vm.expectRevert(abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, 1, 1));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // depegged not first
@@ -525,14 +548,14 @@ contract TestMinterBasics is TestMinterSetUp {
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
         vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidCollateralRatioBoundValue.selector, 9 ether / 10, 0));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         config.mintPeggedIncentiveConfig = ic(
             ua(100, 101, 131, 140, 150, 160, 170),
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // more than max number
@@ -541,7 +564,7 @@ contract TestMinterBasics is TestMinterSetUp {
             ia(disallow, 100, 50, 100, 200, 300, 400, 500, 600)
         );
         vm.expectRevert(abi.encodeWithSelector(IMinter.TooManyIncentiveRatios.selector, 9, 8));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // more than max with no depeg band, we allow one less
@@ -550,7 +573,7 @@ contract TestMinterBasics is TestMinterSetUp {
             ia(50, 100, 50, 100, 200, 300, 400, 500)
         );
         vm.expectRevert(abi.encodeWithSelector(IMinter.TooManyIncentiveRatios.selector, 8, 7));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // more than max with no depeg band, we allow one less unless it's a disallow
@@ -558,26 +581,26 @@ contract TestMinterBasics is TestMinterSetUp {
             ua(101, 102, 131, 140, 150, 160, 170),
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // numerical precision
         config.mintPeggedIncentiveConfig = ic(ua(130, 130), ia(100, 50, 10));
         config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[1] = 130 * 10 ** 16 + 1;
         vm.expectRevert(abi.encodeWithSelector(IMinter.CollateralRatioBoundTooPrecise.selector, 130 * 10 ** 16 + 1));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         config.mintPeggedIncentiveConfig = ic(ua(130, 130), ia(100, 50, 10));
         config.mintPeggedIncentiveConfig.incentiveRatios[1] = 50 * 10 ** 16 + 1;
         vm.expectRevert(abi.encodeWithSelector(IMinter.IncentiveRatioTooPrecise.selector, 50 * 10 ** 16 + 1));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // less than min length
         config.mintPeggedIncentiveConfig = ic(ua(), ia());
         vm.expectRevert(abi.encodeWithSelector(IMinter.TooFewIncentiveRatios.selector, 0, 1));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // check the collateral ratio bounds are are checked for strictly increasing
@@ -586,35 +609,35 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 1, 2 ether)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // middle
         config.mintPeggedIncentiveConfig = ic(ua(100, 200, 200, 300), ia(1, 2, 3, 4, 5));
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 2, 2 ether)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // start
         config.mintPeggedIncentiveConfig = ic(ua(200, 200, 300, 400), ia(1, 2, 3, 4, 5));
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 1, 2 ether)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // end
         config.mintPeggedIncentiveConfig = ic(ua(100, 200, 300, 300), ia(1, 2, 3, 4, 5));
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 3 ether, 3, 3 ether)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // < not <=
         config.mintPeggedIncentiveConfig = ic(ua(300, 200, 300, 300), ia(1, 2, 3, 4, 5));
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 1, 3 ether)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // set up the incentive configs for precise testing of values
@@ -630,56 +653,56 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether + incentivePrecision)
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // = max
         config.mintPeggedIncentiveConfig.incentiveRatios[0] = 1 ether;
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // max - mint leveraged = 1 ether -1
         // > max
         config.mintLeveragedIncentiveConfig.incentiveRatios[0] = 1 ether;
         vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // = max
         config.mintLeveragedIncentiveConfig.incentiveRatios[0] = 1 ether - incentivePrecision;
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // min - mint pegged = 0
         // < min
         config.mintPeggedIncentiveConfig.incentiveRatios[0] = -incentivePrecision;
         vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, -incentivePrecision));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // = min
         config.mintPeggedIncentiveConfig.incentiveRatios[0] = 0;
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // min - mint leveraged = - 1 ether
         // < min
         config.mintLeveragedIncentiveConfig.incentiveRatios[0] = -1 ether;
         vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, -1 ether));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         // = min
         config.mintLeveragedIncentiveConfig.incentiveRatios[0] = -1 ether + incentivePrecision;
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // two disallow bands
         config.mintPeggedIncentiveConfig = ic(ua(120), ia(disallow, disallow));
         vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         // disallow not in first band
         config.mintPeggedIncentiveConfig = ic(ua(120), ia(100, disallow));
         vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether));
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
         /*
@@ -687,7 +710,7 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, )
         );
-        vm.prank(owner.addr);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         */
         //                 revert InvalidIncentiveRatioValue(currentUpperBound, prevUpperBound);  one
@@ -715,4 +738,24 @@ contract TestMinterBasics is TestMinterSetUp {
     //     counter.setNumber(x);
     //     assertEq(counter.number(), x);
     //}
+}
+
+contract TestMinterDeploy is TestMinterBasics {
+    function setUpFork() public override(TestMinterSetUp) {
+        // TODO: detect whether deployed file exists and whether anvil is running
+        vm.createSelectFork(vm.rpcUrl("local"));
+
+        owner = deployed.BAOMULTISIG;
+
+        priceOracle = deployed.PriceOracle_wstETHUSD;
+
+        // TODO: read these from deployed file
+        leveragedToken = 0xC14e210b71c20de3fa539CBDcc2Af92378036Bdd;
+        feeReceiver = 0x50784195729e3f9722C86BB94e804Adbf44dD82D;
+        peggedToken = deployed.BaoUSD;
+        collateralToken = deployed.wstETH;
+
+        reservePool = 0xeFF559d8537DA3e0C1292751266F280C0941C6D8;
+        minter = 0x82dcC46336e06F4921EfC46ee6A177456012C59A;
+    }
 }

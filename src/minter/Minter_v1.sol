@@ -182,7 +182,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     /// @dev keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
     bytes32 private constant MINTER_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
 
-    // TODO: add function to add a rebalancer, granting role and keeping track of it for liquidation
+    // TODO: add function to add a rebalancer, granting role and keeping track of it for liquidation?
 
     ////////////////////
     // Initialisation //
@@ -416,7 +416,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        // TODO: check the price - redeeming pegged is at max price, minting leveraged is at safe price
         uint256 collateralPrice = _fetchMaxPrice($.priceOracle);
         uint256 collateralTokenBalance_ = _collateralTokenBalance($.collateralToken);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -462,7 +461,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     /// @inheritdoc IMinter
     function mintLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
-        // TODO: do we need safe price for this?
         ActionIncentive memory config_ = $.mintLeveragedIncentiveConfig;
         // just want the fee/bonus at the current collateral
         uint band = _findBand(
@@ -569,7 +567,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         )
     {
         MinterStorage storage $ = _getMinterStorage();
-        // TODO: do we need safe price for this?
         address collateralToken_ = $.collateralToken;
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -1550,13 +1547,16 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                     // then divide by 1 ether at the end
                     fee += (collateralInBand$ * uint256(bandIncentiveRatio)) / 1 ether;
                 } else if (bandIncentiveRatio < 0) {
-                    // any truncation below, benefits the
+                    // any truncation below, benefits the reserve pool.
                     uint256 extraCollateralInBand = (collateralInBand$ * uint256(-bandIncentiveRatio)) /
                         (1 ether * 1 ether);
                     // tally the discounts
                     if (extraCollateralInBand <= reservePoolBalance_) {
                         reservePoolBalance_ -= extraCollateralInBand;
                     } else {
+                        // although we don't get the full amount of collateral from the reserve pool, we are happy
+                        // because that extra collateral isn't used in the collateral balance it doesn't affect the
+                        // simulation, only the collateral returned
                         extraCollateralInBand = reservePoolBalance_;
                         reservePoolBalance_ = 0;
                     }
@@ -1574,7 +1574,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         }
         // as we didn't divide by 1 ether in the above loop, we do it now.
         fee /= 1 ether;
-        // TODO: calculate the extra collateral and fee at 1e36 in the above loop too
+        // TODO: calculate the extra collateral and fee at 1e36 in the above loop too, for more precision
         collateralReturned = (collateralReturned + extraCollateral * 1 ether - fee * 1 ether) / 1 ether;
     }
 
@@ -1612,8 +1612,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         if (_isDepegged(balanceOf.collateral, price, balanceOf.pegged)) revert ActionPaused();
 
-        // simulate minting or redeeming tokens from current collateral ratio upwards or downwards,
-        // extracting the fee at the correct ratio as we go.
+        // simulate minting leveaged tokens from current collateral ratio upwards,
+        // applying the incentive at the correct ratio as we go.
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
@@ -1636,10 +1636,6 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 // note that 1 - bandIncentiveRatio must always be positive, which it is as:
                 //   * fees < 1 ether. if is was = 1 ether then this would be a disallow band.
                 //   * discount < 0
-                // Note that we calculate the collateral in band even if there is insufficient
-                // collateral in the reserve pool to meet the band incentive ratio target
-                // TODO: if there is insufficient collateral in the reserve pool then we comtinue the loop at the same band, taking out the discount
-
                 collateralInBand =
                     ((_collateralRatioUpperBounds(config_, band) * balanceOf.pegged - balanceOf.collateral * price) *
                         1 ether) /
@@ -1659,6 +1655,10 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
                 if (extraCollateralInBand <= reservePoolBalance_) {
                     reservePoolBalance_ -= extraCollateralInBand;
                 } else {
+                    // TODO:
+                    // if there is insufficient collateral in the reserve pool then we comtinue the loop at the same band,
+                    // first setting the discount to zero. This is because the reserve (extra) collateral ends up in the
+                    // collateral balance and so affects the simulation
                     extraCollateralInBand = reservePoolBalance_;
                     reservePoolBalance_ = 0;
                 }
@@ -1713,7 +1713,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         // we can't meaningfully do anything with leveraged tokens as their value is zero
-        // TODO: move this into the loop below - as we may become depegged as a result of this action?
+        // and we an do this once, here, and not in the loop below, because redeeming tokens, albeit reducing the
+        // collateral ratio, will never cause a depeg.
         if (_isDepegged(startCollateralTokenBalance, price, peggedTokenBalance_)) revert ActionPaused();
 
         uint256 collateralIn = _collateralForLeveragedTokens(

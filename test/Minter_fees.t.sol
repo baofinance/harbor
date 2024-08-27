@@ -31,13 +31,13 @@ contract TestMinterFeeSetUp is TestMinterSetUp {
 }
 
 contract TestMinterFees is TestMinterFeeSetUp {
-    Vm.Wallet user;
+    address user;
 
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
-        user = vm.createWallet("user");
-        deal(address(deployed.wstETH), user.addr, 100 ether);
-        vm.prank(user.addr);
+        user = vm.createWallet("user").addr;
+        deal(address(deployed.wstETH), user, 100 ether);
+        vm.prank(user);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);
     }
 
@@ -48,7 +48,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             "mint pegged incentive config"
         );
 
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(2 ether, 1 ether); // CR = 3/2 = 1.5
         assertEq(IMinter(minter).collateralRatio(), 15 ether / 10);
         assertLt(
@@ -82,21 +82,21 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
         // check that the fees match the reported value, both emit and that transferred
         int256 expectedFees = (incentiveRatio * int256(collateral)) / 1 ether;
-        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver);
         vm.expectEmit(minter);
-        // emit IMinter.MintPeggedToken(user.addr, user.addr, collateral, peggedMinted);
+        // emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
         emit IMinter.MintPeggedToken(
-            user.addr,
-            user.addr,
+            user,
+            user,
             collateral,
             uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether
         );
-        vm.prank(user.addr);
-        uint256 minted = IMinter(minter).mintPeggedToken(collateral, user.addr, 0);
+        vm.prank(user);
+        uint256 minted = IMinter(minter).mintPeggedToken(collateral, user, 0);
         assertEq(minted, peggedMinted, "pegged minted");
-        // assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), feeReceiverCollateralBalanceBefore + fee);
+        // assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + fee);
         assertEq(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            IERC20(deployed.wstETH).balanceOf(feeReceiver),
             uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
         );
 
@@ -130,23 +130,23 @@ contract TestMinterFees is TestMinterFeeSetUp {
     function _checkMintPeggedIntegral(uint iTotalMint, uint step, uint tolerance) private returns (int256 totalFee) {
         (, , , uint256 fee, uint256 discount, ) = IMinter(minter).mintPeggedTokenDryRun(iTotalMint * 1 ether);
         totalFee = int256(fee) - int256(discount);
-        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver);
 
         for (uint i = 0; i < iTotalMint; i++) {
-            uint256 beforeMint = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+            uint256 beforeMint = IERC20(deployed.wstETH).balanceOf(feeReceiver);
             (, , , fee, discount, ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
             // int256 expected = int256(fee) - int256(discount);
-            vm.prank(user.addr);
-            try IMinter(minter).mintPeggedToken(1 ether, user.addr, 0) returns (uint256) {} catch {}
+            vm.prank(user);
+            try IMinter(minter).mintPeggedToken(1 ether, user, 0) returns (uint256) {} catch {}
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeMint,
+                IERC20(deployed.wstETH).balanceOf(feeReceiver) - beforeMint,
                 fee,
                 2,
                 string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
             );
         }
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
+            IERC20(deployed.wstETH).balanceOf(feeReceiver) - start,
             uint256(totalFee),
             tolerance,
             Useful.toString(step)
@@ -162,7 +162,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             IMinter(minter).collateralRatio(),
             "test must start with CR normal 2"
         );
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
         // check fees:
         uint[5] memory mintStep = [
@@ -220,7 +220,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 string.concat(Useful.toString(step), ", running sum")
             );
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+                IERC20(deployed.wstETH).balanceOf(feeReceiver),
                 uint256(SignedMath.max(0, totalFee)),
                 0,
                 string.concat("step ", Useful.toString(step))
@@ -231,7 +231,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     function test_mintLeveragedFeeCalcs() public {
         // ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
         // TODO: start in critical 120, then go to danger 140, then normal
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(3 ether, 1 ether); // CR = 4/3 = 1.33
         assertGe(
             ultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -261,19 +261,19 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
         // check that the fees match the reported value, both emit and that transferred
         int256 expectedFees = (incentiveRatio * int256(collateral)) / 1 ether;
-        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver);
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintLeveragedToken(
-            user.addr,
-            user.addr,
+            user,
+            user,
             collateral,
             uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether
         );
-        vm.prank(user.addr);
-        IMinter(minter).mintLeveragedToken(collateral, user.addr, 0);
+        vm.prank(user);
+        IMinter(minter).mintLeveragedToken(collateral, user, 0);
         // ---------------------------------------------------------
         assertEq(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            IERC20(deployed.wstETH).balanceOf(feeReceiver),
             uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
         );
 
@@ -305,17 +305,17 @@ contract TestMinterFees is TestMinterFeeSetUp {
             Total memory one;
             (, one.collateralUsed, one.leveragedMinted, one.fee, one.reserveCollateralUsed, ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
-            vm.prank(user.addr);
-            IMinter(minter).mintLeveragedToken(1 ether, user.addr, 0);
+            vm.prank(user);
+            IMinter(minter).mintLeveragedToken(1 ether, user, 0);
             // ---------------------------------------------------
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - before.feeReceiver,
+                IERC20(deployed.wstETH).balanceOf(feeReceiver) - before.feeReceiver,
                 one.fee,
                 0,
                 string.concat("fee calc in ", Useful.toString(i), "th iteration in step ", Useful.toString(step))
             );
             assertApproxEqAbs(
-                IERC20(leveragedToken).balanceOf(user.addr) - before.userLeveraged,
+                IERC20(leveragedToken).balanceOf(user) - before.userLeveraged,
                 one.leveragedMinted,
                 0,
                 string.concat(
@@ -326,7 +326,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 )
             );
             assertApproxEqAbs(
-                before.userCollateral - IERC20(deployed.wstETH).balanceOf(user.addr),
+                before.userCollateral - IERC20(deployed.wstETH).balanceOf(user),
                 one.collateralUsed,
                 0,
                 string.concat(
@@ -343,19 +343,19 @@ contract TestMinterFees is TestMinterFeeSetUp {
             );
         }
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeAll.feeReceiver,
+            IERC20(deployed.wstETH).balanceOf(feeReceiver) - beforeAll.feeReceiver,
             fee,
             0,
             string.concat("fee calc in step ", Useful.toString(step))
         );
         assertApproxEqAbs(
-            beforeAll.userCollateral - IERC20(deployed.wstETH).balanceOf(user.addr),
+            beforeAll.userCollateral - IERC20(deployed.wstETH).balanceOf(user),
             collateralUsed,
             0,
             string.concat("collateral used calc in step", Useful.toString(step))
         );
         assertApproxEqAbs(
-            IERC20(leveragedToken).balanceOf(user.addr) - beforeAll.userLeveraged,
+            IERC20(leveragedToken).balanceOf(user) - beforeAll.userLeveraged,
             leveragedMinted,
             0,
             string.concat("leveraged minted calc in step ", Useful.toString(step))
@@ -376,7 +376,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             IMinter(minter).collateralRatio(),
             "test must start with CR bonus"
         );
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
         // check fees:
 
@@ -420,8 +420,8 @@ contract TestMinterFees is TestMinterFeeSetUp {
         }
 
         // TODO: also check for minter balances reducing
-        deal(address(deployed.wstETH), user.addr, IMinter(minter).collateralTokenBalance());
-        vm.prank(user.addr);
+        deal(address(deployed.wstETH), user, IMinter(minter).collateralTokenBalance());
+        vm.prank(user);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);
 
         BeforeActionBalance memory before = _readBeforeActionBalance();
@@ -451,19 +451,19 @@ contract TestMinterFees is TestMinterFeeSetUp {
             //     string.concat("step ", Useful.toString(i + 1), ", calculated fee")
             // );
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+                IERC20(deployed.wstETH).balanceOf(feeReceiver),
                 total.fee,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual fee")
             );
             assertApproxEqAbs(
-                IERC20(leveragedToken).balanceOf(user.addr) - before.userLeveraged,
+                IERC20(leveragedToken).balanceOf(user) - before.userLeveraged,
                 total.leveragedMinted,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual minted")
             );
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(user.addr),
+                IERC20(deployed.wstETH).balanceOf(user),
                 before.userCollateral - total.collateralUsed,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual used")
@@ -487,25 +487,22 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     function _redeemPeggedFeeCalc(uint256 collateral) private returns (int256 redeemPeggedFeeRatio) {
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         redeemPeggedFeeRatio = IMinter(minter).redeemPeggedTokenIncentiveRatio();
         assertEq(redeemPeggedFeeRatio, penultimate(config.redeemPeggedIncentiveConfig.incentiveRatios));
 
         uint256 pegged = (collateral * price) / 1 ether;
         uint256 expectedFees = (uint256(redeemPeggedFeeRatio) * collateral) / 1 ether;
-        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        assertGe(IERC20(deployed.BaoUSD).balanceOf(owner.addr), pegged);
-        vm.prank(owner.addr);
+        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver);
+        assertGe(IERC20(deployed.BaoUSD).balanceOf(owner), pegged);
+        vm.prank(owner);
         IERC20(deployed.BaoUSD).approve(minter, type(uint256).max);
 
         vm.expectEmit(true, true, true, true, minter);
-        emit IMinter.RedeemPeggedToken(owner.addr, user.addr, pegged, collateral - expectedFees);
-        vm.prank(owner.addr); // the owner has all the tokens
-        IMinter(minter).redeemPeggedToken(pegged, user.addr, 0);
-        assertEq(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
-            feeReceiverCollateralBalanceBefore + expectedFees
-        );
+        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees);
+        vm.prank(owner); // the owner has all the tokens
+        IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + expectedFees);
     }
 
     function test_redeemPeggedFeeCalcs() public {
@@ -516,8 +513,8 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
         // TODO: start in critical 115, then go to danger 150, then normal
         // TODO: add bonus band in. Also in mintLeveraged
-        uint256 price = priceOracle.latestAnswer();
-        setUp_collateral(3 ether, 1 ether, owner.addr); // CR = 4/3 = 1.33
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(3 ether, 1 ether, owner); // CR = 4/3 = 1.33
         assertLt(
             IMinter(minter).collateralRatio(),
             ultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -548,19 +545,16 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
         // check that the fees match the reported value, both emit and that transferred
         uint256 expectedFees = (uint256(redeemPeggedFeeRatio) * collateral) / 1 ether;
-        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        assertGe(IERC20(deployed.BaoUSD).balanceOf(owner.addr), pegged);
-        vm.prank(owner.addr);
+        uint256 feeReceiverCollateralBalanceBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver);
+        assertGe(IERC20(deployed.BaoUSD).balanceOf(owner), pegged);
+        vm.prank(owner);
         IERC20(deployed.BaoUSD).approve(minter, type(uint256).max);
 
         vm.expectEmit(minter);
-        emit IMinter.RedeemPeggedToken(owner.addr, user.addr, pegged, collateral - expectedFees);
-        vm.prank(owner.addr); // the owner has all the tokens
-        IMinter(minter).redeemPeggedToken(pegged, user.addr, 0);
-        assertEq(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
-            feeReceiverCollateralBalanceBefore + expectedFees
-        );
+        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees);
+        vm.prank(owner); // the owner has all the tokens
+        IMinter(minter).redeemPeggedToken(pegged, user, 0);
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + expectedFees);
 
         // we are now in normal (CR=1.5), so check the fee here
         assertLt(
@@ -589,10 +583,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     function _readBeforeActionBalance() private view returns (BeforeActionBalance memory before) {
-        before.feeReceiver = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
-        before.userCollateral = IERC20(deployed.wstETH).balanceOf(user.addr);
-        before.userPegged = IERC20(deployed.BaoUSD).balanceOf(user.addr);
-        before.userLeveraged = IERC20(leveragedToken).balanceOf(user.addr);
+        before.feeReceiver = IERC20(deployed.wstETH).balanceOf(feeReceiver);
+        before.userCollateral = IERC20(deployed.wstETH).balanceOf(user);
+        before.userPegged = IERC20(deployed.BaoUSD).balanceOf(user);
+        before.userLeveraged = IERC20(leveragedToken).balanceOf(user);
         before.reservePool = IERC20(deployed.wstETH).balanceOf(reservePool);
     }
 
@@ -609,7 +603,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         uint iTotalRedeem,
         uint step
     ) private returns (uint256 peggedRedeemed, uint256 collateralReturned, uint256 fee, uint256 reserveCollateralUsed) {
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         (, peggedRedeemed, collateralReturned, fee, reserveCollateralUsed, ) = IMinter(minter).redeemPeggedTokenDryRun(
             iTotalRedeem * price
         );
@@ -619,17 +613,17 @@ contract TestMinterFees is TestMinterFeeSetUp {
             Total memory one;
             (, one.peggedRedeemed, one.collateralReturned, one.fee, one.reserveCollateralUsed, ) = IMinter(minter)
                 .redeemPeggedTokenDryRun(price);
-            vm.prank(user.addr);
-            IMinter(minter).redeemPeggedToken(price, user.addr, 0);
+            vm.prank(user);
+            IMinter(minter).redeemPeggedToken(price, user, 0);
             // ---------------------------------------------------
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - before.feeReceiver,
+                IERC20(deployed.wstETH).balanceOf(feeReceiver) - before.feeReceiver,
                 one.fee,
                 0,
                 string.concat("fee calc in ", Useful.toString(i), "th iteration in step ", Useful.toString(step))
             );
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(user.addr) - before.userCollateral,
+                IERC20(deployed.wstETH).balanceOf(user) - before.userCollateral,
                 one.collateralReturned,
                 0,
                 string.concat(
@@ -640,7 +634,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 )
             );
             assertApproxEqAbs(
-                before.userPegged - IERC20(deployed.BaoUSD).balanceOf(user.addr),
+                before.userPegged - IERC20(deployed.BaoUSD).balanceOf(user),
                 one.peggedRedeemed,
                 0,
                 string.concat(
@@ -662,19 +656,19 @@ contract TestMinterFees is TestMinterFeeSetUp {
             );
         }
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeAll.feeReceiver,
+            IERC20(deployed.wstETH).balanceOf(feeReceiver) - beforeAll.feeReceiver,
             fee,
             0,
             string.concat("fee calc in step ", Useful.toString(step))
         );
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(user.addr) - beforeAll.userCollateral,
+            IERC20(deployed.wstETH).balanceOf(user) - beforeAll.userCollateral,
             collateralReturned,
             0,
             string.concat("collateral returned calc in step", Useful.toString(step))
         );
         assertApproxEqAbs(
-            beforeAll.userPegged - IERC20(deployed.BaoUSD).balanceOf(user.addr),
+            beforeAll.userPegged - IERC20(deployed.BaoUSD).balanceOf(user),
             peggedRedeemed,
             0,
             string.concat("pegged redeemed calc in step ", Useful.toString(step))
@@ -689,14 +683,14 @@ contract TestMinterFees is TestMinterFeeSetUp {
     function _checkRedeemPeggedFeesIntegralList() private {
         // ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
         // critical CRs = 105% (big bonus 75), 115% (small bonus 25), 150% (danger, 60), -> 80
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(100 ether, 4 ether); // CR = 104/100 = 104%, bonus
         assertGt(
             initial(config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds),
             IMinter(minter).collateralRatio(),
             "test must start with CR bonus"
         );
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
         // TODO: do a check where they land on the boundaried exactly
         // check fees:
@@ -733,8 +727,8 @@ contract TestMinterFees is TestMinterFeeSetUp {
         }
 
         // TODO: also check for minter balances reducing
-        deal(address(deployed.BaoUSD), user.addr, IMinter(minter).peggedTokenBalance());
-        vm.prank(user.addr);
+        deal(address(deployed.BaoUSD), user, IMinter(minter).peggedTokenBalance());
+        vm.prank(user);
         IERC20(deployed.BaoUSD).approve(minter, type(uint256).max);
 
         BeforeActionBalance memory before = _readBeforeActionBalance();
@@ -759,19 +753,19 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 string.concat("step ", Useful.toString(i + 1), ", calculated fee")
             );
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+                IERC20(deployed.wstETH).balanceOf(feeReceiver),
                 total.fee,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual fee")
             );
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(user.addr) - before.userCollateral,
+                IERC20(deployed.wstETH).balanceOf(user) - before.userCollateral,
                 total.collateralReturned,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual returned")
             );
             assertApproxEqAbs(
-                IERC20(deployed.BaoUSD).balanceOf(user.addr),
+                IERC20(deployed.BaoUSD).balanceOf(user),
                 before.userPegged - total.peggedRedeemed,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual redemption")
@@ -796,21 +790,21 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     function test_redeemPeggedFeesAreIntegralsBoundary() public {
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 4 ether); // CR = 14/10 = 140%
 
-        deal(address(deployed.BaoUSD), user.addr, IMinter(minter).peggedTokenBalance());
-        vm.startPrank(user.addr);
+        deal(address(deployed.BaoUSD), user, IMinter(minter).peggedTokenBalance());
+        vm.startPrank(user);
         IERC20(deployed.BaoUSD).approve(minter, type(uint256).max);
 
         uint lots = 3;
         (, , , uint256 totalFeeExpected, , ) = IMinter(minter).redeemPeggedTokenDryRun(lots * price);
 
         for (uint i = 0; i < lots; i++) {
-            IMinter(minter).redeemPeggedToken(price, user.addr, 0);
+            IMinter(minter).redeemPeggedToken(price, user, 0);
         }
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+            IERC20(deployed.wstETH).balanceOf(feeReceiver),
             uint256(totalFeeExpected),
             0,
             "test total fee"
@@ -825,37 +819,37 @@ contract TestMinterFees is TestMinterFeeSetUp {
     ) private returns (int256 totalFee) {
         // bool log = true; // step == 6;
         // console.log("_checkRedeemLeveragedIntegral(%s, %s)", iTotalRedeem, step);
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         // console.log("------------------------------------------");
         (, , , uint256 fee, uint256 discount, ) = IMinter(minter).redeemLeveragedTokenDryRun(iTotalRedeem * price);
         // if (log) clog("  incentiveRatio", incentiveRatio);
         totalFee = int256(fee) - int256(discount);
         // if (log) clog("  expected fees", totalFee);
-        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+        uint256 start = IERC20(deployed.wstETH).balanceOf(feeReceiver);
         // if (log) console.log("  starting fees=%s", start);
         for (uint i = 0; i < iTotalRedeem; i++) {
             // console.log("    step %s redeem %s of %s", step, i + 1, iTotalRedeem);
-            uint256 beforeRedeem = IERC20(deployed.wstETH).balanceOf(feeReceiver.addr);
+            uint256 beforeRedeem = IERC20(deployed.wstETH).balanceOf(feeReceiver);
             (, , , fee, discount, ) = IMinter(minter).redeemLeveragedTokenDryRun(price);
             // console.log("fee=%s", fee);
             // console.log("discount=%s", discount);
             // int256 expected = int256(fee) - int256(discount);
-            vm.prank(user.addr);
-            IMinter(minter).redeemLeveragedToken(price, user.addr, 0);
-            // if (log) clog("    fees this redeem", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeRedeem);
+            vm.prank(user);
+            IMinter(minter).redeemLeveragedToken(price, user, 0);
+            // if (log) clog("    fees this redeem", IERC20(deployed.wstETH).balanceOf(feeReceiver) - beforeRedeem);
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - beforeRedeem,
+                IERC20(deployed.wstETH).balanceOf(feeReceiver) - beforeRedeem,
                 fee,
                 2,
                 string.concat(Useful.toString(i), "th iteration in step ", Useful.toString(step))
             );
             // if (log)
-            //     clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+            //     clog("    extra fees received so far", IERC20(deployed.wstETH).balanceOf(feeReceiver) - start);
         }
-        // if (log) clog(" actual fees  ", IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start);
+        // if (log) clog(" actual fees  ", IERC20(deployed.wstETH).balanceOf(feeReceiver) - start);
         // clog(" all (pre-calc'd) ", totalFee);
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver.addr) - start,
+            IERC20(deployed.wstETH).balanceOf(feeReceiver) - start,
             uint256(SignedMath.max(totalFee, 0)), // ignore bonuses here for now
             // TODO: do another loop like this for bonuses
             tolerance,
@@ -866,14 +860,14 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
     function test_redeemLeveragedFeesAreIntegrals() public {
         // ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
-        uint256 price = priceOracle.latestAnswer();
+        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(40 ether, 20 ether); // CR = 60/40 = 150%, normal
         assertLt(
             ultimate(config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds),
             IMinter(minter).collateralRatio(),
             "test must start with CR nromal ml"
         );
-        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver.addr), 0, "no fees so far");
+        assertEq(IERC20(deployed.wstETH).balanceOf(feeReceiver), 0, "no fees so far");
 
         // check fees:
         uint[5] memory redeemStep = [
@@ -901,8 +895,8 @@ contract TestMinterFees is TestMinterFeeSetUp {
             );
         }
 
-        deal(leveragedToken, user.addr, IMinter(minter).leveragedTokenBalance());
-        vm.prank(user.addr);
+        deal(leveragedToken, user, IMinter(minter).leveragedTokenBalance());
+        vm.prank(user);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
 
         int256 totalFee = 0;
@@ -918,7 +912,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             );
             assertEq(uint256(SignedMath.max(0, totalFee)), totalFees[i]);
             assertApproxEqAbs(
-                IERC20(deployed.wstETH).balanceOf(feeReceiver.addr),
+                IERC20(deployed.wstETH).balanceOf(feeReceiver),
                 totalFees[i],
                 0,
                 string.concat("step ", Useful.toString(step))
@@ -961,7 +955,7 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
 
     function test_leveraged() public {
         // go depegged
-        priceOracle.setLatestAnswer(500 ether);
+        MockPriceOracle(priceOracle).setLatestAnswer(500 ether);
         vm.expectRevert(IMinter.ActionPaused.selector);
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
@@ -969,7 +963,7 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
 
         // actually re-pegged but on the border where there be zero divides
-        priceOracle.setLatestAnswer(1000 ether);
+        MockPriceOracle(priceOracle).setLatestAnswer(1000 ether);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
