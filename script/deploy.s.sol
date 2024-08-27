@@ -16,6 +16,7 @@ import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import "test/deployed.sol";
 import { Array } from "test/Array.sol";
+import "test/Useful.sol";
 
 // functions are called in this sequence
 // 1) Deploy*
@@ -92,9 +93,28 @@ library Deploy {
 
 /// @notice A list of named addresses
 contract Network is Script {
+    uint public privateKey;
+    address private addr;
+
     constructor() {
         string memory network = vm.envString("NETWORK");
+        if (keccak256(abi.encodePacked(network)) == keccak256(abi.encodePacked("local:test"))) {
+            console2.log("using the first default wallet for deploying");
+            privateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+            addr = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+            network = "local";
+        } else {
+            privateKey = vm.envUint("PRIVATE_KEY");
+            addr = vm.addr(privateKey);
+        }
         vm.createSelectFork(network);
+        console2.log("deployer ETH balance=%s", Useful.toStringScaled(addr.balance, 18));
+    }
+
+    modifier wallet() {
+        vm.startBroadcast(privateKey);
+        _;
+        vm.stopBroadcast();
     }
 }
 
@@ -108,7 +128,7 @@ contract Network is Script {
 // $ NETWORK=<mainnet or sepolia> yarn script script/deploy.s.sol:DeployLeveraged --sig "run(string memory pegged, string memory collateral)" "BaoUSD" "wstETH" --broadcast --verify
 contract DeployLeveraged is Network {
     function run(string memory pegged, string memory collateral) public {
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(privateKey);
         Deploy.leveragedToken(pegged, collateral);
         vm.stopBroadcast();
     }
@@ -119,7 +139,7 @@ contract DeployLeveraged is Network {
 // for running in prod leave off the --broadcast and look into the log file for the transactions
 contract UpgradeLeveraged is Network {
     function runDev(address proxy, address implementation) external {
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(privateKey);
 
         // all we are doing here is changing the proxy's implememtation pointer
         // and calling a reinitialize function
@@ -140,7 +160,7 @@ contract UpgradeLeveraged is Network {
 
 contract DeployReservePool is Network {
     function run() public {
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(privateKey);
         Deploy.reservePool();
         vm.stopBroadcast();
     }
@@ -151,7 +171,7 @@ contract DeployReservePool is Network {
 // ---------------
 contract DeployTokenDistributor is Network {
     function run(string memory name) internal {
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(privateKey);
         Deploy.tokenDistributor(name);
         vm.stopBroadcast();
     }
@@ -172,7 +192,7 @@ contract DeployFeeDistributor is DeployTokenDistributor {
 // for running in prod leave off the --broadcast and look into the log file for the transactions
 contract UpgradeUpgradeFeeDistributor is Network {
     function run(address proxy, address implementation) external {
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(privateKey);
         // all we are doing here is changing the proxy's implememtation pointer
         // and calling a reinitialize function
         UnsafeUpgrades.upgradeProxy(
@@ -197,7 +217,7 @@ contract DeployMinter is Network, Array {
     function _percentToEther(uint amount) private pure returns (uint256) {
         return (amount * 1 ether) / 100;
     }
-
+    // TODO: import this from test
     function _etherToBasisPoint(int256 amount) private pure returns (int) {
         return (amount * 10000) / 1 ether;
     }
@@ -220,7 +240,7 @@ contract DeployMinter is Network, Array {
     }
 
     function run() public {
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(privateKey);
 
         Minter_v1.BalanceTokens memory tokens;
         tokens.peggedToken = deployed.BaoUSD;
@@ -230,6 +250,7 @@ contract DeployMinter is Network, Array {
         int disallow = 10000;
         IMinter.Config memory config;
         config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
+        config.harvestCollateralRatioLowerBound = _percentToEther(250);
         config.mintPeggedIncentiveConfig = ic(ua(130, 140), ia(disallow, 100, 50));
         config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
         config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
@@ -256,7 +277,7 @@ contract PrepareUpgrade is Network {
         opts.referenceContract = string.concat(contractBase, "_", oldVersion, ".sol:", contractBase, "_", newVersion);
         console.log("referenceContract=%s", opts.referenceContract);
 
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        vm.startBroadcast(privateKey);
 
         address newImplementation = Upgrades.prepareUpgrade(string.concat(contractBase, "_", newVersion, ".sol"), opts);
         console2.log("new %s implementation: %s", contractBase, newImplementation);

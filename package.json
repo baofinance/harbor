@@ -14,7 +14,9 @@
     "doc": "forge doc",
     "svg": "cd results && find . -name \"*.gp\" -exec gnuplot -e \"set output '{}.svg'\" {} \\;",
     "png": "cd results && find . -name \"*.svg\" -exec convert {} {}.png \\;",
-    "deploy:local": "NETWORK=local forge script --force --ffi script/deploy.s.sol:DeployMinter --broadcast --slow"
+    "deploy": "forge script --force --ffi script/deploy.s.sol:DeployMinter --broadcast --slow",
+    "deploy:local": "NETWORK=local yarn deploy",
+    "deploy:local:test": "NETWORK=local:test yarn deploy"
   },
   "dependencies": {
     "prettier": "^3.2.5",

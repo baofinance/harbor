@@ -449,10 +449,12 @@ contract TestMinterBasics is TestMinterSetUp {
         IMinter.IncentiveConfig memory mintPegged,
         IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemPegged,
-        IMinter.IncentiveConfig memory redeemLeveraged
+        IMinter.IncentiveConfig memory redeemLeveraged,
+        bytes memory revertSelector
     ) private {
         setUpConfig(rebalance, harvest, mintPegged, mintLeveraged, redeemPegged, redeemLeveraged);
         vm.prank(owner);
+        if (revertSelector.length != 0) vm.expectRevert(revertSelector);
         IMinter(minter).updateConfig(config);
         IMinter.Config memory readConfig = IMinter(minter).config();
         _assertEqConfig(readConfig, config);
@@ -504,7 +506,8 @@ contract TestMinterBasics is TestMinterSetUp {
             ic(ua(131, 140), ia(disallow, 100, 50)),
             ic(ua(110, 120, 140), ia(-50, 0, 20, 70)),
             ic(ua(110, 120, 140), ia(-50, 0, 60, 80)),
-            ic(ua(110, 140), ia(disallow, 150, 120))
+            ic(ua(110, 140), ia(disallow, 150, 120)),
+            ""
         );
         // now test for other conditions
 
@@ -516,7 +519,8 @@ contract TestMinterBasics is TestMinterSetUp {
             ic(ua(100, 140), ia(0, 20, 70)),
             ic(ua(100), ia(60, 80)),
             // no bounds
-            ic(ua(), ia(120))
+            ic(ua(), ia(120)),
+            ""
         );
 
         _checkConfig(
@@ -527,7 +531,8 @@ contract TestMinterBasics is TestMinterSetUp {
             // max bands
             ic(ua(110, 120, 140, 150, 160), ia(-50, 0, 60, 80, 90, 100)),
             // min bands
-            ic(ua(), ia(120))
+            ic(ua(), ia(120)),
+            ""
         );
 
         // mismatched length, too many bands

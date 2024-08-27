@@ -4,12 +4,12 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 // import {DateUtils} from "DateUtils/DateUtils.sol";
-import { console2 as console } from "forge-std/console2.sol";
+import { console2 } from "forge-std/console2.sol";
 
 // Attribution: string basics stolen from OpenZeppelin
 
 /**
- * contract Clog is a wrapper around console.log that has
+ * contract Clog is a wrapper around console2.log that has
  * automated indentation via into("function/scope/etc") and outof()
  * https://chatgpt.com/share/fd257ec9-95ff-454d-bcb2-58bb11a100cf
  */
@@ -88,11 +88,11 @@ contract Clog {
     }
 
     function _clog(string memory str) private view {
-        if (logging) console.log(string.concat(_indent(), prefix, str));
+        if (logging) console2.log(string.concat(_indent(), prefix, str));
     }
 
     function _clog(string memory name, uint256 value, string memory format) private view {
-        if (logging) console.log(string.concat(_indent(), prefix, name, "=", format), value, value);
+        if (logging) console2.log(string.concat(_indent(), prefix, name, "=", format), value, value);
     }
 
     // TODO: upgrade this to a full int to string coverter
@@ -262,7 +262,7 @@ library Useful {
     bytes1 constant percent = bytes1(uint8(37));
 
     function toUint256(string memory value, uint256 decimals) internal pure returns (uint256 result) {
-        //console.log("toUint256('%s',%d)", value, decimals);
+        //console2.log("toUint256('%s',%d)", value, decimals);
         uint256 length = bytes(value).length;
         uint256 point = length; // if there's none there, it's after all the digits
         uint256 digits = 0;
@@ -281,13 +281,13 @@ library Useful {
                 require(false, "invalid character in numeric string");
             }
         }
-        //console.log("result=%d", result);
-        //console.log("point=%d, - digits=%d, + decimals=%d", point, digits, decimals);
+        //console2.log("result=%d", result);
+        //console2.log("point=%d, - digits=%d, + decimals=%d", point, digits, decimals);
         if ((point + decimals) > digits) {
-            //console.log("* 10 ** %d", ((point + decimals) - digits));
+            //console2.log("* 10 ** %d", ((point + decimals) - digits));
             result = result * 10 ** ((point + decimals) - digits);
         } else if ((point + decimals) < digits) {
-            //console.log("/ 10 ** %d", (digits - (point + decimals)));
+            //console2.log("/ 10 ** %d", (digits - (point + decimals)));
             result = result / 10 ** (digits - (point + decimals));
         }
     }
