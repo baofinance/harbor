@@ -32,7 +32,7 @@
 | permit                                                      | 57640           | 57640  | 57640  | 57640  | 1       |
 | supportsInterface                                           | 500             | 627    | 595    | 887    | 6       |
 | symbol                                                      | 3261            | 3261   | 3261   | 3261   | 65      |
-| totalSupply                                                 | 348             | 1134   | 348    | 2348   | 5564    |
+| totalSupply                                                 | 348             | 1135   | 348    | 2348   | 5567    |
 | transfer                                                    | 2907            | 16445  | 16445  | 29983  | 2       |
 | transferFrom                                                | 3037            | 13856  | 8715   | 35797  | 5       |
 
@@ -40,7 +40,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 5251016                                     | 24168           |        |        |        |         |
+| 5232744                                     | 24083           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | collateralForLeverageTokens                 | 5583            | 5583   | 5583   | 5583   | 7       |
 | collateralRatio                             | 493             | 8935   | 3696   | 20696  | 8477    |
@@ -59,24 +59,24 @@
 | leverageRatio                               | 3668            | 3836   | 3668   | 4118   | 1600    |
 | leverageTokensForCollateral                 | 5398            | 5431   | 5398   | 8964   | 107     |
 | leveragedToken                              | 2490            | 2490   | 2490   | 2490   | 14      |
-| leveragedTokenBalance                       | 1564            | 2064   | 1564   | 12564  | 30      |
+| leveragedTokenBalance                       | 1564            | 2402   | 1564   | 12564  | 31      |
 | leveragedTokenPrice                         | 4991            | 5119   | 4991   | 15991  | 1600    |
-| mintLeveragedToken                          | 3074            | 100668 | 98193  | 145130 | 384     |
+| mintLeveragedToken                          | 3074            | 100517 | 98193  | 145130 | 385     |
 | mintLeveragedTokenDryRun                    | 12948           | 14986  | 14677  | 28031  | 868     |
 | mintLeveragedTokenIncentiveRatio            | 6418            | 7834   | 8232   | 12232  | 602     |
 | mintPeggedToken                             | 3120            | 94203  | 102293 | 126617 | 711     |
 | mintPeggedTokenDryRun                       | 5960            | 7922   | 7655   | 15905  | 1954    |
-| mintPeggedTokenIncentiveRatio               | 5555            | 5842   | 5555   | 10651  | 1602    |
+| mintPeggedTokenIncentiveRatio               | 5555            | 5853   | 5555   | 24811  | 1603    |
 | peggedToken                                 | 2443            | 2443   | 2443   | 2443   | 28      |
 | peggedTokenBalance                          | 484             | 491    | 484    | 2484   | 4636    |
 | peggedTokenPrice                            | 3804            | 3962   | 4059   | 4059   | 1601    |
 | priceOracle                                 | 2447            | 2447   | 2447   | 2447   | 1       |
 | rebalanceCollateralRatio                    | 2419            | 2419   | 2419   | 2419   | 2609    |
-| redeemLeveragedToken                        | 2822            | 90527  | 100854 | 117236 | 284     |
+| redeemLeveragedToken                        | 2822            | 90234  | 100832 | 117214 | 285     |
 | redeemLeveragedTokenDryRun                  | 9182            | 12001  | 11903  | 16092  | 750     |
 | redeemLeveragedTokenIncentiveRatio          | 5583            | 6530   | 6490   | 6679   | 600     |
 | redeemPeggedForCollateralRatio              | 3734            | 4186   | 4187   | 4187   | 1308    |
-| redeemPeggedToken                           | 7326            | 113325 | 113792 | 155398 | 882     |
+| redeemPeggedToken                           | 7326            | 113187 | 113773 | 155379 | 883     |
 | redeemPeggedTokenDryRun                     | 10248           | 11459  | 10331  | 23409  | 2143    |
 | redeemPeggedTokenIncentiveRatio             | 5551            | 6479   | 5551   | 12272  | 1602    |
 | reservePool                                 | 2448            | 2448   | 2448   | 2448   | 1       |

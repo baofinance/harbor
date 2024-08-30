@@ -321,7 +321,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     function collateralRatio() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
         if ($.peggedTokenBalance == 0) {
-            return type(uint256).max; // TODO: consider reverting here
+            return type(uint256).max; // TODO: consider reverting here or returning 1 ether
         } else {
             return
                 _collateralRatio(
@@ -694,9 +694,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         peggedIn = Token.allOf(_msgSender(), peggedToken_, peggedIn);
         peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
-        if (peggedIn == 0) {
-            revert ReturnZeroAmount(collateralToken_);
-        }
+
         uint256 price = _fetchMaxPrice($.priceOracle);
         uint256 fee;
         uint256 extraCollateral;
@@ -807,13 +805,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance(leveragedToken_);
         leveragedIn = _redeemable(leveragedToken_, leveragedIn, leveragedTokenBalance_);
-
-        address collateralToken_ = $.collateralToken;
-        if (leveragedIn == 0) {
-            revert ReturnZeroAmount(collateralToken_);
-        }
         uint256 price = _fetchMinPrice($.priceOracle);
 
+        address collateralToken_ = $.collateralToken;
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
@@ -1945,10 +1939,21 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         return (collateralTokenBalance_ * collateralPrice) <= (peggedTokenBalance_ * 1 ether);
     }
 
-    /// @notice Returns the modified collateral ratio.
+    /// @notice Returns a modified collateral ratio.
+    /// The real collateral ratio (collateral value / pegged value) behaves badly in three ways:
+    /// 1) when the number of pegged tokens drops to 0, collateral ratio becomes infinite
+    /// 2) when nothing has been minted it is undefined then snaps to 1 when either token is minted
+    /// 3) it floors at 1 because below 1, the value of a pegged token is it's proportional share of the collteral.
+    // TODO:
+    /// we solve all three issues by adding 1 to the collateral value and 1 to the pegged token value.
+    /// This gives a very good approximation to the real collateral ratio above 1 and a useful value below 1.
+    /// Its useful because it allows us to create different incentive ratios when the system depegs.
+    /// The collateral ratio when only leveraged tokens have been minted is then just the collateral value.
+    /// The value of a leveraged token is then the same as the value of a collaterla token.
+    /// Unfortunately the value truncates too much returning a lower than real collateral value.
+    /// The solution adopted is to scale the 1 added to the collateral value by the collateral price. This gives a
+    /// better result when the system is pegged.
     /// @dev this is a modified theoretical collateral ratio
-    /// the real collateral ratio never goes below 1 because below 1,
-    /// the value of leverged is zero and the value of pegged is it's proportional share of the collteral
     // TODO: determine if the collateralRatio external function should call this or floor it at 1
     function _collateralRatio(
         uint256 collateralTokenBalance_,

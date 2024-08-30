@@ -51,11 +51,11 @@ contract TestMinterSetUp is Test, Clog, Array {
     bytes32 minterRole = keccak256("MINTER_ROLE");
     bytes32 requesterRole = keccak256("REQUESTER_ROLE");
 
-    function _percentToEther(uint amount) private pure returns (uint256) {
+    function _percentToEther(uint amount) internal pure returns (uint256) {
         return (amount * 1 ether) / 100;
     }
 
-    function _etherToBasisPoint(int256 amount) private pure returns (int) {
+    function _etherToBasisPoint(int256 amount) internal pure returns (int) {
         return (amount * 10000) / 1 ether;
     }
 
@@ -432,7 +432,7 @@ contract TestMinterInit is TestMinterSetUp {
 contract TestMinterBasics is TestMinterSetUp {
     address user;
 
-    function setUp() public override(TestMinterSetUp) {
+    function setUp() public virtual override(TestMinterSetUp) {
         super.setUp();
         user = vm.createWallet("user").addr;
     }
@@ -479,23 +479,31 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
     }
 
-    function test_firstMint() public {
+    function test_firstMintRedeem() public {
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
+
         vm.expectRevert(IMinter.ActionPaused.selector);
         vm.prank(owner);
         IMinter(minter).mintPeggedToken(1 ether, user, 0);
-    }
 
-    function test_incentiveRatios() public {}
+        vm.expectRevert(IMinter.ActionPaused.selector);
+        vm.prank(owner);
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
 
-    function test_freeMint() public {
-        setUp_collateral(10 ether, 10 ether);
-        assertEq(IMinter(minter).collateralRatio(), 2 ether, "collateral ratio");
-        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "pegged token price");
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
+        vm.prank(owner);
+        IMinter(minter).redeemPeggedToken(1 ether, user, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
+        vm.prank(owner);
+        IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
     }
 
     function test_config() public {
         int256 incentivePrecision = 10 ** 9;
+
+        // TODO: read config from files - same for deploy script
 
         IMinter.Config memory readConfig = IMinter(minter).config();
         _assertEqConfig(readConfig, config); // check the default setup
@@ -735,6 +743,18 @@ contract TestMinterBasics is TestMinterSetUp {
         //                 revert InvalidIncentiveRatioValue();  min -1
     }
 
+    function test_incentiveRatios() public {
+        int256 instantaneousIr = IMinter(minter).mintPeggedTokenIncentiveRatio();
+        (int256 ir, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
+        assertEq(instantaneousIr, ir, "mint pegged ir");
+    }
+
+    function test_freeMint() public {
+        setUp_collateral(10 ether, 10 ether);
+        assertEq(IMinter(minter).collateralRatio(), 2 ether, "collateral ratio");
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "pegged token price");
+    }
+
     // function test_leverageRatio() public {
 
     // }
@@ -762,5 +782,16 @@ contract TestMinterDeploy is TestMinterBasics {
 
         reservePool = 0xeFF559d8537DA3e0C1292751266F280C0941C6D8;
         minter = 0x82dcC46336e06F4921EfC46ee6A177456012C59A;
+    }
+
+    function setUp() public override {
+        super.setUp();
+        // override the config set up as it is in the deploy script
+        config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
+        config.harvestCollateralRatioLowerBound = _percentToEther(250);
+        config.mintPeggedIncentiveConfig = ic(ua(131, 140), ia(disallow, 100, 50));
+        config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
+        config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
+        config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
     }
 }
