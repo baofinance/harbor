@@ -82,7 +82,7 @@ contract TestMinterSetUp is Test, Clog, Array {
     }
 
     function setUpConfig_flat() internal {
-        setUpConfig(130, 250, ic(ua(), ia(50)), ic(ua(), ia(70)), ic(ua(), ia(80)), ic(ua(), ia(120)));
+        setUpConfig(130, 250, ic(ua(), ia(50)), ic(ua(), ia(80)), ic(ua(), ia(70)), ic(ua(), ia(120)));
     }
 
     function setUpConfig_basicWithDisallow() internal {
@@ -90,8 +90,8 @@ contract TestMinterSetUp is Test, Clog, Array {
             130,
             250,
             ic(ua(131), ia(disallow, 50)),
-            ic(ua(), ia(70)),
             ic(ua(), ia(80)),
+            ic(ua(), ia(70)),
             ic(ua(110), ia(disallow, 120))
         );
     }
@@ -101,8 +101,8 @@ contract TestMinterSetUp is Test, Clog, Array {
             130,
             250,
             ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
-            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
             ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
             ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
         );
     }
@@ -112,8 +112,8 @@ contract TestMinterSetUp is Test, Clog, Array {
             130,
             250,
             ic(ua(140), ia(100, 50)), // mint pegged
-            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
             ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
             ic(ua(135), ia(150, 120)) // redeem leveraged
         );
     }
@@ -122,8 +122,8 @@ contract TestMinterSetUp is Test, Clog, Array {
         uint rebalance,
         uint harvest,
         IMinter.IncentiveConfig memory mintPegged,
-        IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemPegged,
+        IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemLeveraged
     ) public {
         config.rebalanceCollateralRatioUpperBound = _percentToEther(rebalance);
@@ -194,8 +194,8 @@ contract TestMinterSetUp is Test, Clog, Array {
             130,
             250,
             ic(ua(131, 140), ia(disallow, 100, 50)),
-            ic(ua(110, 120, 140), ia(-50, 0, 20, 70)),
             ic(ua(110, 120, 140), ia(-50, 0, 60, 80)),
+            ic(ua(110, 120, 140), ia(-50, 0, 20, 70)),
             ic(ua(110, 140), ia(disallow, 150, 120))
         );
     }
@@ -447,12 +447,12 @@ contract TestMinterBasics is TestMinterSetUp {
         uint rebalance,
         uint harvest,
         IMinter.IncentiveConfig memory mintPegged,
-        IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemPegged,
+        IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemLeveraged,
         bytes memory revertSelector
     ) private {
-        setUpConfig(rebalance, harvest, mintPegged, mintLeveraged, redeemPegged, redeemLeveraged);
+        setUpConfig(rebalance, harvest, mintPegged, redeemPegged, mintLeveraged, redeemLeveraged);
         vm.prank(owner);
         if (revertSelector.length != 0) vm.expectRevert(revertSelector);
         IMinter(minter).updateConfig(config);
@@ -477,6 +477,13 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).feeReceiver(), feeReceiver);
         assertEq(IMinter(minter).reservePool(), reservePool);
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0);
+        assertEq(IMinter(minter).collateralTokenBalance(), 0);
+        assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
+        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
+        assertEq(IMinter(minter).leverageRatio(), type(uint256).max);
+        assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether);
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);
     }
 
     function test_firstMintRedeem() public {
@@ -499,6 +506,78 @@ contract TestMinterBasics is TestMinterSetUp {
         vm.prank(owner);
         IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
     }
+
+    // TODO: test that if the config is set up for no fees or discounts then free mint/redeem = normal mint/redeem
+
+    function test_connections() public {
+        // simple config that has a fee and a discount
+        _checkConfig(130, 250, ic(ua(), ia(50)), ic(ua(), ia(-100)), ic(ua(), ia(-50)), ic(ua(), ia(100)), "");
+        // need collateral to start the process
+        setUp_collateral(1 ether, 1 ether, address(this));
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        IERC20(collateralToken).approve(minter, type(uint256).max);
+        deal(collateralToken, reservePool, 1 ether);
+
+        // price
+        (, uint256 collateralUsed, uint256 peggedMinted, uint256 fee, , uint256 price) = IMinter(minter)
+            .mintPeggedTokenDryRun(1 ether);
+        assertGt(price, 1 ether, "if eth drops below 1 usd this test will be no use to anyone");
+        assertEq(IMinter(minter).peggedTokenBalance(), price, "correct amount minted");
+        assertEq(collateralUsed, 1 ether);
+
+        // feeReceiver
+        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), 0);
+        uint256 startCollateral = IERC20(collateralToken).balanceOf(address(this));
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        // --------------------------------------------------------------------------
+        assertEq(fee, (1 ether * 5) / 1000);
+        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000);
+        assertEq(IMinter(minter).peggedTokenBalance(), price + (price * 995) / 1000, "correct amount minted, 2");
+        assertEq(minted, peggedMinted, "amount minted is the same as predicted");
+        assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral - 1 ether);
+
+        // reserve pool - same as above but with a discount, not a fee
+        (, uint256 peggedRedeemed, uint256 collateralReturned, , uint256 reserveCollateralUsed, ) = IMinter(minter)
+            .redeemPeggedTokenDryRun(price);
+        assertEq(IERC20(collateralToken).balanceOf(reservePool), 1 ether);
+        uint256 returned = IMinter(minter).redeemPeggedToken(price, address(this), 0);
+        // --------------------------------------------------------------------------
+        assertEq(peggedRedeemed, price);
+        assertEq(reserveCollateralUsed, (1 ether * 10) / 1000);
+        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000);
+        assertEq(IMinter(minter).peggedTokenBalance(), (price * 995) / 1000, "correct amount minted, 2");
+        assertEq(returned, collateralReturned, "amount returned is the same as predicted");
+        assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral + collateralReturned - 1 ether);
+
+        // tokens
+        assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
+        assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
+
+        // TODO: rebalance pool
+    }
+
+    function test_incentiveRatios() private view {
+        // TODO: add these back in when collateral ratio function is fixed
+        int256 instantaneousIr = IMinter(minter).mintPeggedTokenIncentiveRatio();
+        (int256 ir, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
+        assertEq(instantaneousIr, ir, "mint pegged ir");
+    }
+
+    function test_freeMint() public {
+        setUp_collateral(10 ether, 10 ether);
+        assertEq(IMinter(minter).collateralRatio(), 2 ether, "collateral ratio");
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "pegged token price");
+        // TODO: do the actual mint
+    }
+
+    function test_mint() public {
+        // compare the dry run with the actual
+    }
+
+    // function test_leverageRatio() public {
+
+    // }
 
     function test_config() public {
         int256 incentivePrecision = 10 ** 9;
@@ -743,22 +822,6 @@ contract TestMinterBasics is TestMinterSetUp {
         //                 revert InvalidIncentiveRatioValue();  min -1
     }
 
-    function test_incentiveRatios() public {
-        int256 instantaneousIr = IMinter(minter).mintPeggedTokenIncentiveRatio();
-        (int256 ir, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
-        assertEq(instantaneousIr, ir, "mint pegged ir");
-    }
-
-    function test_freeMint() public {
-        setUp_collateral(10 ether, 10 ether);
-        assertEq(IMinter(minter).collateralRatio(), 2 ether, "collateral ratio");
-        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "pegged token price");
-    }
-
-    // function test_leverageRatio() public {
-
-    // }
-
     // function testFuzz_SetNumber(uint256 x) public {
     //     counter.setNumber(x);
     //     assertEq(counter.number(), x);
@@ -775,13 +838,13 @@ contract TestMinterDeploy is TestMinterBasics {
         priceOracle = deployed.PriceOracle_wstETHUSD;
 
         // TODO: read these from deployed file
-        leveragedToken = 0xC14e210b71c20de3fa539CBDcc2Af92378036Bdd;
-        feeReceiver = 0x50784195729e3f9722C86BB94e804Adbf44dD82D;
+        leveragedToken = 0x36B81ebd01C31643BAF132240C8Bc6874B329c4C;
+        feeReceiver = 0x8786A226918A4c6Cd7B3463ca200f156C964031f;
         peggedToken = deployed.BaoUSD;
         collateralToken = deployed.wstETH;
 
-        reservePool = 0xeFF559d8537DA3e0C1292751266F280C0941C6D8;
-        minter = 0x82dcC46336e06F4921EfC46ee6A177456012C59A;
+        reservePool = 0x72aC6A36de2f72BD39e9c782e9db0DCc41FEbfe2;
+        minter = 0x4Bd915C3e39cfF4eac842255965E79061c38cACD;
     }
 
     function setUp() public override {

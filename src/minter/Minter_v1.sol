@@ -306,8 +306,8 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         config_.rebalanceCollateralRatioUpperBound = $.rebalanceCollateralRatioUpperBound;
         config_.harvestCollateralRatioLowerBound = $.harvestCollateralRatioLowerBound;
         config_.mintPeggedIncentiveConfig = _copyBandsBack($.mintPeggedIncentiveConfig);
-        config_.mintLeveragedIncentiveConfig = _copyBandsBack($.mintLeveragedIncentiveConfig);
         config_.redeemPeggedIncentiveConfig = _copyBandsBack($.redeemPeggedIncentiveConfig);
+        config_.mintLeveragedIncentiveConfig = _copyBandsBack($.mintLeveragedIncentiveConfig);
         config_.redeemLeveragedIncentiveConfig = _copyBandsBack($.redeemLeveragedIncentiveConfig);
     }
 
@@ -1976,9 +1976,11 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     ) private pure returns (uint256 ratio) {
         if (_isNearlyDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
             // under collateral, assume infinite leverage
-            // TODO: max leverage ratio (Aladdin use 100e18)
+            // TODO: max leverage ratio (Aladdin use 100e18)?
             ratio = type(uint256).max;
         } else {
+            // TODO: modify the equation so it doesn't go infinite if there is no collateral
+            // TODO: rearrange the equation below so it doesn't divide twice
             ratio =
                 (1 ether * 1 ether) /
                 (1 ether - (peggedTokenBalance_ * 1 ether * 1 ether) / (collateralTokenBalance_ * collateralPrice));

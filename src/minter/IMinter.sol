@@ -51,10 +51,10 @@ interface IMinter {
         uint256 harvestCollateralRatioLowerBound; // above this harvesting of collateral can begin.
         // bonus/fees
         IncentiveConfig mintPeggedIncentiveConfig;
+        IncentiveConfig redeemPeggedIncentiveConfig;
         // leverage tokens have their own intrinsic value in that they increase in leverage the lower the collateral
         // ratio, so there is a convenient intrinsic incentive to mint at low collateral ratios
         IncentiveConfig mintLeveragedIncentiveConfig;
-        IncentiveConfig redeemPeggedIncentiveConfig;
         IncentiveConfig redeemLeveragedIncentiveConfig;
     }
 
