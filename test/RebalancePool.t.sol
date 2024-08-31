@@ -56,6 +56,7 @@ contract TestRebalancePoolSetUp is TestMinterFeeSetUp {
         assertEq(IRebalancePool(rp).liquidationToken(), liquidateTo);
         assertEq(IRebalancePool(rp).minter(), minter);
         assertEq(IRebalancePool(rp).totalAssetSupply(), 0);
+        assertEq(IRebalancePool(rp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
     }
 }
 
@@ -85,7 +86,7 @@ contract TestRebalancePoolInitEvents is TestRebalancePoolSetUp {
 
     function test_initEvents(address rp, address liquidateTo) internal {
         vm.expectEmit();
-        emit IERC1967.Upgraded(address(rp)); // we don't know the address right now
+        emit IERC1967.Upgraded(address(rp));
         vm.expectEmit();
         emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
         vm.expectEmit();

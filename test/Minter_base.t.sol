@@ -366,7 +366,7 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
         vm.expectEmit(false, false, false, false);
-        emit IERC1967.Upgraded(address(0)); // we don't know the address right now
+        emit IERC1967.Upgraded(address(0)); // TODO: we don't know the address right now
         vm.expectEmit();
         emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
         vm.expectEmit();

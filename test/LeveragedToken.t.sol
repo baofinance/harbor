@@ -22,7 +22,7 @@ import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { deployedSepolia } from "test/deployed.sol";
 
-contract Test_LeveragedToken is Test {
+contract TestLeveragedToken is Test {
     using ECDSA for bytes32;
     string name = "Leveraged wstETH against BaoUSD";
     string symbol = "BaoUSDLwstETH";
@@ -76,7 +76,7 @@ contract Test_LeveragedToken is Test {
         vm.expectEmit(false, false, false, true);
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
         vm.expectEmit(false, false, false, false);
-        emit IERC1967.Upgraded(address(0)); // we don't know the address right now
+        emit IERC1967.Upgraded(address(0)); // TODO: we don't know the address right now
         vm.expectEmit(true, true, true, false);
         emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
         vm.expectEmit(false, false, false, true);
@@ -319,7 +319,7 @@ contract Test_LeveragedToken_badDeploy is Test {
     }
 }
 
-contract Test_LeveragedToken_sepolia is Test_LeveragedToken {
+contract TestLeveragedToken_sepolia is TestLeveragedToken {
     function setUpFork() public override {
         vm.createSelectFork(vm.rpcUrl("sepolia"), deployedSepolia.blockNumber); // pin to a block for speed (1-July-2024, proxy update block)
     }

@@ -39,11 +39,6 @@ interface IRebalancePool {
     /// @param newWrapper The address of current reward wrapper.
     event UpdateWrapper(address indexed oldWrapper, address indexed newWrapper);
 
-    /// @notice Emitted when the liquidatable collateral ratio is updated.
-    /// @param oldRatio The previous liquidatable collateral ratio.
-    /// @param newRatio The current liquidatable collateral ratio.
-    event UpdateLiquidatableCollateralRatio(uint256 oldRatio, uint256 newRatio);
-
     /**********
      * Errors *
      **********/
@@ -79,13 +74,23 @@ interface IRebalancePool {
      * Public View Functions *
      *************************/
 
+    /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
     function minter() external view returns (address);
+
+    /// @notice Return the liquidatable collateral ratio.
+    function liquidatableCollateralRatio() external view returns (uint256);
+
+    /// @notice Return the address of token the asset token is liquidated to when needed and requested.
+    function liquidationToken() external view returns (address);
 
     /// @notice Return the address of underlying token of this contract.
     function assetToken() external view returns (address);
 
     /// @notice Return the total amount of asset deposited to this contract.
     function totalAssetSupply() external view returns (uint256);
+
+    /// @notice Return the hiostorical total asset deposited to this contract.
+    function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
 
     /// @notice Return the amount of deposited asset for some specific user.
     /// @param account The address of user to query.
@@ -95,8 +100,8 @@ interface IRebalancePool {
     /// @param account The address of user to query, multiplied by 1e18.
     function getBoostRatio(address account) external view returns (uint256);
 
-    /// @notice Return the address of token the asset token is liquidated to when needed and requested.
-    function liquidationToken() external view returns (address);
+    /// @notice Error trackers for the error correction in the loss calculation.
+    function lastAssetLossError() external view returns (uint256);
 
     /****************************
      * Public Mutator Functions *

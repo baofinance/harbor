@@ -114,11 +114,11 @@ contract RebalancePool_v1 is
     /// @custom:storage-location erc7201:bao.storage.RebalancePool
     struct RebalancePoolStorage {
         /// @notice The address of Voting Escrow FXN.
-        address ve;
+        // address ve;
         /// @notice The address of VotingEscrowHelper contract.
         // address veHelper; TODO: add back in (here and elsewhere) when we know how to integrate it
         /// @notice The gauge struct.
-        Gauge gauge;
+        // Gauge gauge;
         /// @notice The minter contract this rebalance pool operates for
         address minter;
         /// @inheritdoc IRebalancePool
@@ -128,17 +128,13 @@ contract RebalancePool_v1 is
         address assetToken;
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalSupply;
-        /// @dev Mapping account address to TokenBalance struct.
+        /// @dev Mapping account address to TokenBalance struct. Accesses via assetBalanceOf
         mapping(address => TokenBalance) balances;
-        /// @notice The number of total supply history.
-        //uint256 numTotalSupplyHistory;
         /// @notice Mapping from index to history totalSupply.
         /// If there are multiple updates at the same timestamp, only the last one will be recorded.
         TokenBalance[] totalSupplyHistory;
-        /// @notice The maximum collateral ratio to call liquidate.
-        uint256 liquidatableCollateralRatio;
         /// @notice The address of token wrapper for liquidated base token;
-        address wrapper;
+        // address wrapper;
         /// @notice Error trackers for the error correction in the loss calculation.
         uint256 lastAssetLossError;
         /// @notice Mapping from account address to index in `totalSupplyHistory`.
@@ -225,26 +221,42 @@ contract RebalancePool_v1 is
      * Public View Functions *
      *************************/
 
-    // TODO: check all access functions have been added below
-    function assetToken() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.assetToken;
-    }
-
+    /// @inheritdoc IRebalancePool
     function minter() external view returns (address) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         return $.minter;
     }
 
-    function getStakerVoteOwner(address account) external view returns (address) {
+    /// @inheritdoc IRebalancePool
+    function liquidatableCollateralRatio() public view returns (uint256) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.getStakerVoteOwner[account];
+        return IMinter($.minter).rebalanceCollateralRatio();
+    }
+
+    /// @inheritdoc IRebalancePool
+    function liquidationToken() external view returns (address) {
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        return $.liquidationToken;
+    }
+
+    /// @inheritdoc IRebalancePool
+    function assetToken() external view returns (address) {
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        return $.assetToken;
     }
 
     /// @inheritdoc IRebalancePool
     function totalAssetSupply() external view returns (uint256) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         return $.totalSupply.amount;
+    }
+
+    /// @inheritdoc IRebalancePool
+    function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        TokenBalance memory record = $.totalSupplyHistory[index];
+        atDay = record.updatedAt;
+        amount = record.amount;
     }
 
     /// @inheritdoc IRebalancePool
@@ -260,9 +272,15 @@ contract RebalancePool_v1 is
     }
 
     /// @inheritdoc IRebalancePool
-    function liquidationToken() external view returns (address) {
+    function getStakerVoteOwner(address account) external view returns (address) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.liquidationToken;
+        return $.getStakerVoteOwner[account];
+    }
+
+    /// @inheritdoc IRebalancePool
+    function lastAssetLossError() external view returns (uint256) {
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        return $.lastAssetLossError;
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
@@ -502,16 +520,6 @@ contract RebalancePool_v1 is
         emit UpdateWrapper(oldWrapper, newWrapper);
     }
     */
-
-    /// @notice Update the collateral ratio line for liquidation.
-    /// @param newRatio The new liquidatable collateral ratio.
-    function updateLiquidatableCollateralRatio(uint256 newRatio) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        uint256 oldRatio = $.liquidatableCollateralRatio;
-        $.liquidatableCollateralRatio = newRatio;
-
-        emit UpdateLiquidatableCollateralRatio(oldRatio, newRatio);
-    }
 
     /**********************
      * Internal Functions *
