@@ -172,12 +172,11 @@ contract RebalancePool_v1 is
         address liquidationToken_
     )
         external
-        /*
-        address gauge,
-        address fxn_,
-        address curveTokenMinter,
-        address ve_*/
-        //address veHelper_
+        // address gauge,
+        // address fxn_,
+        // address curveTokenMinter,
+        // address ve_,
+        // address veHelper_
         initializer
     {
         __UUPSUpgradeable_init();
@@ -193,17 +192,17 @@ contract RebalancePool_v1 is
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
 
-        $.minter = minter_;
-        $.assetToken = IMinter(minter_).peggedToken();
-
-        $.liquidationToken = liquidationToken_;
         if (liquidationToken_ == IMinter(minter_).collateralToken()) {
             $.liquidationTokenIsCollateral = true;
         } else if (liquidationToken_ == IMinter(minter_).leveragedToken()) {
             $.liquidationTokenIsCollateral = false;
         } else {
-            revert LiquidationTokenMustBeCollateralOrLeveraged(liquidationToken_);
+            revert InvalidLiquidationToken(liquidationToken_);
         }
+
+        $.minter = minter_;
+        $.assetToken = IMinter(minter_).peggedToken();
+        $.liquidationToken = liquidationToken_;
 
         // TODO: what purpose does the wrapper give.
         // I'm guessing that this contract wraps because it keeps a track of shares
@@ -226,7 +225,7 @@ contract RebalancePool_v1 is
      * Public View Functions *
      *************************/
 
-    // TODO: access functions below
+    // TODO: check all access functions have been added below
     function assetToken() external view returns (address) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         return $.assetToken;
@@ -258,6 +257,12 @@ contract RebalancePool_v1 is
     /// @inheritdoc IRebalancePool
     function getBoostRatio(address account) public view returns (uint256) {
         return _getBoostRatio(account);
+    }
+
+    /// @inheritdoc IRebalancePool
+    function liquidationToken() external view returns (address) {
+        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        return $.liquidationToken;
     }
 
     /// @inheritdoc IMultipleRewardAccumulator

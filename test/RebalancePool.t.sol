@@ -49,32 +49,71 @@ contract TestRebalancePoolSetUp is TestMinterFeeSetUp {
         vm.prank(user2);
         IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
     }
+
+    function test_init(address rp, address liquidateTo) internal view {
+        assertTrue(IAccessControl(rp).hasRole(ownerRole, owner));
+        assertEq(IRebalancePool(rp).assetToken(), peggedToken);
+        assertEq(IRebalancePool(rp).liquidationToken(), liquidateTo);
+        assertEq(IRebalancePool(rp).minter(), minter);
+        assertEq(IRebalancePool(rp).totalAssetSupply(), 0);
+    }
 }
 
 contract TestRebalancePoolInit is TestRebalancePoolSetUp {
     using SafeERC20 for IERC20;
 
-    function test_initEvents() public {
+    function test_init() public view {
+        test_init(rebalancePool, collateralToken);
+    }
+}
+
+contract TestRebalancePoolInitEvents is TestRebalancePoolSetUp {
+    address rpCollateral;
+    address rpLeveraged;
+
+    function setUp() public override {
+        TestMinterFeeSetUp.setUp(); // no rebalance pool proxy set up
+        rpCollateral = address(new RebalancePool_v1());
+        rpLeveraged = address(new RebalancePool_v1());
+    }
+
+    function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        vm.expectEmit(false, false, false, false);
-        emit IERC1967.Upgraded(address(0)); // we don't know the address right now
+        address(new RebalancePool_v1());
+    }
+
+    function test_initEvents(address rp, address liquidateTo) internal {
+        vm.expectEmit();
+        emit IERC1967.Upgraded(address(rp)); // we don't know the address right now
         vm.expectEmit();
         emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 
-        UnsafeUpgrades.deployUUPSProxy(
-            address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter, collateralToken))
+        address rpProxy = UnsafeUpgrades.deployUUPSProxy(
+            rp, // "RebalancePool_v1.sol",
+            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter, liquidateTo))
         );
+
+        test_init(rpProxy, liquidateTo);
     }
 
-    function test_init() public view {
-        assertTrue(IAccessControl(rebalancePool).hasRole(ownerRole, owner));
-        assertEq(IRebalancePool(rebalancePool).assetToken(), peggedToken);
-        assertEq(IRebalancePool(rebalancePool).minter(), minter);
-        assertEq(IRebalancePool(rebalancePool).totalAssetSupply(), 0);
+    function test_initEventsCollateral() public {
+        test_initEvents(rpCollateral, collateralToken);
+    }
+
+    function test_initEventsLeveraged() public {
+        test_initEvents(rpLeveraged, leveragedToken);
+    }
+
+    function test_initEventsBad() public {
+        address rp = address(new RebalancePool_v1());
+        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.InvalidLiquidationToken.selector, peggedToken));
+        UnsafeUpgrades.deployUUPSProxy(
+            rp, // "RebalancePool_v1.sol",
+            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter, peggedToken))
+        );
     }
 }
 

@@ -73,7 +73,7 @@ interface IRebalancePool {
     error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
 
     // @dev Thrown when initiaising with an invalid liquidation token
-    error LiquidationTokenMustBeCollateralOrLeveraged(address token);
+    error InvalidLiquidationToken(address token);
 
     /*************************
      * Public View Functions *
@@ -94,6 +94,9 @@ interface IRebalancePool {
     /// @notice Return the current boost ratio for some specific user.
     /// @param account The address of user to query, multiplied by 1e18.
     function getBoostRatio(address account) external view returns (uint256);
+
+    /// @notice Return the address of token the asset token is liquidated to when needed and requested.
+    function liquidationToken() external view returns (address);
 
     /****************************
      * Public Mutator Functions *

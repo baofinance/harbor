@@ -382,6 +382,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 forLeveragedTokens
     ) external view override returns (uint256 collateral) {
         MinterStorage storage $ = _getMinterStorage();
+        // TODO: add check for being depegged here and remove it from the below function
         collateral = _collateralForLeveragedTokens(
             forLeveragedTokens,
             _leveragedTokenBalance($.leveragedToken),
@@ -955,6 +956,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
         uint256 price = _fetchMinPrice($.priceOracle);
 
         address collateralToken_ = $.collateralToken;
+        // TODO: add check for depegged here as we'll remove it from below
         collateralOut = _collateralForLeveragedTokens(
             leveragedIn,
             leveragedTokenBalance_,
@@ -1895,6 +1897,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyG
     /// @param collateralPrice The price of collateral in terms of pegged token underlying.
     /// @return collateral The amount of collateral `forLeveraged` leveraged tokens are worth.
 
+    // TODO: whereever there is a collateral balance and price passed, pass the product instead.
     function _collateralForLeveragedTokens(
         uint256 forLeveraged,
         uint256 leveragedTokenBalance_,
