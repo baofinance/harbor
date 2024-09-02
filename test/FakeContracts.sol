@@ -27,7 +27,7 @@ contract FakeInitializable is Initializable {
 
 contract FakeBaoAccessControl is BaoAccessControl {
     function initialize(address owner) external {
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
     }
 }
 

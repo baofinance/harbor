@@ -55,7 +55,7 @@ contract Liquidator_v1 is
         address rewardToken,
         uint256 rewardAmount
     ) public initializer {
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
         __UUPSUpgradeable_init();
 
         if (!BaoAccessControl(rebalancePool).hasRole(LIQUIDATOR_ROLE, address(this)))

@@ -1,8 +1,9 @@
 | Contract                    | Size (B) | Margin (B) |
 |-----------------------------|----------|------------|
-| Genesis_v1                  |   16,168 |      8,408 |
-| LeveragedToken_v1           |   18,785 |      5,791 |
-| Minter_v1                   |   38,193 |    -13,617 |
-| RebalancePool_v1            |   48,005 |    -23,429 |
-| ReservePool_v1              |   12,923 |     11,653 |
-| TokenDistributor_v1         |   21,229 |      3,347 |
+| Genesis_v1                  |    8,325 |     16,251 |
+| LeveragedToken_v1           |    9,273 |     15,303 |
+| Liquidator_v1               |    5,696 |     18,880 |
+| Minter_v1                   |   22,194 |      2,382 |
+| RebalancePool_v1            |   24,489 |         87 |
+| ReservePool_v1              |    6,228 |     18,348 |
+| TokenDistributor_v1         |   11,339 |     13,237 |

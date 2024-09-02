@@ -176,7 +176,7 @@ contract RebalancePool_v1 is
         initializer
     {
         __UUPSUpgradeable_init();
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
         __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator
 
         // TODO: pass in a reward manager - whatever that is

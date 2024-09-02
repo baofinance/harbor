@@ -30,7 +30,7 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, IReservePool, TokenOw
     bytes32 public constant REQUESTER_ROLE = keccak256("REQUESTER_ROLE");
 
     function initialize(address owner) public initializer {
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
         __UUPSUpgradeable_init();
         __ERC165_init();
     }

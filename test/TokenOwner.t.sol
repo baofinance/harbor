@@ -24,7 +24,7 @@ import { deployed } from "test/deployed.sol";
 
 contract DerivedTokenOwner is Initializable, TokenOwner {
     function initialize(address owner) public initializer {
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
     }
 }
 

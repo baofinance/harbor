@@ -36,7 +36,7 @@ contract LeveragedToken_v1 is
     /// @param name The name of the ERC20 token
     /// @param symbol The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
     function initialize(address owner, string memory name, string memory symbol) public initializer {
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
         __UUPSUpgradeable_init();
         __ERC20_init(name, symbol);
         __ERC20Permit_init(name);

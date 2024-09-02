@@ -200,7 +200,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
         Config calldata config_
     ) external initializer {
         // initialise all the state variables
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
         __ERC165_init();

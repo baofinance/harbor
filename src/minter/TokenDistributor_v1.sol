@@ -106,7 +106,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     /// @param owner The owner of the contract who is granted Role DEFAULT_ADMIN_ROLE
     /// @param name_ The name given to this distributor.
     function initialize(address owner, string memory name_) public initializer {
-        __AccessControl_init(owner);
+        __BaoAccessControl_init(owner);
         __UUPSUpgradeable_init();
         __ERC165_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();

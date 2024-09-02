@@ -168,8 +168,8 @@ contract Deploy is Network, Array {
         address minter = DeployLib.minter(tokens, priceOracle, feeReceiver, reservePool, config);
         log("minter", minter);
 
-        //log("rebalancePoolCollateral", DeployLib.rebalancePool("CollateralToken", minter, tokens.collateralToken));
-        //log("rebalancePoolLeveraged", DeployLib.rebalancePool("LeveragedToken", minter, tokens.leveragedToken));
+        log("rebalancePoolCollateral", DeployLib.rebalancePool("CollateralToken", minter, tokens.collateralToken));
+        log("rebalancePoolLeveraged", DeployLib.rebalancePool("LeveragedToken", minter, tokens.leveragedToken));
 
         end();
     }
