@@ -4,6 +4,9 @@ pragma solidity ^0.8.26;
 import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
 
+import { IMinter } from "src/minter/IMinter.sol";
+import { IRebalancePool } from "src/minter/IRebalancePool.sol";
+
 import { TestMinterBasics, TestMinterSetUp } from "test/Minter_base.t.sol";
 import { deployed } from "test/deployed.sol";
 
@@ -19,8 +22,9 @@ contract TestDeploy is TestMinterBasics {
         addresses = vm.readFile(string.concat("./results/deploy-", network, ".log"));
     }
 
-    function addr(string memory name) private view returns (address) {
-        return vm.parseJsonAddress(addresses, string.concat(".", name)); // jq style path
+    function addr(string memory name) private view returns (address it) {
+        it = vm.parseJsonAddress(addresses, string.concat(".", name)); // jq style path
+        vm.assertNotEq(it, address(0), string.concat("zero address for ", name));
     }
 
     function setUpFork() public override(TestMinterSetUp) {
@@ -34,6 +38,8 @@ contract TestDeploy is TestMinterBasics {
         collateralToken = addr("collateralToken");
         reservePool = addr("reservePool");
         minter = addr("minter");
+        rebalancePoolCollateral = addr("rebalancePoolCollateral");
+        rebalancePoolLeveraged = addr("rebalancePoolLeveraged");
     }
 
     function setUp() public override {
@@ -47,7 +53,16 @@ contract TestDeploy is TestMinterBasics {
         config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
     }
 
-    function test_rebalanceConnections() public pure {
-        assertTrue(true);
+    function _test_rebalanceConnections(address rp, address liquidateTo) private view {
+        assertEq(IRebalancePool(rp).minter(), minter);
+        assertEq(IRebalancePool(rp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
+        assertEq(IRebalancePool(rp).liquidationToken(), liquidateTo);
+        assertEq(IRebalancePool(rp).assetToken(), peggedToken);
+        assertEq(IRebalancePool(rp).totalAssetSupply(), 0);
+    }
+
+    function test_rebalancePool() public view {
+        _test_rebalanceConnections(rebalancePoolLeveraged, leveragedToken);
+        _test_rebalanceConnections(rebalancePoolCollateral, collateralToken);
     }
 }
