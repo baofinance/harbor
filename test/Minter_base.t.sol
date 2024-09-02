@@ -827,34 +827,3 @@ contract TestMinterBasics is TestMinterSetUp {
     //     assertEq(counter.number(), x);
     //}
 }
-
-contract TestMinterDeploy is TestMinterBasics {
-    function setUpFork() public override(TestMinterSetUp) {
-        // TODO: detect whether deployed file exists and whether anvil is running
-        vm.createSelectFork(vm.rpcUrl("local"));
-
-        owner = deployed.BAOMULTISIG;
-
-        priceOracle = deployed.PriceOracle_wstETHUSD;
-
-        // TODO: read these from deployed file
-        leveragedToken = 0x36B81ebd01C31643BAF132240C8Bc6874B329c4C;
-        feeReceiver = 0x8786A226918A4c6Cd7B3463ca200f156C964031f;
-        peggedToken = deployed.BaoUSD;
-        collateralToken = deployed.wstETH;
-
-        reservePool = 0x72aC6A36de2f72BD39e9c782e9db0DCc41FEbfe2;
-        minter = 0x4Bd915C3e39cfF4eac842255965E79061c38cACD;
-    }
-
-    function setUp() public override {
-        super.setUp();
-        // override the config set up as it is in the deploy script
-        config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
-        config.harvestCollateralRatioLowerBound = _percentToEther(250);
-        config.mintPeggedIncentiveConfig = ic(ua(131, 140), ia(disallow, 100, 50));
-        config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
-        config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
-        config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
-    }
-}

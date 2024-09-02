@@ -12,7 +12,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 
-import { AccessControl } from "src/common/AccessControl.sol";
+import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 
 /// @title Bao Minter Leveraged Token
 /// @notice A simple ERC20 token used as the leveraged token for a Bao Minter
@@ -24,7 +24,7 @@ contract LeveragedToken_v1 is
     UUPSUpgradeable,
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
-    AccessControl,
+    BaoAccessControl,
     IMintable,
     IBurnable,
     IBurnableFrom

@@ -14,7 +14,7 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
-import { AccessControl } from "src/common/TokenOwner.sol";
+import { BaoAccessControl } from "src/common/TokenOwner.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
@@ -89,7 +89,7 @@ import "test/clog.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 
-contract Minter_v1 is Initializable, UUPSUpgradeable, AccessControl, ReentrancyGuardTransientUpgradeable, IMinter {
+contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, ReentrancyGuardTransientUpgradeable, IMinter {
     using SafeERC20 for IERC20;
     using WordCodec for bytes32;
 

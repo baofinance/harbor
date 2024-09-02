@@ -13,7 +13,7 @@ import { IMultipleRewardAccumulator } from "src/common/rewards/accumulator/IMult
 import { MultipleRewardCompoundingAccumulator } from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
 import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
-import { AccessControl } from "src/common/TokenOwner.sol";
+import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
@@ -36,7 +36,7 @@ import "test/clog.sol";
 contract RebalancePool_v1 is
     Initializable,
     UUPSUpgradeable,
-    AccessControl,
+    BaoAccessControl,
     MultipleRewardCompoundingAccumulator,
     IRebalancePool
 {
@@ -176,8 +176,6 @@ contract RebalancePool_v1 is
         initializer
     {
         __UUPSUpgradeable_init();
-        // __Context_init(); // from ContextUpgradeable, comment out to reduce codesize
-        // __ERC165_init(); // from ERC165Upgradeable, comment out to reduce codesize
         __AccessControl_init(owner);
         __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator
 
@@ -428,9 +426,9 @@ contract RebalancePool_v1 is
     }
 
     // TODO: consider keeping this function for random rewards given, e.g. harvests
-    function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRole(REWARDER_ROLE) {
-        _accumulateReward(rewardToken, rewardAmount);
-    }
+    // function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRole(REWARDER_ROLE) {
+    //     _accumulateReward(rewardToken, rewardAmount);
+    // }
 
     /// @inheritdoc IRebalancePool
     function toggleVoteSharing(address staker) external override onlyRole(VE_SHARING_ROLE) {
@@ -525,7 +523,7 @@ contract RebalancePool_v1 is
      * Internal Functions *
      **********************/
 
-    // @inheritdoc AccessControl
+    // @inheritdoc BaoAccessControl
     function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         if (role == VE_SHARING_ROLE && $.balances[account].amount > 0) {

@@ -10,12 +10,12 @@ import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upg
 
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { ILiquidator } from "src/minter/ILiquidator.sol";
-import { AccessControl } from "src/common/AccessControl.sol";
+import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 
 contract Liquidator_v1 is
     Initializable,
     UUPSUpgradeable,
-    AccessControl,
+    BaoAccessControl,
     ReentrancyGuardTransientUpgradeable,
     ILiquidator
 {
@@ -58,7 +58,7 @@ contract Liquidator_v1 is
         __AccessControl_init(owner);
         __UUPSUpgradeable_init();
 
-        if (!AccessControl(rebalancePool).hasRole(LIQUIDATOR_ROLE, address(this)))
+        if (!BaoAccessControl(rebalancePool).hasRole(LIQUIDATOR_ROLE, address(this)))
             revert NeedsRole(LIQUIDATOR_ROLE, address(this));
 
         LiquidatorStorage storage $ = _getLiquidatorStorage();
