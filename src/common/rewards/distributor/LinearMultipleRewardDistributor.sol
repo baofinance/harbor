@@ -6,7 +6,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-import { AccessControl } from "src/common/TokenOwner.sol";
+import { BaoAccessControl } from "src/common/TokenOwner.sol";
 
 import { IMultipleRewardDistributor } from "./IMultipleRewardDistributor.sol";
 import { LinearReward } from "./LinearReward.sol";
@@ -15,7 +15,7 @@ import { LinearReward } from "./LinearReward.sol";
 // solhint-disable not-rely-on-time
 
 // AccessControl,
-abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor, AccessControl {
+abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor, BaoAccessControl {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 

@@ -1,5 +1,5 @@
 [compiler.solc]
-exclude_paths = ["node_modules", "venv", ".venv", "lib", "src_deployed"]
+exclude_paths = ["node_modules", "lib", "src_deployed"]
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
@@ -12,32 +12,38 @@ remappings = [
 ]
 
 [detectors]
-exclude = [
-  "abi-encode-with-signature",
-  "axelar-proxy-contract-id",
-  "balance-relied-on",
-  "calldata-tuple-reencoding-head-overflow-bug",
-  "call-options-not-called",
-  "empty-byte-array-copy-bug",
-  "msg-value-nonpayable-function",
-  "unchecked-return-value",
-]
+only = []
+#exclude = [
+#  "abi-encode-with-signature",
+#  "axelar-proxy-contract-id",
+#  "balance-relied-on",
+#  "calldata-tuple-reencoding-head-overflow-bug",
+#  "call-options-not-called",
+#  "empty-byte-array-copy-bug",
+#  "msg-value-nonpayable-function",
+#  "unchecked-return-value",
+#]
+
+ignore_paths = ["test"]
+exclude_paths = ["node_modules", "lib", "script"]
+
 
 [lsp.code_lens]
 enable = true
 
 [printers]
-exclude = [
-  "control-flow-graph",
-  "imports-graph",
-  "inheritance-graph",
-  "inheritance-tree",
-  "lsp-control-flow-graph",
-  "lsp-inheritance-graph",
-  "lsp-linearized-inheritance-graph",
-  "lsp-selectors",
-  "modifiers",
-  "state-changes",
-  "storage-layout",
-  "tokens",
-]
+only = []
+# exclude = [
+#   "control-flow-graph",
+#   "imports-graph",
+#   "inheritance-graph",
+#   "inheritance-tree",
+#   "lsp-control-flow-graph",
+#   "lsp-inheritance-graph",
+#   "lsp-linearized-inheritance-graph",
+#   "lsp-selectors",
+#   "modifiers",
+#   "state-changes",
+#   "storage-layout",
+#   "tokens",
+# ]

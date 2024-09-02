@@ -10,7 +10,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { Token } from "src/common/Token.sol";
-import { AccessControl } from "src/common/AccessControl.sol";
+import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 
 /// @title Genesis

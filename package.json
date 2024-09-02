@@ -3,9 +3,11 @@
   "scripts": {
     "prettier": "prettier --write 'src/**/*.sol'",
     "build": "forge build",
-    "test": "forge test -vv --gas-report | tee ./results/test.log && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt && yarn disabled && yarn coverage",
+    "test": "echo 'running tests (logged to ./results/test.log) ...' && forge test -v --gas-report | tee ./results/test.log | grep -v '^|.*|$' | cat -s && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt && echo; yarn disabled && echo; yarn coverage && yarn contracts:sizes > ./results/contract-sizes.txt",
+    "test-old": "forge test -vv --gas-report | tee ./results/test.log && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt && yarn disabled && yarn coverage && yarn contracts:sizes > ./results/contract-sizes.txt",
     "test1": "forge test -vvv --gas-report",
-    "coverage": "forge coverage --report summary --report lcov | tee ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*'",
+    "coverage": "echo 'generating coverage (logged to results/coverage.log) ...' && forge coverage --report summary --report lcov > ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*' > /dev/null && echo 'done.'",
+    "coverage-old": "forge coverage --report summary --report lcov | tee ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*'",
     "coverage1": "forge coverage --report summary --report lcov ",
     "wake": "wake detect all",
     "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,incorrect-versions-of-solidity --filter-paths \"lib/openzeppelin.*|lib/forge-std.*\"",
@@ -14,9 +16,12 @@
     "doc": "forge doc",
     "svg": "cd results && find . -name \"*.gp\" -exec gnuplot -e \"set output '{}.svg'\" {} \\;",
     "png": "cd results && find . -name \"*.svg\" -exec convert {} {}.png \\;",
-    "deploy": "forge script --force --ffi script/deploy.s.sol:DeployMinter --broadcast --slow",
+    "deploy": "forge script --force --ffi script/deploy.s.sol:Deploy --broadcast --slow",
     "deploy:local": "NETWORK=local yarn deploy",
-    "deploy:local:test": "NETWORK=local:test yarn deploy"
+    "deploy:local:test": "NETWORK=local:test yarn deploy",
+    "contracts": "awk '/gas_reports *=/ {flag=1; next} /]/ {flag=0} flag {gsub(/\"|,/, \"\"); print $1}' foundry.toml",
+    "contracts:regexp": "yarn contracts | paste -sd '|'",
+    "contracts:sizes": "forge build --sizes | grep -E \"^\\| Contract |^\\|---|$(yarn contracts:regexp)\""
   },
   "dependencies": {
     "prettier": "^3.2.5",
