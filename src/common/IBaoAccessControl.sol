@@ -3,11 +3,12 @@
 pragma solidity 0.8.26;
 
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
+import { IERC5313 } from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 
 /**
  * @dev External interface of AccessControlDefaultAdminRules declared to support ERC-165 detection.
  */
-interface IBaoAccessControl is IAccessControl {
+interface IBaoAccessControl is IAccessControl, IERC5313 {
     /**
      * @dev The new default admin is not a valid default admin.
      */

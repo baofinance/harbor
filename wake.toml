@@ -11,6 +11,19 @@ remappings = [
   "test/=test/",
 ]
 
+[compiler.solc.optimizer]
+# enabled=false (unset - let the compiler decide)
+runs = 1
+
+[lsp]
+compilation_delay = 1
+
+[lsp.code_lens]
+enable = true
+
+[lsp.detectors]
+enable = false
+
 [detectors]
 only = []
 #exclude = [
@@ -26,10 +39,6 @@ only = []
 
 ignore_paths = ["test"]
 exclude_paths = ["node_modules", "lib", "script"]
-
-
-[lsp.code_lens]
-enable = true
 
 [printers]
 only = []

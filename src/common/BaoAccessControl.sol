@@ -10,6 +10,8 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 
 import { IBaoAccessControl } from "src/common/IBaoAccessControl.sol";
 
+import { console2 } from "forge-std/console2.sol";
+
 /**
  * @dev Extension of {AccessControl} that allows specifying special rules to manage
  * the `DEFAULT_ADMIN_ROLE` holder, which is a sensitive role with special permissions
@@ -26,7 +28,7 @@ import { IBaoAccessControl } from "src/common/IBaoAccessControl.sol";
  *
  */
 
-abstract contract BaoAccessControl is Initializable, IERC5313, IBaoAccessControl, AccessControlUpgradeable {
+abstract contract BaoAccessControl is Initializable, IBaoAccessControl, AccessControlUpgradeable {
     /// @custom:storage-location erc7201:bao.storage.BaoAccessControl
     struct BaoAccessControlStorage {
         address _pendingDefaultAdmin;
@@ -35,8 +37,7 @@ abstract contract BaoAccessControl is Initializable, IERC5313, IBaoAccessControl
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.AccessControl")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant BAOACCESSCONTROL_STORAGE =
-        // TODO:
-        0xeef3dac4538c82c8ace4063ab0acd2d15cdb5883aa1dff7c2673abb3d8698400;
+        0x9d276e21ceaff40a317f662490a4ab6a1d21534fe536ba23fcfbd36f4f25df00;
 
     function _getBaoAccessControl() private pure returns (BaoAccessControlStorage storage $) {
         assembly {
@@ -45,7 +46,7 @@ abstract contract BaoAccessControl is Initializable, IERC5313, IBaoAccessControl
     }
 
     /**
-     * @dev Sets the initial values for {defaultAdminDelay} and {defaultAdmin} address.
+     * @dev Sets the initial values for the {defaultAdmin} address. The default admin is also the owner
      */
     function __BaoAccessControl_init(address initialDefaultAdmin) internal onlyInitializing {
         __BaoAccessControl_init_unchained(initialDefaultAdmin);
