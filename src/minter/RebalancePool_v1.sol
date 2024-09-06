@@ -8,12 +8,14 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+import { Ownable } from "@solady/auth/Ownable.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+
 import { DecrementalFloatingPoint } from "src/common/math/DecrementalFloatingPoint.sol";
 import { IMultipleRewardAccumulator } from "src/common/rewards/accumulator/IMultipleRewardAccumulator.sol";
 import { MultipleRewardCompoundingAccumulator } from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
 import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
-import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
@@ -33,13 +35,7 @@ import "test/clog.sol";
 ///   2. veSupply[w] is the total ve supply at the beginning of week `w`.
 ///   3. ve[u][w] is the ve balance for user `u` at the beginning of week `w`.
 ///   4. balance[u][w] is the amount of token staked for user `u` at the beginning of week `w`.
-contract RebalancePool_v1 is
-    Initializable,
-    UUPSUpgradeable,
-    BaoAccessControl,
-    MultipleRewardCompoundingAccumulator,
-    IRebalancePool
-{
+contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompoundingAccumulator, IRebalancePool {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
 
@@ -48,16 +44,16 @@ contract RebalancePool_v1 is
      *************/
 
     /// @notice The role for liquidator.
-    bytes32 public constant LIQUIDATOR_ROLE = keccak256("LIQUIDATOR_ROLE");
+    uint256 public constant LIQUIDATOR_ROLE = _ROLE_1;
 
     /// @notice The role for any reward sender, including the liquidator
-    bytes32 public constant REWARDER_ROLE = keccak256("REWARDER_ROLE");
+    uint256 public constant REWARDER_ROLE = _ROLE_2;
 
     /// @notice The role for ve balance sharing.
-    bytes32 public constant VE_SHARING_ROLE = keccak256("VE_SHARING_ROLE");
+    uint256 public constant VE_SHARING_ROLE = _ROLE_3;
 
     /// @notice The role for ve balance sharing.
-    bytes32 public constant WITHDRAW_FROM_ROLE = keccak256("WITHDRAW_FROM_ROLE");
+    uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
 
     /// @notice The address of FXN token.
     // address public immutable fxn;
@@ -175,8 +171,9 @@ contract RebalancePool_v1 is
         // address veHelper_
         initializer
     {
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
-        __BaoAccessControl_init(owner);
         __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator
 
         // TODO: pass in a reward manager - whatever that is
@@ -207,13 +204,17 @@ contract RebalancePool_v1 is
         $.totalSupplyHistory.push($.totalSupply);
     }
 
+    function _guardInitializeOwner() internal pure override(Ownable) returns (bool guard) {
+        guard = true;
+    }
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         // stop the implementation being initialized to any version
         // https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
         _disableInitializers();
     }
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     /*************************
      * Public View Functions *
@@ -307,7 +308,7 @@ contract RebalancePool_v1 is
         uint256 minAmount
     ) external override returns (uint256 depositedAmount) {
         // TODO: check if we need this:
-        if (hasRole(VE_SHARING_ROLE, receiver)) revert ErrorVoteOwnerCannotStake();
+        if (hasAnyRole(receiver, VE_SHARING_ROLE)) revert ErrorVoteOwnerCannotStake();
 
         address sender = _msgSender();
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
@@ -378,7 +379,7 @@ contract RebalancePool_v1 is
         address owner,
         uint256 amount,
         address receiver
-    ) external override onlyRole(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
+    ) external override onlyRoles(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
         amountWithdrawn = _withdraw(owner, amount, receiver);
     }
 
@@ -431,7 +432,7 @@ contract RebalancePool_v1 is
     // }
 
     /// @inheritdoc IRebalancePool
-    function toggleVoteSharing(address staker) external override onlyRole(VE_SHARING_ROLE) {
+    function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
         address owner = _msgSender();
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
 
@@ -524,14 +525,15 @@ contract RebalancePool_v1 is
      **********************/
 
     // @inheritdoc BaoAccessControl
-    function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        if (role == VE_SHARING_ROLE && $.balances[account].amount > 0) {
-            revert ErrorVoteOwnerCannotStake();
-        }
+    // TODO: implement this:
+    // function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
+    //     RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+    //     if (role == VE_SHARING_ROLE && $.balances[account].amount > 0) {
+    //         revert ErrorVoteOwnerCannotStake();
+    //     }
 
-        return super._grantRole(role, account);
-    }
+    //     return super._grantRole(role, account);
+    // }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _checkpoint(address account) internal virtual override {

@@ -4,6 +4,6 @@
 | LeveragedToken_v1           |    8,274 |     16,302 |
 | Liquidator_v1               |    5,696 |     18,880 |
 | Minter_v1                   |   22,194 |      2,382 |
-| RebalancePool_v1            |   24,489 |         87 |
+| RebalancePool_v1            |   23,170 |      1,406 |
 | ReservePool_v1              |    6,228 |     18,348 |
 | TokenDistributor_v1         |   11,339 |     13,237 |

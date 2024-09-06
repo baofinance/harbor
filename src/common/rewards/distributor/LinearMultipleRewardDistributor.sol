@@ -4,9 +4,11 @@ pragma solidity 0.8.26;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import { BaoAccessControl } from "src/common/TokenOwner.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { IMultipleRewardDistributor } from "./IMultipleRewardDistributor.sol";
 import { LinearReward } from "./LinearReward.sol";
@@ -15,7 +17,12 @@ import { LinearReward } from "./LinearReward.sol";
 // solhint-disable not-rely-on-time
 
 // AccessControl,
-abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor, BaoAccessControl {
+abstract contract LinearMultipleRewardDistributor is
+    IMultipleRewardDistributor,
+    Initializable,
+    ContextUpgradeable,
+    OwnableRoles
+{
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
@@ -26,7 +33,8 @@ abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor,
      *************/
 
     /// @notice The role used to manage rewards.
-    bytes32 public constant REWARD_MANAGER_ROLE = keccak256("REWARD_MANAGER_ROLE");
+    // TODO: put all roles into final contract, not abstract ones
+    uint256 public constant REWARD_MANAGER_ROLE = _ROLE_0;
 
     /*************
      * Variables *
@@ -136,7 +144,7 @@ abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor,
     ///
     /// @param token The address of reward token.
     /// @param distributor The address of reward distributor.
-    function registerRewardToken(address token, address distributor) external onlyRole(REWARD_MANAGER_ROLE) {
+    function registerRewardToken(address token, address distributor) external onlyRoles(REWARD_MANAGER_ROLE) {
         if (distributor == address(0)) revert RewardDistributorIsZero();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
@@ -153,7 +161,7 @@ abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor,
     ///
     /// @param token The address of reward token.
     /// @param newDistributor The address of new reward distributor.
-    function updateRewardDistributor(address token, address newDistributor) external onlyRole(REWARD_MANAGER_ROLE) {
+    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(REWARD_MANAGER_ROLE) {
         if (newDistributor == address(0)) revert RewardDistributorIsZero();
 
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
@@ -168,7 +176,7 @@ abstract contract LinearMultipleRewardDistributor is IMultipleRewardDistributor,
     /// @notice Unregister an existing reward token.
     ///
     /// @param token The address of reward token.
-    function unregisterRewardToken(address token) external onlyRole(REWARD_MANAGER_ROLE) {
+    function unregisterRewardToken(address token) external onlyRoles(REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
 
