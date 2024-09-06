@@ -14,6 +14,8 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
@@ -48,7 +50,7 @@ contract TestMinterSetUp is Test, Clog, Array {
     address owner;
     bytes32 ownerRole = 0;
     bytes32 zeroFeeRole = keccak256("ZERO_FEE_ROLE");
-    bytes32 minterRole = keccak256("MINTER_ROLE");
+    uint256 minterRole;
     bytes32 requesterRole = keccak256("REQUESTER_ROLE");
 
     function _percentToEther(uint amount) internal pure returns (uint256) {
@@ -205,6 +207,7 @@ contract TestMinterSetUp is Test, Clog, Array {
             address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
             abi.encodeCall(LeveragedToken_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
         );
+        minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
     }
 
     function setUp_reservePool() internal virtual {
@@ -231,7 +234,7 @@ contract TestMinterSetUp is Test, Clog, Array {
         );
     }
 
-    function setUpFork() public virtual {
+    function setUpFork() internal virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
         feeReceiver = vm.createWallet("feeReceiver").addr;
@@ -250,6 +253,7 @@ contract TestMinterSetUp is Test, Clog, Array {
     }
 
     function setUp() public virtual {
+        console2.log("TestMinterSetUp.setUp()");
         setUpConfig();
 
         setUpFork();
@@ -260,7 +264,7 @@ contract TestMinterSetUp is Test, Clog, Array {
         vm.prank(IBaoUSD(deployed.BaoUSD).operator());
         IBaoUSD(deployed.BaoUSD).addMinter(minter);
         vm.prank(owner);
-        IAccessControl(leveragedToken).grantRole(minterRole, minter);
+        OwnableRoles(leveragedToken).grantRoles(minter, minterRole);
         vm.prank(owner);
         ReservePool_v1(reservePool).grantRole(requesterRole, minter);
     }
@@ -294,6 +298,14 @@ contract TestMinterSetUp is Test, Clog, Array {
             vm.prank(owner);
             leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
+    }
+}
+
+contract TestMinter0 is TestMinterSetUp {
+    function setUp() public virtual override {}
+
+    function test_setUp() public virtual {
+        TestMinterSetUp.setUp();
     }
 }
 

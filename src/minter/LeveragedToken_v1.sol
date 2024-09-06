@@ -10,9 +10,12 @@ import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/int
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import { Ownable } from "@solady/auth/Ownable.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 
-import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
+// import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 
 /// @title Bao Minter Leveraged Token
 /// @notice A simple ERC20 token used as the leveraged token for a Bao Minter
@@ -24,23 +27,29 @@ contract LeveragedToken_v1 is
     UUPSUpgradeable,
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
-    BaoAccessControl,
+    OwnableRoles,
+    ERC165Upgradeable,
     IMintable,
     IBurnable,
     IBurnableFrom
 {
     using SafeERC20 for IERC20;
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    uint256 public constant MINTER_ROLE = _ROLE_0;
 
     /// @notice initialise the UUPS proxy
     /// @param name The name of the ERC20 token
     /// @param symbol The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
     function initialize(address owner, string memory name, string memory symbol) public initializer {
-        __BaoAccessControl_init(owner);
+        if (owner == address(0)) revert NewOwnerIsZeroAddress();
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
         __ERC20_init(name, symbol);
         __ERC20Permit_init(name);
         __ERC165_init();
+    }
+
+    function _guardInitializeOwner() internal pure override(Ownable) returns (bool guard) {
+        guard = true;
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -51,7 +60,7 @@ contract LeveragedToken_v1 is
 
     /// @notice The check that allow this contract to be upgraded:
     /// only DEFAULT_ADMIN_ROLE grantees can upgrade this contract.
-    function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
 
     /// @notice Returns true if a given interface is supported.
     /// @dev See {IERC165-supportsInterface}.
@@ -68,20 +77,20 @@ contract LeveragedToken_v1 is
     /// @notice Mints an amount of a token
     /// @param to The receiver of the new tokens.
     /// @param amount The amount of tokens minted.
-    function mint(address to, uint256 amount) public override onlyRole(MINTER_ROLE) {
+    function mint(address to, uint256 amount) public override onlyRoles(MINTER_ROLE) {
         _mint(to, amount);
     }
 
     /// @notice Burns an amount of a token
     /// @param amount The amount of tokens burned. This amount must be owned by the caller.
-    function burn(uint256 amount) public override onlyRole(MINTER_ROLE) {
+    function burn(uint256 amount) public override onlyRoles(MINTER_ROLE) {
         _burn(_msgSender(), amount);
     }
 
     /// @notice Burns an amount of a token
     /// @param from The address of the owner of the tokens being burned.
     /// @param amount The amount of tokens burned. This amount must be owned `from`.
-    function burnFrom(address from, uint256 amount) public override onlyRole(MINTER_ROLE) {
+    function burnFrom(address from, uint256 amount) public override onlyRoles(MINTER_ROLE) {
         _burn(from, amount);
     }
 }

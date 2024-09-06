@@ -5,6 +5,7 @@ remappings = [
   "forge-std/=lib/forge-std/src/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  "@solady/=lib/solady/src/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
   "src/=src/",
@@ -16,7 +17,7 @@ remappings = [
 runs = 1
 
 [lsp]
-compilation_delay = 1
+compilation_delay = 0.1
 
 [lsp.code_lens]
 enable = true
