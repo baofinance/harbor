@@ -1,1 +1,15 @@
-/home/tfras/github/rootminus0x1/bao-minter/dotfiles/projectroot/.prettierrc
+{
+  "printWidth": 120,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "arrowParens": "avoid",
+  "overrides": [
+    {
+      "files": "*.sol",
+      "options": {
+        "singleQuote": false
+      }
+    }
+  ],
+  "plugins": ["prettier-plugin-solidity"]
+}
