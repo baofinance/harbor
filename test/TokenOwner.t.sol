@@ -71,7 +71,7 @@ contract Test_TokenOwner is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
         );
-        tokenOwner.transferToken(token1, bonusReceiver, 1 ether);
+        tokenOwner.sweep(token1, bonusReceiver, 1 ether);
     }
 
     function test_transfer() public {
@@ -87,7 +87,7 @@ contract Test_TokenOwner is Test {
             if (tokens[i] == deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
             else vm.expectRevert("ERC20: transfer amount exceeds balance");
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, 1 ether);
+            tokenOwner.sweep(tokens[i], bonusReceiver, 1 ether);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 0 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 0 ether);
@@ -100,7 +100,7 @@ contract Test_TokenOwner is Test {
             vm.expectEmit(true, true, true, true);
             emit IERC20.Transfer(address(tokenOwner), bonusReceiver, 1 ether);
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, 1 ether);
+            tokenOwner.sweep(tokens[i], bonusReceiver, 1 ether);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 1 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 2 ether);
@@ -109,7 +109,7 @@ contract Test_TokenOwner is Test {
             if (tokens[i] == deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
             else vm.expectRevert("ERC20: transfer amount exceeds balance");
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, 3 ether);
+            tokenOwner.sweep(tokens[i], bonusReceiver, 3 ether);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 1 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 2 ether);
@@ -119,7 +119,7 @@ contract Test_TokenOwner is Test {
             vm.expectEmit(true, true, true, true);
             emit IERC20.Transfer(address(tokenOwner), bonusReceiver, 2 ether);
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, type(uint256).max);
+            tokenOwner.sweep(tokens[i], bonusReceiver, type(uint256).max);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 3 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 0 ether);
@@ -130,10 +130,10 @@ contract Test_TokenOwner is Test {
     function test_badInputs() public {
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, token1));
         vm.prank(owner);
-        tokenOwner.transferToken(token1, address(this), 0 ether);
+        tokenOwner.sweep(token1, address(this), 0 ether);
 
         vm.expectRevert(Token.ZeroAddress.selector);
         vm.prank(owner);
-        tokenOwner.transferToken(token1, address(0), 1 ether);
+        tokenOwner.sweep(token1, address(0), 1 ether);
     }
 }

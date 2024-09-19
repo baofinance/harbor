@@ -1,12 +1,12 @@
 | src/minter/Genesis_v1.sol:Genesis_v1 contract |                 |        |        |        |         |
 |-----------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                               | Deployment Size |        |        |        |         |
-| 1879403                                       | 8574            |        |        |        |         |
+| 1879379                                       | 8574            |        |        |        |         |
 | Function Name                                 | min             | avg    | median | max    | # calls |
-| DEFAULT_ADMIN_ROLE                            | 282             | 282    | 282    | 282    | 2       |
-| hasRole                                       | 2749            | 2749   | 2749   | 2749   | 2       |
+| DEFAULT_ADMIN_ROLE                            | 304             | 304    | 304    | 304    | 2       |
+| hasRole                                       | 2771            | 2771   | 2771   | 2771   | 2       |
 | initialize                                    | 2855            | 134147 | 177912 | 177912 | 4       |
-| owner                                         | 2424            | 2424   | 2424   | 2424   | 1       |
+| owner                                         | 2446            | 2446   | 2446   | 2446   | 1       |
 
 --
 | src/minter/LeveragedToken_v1.sol:LeveragedToken_v1 contract |                 |        |        |        |         |
@@ -88,7 +88,7 @@
 | src/minter/RebalancePool_v1.sol:RebalancePool_v1 contract |                 |        |        |        |         |
 |-----------------------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                                           | Deployment Size |        |        |        |         |
-| 5090500                                                   | 23427           |        |        |        |         |
+| 5090296                                                   | 23426           |        |        |        |         |
 | Function Name                                             | min             | avg    | median | max    | # calls |
 | assetBalanceOf                                            | 1035            | 1486   | 1577   | 1577   | 6       |
 | assetToken                                                | 525             | 1191   | 525    | 2525   | 3       |
@@ -110,32 +110,32 @@
 | Function Name                                         | min             | avg   | median | max   | # calls |
 | REQUESTER_ROLE                                        | 217             | 217   | 217    | 217   | 4       |
 | grantRole                                             | 5187            | 18856 | 29904  | 29904 | 121     |
-| initialize                                            | 2826            | 71332 | 72284  | 72284 | 73      |
+| initialize                                            | 2737            | 71243 | 72195  | 72195 | 73      |
 | requestBonus                                          | 3012            | 16738 | 16632  | 40232 | 328     |
 | supportsInterface                                     | 409             | 526   | 526    | 644   | 2       |
-| transferToken                                         | 3318            | 3318  | 3318   | 3318  | 1       |
+| sweep                                                 | 3319            | 3319  | 3319   | 3319  | 1       |
 
 --
 | src/minter/TokenDistributor_v1.sol:TokenDistributor_v1 contract |                 |       |        |        |         |
 |-----------------------------------------------------------------|-----------------|-------|--------|--------|---------|
 | Deployment Cost                                                 | Deployment Size |       |        |        |         |
-| 2531342                                                         | 11588           |       |        |        |         |
+| 2531330                                                         | 11588           |       |        |        |         |
 | Function Name                                                   | min             | avg   | median | max    | # calls |
 | CLAIMER_ROLE                                                    | 348             | 348   | 348    | 348    | 5       |
-| DEFAULT_ADMIN_ROLE                                              | 260             | 260   | 260    | 260    | 5       |
+| DEFAULT_ADMIN_ROLE                                              | 282             | 282   | 282    | 282    | 5       |
 | addRecipient                                                    | 2982            | 39802 | 38176  | 69883  | 7       |
-| addToken                                                        | 2984            | 51151 | 74734  | 91884  | 11      |
-| distribute                                                      | 2739            | 41297 | 17236  | 181115 | 7       |
+| addToken                                                        | 2851            | 51018 | 74601  | 91751  | 11      |
+| distribute                                                      | 2761            | 41319 | 17258  | 181137 | 7       |
 | distribution                                                    | 1138            | 3255  | 3508   | 6655   | 13      |
 | grantRole                                                       | 29948           | 29948 | 29948  | 29948  | 1       |
-| hasRole                                                         | 706             | 2372  | 2706   | 2706   | 6       |
-| initialize                                                      | 3223            | 83717 | 95217  | 95217  | 8       |
+| hasRole                                                         | 728             | 2394  | 2728   | 2728   | 6       |
+| initialize                                                      | 3245            | 83739 | 95239  | 95239  | 8       |
 | name                                                            | 3175            | 3175  | 3175   | 3175   | 1       |
-| owner                                                           | 2534            | 2534  | 2534   | 2534   | 1       |
+| owner                                                           | 2402            | 2402  | 2402   | 2402   | 1       |
 | removeRecipient                                                 | 2897            | 13080 | 12091  | 25243  | 4       |
 | removeToken                                                     | 2940            | 14674 | 18586  | 18586  | 4       |
 | setDistribution                                                 | 3265            | 31080 | 20420  | 76474  | 16      |
 | supportsInterface                                               | 409             | 502   | 502    | 595    | 2       |
-| tokens                                                          | 856             | 1412  | 1181   | 2856   | 15      |
-| transferToken                                                   | 2939            | 28063 | 5691   | 69168  | 7       |
+| sweep                                                           | 2962            | 28086 | 5714   | 69191  | 7       |
+| tokens                                                          | 878             | 1434  | 1203   | 2878   | 15      |
 

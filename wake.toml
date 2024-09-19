@@ -1,5 +1,6 @@
 [compiler.solc]
 exclude_paths = ["node_modules", "lib", "src_deployed"]
+# TODO: add a reference to remappings.txt
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
@@ -23,10 +24,11 @@ compilation_delay = 0.1
 enable = true
 
 [lsp.detectors]
-enable = false
+enable = true
 
 [detectors]
-only = []
+# only = []
+exclude = []
 #exclude = [
 #  "abi-encode-with-signature",
 #  "axelar-proxy-contract-id",

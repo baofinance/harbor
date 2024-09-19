@@ -310,9 +310,9 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     }
 
     /// @inheritdoc TokenOwner
-    function transferToken(address token, address receiver, uint256 amount) public override {
+    function sweep(address token, address receiver, uint256 amount) public override {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         if ($.tokens.contains(token)) revert TokenStillInUse(token);
-        super.transferToken(token, receiver, amount);
+        super.sweep(token, receiver, amount);
     }
 }

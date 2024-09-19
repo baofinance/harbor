@@ -169,7 +169,7 @@ contract Test_TokenDistributorBase is Test, Array {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
         );
-        tokenDistributor.transferToken(address(0), address(0), 0);
+        tokenDistributor.sweep(address(0), address(0), 0);
 
         // claimer roles
         vm.expectRevert(
@@ -419,7 +419,7 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(IERC20(token2).balanceOf(address(tokenDistributor)), 0);
     }
 
-    function test_transferToken() public {
+    function test_sweep() public {
         deal(token1, address(tokenDistributor), 11 ether);
         deal(token2, address(tokenDistributor), 12 ether);
 
@@ -434,21 +434,21 @@ contract Test_TokenDistributorBase is Test, Array {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
         );
-        tokenDistributor.transferToken(token1, recipient1, 1 ether);
+        tokenDistributor.sweep(token1, recipient1, 1 ether);
 
         vm.startPrank(owner);
 
         vm.expectRevert(Token.ZeroAddress.selector);
-        tokenDistributor.transferToken(token1, address(0), 1 ether);
+        tokenDistributor.sweep(token1, address(0), 1 ether);
 
         // a token that is in use
         tokenDistributor.addToken(token1);
         vm.expectRevert(abi.encodeWithSelector(TokenDistributor_v1.TokenStillInUse.selector, token1));
-        tokenDistributor.transferToken(token1, recipient1, 1 ether);
+        tokenDistributor.sweep(token1, recipient1, 1 ether);
         tokenDistributor.removeToken(token1);
 
         //console.log("about to try 1 ether");
-        tokenDistributor.transferToken(token1, recipient1, 1 ether);
+        tokenDistributor.sweep(token1, recipient1, 1 ether);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);
         assertEq(IERC20(token1).balanceOf(recipient2), 0 ether);
@@ -457,7 +457,7 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(IERC20(token2).balanceOf(recipient2), 0 ether);
 
         //console.log("about to try -1");
-        tokenDistributor.transferToken(token2, recipient2, type(uint256).max); // 12
+        tokenDistributor.sweep(token2, recipient2, type(uint256).max); // 12
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);
         assertEq(IERC20(token1).balanceOf(recipient2), 0 ether);
@@ -466,7 +466,7 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(IERC20(token2).balanceOf(recipient2), 12 ether);
 
         vm.expectRevert("ERC20: transfer amount exceeds balance");
-        tokenDistributor.transferToken(token1, recipient2, 100 ether);
+        tokenDistributor.sweep(token1, recipient2, 100 ether);
 
         vm.stopPrank();
     }

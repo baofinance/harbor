@@ -93,7 +93,7 @@ contract Test_ReservePool is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
         );
-        ReservePool_v1(reservePool).transferToken(token1, bonusReceiver, 1 ether);
+        ReservePool_v1(reservePool).sweep(token1, bonusReceiver, 1 ether);
     }
 
     function test_bonus() public {

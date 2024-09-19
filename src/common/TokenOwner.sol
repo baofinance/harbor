@@ -14,8 +14,7 @@ abstract contract TokenOwner is BaoAccessControl, ReentrancyGuardTransientUpgrad
     /// @notice function to transfer owned owned balance of a token
     /// This allows. for example dust resulting from rounding errors, etc.
     /// in case tokens are transferred to this contract by mistake, they can be recovered
-    // TODO: rename sweep
-    function transferToken(
+    function sweep(
         address token,
         address receiver,
         uint256 amount
