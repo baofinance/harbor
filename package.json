@@ -20,11 +20,15 @@
     "contracts": "awk '/gas_reports *=/ {flag=1; next} /]/ {flag=0} flag {gsub(/\"|,/, \"\"); print $1}' foundry.toml",
     "contracts:regexp": "yarn contracts | paste -sd '|'",
     "sizes:contracts": "yarn sizes | grep -E \"^\\| Contract |^\\|---|$(yarn contracts:regexp)\"",
-    "sizes": "forge clean; forge build --sizes"
+    "sizes": "forge clean; forge build --sizes",
+    "fmt:check": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --check",
+    "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --write",
+    "lint": "solhint 'src/**/*.sol' --disc"
   },
   "dependencies": {
     "prettier": "^3.2.5",
-    "prettier-plugin-solidity": "^1.3.1"
+    "prettier-plugin-solidity": "^1.3.1",
+    "solhint": "^5.0.3"
   },
   "packageManager": "yarn@4.2.2"
 }
