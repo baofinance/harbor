@@ -9,4 +9,4 @@
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
 [submodule "dotfiles"]
 	path = dotfiles
-	url = https://github.com/rootminus0x1/dotfiles
+	url = https://github.com/baofinance/dotfiles
