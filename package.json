@@ -23,7 +23,9 @@
     "sizes": "forge clean; forge build --sizes",
     "fmt:check": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --check",
     "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --write",
-    "lint": "solhint 'src/**/*.sol' --disc"
+    "lint": "solhint 'src/**/*.sol' --disc",
+    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}' | xargs ls -l",
+    "dotfiles:bad": "yarn dotfiles | grep ' -> /'"
   },
   "dependencies": {
     "prettier": "^3.2.5",
