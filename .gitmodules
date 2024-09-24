@@ -13,6 +13,3 @@
 [submodule "lib/solady"]
 	path = lib/solady
 	url = https://github.com/vectorized/solady
-[submodule "lib/baobase"]
-	path = lib/baobase
-	url = https://github.com/baofinance/baobase
