@@ -115,7 +115,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     }
 
     /// @notice In UUPS proxies the implementation is responsible for upgrading itself
-    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     //////////////////////////////
     // Public Mutator Functions //
@@ -182,7 +182,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     //////////////////////////
 
     /// @notice Initialize minter with the collateral in this contract.
-    function endGenesis() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+    function endGenesis() external onlyOwner nonReentrant {
         GenesisStorage storage $ = _getGenesisStorage();
         if ($.genesisEnded) revert GenesisIsEnded();
 
@@ -197,7 +197,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     }
 
     /// @notice Change the status of `fxWithdrawalEnabled`.
-    function updateClaimingEnabled(bool newValue) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateClaimingEnabled(bool newValue) external onlyOwner {
         GenesisStorage storage $ = _getGenesisStorage();
         $.claimingEnabled = newValue;
 

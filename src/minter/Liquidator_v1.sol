@@ -72,7 +72,7 @@ contract Liquidator_v1 is
         _disableInitializers();
     }
 
-    function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
 
     /**
      * @dev See {IERC165-supportsInterface}.

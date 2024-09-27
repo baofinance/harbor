@@ -503,7 +503,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     /*
     /// @notice Update the address of reward wrapper.
     /// @param newWrapper The new address of reward wrapper.
-    function updateWrapper(address newWrapper) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateWrapper(address newWrapper) external onlyOwner {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         if (IFxTokenWrapper(newWrapper).src() != collateralToken) {
             revert ErrorWrapperSrcMismatch();

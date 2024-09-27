@@ -14,7 +14,7 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
-import { BaoAccessControl } from "src/common/TokenOwner.sol";
+import { BaoOwnable } from "@bao/BaoOwnable.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
@@ -234,7 +234,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
 
     /// @notice The check that allow this contract to be upgraded:
     /// only DEFAULT_ADMIN_ROLE grantees can upgrade this contract.
-    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /// @notice Returns true if a given interface is supported.
     /// @dev See {IERC165-supportsInterface}.
@@ -618,22 +618,22 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     //////////////////////////////
 
     /// @inheritdoc IMinter
-    function updateConfig(Config calldata config_) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateConfig(Config calldata config_) external override onlyOwner {
         _updateConfig(config_);
     }
 
     /// @inheritdoc IMinter
-    function updatePriceOracle(address priceOracle_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updatePriceOracle(address priceOracle_) external onlyOwner {
         _updatePriceOracle(priceOracle_);
     }
 
     /// @inheritdoc IMinter
-    function updateFeeReceiver(address feeReceiver_) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateFeeReceiver(address feeReceiver_) external override onlyOwner {
         _updateFeeReceiver(feeReceiver_);
     }
 
     /// @inheritdoc IMinter
-    function updateReservePool(address reservePool_) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateReservePool(address reservePool_) external override onlyOwner {
         _updateReservePool(reservePool_);
     }
 
