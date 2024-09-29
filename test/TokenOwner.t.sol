@@ -12,11 +12,10 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-//import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
+import { IOwnable } from "src/interfaces/IOwnableRoles.sol";
 import { Token } from "src/common/Token.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 
@@ -24,7 +23,7 @@ import { deployed } from "test/deployed.sol";
 
 contract DerivedTokenOwner is Initializable, TokenOwner {
     function initialize(address owner) public initializer {
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
     }
 }
 
@@ -68,10 +67,8 @@ contract Test_TokenOwner is Test {
 
     function test_access() public {
         // not anyone can withdraw funds
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
-        tokenOwner.transferToken(token1, bonusReceiver, 1 ether);
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        tokenOwner.sweep(token1, 1 ether, bonusReceiver);
     }
 
     function test_transfer() public {
@@ -87,7 +84,7 @@ contract Test_TokenOwner is Test {
             if (tokens[i] == deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
             else vm.expectRevert("ERC20: transfer amount exceeds balance");
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, 1 ether);
+            tokenOwner.sweep(tokens[i], 1 ether, bonusReceiver);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 0 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 0 ether);
@@ -100,7 +97,7 @@ contract Test_TokenOwner is Test {
             vm.expectEmit(true, true, true, true);
             emit IERC20.Transfer(address(tokenOwner), bonusReceiver, 1 ether);
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, 1 ether);
+            tokenOwner.sweep(tokens[i], 1 ether, bonusReceiver);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 1 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 2 ether);
@@ -109,7 +106,7 @@ contract Test_TokenOwner is Test {
             if (tokens[i] == deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
             else vm.expectRevert("ERC20: transfer amount exceeds balance");
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, 3 ether);
+            tokenOwner.sweep(tokens[i], 3 ether, bonusReceiver);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 1 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 2 ether);
@@ -119,7 +116,7 @@ contract Test_TokenOwner is Test {
             vm.expectEmit(true, true, true, true);
             emit IERC20.Transfer(address(tokenOwner), bonusReceiver, 2 ether);
             vm.prank(owner);
-            tokenOwner.transferToken(tokens[i], bonusReceiver, type(uint256).max);
+            tokenOwner.sweep(tokens[i], type(uint256).max, bonusReceiver);
             //----------------------------------------------------------------------------
             assertEq(_balanceOf(tokens[i], bonusReceiver), 3 ether);
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 0 ether);
@@ -130,10 +127,10 @@ contract Test_TokenOwner is Test {
     function test_badInputs() public {
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, token1));
         vm.prank(owner);
-        tokenOwner.transferToken(token1, address(this), 0 ether);
+        tokenOwner.sweep(token1, 0 ether, address(this));
 
         vm.expectRevert(Token.ZeroAddress.selector);
         vm.prank(owner);
-        tokenOwner.transferToken(token1, address(0), 1 ether);
+        tokenOwner.sweep(token1, 1 ether, address(0));
     }
 }

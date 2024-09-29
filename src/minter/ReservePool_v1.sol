@@ -3,10 +3,13 @@ pragma solidity 0.8.26;
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
@@ -16,7 +19,7 @@ import { IReservePool } from "src/minter/IReservePool.sol";
 /// Anyone can load it up with tokens.
 /// The owner can withdraw tokens.
 
-contract ReservePool_v1 is Initializable, UUPSUpgradeable, IReservePool, TokenOwner {
+contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, IReservePool, TokenOwner, OwnableRoles {
     using SafeERC20 for IERC20;
 
     /// @notice Emitted when the minter request bonus.
@@ -26,22 +29,26 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, IReservePool, TokenOw
     /// @param amount The amount of token withdrawn.
     event RequestBonus(address indexed minter, address indexed token, address indexed receiver, uint256 amount);
 
-    bytes32 public constant REQUESTER_ROLE = keccak256("REQUESTER_ROLE");
+    uint256 public constant REQUESTER_ROLE = _ROLE_0;
 
     function initialize(address owner) public initializer {
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
-        __ERC165_init();
+        // __ERC165_init();
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IReservePool).interfaceId || super.supportsInterface(interfaceId);
+        return
+            interfaceId == type(IReservePool).interfaceId ||
+            interfaceId == type(IOwnable).interfaceId ||
+            interfaceId == type(IOwnableRoles).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     /// @notice Transfers an `amountRequested` of a `token` to the `recipient`.
@@ -50,7 +57,7 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, IReservePool, TokenOw
         address token,
         address recipient,
         uint256 amountRequested
-    ) public override onlyRole(REQUESTER_ROLE) returns (uint256 amountSent) {
+    ) public override onlyRoles(REQUESTER_ROLE) returns (uint256 amountSent) {
         uint256 balance = IERC20(token).balanceOf(address(this));
         if (amountRequested > balance) {
             amountSent = balance;

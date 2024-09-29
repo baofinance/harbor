@@ -3,6 +3,7 @@
 pragma solidity 0.8.26;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,7 +11,6 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { Token } from "src/common/Token.sol";
-import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 
 /// @title Genesis
@@ -26,7 +26,7 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 ///     There is no advantage to withdrawing or claiming then redeeming as far as fees are concerned.
 /// @dev uses UUPS proxy, erc7201 storage
 
-contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
+contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenOwner {
     using SafeERC20 for IERC20;
 
     ////////////
@@ -95,7 +95,8 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     /// @notice In UUPS proxies construction is performed by a function
     function initialize(address owner, address minter_) external initializer {
         // initialise all the state variables
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
+        __Context_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
 
@@ -115,7 +116,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     }
 
     /// @notice In UUPS proxies the implementation is responsible for upgrading itself
-    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     //////////////////////////////
     // Public Mutator Functions //
@@ -182,7 +183,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     //////////////////////////
 
     /// @notice Initialize minter with the collateral in this contract.
-    function endGenesis() external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
+    function endGenesis() external onlyOwner nonReentrant {
         GenesisStorage storage $ = _getGenesisStorage();
         if ($.genesisEnded) revert GenesisIsEnded();
 
@@ -197,7 +198,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, TokenOwner {
     }
 
     /// @notice Change the status of `fxWithdrawalEnabled`.
-    function updateClaimingEnabled(bool newValue) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateClaimingEnabled(bool newValue) external onlyOwner {
         GenesisStorage storage $ = _getGenesisStorage();
         $.claimingEnabled = newValue;
 

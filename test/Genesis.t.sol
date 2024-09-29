@@ -12,10 +12,10 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
+import { IOwnable } from "src/interfaces/IOwnable.sol";
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
@@ -36,8 +36,6 @@ contract Test_GenesisBase is Test, Array {
     address reservePool;
     MockPriceOracle priceOracle;
     address minter;
-
-    bytes32 ownerRole;
 
     address feeReceiver;
     address user1;
@@ -102,8 +100,6 @@ contract Test_GenesisBase is Test, Array {
         owner = vm.createWallet("owner").addr;
 
         setUpContract();
-
-        ownerRole = genesis.DEFAULT_ADMIN_ROLE();
     }
 
     function test_initEvents() public {
@@ -112,7 +108,7 @@ contract Test_GenesisBase is Test, Array {
         vm.expectEmit(false, false, false, false);
         emit IERC1967.Upgraded(address(0)); // TODO:  we don't know the address right now
         vm.expectEmit(true, true, true, false);
-        emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
+        emit IOwnable.OwnershipTransferred(address(0), owner);
         vm.expectEmit(false, false, false, true);
         emit Initializable.Initialized(1); // from the proxy delegate call
         setUpContract();
@@ -125,9 +121,5 @@ contract Test_GenesisBase is Test, Array {
 
         // check the data has been set up correctly
         assertEq(genesis.owner(), owner, "wrong owner");
-
-        // admin role
-        assertFalse(genesis.hasRole(ownerRole, address(this)), "this should not be admin");
-        assertTrue(genesis.hasRole(ownerRole, owner), "owner should be admin");
     }
 }

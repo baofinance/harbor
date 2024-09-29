@@ -14,7 +14,7 @@ interface ILiquidator {
     /// @dev Thrown the cannot liquidate.
     error CannotLiquidate();
 
-    error NeedsRole(bytes32 role, address roleHolder);
+    error NeedsRole(address roleHolder, uint256 role);
 
     /*************************
      * Public View Functions *
