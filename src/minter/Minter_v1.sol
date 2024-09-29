@@ -4,6 +4,7 @@
 pragma solidity 0.8.26;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -14,8 +15,9 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
-import { BaoOwnable } from "@bao/BaoOwnable.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
@@ -89,7 +91,15 @@ import "test/clog.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 
-contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, ReentrancyGuardTransientUpgradeable, IMinter {
+contract Minter_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    ContextUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
+    ERC165Upgradeable,
+    OwnableRoles,
+    IMinter
+{
     using SafeERC20 for IERC20;
     using WordCodec for bytes32;
 
@@ -122,7 +132,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     uint private constant maxBounds = maxBands - 1;
 
     /// @notice The role that allows access to the zero fee versions of the functions.
-    bytes32 public constant ZERO_FEE_ROLE = keccak256("ZERO_FEE_ROLE");
+    uint256 public constant ZERO_FEE_ROLE = _ROLE_0;
 
     /////////////
     // Storage //
@@ -200,8 +210,9 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
         Config calldata config_
     ) external initializer {
         // initialise all the state variables
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
+        __Context_init();
         __ReentrancyGuardTransient_init();
         __ERC165_init();
 
@@ -221,7 +232,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
         _updateReservePool(reservePool_);
         _updateConfig(config_);
         // wake-disable-next-line unchecked-return-value
-        _grantRole(ZERO_FEE_ROLE, owner);
+        _grantRoles(owner, ZERO_FEE_ROLE);
         // TODO: should we be saving the last permissioned price? _fetchSafePrice(priceOracle_)
     }
 
@@ -233,13 +244,17 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     }
 
     /// @notice The check that allow this contract to be upgraded:
-    /// only DEFAULT_ADMIN_ROLE grantees can upgrade this contract.
+    /// only the owner can upgrade this contract.
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /// @notice Returns true if a given interface is supported.
     /// @dev See {IERC165-supportsInterface}.
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IMinter).interfaceId || super.supportsInterface(interfaceId);
+        return
+            interfaceId == type(IOwnable).interfaceId ||
+            interfaceId == type(IOwnableRoles).interfaceId ||
+            interfaceId == type(IMinter).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     ///////////////////////////
@@ -847,7 +862,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     function freeMintPeggedToken(
         uint256 collateralIn,
         address receiver
-    ) external override onlyRole(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
+    ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address collateralToken_ = $.collateralToken;
@@ -866,7 +881,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     function freeRedeemPeggedToken(
         uint256 peggedIn,
         address receiver
-    ) external override nonReentrant onlyRole(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
+    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
         address peggedToken_ = $.peggedToken;
@@ -890,7 +905,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     function freeSwapPeggedForLeveraged(
         uint256 peggedIn,
         address receiver
-    ) external override nonReentrant onlyRole(ZERO_FEE_ROLE) returns (uint256 leveragedOut) {
+    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
         address peggedToken_ = $.peggedToken;
@@ -921,7 +936,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     function freeMintLeveragedToken(
         uint256 collateralIn,
         address receiver
-    ) external override onlyRole(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
+    ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address collateralToken_ = $.collateralToken;
@@ -944,7 +959,7 @@ contract Minter_v1 is Initializable, UUPSUpgradeable, BaoAccessControl, Reentran
     function freeRedeemLeveragedToken(
         uint256 leveragedIn,
         address receiver
-    ) external override onlyRole(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
+    ) external override onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         address leveragedToken_ = $.leveragedToken;

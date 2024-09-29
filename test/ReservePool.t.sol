@@ -12,11 +12,11 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 //import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
+import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
 import { Token } from "src/common/Token.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
@@ -34,8 +34,7 @@ contract Test_ReservePool is Test {
     address minter;
     address treasury;
     address reservePool;
-    bytes32 minterRole;
-    bytes32 ownerRole = 0;
+    uint256 minterRole;
 
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
@@ -53,7 +52,7 @@ contract Test_ReservePool is Test {
         minterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
 
         vm.prank(owner);
-        IAccessControl(reservePool).grantRole(minterRole, minter);
+        IOwnableRoles(reservePool).grantRoles(minter, minterRole);
     }
 
     function _balanceOf(address token, address who) private view returns (uint256) {
@@ -77,23 +76,17 @@ contract Test_ReservePool is Test {
         ReservePool_v1(reservePool).initialize(owner);
 
         // not anyone can grant access
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
-        IAccessControl(reservePool).grantRole(minterRole, minter);
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        IOwnableRoles(reservePool).grantRoles(minter, minterRole);
     }
 
     function test_access() public {
         // can anyone request bonus
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), minterRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         IReservePool(reservePool).requestBonus(token1, bonusReceiver, 1 ether);
         // not anyone can withdraw funds
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
-        ReservePool_v1(reservePool).sweep(token1, bonusReceiver, 1 ether);
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        ReservePool_v1(reservePool).sweep(token1, 1 ether, bonusReceiver);
     }
 
     function test_bonus() public {

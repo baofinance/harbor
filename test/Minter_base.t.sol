@@ -8,13 +8,12 @@ import { console2 as console } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
 
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
@@ -49,9 +48,9 @@ contract TestMinterSetUp is Test, Clog, Array {
     address feeReceiver;
     address owner;
     bytes32 ownerRole = 0;
-    bytes32 zeroFeeRole = keccak256("ZERO_FEE_ROLE");
+    uint256 zeroFeeRole;
     uint256 minterRole;
-    bytes32 requesterRole = keccak256("REQUESTER_ROLE");
+    uint256 requesterRole;
 
     function _percentToEther(uint amount) internal pure returns (uint256) {
         return (amount * 1 ether) / 100;
@@ -232,6 +231,7 @@ contract TestMinterSetUp is Test, Clog, Array {
                 )
             )
         );
+        zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
     }
 
     function setUpFork() internal virtual {
@@ -265,8 +265,9 @@ contract TestMinterSetUp is Test, Clog, Array {
         IBaoUSD(deployed.BaoUSD).addMinter(minter);
         vm.prank(owner);
         OwnableRoles(leveragedToken).grantRoles(minter, minterRole);
+        requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
         vm.prank(owner);
-        ReservePool_v1(reservePool).grantRole(requesterRole, minter);
+        ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
     }
 
     function setUp_collateral(
@@ -311,9 +312,11 @@ contract TestMinter0 is TestMinterSetUp {
 
 contract TestMinterInit is TestMinterSetUp {
     using SafeERC20 for IERC20;
+    address impl;
 
     function setUp() public override {
         super.setUp();
+        impl = address(new Minter_v1());
     }
     // TODO: test the ERC20 check in Token - expect revert doesn't work for deployUUPS
     function test_notERC20() private {
@@ -374,13 +377,17 @@ contract TestMinterInit is TestMinterSetUp {
         );
     }
 
-    function test_initEvents() public {
+    function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        vm.expectEmit(false, false, false, false);
-        emit IERC1967.Upgraded(address(0)); // TODO: we don't know the address right now
+        address(new Minter_v1());
+    }
+
+    function test_initEvents() public {
         vm.expectEmit();
-        emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
+        emit IERC1967.Upgraded(impl);
+        vm.expectEmit();
+        emit IOwnable.OwnershipTransferred(address(0), owner);
         vm.expectEmit();
         emit IMinter.UpdatePriceOracle(address(0), address(priceOracle));
         vm.expectEmit();
@@ -390,12 +397,12 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectEmit();
         emit IMinter.UpdateConfig(config);
         vm.expectEmit();
-        emit IAccessControl.RoleGranted(zeroFeeRole, owner, address(this));
+        emit IOwnableRoles.RolesUpdated(owner, zeroFeeRole);
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 
         UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1()), // "Minter_v1.sol",
+            impl, // "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
                 (
@@ -481,7 +488,7 @@ contract TestMinterBasics is TestMinterSetUp {
     // mocks are: priceOracle, feeReceiver, baousd & wstETH
 
     function test_init() public view {
-        assertTrue(IAccessControl(minter).hasRole(ownerRole, owner));
+        assertEq(IOwnable(minter).owner(), owner);
         assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
         assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
         assertEq(IMinter(minter).leveragedToken(), address(leveragedToken));

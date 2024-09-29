@@ -10,12 +10,10 @@ import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/int
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import { Ownable } from "@solady/auth/Ownable.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { IOwnable, IOwnableRoles } from "src/interfaces/IOwnableRoles.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
-
-// import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
 
 /// @title Bao Minter Leveraged Token
 /// @notice A simple ERC20 token used as the leveraged token for a Bao Minter
@@ -48,10 +46,6 @@ contract LeveragedToken_v1 is
         __ERC165_init();
     }
 
-    function _guardInitializeOwner() internal pure override(Ownable) returns (bool guard) {
-        guard = true;
-    }
-
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -71,6 +65,8 @@ contract LeveragedToken_v1 is
             interfaceId == type(IBurnable).interfaceId ||
             interfaceId == type(IERC20).interfaceId ||
             interfaceId == type(IERC20Metadata).interfaceId ||
+            interfaceId == type(IOwnable).interfaceId ||
+            interfaceId == type(IOwnableRoles).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 

@@ -181,6 +181,9 @@ interface IMinter {
     // Public View Functions //
     ///////////////////////////
 
+    // @notice returns the role needed to access the zero fee functions (free*)
+    function ZERO_FEE_ROLE() external view returns (uint256);
+
     /// @notice Return the address of the collateral token
     function collateralToken() external view returns (address);
 

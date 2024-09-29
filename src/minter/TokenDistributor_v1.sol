@@ -3,11 +3,12 @@ pragma solidity 0.8.26;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
 import { Token } from "src/common/Token.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 
@@ -28,7 +29,7 @@ import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 
-contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenOwner {
+contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenOwner, OwnableRoles {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -58,7 +59,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     ///////////////
 
     /// @notice The role needed to be able to distribute
-    bytes32 public constant CLAIMER_ROLE = keccak256("CLAIMER_ROLE");
+    uint256 public constant CLAIMER_ROLE = _ROLE_0;
 
     /// @notice Structure containing the recipient and the number of shares allocated to that recipient
     /// @dev Occupies one storage slot.
@@ -106,7 +107,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     /// @param owner The owner of the contract who is granted Role DEFAULT_ADMIN_ROLE
     /// @param name_ The name given to this distributor.
     function initialize(address owner, string memory name_) public initializer {
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
         __ERC165_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
@@ -127,7 +128,11 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     /// @dev See {IERC165-supportsInterface}.
 
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(ITokenDistributor).interfaceId || super.supportsInterface(interfaceId);
+        return
+            interfaceId == type(IOwnable).interfaceId ||
+            interfaceId == type(IOwnableRoles).interfaceId ||
+            interfaceId == type(ITokenDistributor).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     ////////////////////////////
@@ -307,9 +312,9 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     }
 
     /// @inheritdoc TokenOwner
-    function sweep(address token, address receiver, uint256 amount) public override {
+    function sweep(address token, uint256 amount, address receiver) public override {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         if ($.tokens.contains(token)) revert TokenStillInUse(token);
-        super.sweep(token, receiver, amount);
+        super.sweep(token, amount, receiver);
     }
 }

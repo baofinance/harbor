@@ -7,7 +7,9 @@ import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/Co
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
@@ -17,7 +19,7 @@ import { IReservePool } from "src/minter/IReservePool.sol";
 /// Anyone can load it up with tokens.
 /// The owner can withdraw tokens.
 
-contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, IReservePool, TokenOwner {
+contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, IReservePool, TokenOwner, OwnableRoles {
     using SafeERC20 for IERC20;
 
     /// @notice Emitted when the minter request bonus.
@@ -30,7 +32,7 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, I
     uint256 public constant REQUESTER_ROLE = _ROLE_0;
 
     function initialize(address owner) public initializer {
-        __BaoOwnable_init(owner);
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
         // __ERC165_init();
     }
@@ -42,7 +44,11 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, I
     function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
 
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IReservePool).interfaceId || super.supportsInterface(interfaceId);
+        return
+            interfaceId == type(IReservePool).interfaceId ||
+            interfaceId == type(IOwnable).interfaceId ||
+            interfaceId == type(IOwnableRoles).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     /// @notice Transfers an `amountRequested` of a `token` to the `recipient`.

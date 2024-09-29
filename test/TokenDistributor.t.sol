@@ -13,11 +13,12 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
+import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
 import { Token } from "src/common/Token.sol";
+import { ITokenOwner } from "src/interfaces/ITokenOwner.sol";
 import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
@@ -38,8 +39,7 @@ contract Test_TokenDistributorBase is Test, Array {
     address token2 = deployed.BaoUSD;
     address token3 = deployed.BaoETH;
 
-    bytes32 ownerRole;
-    bytes32 claimerRole;
+    uint256 claimerRole;
     address claimer;
 
     address recipient1;
@@ -86,21 +86,34 @@ contract Test_TokenDistributorBase is Test, Array {
 
         setUpContract();
 
-        ownerRole = tokenDistributor.DEFAULT_ADMIN_ROLE();
         claimerRole = tokenDistributor.CLAIMER_ROLE();
     }
 
     function test_initEvents() public {
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        vm.expectEmit(false, false, false, false);
-        emit IERC1967.Upgraded(address(0)); // TODO: we don't know the address right now
-        vm.expectEmit(true, true, true, false);
-        emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
-        vm.expectEmit(false, false, false, true);
+        address impl = address(new TokenDistributor_v1());
+
+        vm.expectEmit();
+        emit IERC1967.Upgraded(impl);
+        vm.expectEmit();
+        emit IOwnable.OwnershipTransferred(address(0), owner);
+        vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
         UnsafeUpgrades.deployUUPSProxy(
-            address(new TokenDistributor_v1()), //"TokenDistributor_v1.sol",
+            impl, //"TokenDistributor_v1.sol",
+            abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
+        );
+
+        // second proxy for the same implementation - this works because the state is in the proxy
+        vm.expectEmit();
+        emit IERC1967.Upgraded(impl);
+        vm.expectEmit();
+        emit IOwnable.OwnershipTransferred(address(0), owner);
+        vm.expectEmit();
+        emit Initializable.Initialized(1);
+        UnsafeUpgrades.deployUUPSProxy(
+            impl, //"TokenDistributor_v1.sol",
             abi.encodeCall(TokenDistributor_v1.initialize, (owner, "test init"))
         );
     }
@@ -112,7 +125,9 @@ contract Test_TokenDistributorBase is Test, Array {
 
         // IERC165
         tokenDistributor.supportsInterface(type(ITokenDistributor).interfaceId);
-        tokenDistributor.supportsInterface(type(IAccessControl).interfaceId);
+        tokenDistributor.supportsInterface(type(IOwnable).interfaceId);
+        tokenDistributor.supportsInterface(type(IOwnableRoles).interfaceId);
+        tokenDistributor.supportsInterface(type(ITokenOwner).interfaceId);
 
         // name
         assertEq(tokenDistributor.name(), name);
@@ -121,14 +136,13 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(tokenDistributor.owner(), owner, "wrong owner");
 
         // admin role
-        assertFalse(tokenDistributor.hasRole(ownerRole, address(this)), "this should not be admin");
-        assertTrue(tokenDistributor.hasRole(ownerRole, owner), "owner should be admin");
-        assertFalse(tokenDistributor.hasRole(claimerRole, claimer), "claimer should not be admin");
+        assertEq(tokenDistributor.owner(), owner, "owner should be admin");
+        assertFalse(tokenDistributor.hasAllRoles(claimer, claimerRole), "claimer should not be admin");
 
         // claimer role
-        assertFalse(tokenDistributor.hasRole(claimerRole, address(this)), "this should not be a claimer");
-        assertFalse(tokenDistributor.hasRole(claimerRole, owner), "owner should not be a claimer");
-        assertFalse(tokenDistributor.hasRole(claimerRole, claimer), "claimer should not be a claimer");
+        assertFalse(tokenDistributor.hasAnyRole(address(this), claimerRole), "this should not be a claimer");
+        assertFalse(tokenDistributor.hasAnyRole(owner, claimerRole), "owner should not be a claimer");
+        assertFalse(tokenDistributor.hasAnyRole(claimer, claimerRole), "claimer should not be a claimer");
 
         // tokens
         assertEq(tokenDistributor.tokens().length, 0, "some tokens");
@@ -141,40 +155,26 @@ contract Test_TokenDistributorBase is Test, Array {
 
         // access to protected functions
         // admin role
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         tokenDistributor.addToken(address(0));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         tokenDistributor.removeToken(address(0));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         tokenDistributor.setDistribution(aa(), ua());
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         tokenDistributor.addRecipient(address(0), 0);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         tokenDistributor.removeRecipient(address(0));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
-        tokenDistributor.sweep(address(0), address(0), 0);
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        tokenDistributor.sweep(address(0), 0, address(0));
 
         // claimer roles
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), claimerRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         tokenDistributor.distribute();
     }
 
@@ -359,12 +359,10 @@ contract Test_TokenDistributorBase is Test, Array {
 
     function test_distribute() public {
         // no permission to distribute
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), claimerRole)
-        );
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         tokenDistributor.distribute();
         vm.prank(owner);
-        tokenDistributor.grantRole(claimerRole, address(this));
+        tokenDistributor.grantRoles(address(this), claimerRole);
 
         assertEq(IERC20(token1).balanceOf(recipient1), 0);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 0);
@@ -431,24 +429,22 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(IERC20(token2).balanceOf(recipient2), 0 ether);
 
         // not owner
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
-        tokenDistributor.sweep(token1, recipient1, 1 ether);
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        tokenDistributor.sweep(token1, 1 ether, recipient1);
 
         vm.startPrank(owner);
 
         vm.expectRevert(Token.ZeroAddress.selector);
-        tokenDistributor.sweep(token1, address(0), 1 ether);
+        tokenDistributor.sweep(token1, 1 ether, address(0));
 
         // a token that is in use
         tokenDistributor.addToken(token1);
         vm.expectRevert(abi.encodeWithSelector(TokenDistributor_v1.TokenStillInUse.selector, token1));
-        tokenDistributor.sweep(token1, recipient1, 1 ether);
+        tokenDistributor.sweep(token1, 1 ether, recipient1);
         tokenDistributor.removeToken(token1);
 
         //console.log("about to try 1 ether");
-        tokenDistributor.sweep(token1, recipient1, 1 ether);
+        tokenDistributor.sweep(token1, 1 ether, recipient1);
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);
         assertEq(IERC20(token1).balanceOf(recipient2), 0 ether);
@@ -457,7 +453,7 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(IERC20(token2).balanceOf(recipient2), 0 ether);
 
         //console.log("about to try -1");
-        tokenDistributor.sweep(token2, recipient2, type(uint256).max); // 12
+        tokenDistributor.sweep(token2, type(uint256).max, recipient2); // 12
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 10 ether);
         assertEq(IERC20(token1).balanceOf(recipient1), 1 ether);
         assertEq(IERC20(token1).balanceOf(recipient2), 0 ether);
@@ -466,7 +462,7 @@ contract Test_TokenDistributorBase is Test, Array {
         assertEq(IERC20(token2).balanceOf(recipient2), 12 ether);
 
         vm.expectRevert("ERC20: transfer amount exceeds balance");
-        tokenDistributor.sweep(token1, recipient2, 100 ether);
+        tokenDistributor.sweep(token1, 100 ether, recipient2);
 
         vm.stopPrank();
     }
