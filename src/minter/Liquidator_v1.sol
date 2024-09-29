@@ -7,16 +7,20 @@ import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/int
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { IRebalancePool } from "src/minter/IRebalancePool.sol";
-import { ILiquidator } from "src/minter/ILiquidator.sol";
-import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
+import { TokenOwner, ITokenOwner } from "../common/TokenOwner.sol";
+import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
+import { IRebalancePool } from "./IRebalancePool.sol";
+import { ILiquidator } from "./ILiquidator.sol";
 
 contract Liquidator_v1 is
     Initializable,
     UUPSUpgradeable,
-    BaoAccessControl,
+    OwnableRoles,
+    ERC165Upgradeable,
     ReentrancyGuardTransientUpgradeable,
+    TokenOwner,
     ILiquidator
 {
     using SafeERC20 for IERC20;
@@ -25,7 +29,7 @@ contract Liquidator_v1 is
     // TODO:
     bytes32 private constant LIQUIDATOR_STORAGE = 0x0;
     /// @notice The role for liquidator.
-    bytes32 public constant LIQUIDATOR_ROLE = keccak256("LIQUIDATOR_ROLE");
+    uint256 public constant LIQUIDATOR_ROLE = _ROLE_0;
 
     /*************
      * Variables *
@@ -55,11 +59,12 @@ contract Liquidator_v1 is
         address rewardToken,
         uint256 rewardAmount
     ) public initializer {
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
+        __ERC165_init();
 
-        if (!BaoAccessControl(rebalancePool).hasRole(LIQUIDATOR_ROLE, address(this)))
-            revert NeedsRole(LIQUIDATOR_ROLE, address(this));
+        if (!OwnableRoles(rebalancePool).hasAnyRole(address(this), LIQUIDATOR_ROLE))
+            revert NeedsRole(address(this), LIQUIDATOR_ROLE);
 
         LiquidatorStorage storage $ = _getLiquidatorStorage();
         $.rebalancePool = rebalancePool;
@@ -72,13 +77,18 @@ contract Liquidator_v1 is
         _disableInitializers();
     }
 
-    function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
 
     /**
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return super.supportsInterface(interfaceId);
+        return
+            interfaceId == type(ILiquidator).interfaceId ||
+            interfaceId == type(IOwnable).interfaceId ||
+            interfaceId == type(IOwnableRoles).interfaceId ||
+            interfaceId == type(ITokenOwner).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     /// @inheritdoc ILiquidator
@@ -86,8 +96,6 @@ contract Liquidator_v1 is
         LiquidatorStorage storage $ = _getLiquidatorStorage();
         return IRebalancePool($.rebalancePool).assetToken();
     }
-
-    // TODO: make this inherit TokenOwner to make recovery of owned tokens easier
 
     /// @inheritdoc ILiquidator
     function liquidate(

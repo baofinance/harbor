@@ -3,11 +3,12 @@ pragma solidity 0.8.26;
 
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
 import { Token } from "src/common/Token.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 
@@ -28,7 +29,7 @@ import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 
-contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenOwner {
+contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenOwner, OwnableRoles {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -58,7 +59,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     ///////////////
 
     /// @notice The role needed to be able to distribute
-    bytes32 public constant CLAIMER_ROLE = keccak256("CLAIMER_ROLE");
+    uint256 public constant CLAIMER_ROLE = _ROLE_0;
 
     /// @notice Structure containing the recipient and the number of shares allocated to that recipient
     /// @dev Occupies one storage slot.
@@ -106,7 +107,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     /// @param owner The owner of the contract who is granted Role DEFAULT_ADMIN_ROLE
     /// @param name_ The name given to this distributor.
     function initialize(address owner, string memory name_) public initializer {
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
         __ERC165_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
@@ -121,13 +122,17 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
 
     /// @notice The check that allow this contract to be upgraded:
     /// only DEFAULT_ADMIN_ROLE grantees can upgrade this contract.
-    function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
 
     /// @notice Returns true if a given interface is supported.
     /// @dev See {IERC165-supportsInterface}.
 
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(ITokenDistributor).interfaceId || super.supportsInterface(interfaceId);
+        return
+            interfaceId == type(IOwnable).interfaceId ||
+            interfaceId == type(IOwnableRoles).interfaceId ||
+            interfaceId == type(ITokenDistributor).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     ////////////////////////////
@@ -173,7 +178,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
 
     /// @notice Adds a token to be managed.
     /// @param token The address of the token to be managed.
-    function addToken(address token) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         Token.ensureERC20Token(token);
         // wake-disable-next-line unchecked-return-value
@@ -183,7 +188,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     /// @notice Removes a managed token.
     /// If the token is not being managed then there is no error.
     /// @param token The address of the token to be removed.
-    function removeToken(address token) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function removeToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         // wake-disable-next-line unchecked-return-value
         $.tokens.remove(token);
@@ -192,10 +197,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     /// @notice Configures the distribution of all the managed tokens.
     /// @param recipients The recipients of a share of the tokens.
     /// @param shares The size of the share the recipient receives.
-    function setDistribution(
-        address[] calldata recipients,
-        uint[] calldata shares
-    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setDistribution(address[] calldata recipients, uint[] calldata shares) public onlyOwner {
         if (recipients.length != shares.length)
             revert RecipientsAndSharesDifferentSizes(recipients.length, shares.length);
 
@@ -243,7 +245,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     ///        call to set the shares to 0.
     /// @dev The share of every other recipient remains the same value but the `totalShares` is decreased, effectively
     /// increasing the calculated share of each remaining recipient.
-    function addRecipient(address recipient, uint256 share) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addRecipient(address recipient, uint256 share) public onlyOwner {
         Token.ensureNonZeroAddress(recipient);
 
         if (share == 0) revert ShareAmountIsZero(recipient);
@@ -270,7 +272,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     /// @param recipient The address of the recipient to be removed.
     /// @dev The share of every other recipient remains the same value but the `totalShares` is decreased, effectively
     /// increasing the calculated share of each remaining recipient.
-    function removeRecipient(address recipient) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function removeRecipient(address recipient) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         for (uint i = 0; i < $.distribution.length; i++) {
             if (recipient == $.distribution[i].recipient) {
@@ -289,7 +291,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
 
     // TODO: what protections, if any should be on this?
     // @inheritdoc ITokenDistributor
-    function distribute() public onlyRole(CLAIMER_ROLE) {
+    function distribute() public onlyRoles(CLAIMER_ROLE) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
 
         address[] memory tokens_ = $.tokens.values();
@@ -310,9 +312,9 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     }
 
     /// @inheritdoc TokenOwner
-    function transferToken(address token, address receiver, uint256 amount) public override {
+    function sweep(address token, uint256 amount, address receiver) public override {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         if ($.tokens.contains(token)) revert TokenStillInUse(token);
-        super.transferToken(token, receiver, amount);
+        super.sweep(token, amount, receiver);
     }
 }

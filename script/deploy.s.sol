@@ -99,9 +99,8 @@ library DeployLib {
     }
 }
 
-/// @notice A list of named addresses
 contract Network is Script {
-    uint public privateKey;
+    uint256 public privateKey;
     address private addr;
     string public network;
 
@@ -120,7 +119,7 @@ contract Network is Script {
         console2.log("deployer ETH balance=%s", Useful.toStringScaled(addr.balance, 18));
     }
 
-    modifier wallet() {
+    modifier deployer() {
         vm.startBroadcast(privateKey);
         _;
         vm.stopBroadcast();
@@ -175,6 +174,7 @@ contract Deploy is Network, Array {
     }
 
     string jsonObject;
+
     function begin() private {
         vm.startBroadcast(privateKey);
         jsonObject = "";
@@ -194,13 +194,14 @@ contract Deploy is Network, Array {
         return (amount * 1 ether) / 100;
     }
     // TODO: import this from test
-    function _etherToBasisPoint(int256 amount) private pure returns (int) {
+    function _etherToBasisPoint(int amount) private pure returns (int256) {
         return (amount * 10000) / 1 ether;
     }
 
     function _basisPointToEther(int amount) private pure returns (int256) {
         return (amount * 1 ether) / 10000;
     }
+
     function ic(
         uint[] memory upToPercent,
         int[] memory amountBasisPoints

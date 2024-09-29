@@ -6,6 +6,7 @@ solc_version = "0.8.26"
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
+
 gas_reports = [
   "Genesis_v1",
   "LeveragedToken_v1",
@@ -22,9 +23,16 @@ fs_permissions = [
 auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"
 optimizer = true
-optimizer_runs = 180 # 10000 builds & tests but 20 deploys
+optimizer_runs = 500 # 10000 builds & tests but 20 deploys
 # via_ir = true, now causes a stack overflow that doesn't happen without this
 # deny_warnings = true # enable to stop compilations if there are warnings
+
+[fmt]
+int_types = "preserve"
+bracket_spacing = true
+line_length = 121
+single_line_statement_block = "multi"
+wrap_comments = true
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

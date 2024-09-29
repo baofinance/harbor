@@ -5,11 +5,10 @@ pragma solidity ^0.8.26;
 import { console2 as console } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { deployed } from "test/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
@@ -81,10 +80,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
     function test_freeMintLeveraged() public {
         // mint noaccess
-        assertFalse(AccessControlUpgradeable(minter).hasRole(zeroFeeRole, sender));
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, sender, zeroFeeRole)
-        );
+        assertFalse(IOwnableRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeMintLeveragedToken(1 ether, receiver);
         //-------------------------------------------------------------
@@ -124,7 +121,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
         // first mint
         assertEq(IMinter(minter).collateralRatio(), type(uint256).max, "collateral ratio = 1/0");
-        assertTrue(AccessControlUpgradeable(minter).hasRole(ownerRole, owner));
+        assertEq(IOwnable(minter).owner(), owner);
         assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         //---------------------------
@@ -136,7 +133,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.prank(owner);
         IMinter(minter).freeMintPeggedToken(1 ether, owner);
         assertGt(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio > 1");
-        assertTrue(AccessControlUpgradeable(minter).hasRole(ownerRole, owner));
+        assertEq(IOwnable(minter).owner(), owner);
         assertEq(IERC20(deployed.BaoUSD).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         //---------------------------

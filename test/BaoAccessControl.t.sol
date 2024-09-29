@@ -9,22 +9,22 @@ import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-// import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+
+import { IOwnable, IERC5313 } from "src/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "src/interfaces/IOwnableRoles.sol";
+
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
-import { IBaoAccessControl } from "src/common/IBaoAccessControl.sol";
-import { BaoAccessControl } from "src/common/BaoAccessControl.sol";
-
-contract MockBaoAccessControl is BaoAccessControl, UUPSUpgradeable {
-    bytes32 public constant ANOTHER_ROLE = keccak256("ANOTHER_ROLE");
-    bytes32 public constant ANOTHER_ROLE_ADMIN_ROLE = keccak256("ANOTHER_ROLE_ADMIN_ROLE");
-    bytes32 public constant ANOTHER_ROLE2 = keccak256("ANOTHER_ROLE2");
+contract MockBaoAccessControl is OwnableRoles, UUPSUpgradeable {
+    uint256 public constant ANOTHER_ROLE = _ROLE_0;
+    uint256 public constant ANOTHER_ROLE_ADMIN_ROLE = _ROLE_1;
+    uint256 public constant ANOTHER_ROLE2 = _ROLE_2;
 
     function initialize(address owner) external initializer {
-        __BaoAccessControl_init(owner);
+        _initializeOwner(owner);
         __UUPSUpgradeable_init();
-        __ERC165_init();
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -35,7 +35,7 @@ contract MockBaoAccessControl is BaoAccessControl, UUPSUpgradeable {
 
     /// @notice The check that allow this contract to be upgraded:
     /// only DEFAULT_ADMIN_ROLE grantees, of which there can only be one, can upgrade this contract.
-    function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
     /*
     function onlyDefault() public {}
 
@@ -79,15 +79,6 @@ contract TestBaoAccessControlInit is TestBaoAccessControlSetUp {
         super.setUp();
     }
 
-    function test_zeroOwner() public {
-        setUp_impl();
-        owner = address(0);
-        vm.expectRevert(
-            abi.encodeWithSelector(IBaoAccessControl.AccessControlInvalidDefaultAdmin.selector, address(0))
-        );
-        setUp_proxy();
-    }
-
     // TODO: change all contract tests to test initialisation using this pattern
     function test_initEvents1() public {
         vm.expectEmit();
@@ -107,14 +98,12 @@ contract TestBaoAccessControlInit is TestBaoAccessControlSetUp {
 }
 
 contract TestBaoAccessControl is TestBaoAccessControlSetUp {
-    bytes32 defaultAdminRole;
-    bytes32 anotherRole;
-    bytes32 anotherRole2;
-    bytes32 anotherRoleAdminRole;
+    uint256 anotherRole;
+    uint256 anotherRole2;
+    uint256 anotherRoleAdminRole;
 
     function setUp() public override {
         super.setUp();
-        defaultAdminRole = MockBaoAccessControl(accessControl).DEFAULT_ADMIN_ROLE();
         anotherRole = MockBaoAccessControl(accessControl).ANOTHER_ROLE();
         anotherRoleAdminRole = MockBaoAccessControl(accessControl).ANOTHER_ROLE_ADMIN_ROLE();
         anotherRole2 = MockBaoAccessControl(accessControl).ANOTHER_ROLE2();
@@ -123,16 +112,7 @@ contract TestBaoAccessControl is TestBaoAccessControlSetUp {
     // TODO: test all the comments in the source file
 
     function test_init() public view {
-        assertEq(IBaoAccessControl(accessControl).defaultAdmin(), owner);
-        assertEq(IBaoAccessControl(accessControl).pendingDefaultAdmin(), address(0));
-        // another name for defaultAdmin
-        assertEq(IBaoAccessControl(accessControl).owner(), owner);
-
-        // all roles are admin'd by defaultAdminRole at the start
-        assertEq(IBaoAccessControl(accessControl).getRoleAdmin(defaultAdminRole), defaultAdminRole);
-        assertEq(IBaoAccessControl(accessControl).getRoleAdmin(anotherRole), defaultAdminRole);
-        assertEq(IBaoAccessControl(accessControl).getRoleAdmin(anotherRoleAdminRole), defaultAdminRole);
-        assertEq(IBaoAccessControl(accessControl).getRoleAdmin(anotherRole2), defaultAdminRole);
+        assertEq(IOwnable(accessControl).owner(), owner);
     }
 
     function test_grantRevoke() public {
@@ -140,48 +120,32 @@ contract TestBaoAccessControl is TestBaoAccessControlSetUp {
 
         // note that anyone can attempt to grant a role
         // can you grant yourself a role - no
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector,
-                address(this),
-                defaultAdminRole
-            )
-        );
-        IBaoAccessControl(accessControl).grantRole(anotherRoleAdminRole, address(this));
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        IOwnableRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
 
         // but the default admin can
+        assertFalse(IOwnableRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
+        assertFalse(IOwnableRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
         vm.expectEmit();
-        emit IAccessControl.RoleGranted(anotherRoleAdminRole, address(this), owner);
+        emit IOwnableRoles.RolesUpdated(address(this), anotherRoleAdminRole);
         vm.prank(owner);
-        IBaoAccessControl(accessControl).grantRole(anotherRoleAdminRole, address(this));
-        assertTrue(IBaoAccessControl(accessControl).hasRole(anotherRoleAdminRole, address(this)));
+        IOwnableRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
+        assertTrue(IOwnableRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
+        assertTrue(IOwnableRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
 
         // if we do it twice?
         vm.prank(owner);
-        IBaoAccessControl(accessControl).grantRole(anotherRoleAdminRole, address(this));
-        assertTrue(IBaoAccessControl(accessControl).hasRole(anotherRoleAdminRole, address(this)));
+        IOwnableRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
+        assertTrue(IOwnableRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
+        assertTrue(IOwnableRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
 
-        // TODO: setting up role admins
-        // vm.expectEmit();
-        // emit IAccessControl.RoleAdminChanged(anotherRoleAdminRole, defaultAdminRole, anotherRoleAdminRole);
-        // IBaoAccessControl(accessControl).setRoleAdmin(anotherRoleAdminRole, address(this));
-        // TODO: can a role have more than one role admin?
-
+        // TODO: test multiple roles held by one address
         // TODO: revoke roles held
         // TODO: inc role admins
     }
 
     //////////////////////
     // test security
-
-    function test_multiAdmin() public {
-        // can't have two addresses in the defaultAdminRole
-        address owner2 = vm.createWallet("owner2").addr;
-        vm.expectRevert(IBaoAccessControl.AccessControlEnforcedDefaultAdminRules.selector);
-        // note that anyone can attempt to grant a role
-        IBaoAccessControl(accessControl).grantRole(defaultAdminRole, owner2);
-        assertEq(IBaoAccessControl(accessControl).defaultAdmin(), owner);
-    }
 
     function test_transferAdmin() public {
         // TODO: test for renounce role, non-zero, etc

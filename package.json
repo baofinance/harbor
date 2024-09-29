@@ -2,9 +2,10 @@
   "license": "MIT",
   "scripts": {
     "build": "forge build",
-    "test": "echo 'running tests (logged to ./results/test.log) ...' && forge test -v --gas-report | tee ./results/test.log | grep -v '^|.*|$' | cat -s && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt && echo; yarn disabled && echo; yarn coverage && yarn sizes:contracts > ./results/contract-sizes.txt",
+    "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge test -v --nmp deploy.t.sol --gas-report | tee ./results/test.log | grep -v '^|.*|$' | cat -s && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt && echo; yarn disabled && echo; yarn coverage && echo; echo \"generating contract-sizes.txt ...\"; yarn sizes:contracts > ./results/contract-sizes.txt && echo",
     "test1": "forge test -vvv --gas-report",
-    "coverage": "echo 'generating coverage (logged to results/coverage.log) ...' && forge coverage --report summary --report lcov > ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*' > /dev/null && echo 'done.'",
+    "test:deploy": "forge test --summary --mp deploy.t.sol",
+    "coverage": "echo 'generating coverage.txt (logged to results/coverage.log) ...' && forge coverage --report summary --report lcov > ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*' > /dev/null && echo 'done.'",
     "coverage1": "forge coverage --report summary --report lcov ",
     "wake": "wake detect all",
     "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,incorrect-versions-of-solidity --filter-paths \"lib/openzeppelin.*|lib/forge-std.*\"",

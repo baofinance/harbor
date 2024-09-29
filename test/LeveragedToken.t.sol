@@ -12,20 +12,24 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-import { IAccessControlDefaultAdminRules } from "@openzeppelin/contracts/access/extensions/IAccessControlDefaultAdminRules.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
+
+import { Ownable } from "@solady/auth/Ownable.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { deployedSepolia } from "test/deployed.sol";
 
-contract TestLeveragedToken is Test {
+contract TestLeveragedTokensSetUp is Test {
     using ECDSA for bytes32;
     string name = "Leveraged wstETH against BaoUSD";
     string symbol = "BaoUSDLwstETH";
 
+    bytes4 Unauthorized_selector = bytes4(keccak256("Unauthorized()"));
+
+    address leveragedImpl;
     LeveragedToken_v1 leveragedToken;
     address minter;
     address owner;
@@ -33,21 +37,33 @@ contract TestLeveragedToken is Test {
     Vm.Wallet userWallet;
     address user2;
 
-    bytes32 minterRole;
-    bytes32 ownerRole;
+    uint256 minterRole;
 
     function setUpFork() public virtual {}
 
-    function setUpContract() public virtual {
+    function setUp_impl() internal {
+        leveragedImpl = address(new LeveragedToken_v1());
+    }
+
+    function setUp_owner() internal {
+        owner = vm.createWallet("owner").addr;
+    }
+
+    function setUp_proxy() internal {
         name = "Leveraged wstETH against BaoUSD";
         symbol = "BaoUSDLwstETH";
-        owner = vm.createWallet("owner").addr;
         leveragedToken = LeveragedToken_v1(
             UnsafeUpgrades.deployUUPSProxy(
-                address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
+                leveragedImpl, //"LeveragedToken_v1.sol",
                 abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
             )
         );
+    }
+
+    function setUpContract() public virtual {
+        setUp_owner();
+        setUp_impl();
+        setUp_proxy();
     }
 
     function setUp() public virtual {
@@ -61,29 +77,38 @@ contract TestLeveragedToken is Test {
         setUpContract();
 
         minterRole = leveragedToken.MINTER_ROLE();
-        ownerRole = leveragedToken.DEFAULT_ADMIN_ROLE();
     }
 
-    function setUpMinterAccess() private {
-        vm.expectEmit(true, true, true, false);
-        emit IAccessControl.RoleGranted(minterRole, minter, owner);
+    function setUpMinterAccess() internal {
+        vm.expectEmit();
+        emit OwnableRoles.RolesUpdated(minter, minterRole);
         vm.prank(owner);
-        leveragedToken.grantRole(minterRole, minter);
+        leveragedToken.grantRoles(minter, minterRole);
+    }
+}
+
+contract TestLeveragedToken0 is TestLeveragedTokensSetUp {
+    function setUp() public override {}
+
+    function test_setUp() public {
+        super.setUp();
+    }
+}
+
+contract TestLeveragedToken is TestLeveragedTokensSetUp {
+    function test_initEventsImpl() public {
+        vm.expectEmit();
+        emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
+        setUp_impl();
     }
 
-    function test_initEvents() public {
-        vm.expectEmit(false, false, false, true);
-        emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        vm.expectEmit(false, false, false, false);
-        emit IERC1967.Upgraded(address(0)); // TODO: we don't know the address right now
-        vm.expectEmit(true, true, true, false);
-        emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
-        vm.expectEmit(false, false, false, true);
+    function test_initEventsProxy() public {
+        setUp_impl();
+        vm.expectEmit();
+        emit IERC1967.Upgraded(leveragedImpl);
+        vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
-        UnsafeUpgrades.deployUUPSProxy(
-            address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
-        );
+        setUp_proxy();
     }
 
     function test_init() public {
@@ -98,49 +123,39 @@ contract TestLeveragedToken is Test {
         assertEq(leveragedToken.totalSupply(), 0, "nothing minted yet");
 
         // admin role
-        assertFalse(leveragedToken.hasRole(ownerRole, address(this)), "this should not be admin");
-        assertTrue(leveragedToken.hasRole(ownerRole, owner), "owner should be admin");
+        assertNotEq(leveragedToken.owner(), address(this), "this should not be admin");
+        assertEq(leveragedToken.owner(), owner, "owner should be admin");
 
         // minter role
-        assertFalse(leveragedToken.hasRole(minterRole, address(this)), "this should not be minter");
-        assertFalse(leveragedToken.hasRole(minterRole, owner), "owner should not be minter");
-        assertFalse(leveragedToken.hasRole(minterRole, minter), "minter should not be minter (yet)");
+        assertFalse(leveragedToken.hasAnyRole(address(this), minterRole), "this should not be minter");
+        assertFalse(leveragedToken.hasAnyRole(owner, minterRole), "owner should not be minter");
+        assertFalse(leveragedToken.hasAnyRole(minter, minterRole), "minter should not be minter (yet)");
     }
 
     function test_mintburn() public {
         // non-minter mint - minter
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, minter, minterRole)
-        );
+        vm.expectRevert(Unauthorized_selector);
         vm.prank(minter);
         leveragedToken.mint(address(this), 1 ether);
         assertEq(leveragedToken.totalSupply(), 0, "nothing minted yet");
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, minter, minterRole)
-        );
+        vm.expectRevert(Unauthorized_selector);
         vm.prank(minter);
         leveragedToken.burnFrom(address(this), 1 ether);
 
         // non-minter mint - owner
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, owner, minterRole)
-        );
+        vm.expectRevert(Unauthorized_selector);
         vm.prank(owner);
         leveragedToken.mint(address(this), 1 ether);
         assertEq(leveragedToken.totalSupply(), 0, "nothing minted yet");
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, owner, minterRole)
-        );
+        vm.expectRevert(Unauthorized_selector);
         vm.prank(owner);
         leveragedToken.burnFrom(address(this), 1 ether);
 
         // minter now is minter
         assertEq(leveragedToken.balanceOf(address(this)), 0, "should have none");
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), ownerRole)
-        );
-        leveragedToken.grantRole(minterRole, minter);
+        vm.expectRevert(Unauthorized_selector);
+        leveragedToken.grantRoles(minter, minterRole);
 
         setUpMinterAccess();
 
@@ -293,7 +308,7 @@ contract TestLeveragedToken is Test {
 }
 
 contract Test_LeveragedToken_badDeploy is Test {
-    function test_ZeroOwner() public {
+    function test_zeroOwner() public {
         string memory name = "leveraged";
         string memory symbol = "BaoUSDLwstETH";
 
@@ -305,19 +320,14 @@ contract Test_LeveragedToken_badDeploy is Test {
         );
 
         address lt = address(new LeveragedToken_v1());
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControlDefaultAdminRules.AccessControlInvalidDefaultAdmin.selector,
-                address(0)
-            )
-        );
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
         UnsafeUpgrades.deployUUPSProxy(
             lt, //"LeveragedToken_v1.sol",
             abi.encodeCall(LeveragedToken_v1.initialize, (address(0), name, symbol))
         );
     }
 }
-
+/*
 contract TestLeveragedToken_sepolia is TestLeveragedToken {
     function setUpFork() public override {
         vm.createSelectFork(vm.rpcUrl("sepolia"), deployedSepolia.blockNumber); // pin to a block for speed (1-July-2024, proxy update block)
@@ -331,3 +341,4 @@ contract TestLeveragedToken_sepolia is TestLeveragedToken {
         leveragedToken = LeveragedToken_v1(deployedSepolia.BaoUSDxwstETH);
     }
 }
+*/

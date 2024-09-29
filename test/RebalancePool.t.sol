@@ -8,11 +8,11 @@ import { console2 as console } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import { Ownable } from "@solady/auth/Ownable.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
@@ -51,7 +51,7 @@ contract TestRebalancePoolSetUp is TestMinterFeeSetUp {
     }
 
     function test_init(address rp, address liquidateTo) internal view {
-        assertTrue(IAccessControl(rp).hasRole(ownerRole, owner));
+        assertEq(RebalancePool_v1(rp).owner(), owner);
         assertEq(IRebalancePool(rp).assetToken(), peggedToken);
         assertEq(IRebalancePool(rp).liquidationToken(), liquidateTo);
         assertEq(IRebalancePool(rp).minter(), minter);
@@ -88,7 +88,7 @@ contract TestRebalancePoolInitEvents is TestRebalancePoolSetUp {
         vm.expectEmit();
         emit IERC1967.Upgraded(address(rp));
         vm.expectEmit();
-        emit IAccessControl.RoleGranted(ownerRole, owner, address(this));
+        emit Ownable.OwnershipTransferred(address(0), owner);
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 

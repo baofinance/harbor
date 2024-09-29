@@ -7,8 +7,8 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
+import { IOwnableRoles } from "src/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { deployed } from "test/deployed.sol";
@@ -38,7 +38,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         IERC20(peggedToken).approve(rebalancePool, type(uint256).max);
         IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
         vm.prank(owner);
-        IAccessControl(minter).grantRole(zeroFeeRole, address(this));
+        IOwnableRoles(minter).grantRoles(address(this), zeroFeeRole);
         assertEq(0, IERC20(collateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
 

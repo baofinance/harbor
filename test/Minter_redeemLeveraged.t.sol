@@ -5,12 +5,11 @@ pragma solidity ^0.8.26;
 import { console2 as console } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
+import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { deployed } from "test/deployed.sol";
@@ -84,10 +83,8 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "should have no minted leveraged tokens");
 
         // mint noaccess
-        assertFalse(AccessControlUpgradeable(minter).hasRole(zeroFeeRole, sender));
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, sender, zeroFeeRole)
-        );
+        assertFalse(IOwnableRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
         // 1 -----------------------------------------------------------------
@@ -114,7 +111,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
         // some input, when none, but minter has some
 
-        assertTrue(AccessControlUpgradeable(minter).hasRole(ownerRole, owner));
+        assertEq(IOwnable(minter).owner(), owner);
         deal(address(deployed.wstETH), owner, 20 ether);
         vm.prank(owner);
         IERC20(deployed.wstETH).approve(minter, type(uint256).max);

@@ -7,10 +7,12 @@ import "forge-std/console2.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 
-import { TestMinterBasics, TestMinterSetUp } from "test/Minter_base.t.sol";
+import "src/minter/LeveragedToken_v1.sol";
+
+import { TestMinterBasics, TestMinterSetUp, TestMinter0 } from "test/Minter_base.t.sol";
 import { deployed } from "test/deployed.sol";
 
-contract TestDeploy is TestMinterBasics {
+contract TestDeploySetUp is TestMinterSetUp {
     address rebalancePoolCollateral;
     address rebalancePoolLeveraged;
 
@@ -27,7 +29,8 @@ contract TestDeploy is TestMinterBasics {
         vm.assertNotEq(it, address(0), string.concat("zero address for ", name));
     }
 
-    function setUpFork() public override(TestMinterSetUp) {
+    function setUpFork() internal virtual override(TestMinterSetUp) {
+        console2.log("TestDeploySetUp.setUpFork()");
         vm.createSelectFork(vm.rpcUrl(network));
 
         owner = addr("owner");
@@ -40,10 +43,13 @@ contract TestDeploy is TestMinterBasics {
         minter = addr("minter");
         rebalancePoolCollateral = addr("rebalancePoolCollateral");
         rebalancePoolLeveraged = addr("rebalancePoolLeveraged");
+
+        uint256 minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
+        vm.prank(owner);
+        OwnableRoles(leveragedToken).grantRoles(minter, minterRole);
     }
 
-    function setUp() public override {
-        super.setUp();
+    function setUpConfig() internal virtual override {
         // override the config set up as it is in the deploy script
         config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
         config.harvestCollateralRatioLowerBound = _percentToEther(250);
@@ -52,7 +58,25 @@ contract TestDeploy is TestMinterBasics {
         config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
         config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
     }
+}
 
+contract TestDeploy0 is TestMinter0, TestDeploySetUp {
+    function setUp() public override(TestMinter0, TestMinterSetUp) {}
+
+    function setUpFork() internal override(TestDeploySetUp, TestMinterSetUp) {
+        TestDeploySetUp.setUpFork();
+    }
+
+    function setUpConfig() internal override(TestDeploySetUp, TestMinterSetUp) {
+        TestDeploySetUp.setUpConfig();
+    }
+
+    function test_setUp() public virtual override {
+        TestMinter0.setUp();
+    }
+}
+
+contract TestDeploy is TestDeploySetUp {
     function _test_rebalanceConnections(address rp, address liquidateTo) private view {
         assertEq(IRebalancePool(rp).minter(), minter);
         assertEq(IRebalancePool(rp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());

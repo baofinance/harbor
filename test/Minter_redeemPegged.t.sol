@@ -5,11 +5,10 @@ pragma solidity ^0.8.26;
 import { console2 as console } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
@@ -83,10 +82,8 @@ contract TestMinterRedeemPegged is TestMinterMint {
         uint256 price = MockPriceOracle(priceOracle).latestAnswer();
 
         // mint noaccess
-        assertFalse(AccessControlUpgradeable(minter).hasRole(zeroFeeRole, sender));
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, sender, zeroFeeRole)
-        );
+        assertFalse(IOwnableRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeRedeemPeggedToken(price, receiver);
         // 1 ----------------------------------------------------------------
@@ -132,7 +129,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).freeRedeemPeggedToken(0, receiver);
         // 5 -----------------------------------------------------------
 
-        assertTrue(AccessControlUpgradeable(minter).hasRole(ownerRole, owner));
+        assertEq(IOwnable(minter).owner(), owner);
 
         // check that we can't redeem more than minter has minted, i.e 0
         // TODO: check this for non-free redeems
@@ -230,10 +227,8 @@ contract TestMinterRedeemPegged is TestMinterMint {
         uint256 price = MockPriceOracle(priceOracle).latestAnswer();
 
         // mint noaccess
-        assertFalse(AccessControlUpgradeable(minter).hasRole(zeroFeeRole, sender));
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, sender, zeroFeeRole)
-        );
+        assertFalse(IOwnableRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeSwapPeggedForLeveraged(price, receiver);
         // 1 ----------------------------------------------------------------
@@ -279,7 +274,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).freeSwapPeggedForLeveraged(0, receiver);
         // 5 -----------------------------------------------------------
 
-        assertTrue(AccessControlUpgradeable(minter).hasRole(ownerRole, owner));
+        assertEq(IOwnable(minter).owner(), owner);
 
         // check that we can't swap more than minter has minted, i.e 0
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, deployed.BaoUSD));
