@@ -2,8 +2,8 @@
 |-----------------------------|----------|------------|
 | Genesis_v1                  |    6,532 |     18,044 |
 | LeveragedToken_v1           |    8,594 |     15,982 |
-| Liquidator_v1               |    5,113 |     19,463 |
+| Liquidator_v1               |    5,241 |     19,335 |
 | Minter_v1                   |   22,532 |      2,044 |
-| RebalancePool_v1            |   23,953 |        623 |
+| RebalancePool_v1            |   23,915 |        661 |
 | ReservePool_v1              |    4,739 |     19,837 |
 | TokenDistributor_v1         |   10,082 |     14,494 |

@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-// solhint-disable func-name-mixedcase
+// solhint-disable func-name-mixedcase, var-name-mixedcase, func-param-name-mixedcase
 
 interface IVotingEscrow {
     /***********

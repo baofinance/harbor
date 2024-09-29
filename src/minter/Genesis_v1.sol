@@ -5,12 +5,10 @@ pragma solidity 0.8.26;
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
-import { Token } from "src/common/Token.sol";
 import { TokenOwner } from "src/common/TokenOwner.sol";
 
 /// @title Genesis
@@ -25,7 +23,8 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 /// TODO: check that the fee costs of withdrawing for a fee and claiming 50/50 split and redeeming them both
 ///     There is no advantage to withdrawing or claiming then redeeming as far as fees are concerned.
 /// @dev uses UUPS proxy, erc7201 storage
-
+/// @custom:oz-upgrades
+// solhint-disable-next-line contract-name-camelcase
 contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenOwner {
     using SafeERC20 for IERC20;
 
@@ -78,13 +77,13 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.Genesis")) - 1)) & ~bytes32(uint256(0xff));
-    // TODO:
-    bytes32 private constant GENESIS_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
+    bytes32 private constant _GENESIS_STORAGE = 0x0664bd1ecb0513904298180c56323018f000c9153e463401931cf3813b7eb300;
 
     /// @notice Returns the storage for this contract
     function _getGenesisStorage() private pure returns (GenesisStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := GENESIS_STORAGE
+            $.slot := _GENESIS_STORAGE
         }
     }
 
@@ -108,15 +107,17 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         $.minter = minter_;
     }
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    /// @notice In UUPS proxies the implementation is responsible for upgrading itself
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    /// @notice The check that allow this contract to be upgraded:
+    /// In UUPS proxies the implementation is responsible for upgrading itself
+    /// only owners can upgrade this contract.
+    function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     //////////////////////////////
     // Public Mutator Functions //

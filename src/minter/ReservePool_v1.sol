@@ -6,7 +6,6 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils
 import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
@@ -14,11 +13,14 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
 /// @title Reserve Pool
+/// @author rootminus0x1
 /// @notice Holds ERC20 tokens for use in a reserve capacity for one or more Minters.
 /// It hands out what the Minter contract asks for, token and amount, if it has it.
 /// Anyone can load it up with tokens.
 /// The owner can withdraw tokens.
-
+/// @dev Uses UUPS proxy, erc7201 storage
+/// @custom:oz-upgrades
+// solhint-disable-next-line contract-name-camelcase
 contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, IReservePool, TokenOwner, OwnableRoles {
     using SafeERC20 for IERC20;
 
@@ -37,11 +39,17 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, I
         // __ERC165_init();
     }
 
+    /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
+    /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    /// @notice The check that allow this contract to be upgraded:
+    /// In UUPS proxies the implementation is responsible for upgrading itself
+    /// only owners can upgrade this contract.
+    function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return

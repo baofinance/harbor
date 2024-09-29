@@ -21,6 +21,7 @@ library WordCodec {
         // uint256 mask = (1 << bitLength) - 1;
         // bytes32 clearedWord = bytes32(uint256(word) & ~(mask << offset));
         // result = clearedWord | bytes32(value << offset);
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             // slither-disable-next-line incorrect-shift
             let mask := sub(shl(bitLength, 1), 1)
@@ -33,6 +34,7 @@ library WordCodec {
     function decodeUint(bytes32 word, uint256 offset, uint256 bitLength) internal pure returns (uint256 result) {
         // Equivalent to:
         // result = uint256(word >> offset) & ((1 << bitLength) - 1);
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             // slither-disable-next-line incorrect-shift
             result := and(shr(offset, word), sub(shl(bitLength, 1), 1))
@@ -69,6 +71,7 @@ library WordCodec {
             //
             // Equivalent to:
             // result = value > maxInt ? (value | int256(~mask)) : value;
+            // solhint-disable-next-line no-inline-assembly
             assembly {
                 result := or(mul(gt(value, maxInt), not(mask)), value)
             }
@@ -79,6 +82,7 @@ library WordCodec {
     function decodeBool(bytes32 word, uint256 offset) internal pure returns (bool result) {
         // Equivalent to:
         // result = (uint256(word >> offset) & 1) == 1;
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             result := and(shr(offset, word), 1)
         }
@@ -90,6 +94,7 @@ library WordCodec {
         // Equivalent to:
         // bytes32 clearedWord = bytes32(uint256(word) & ~(1 << offset));
         // bytes32 referenceInsertBool = clearedWord | bytes32(uint256(value ? 1 : 0) << offset);
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             // slither-disable-next-line incorrect-shift
             let clearedWord := and(word, not(shl(offset, 1)))

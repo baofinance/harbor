@@ -14,6 +14,10 @@ import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
 import { IRebalancePool } from "./IRebalancePool.sol";
 import { ILiquidator } from "./ILiquidator.sol";
 
+/// @author rootminus0x1
+/// @dev Uses UUPS proxy, erc7201 storage
+/// @custom:oz-upgrades
+// solhint-disable-next-line contract-name-camelcase
 contract Liquidator_v1 is
     Initializable,
     UUPSUpgradeable,
@@ -25,9 +29,6 @@ contract Liquidator_v1 is
 {
     using SafeERC20 for IERC20;
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.Liquidator")) - 1)) & ~bytes32(uint256(0xff));
-    // TODO:
-    bytes32 private constant LIQUIDATOR_STORAGE = 0x0;
     /// @notice The role for liquidator.
     uint256 public constant LIQUIDATOR_ROLE = _ROLE_0;
 
@@ -47,9 +48,13 @@ contract Liquidator_v1 is
         uint96 rewardAmount; // decimals = 18
     }
 
+    // keccak256(abi.encode(uint256(keccak256("bao.storage.Liquidator")) - 1)) & ~bytes32(uint256(0xff));
+    bytes32 private constant _LIQUIDATOR_STORAGE = 0xba08515d98ad1a2775d4a7609c4d903f99de8974de45068f40eaa9f5802a7a00;
+
     function _getLiquidatorStorage() private pure returns (LiquidatorStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := LIQUIDATOR_STORAGE
+            $.slot := _LIQUIDATOR_STORAGE
         }
     }
 
@@ -72,12 +77,17 @@ contract Liquidator_v1 is
         $.rewardAmount = uint96(rewardAmount);
     }
 
+    /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
+    /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
+    /// @notice The check that allow this contract to be upgraded:
+    /// In UUPS proxies the implementation is responsible for upgrading itself
+    /// only owners can upgrade this contract.
+    function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /**
      * @dev See {IERC165-supportsInterface}.

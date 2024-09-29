@@ -90,6 +90,7 @@ interface IRebalancePool {
     function totalAssetSupply() external view returns (uint256);
 
     /// @notice Return the hiostorical total asset deposited to this contract.
+    // solhint-disable-next-line explicit-types
     function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
 
     /// @notice Return the amount of deposited asset for some specific user.

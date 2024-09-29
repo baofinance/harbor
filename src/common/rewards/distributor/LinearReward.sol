@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.26;
 
-import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 // solhint-disable not-rely-on-time
 

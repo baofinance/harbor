@@ -5,7 +5,7 @@ pragma solidity 0.8.26;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
@@ -35,6 +35,8 @@ abstract contract LinearMultipleRewardDistributor is
     /// @notice The role used to manage rewards.
     // TODO: put all roles into final contract, not abstract ones
     /// @dev override this to avoid a clash
+    // as this is simulating solidity's automatic generation for public constants,
+    // solhint-disable-next-line func-name-mixedcase
     function REWARD_MANAGER_ROLE() public pure virtual returns (uint256) {
         return _ROLE_0;
     }
@@ -53,14 +55,14 @@ abstract contract LinearMultipleRewardDistributor is
         /// @notice Mapping from reward token address to linear distribution reward data.
         mapping(address => LinearReward.RewardData) rewardData;
         /// @dev The list of active reward tokens.
+        // TODO: consider re-implementing these as standard arrays as they are small in size - see
         EnumerableSet.AddressSet activeRewardTokens;
         /// @dev The list of historical reward tokens.
         EnumerableSet.AddressSet historicalRewardTokens;
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff));
-    // TODO:
-    bytes32 private constant LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE =
+    bytes32 private constant _LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE =
         0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
 
     function _getLinearMultipleRewardDistributorStorage()
@@ -68,8 +70,9 @@ abstract contract LinearMultipleRewardDistributor is
         pure
         returns (LinearMultipleRewardDistributorStorage storage $)
     {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE
+            $.slot := _LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE
         }
     }
 
@@ -83,7 +86,8 @@ abstract contract LinearMultipleRewardDistributor is
 
     // solhint-disable-next-line func-name-mixedcase
     function __LinearMultipleRewardDistributor_init_unchained(uint40 periodLength_) internal onlyInitializing {
-        require(periodLength_ == 0 || (periodLength_ >= 1 days && periodLength_ <= 28 days), "invalid period length");
+        if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days))
+            revert InvalidPeriodLength(periodLength_);
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         $.periodLength = periodLength_;
     }

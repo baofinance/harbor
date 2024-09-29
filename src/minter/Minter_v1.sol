@@ -10,8 +10,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
-import "@openzeppelin/contracts/utils/math/SignedMath.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "src/common/Token.sol";
@@ -22,8 +21,6 @@ import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
-
-import "test/clog.sol";
 
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
@@ -89,8 +86,7 @@ import "test/clog.sol";
 /// pools as rewards and/or reserve pools, etc.
 // TODO: implement harvesting
 /// @dev Uses UUPS proxy, erc7201 storage
-/// @custom:oz-upgrades
-
+// solhint-disable-next-line contract-name-camelcase
 contract Minter_v1 is
     Initializable,
     UUPSUpgradeable,
@@ -112,7 +108,7 @@ contract Minter_v1 is
     /// With decimals = 9, this gives a max ratio of 2 (200%) with precision of 0.000000001 (0.0000001%),
     /// these ratios must be in the range [-1, 1] [-100%, 100%].
     /// This allows 8 of these to be stored in a slot.
-    uint private constant INCENTIVE_RATIO_DECIMALS = 9;
+    uint private constant _INCENTIVE_RATIO_DECIMALS = 9; // solhint-disable-line explicit-types
 
     /// @notice The precision at which collateral ratio bounds are stored.
     /// @dev Collateral ratio bounds are stored as uint32, which allows for a maximum value of ~4 billion.
@@ -120,16 +116,16 @@ contract Minter_v1 is
     /// e.g. 130.55% is easily catered for.
     /// This allows 8 of these to be stored in a slot. As there is one fewer bound, we only store 7. This, cunningly,
     /// leaves space for a count so that we can have "up to" 7 bounds and 8 fee/discount levels
-    uint private constant COLLATERAL_RATIO_DECIMALS = 6;
+    uint private constant _COLLATERAL_RATIO_DECIMALS = 6; // solhint-disable-line explicit-types
 
     /// @notice The maximum number of fee/discount value bands that can be stored
     /// @dev This is private because the public interface may differ, in particular to handle the piecewise valuation
     /// of pegged tokens, an extra boundary (and band) is added if not present around the depeg point
-    uint private constant maxBands = 8;
+    uint private constant _MAX_BANDS = 8; // solhint-disable-line explicit-types
     /// @notice The maximum number of collateral ratio bounds for fee/discount variation that can be stored
     /// @dev This is private because the public interface may differ, in particular to handle the piecewise valuation
     /// of pegged tokens, an extra boundary (and band) is added if not present around the depeg point
-    uint private constant maxBounds = maxBands - 1;
+    uint private constant _MAX_BOUNDS = _MAX_BANDS - 1; // solhint-disable-line explicit-types
 
     /// @notice The role that allows access to the zero fee versions of the functions.
     uint256 public constant ZERO_FEE_ROLE = _ROLE_0;
@@ -188,10 +184,6 @@ contract Minter_v1 is
         ActionIncentive redeemLeveragedIncentiveConfig;
     }
 
-    /// @notice The storage hash for the shared-with-proxy storage
-    /// @dev keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
-    bytes32 private constant MINTER_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
-
     // TODO: add function to add a rebalancer, granting role and keeping track of it for liquidation?
 
     ////////////////////
@@ -244,8 +236,9 @@ contract Minter_v1 is
     }
 
     /// @notice The check that allow this contract to be upgraded:
-    /// only the owner can upgrade this contract.
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    /// In UUPS proxies the implementation is responsible for upgrading itself
+    /// only owners can upgrade this contract.
+    function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /// @notice Returns true if a given interface is supported.
     /// @dev See {IERC165-supportsInterface}.
@@ -450,6 +443,7 @@ contract Minter_v1 is
     function mintPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.mintPeggedIncentiveConfig;
+        // solhint-disable-next-line explicit-types
         uint band = _findBand(
             config_,
             _collateralTokenBalance($.collateralToken),
@@ -464,6 +458,7 @@ contract Minter_v1 is
     function redeemPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.redeemPeggedIncentiveConfig;
+        // solhint-disable-next-line explicit-types
         uint band = _findBand(
             config_,
             _collateralTokenBalance($.collateralToken),
@@ -479,6 +474,7 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.mintLeveragedIncentiveConfig;
         // just want the fee/bonus at the current collateral
+        // solhint-disable-next-line explicit-types
         uint band = _findBand(
             config_,
             _collateralTokenBalance($.collateralToken),
@@ -494,6 +490,7 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.redeemLeveragedIncentiveConfig;
         incentiveRatio = 0;
+        // solhint-disable-next-line explicit-types
         uint band = _findBand(
             config_,
             _collateralTokenBalance($.collateralToken),
@@ -987,10 +984,15 @@ contract Minter_v1 is
     // Private functions //
     ///////////////////////
 
+    /// @notice The storage hash for the shared-with-proxy storage
+    /// @dev keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
+    bytes32 private constant _MINTER_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
+
     /// @notice Returns a reference to the contract state
     function _getMinterStorage() private pure returns (MinterStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := MINTER_STORAGE
+            $.slot := _MINTER_STORAGE
         }
     }
 
@@ -1011,11 +1013,13 @@ contract Minter_v1 is
 
     // slot accessors for ActionIncentive
     /// @notice Returns a collateral ratio bound at the given index
+    // solhint-disable-next-line explicit-types
     function _collateralRatioUpperBounds(ActionIncentive memory config_, uint index) private pure returns (uint256) {
-        return config_.slot0.decodeUint(index * 32, 32) * 10 ** (18 - COLLATERAL_RATIO_DECIMALS);
+        return config_.slot0.decodeUint(index * 32, 32) * 10 ** (18 - _COLLATERAL_RATIO_DECIMALS);
     }
 
     /// @notice Returns a collateral ratio lower bound at the given index`
+    // solhint-disable-next-line explicit-types
     function _collateralRatioLowerBounds(ActionIncentive memory config_, uint index) private pure returns (uint256) {
         // if we are in the lowest band, the lower bound is 0
         // else its the previous upper bound
@@ -1023,28 +1027,33 @@ contract Minter_v1 is
     }
 
     /// @notice Stores a collateral ratio bound at the given index
+    // solhint-disable-next-line explicit-types
     function _setCollateralRatioUpperBounds(ActionIncentive memory config_, uint index, uint256 value) private pure {
-        config_.slot0 = config_.slot0.encodeUint(value / 10 ** (18 - COLLATERAL_RATIO_DECIMALS), index * 32, 32);
+        config_.slot0 = config_.slot0.encodeUint(value / 10 ** (18 - _COLLATERAL_RATIO_DECIMALS), index * 32, 32);
     }
 
     /// @notice Returns the collateral ratio bound count
+    // solhint-disable-next-line explicit-types
     function _collateralRatioBandCount(ActionIncentive memory config_) private pure returns (uint) {
         return config_.slot0.decodeUint(224, 8);
     }
 
     /// @notice Stored the collateral ratio bound count
+    // solhint-disable-next-line explicit-types
     function _setCollateralRatioBandCount(ActionIncentive memory config_, uint value) private pure {
         config_.slot0 = config_.slot0.encodeUint(value, 224, 8);
     }
 
     /// @notice Returns a incentive ratio at the given index
+    // solhint-disable-next-line explicit-types
     function _incentiveRatio(ActionIncentive memory config_, uint index) private pure returns (int256) {
-        return config_.slot1.decodeInt(index * 32, 32) * int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS));
+        return config_.slot1.decodeInt(index * 32, 32) * int256(10 ** (18 - _INCENTIVE_RATIO_DECIMALS));
     }
 
     /// @notice Stores a incentive ratio at the given index
+    // solhint-disable-next-line explicit-types
     function _setIncentiveRatio(ActionIncentive memory config_, uint index, int256 value) private pure {
-        config_.slot1 = config_.slot1.encodeInt(value / int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS)), index * 32, 32);
+        config_.slot1 = config_.slot1.encodeInt(value / int256(10 ** (18 - _INCENTIVE_RATIO_DECIMALS)), index * 32, 32);
     }
 
     /// @notice Returns whether a depeg boundary has been added. This is used when returning the config to
@@ -1061,14 +1070,14 @@ contract Minter_v1 is
     /// @notice Returns the value of an incentive ratio after it has been cycled (and possibly truncated) through its
     /// storage.
     function _incentiveRatioToStoragePrecision(int256 ratio) private pure returns (int256) {
-        int256 factor = int256(10 ** (18 - INCENTIVE_RATIO_DECIMALS));
+        int256 factor = int256(10 ** (18 - _INCENTIVE_RATIO_DECIMALS));
         return ((ratio / factor) * factor);
     }
 
     /// @notice Returns the value of an collateral ratio bound after it has been cycled (and possibly truncated) through
     /// its storage
     function _collateralRatioToStoragePrecision(uint256 ratio) private pure returns (uint256) {
-        uint256 factor = 10 ** (18 - COLLATERAL_RATIO_DECIMALS);
+        uint256 factor = 10 ** (18 - _COLLATERAL_RATIO_DECIMALS);
         return ((ratio / factor) * factor);
     }
 
@@ -1093,7 +1102,8 @@ contract Minter_v1 is
         }
         out = ActionIncentive(0, 0);
         uint256 prevUpperBound;
-        uint iOut = 0;
+        uint iOut = 0; // solhint-disable-line explicit-types
+        // solhint-disable-next-line explicit-types
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
             int256 incentiveRatio = _incentiveRatioToStoragePrecision(config_.incentiveRatios[i]);
             // incentive ratios cannot be too precise for the storage schema
@@ -1164,7 +1174,7 @@ contract Minter_v1 is
                     );
                 }
             }
-            if (iOut >= maxBands) {
+            if (iOut >= _MAX_BANDS) {
                 revert TooManyIncentiveRatios(config_.incentiveRatios.length, config_.incentiveRatios.length - 1);
             }
             _setIncentiveRatio(out, iOut, incentiveRatio);
@@ -1178,11 +1188,12 @@ contract Minter_v1 is
     }
 
     function _copyBandsBack(ActionIncentive memory config_) private pure returns (IncentiveConfig memory out) {
-        uint iOut = 0;
-        uint outBands = _collateralRatioBandCount(config_);
+        uint iOut = 0; // solhint-disable-line explicit-types
+        uint outBands = _collateralRatioBandCount(config_); // solhint-disable-line explicit-types
         if (_depegBandAdded(config_)) outBands--;
         out.collateralRatioBandUpperBounds = new uint256[](outBands - 1);
         out.incentiveRatios = new int256[](outBands);
+        // solhint-disable-next-line explicit-types
         for (uint i = 0; i < _collateralRatioBandCount(config_) - 1; i++) {
             if (!(_depegBandAdded(config_) && _collateralRatioUpperBounds(config_, i) == 1 ether)) {
                 out.collateralRatioBandUpperBounds[iOut] = _collateralRatioUpperBounds(config_, i);
@@ -1424,7 +1435,7 @@ contract Minter_v1 is
 
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
-        uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, false);
+        uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
         fee = 0;
         peggedMinted = 0;
         maxCollateral = 0;
@@ -1508,7 +1519,7 @@ contract Minter_v1 is
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
 
-        uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, true);
+        uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, true); // solhint-disable-line explicit-types
         // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
@@ -1628,7 +1639,7 @@ contract Minter_v1 is
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
-        uint band = _findBand(config_, balanceOf.collateral, price, balanceOf.pegged, true);
+        uint band = _findBand(config_, balanceOf.collateral, price, balanceOf.pegged, true); // solhint-disable-line explicit-types
 
         // simulate minting until we run out of collateral, adding the fee & bonus as we go
         fee = 0;
@@ -1737,7 +1748,7 @@ contract Minter_v1 is
         );
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
-        uint band = _findBand(config_, startCollateralTokenBalance, price, peggedTokenBalance_, false);
+        uint band = _findBand(config_, startCollateralTokenBalance, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
         // simulate redeeming until we run out of leveraged tokens, adding the fee & reserve collateral as we go
 
         fee = 0;
@@ -1794,7 +1805,13 @@ contract Minter_v1 is
         uint256 collateralPrice,
         uint256 peggedTokenBalance_,
         bool atLower
-    ) private pure returns (uint band) {
+    )
+        private
+        pure
+        returns (
+            uint band // solhint-disable-line explicit-types
+        )
+    {
         uint256 collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
         for (band = 0; band < _collateralRatioBandCount(config_) - 1; band++) {
             uint256 bandUpperBound = _collateralRatioUpperBounds(config_, band);

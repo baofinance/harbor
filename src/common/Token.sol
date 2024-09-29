@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-// TODO: check OZ address class 
+// TODO: check OZ address class
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -47,13 +47,6 @@ library Token {
         ensureNonZeroAddress(addr);
         // from https://www.rareskills.io/post/solidity-code-length
         if (addr.code.length == 0) revert NotContractAddress(addr);
-        /*
-        uint256 size;
-        assembly {
-            size := extcodesize(addr)
-        }
-        if (size == 0) revert NotContractAddress(addr);
-        */
     }
 
     function ensureERC20Token(address addr) internal view {

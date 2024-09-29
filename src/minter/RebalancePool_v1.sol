@@ -6,7 +6,7 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/Math.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { Ownable } from "@solady/auth/Ownable.sol";
 //import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
@@ -14,15 +14,13 @@ import { Ownable } from "@solady/auth/Ownable.sol";
 import { DecrementalFloatingPoint } from "src/common/math/DecrementalFloatingPoint.sol";
 import { IMultipleRewardAccumulator } from "src/common/rewards/accumulator/IMultipleRewardAccumulator.sol";
 import { MultipleRewardCompoundingAccumulator } from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
-import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
+// import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { IMinter } from "src/minter/IMinter.sol";
-import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
-import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
-import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
-
-import "test/clog.sol";
+// import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
+// import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
+// import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -35,6 +33,10 @@ import "test/clog.sol";
 ///   2. veSupply[w] is the total ve supply at the beginning of week `w`.
 ///   3. ve[u][w] is the ve balance for user `u` at the beginning of week `w`.
 ///   4. balance[u][w] is the amount of token staked for user `u` at the beginning of week `w`.
+/// @author rootminus0x1 mostly copied from Aladdin's Fx framework
+/// @dev Uses UUPS proxy, erc7201 storage
+/// @custom:oz-upgrades
+// solhint-disable-next-line contract-name-camelcase
 contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompoundingAccumulator, IRebalancePool {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
@@ -44,7 +46,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
      *************/
 
     /// @notice The role for liquidator.
-    uint256 public constant LIQUIDATOR_ROLE = _ROLE_1;
+    uint256 public constant LIQUIDATOR_ROLE = _ROLE_1; // start at _ROLE_1 as Linear MultipleRewardDistributor uses _ROLE_0
 
     /// @notice The role for any reward sender, including the liquidator
     uint256 public constant REWARDER_ROLE = _ROLE_2;
@@ -146,11 +148,13 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.RebalancePool")) - 1)) & ~bytes32(uint256(0xff));
-    bytes32 private constant REBALANCEPOOL_STORAGE = 0x45788b9b76e33b92143d170ad6d8d6c40c3d574d34daa7020827daf770a8d900;
+    bytes32 private constant _REBALANCEPOOL_STORAGE =
+        0x45788b9b76e33b92143d170ad6d8d6c40c3d574d34daa7020827daf770a8d900;
 
     function _getRebalancePoolStorage() private pure returns (RebalancePoolStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := REBALANCEPOOL_STORAGE
+            $.slot := _REBALANCEPOOL_STORAGE
         }
     }
 
@@ -208,13 +212,17 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         guard = true;
     }
 
+    /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
+    /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        // stop the implementation being initialized to any version
-        // https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
         _disableInitializers();
     }
-    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {}
+
+    /// @notice The check that allow this contract to be upgraded:
+    /// In UUPS proxies the implementation is responsible for upgrading itself
+    /// only owners can upgrade this contract.
+    function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /*************************
      * Public View Functions *
@@ -251,6 +259,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     }
 
     /// @inheritdoc IRebalancePool
+    // solhint-disable-next-line explicit-types
     function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         TokenBalance memory record = $.totalSupplyHistory[index];
@@ -589,7 +598,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // }
         snapshot.checkpoint = epochToExponentToRewardSnapshot(token, epochExponent);
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
-        setUserRewardSnapshot(account, token, snapshot);
+        _setUserRewardSnapshot(account, token, snapshot);
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator

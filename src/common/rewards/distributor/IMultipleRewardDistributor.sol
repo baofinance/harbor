@@ -54,6 +54,9 @@ interface IMultipleRewardDistributor {
     /// @dev Thrown when caller try to unregister a reward with pending rewards.
     error RewardDistributionNotFinished();
 
+    /// @dev Thrown when period length is non-zero and outside the range 1 day to 28 day (inclusive).
+    error InvalidPeriodLength(uint40 periodLength);
+
     /*************************
      * Public View Functions *
      *************************/

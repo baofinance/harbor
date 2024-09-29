@@ -20,6 +20,7 @@ import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 /// @author rootminus0x1
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
+// solhint-disable-next-line contract-name-camelcase
 contract LeveragedToken_v1 is
     Initializable,
     UUPSUpgradeable,
@@ -47,14 +48,16 @@ contract LeveragedToken_v1 is
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
+    /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
     /// @notice The check that allow this contract to be upgraded:
-    /// only DEFAULT_ADMIN_ROLE grantees can upgrade this contract.
-    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
+    /// In UUPS proxies the implementation is responsible for upgrading itself
+    /// only owners can upgrade this contract.
+    function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /// @notice Returns true if a given interface is supported.
     /// @dev See {IERC165-supportsInterface}.

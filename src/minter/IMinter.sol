@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import "src/common/Token.sol";
-
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
 /// @notice Provides an interface for minting and redeeming pegged and leveraged tokens, some with fees, others without.
@@ -160,15 +158,15 @@ interface IMinter {
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
     // TODO: make these expected, actual.
-    error TooManyCollateralRatioBounds(uint count, uint max);
-    error InvalidCollateralRatioBoundValue(uint256 value, uint index);
+    error TooManyCollateralRatioBounds(uint count, uint max); // solhint-disable-line explicit-types
+    error InvalidCollateralRatioBoundValue(uint256 value, uint index); // solhint-disable-line explicit-types
     error CollateralRatioBoundValueNotIncreasing(
         uint256 shouldBeLessOrEqual,
-        uint index,
+        uint index, // solhint-disable-line explicit-types
         uint256 shouldBeGreaterOrEqual
     );
-    error TooManyIncentiveRatios(uint count, uint max);
-    error TooFewIncentiveRatios(uint count, uint min);
+    error TooManyIncentiveRatios(uint count, uint max); // solhint-disable-line explicit-types
+    error TooFewIncentiveRatios(uint count, uint min); // solhint-disable-line explicit-types
     error InvalidIncentiveRatioValue(int256 shouldBeMinusOnetoOne);
     error IncentiveRatioTooPrecise(int256 value);
     error CollateralRatioBoundsIncentivesLengthsMismatch(uint256 oneLess, uint256 oneMore);
@@ -182,6 +180,7 @@ interface IMinter {
     ///////////////////////////
 
     // @notice returns the role needed to access the zero fee functions (free*)
+    // solhint-disable-next-line func-name-mixedcase
     function ZERO_FEE_ROLE() external view returns (uint256);
 
     /// @notice Return the address of the collateral token
