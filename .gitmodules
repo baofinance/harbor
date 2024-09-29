@@ -10,3 +10,6 @@
 [submodule "lib/dotfiles"]
 	path = lib/dotfiles
 	url = https://github.com/baofinance/dotfiles
+[submodule "lib/solady"]
+	path = lib/solady
+	url = https://github.com/Vectorized/solady
