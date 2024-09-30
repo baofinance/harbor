@@ -1,7 +1,6 @@
 {
   "license": "MIT",
   "scripts": {
-    "prettier": "prettier --write 'src/**/*.sol'",
     "build": "forge build",
     "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge test -v --nmp deploy.t.sol --gas-report | tee ./results/test.log | grep -v '^|.*|$' | cat -s && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt && echo; yarn disabled && echo; yarn coverage && echo; echo \"generating contract-sizes.txt ...\"; yarn sizes:contracts > ./results/contract-sizes.txt && echo",
     "test1": "forge test -vvv --gas-report",
@@ -21,11 +20,16 @@
     "contracts": "awk '/gas_reports *=/ {flag=1; next} /]/ {flag=0} flag {gsub(/\"|,/, \"\"); print $1}' foundry.toml",
     "contracts:regexp": "yarn contracts | paste -sd '|'",
     "sizes:contracts": "yarn sizes | grep -E \"^\\| Contract |^\\|---|$(yarn contracts:regexp)\"",
-    "sizes": "forge clean; forge build --sizes"
+    "sizes": "forge clean; forge build --sizes",
+    "fmt:check": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --check",
+    "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --write",
+    "lint": "solhint 'src/**/*.sol' --disc",
+    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'"
   },
   "dependencies": {
     "prettier": "^3.2.5",
-    "prettier-plugin-solidity": "^1.3.1"
+    "prettier-plugin-solidity": "^1.3.1",
+    "solhint": "^5.0.3"
   },
   "packageManager": "yarn@4.2.2"
 }
