@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
-import { deployed } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 

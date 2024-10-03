@@ -22,7 +22,7 @@ import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { Token } from "@bao/Token.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
-import { deployed } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";

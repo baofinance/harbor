@@ -22,7 +22,6 @@ import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
 import { IBurnableFrom } from "@bao/interfaces/IBurnableFrom.sol";
-import { deployedSepolia } from "test/deployed.sol";
 
 contract TestLeveragedTokensSetUp is Test {
     using ECDSA for bytes32;
@@ -329,18 +328,3 @@ contract Test_LeveragedToken_badDeploy is Test {
         );
     }
 }
-/*
-contract TestLeveragedToken_sepolia is TestLeveragedToken {
-    function setUpFork() public override {
-        vm.createSelectFork(vm.rpcUrl("sepolia"), deployedSepolia.blockNumber); // pin to a block for speed (1-July-2024, proxy update block)
-    }
-
-    function setUpContract() public override {
-        // vm.rpcUrl("sepolia");
-        name = "BaoMinter BaoUSD-wstETH";
-        symbol = "BaoUSD-wstETH";
-        owner = deployedSepolia.owner;
-        leveragedToken = LeveragedToken_v1(deployedSepolia.BaoUSDxwstETH);
-    }
-}
-*/

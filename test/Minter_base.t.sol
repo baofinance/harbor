@@ -25,7 +25,7 @@ import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
-import { deployed } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";

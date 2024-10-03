@@ -24,7 +24,7 @@ import { IMinter } from "src/minter/IMinter.sol";
 import { Genesis_v1 } from "src/minter/Genesis_v1.sol";
 
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
-import { deployed } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 import { Array } from "test/Array.sol";
 
 contract Test_GenesisBase is Test, Array {

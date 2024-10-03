@@ -18,7 +18,7 @@ import "src/minter/Minter_v1.sol";
 import "src/minter/IMinter.sol";
 import "src/minter/RebalancePool_v1.sol";
 import "src/minter/Genesis_v1.sol";
-import "test/deployed.sol";
+import "@bao/deployed.sol";
 import "test/Array.sol";
 import "test/Useful.sol";
 

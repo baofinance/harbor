@@ -21,7 +21,7 @@ import { Token } from "@bao/Token.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
-import { deployed } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 
 contract Test_ReservePool is Test {
     using SafeERC20 for IERC20;

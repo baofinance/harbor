@@ -38,7 +38,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4950488                                     | 22781           |        |        |        |         |
+| 4950500                                     | 22781           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | ZERO_FEE_ROLE                               | 262             | 262    | 262    | 262    | 67      |
 | collateralForLeverageTokens                 | 5545            | 5902   | 5545   | 8045   | 7       |
@@ -88,7 +88,7 @@
 | src/minter/RebalancePool_v1.sol:RebalancePool_v1 contract |                 |        |        |        |         |
 |-----------------------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                                           | Deployment Size |        |        |        |         |
-| 5251118                                                   | 24172           |        |        |        |         |
+| 5251130                                                   | 24172           |        |        |        |         |
 | Function Name                                             | min             | avg    | median | max    | # calls |
 | assetBalanceOf                                            | 1044            | 1485   | 1574   | 1574   | 6       |
 | assetToken                                                | 421             | 1087   | 421    | 2421   | 3       |

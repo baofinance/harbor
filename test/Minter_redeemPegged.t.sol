@@ -12,7 +12,7 @@ import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
-import { deployed } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 

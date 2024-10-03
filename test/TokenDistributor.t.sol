@@ -22,10 +22,9 @@ import { ITokenHolder } from "@bao/interfaces/ITokenHolder.sol";
 import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
-import { Array } from "test/Array.sol";
-import { deployed, deployedSepolia } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 
-//import "test/clog.sol";
+import { Array } from "test/Array.sol";
 
 contract Test_TokenDistributorBase is Test, Array {
     using ECDSA for bytes32;
@@ -467,21 +466,3 @@ contract Test_TokenDistributorBase is Test, Array {
         vm.stopPrank();
     }
 }
-
-/* TODO: remove this
-contract Test_TokenDistributor_sepolia is Test_TokenDistributorBase {
-    function setUpFork() public override {
-        vm.createSelectFork(vm.rpcUrl("sepolia"), deployedSepolia.blockNumber);
-        token1 = deployedSepolia.USDT;
-        token2 = deployedSepolia.MAGIC;
-        token3 = deployedSepolia.USDC;
-    }
-
-    function setUpContract() public override {
-        // vm.rpcUrl("sepolia");
-        owner = deployedSepolia.owner;
-        name = "FeeDistributor";
-        tokenDistributor = TokenDistributor_v1(deployedSepolia.FeeDistributor);
-    }
-}
-*/
