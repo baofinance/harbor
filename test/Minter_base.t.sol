@@ -21,7 +21,7 @@ import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { Token } from "@bao/Token.sol";
-import { IMintable } from "src/minter/IMintable.sol";
+import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 

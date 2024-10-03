@@ -10,7 +10,7 @@
 | src/minter/LeveragedToken_v1.sol:LeveragedToken_v1 contract |                 |        |        |        |         |
 |-------------------------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                                             | Deployment Size |        |        |        |         |
-| 1936753                                                     | 8843            |        |        |        |         |
+| 1936765                                                     | 8843            |        |        |        |         |
 | Function Name                                               | min             | avg    | median | max    | # calls |
 | DOMAIN_SEPARATOR                                            | 6451            | 6451   | 6451   | 6451   | 1       |
 | MINTER_ROLE                                                 | 238             | 238    | 238    | 238    | 75      |
@@ -38,7 +38,7 @@
 | src/minter/Minter_v1.sol:Minter_v1 contract |                 |        |        |        |         |
 |---------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                             | Deployment Size |        |        |        |         |
-| 4950500                                     | 22781           |        |        |        |         |
+| 4950488                                     | 22781           |        |        |        |         |
 | Function Name                               | min             | avg    | median | max    | # calls |
 | ZERO_FEE_ROLE                               | 262             | 262    | 262    | 262    | 67      |
 | collateralForLeverageTokens                 | 5545            | 5902   | 5545   | 8045   | 7       |

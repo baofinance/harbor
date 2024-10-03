@@ -19,7 +19,9 @@ import { Ownable } from "@solady/auth/Ownable.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
-import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
+import { IMintable } from "@bao/interfaces/IMintable.sol";
+import { IBurnable } from "@bao/interfaces/IBurnable.sol";
+import { IBurnableFrom } from "@bao/interfaces/IBurnableFrom.sol";
 import { deployedSepolia } from "test/deployed.sol";
 
 contract TestLeveragedTokensSetUp is Test {

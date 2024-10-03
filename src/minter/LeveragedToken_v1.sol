@@ -13,7 +13,9 @@ import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/I
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
-import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
+import { IMintable } from "@bao/interfaces/IMintable.sol";
+import { IBurnable } from "@bao/interfaces/IBurnable.sol";
+import { IBurnableFrom } from "@bao/interfaces/IBurnableFrom.sol";
 
 /// @title Bao Minter Leveraged Token
 /// @notice A simple ERC20 token used as the leveraged token for a Bao Minter

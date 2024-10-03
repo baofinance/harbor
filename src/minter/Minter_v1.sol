@@ -18,7 +18,9 @@ import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
-import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
+import { IMintable } from "@bao/interfaces/IMintable.sol";
+import { IBurnable } from "@bao/interfaces/IBurnable.sol";
+import { IBurnableFrom } from "@bao/interfaces/IBurnableFrom.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
