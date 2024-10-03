@@ -3,9 +3,9 @@
 pragma solidity 0.8.26;
 
 interface IRebalancePool {
-    /**********
-     * Events *
-     **********/
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Emitted when user deposit asset into this contract.
     /// @param owner The address of asset owner.
@@ -39,9 +39,9 @@ interface IRebalancePool {
     /// @param newWrapper The address of current reward wrapper.
     event UpdateWrapper(address indexed oldWrapper, address indexed newWrapper);
 
-    /**********
-     * Errors *
-     **********/
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
 
     /// @dev Thrown then the src token mismatched.
     error ErrorWrapperSrcMismatch();
@@ -70,9 +70,9 @@ interface IRebalancePool {
     // @dev Thrown when initiaising with an invalid liquidation token
     error InvalidLiquidationToken(address token);
 
-    /*************************
-     * Public View Functions *
-     *************************/
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
     function minter() external view returns (address);
@@ -104,9 +104,9 @@ interface IRebalancePool {
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);
 
-    /****************************
-     * Public Mutator Functions *
-     ****************************/
+    /*//////////////////////////////////////////////////////////////
+                        PUBLIC UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Deposit some asset to this contract.
     /// @dev Use `amount=uint256(-1)` if you want to deposit all asset held.
@@ -124,19 +124,24 @@ interface IRebalancePool {
     /// @return liquidated The amount of asset liquidated.
     function liquidate(uint256 minPeggedAmount) external returns (uint256 liquidated);
 
-    /*******************************
-     * Protected Mutator Functions *
-     *******************************/
+    /*//////////////////////////////////////////////////////////////
+                      PROTECTED UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice send reward tokens to the pool stakers
     /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
     /// Other reward tokens can also be added using this function
     // function accumulateReward(address rewardToken, uint256 rewardAmount) external;
 
-    // SHAREABLE part
-    /**********
-     * Events *
-     **********/
+    /*//////////////////////////////////////////////////////////////
+    ----------------------------------------------------------------
+    ----------------------- SHAREABLE part -------------------------
+    ----------------------------------------------------------------
+    //////////////////////////////////////////////////////////////*/
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Emitted when one user share votes to another user.
     /// @param owner The address of votes owner.
@@ -154,9 +159,9 @@ interface IRebalancePool {
     /// @param newOwner The address of the current vote sharing owner.
     event AcceptSharedVote(address indexed staker, address indexed oldOwner, address indexed newOwner);
 
-    /**********
-     * Errors *
-     **********/
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
 
     /// @dev Thrown when caller shares votes to self.
     error ErrorSelfSharingIsNotAllowed();
@@ -176,21 +181,17 @@ interface IRebalancePool {
     /// @dev Thrown when staker try to accept twice.
     error ErrorRepeatAcceptSharedVote();
 
-    /*************************
-     * Public View Functions *
-     *************************/
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Return the owner of votes of some staker.
     /// @param account The address of user to query.
     function getStakerVoteOwner(address account) external view returns (address);
 
-    /****************************
-     * Public Mutator Functions *
-     ****************************/
-
-    /*******************************
-     * Protected Mutator Functions *
-     *******************************/
+    /*//////////////////////////////////////////////////////////////
+                      PROTECTED UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Withdraw asset from this contract on behalf of someone
     function withdrawFrom(address owner, uint256 amount, address receiver) external returns (uint256 amountWithdrawn);

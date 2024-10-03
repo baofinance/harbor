@@ -22,9 +22,9 @@ pragma solidity 0.8.26;
 /// <li>collateral ratio of the system
 /// </ul>
 interface IMinter {
-    /////////////////////
-    // Data Structures //
-    /////////////////////
+    /*//////////////////////////////////////////////////////////////
+                           DATA STRUCTURES
+    //////////////////////////////////////////////////////////////*/
 
     struct BalanceTokens {
         address peggedToken;
@@ -56,9 +56,9 @@ interface IMinter {
         IncentiveConfig redeemLeveragedIncentiveConfig;
     }
 
-    ////////////
-    // Events //
-    ////////////
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Emitted when peggedToken is minted.
     /// @param sender The address of collateral token owner.
@@ -132,9 +132,9 @@ interface IMinter {
     /// @param newPriceOracle The address of current price oracle contract.
     event UpdatePriceOracle(address indexed oldPriceOracle, address indexed newPriceOracle);
 
-    ////////////
-    // Errors //
-    ////////////
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
 
     /// @dev Thrown when the oracle price is invalid.
     error InvalidOraclePrice();
@@ -175,9 +175,9 @@ interface IMinter {
     /// @dev thrown when an action is paused, for example if the protocol is not initialised
     error ActionPaused();
 
-    ///////////////////////////
-    // Public View Functions //
-    ///////////////////////////
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     // @notice returns the role needed to access the zero fee functions (free*)
     // solhint-disable-next-line func-name-mixedcase
@@ -378,9 +378,9 @@ interface IMinter {
             uint256 price
         );
 
-    //////////////////////////////
-    // Public Mutator Functions //
-    //////////////////////////////
+    /*//////////////////////////////////////////////////////////////
+                        PUBLIC UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Mint some pegged tokens in exchange for collateral tokens.
     /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
@@ -430,9 +430,9 @@ interface IMinter {
         uint256 minCollateralOut
     ) external returns (uint256 collateralOut);
 
-    /////////////////////////////////
-    // Protected Mutator Functions //
-    /////////////////////////////////
+    /*//////////////////////////////////////////////////////////////
+                      PROTECTED UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Updates the config to the given config
     /// @param config_ The new config

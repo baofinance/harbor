@@ -3,29 +3,29 @@
 pragma solidity 0.8.26;
 
 interface ILiquidator {
-    /**********
-     * Events *
-     **********/
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
 
-    /**********
-     * Errors *
-     **********/
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
 
     /// @dev Thrown the cannot liquidate.
     error CannotLiquidate();
 
     error NeedsRole(address roleHolder, uint256 role);
 
-    /*************************
-     * Public View Functions *
-     *************************/
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Return the address of underlying token of this contract.
     function assetToken() external view returns (address);
 
-    /****************************
-     * Public Mutator Functions *
-     ****************************/
+    /*//////////////////////////////////////////////////////////////
+                        PUBLIC UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Liquidate asset.
     /// This function transfers a given amount of assets to the receiver.

@@ -2,6 +2,10 @@
 pragma solidity 0.8.26;
 
 interface IReservePool {
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
     /// @notice Emitted when the market request bonus.
     /// @param minter The address of minter contract.
     /// @param token The address of the token requested.
@@ -15,6 +19,10 @@ interface IReservePool {
         uint256 amountRequested,
         uint256 amountSent
     );
+
+    /*//////////////////////////////////////////////////////////////
+                      PROTECTED UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Request bonus token from Reserve Pool.
     /// @param token The address of token to request.
