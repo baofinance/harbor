@@ -13,10 +13,10 @@ import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/int
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
-import { Token } from "src/common/Token.sol";
+import { Token } from "@bao/Token.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
+import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable, IBurnable, IBurnableFrom } from "src/minter/IMintable.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";

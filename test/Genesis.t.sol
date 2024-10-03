@@ -15,7 +15,7 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-import { IOwnable } from "src/interfaces/IOwnable.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";

@@ -9,7 +9,8 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
-import { TokenOwner } from "src/common/TokenOwner.sol";
+import { TokenHolder } from "@bao/TokenHolder.sol";
+// TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
 /// @title Genesis
 /// @author rootminus0x1 based on Aladdin's FX system
@@ -25,7 +26,7 @@ import { TokenOwner } from "src/common/TokenOwner.sol";
 /// @dev uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenOwner {
+contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenHolder {
     using SafeERC20 for IERC20;
 
     ////////////

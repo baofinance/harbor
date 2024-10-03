@@ -8,8 +8,8 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
-import { TokenOwner } from "src/common/TokenOwner.sol";
+import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { TokenHolder } from "@bao/TokenHolder.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
 /// @title Reserve Pool
@@ -21,7 +21,7 @@ import { IReservePool } from "src/minter/IReservePool.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, IReservePool, TokenOwner, OwnableRoles {
+contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, IReservePool, TokenHolder, OwnableRoles {
     using SafeERC20 for IERC20;
 
     /// @notice Emitted when the minter request bonus.

@@ -16,9 +16,9 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
-import { Token } from "src/common/Token.sol";
-import { ITokenOwner } from "src/interfaces/ITokenOwner.sol";
+import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { Token } from "@bao/Token.sol";
+import { ITokenHolder } from "@bao/interfaces/ITokenHolder.sol";
 import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
@@ -127,7 +127,7 @@ contract Test_TokenDistributorBase is Test, Array {
         tokenDistributor.supportsInterface(type(ITokenDistributor).interfaceId);
         tokenDistributor.supportsInterface(type(IOwnable).interfaceId);
         tokenDistributor.supportsInterface(type(IOwnableRoles).interfaceId);
-        tokenDistributor.supportsInterface(type(ITokenOwner).interfaceId);
+        tokenDistributor.supportsInterface(type(ITokenHolder).interfaceId);
 
         // name
         assertEq(tokenDistributor.name(), name);

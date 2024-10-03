@@ -12,8 +12,8 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils
 
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { IOwnable, IERC5313 } from "src/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "src/interfaces/IOwnableRoles.sol";
+import { IOwnable, IERC5313 } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 

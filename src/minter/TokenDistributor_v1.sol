@@ -8,9 +8,9 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
-import { Token } from "src/common/Token.sol";
-import { TokenOwner } from "src/common/TokenOwner.sol";
+import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { Token } from "@bao/Token.sol";
+import { TokenHolder } from "@bao/TokenHolder.sol";
 
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
@@ -30,7 +30,7 @@ import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenOwner, OwnableRoles {
+contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenHolder, OwnableRoles {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -329,7 +329,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         }
     }
 
-    /// @inheritdoc TokenOwner
+    /// @inheritdoc TokenHolder
     function sweep(address token, uint256 amount, address receiver) public override {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         if ($.tokens.contains(token)) revert TokenStillInUse(token);

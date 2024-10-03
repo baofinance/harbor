@@ -8,7 +8,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import { IOwnableRoles } from "src/interfaces/IOwnableRoles.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { deployed } from "test/deployed.sol";

@@ -19,7 +19,7 @@ import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 
-import { Token } from "src/common/Token.sol";
+import { Token } from "@bao/Token.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
 import { deployed } from "test/deployed.sol";

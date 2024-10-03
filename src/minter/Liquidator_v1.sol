@@ -9,8 +9,8 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { TokenOwner, ITokenOwner } from "../common/TokenOwner.sol";
-import { IOwnable, IOwnableRoles } from "../interfaces/IOwnableRoles.sol";
+import { TokenHolder, ITokenHolder } from "@bao/TokenHolder.sol";
+import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IRebalancePool } from "./IRebalancePool.sol";
 import { ILiquidator } from "./ILiquidator.sol";
 
@@ -24,7 +24,7 @@ contract Liquidator_v1 is
     OwnableRoles,
     ERC165Upgradeable,
     ReentrancyGuardTransientUpgradeable,
-    TokenOwner,
+    TokenHolder,
     ILiquidator
 {
     using SafeERC20 for IERC20;
@@ -97,7 +97,7 @@ contract Liquidator_v1 is
             interfaceId == type(ILiquidator).interfaceId ||
             interfaceId == type(IOwnable).interfaceId ||
             interfaceId == type(IOwnableRoles).interfaceId ||
-            interfaceId == type(ITokenOwner).interfaceId ||
+            interfaceId == type(ITokenHolder).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 

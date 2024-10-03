@@ -1,7 +1,7 @@
 | src/minter/Genesis_v1.sol:Genesis_v1 contract |                 |        |        |        |         |
 |-----------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                               | Deployment Size |        |        |        |         |
-| 1490968                                       | 6781            |        |        |        |         |
+| 1487913                                       | 6767            |        |        |        |         |
 | Function Name                                 | min             | avg    | median | max    | # calls |
 | initialize                                    | 2894            | 116183 | 153946 | 153946 | 4       |
 | owner                                         | 2348            | 2348   | 2348   | 2348   | 1       |
@@ -10,7 +10,7 @@
 | src/minter/LeveragedToken_v1.sol:LeveragedToken_v1 contract |                 |        |        |        |         |
 |-------------------------------------------------------------|-----------------|--------|--------|--------|---------|
 | Deployment Cost                                             | Deployment Size |        |        |        |         |
-| 1936765                                                     | 8843            |        |        |        |         |
+| 1936753                                                     | 8843            |        |        |        |         |
 | Function Name                                               | min             | avg    | median | max    | # calls |
 | DOMAIN_SEPARATOR                                            | 6451            | 6451   | 6451   | 6451   | 1       |
 | MINTER_ROLE                                                 | 238             | 238    | 238    | 238    | 75      |
@@ -106,20 +106,20 @@
 | src/minter/ReservePool_v1.sol:ReservePool_v1 contract |                 |       |        |       |         |
 |-------------------------------------------------------|-----------------|-------|--------|-------|---------|
 | Deployment Cost                                       | Deployment Size |       |        |       |         |
-| 1103445                                               | 4988            |       |        |       |         |
+| 1066315                                               | 4816            |       |        |       |         |
 | Function Name                                         | min             | avg   | median | max   | # calls |
 | REQUESTER_ROLE                                        | 239             | 239   | 239    | 239   | 121     |
 | grantRoles                                            | 2509            | 16495 | 26314  | 26314 | 122     |
 | initialize                                            | 2776            | 47541 | 48146  | 48146 | 75      |
 | requestBonus                                          | 2697            | 15851 | 15739  | 39339 | 328     |
 | supportsInterface                                     | 443             | 500   | 500    | 557   | 2       |
-| sweep                                                 | 2942            | 2942  | 2942   | 2942  | 1       |
+| sweep                                                 | 2654            | 2654  | 2654   | 2654  | 1       |
 
 --
 | src/minter/TokenDistributor_v1.sol:TokenDistributor_v1 contract |                 |       |        |        |         |
 |-----------------------------------------------------------------|-----------------|-------|--------|--------|---------|
 | Deployment Cost                                                 | Deployment Size |       |        |        |         |
-| 2258937                                                         | 10331           |       |        |        |         |
+| 2221827                                                         | 10159           |       |        |        |         |
 | Function Name                                                   | min             | avg   | median | max    | # calls |
 | CLAIMER_ROLE                                                    | 282             | 282   | 282    | 282    | 5       |
 | addRecipient                                                    | 2531            | 39422 | 37810  | 69517  | 7       |
@@ -136,6 +136,6 @@
 | removeToken                                                     | 2512            | 14329 | 18269  | 18269  | 4       |
 | setDistribution                                                 | 2908            | 30793 | 20147  | 76161  | 16      |
 | supportsInterface                                               | 466             | 523   | 523    | 580    | 4       |
-| sweep                                                           | 2862            | 15942 | 5328   | 41009  | 7       |
+| sweep                                                           | 2862            | 15876 | 5040   | 40540  | 7       |
 | tokens                                                          | 870             | 1426  | 1195   | 2870   | 15      |
 

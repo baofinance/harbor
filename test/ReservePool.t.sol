@@ -16,8 +16,8 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
-import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
-import { Token } from "src/common/Token.sol";
+import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { Token } from "@bao/Token.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 

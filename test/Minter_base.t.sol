@@ -13,14 +13,14 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
-import { IOwnableRoles, IOwnable } from "src/interfaces/IOwnableRoles.sol";
+import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
 
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
-import { Token } from "src/common/Token.sol";
+import { Token } from "@bao/Token.sol";
 import { IMintable } from "src/minter/IMintable.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
