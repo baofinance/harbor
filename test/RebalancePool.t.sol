@@ -22,7 +22,7 @@ import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { Token } from "@bao/Token.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/clog.sol";
@@ -43,11 +43,11 @@ contract TestRebalancePoolSetUp is TestMinterFeeSetUp {
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+        IERC20(Deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
 
         user2 = vm.createWallet("user2").addr;
         vm.prank(user2);
-        IERC20(deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+        IERC20(Deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
     }
 
     function test_init(address rp, address liquidateTo) internal view {

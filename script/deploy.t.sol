@@ -10,7 +10,7 @@ import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import "src/minter/LeveragedToken_v1.sol";
 
 import { TestMinterBasics, TestMinterSetUp, TestMinter0 } from "test/Minter_base.t.sol";
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 
 contract TestDeploySetUp is TestMinterSetUp {
     address rebalancePoolCollateral;

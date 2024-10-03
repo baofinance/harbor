@@ -12,7 +12,7 @@ import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.
 import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 
@@ -45,9 +45,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
         uint256 receiverCollateralIncrease = (ownerLeveragedDecrease * 1 ether) / price;
         uint256 ownerLeveragedBefore = IERC20(leveragedToken).balanceOf(owner);
-        uint256 receiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(receiver);
+        uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
         uint256 minterCollateralBefore = IMinter(minter).collateralTokenBalance();
-        uint256 minterWstETHBefore = IERC20(deployed.wstETH).balanceOf(minter);
+        uint256 minterWstETHBefore = IERC20(Deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
         vm.expectEmit(true, true, false, true, minter);
@@ -61,12 +61,12 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
             "unexpected amount of free collateral returned compared to price"
         );
         assertEq(
-            IERC20(deployed.wstETH).balanceOf(receiver),
+            IERC20(Deployed.wstETH).balanceOf(receiver),
             receiverCollateralBefore + receiverCollateralIncrease,
             "collateral not mis-transferred to receiver"
         );
         assertEq(IMinter(minter).collateralTokenBalance(), minterCollateralBefore - receiverCollateralIncrease);
-        assertEq(IERC20(deployed.wstETH).balanceOf(minter), minterWstETHBefore - receiverCollateralIncrease);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(minter), minterWstETHBefore - receiverCollateralIncrease);
 
         assertEq(IMinter(minter).leveragedTokenBalance(), minterLeveragedBefore - ownerLeveragedDecrease);
         assertEq(
@@ -90,7 +90,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // 1 -----------------------------------------------------------------
 
         // zero input, when none
-        assertEq(IERC20(deployed.wstETH).balanceOf(owner), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(owner), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemLeveragedToken(0, receiver);
@@ -112,9 +112,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // some input, when none, but minter has some
 
         assertEq(IOwnable(minter).owner(), owner);
-        deal(address(deployed.wstETH), owner, 20 ether);
+        deal(address(Deployed.wstETH), owner, 20 ether);
         vm.prank(owner);
-        IERC20(deployed.wstETH).approve(minter, type(uint256).max);
+        IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
         vm.prank(owner);
         IMinter(minter).freeMintLeveragedToken(1 ether, sender); // not owner
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -159,7 +159,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
         // 7 -----------------------------------------------------------------
         assertEq(IMinter(minter).leveragedTokenBalance(), mintedLeveraged + 1 * price);
-        assertEq(IERC20(deployed.wstETH).balanceOf(receiver), 1 ether);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 1 ether);
 
         // first normal redeem
         vm.prank(owner);
@@ -206,13 +206,13 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
         // clog("receiverCollateralIncrease", receiverCollateralIncrease);
 
-        uint256 feeReceiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(feeReceiver);
+        uint256 feeReceiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         uint256 senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender);
-        uint256 receiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(receiver);
+        uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
         uint256 totalLeveragedBefore = IERC20(leveragedToken).totalSupply();
         uint256 minterCollateralBalanceBefore = IMinter(minter).collateralTokenBalance();
         uint256 minterLeveragedBalanceBefore = IMinter(minter).leveragedTokenBalance();
-        uint256 minterCollateralBefore = IERC20(deployed.wstETH).balanceOf(minter);
+        uint256 minterCollateralBefore = IERC20(Deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
         vm.expectEmit(true, true, false, true, minter);
@@ -222,7 +222,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // -----------------------------------------------------------------------------------------------
         assertEq(returned, receiverCollateralIncrease, "unexpected amount returned compared to price");
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(feeReceiver),
+            IERC20(Deployed.wstETH).balanceOf(feeReceiver),
             feeReceiverCollateralBefore + redeemLeveragedFee,
             1,
             "fee transferred"
@@ -234,7 +234,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
         assertEq(IERC20(leveragedToken).totalSupply(), totalLeveragedBefore - senderLeveragedDecrease, "token burned");
         assertEq(
-            IERC20(deployed.wstETH).balanceOf(receiver),
+            IERC20(Deployed.wstETH).balanceOf(receiver),
             receiverCollateralBefore + receiverCollateralIncrease,
             "collateral returned"
         );
@@ -251,7 +251,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
         // TODO: track the reserve pool too
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(minter),
+            IERC20(Deployed.wstETH).balanceOf(minter),
             minterCollateralBefore - receiverCollateralIncrease - redeemLeveragedFee,
             1,
             "wstETH has minter owning it"
@@ -264,7 +264,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // zero input, when none
-        assertEq(IERC20(deployed.wstETH).balanceOf(sender), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(sender), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(0, receiver, 0);
@@ -303,7 +303,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
         // get tokens to redeem
         setUp_collateral(1 ether, 0, sender);
-        // deal(address(deployed.wstETH), sender, 10 ether);
+        // deal(address(Deployed.wstETH), sender, 10 ether);
 
         // get allowance
         vm.prank(sender);
@@ -349,33 +349,33 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         vm.prank(sender);
 
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        deal(address(deployed.wstETH), sender, collateral * 10);
+        deal(address(Deployed.wstETH), sender, collateral * 10);
 
         uint256 redeemLeveragedFee = (collateral *
             uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios))) / 1 ether;
         uint256 expectedCollateralOut = collateral - redeemLeveragedFee;
 
         uint256 senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender);
-        uint256 receiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(receiver);
+        uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just within
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(leveraged, receiver, expectedCollateralOut);
         // 3 ------------------------------------------------------------------------------
-        assertEq(IERC20(deployed.wstETH).balanceOf(receiver), receiverCollateralBefore + expectedCollateralOut);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore + expectedCollateralOut);
         // clog("senderLeveragedBefore", senderLeveragedBefore);
         // clog("leveraged", leveraged);
 
         assertEq(IERC20(leveragedToken).balanceOf(sender), senderLeveragedBefore - leveraged);
 
         senderLeveragedBefore = IERC20(leveragedToken).balanceOf(sender);
-        receiverCollateralBefore = IERC20(deployed.wstETH).balanceOf(receiver);
+        receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just over
         vm.expectRevert(
             abi.encodeWithSelector(
                 IMinter.ReturnInsufficientAmount.selector,
-                deployed.wstETH,
+                Deployed.wstETH,
                 expectedCollateralOut + 1,
                 expectedCollateralOut
             )
@@ -383,7 +383,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(leveraged, receiver, expectedCollateralOut + 1);
         // 4 ------------------------------------------------------------------------------
-        assertEq(IERC20(deployed.wstETH).balanceOf(receiver), receiverCollateralBefore);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore);
         assertEq(IERC20(leveragedToken).balanceOf(sender), senderLeveragedBefore);
 
         // mint from all of balance
@@ -396,7 +396,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         _redeemLeveragedToken(type(uint256).max);
         // 5 --------------------------------
         assertApproxEqAbs(
-            IERC20(deployed.wstETH).balanceOf(receiver),
+            IERC20(Deployed.wstETH).balanceOf(receiver),
             receiverCollateralBefore + expectedCollateralOut,
             1,
             "out correct"

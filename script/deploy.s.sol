@@ -18,14 +18,14 @@ import "src/minter/Minter_v1.sol";
 import "src/minter/IMinter.sol";
 import "src/minter/RebalancePool_v1.sol";
 import "src/minter/Genesis_v1.sol";
-import "@bao/deployed.sol";
+import "@bao/Deployed.sol";
 import "test/Array.sol";
 import "test/Useful.sol";
 
 // functions are called in this sequence
 // 1) Deploy*
 //      - deploys the proxy and the first implementation
-//      - you should save the file being deployed into the src_deployed/<network e.g. sepolia> directory.
+//      - you should save the file being Deployed into the src_Deployed/<network e.g. sepolia> directory.
 //          - If it's a test deployment (e.g. on Sepolia) then the filename should have a letter appended,
 //            e.g. X_v1.sol -> X_v1a.sol
 //          - this indicates that it is an alpha version in preparation for the v1 release
@@ -52,21 +52,21 @@ library DeployLib {
 
         leveragedToken_ = Upgrades.deployUUPSProxy(
             "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (deployed.BAOMULTISIG, name, symbol))
+            abi.encodeCall(LeveragedToken_v1.initialize, (Deployed.BAOMULTISIG, name, symbol))
         );
     }
 
     function reservePool() internal returns (address reservePool_) {
         reservePool_ = Upgrades.deployUUPSProxy(
             "ReservePool_v1.sol",
-            abi.encodeCall(ReservePool_v1.initialize, deployed.BAOMULTISIG)
+            abi.encodeCall(ReservePool_v1.initialize, Deployed.BAOMULTISIG)
         );
     }
 
     function tokenDistributor(string memory name) internal returns (address tokenDistributor_) {
         tokenDistributor_ = Upgrades.deployUUPSProxy(
             "TokenDistributor_v1.sol",
-            abi.encodeCall(TokenDistributor_v1.initialize, (deployed.BAOMULTISIG, name))
+            abi.encodeCall(TokenDistributor_v1.initialize, (Deployed.BAOMULTISIG, name))
         );
     }
 
@@ -81,7 +81,7 @@ library DeployLib {
             "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
-                (deployed.BAOMULTISIG, tokens, priceOracle, feeReceiver, reservePool_, config)
+                (Deployed.BAOMULTISIG, tokens, priceOracle, feeReceiver, reservePool_, config)
             )
         );
     }
@@ -93,7 +93,7 @@ library DeployLib {
     ) internal returns (address rebalancePool_) {
         rebalancePool_ = Upgrades.deployUUPSProxy(
             "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (deployed.BAOMULTISIG, minter_, liquidationToken))
+            abi.encodeCall(RebalancePool_v1.initialize, (Deployed.BAOMULTISIG, minter_, liquidationToken))
         );
         console2.log("RebalancePool(%s) = %s", name, rebalancePool_);
     }
@@ -138,17 +138,17 @@ contract Network is Script {
 contract Deploy is Network, Array {
     function run() public {
         begin();
-        log("owner", deployed.BAOMULTISIG);
+        log("owner", Deployed.BAOMULTISIG);
 
         Minter_v1.BalanceTokens memory tokens;
-        tokens.peggedToken = deployed.BaoUSD;
+        tokens.peggedToken = Deployed.BaoUSD;
         log("peggedToken", tokens.peggedToken);
         tokens.leveragedToken = DeployLib.leveragedToken("BaoUSD", "wstETH");
         log("leveragedToken", tokens.leveragedToken);
-        tokens.collateralToken = deployed.wstETH;
+        tokens.collateralToken = Deployed.wstETH;
         log("collateralToken", tokens.collateralToken);
 
-        address priceOracle = deployed.PriceOracle_wstETHUSD;
+        address priceOracle = Deployed.PriceOracle_wstETHUSD;
         log("priceOracle", priceOracle);
         address feeReceiver = DeployLib.tokenDistributor("FeeDistributor");
         log("feeReceiver", feeReceiver);

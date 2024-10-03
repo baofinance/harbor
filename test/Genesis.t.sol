@@ -24,7 +24,7 @@ import { IMinter } from "src/minter/IMinter.sol";
 import { Genesis_v1 } from "src/minter/Genesis_v1.sol";
 
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 import { Array } from "test/Array.sol";
 
 contract Test_GenesisBase is Test, Array {
@@ -77,7 +77,7 @@ contract Test_GenesisBase is Test, Array {
                 Minter_v1.initialize,
                 (
                     owner,
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
+                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
                     address(priceOracle),
                     feeReceiver,
                     reservePool,

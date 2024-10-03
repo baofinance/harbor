@@ -21,12 +21,12 @@ import { Token } from "@bao/Token.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 
 contract Test_ReservePool is Test {
     using SafeERC20 for IERC20;
-    address token1 = deployed.BaoUSD;
-    address token2 = deployed.wstETH;
+    address token1 = Deployed.BaoUSD;
+    address token2 = Deployed.wstETH;
     address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
 
     address bonusReceiver;

@@ -22,7 +22,7 @@ import { ITokenHolder } from "@bao/interfaces/ITokenHolder.sol";
 import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";
 import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 
 import { Array } from "test/Array.sol";
 
@@ -34,9 +34,9 @@ contract Test_TokenDistributorBase is Test, Array {
 
     address owner;
     string name;
-    address token1 = deployed.wstETH;
-    address token2 = deployed.BaoUSD;
-    address token3 = deployed.BaoETH;
+    address token1 = Deployed.wstETH;
+    address token2 = Deployed.BaoUSD;
+    address token3 = Deployed.BaoETH;
 
     uint256 claimerRole;
     address claimer;
@@ -57,9 +57,9 @@ contract Test_TokenDistributorBase is Test, Array {
     function setUpFork() public virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
-        token1 = deployed.wstETH;
-        token2 = deployed.BaoUSD;
-        token3 = deployed.BaoETH;
+        token1 = Deployed.wstETH;
+        token2 = Deployed.BaoUSD;
+        token3 = Deployed.BaoETH;
 
         owner = vm.createWallet("owner").addr;
     }

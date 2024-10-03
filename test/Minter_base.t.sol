@@ -25,7 +25,7 @@ import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 import { MockPriceOracle } from "test/MockPriceOracle.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
@@ -223,7 +223,7 @@ contract TestMinterSetUp is Test, Clog, Array {
                 Minter_v1.initialize,
                 (
                     owner,
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
+                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -244,8 +244,8 @@ contract TestMinterSetUp is Test, Clog, Array {
         priceOracle = address(new MockPriceOracle());
 
         setUp_leveragedToken();
-        peggedToken = deployed.BaoUSD;
-        collateralToken = deployed.wstETH;
+        peggedToken = Deployed.BaoUSD;
+        collateralToken = Deployed.wstETH;
 
         setUp_reservePool();
 
@@ -257,12 +257,12 @@ contract TestMinterSetUp is Test, Clog, Array {
         setUpConfig();
 
         setUpFork();
-        deal(address(deployed.wstETH), address(this), 20 ether);
+        deal(address(Deployed.wstETH), address(this), 20 ether);
     }
 
     function setUp_permissions() internal {
-        vm.prank(IBaoUSD(deployed.BaoUSD).operator());
-        IBaoUSD(deployed.BaoUSD).addMinter(minter);
+        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
+        IBaoUSD(Deployed.BaoUSD).addMinter(minter);
         vm.prank(owner);
         OwnableRoles(leveragedToken).grantRoles(minter, minterRole);
         requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
@@ -285,12 +285,12 @@ contract TestMinterSetUp is Test, Clog, Array {
         // put some collateral into the minter to bootstrap it
         // get collateral & allowance
         uint256 totalAmount = collateralForPegged + collateralForLeveraged;
-        deal(address(deployed.wstETH), owner, totalAmount + 10 ether);
+        deal(address(Deployed.wstETH), owner, totalAmount + 10 ether);
 
         setUp_permissions();
 
         vm.prank(owner);
-        IERC20(deployed.wstETH).approve(minter, totalAmount);
+        IERC20(Deployed.wstETH).approve(minter, totalAmount);
         if (collateralForPegged > 0) {
             vm.prank(owner);
             peggedTokens = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
@@ -329,7 +329,7 @@ contract TestMinterInit is TestMinterSetUp {
                 Minter_v1.initialize,
                 (
                     address(this),
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
+                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -349,7 +349,7 @@ contract TestMinterInit is TestMinterSetUp {
                 Minter_v1.initialize,
                 (
                     address(this),
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), owner),
+                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), owner),
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -367,7 +367,7 @@ contract TestMinterInit is TestMinterSetUp {
                 Minter_v1.initialize,
                 (
                     address(this),
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
+                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -407,7 +407,7 @@ contract TestMinterInit is TestMinterSetUp {
                 Minter_v1.initialize,
                 (
                     owner,
-                    IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
+                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -425,7 +425,7 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         Minter_v1(minter).initialize(
             address(this),
-            IMinter.BalanceTokens(deployed.BaoUSD, address(leveragedToken), deployed.wstETH),
+            IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
             address(priceOracle),
             feeReceiver,
             reservePool,
@@ -489,8 +489,8 @@ contract TestMinterBasics is TestMinterSetUp {
 
     function test_init() public view {
         assertEq(IOwnable(minter).owner(), owner);
-        assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
-        assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
+        assertEq(IMinter(minter).collateralToken(), Deployed.wstETH);
+        assertEq(IMinter(minter).peggedToken(), Deployed.BaoUSD);
         assertEq(IMinter(minter).leveragedToken(), address(leveragedToken));
         assertEq(IMinter(minter).priceOracle(), address(priceOracle));
         assertEq(IMinter(minter).feeReceiver(), feeReceiver);
@@ -570,8 +570,8 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral + collateralReturned - 1 ether);
 
         // tokens
-        assertEq(IMinter(minter).peggedToken(), deployed.BaoUSD);
-        assertEq(IMinter(minter).collateralToken(), deployed.wstETH);
+        assertEq(IMinter(minter).peggedToken(), Deployed.BaoUSD);
+        assertEq(IMinter(minter).collateralToken(), Deployed.wstETH);
 
         // TODO: rebalance pool
     }
