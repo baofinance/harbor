@@ -2,9 +2,11 @@
   "license": "MIT",
   "scripts": {
     "build": "forge build",
-    "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge test -v --nmp deploy.t.sol --gas-report | tee ./results/test.log | grep -v '^|.*|$' | cat -s && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt && echo; yarn disabled && echo; yarn coverage && echo; echo \"generating contract-sizes.txt ...\"; yarn sizes:contracts > ./results/contract-sizes.txt && echo",
+    "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge test -v --nmp deploy.t.sol --summary --gas-report | tee ./results/test.log | grep -v '^|.*|$' | cat -s && grep -A1 '^|.*|$' ./results/test.log > ./results/gas-report.txt",
     "test1": "forge test -vvv --gas-report",
     "test:deploy": "forge test --summary --mp deploy.t.sol",
+    "gas:raw": "forge test --isolate --gas-report --nmp deploy.t.sol",
+    "gas": "yarn gas:raw | grep -A1 '^|.*|$' | awk 'BEGIN { printf \"| %-30s | %-5s |\n|--------------------------------|-------|\n\", \"Function Name\", \"max\" } /^| [A-Za-z]/ { gsub(/^[ \t]+|[ \t]+$/, \"\", $2); gsub(/^[ \t]+|[ \t]+$/, \"\", $(NF-2)); printf \"| %-30s | %-5s |\n\", $2, $(NF-2) }'",
     "coverage": "echo 'generating coverage.txt (logged to results/coverage.log) ...' && forge coverage --report summary --report lcov > ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*' > /dev/null && echo 'done.'",
     "coverage1": "forge coverage --report summary --report lcov ",
     "wake": "wake detect all",
@@ -24,7 +26,8 @@
     "fmt:check": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --check",
     "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test}/**/*.sol' --write",
     "lint": "solhint 'src/**/*.sol' --disc",
-    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'"
+    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
+    "pre-checkin": "yarn test && yarn disabled && echo; yarn coverage && echo; echo \"generating contract-sizes.txt ...\"; yarn sizes:contracts > ./results/contract-sizes.txt && echo"
   },
   "dependencies": {
     "prettier": "^3.2.5",

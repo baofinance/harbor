@@ -1,0 +1,93 @@
+#! /bin/sh
+# run forge test --gas-report and process its output to extract interesting gas information for storage in git
+# it doesn't store it in git - that's your job :-)
+
+#export FUNCTION_WIDTH=35
+#export QUANTITY_WIDTH=7
+
+#export LAYOUT="| %-${FUNCTION_WIDTH}s | %-${QUANTITY_WIDTH}s |"
+#echo $LAYOUT
+#export HEADER=`printf "${LAYOUT}" "Function Name" "max"`
+#echo $HEADER
+#export HEADER="`printf '${LAYOUT}' 'Function Name', 'max'`
+#export LINE=`printf "%0.s-" $(seq 1 ${FUNCTION_WIDTH})`
+#echo $LINE
+# forge clean
+# forge test --gas-report
+#cat results/test.log | awk '
+#BEGIN { printf "${HEADER}\n", "Function Name", "max" } /^| [A-Za-z]/ { gsub(/^[ \t]+|[ \t]+$/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $(NF-2)); printf "| %-30s | %-5s |\n", $2, $(NF-2) }'
+
+date
+
+awk -v name_width=70 -v value_width=7 '
+BEGIN {
+  FS="|"
+  # Define the format string with variable widths
+  format = "|%-" name_width "s|%" value_width "s|\n"
+  first = 1
+}
+
+# Function Data line
+/^\| [a-zA-Z_$]+ +\| [^|]+ \| [^|]+ \| [^|]+ \| [^|]+ \| [^|]+ \|$/ {
+  gsub(/^ +| +$/, "", $2)
+  gsub(/^ +| +$/, "", $5)
+  gsub(/^ +| +$/, "", $6)
+  printf "|%-" name_width "s|%" value_width "s|\n", $2, add_commas($6)
+}
+
+# Functions data header
+/^\| Function Name +\|/ {
+  printf "|%-" name_width "s|%" value_width "s|\n", "Function Name", "max"
+  printf "|%s|%s|\n", str_repeat("-", name_width + 2), str_repeat("-", value_width + 2)
+}
+
+# Contract header
+/^\| .*\.sol:.* \|/ {
+  if (first) {
+    first = 0
+  } else {
+    printf "`%s\x27\n", str_repeat("-", name_width + value_width + 5)
+    printf "\n"
+  }
+  gsub(/^ +| +$/, "", $2)
+  printf ".%s.\n", str_repeat("=", name_width + value_width + 5)
+  printf "|%-" name_width + value_width + 4 "s |\n", $2
+  printf "|%s|\n", str_repeat("=", name_width + value_width + 5)
+}
+
+
+# round a number
+function round(n) {
+    return int(n + 0.5)
+}
+
+# Function to repeat a character n times
+function str_repeat(char, count) {
+    result = ""
+    for (i = 0; i < count; i++) {
+        result = result char
+    }
+    return result
+}
+
+# add commas
+function add_commas(n) {
+    # Convert the number to a string
+    num_str = n ""
+    # Initialize variables
+    result = ""
+    len = length(num_str)
+    count = 0
+
+    # Loop through the number from right to left
+    for (i = len; i > 0; i--) {
+        count++
+        result = substr(num_str, i, 1) result
+        # Insert a comma after every third digit (but not at the start)
+        if (count % 3 == 0 && i != 1) {
+            result = "," result
+        }
+    }
+    return result
+}
+' results/test.log
