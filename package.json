@@ -2,7 +2,7 @@
   "license": "MIT",
   "scripts": {
     "build": "forge build",
-    "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge test -v --nmp deploy.t.sol --summary --gas-report | tee ./results/test.log | grep -v '^|.*|.*|.*|.*|.*|.*|$' | cat -s && grep -A1 '^|.*|.*|.*|.*|.*|.*|$' ./results/test.log > ./results/gas-report.txt",
+    "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge clean && forge test -v --nmp deploy.t.sol --summary --gas-report | tee ./results/test.log | grep -v '^|.*|.*|.*|.*|.*|.*|$' | cat -s && grep -A1 '^|.*|.*|.*|.*|.*|.*|$' ./results/test.log > ./results/gas-report.txt",
     "test1": "forge test -vvv --gas-report",
     "test:deploy": "forge test --summary --mp deploy.t.sol",
     "gas:raw": "forge test --isolate --gas-report --nmp deploy.t.sol",
@@ -27,7 +27,7 @@
     "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,script}/**/*.sol' --write",
     "lint": "solhint 'src/**/*.sol' --disc",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
-    "pre-checkin": "yarn fmt && yarn lint && yarn test && yarn disabled && yarn coverage && echo \"generating contract-sizes.txt ...\"; yarn sizes:contracts > ./results/contract-sizes.txt ; echo"
+    "pre-checkin": "yarn fmt && yarn lint && yarn test && yarn disabled && yarn coverage && echo \"generating contract-sizes.txt ...\"; yarn sizes:contracts > ./results/contract-sizes.txt && echo \"pre-checking done.\""
   },
   "dependencies": {
     "prettier": "^3.2.5",
