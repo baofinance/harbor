@@ -2,7 +2,7 @@
   "license": "MIT",
   "scripts": {
     "build": "forge build",
-    "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge clean && forge test -v --nmp deploy.t.sol --summary --gas-report | tee ./results/test.log | grep -v '^|.*|.*|.*|.*|.*|.*|$' | cat -s && grep -A1 '^|.*|.*|.*|.*|.*|.*|$' ./results/test.log > ./results/gas-report.txt",
+    "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge clean && forge test -v --nmp deploy.t.sol --summary --gas-report | tee ./results/test.log | grep -v '^|.*|.*|.*|.*|.*|.*|$' | cat -s && ./extract-gas ./results/test.log > ./results/gas-report.txt",
     "test1": "forge test -vvv --gas-report",
     "test:deploy": "forge test --summary --mp deploy.t.sol",
     "gas:raw": "forge test --isolate --gas-report --nmp deploy.t.sol",
