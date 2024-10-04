@@ -29,16 +29,16 @@ import { TokenHolder } from "@bao/TokenHolder.sol";
 contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenHolder {
     using SafeERC20 for IERC20;
 
-    ////////////
-    // Events //
-    ////////////
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Emitted when the status of `genesisClaimable` is updated.
     event ClaimingEnabledUpdated(bool status);
 
-    ////////////
-    // Errors //
-    ////////////
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
 
     /// @dev Thrown when an attempt to withdraw both pegged and leveraged token.
     error GenesisIsNotEnded();
@@ -52,9 +52,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
     /// @dev Thrown when withdraw before initialization.
     error ClaimingIsNotEnabled();
 
-    ///////////////
-    // Variables //
-    ///////////////
+    /*//////////////////////////////////////////////////////////////
+                                DATA
+    //////////////////////////////////////////////////////////////*/
 
     // Share-with-proxy Storage
     // ------------------------
@@ -120,9 +120,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
     /// only owners can upgrade this contract.
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
-    //////////////////////////////
-    // Public Mutator Functions //
-    //////////////////////////////
+    /*//////////////////////////////////////////////////////////////
+                        PUBLIC UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Deposit collateral token to this contract.
     /// @param collateralIn The amount of token to deposit.
@@ -180,9 +180,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         leveragedAmount = (share_ * totalLeveragedToken) / totalShares_;
     }
 
-    //////////////////////////
-    // Restricted Functions //
-    //////////////////////////
+    /*//////////////////////////////////////////////////////////////
+                      PROTECTED UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Initialize minter with the collateral in this contract.
     function endGenesis() external onlyOwner nonReentrant {
@@ -193,9 +193,12 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         uint256 peggedCollateral = totalCollateral / 2;
         address minter_ = $.minter;
         // wake-disable-next-line reentrancy // minter is trusted
-        IMinter(minter_).freeMintPeggedToken(peggedCollateral, address(this));
-        IMinter(minter_).freeMintLeveragedToken(totalCollateral - peggedCollateral, address(this));
-
+        uint256 peggedTokensMinted = IMinter(minter_).freeMintPeggedToken(peggedCollateral, address(this));
+        uint256 leveragedTokensMinted = IMinter(minter_).freeMintLeveragedToken(
+            totalCollateral - peggedCollateral,
+            address(this)
+        );
+        // minted tokens can now be swept up using the TokenHolder interface
         $.genesisEnded = true;
     }
 

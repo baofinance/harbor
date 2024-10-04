@@ -133,7 +133,7 @@ interface IMinter {
     event UpdatePriceOracle(address indexed oldPriceOracle, address indexed newPriceOracle);
 
     /*//////////////////////////////////////////////////////////////
-                                 ERRORS
+                                ERRORS
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Thrown when the oracle price is invalid.
