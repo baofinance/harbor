@@ -35,6 +35,7 @@ abstract contract LinearMultipleRewardDistributor is
     /// @notice The role used to manage rewards.
     // TODO: put all roles into final contract, not abstract ones
     /// @dev override this to avoid a clash
+    // TODO: the above may well be a bit much
     // as this is simulating solidity's automatic generation for public constants,
     // solhint-disable-next-line func-name-mixedcase
     function REWARD_MANAGER_ROLE() public pure virtual returns (uint256) {

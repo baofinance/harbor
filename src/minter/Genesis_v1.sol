@@ -9,7 +9,10 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
+import { IGenesis } from "src/minter/IGenesis.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
+import { Token } from "@bao/Token.sol";
+
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
 /// @title Genesis
@@ -26,31 +29,8 @@ import { TokenHolder } from "@bao/TokenHolder.sol";
 /// @dev uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenHolder {
+contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenHolder, IGenesis {
     using SafeERC20 for IERC20;
-
-    /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Emitted when the status of `genesisClaimable` is updated.
-    event ClaimingEnabledUpdated(bool status);
-
-    /*//////////////////////////////////////////////////////////////
-                                ERRORS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @dev Thrown when an attempt to withdraw both pegged and leveraged token.
-    error GenesisIsNotEnded();
-
-    /// @dev Thrown when the amount of collateral token is not enough.
-    error InsufficientCollateral(address token);
-
-    /// @dev Thrown when deposit after the genesis process has ended.
-    error GenesisIsEnded();
-
-    /// @dev Thrown when withdraw before initialization.
-    error ClaimingIsNotEnabled();
 
     /*//////////////////////////////////////////////////////////////
                                 DATA
@@ -70,8 +50,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         address leveragedToken;
         /// @notice Mapping from user address to pool shares.
         mapping(address => uint256) shares;
-        /// @notice The total amount of pool shares.
-        uint256 totalShares;
+        /// @notice The total amount of pool shares at the time the genesis ends.
+        uint256 totalSharesAtGenesisEnd;
+        /// @notice Whether the genesis stage has ended and withdrawing/claiming can start.
         bool genesisEnded;
         /// @notice Whether claiming the pegged and leveraged tokens is enabled.
         bool claimingEnabled;
@@ -88,9 +69,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         }
     }
 
-    //////////////////
-    // Construction //
-    //////////////////
+    /*//////////////////////////////////////////////////////////////
+                               CONSTRUCTION
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice In UUPS proxies construction is performed by a function
     function initialize(address owner, address minter_) external initializer {
@@ -121,88 +102,172 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /*//////////////////////////////////////////////////////////////
+                        PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @inheritdoc IGenesis
+    function balanceOf(address depositor) external view returns (uint256 share_) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        share_ = $.shares[depositor];
+    }
+
+    /// @inheritdoc IGenesis
+    function genesisIsEnded() external view returns (bool ended) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        ended = $.genesisEnded;
+    }
+
+    /// @inheritdoc IGenesis
+    function claimingIsEnabled() external view returns (bool enabled) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        enabled = $.claimingEnabled;
+    }
+
+    /// @inheritdoc IGenesis
+    function collateralToken() external view returns (address token) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        token = $.collateralToken;
+    }
+
+    /// @inheritdoc IGenesis
+    function peggedToken() external view returns (address token) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        token = $.peggedToken;
+    }
+
+    /// @inheritdoc IGenesis
+    function leveragedToken() external view returns (address token) {
+        GenesisStorage storage $ = _getGenesisStorage();
+        token = $.leveragedToken;
+    }
+    /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Deposit collateral token to this contract.
-    /// @param collateralIn The amount of token to deposit.
-    /// @param receiver The address of pool share recipient.
+    /// @inheritdoc IGenesis
     function deposit(uint256 collateralIn, address receiver) external {
+        Token.ensureNonZeroAddress(receiver);
         GenesisStorage storage $ = _getGenesisStorage();
         if ($.genesisEnded) revert GenesisIsEnded();
 
-        IERC20($.collateralToken).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        address collateralToken_ = $.collateralToken;
+        address caller = _msgSender();
+        collateralIn = Token.allOf(caller, collateralToken_, collateralIn);
+
+        IERC20(collateralToken_).safeTransferFrom(caller, address(this), collateralIn);
+
         $.shares[receiver] += collateralIn;
-        $.totalShares += collateralIn;
     }
 
-    /// @notice Withdraw some collateral from this contract, for a fee, after genesis has ended.
-    /// @param recipient The address of collateral token recipient.
-    /// @param minCollateralOut The minimum amount of collateral token should receive.
-    /// @return collateralOut The amount of collateral token received.
+    /// @inheritdoc IGenesis
     function withdraw(
-        address recipient,
+        address receiver,
         uint256 minCollateralOut
     ) external nonReentrant returns (uint256 collateralOut) {
         GenesisStorage storage $ = _getGenesisStorage();
+        address caller = _msgSender();
+        // stop this early if the caller is asking for a higher min than is available
+        uint256 share_ = $.shares[caller];
+        if (share_ < minCollateralOut) revert InsufficientCollateral($.collateralToken);
 
-        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw($);
+        address peggedToken_ = $.peggedToken;
+        address leveragedToken_ = $.leveragedToken;
+
+        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw(
+            share_,
+            $.totalSharesAtGenesisEnd,
+            peggedToken_,
+            leveragedToken_
+        );
 
         address minter_ = $.minter;
-        // we redeem the leveraged first because that potentially reduces the fee for redeeming the pegged
+        // get the collateral back - minus the fees
+        // we redeem the pegged first because that potentially reduces the fee for redeeming the leveraged
         // wake-disable-next-line reentrancy // minter is trusted
-        collateralOut += IMinter(minter_).redeemLeveragedToken(leveragedAmount, recipient, 0);
-        collateralOut += IMinter(minter_).redeemPeggedToken(peggedAmount, recipient, 0);
+        IERC20(peggedToken_).approve(minter_, peggedAmount);
+        collateralOut += IMinter(minter_).redeemPeggedToken(peggedAmount, receiver, 0);
+        IERC20(leveragedToken_).approve(minter_, leveragedAmount);
+        collateralOut += IMinter(minter_).redeemLeveragedToken(leveragedAmount, receiver, 0);
 
         if (collateralOut < minCollateralOut) revert InsufficientCollateral($.collateralToken);
+        $.shares[caller] = 0;
     }
 
-    /// @notice Withdraw fxUSD/fToken and xToken from this contract.
-    /// @param receiver The address of token recipient.
+    /// @inheritdoc IGenesis
     function claim(address receiver) external {
         GenesisStorage storage $ = _getGenesisStorage();
         if (!$.claimingEnabled) revert ClaimingIsNotEnabled();
+        address peggedToken_ = $.peggedToken;
+        address leveragedToken_ = $.leveragedToken;
+        address caller = _msgSender();
 
-        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw($);
+        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw(
+            $.shares[caller],
+            $.totalSharesAtGenesisEnd,
+            peggedToken_,
+            leveragedToken_
+        );
 
+        // give the caller their share of the created tokens
         IERC20($.peggedToken).safeTransfer(receiver, peggedAmount);
         IERC20($.leveragedToken).safeTransfer(receiver, leveragedAmount);
+
+        $.shares[caller] = 0;
     }
 
-    function _withdraw(GenesisStorage storage $) private returns (uint256 peggedAmount, uint256 leveragedAmount) {
+    /*//////////////////////////////////////////////////////////////
+                          PRIVATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function _withdraw(
+        uint256 share,
+        uint256 totalShares,
+        address peggedToken_,
+        address leveragedToken_
+    ) private view returns (uint256 peggedAmount, uint256 leveragedAmount) {
+        GenesisStorage storage $ = _getGenesisStorage();
         if (!$.genesisEnded) revert GenesisIsNotEnded();
-        uint256 share_ = $.shares[_msgSender()];
-        $.shares[_msgSender()] = 0;
-        uint256 totalShares_ = $.totalShares;
-        uint256 totalPeggedToken = IERC20($.peggedToken).balanceOf(address(this));
-        uint256 totalLeveragedToken = IERC20($.leveragedToken).balanceOf(address(this));
-        peggedAmount = (share_ * totalPeggedToken) / totalShares_;
-        leveragedAmount = (share_ * totalLeveragedToken) / totalShares_;
+
+        // get the caller's share and reset the storage
+
+        // how much of each do we have?
+        uint256 totalPeggedToken = IERC20(peggedToken_).balanceOf(address(this));
+        uint256 totalLeveragedToken = IERC20(leveragedToken_).balanceOf(address(this));
+
+        // count out the caller's share
+        peggedAmount = (share * totalPeggedToken) / totalShares;
+        leveragedAmount = (share * totalLeveragedToken) / totalShares;
     }
 
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Initialize minter with the collateral in this contract.
+    /// @inheritdoc IGenesis
     function endGenesis() external onlyOwner nonReentrant {
         GenesisStorage storage $ = _getGenesisStorage();
         if ($.genesisEnded) revert GenesisIsEnded();
 
+        // record the total shares now so all further share calculations are based on this number
+        address collateralToken_ = $.collateralToken;
         uint256 totalCollateral = IERC20($.collateralToken).balanceOf(address(this));
+        $.totalSharesAtGenesisEnd = totalCollateral;
+
+        // mint the pegged and leveraged, using all (yes, including any /2 truncation) the collateral
+        // there is a potential to offer a bonus to depositors here by transferring collateral manually
+        // into this contract.
         uint256 peggedCollateral = totalCollateral / 2;
         address minter_ = $.minter;
         // wake-disable-next-line reentrancy // minter is trusted
-        uint256 peggedTokensMinted = IMinter(minter_).freeMintPeggedToken(peggedCollateral, address(this));
-        uint256 leveragedTokensMinted = IMinter(minter_).freeMintLeveragedToken(
-            totalCollateral - peggedCollateral,
-            address(this)
-        );
-        // minted tokens can now be swept up using the TokenHolder interface
+        IERC20(collateralToken_).approve(minter_, totalCollateral);
+        IMinter(minter_).freeMintPeggedToken(peggedCollateral, address(this));
+        IMinter(minter_).freeMintLeveragedToken(totalCollateral - peggedCollateral, address(this));
+        // minted tokens can now be claimed by the depositor (or swept up using the TokenHolder interface)
+
         $.genesisEnded = true;
     }
 
-    /// @notice Change the status of `fxWithdrawalEnabled`.
+    /// @inheritdoc IGenesis
     function updateClaimingEnabled(bool newValue) external onlyOwner {
         GenesisStorage storage $ = _getGenesisStorage();
         $.claimingEnabled = newValue;

@@ -3,11 +3,11 @@
   "scripts": {
     "build": "forge build",
     "test": "echo 'running tests & gast-report.txt (logged to ./results/test.log) ...' && forge clean && forge test -v --nmp deploy.t.sol --summary --gas-report | tee ./results/test.log | grep -v '^|.*|.*|.*|.*|.*|.*|$' | cat -s && ./extract-gas ./results/test.log > ./results/gas-report.txt",
-    "test1": "forge test -vvv --gas-report",
+    "test1": "forge test -vvv",
     "test:deploy": "forge test --summary --mp deploy.t.sol",
     "gas:raw": "forge test --isolate --gas-report --nmp deploy.t.sol",
     "gas": "yarn gas:raw | grep -A1 '^|.*|$' | awk 'BEGIN { printf \"| %-30s | %-5s |\n|--------------------------------|-------|\n\", \"Function Name\", \"max\" } /^| [A-Za-z]/ { gsub(/^[ \t]+|[ \t]+$/, \"\", $2); gsub(/^[ \t]+|[ \t]+$/, \"\", $(NF-2)); printf \"| %-30s | %-5s |\n\", $2, $(NF-2) }'",
-    "coverage": "echo 'generating coverage.txt (logged to results/coverage.log) ...' && forge coverage --report summary --report lcov > ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*' > /dev/null && echo 'done.'",
+    "coverage": "echo 'generating coverage.txt (logged to results/coverage.log) ...' && forge coverage --report summary --report lcov --nmp deploy.t.sol > ./results/coverage.log && grep '\\(-\\|^| \\(src/\\|Total \\|File \\).* |$\\)' ./results/coverage.log > ./results/coverage.txt && lcov --extract ./lcov.info --output-file lcov.info 'src/*' > /dev/null && echo 'done.'",
     "coverage1": "forge coverage --report summary --report lcov ",
     "wake": "wake detect all",
     "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used --filter-paths \"lib/openzeppelin.*|lib/forge-std.*|lib/solady.*\"",

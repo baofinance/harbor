@@ -11,6 +11,8 @@ import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol"; // 
 import { Options } from "openzeppelin-foundry-upgrades/Options.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
+import "@bao/Deployed.sol";
+import "@bao/interfaces/IBurnable.sol";
 import "src/minter/LeveragedToken_v1.sol";
 import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
@@ -18,7 +20,6 @@ import "src/minter/Minter_v1.sol";
 import "src/minter/IMinter.sol";
 import "src/minter/RebalancePool_v1.sol";
 import "src/minter/Genesis_v1.sol";
-import "@bao/Deployed.sol";
 import "test/Array.sol";
 import "test/Useful.sol";
 
@@ -81,7 +82,15 @@ library DeployLib {
             "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
-                (Deployed.BAOMULTISIG, tokens, priceOracle, feeReceiver, reservePool_, config)
+                (
+                    Deployed.BAOMULTISIG,
+                    tokens,
+                    type(IBurnable).interfaceId,
+                    priceOracle,
+                    feeReceiver,
+                    reservePool_,
+                    config
+                )
             )
         );
     }

@@ -20,6 +20,7 @@ import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
+import { IBurnable2Arg } from "@bao/interfaces/IBurnable2Arg.sol";
 import { IBurnableFrom } from "@bao/interfaces/IBurnableFrom.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
@@ -136,6 +137,11 @@ contract Minter_v1 is
     // Storage //
     /////////////
 
+    struct Pegged {
+        address token; //                               160
+        bytes4 burnInterfaceId; //                      164
+    }
+
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.Minter
@@ -156,7 +162,7 @@ contract Minter_v1 is
     /// Where it doesn't we use structs containing bytes32, each representing a slot of storage.
     struct MinterStorage {
         //                                             slot
-        address peggedToken; //                         160
+        Pegged pegged; //                               164
         //                                             slot
         address leveragedToken; //                      160
         //                                             slot
@@ -198,6 +204,7 @@ contract Minter_v1 is
     function initialize(
         address owner,
         BalanceTokens calldata tokens_,
+        bytes4 peggedBurnInterfaceId_,
         address priceOracle_,
         address feeReceiver_,
         address reservePool_,
@@ -217,7 +224,7 @@ contract Minter_v1 is
         Token.ensureERC20Token(tokens_.leveragedToken);
 
         $.collateralToken = tokens_.collateralToken;
-        $.peggedToken = tokens_.peggedToken;
+        $.pegged = Pegged(tokens_.peggedToken, peggedBurnInterfaceId_);
         $.peggedTokenBalance = 0;
         $.leveragedToken = tokens_.leveragedToken;
 
@@ -265,7 +272,7 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function peggedToken() external view override(IMinter) returns (address) {
         MinterStorage storage $ = _getMinterStorage();
-        return $.peggedToken;
+        return $.pegged.token;
     }
 
     /// @inheritdoc IMinter
@@ -679,7 +686,7 @@ contract Minter_v1 is
             peggedTokenBalance_
         );
 
-        address peggedToken_ = $.peggedToken;
+        address peggedToken_ = $.pegged.token;
         if (collateralIn == 0) revert MintZeroAmount(peggedToken_);
 
         // recalculate the amounts involved
@@ -705,10 +712,10 @@ contract Minter_v1 is
     ) external override nonReentrant returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
-        address peggedToken_ = $.peggedToken;
+        Pegged memory pegged_ = $.pegged;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        peggedIn = Token.allOf(_msgSender(), peggedToken_, peggedIn);
-        peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
+        peggedIn = Token.allOf(_msgSender(), pegged_.token, peggedIn);
+        peggedIn = _redeemable(pegged_.token, peggedIn, peggedTokenBalance_);
 
         uint256 price = _fetchMaxPrice($.priceOracle);
         uint256 fee;
@@ -738,7 +745,7 @@ contract Minter_v1 is
 
         // make sure it meets the minimum requirements
         if (collateralOut == 0) {
-            revert ReturnZeroAmount(peggedToken_);
+            revert ReturnZeroAmount(pegged_.token);
         }
 
         if (collateralOut < minCollateralOut) {
@@ -746,7 +753,7 @@ contract Minter_v1 is
         }
 
         // redeem pegged tokens and send the remainder of the collateral
-        _redeemPeggedToken(peggedToken_, peggedIn, collateralToken_, collateralOut, receiver);
+        _redeemPeggedToken(pegged_, peggedIn, collateralToken_, collateralOut, receiver);
 
         if (fee > 0) {
             // send the fee
@@ -870,7 +877,7 @@ contract Minter_v1 is
         // transfer and mint
         uint256 price = _fetchSafePrice($.priceOracle);
         peggedOut = (collateralIn * price) / 1 ether;
-        _mintPeggedToken(collateralToken_, collateralIn, $.peggedToken, peggedOut, receiver);
+        _mintPeggedToken(collateralToken_, collateralIn, $.pegged.token, peggedOut, receiver);
 
         // update our records
         $.peggedTokenBalance += peggedOut;
@@ -883,10 +890,10 @@ contract Minter_v1 is
     ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
-        address peggedToken_ = $.peggedToken;
+        Pegged memory pegged_ = $.pegged;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        peggedIn = Token.allOf(_msgSender(), peggedToken_, peggedIn);
-        peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
+        peggedIn = Token.allOf(_msgSender(), pegged_.token, peggedIn);
+        peggedIn = _redeemable(pegged_.token, peggedIn, peggedTokenBalance_);
 
         uint256 price = _fetchMaxPrice($.priceOracle);
         collateralOut =
@@ -894,7 +901,7 @@ contract Minter_v1 is
             (price * 1 ether);
 
         // burn pegged tokens and send the collateral to the receiver
-        _redeemPeggedToken(peggedToken_, peggedIn, collateralToken_, collateralOut, receiver);
+        _redeemPeggedToken(pegged_, peggedIn, collateralToken_, collateralOut, receiver);
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
@@ -907,7 +914,7 @@ contract Minter_v1 is
     ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         address collateralToken_ = $.collateralToken;
-        address peggedToken_ = $.peggedToken;
+        address peggedToken_ = $.pegged.token;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         address leveragedToken_ = $.leveragedToken;
 
@@ -1289,14 +1296,14 @@ contract Minter_v1 is
     /// @notice Perform the transfers and event emissions for redeeming pegged tokens
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
-    /// @param peggedToken_ The address of the pegged token.
+    /// @param pegged_ The address of the pegged token and it's burn interface
     /// @param peggedIn The amount of pegged tokens to be taken from the sender.
     /// @param collateralToken_ The address of the collateral token.
     /// @param collateralOut The amount of collateral to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
     function _redeemPeggedToken(
-        address peggedToken_,
+        Pegged memory pegged_,
         uint256 peggedIn,
         address collateralToken_,
         uint256 collateralOut,
@@ -1304,10 +1311,18 @@ contract Minter_v1 is
     ) private {
         // tell the world
         emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, collateralOut);
-        // burn the tokens from the sender - get them first then burn them
-        IERC20(peggedToken_).safeTransferFrom(_msgSender(), address(this), peggedIn);
-        // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
-        IBurnable(peggedToken_).burn(peggedIn);
+        // burn the tokens from the sender
+        if (pegged_.burnInterfaceId == type(IBurnable).interfaceId) {
+            // get the tokens here first
+            IERC20(pegged_.token).safeTransferFrom(_msgSender(), address(this), peggedIn);
+            IBurnable(pegged_.token).burn(peggedIn);
+        } else if (pegged_.burnInterfaceId == type(IBurnable2Arg).interfaceId) {
+            IBurnable2Arg(pegged_.token).burn(_msgSender(), peggedIn);
+        } else if (pegged_.burnInterfaceId == type(IBurnableFrom).interfaceId) {
+            IBurnableFrom(pegged_.token).burnFrom(_msgSender(), peggedIn);
+        } else {
+            revert UnsupportedBurnInterface(pegged_.burnInterfaceId);
+        }
         // return the collateral
         IERC20(collateralToken_).safeTransfer(receiver, collateralOut);
     }

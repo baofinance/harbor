@@ -1,11 +1,19 @@
-./extract-gas run on Fri Oct 4 12:09:05 BST 2024
 ╭------------------------------------------------------------------------------╮
 | src/minter/Genesis_v1.sol:Genesis_v1 contract                                |
 |==============================================================================|
 | Function Name                                          | median   | max      |
 |--------------------------------------------------------+----------+----------|
-| initialize                                             |  153,946 |  153,946 |
-| owner                                                  |    2,348 |    2,348 |
+| balanceOf                                              |      617 |    2,617 |
+| claim                                                  |    2,585 |    2,585 |
+| collateralToken                                        |    2,408 |    2,408 |
+| deposit                                                |   29,856 |   62,662 |
+| endGenesis                                             |   72,198 |  284,087 |
+| genesisIsEnded                                         |      425 |    2,425 |
+| initialize                                             |  154,001 |  154,001 |
+| leveragedToken                                         |    2,387 |    2,387 |
+| owner                                                  |    2,349 |    2,349 |
+| peggedToken                                            |    2,355 |    2,355 |
+| withdraw                                               |   50,237 |  243,466 |
 ╰------------------------------------------------------------------------------╯
 
 ╭------------------------------------------------------------------------------╮
@@ -29,7 +37,7 @@
 | nonces                                                 |    2,688 |    2,688 |
 | owner                                                  |    1,414 |    2,414 |
 | permit                                                 |   57,547 |   57,547 |
-| supportsInterface                                      |      629 |      800 |
+| supportsInterface                                      |      815 |      910 |
 | symbol                                                 |    3,185 |    3,185 |
 | totalSupply                                            |      393 |    2,393 |
 | transfer                                               |   16,435 |   29,973 |
@@ -43,19 +51,20 @@
 |--------------------------------------------------------+----------+----------|
 | ZERO_FEE_ROLE                                          |      262 |      262 |
 | collateralForLeverageTokens                            |    5,545 |    8,045 |
-| collateralRatio                                        |    3,716 |   20,716 |
-| collateralToken                                        |    2,418 |    2,418 |
+| collateralRatio                                        |    3,694 |   20,694 |
+| collateralToken                                        |    2,485 |    2,485 |
 | collateralTokenBalance                                 |    1,475 |    5,975 |
 | config                                                 |   39,237 |   58,075 |
-| feeReceiver                                            |    2,430 |    2,430 |
-| freeMintLeveragedToken                                 |   71,131 |  121,997 |
-| freeMintPeggedToken                                    |  117,927 |  117,927 |
-| freeRedeemLeveragedToken                               |   29,757 |   80,618 |
-| freeRedeemPeggedToken                                  |   86,994 |  103,739 |
+| feeReceiver                                            |    2,408 |    2,408 |
+| freeMintLeveragedToken                                 |   71,109 |  121,975 |
+| freeMintPeggedToken                                    |  117,927 |  121,623 |
+| freeRedeemLeveragedToken                               |   29,778 |   80,659 |
+| freeRedeemPeggedToken                                  |   87,156 |  103,901 |
 | freeSwapPeggedForLeveraged                             |   78,097 |  134,651 |
 | grantRoles                                             |   26,315 |   26,315 |
 | hasAllRoles                                            |    2,649 |    2,649 |
-| initialize                                             |  590,845 |  590,845 |
+| hasAnyRole                                             |    2,648 |    2,648 |
+| initialize                                             |  591,014 |  591,014 |
 | leverageRatio                                          |    3,672 |   10,172 |
 | leverageTokensForCollateral                            |    5,391 |    8,957 |
 | leveragedToken                                         |    2,432 |    2,432 |
@@ -69,19 +78,19 @@
 | mintPeggedTokenIncentiveRatio                          |    5,523 |   10,619 |
 | owner                                                  |    2,394 |    2,394 |
 | peggedToken                                            |    2,410 |    2,410 |
-| peggedTokenBalance                                     |      359 |    2,359 |
+| peggedTokenBalance                                     |      424 |    2,424 |
 | peggedTokenPrice                                       |    4,042 |    4,042 |
 | priceOracle                                            |    2,463 |    2,463 |
 | rebalanceCollateralRatio                               |    2,381 |    2,381 |
-| redeemLeveragedToken                                   |   99,305 |  115,687 |
+| redeemLeveragedToken                                   |   99,346 |  115,728 |
 | redeemLeveragedTokenDryRun                             |   11,921 |   16,110 |
 | redeemLeveragedTokenIncentiveRatio                     |    6,516 |    6,705 |
 | redeemPeggedForCollateralRatio                         |    4,192 |    4,192 |
-| redeemPeggedToken                                      |  111,893 |  152,595 |
+| redeemPeggedToken                                      |  112,056 |  152,757 |
 | redeemPeggedTokenDryRun                                |   10,273 |   23,351 |
 | redeemPeggedTokenIncentiveRatio                        |    5,608 |   12,329 |
 | reservePool                                            |    2,433 |    2,433 |
-| supportsInterface                                      |      598 |      636 |
+| supportsInterface                                      |      633 |      671 |
 | swapPeggedForLeveragedForCollateralRatio               |    3,996 |    3,996 |
 | updateConfig                                           |   36,308 |  141,949 |
 ╰------------------------------------------------------------------------------╯
@@ -93,10 +102,10 @@
 |--------------------------------------------------------+----------+----------|
 | assetBalanceOf                                         |    1,574 |    1,574 |
 | assetToken                                             |      421 |    2,421 |
-| deposit                                                |  112,811 |  130,321 |
-| initialize                                             |  219,032 |  222,301 |
+| deposit                                                |  112,876 |  130,386 |
+| initialize                                             |  219,099 |  222,368 |
 | liquidatableCollateralRatio                            |    3,533 |   10,533 |
-| liquidate                                              |  176,698 |  211,226 |
+| liquidate                                              |  176,838 |  211,204 |
 | liquidationToken                                       |      399 |    2,399 |
 | minter                                                 |      465 |    2,465 |
 | owner                                                  |      405 |    2,405 |

@@ -25,11 +25,11 @@ compilation_delay = 0.1
 enable = true
 
 [lsp.detectors]
-enable = true
+enable = false
 
 [detectors]
-# only = []
-exclude = []
+only = []
+# exclude = []
 #exclude = [
 #  "abi-encode-with-signature",
 #  "axelar-proxy-contract-id",
