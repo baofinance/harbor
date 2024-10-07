@@ -9,6 +9,7 @@ import "forge-std/StdJson.sol";
 import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol"; // only used for implementation address change
 import { Options } from "openzeppelin-foundry-upgrades/Options.sol";
+import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
 import "@bao/Deployed.sol";
@@ -47,7 +48,10 @@ import "test/Useful.sol";
 // $ set +a
 
 library DeployLib {
-    function leveragedToken(string memory pegged, string memory collateral) internal returns (address leveragedToken_) {
+    function deployLeveragedToken(
+        string memory pegged,
+        string memory collateral
+    ) internal returns (address leveragedToken_) {
         string memory symbol = string.concat(pegged, "-", collateral);
         string memory name = string.concat("BaoMinter ", pegged, "-", collateral);
 
@@ -57,21 +61,21 @@ library DeployLib {
         );
     }
 
-    function reservePool() internal returns (address reservePool_) {
+    function deployReservePool() internal returns (address reservePool_) {
         reservePool_ = Upgrades.deployUUPSProxy(
             "ReservePool_v1.sol",
             abi.encodeCall(ReservePool_v1.initialize, Deployed.BAOMULTISIG)
         );
     }
 
-    function tokenDistributor(string memory name) internal returns (address tokenDistributor_) {
+    function deployTokenDistributor(string memory name) internal returns (address tokenDistributor_) {
         tokenDistributor_ = Upgrades.deployUUPSProxy(
             "TokenDistributor_v1.sol",
             abi.encodeCall(TokenDistributor_v1.initialize, (Deployed.BAOMULTISIG, name))
         );
     }
 
-    function minter(
+    function deployMinter(
         Minter_v1.BalanceTokens memory tokens,
         address priceOracle,
         address feeReceiver,
@@ -95,16 +99,19 @@ library DeployLib {
         );
     }
 
-    function rebalancePool(
-        string memory name,
-        address minter_,
-        address liquidationToken
-    ) internal returns (address rebalancePool_) {
+    function deployRebalancePool(address minter_, address liquidationToken) internal returns (address rebalancePool_) {
         rebalancePool_ = Upgrades.deployUUPSProxy(
             "RebalancePool_v1.sol",
             abi.encodeCall(RebalancePool_v1.initialize, (Deployed.BAOMULTISIG, minter_, liquidationToken))
         );
-        console2.log("RebalancePool(%s) = %s", name, rebalancePool_);
+        console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
+    }
+
+    function deployGenesis(address minter_) internal returns (address genesis) {
+        genesis = Upgrades.deployUUPSProxy(
+            "Genesis_v1.sol",
+            abi.encodeCall(Genesis_v1.initialize, (Deployed.BAOMULTISIG, minter_))
+        );
     }
 }
 
@@ -152,19 +159,19 @@ contract Deploy is Network, Array {
         Minter_v1.BalanceTokens memory tokens;
         tokens.peggedToken = Deployed.BaoUSD;
         log("peggedToken", tokens.peggedToken);
-        tokens.leveragedToken = DeployLib.leveragedToken("BaoUSD", "wstETH");
+        tokens.leveragedToken = DeployLib.deployLeveragedToken("BaoUSD", "wstETH");
         log("leveragedToken", tokens.leveragedToken);
         tokens.collateralToken = Deployed.wstETH;
         log("collateralToken", tokens.collateralToken);
 
         address priceOracle = Deployed.PriceOracle_wstETHUSD;
         log("priceOracle", priceOracle);
-        address feeReceiver = DeployLib.tokenDistributor("FeeDistributor");
+        address feeReceiver = DeployLib.deployTokenDistributor("FeeDistributor");
         log("feeReceiver", feeReceiver);
-        address reservePool = DeployLib.reservePool();
+        address reservePool = DeployLib.deployReservePool();
         log("reservePool", reservePool);
 
-        int disallow = 10000;
+        int disallow = 10000; // code in config for a disallowed action at that collateral ratio
         IMinter.Config memory config;
         config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
         config.harvestCollateralRatioLowerBound = _percentToEther(250);
@@ -173,11 +180,13 @@ contract Deploy is Network, Array {
         config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
         config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
 
-        address minter = DeployLib.minter(tokens, priceOracle, feeReceiver, reservePool, config);
+        address minter = DeployLib.deployMinter(tokens, priceOracle, feeReceiver, reservePool, config);
         log("minter", minter);
 
-        log("rebalancePoolCollateral", DeployLib.rebalancePool("CollateralToken", minter, tokens.collateralToken));
-        log("rebalancePoolLeveraged", DeployLib.rebalancePool("LeveragedToken", minter, tokens.leveragedToken));
+        log("rebalancePoolCollateral", DeployLib.deployRebalancePool(minter, tokens.collateralToken));
+        log("rebalancePoolLeveraged", DeployLib.deployRebalancePool(minter, tokens.leveragedToken));
+
+        log("genesis", DeployLib.deployGenesis(minter));
 
         end();
     }
@@ -256,7 +265,7 @@ contract UpgradeLeveraged is Network {
 contract DeployReservePool is Network {
     function run() public {
         vm.startBroadcast(privateKey);
-        DeployLib.reservePool();
+        DeployLib.deployReservePool();
         vm.stopBroadcast();
     }
 }
@@ -267,7 +276,7 @@ contract DeployReservePool is Network {
 contract DeployTokenDistributor is Network {
     function run(string memory name) internal {
         vm.startBroadcast(privateKey);
-        DeployLib.tokenDistributor(name);
+        DeployLib.deployTokenDistributor(name);
         vm.stopBroadcast();
     }
 }

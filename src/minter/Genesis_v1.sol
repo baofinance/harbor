@@ -52,10 +52,12 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         mapping(address => uint256) shares;
         /// @notice The total amount of pool shares at the time the genesis ends.
         uint256 totalSharesAtGenesisEnd;
-        /// @notice Whether the genesis stage has ended and withdrawing/claiming can start.
+        /// @notice The total amount of pegged at the time the genesis ends.
+        uint256 totalPeggedAtGenesisEnd;
+        /// @notice The total amount of leveraged at the time the genesis ends.
+        uint256 totalLeveragedAtGenesisEnd;
+        /// @notice Whether the genesis stage has ended and withdrawing collateral or claiming pegged/leveraged can start.
         bool genesisEnded;
-        /// @notice Whether claiming the pegged and leveraged tokens is enabled.
-        bool claimingEnabled;
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.Genesis")) - 1)) & ~bytes32(uint256(0xff));
@@ -112,15 +114,23 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
     }
 
     /// @inheritdoc IGenesis
-    function genesisIsEnded() external view returns (bool ended) {
+    function claimable(address depositor) external view returns (uint256 peggedAmount, uint256 leveragedAmount) {
         GenesisStorage storage $ = _getGenesisStorage();
-        ended = $.genesisEnded;
+        if (!$.genesisEnded) {
+            revert GenesisIsNotEnded();
+        }
+        (peggedAmount, leveragedAmount) = _mintable(
+            $.shares[depositor],
+            $.totalSharesAtGenesisEnd,
+            $.totalPeggedAtGenesisEnd,
+            $.totalLeveragedAtGenesisEnd
+        );
     }
 
     /// @inheritdoc IGenesis
-    function claimingIsEnabled() external view returns (bool enabled) {
+    function genesisIsEnded() external view returns (bool ended) {
         GenesisStorage storage $ = _getGenesisStorage();
-        enabled = $.claimingEnabled;
+        ended = $.genesisEnded;
     }
 
     /// @inheritdoc IGenesis
@@ -148,8 +158,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
     function deposit(uint256 collateralIn, address receiver) external {
         Token.ensureNonZeroAddress(receiver);
         GenesisStorage storage $ = _getGenesisStorage();
-        if ($.genesisEnded) revert GenesisIsEnded();
-
+        if ($.genesisEnded) {
+            revert GenesisIsEnded();
+        }
         address collateralToken_ = $.collateralToken;
         address caller = _msgSender();
         collateralIn = Token.allOf(caller, collateralToken_, collateralIn);
@@ -164,48 +175,62 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         address receiver,
         uint256 minCollateralOut
     ) external nonReentrant returns (uint256 collateralOut) {
+        Token.ensureNonZeroAddress(receiver);
         GenesisStorage storage $ = _getGenesisStorage();
+        if (!$.genesisEnded) {
+            revert GenesisIsNotEnded();
+        }
         address caller = _msgSender();
         // stop this early if the caller is asking for a higher min than is available
         uint256 share_ = $.shares[caller];
-        if (share_ < minCollateralOut) revert InsufficientCollateral($.collateralToken);
-
+        if (share_ == 0) {
+            revert Token.ZeroInputBalance($.collateralToken);
+        }
+        if (share_ < minCollateralOut) {
+            revert InsufficientCollateral($.collateralToken);
+        }
         address peggedToken_ = $.peggedToken;
         address leveragedToken_ = $.leveragedToken;
 
-        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw(
+        (uint256 peggedAmount, uint256 leveragedAmount) = _mintable(
             share_,
             $.totalSharesAtGenesisEnd,
-            peggedToken_,
-            leveragedToken_
+            $.totalPeggedAtGenesisEnd,
+            $.totalLeveragedAtGenesisEnd
         );
 
         address minter_ = $.minter;
         // get the collateral back - minus the fees
         // we redeem the pegged first because that potentially reduces the fee for redeeming the leveraged
         // wake-disable-next-line reentrancy // minter is trusted
-        IERC20(peggedToken_).approve(minter_, peggedAmount);
+        IERC20(peggedToken_).forceApprove(minter_, peggedAmount);
         collateralOut += IMinter(minter_).redeemPeggedToken(peggedAmount, receiver, 0);
-        IERC20(leveragedToken_).approve(minter_, leveragedAmount);
+        IERC20(leveragedToken_).forceApprove(minter_, leveragedAmount);
         collateralOut += IMinter(minter_).redeemLeveragedToken(leveragedAmount, receiver, 0);
 
-        if (collateralOut < minCollateralOut) revert InsufficientCollateral($.collateralToken);
+        if (collateralOut < minCollateralOut) {
+            revert InsufficientCollateral($.collateralToken);
+        }
         $.shares[caller] = 0;
     }
 
     /// @inheritdoc IGenesis
     function claim(address receiver) external {
+        Token.ensureNonZeroAddress(receiver);
         GenesisStorage storage $ = _getGenesisStorage();
-        if (!$.claimingEnabled) revert ClaimingIsNotEnabled();
-        address peggedToken_ = $.peggedToken;
-        address leveragedToken_ = $.leveragedToken;
+        if (!$.genesisEnded) {
+            revert GenesisIsNotEnded();
+        }
         address caller = _msgSender();
-
-        (uint256 peggedAmount, uint256 leveragedAmount) = _withdraw(
-            $.shares[caller],
+        uint256 share_ = $.shares[caller];
+        if (share_ == 0) {
+            revert Token.ZeroInputBalance($.collateralToken);
+        }
+        (uint256 peggedAmount, uint256 leveragedAmount) = _mintable(
+            share_,
             $.totalSharesAtGenesisEnd,
-            peggedToken_,
-            leveragedToken_
+            $.totalPeggedAtGenesisEnd,
+            $.totalLeveragedAtGenesisEnd
         );
 
         // give the caller their share of the created tokens
@@ -219,24 +244,17 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
                           PRIVATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function _withdraw(
+    function _mintable(
         uint256 share,
         uint256 totalShares,
-        address peggedToken_,
-        address leveragedToken_
-    ) private view returns (uint256 peggedAmount, uint256 leveragedAmount) {
-        GenesisStorage storage $ = _getGenesisStorage();
-        if (!$.genesisEnded) revert GenesisIsNotEnded();
-
-        // get the caller's share and reset the storage
-
-        // how much of each do we have?
-        uint256 totalPeggedToken = IERC20(peggedToken_).balanceOf(address(this));
-        uint256 totalLeveragedToken = IERC20(leveragedToken_).balanceOf(address(this));
-
-        // count out the caller's share
-        peggedAmount = (share * totalPeggedToken) / totalShares;
-        leveragedAmount = (share * totalLeveragedToken) / totalShares;
+        uint256 totalPeggedAmount,
+        uint256 totalLeveragedAmount
+    ) private pure returns (uint256 peggedAmount, uint256 leveragedAmount) {
+        if (totalShares > 0) {
+            // count out the caller's share
+            peggedAmount = (share * totalPeggedAmount) / totalShares;
+            leveragedAmount = (share * totalLeveragedAmount) / totalShares;
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -246,8 +264,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
     /// @inheritdoc IGenesis
     function endGenesis() external onlyOwner nonReentrant {
         GenesisStorage storage $ = _getGenesisStorage();
-        if ($.genesisEnded) revert GenesisIsEnded();
-
+        if ($.genesisEnded) {
+            revert GenesisIsEnded();
+        }
         // record the total shares now so all further share calculations are based on this number
         address collateralToken_ = $.collateralToken;
         uint256 totalCollateral = IERC20($.collateralToken).balanceOf(address(this));
@@ -256,22 +275,16 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, Token
         // mint the pegged and leveraged, using all (yes, including any /2 truncation) the collateral
         // there is a potential to offer a bonus to depositors here by transferring collateral manually
         // into this contract.
-        uint256 peggedCollateral = totalCollateral / 2;
+        uint256 halfCollateral = totalCollateral / 2;
         address minter_ = $.minter;
         // wake-disable-next-line reentrancy // minter is trusted
-        IERC20(collateralToken_).approve(minter_, totalCollateral);
-        IMinter(minter_).freeMintPeggedToken(peggedCollateral, address(this));
-        IMinter(minter_).freeMintLeveragedToken(totalCollateral - peggedCollateral, address(this));
-        // minted tokens can now be claimed by the depositor (or swept up using the TokenHolder interface)
-
+        IERC20(collateralToken_).forceApprove(minter_, totalCollateral);
+        $.totalPeggedAtGenesisEnd = IMinter(minter_).freeMintPeggedToken(halfCollateral, address(this));
+        $.totalLeveragedAtGenesisEnd = IMinter(minter_).freeMintLeveragedToken(
+            totalCollateral - halfCollateral,
+            address(this)
+        );
+        // minted tokens can now be claimed by the depositor, or collateral withdrawn
         $.genesisEnded = true;
-    }
-
-    /// @inheritdoc IGenesis
-    function updateClaimingEnabled(bool newValue) external onlyOwner {
-        GenesisStorage storage $ = _getGenesisStorage();
-        $.claimingEnabled = newValue;
-
-        emit ClaimingEnabledUpdated(newValue);
     }
 }

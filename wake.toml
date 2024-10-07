@@ -28,6 +28,8 @@ enable = true
 enable = false
 
 [detectors]
+ignore_paths = ["test"]
+exclude_paths = ["node_modules", "lib", "script"]
 only = []
 # exclude = []
 #exclude = [
@@ -40,9 +42,6 @@ only = []
 #  "msg-value-nonpayable-function",
 #  "unchecked-return-value",
 #]
-
-ignore_paths = ["test"]
-exclude_paths = ["node_modules", "lib", "script"]
 
 [printers]
 only = []

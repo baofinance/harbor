@@ -27,9 +27,6 @@ interface IGenesis is ITokenHolder {
     /// @dev Thrown when deposit after the genesis process has ended.
     error GenesisIsEnded();
 
-    /// @dev Thrown when withdraw or claim is made before claiming is enabled.
-    error ClaimingIsNotEnabled();
-
     /*//////////////////////////////////////////////////////////////
                         PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -46,11 +43,12 @@ interface IGenesis is ITokenHolder {
     /// @notice returns the amount of collateral deposited by `depositor`
     function balanceOf(address depositor) external view returns (uint256 share);
 
+    /// @notice returns the amount of tokens that could be minted for the `depositor`
+    /// given the current price
+    function claimable(address depositor) external view returns (uint256 peggedAmount, uint256 leveragedAmount);
+
     /// @notice returns whether the genesis phase has ended or not
     function genesisIsEnded() external view returns (bool ended);
-
-    /// @notice returns whether the claiming phase has started or not
-    function claimingIsEnabled() external view returns (bool enabled);
 
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
@@ -77,7 +75,4 @@ interface IGenesis is ITokenHolder {
 
     /// @notice Initialize minter with the collateral in this contract.
     function endGenesis() external;
-
-    /// @notice Change the status of whether claiming is allowed.
-    function updateClaimingEnabled(bool newValue) external;
 }

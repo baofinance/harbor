@@ -161,6 +161,10 @@ contract Test_GenesisBase is Test, Array {
         assertEq(IGenesis(genesis).collateralToken(), collateral, "wrong collateral");
         assertEq(IGenesis(genesis).peggedToken(), peggedToken, "wrong pegged");
         assertEq(IGenesis(genesis).leveragedToken(), leveragedToken, "wrong leveraged");
+        assertEq(IGenesis(genesis).balanceOf(address(this)), 0, "wrong balance");
+        assertFalse(IGenesis(genesis).genesisIsEnded());
+        vm.expectRevert(IGenesis.GenesisIsNotEnded.selector);
+        IGenesis(genesis).claimable(address(this));
     }
 
     function test_depositWithdraw() public {
@@ -198,7 +202,7 @@ contract Test_GenesisBase is Test, Array {
         // try to withdraw/claim - need to end the genesis & start the claiming first
         vm.expectRevert(IGenesis.GenesisIsNotEnded.selector);
         IGenesis(genesis).withdraw(user1, 0);
-        vm.expectRevert(IGenesis.ClaimingIsNotEnabled.selector);
+        vm.expectRevert(IGenesis.GenesisIsNotEnded.selector);
         IGenesis(genesis).claim(user1);
 
         // end it
@@ -223,18 +227,52 @@ contract Test_GenesisBase is Test, Array {
 
         // actually end it
         // ------------------------------------------------------------------------------------
+        assertEq(IGenesis(genesis).balanceOf(user1), 1 ether, "user1 still has 1 ether genesis tokens");
+        assertEq(IGenesis(genesis).balanceOf(user2), 9 ether, "user2 now has 2 ether genesis tokens");
+        assertEq(IERC20(collateral).balanceOf(genesis), 10 ether, "genesis now has 10 ether collateral tokens");
+        assertEq(IERC20(peggedToken).balanceOf(genesis), 0 ether, "genesis now has 10 ether collateral tokens");
+        assertEq(IERC20(leveragedToken).balanceOf(genesis), 0 ether, "genesis now has 10 ether collateral tokens");
+        assertFalse(IGenesis(genesis).genesisIsEnded());
         vm.prank(owner);
         IGenesis(genesis).endGenesis();
+        assertEq(IGenesis(genesis).balanceOf(user1), 1 ether, "user1 still has 1 ether genesis tokens");
+        assertEq(IGenesis(genesis).balanceOf(user2), 9 ether, "user2 now has 9 ether genesis tokens");
+        assertEq(IERC20(collateral).balanceOf(genesis), 0 ether, "genesis converted it's 10 ether collateral tokens");
+        assertEq(IERC20(peggedToken).balanceOf(genesis), 10000 ether, "genesis 5 ether -> pegged tokens");
+        assertEq(IERC20(leveragedToken).balanceOf(genesis), 10000 ether, "genesis 5 ether -> leveraged tokens");
+        uint256 p;
+        uint256 l;
+        (p, l) = IGenesis(genesis).claimable(user1);
+        assertEq(p, 1000 ether);
+        assertEq(l, 1000 ether);
+        (p, l) = IGenesis(genesis).claimable(user2);
+        assertEq(p, 9000 ether);
+        assertEq(l, 9000 ether);
         assertTrue(IGenesis(genesis).genesisIsEnded());
 
+        // cannot end it again
+        vm.expectRevert(IGenesis.GenesisIsEnded.selector);
+        vm.prank(owner);
+        IGenesis(genesis).endGenesis();
+
+        // cannot deposit once ended
+        vm.expectRevert(IGenesis.GenesisIsEnded.selector);
+        IGenesis(genesis).deposit(100 ether, user1);
+
         // not anyone can withdraw, only those who have shares deposited
-        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, peggedToken));
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, collateral));
         IGenesis(genesis).withdraw(user1, 0);
 
         // but not more than they have
         vm.expectRevert(abi.encodeWithSelector(IGenesis.InsufficientCollateral.selector, collateral));
         vm.prank(user1);
         IGenesis(genesis).withdraw(user1, 3 ether);
+        assertEq(IGenesis(genesis).balanceOf(user1), 1 ether, "user1 still has 1 ether genesis tokens");
+
+        // or even the same amount as they have because of the fees
+        vm.expectRevert(abi.encodeWithSelector(IGenesis.InsufficientCollateral.selector, collateral));
+        vm.prank(user1);
+        IGenesis(genesis).withdraw(user1, 1 ether);
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether, "user1 still has 1 ether genesis tokens");
 
         // user1 can withdraw
@@ -248,32 +286,32 @@ contract Test_GenesisBase is Test, Array {
         assertLt(user1Collateral, 1 ether, "user1 now has no collateral");
 
         // user1 cannot withdraw again
-        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, peggedToken));
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, collateral));
         vm.prank(user1);
         IGenesis(genesis).withdraw(user1, 0);
 
-        // can't claim until it's been enabled
-        vm.expectRevert(IGenesis.ClaimingIsNotEnabled.selector);
-        IGenesis(genesis).claim(user1);
-
-        // enable claiming
-        /*
         // not anyone can claim - only those holding shares
         assertEq(IERC20(peggedToken).balanceOf(user1), 0, "user1 has no pegged");
         assertEq(IERC20(leveragedToken).balanceOf(user1), 0, "user1 has no leveraged");
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, collateral));
         IGenesis(genesis).claim(user1);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0, "user1 has no pegged");
         assertEq(IERC20(leveragedToken).balanceOf(user1), 0, "user1 has no leveraged");
 
         // user2 claims
         assertEq(IGenesis(genesis).balanceOf(user2), 9 ether, "user2 still has 9 ether genesis tokens");
-        vm.expectRevert(IGenesis.ClaimingIsNotEnabled.selector);
         vm.prank(user2);
         IGenesis(genesis).claim(user1);
-*/
-    }
+        assertEq(IGenesis(genesis).balanceOf(user2), 0 ether, "user2 has no genesis tokens");
+        assertEq(IERC20(peggedToken).balanceOf(user1), 9000 ether, "user1 has got pegged");
+        assertEq(IERC20(leveragedToken).balanceOf(user1), 9000 ether, "user1 has got leveraged");
 
-    function test_claimingEnabled() public {
-        // TODO: check the interaction between ending Genesis and enabling claiming (do we need a separate claiming session)
+        // user2 cannot claim or withdraw again
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, collateral));
+        vm.prank(user2);
+        IGenesis(genesis).claim(user1);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, collateral));
+        vm.prank(user2);
+        IGenesis(genesis).withdraw(user1, 0);
     }
 }

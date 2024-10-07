@@ -64,7 +64,7 @@ library LinearReward {
     /// @param _data The struct of reward data.
     function pending(RewardData memory _data) internal view returns (uint256, uint256) {
         uint256 _elapsed;
-        uint256 _left;
+        uint256 _left = 0;
         if (block.timestamp > _data.finishAt) {
             // finishAt >= lastUpdate will happen, if `_notifyReward` is not called during current period.
             _elapsed = _data.finishAt >= _data.lastUpdate ? _data.finishAt - _data.lastUpdate : 0;

@@ -171,8 +171,10 @@ contract Minter_v1 is
         // we keep track of pegged tokens as they can be minted through other rmeans
         uint256 peggedTokenBalance; //                  256
         //                                             slot
+        // @custom:security non-reentrant
         address reservePool; //                         160
         //                                             slot
+        // @custom:security non-reentrant
         address feeReceiver; //                         160
         //                                             slot
         // TODO: do we want a collateral cap?
@@ -788,6 +790,7 @@ contract Minter_v1 is
             _fetchSafePrice($.priceOracle),
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
+        // slither-disable-next-line incorrect-equality
         if (leveragedOut == 0) {
             revert ReturnZeroAmount(leveragedToken_);
         }
@@ -1080,6 +1083,7 @@ contract Minter_v1 is
     /// storage.
     function _incentiveRatioToStoragePrecision(int256 ratio) private pure returns (int256) {
         int256 factor = int256(10 ** (18 - _INCENTIVE_RATIO_DECIMALS));
+        // slither-disable-next-line divide-before-multiply
         return ((ratio / factor) * factor);
     }
 
@@ -1087,6 +1091,7 @@ contract Minter_v1 is
     /// its storage
     function _collateralRatioToStoragePrecision(uint256 ratio) private pure returns (uint256) {
         uint256 factor = 10 ** (18 - _COLLATERAL_RATIO_DECIMALS);
+        // slither-disable-next-line divide-before-multiply
         return ((ratio / factor) * factor);
     }
 
@@ -1110,7 +1115,7 @@ contract Minter_v1 is
             );
         }
         out = ActionIncentive(0, 0);
-        uint256 prevUpperBound;
+        uint256 prevUpperBound = 0;
         uint iOut = 0; // solhint-disable-line explicit-types
         // solhint-disable-next-line explicit-types
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
@@ -1611,10 +1616,10 @@ contract Minter_v1 is
 
             band++;
         }
+        // TODO: calculate the extra collateral and fee at 1e36 in the above loop too, for more precision
+        collateralReturned = (collateralReturned + extraCollateral * 1 ether - fee) / 1 ether;
         // as we didn't divide by 1 ether in the above loop, we do it now.
         fee /= 1 ether;
-        // TODO: calculate the extra collateral and fee at 1e36 in the above loop too, for more precision
-        collateralReturned = (collateralReturned + extraCollateral * 1 ether - fee * 1 ether) / 1 ether;
     }
 
     /// @dev Balances is used to reduce stack space for the functions it is used in.
@@ -1647,6 +1652,7 @@ contract Minter_v1 is
         uint256 reservePoolBalance_
     ) private pure returns (uint256 fee, uint256 leveragedMinted, uint256 extraCollateral) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
+        // slither-disable-next-line incorrect-equality
         if (balanceOf.pegged == 0) revert ActionPaused();
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         if (_isDepegged(balanceOf.collateral, price, balanceOf.pegged)) revert ActionPaused();
@@ -1715,6 +1721,7 @@ contract Minter_v1 is
                 balanceOf.leveraged += leveragedInBand;
             }
             collateralIn -= collateralInBand;
+            // slither-disable-next-line incorrect-equality
             if (collateralIn == 0) {
                 // we have run out of collateral for the simulation
                 // collateralTokenBalance_ += collateralInBand - bandFee + extraCollateralInBand;
@@ -1785,6 +1792,7 @@ contract Minter_v1 is
             collateralOut += collateralInBand - bandFee;
             fee += bandFee;
             collateralIn -= collateralInBand;
+            // slither-disable-next-line incorrect-equality
             if (collateralIn == 0) {
                 // we have run out of collateral
                 break;
