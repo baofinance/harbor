@@ -8,25 +8,24 @@ import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 
 import "src/minter/LeveragedToken_v1.sol";
+import "src/minter/Genesis_v1.sol";
 
 import { TestMinterBasics, TestMinterSetUp, TestMinter0 } from "test/Minter_base.t.sol";
 import { Deployed } from "@bao/Deployed.sol";
 
-contract TestDeploySetUp is TestMinterSetUp {
+import { DeployState } from "./DeployState.sol";
+
+contract TestDeploySetUp is TestMinterSetUp, DeployState {
     address rebalancePoolCollateral;
     address rebalancePoolLeveraged;
 
+    address genesis;
+
     string network;
-    string addresses;
 
     constructor() {
         network = "local";
-        addresses = vm.readFile(string.concat("./results/deploy-", network, ".log"));
-    }
-
-    function addr(string memory name) private view returns (address it) {
-        it = vm.parseJsonAddress(addresses, string.concat(".", name)); // jq style path
-        vm.assertNotEq(it, address(0), string.concat("zero address for ", name));
+        setStateFile(network);
     }
 
     function setUpFork() internal virtual override(TestMinterSetUp) {
@@ -43,6 +42,7 @@ contract TestDeploySetUp is TestMinterSetUp {
         minter = addr("minter");
         rebalancePoolCollateral = addr("rebalancePoolCollateral");
         rebalancePoolLeveraged = addr("rebalancePoolLeveraged");
+        genesis = addr("genesis");
 
         uint256 minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
         vm.prank(owner);
@@ -77,6 +77,20 @@ contract TestDeploy0 is TestMinter0, TestDeploySetUp {
 }
 
 contract TestDeploy is TestDeploySetUp {
+    function test_leveragedToken() public view {
+        // TODO: test introspection, etc.
+        // This needs to re-use the code in TestLeveragedToken
+
+        // has the right meta data
+        assertEq(IERC20Metadata(leveragedToken).symbol(), "BaoUSD-wstETH");
+        assertEq(IERC20Metadata(leveragedToken).name(), "BaoMinter BaoUSD-wstETH");
+        assertEq(IERC20Metadata(leveragedToken).decimals(), 18);
+
+        // correct access
+        assertEq(IOwnable(leveragedToken).owner(), Deployed.BAOMULTISIG);
+        assertTrue(IOwnableRoles(leveragedToken).hasAllRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()));
+    }
+
     function _test_rebalanceConnections(address rp, address liquidateTo) private view {
         assertEq(IRebalancePool(rp).minter(), minter);
         assertEq(IRebalancePool(rp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
@@ -88,5 +102,21 @@ contract TestDeploy is TestDeploySetUp {
     function test_rebalancePool() public view {
         _test_rebalanceConnections(rebalancePoolLeveraged, leveragedToken);
         _test_rebalanceConnections(rebalancePoolCollateral, collateralToken);
+    }
+
+    function test_genesis() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        Genesis_v1(genesis).initialize(address(this), minter);
+
+        // check the data has been set up correctly
+        assertEq(IOwnable(genesis).owner(), owner, "wrong owner");
+        assertEq(IGenesis(genesis).collateralToken(), collateralToken, "wrong collateral");
+        assertEq(IGenesis(genesis).peggedToken(), peggedToken, "wrong pegged");
+        assertEq(IGenesis(genesis).leveragedToken(), leveragedToken, "wrong leveraged");
+        assertEq(IGenesis(genesis).balanceOf(address(this)), 0, "wrong balance");
+        assertFalse(IGenesis(genesis).genesisIsEnded());
+
+        vm.expectRevert(IGenesis.GenesisIsNotEnded.selector);
+        IGenesis(genesis).claimable(address(this));
     }
 }

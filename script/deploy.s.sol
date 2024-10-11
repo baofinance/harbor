@@ -24,6 +24,8 @@ import "src/minter/Genesis_v1.sol";
 import "test/Array.sol";
 import "test/Useful.sol";
 
+import { DeployState } from "./DeployState.sol";
+
 // functions are called in this sequence
 // 1) Deploy*
 //      - deploys the proxy and the first implementation
@@ -104,7 +106,7 @@ library DeployLib {
             "RebalancePool_v1.sol",
             abi.encodeCall(RebalancePool_v1.initialize, (Deployed.BAOMULTISIG, minter_, liquidationToken))
         );
-        console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
+        //console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
     }
 
     function deployGenesis(address minter_) internal returns (address genesis) {
@@ -149,62 +151,80 @@ contract Network is Script {
 ///////////////////////////////////////////////////////////////////////////
 // Deploy
 // ------
-// $ NETWORK=<mainnet or sepolia> yarn script script/deploy.s.sol:Deploy --broadcast --verify
+// set RESUME false or unset for first iteration
+// $ RESUME=true NETWORK=<e.g. mainnet> yarn script script/deploy.s.sol:Deploy --force --ffi --broadcast --verify
 
-contract Deploy is Network, Array {
+contract Deploy is Network, DeployState, Array {
     function run() public {
         begin();
-        log("owner", Deployed.BAOMULTISIG);
 
-        Minter_v1.BalanceTokens memory tokens;
-        tokens.peggedToken = Deployed.BaoUSD;
-        log("peggedToken", tokens.peggedToken);
-        tokens.leveragedToken = DeployLib.deployLeveragedToken("BaoUSD", "wstETH");
-        log("leveragedToken", tokens.leveragedToken);
-        tokens.collateralToken = Deployed.wstETH;
-        log("collateralToken", tokens.collateralToken);
+        if (step() == 1) {
+            logAddr("owner", Deployed.BAOMULTISIG);
+            logAddr("peggedToken", Deployed.BaoUSD);
+            logAddr("leveragedToken", DeployLib.deployLeveragedToken("BaoUSD", "wstETH"));
+            logAddr("collateralToken", Deployed.wstETH);
 
-        address priceOracle = Deployed.PriceOracle_wstETHUSD;
-        log("priceOracle", priceOracle);
-        address feeReceiver = DeployLib.deployTokenDistributor("FeeDistributor");
-        log("feeReceiver", feeReceiver);
-        address reservePool = DeployLib.deployReservePool();
-        log("reservePool", reservePool);
+            Minter_v1.BalanceTokens memory tokens;
+            tokens.peggedToken = addr("peggedToken");
+            tokens.leveragedToken = addr("leveragedToken");
+            tokens.collateralToken = addr("collateralToken");
 
-        int disallow = 10000; // code in config for a disallowed action at that collateral ratio
-        IMinter.Config memory config;
-        config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
-        config.harvestCollateralRatioLowerBound = _percentToEther(250);
-        config.mintPeggedIncentiveConfig = ic(ua(131, 140), ia(disallow, 100, 50));
-        config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
-        config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
-        config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
+            address priceOracle = Deployed.PriceOracle_wstETHUSD;
+            logAddr("priceOracle", priceOracle);
+            address feeReceiver = DeployLib.deployTokenDistributor("FeeDistributor");
+            logAddr("feeReceiver", feeReceiver);
+            address reservePool = DeployLib.deployReservePool();
+            logAddr("reservePool", reservePool);
 
-        address minter = DeployLib.deployMinter(tokens, priceOracle, feeReceiver, reservePool, config);
-        log("minter", minter);
+            int disallow = 10000; // code in config for a disallowed action at that collateral ratio
+            IMinter.Config memory config;
+            config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
+            config.harvestCollateralRatioLowerBound = _percentToEther(250);
+            config.mintPeggedIncentiveConfig = ic(ua(131, 140), ia(disallow, 100, 50));
+            config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
+            config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
+            config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
 
-        log("rebalancePoolCollateral", DeployLib.deployRebalancePool(minter, tokens.collateralToken));
-        log("rebalancePoolLeveraged", DeployLib.deployRebalancePool(minter, tokens.leveragedToken));
-
-        log("genesis", DeployLib.deployGenesis(minter));
-
+            address minter = DeployLib.deployMinter(
+                tokens,
+                addr("priceOracle"),
+                addr("feeReceiver"),
+                addr("reservePool"),
+                config
+            );
+            logAddr("minter", minter);
+        } else if (step() == 2) {
+            logAddr("rebalancePoolCollateral", DeployLib.deployRebalancePool(addr("minter"), addr("collateralToken")));
+            logAddr("rebalancePoolLeveraged", DeployLib.deployRebalancePool(addr("minter"), addr("leveragedToken")));
+            logAddr("genesis", DeployLib.deployGenesis(addr("minter")));
+        } else {
+            console2.log("too many steps");
+        }
         end();
     }
 
-    string jsonObject;
+    // string jsonObject;
 
     function begin() private {
         vm.startBroadcast(privateKey);
-        jsonObject = "";
+        setStateFile(network);
+        if (vm.envOr("RESUME", false)) {
+            setStep(step() + 1);
+            console2.log("Resuming deployment at step=%s", step());
+        } else {
+            setStep(1);
+            console2.log("Starting deployment at step=%s", step());
+        }
+        // jsonObject = "";
     }
 
-    function log(string memory name, address addr) private {
-        jsonObject = vm.serializeAddress("addresses", name, addr);
+    function logAddr(string memory name, address addr) private {
+        //jsonObject = vm.serializeAddress("addresses", name, addr);
+        setAddr(name, addr);
         console2.log("%s = %s", name, addr);
     }
 
     function end() private {
-        vm.writeJson(jsonObject, string.concat("./results/deploy-", network, ".log"));
         vm.stopBroadcast();
     }
 

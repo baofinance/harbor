@@ -28,5 +28,5 @@ interface ILeveragedToken is
 {
     /// @notice returns the role for contracts who can mint this contract
     // solhint-disable-next-line func-name-mixedcase
-    function MINTER_ROLE() external returns (uint256);
+    function MINTER_ROLE() external view returns (uint256);
 }
