@@ -14,6 +14,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBurnable } from "@bao/interfaces/IBurnable.sol";
 
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
@@ -224,6 +225,7 @@ contract TestMinterSetUp is Test, Clog, Array {
                 (
                     owner,
                     IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
+                    type(IBurnable).interfaceId,
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -350,6 +352,7 @@ contract TestMinterInit is TestMinterSetUp {
                 (
                     address(this),
                     IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), owner),
+                    type(IBurnable).interfaceId,
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -368,6 +371,7 @@ contract TestMinterInit is TestMinterSetUp {
                 (
                     address(this),
                     IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
+                    type(IBurnable).interfaceId,
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -408,6 +412,7 @@ contract TestMinterInit is TestMinterSetUp {
                 (
                     owner,
                     IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
+                    type(IBurnable).interfaceId,
                     address(priceOracle),
                     feeReceiver,
                     reservePool,
@@ -426,6 +431,7 @@ contract TestMinterInit is TestMinterSetUp {
         Minter_v1(minter).initialize(
             address(this),
             IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
+            type(IBurnable).interfaceId,
             address(priceOracle),
             feeReceiver,
             reservePool,

@@ -25,11 +25,13 @@ compilation_delay = 0.1
 enable = true
 
 [lsp.detectors]
-enable = true
+enable = false
 
 [detectors]
-# only = []
-exclude = []
+ignore_paths = ["test"]
+exclude_paths = ["node_modules", "lib", "script"]
+only = []
+# exclude = []
 #exclude = [
 #  "abi-encode-with-signature",
 #  "axelar-proxy-contract-id",
@@ -40,9 +42,6 @@ exclude = []
 #  "msg-value-nonpayable-function",
 #  "unchecked-return-value",
 #]
-
-ignore_paths = ["test"]
-exclude_paths = ["node_modules", "lib", "script"]
 
 [printers]
 only = []

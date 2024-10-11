@@ -12,6 +12,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { ILeveragedToken, IERC165, IERC20Permit } from "./ILeveragedToken.sol";
 import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
@@ -30,6 +31,7 @@ contract LeveragedToken_v1 is
     ERC20PermitUpgradeable,
     OwnableRoles,
     ERC165Upgradeable,
+    /* ILeveragedToken */
     IMintable,
     IBurnable,
     IBurnableFrom
@@ -61,36 +63,32 @@ contract LeveragedToken_v1 is
     /// only owners can upgrade this contract.
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
-    /// @notice Returns true if a given interface is supported.
-    /// @dev See {IERC165-supportsInterface}.
+    /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
-            interfaceId == type(IMintable).interfaceId ||
-            interfaceId == type(IBurnableFrom).interfaceId ||
-            interfaceId == type(IBurnable).interfaceId ||
+            interfaceId == type(ILeveragedToken).interfaceId ||
             interfaceId == type(IERC20).interfaceId ||
             interfaceId == type(IERC20Metadata).interfaceId ||
+            interfaceId == type(IERC20Permit).interfaceId ||
             interfaceId == type(IOwnable).interfaceId ||
             interfaceId == type(IOwnableRoles).interfaceId ||
+            interfaceId == type(IMintable).interfaceId ||
+            interfaceId == type(IBurnable).interfaceId ||
+            interfaceId == type(IBurnableFrom).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 
-    /// @notice Mints an amount of a token
-    /// @param to The receiver of the new tokens.
-    /// @param amount The amount of tokens minted.
+    /// @inheritdoc IMintable
     function mint(address to, uint256 amount) public override onlyRoles(MINTER_ROLE) {
         _mint(to, amount);
     }
 
-    /// @notice Burns an amount of a token
-    /// @param amount The amount of tokens burned. This amount must be owned by the caller.
+    /// @inheritdoc IBurnable
     function burn(uint256 amount) public override onlyRoles(MINTER_ROLE) {
         _burn(_msgSender(), amount);
     }
 
-    /// @notice Burns an amount of a token
-    /// @param from The address of the owner of the tokens being burned.
-    /// @param amount The amount of tokens burned. This amount must be owned `from`.
+    /// @inheritdoc IBurnableFrom
     function burnFrom(address from, uint256 amount) public override onlyRoles(MINTER_ROLE) {
         _burn(from, amount);
     }
