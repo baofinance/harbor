@@ -10,7 +10,8 @@ import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upg
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { TokenHolder, ITokenHolder } from "@bao/TokenHolder.sol";
-import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IRebalancePool } from "./IRebalancePool.sol";
 import { ILiquidator } from "./ILiquidator.sol";
 

@@ -12,8 +12,8 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
-import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
 
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
@@ -266,7 +266,7 @@ contract TestMinterSetUp is Test, Clog, Array {
         vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
         IBaoUSD(Deployed.BaoUSD).addMinter(minter);
         vm.prank(owner);
-        OwnableRoles(leveragedToken).grantRoles(minter, minterRole);
+        IOwnableRoles(leveragedToken).grantRoles(minter, minterRole);
         requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
         vm.prank(owner);
         ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
@@ -301,14 +301,6 @@ contract TestMinterSetUp is Test, Clog, Array {
             vm.prank(owner);
             leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
-    }
-}
-
-contract TestMinter0 is TestMinterSetUp {
-    function setUp() public virtual override {}
-
-    function test_setUp() public virtual {
-        TestMinterSetUp.setUp();
     }
 }
 

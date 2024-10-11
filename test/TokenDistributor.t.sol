@@ -16,7 +16,8 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { ITokenHolder } from "@bao/interfaces/ITokenHolder.sol";
 import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";

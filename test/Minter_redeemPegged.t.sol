@@ -8,7 +8,8 @@ import { Vm } from "forge-std/Vm.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";

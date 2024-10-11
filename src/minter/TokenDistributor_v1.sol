@@ -8,7 +8,8 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
 

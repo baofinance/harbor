@@ -4,16 +4,19 @@ pragma solidity 0.8.26;
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import { ERC20PermitUpgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
+import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { ILeveragedToken, IERC165, IERC20Permit } from "./ILeveragedToken.sol";
-import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { ILeveragedToken } from "./ILeveragedToken.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
 import { IBurnableFrom } from "@bao/interfaces/IBurnableFrom.sol";
@@ -31,7 +34,7 @@ contract LeveragedToken_v1 is
     ERC20PermitUpgradeable,
     OwnableRoles,
     ERC165Upgradeable,
-    /* ILeveragedToken */
+    ILeveragedToken,
     IMintable,
     IBurnable,
     IBurnableFrom
