@@ -173,7 +173,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
     }
 
     function setUpConfig() internal virtual override {
-        setUpConfig_likelyNoDisallow();
+        setUp_config_likelyNoDisallow();
     }
 
     function doOneCollateralRatio() internal override {
@@ -307,7 +307,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
     uint repeats = 10;
 
     function setUpConfig() internal virtual override {
-        setUpConfig_likelyNoDisallow();
+        setUp_config_likelyNoDisallow();
         increment = 1 ether / 10;
     }
 

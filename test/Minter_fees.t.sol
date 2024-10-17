@@ -21,12 +21,11 @@ import { TestMinterSetUp } from "test/Minter_base.t.sol";
 
 contract TestMinterFeeSetUp is TestMinterSetUp {
     function setUpConfig() internal virtual override {
-        setUpConfig_likely();
+        setUp_config_likely();
     }
 
     function setUp() public virtual override {
         super.setUp();
-        setUp_permissions();
     }
 }
 

@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
@@ -35,32 +36,11 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    ////////////
-    // Errors //
-    ////////////
+    /*//////////////////////////////////////////////////////////////
+                              CONSTANTS
+    //////////////////////////////////////////////////////////////*/
 
-    /// @dev Thrown when configuring recipients and shares
-    error RecipientsAndSharesDifferentSizes(uint recipientsLength, uint sharesLength); // solhint-disable-line explicit-types
-
-    /// @dev Thrown when an attemt to set a share size to 0. Remove the recipient instead.
-    error ShareAmountIsZero(address recipient);
-
-    /// @dev Thrown when a duplicate of a recipient is being configured in the same call.
-    /// Attempting to add a recipient which already pre-exists results in that recipient being changed
-    error DuplicateRecipient(address recipient);
-
-    /// @dev Thrown when a share value is too high. Maximum size is very high.
-    error ShareAmountIsTooHigh(address recipient, uint shares); // solhint-disable-line explicit-types
-
-    /// @dev Thrown when trying to extract a leftover tokens when it is still in use.
-    /// Remove the token first.
-    error TokenStillInUse(address token);
-
-    ///////////////
-    // Constants //
-    ///////////////
-
-    /// @notice The role needed to be able to distribute
+    /// @inheritdoc ITokenDistributor
     uint256 public constant CLAIMER_ROLE = _ROLE_0;
 
     /// @notice Structure containing the recipient and the number of shares allocated to that recipient
@@ -124,14 +104,10 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         _disableInitializers();
     }
 
-    /// @notice The check that allow this contract to be upgraded:
-    /// In UUPS proxies the implementation is responsible for upgrading itself
-    /// only owners can upgrade this contract.
+    /// @inheritdoc UUPSUpgradeable
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
-    /// @notice Returns true if a given interface is supported.
-    /// @dev See {IERC165-supportsInterface}.
-
+    /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
             interfaceId == type(IOwnable).interfaceId ||
@@ -140,27 +116,23 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
             super.supportsInterface(interfaceId);
     }
 
-    ////////////////////////////
-    /// Public View Functions //
-    ////////////////////////////
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns the name of the contract. The name should indicate the contract's purpose.
+    /// @inheritdoc ITokenDistributor
     function name() public view returns (string memory name_) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         name_ = $.name;
     }
 
-    /// @notice Returns the list of tokens managed
-    /// @return tokens_ The list of tokens currently configured
+    /// @inheritdoc ITokenDistributor
     function tokens() public view returns (address[] memory tokens_) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         tokens_ = $.tokens.values();
     }
 
-    /// @notice Returns the distribution {recipient, share} pairs.
-    /// @return recipients The list of recipients.
-    /// @return shares The corresponding list of shares each recipient holds.
-    /// @return totalShares The total of the above shares.
+    /// @inheritdoc ITokenDistributor
     function distribution()
         public
         view
@@ -182,12 +154,11 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         totalShares = $.totalShares;
     }
 
-    /////////////////////////////////
-    // Protected Mutator Functions //
-    /////////////////////////////////
+    /*//////////////////////////////////////////////////////////////
+                        PUBLIC UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
-    /// @notice Adds a token to be managed.
-    /// @param token The address of the token to be managed.
+    /// @inheritdoc ITokenDistributor
     function addToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         Token.ensureERC20Token(token);
@@ -195,18 +166,14 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         $.tokens.add(token); // only adds if one is not already there
     }
 
-    /// @notice Removes a managed token.
-    /// If the token is not being managed then there is no error.
-    /// @param token The address of the token to be removed.
+    /// @inheritdoc ITokenDistributor
     function removeToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         // wake-disable-next-line unchecked-return-value
         $.tokens.remove(token);
     }
 
-    /// @notice Configures the distribution of all the managed tokens.
-    /// @param recipients The recipients of a share of the tokens.
-    /// @param shares The size of the share the recipient receives.
+    /// @inheritdoc ITokenDistributor
     function setDistribution(
         address[] calldata recipients,
         uint[] calldata shares // solhint-disable-line explicit-types
@@ -252,13 +219,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         }
     }
 
-    /// @notice Adds a recipient to the list of recipients, with the given number of shares. If the recipient already
-    /// exists in the list then the number of shares is adjusted accordingly.
-    /// @param recipient The address of the recipient to be added.
-    /// @param share The number of shares allocated to the recipient. This number cannot be 0: use the `removeRecipient`
-    ///        call to set the shares to 0.
-    /// @dev The share of every other recipient remains the same value but the `totalShares` is decreased, effectively
-    /// increasing the calculated share of each remaining recipient.
+    /// @inheritdoc ITokenDistributor
     function addRecipient(address recipient, uint256 share) public onlyOwner {
         Token.ensureNonZeroAddress(recipient);
 
@@ -283,10 +244,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
         $.distribution.push(Split(recipient, uint64(share)));
     }
 
-    /// @notice Removes a recipient from the list of recipients
-    /// @param recipient The address of the recipient to be removed.
-    /// @dev The share of every other recipient remains the same value but the `totalShares` is decreased, effectively
-    /// increasing the calculated share of each remaining recipient.
+    /// @inheritdoc ITokenDistributor
     function removeRecipient(address recipient) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         // solhint-disable-next-line explicit-types
@@ -307,8 +265,11 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     }
 
     // TODO: what protections, if any should be on this?
+    // it is protected for now, as it is trivial to write a contract that
+    // has an unprotected distribute function
+    // has the correct role to call this function
     // @inheritdoc ITokenDistributor
-    function distribute() public onlyRoles(CLAIMER_ROLE) {
+    function distribute() public onlyOwnerOrRoles(CLAIMER_ROLE) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
 
         address[] memory tokens_ = $.tokens.values();

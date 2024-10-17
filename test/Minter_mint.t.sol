@@ -25,7 +25,7 @@ contract TestMinterMint is TestMinterSetUp {
     address receiver;
 
     function setUpConfig() internal override {
-        setUpConfig_basicWithDisallow();
+        setUp_config_basicWithDisallow();
     }
 
     function setUp() public virtual override {
@@ -33,6 +33,5 @@ contract TestMinterMint is TestMinterSetUp {
         system = vm.createWallet("system").addr;
         sender = vm.createWallet("sender").addr;
         receiver = vm.createWallet("receiver").addr;
-        setUp_permissions();
     }
 }

@@ -25,6 +25,8 @@ import "test/Array.sol";
 import "test/Useful.sol";
 import { IBaoUSD } from "test/IBaoUSD.sol";
 
+import { ConfigFile } from "test/Config.sol";
+
 import { DeployState } from "./DeployState.sol";
 
 // functions are called in this sequence
@@ -165,7 +167,7 @@ contract Network is Script {
 // set RESUME false or unset for first iteration
 // $ RESUME=true NETWORK=<e.g. mainnet> yarn script script/deploy.s.sol:Deploy --force --ffi --broadcast --verify
 
-contract Deploy is Network, DeployState, Array {
+contract Deploy is Network, DeployState, Array, ConfigFile {
     function run() public {
         begin();
 
@@ -182,6 +184,7 @@ contract Deploy is Network, DeployState, Array {
 
             address priceOracle = Deployed.PriceOracle_wstETHUSD;
             logAddr("priceOracle", priceOracle);
+            // TODO: how do we do claiming of distributed fees
             address feeReceiver = DeployLib.deployTokenDistributor(Deployed.BAOMULTISIG, "FeeDistributor");
             logAddr("feeReceiver", feeReceiver);
             address reservePool = DeployLib.deployReservePool(publicKey);
@@ -196,8 +199,10 @@ contract Deploy is Network, DeployState, Array {
             config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
             config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
 
+            writeConfig(network, config);
+
             address minter = DeployLib.deployMinter(
-                publicKey,
+                Deployed.BAOMULTISIG,
                 tokens,
                 addr("priceOracle"),
                 addr("feeReceiver"),
@@ -280,6 +285,7 @@ contract Transactions is Network, DeployState {
     function run() public {
         vm.startBroadcast(privateKey);
 
+        // it's me, hi, I'm the problem, it's me
         // add minter as a minter to BaoUSD
         IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
 

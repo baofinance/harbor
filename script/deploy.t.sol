@@ -8,26 +8,20 @@ import { Test } from "forge-std/Test.sol";
 import { IOwnable } from "@bao/interfaces/IOwnable.sol";
 import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 
-import { IMinter } from "src/minter/IMinter.sol";
-import { IRebalancePool } from "src/minter/IRebalancePool.sol";
-
-import "src/minter/ILeveragedToken.sol";
-import { TestLeveragedToken } from "test/LeveragedToken.t.sol";
-
-import "src/minter/IReservePool.sol";
-import { TestReservePool } from "test/ReservePool.t.sol";
-
-import "src/minter/Genesis_v1.sol";
-
-import { TestMinterBasics, TestMinterSetUp } from "test/Minter_base.t.sol";
-
 import { Deployed } from "@bao/Deployed.sol";
-
 import { DeployState } from "./DeployState.sol";
 
+import { TestLeveragedToken } from "test/LeveragedToken.t.sol";
+import { TestReservePool } from "test/ReservePool.t.sol";
+import { TestTokenDistributor } from "test/TokenDistributor.t.sol";
+import { TestMinterBasics } from "test/Minter_base.t.sol";
+import { IBaoUSD } from "test/IBaoUSD.sol";
+
 contract TestDeployed is Test, DeployState {
+    string network;
+
     function setUp_fork() internal /*string network*/ {
-        string memory network = "local"; // TODO: read from env
+        network = "local"; // TODO: read from env
         setStateFile(network);
         vm.createSelectFork(vm.rpcUrl(network));
     }
@@ -47,6 +41,19 @@ contract TestDeployedLeveragedToken is TestLeveragedToken, TestDeployed {
     }
 }
 
+contract TestDeployedFeeDistributor is TestTokenDistributor, TestDeployed {
+    function setUpFork() internal override {
+        setUp_fork();
+        owner = addr("owner");
+        claimer = addr("owner");
+    }
+
+    function setUpContract() internal override {
+        name = "FeeDistributor";
+        tokenDistributor = addr("feeReceiver");
+    }
+}
+
 contract TestDeployedReservePool is TestReservePool, TestDeployed {
     function setUpFork() internal override {
         setUp_fork();
@@ -57,6 +64,34 @@ contract TestDeployedReservePool is TestReservePool, TestDeployed {
 
     function setUpContract() internal override {
         reservePool = addr("reservePool");
+    }
+}
+
+contract TestDeployedMinter is TestMinterBasics, TestDeployed {
+    function setUpFork() internal override {
+        setUp_fork();
+        owner = addr("owner");
+        peggedToken = addr("peggedToken");
+        leveragedToken = addr("leveragedToken");
+        collateralToken = addr("collateralToken");
+        priceOracle = addr("priceOracle");
+        feeReceiver = addr("feeReceiver");
+        reservePool = addr("reservePool");
+    }
+
+    function setUpConfig() internal override {
+        config = readConfig(network);
+    }
+
+    function setUpContract() internal override {
+        minter = addr("minter");
+
+        postDeployMultisigTransactions();
+    }
+
+    function postDeployMultisigTransactions() internal {
+        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
+        IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
     }
 }
 

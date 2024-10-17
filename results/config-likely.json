@@ -1,0 +1,52 @@
+{
+  "harvestCollateralRatioLowerBound": 2500000000000000000,
+  "mintLeveragedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1100000000000000000,
+      1200000000000000000,
+      1450000000000000000
+    ],
+    "incentiveRatios": [
+      -5000000000000000,
+      0,
+      2000000000000000,
+      7000000000000000
+    ]
+  },
+  "mintPeggedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1300000000000000000,
+      1400000000000000000
+    ],
+    "incentiveRatios": [
+      1000000000000000000,
+      10000000000000000,
+      5000000000000000
+    ]
+  },
+  "rebalanceCollateralRatioUpperBound": 1300000000000000000,
+  "redeemLeveragedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1050000000000000000,
+      1350000000000000000
+    ],
+    "incentiveRatios": [
+      1000000000000000000,
+      15000000000000000,
+      12000000000000000
+    ]
+  },
+  "redeemPeggedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1050000000000000000,
+      1150000000000000000,
+      1500000000000000000
+    ],
+    "incentiveRatios": [
+      -7500000000000000,
+      -2500000000000000,
+      6000000000000000,
+      8000000000000000
+    ]
+  }
+}
