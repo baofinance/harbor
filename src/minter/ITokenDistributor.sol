@@ -28,6 +28,7 @@ interface ITokenDistributor {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The role needed to be able to distribute
+    // solhint-disable-next-line func-name-mixedcase
     function CLAIMER_ROLE() external view returns (uint256);
 
     /// @notice Returns the name of the contract. The name should indicate the contract's purpose.
