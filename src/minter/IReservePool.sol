@@ -21,6 +21,14 @@ interface IReservePool {
     );
 
     /*//////////////////////////////////////////////////////////////
+                        PUBLIC VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice returns the role for contracts who can call `requestBonus`
+    // solhint-disable-next-line func-name-mixedcase
+    function REQUESTER_ROLE() external view returns (uint256);
+
+    /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 

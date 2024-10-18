@@ -10,7 +10,8 @@ import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upg
 import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { TokenHolder, ITokenHolder } from "@bao/TokenHolder.sol";
-import { IOwnable, IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IRebalancePool } from "./IRebalancePool.sol";
 import { ILiquidator } from "./ILiquidator.sol";
 
@@ -38,7 +39,7 @@ contract Liquidator_v1 is
 
     // Share-with-proxy Storage
     // ------------------------
-    /// @custom:storage-location erc7201:bao.storage.Genesis
+    /// @custom:storage-location erc7201:bao.storage.Liquidator
     struct LiquidatorStorage {
         /// @notice The address of rebalancePool contract.
         address rebalancePool;

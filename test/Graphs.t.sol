@@ -29,7 +29,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     uint256 uNaN = type(uint256).max;
 
     function setUpConfig() internal virtual override {
-        setUpConfig_likely();
+        setUp_config_likely();
     }
 
     function context() internal pure virtual returns (string memory) {
@@ -215,7 +215,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
 contract TestGraphsNoDisallow is TestGraphsDisallow {
     function setUpConfig() internal override {
-        setUpConfig_likelyNoDisallow();
+        setUp_config_likelyNoDisallow();
     }
 
     function context() internal pure override returns (string memory) {

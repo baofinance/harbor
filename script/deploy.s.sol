@@ -23,6 +23,9 @@ import "src/minter/RebalancePool_v1.sol";
 import "src/minter/Genesis_v1.sol";
 import "test/Array.sol";
 import "test/Useful.sol";
+import { IBaoUSD } from "test/IBaoUSD.sol";
+
+import { ConfigFile } from "test/Config.sol";
 
 import { DeployState } from "./DeployState.sol";
 
@@ -50,7 +53,9 @@ import { DeployState } from "./DeployState.sol";
 // $ set +a
 
 library DeployLib {
+    // Leveraged Token
     function deployLeveragedToken(
+        address owner,
         string memory pegged,
         string memory collateral
     ) internal returns (address leveragedToken_) {
@@ -59,25 +64,36 @@ library DeployLib {
 
         leveragedToken_ = Upgrades.deployUUPSProxy(
             "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (Deployed.BAOMULTISIG, name, symbol))
+            abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
         );
     }
 
-    function deployReservePool() internal returns (address reservePool_) {
-        reservePool_ = Upgrades.deployUUPSProxy(
-            "ReservePool_v1.sol",
-            abi.encodeCall(ReservePool_v1.initialize, Deployed.BAOMULTISIG)
-        );
+    function postDeployLeveragedTokenTransactions(address leveragedToken, address owner, address minter) internal {
+        IOwnableRoles(leveragedToken).grantRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE());
+        IOwnable(leveragedToken).transferOwnership(owner);
     }
 
-    function deployTokenDistributor(string memory name) internal returns (address tokenDistributor_) {
+    // ReservePool
+    function deployReservePool(address owner) internal returns (address reservePool_) {
+        reservePool_ = Upgrades.deployUUPSProxy("ReservePool_v1.sol", abi.encodeCall(ReservePool_v1.initialize, owner));
+    }
+
+    function postDeployReservePoolTransactions(address reservePool, address owner, address minter) internal {
+        IOwnableRoles(reservePool).grantRoles(minter, IReservePool(reservePool).REQUESTER_ROLE());
+        IOwnable(reservePool).transferOwnership(owner);
+    }
+
+    // TokenDistributor
+    function deployTokenDistributor(address owner, string memory name) internal returns (address tokenDistributor_) {
         tokenDistributor_ = Upgrades.deployUUPSProxy(
             "TokenDistributor_v1.sol",
-            abi.encodeCall(TokenDistributor_v1.initialize, (Deployed.BAOMULTISIG, name))
+            abi.encodeCall(TokenDistributor_v1.initialize, (owner, name))
         );
     }
 
+    // Minter
     function deployMinter(
+        address owner,
         Minter_v1.BalanceTokens memory tokens,
         address priceOracle,
         address feeReceiver,
@@ -88,38 +104,35 @@ library DeployLib {
             "Minter_v1.sol",
             abi.encodeCall(
                 Minter_v1.initialize,
-                (
-                    Deployed.BAOMULTISIG,
-                    tokens,
-                    type(IBurnable).interfaceId,
-                    priceOracle,
-                    feeReceiver,
-                    reservePool_,
-                    config
-                )
+                (owner, tokens, type(IBurnable).interfaceId, priceOracle, feeReceiver, reservePool_, config)
             )
         );
     }
 
-    function deployRebalancePool(address minter_, address liquidationToken) internal returns (address rebalancePool_) {
+    // RebalancePool
+    function deployRebalancePool(
+        address owner,
+        address minter_,
+        address liquidationToken
+    ) internal returns (address rebalancePool_) {
         rebalancePool_ = Upgrades.deployUUPSProxy(
             "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (Deployed.BAOMULTISIG, minter_, liquidationToken))
+            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter_, liquidationToken))
         );
         //console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
     }
 
-    function deployGenesis(address minter_) internal returns (address genesis) {
-        genesis = Upgrades.deployUUPSProxy(
-            "Genesis_v1.sol",
-            abi.encodeCall(Genesis_v1.initialize, (Deployed.BAOMULTISIG, minter_))
-        );
+    // Genesis
+    function deployGenesis(address owner, address minter_) internal returns (address genesis) {
+        genesis = Upgrades.deployUUPSProxy("Genesis_v1.sol", abi.encodeCall(Genesis_v1.initialize, (owner, minter_)));
     }
+
+    // Liquidator
 }
 
 contract Network is Script {
     uint256 public privateKey;
-    address private addr;
+    address public publicKey;
     string public network;
 
     constructor() {
@@ -127,14 +140,14 @@ contract Network is Script {
         if (keccak256(abi.encodePacked(network)) == keccak256(abi.encodePacked("local:test"))) {
             console2.log("using the first default wallet for deploying");
             privateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-            addr = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+            publicKey = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
             network = "local";
         } else {
             privateKey = vm.envUint("PRIVATE_KEY");
-            addr = vm.addr(privateKey);
+            publicKey = vm.addr(privateKey);
         }
         vm.createSelectFork(network);
-        console2.log("deployer ETH balance=%s", Useful.toStringScaled(addr.balance, 18));
+        console2.log("deployer ETH balance=%s", Useful.toStringScaled(publicKey.balance, 18));
     }
 
     modifier deployer() {
@@ -154,14 +167,14 @@ contract Network is Script {
 // set RESUME false or unset for first iteration
 // $ RESUME=true NETWORK=<e.g. mainnet> yarn script script/deploy.s.sol:Deploy --force --ffi --broadcast --verify
 
-contract Deploy is Network, DeployState, Array {
+contract Deploy is Network, DeployState, Array, ConfigFile {
     function run() public {
         begin();
 
         if (step() == 1) {
             logAddr("owner", Deployed.BAOMULTISIG);
             logAddr("peggedToken", Deployed.BaoUSD);
-            logAddr("leveragedToken", DeployLib.deployLeveragedToken("BaoUSD", "wstETH"));
+            logAddr("leveragedToken", DeployLib.deployLeveragedToken(publicKey, "BaoUSD", "wstETH"));
             logAddr("collateralToken", Deployed.wstETH);
 
             Minter_v1.BalanceTokens memory tokens;
@@ -171,9 +184,10 @@ contract Deploy is Network, DeployState, Array {
 
             address priceOracle = Deployed.PriceOracle_wstETHUSD;
             logAddr("priceOracle", priceOracle);
-            address feeReceiver = DeployLib.deployTokenDistributor("FeeDistributor");
+            // TODO: how do we do claiming of distributed fees
+            address feeReceiver = DeployLib.deployTokenDistributor(Deployed.BAOMULTISIG, "FeeDistributor");
             logAddr("feeReceiver", feeReceiver);
-            address reservePool = DeployLib.deployReservePool();
+            address reservePool = DeployLib.deployReservePool(publicKey);
             logAddr("reservePool", reservePool);
 
             int disallow = 10000; // code in config for a disallowed action at that collateral ratio
@@ -185,7 +199,10 @@ contract Deploy is Network, DeployState, Array {
             config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
             config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
 
+            writeConfig(network, config);
+
             address minter = DeployLib.deployMinter(
+                Deployed.BAOMULTISIG,
                 tokens,
                 addr("priceOracle"),
                 addr("feeReceiver"),
@@ -193,10 +210,19 @@ contract Deploy is Network, DeployState, Array {
                 config
             );
             logAddr("minter", minter);
+
+            DeployLib.postDeployLeveragedTokenTransactions(tokens.leveragedToken, Deployed.BAOMULTISIG, minter);
+            DeployLib.postDeployReservePoolTransactions(reservePool, Deployed.BAOMULTISIG, minter);
         } else if (step() == 2) {
-            logAddr("rebalancePoolCollateral", DeployLib.deployRebalancePool(addr("minter"), addr("collateralToken")));
-            logAddr("rebalancePoolLeveraged", DeployLib.deployRebalancePool(addr("minter"), addr("leveragedToken")));
-            logAddr("genesis", DeployLib.deployGenesis(addr("minter")));
+            logAddr(
+                "rebalancePoolCollateral",
+                DeployLib.deployRebalancePool(Deployed.BAOMULTISIG, addr("minter"), addr("collateralToken"))
+            );
+            logAddr(
+                "rebalancePoolLeveraged",
+                DeployLib.deployRebalancePool(Deployed.BAOMULTISIG, addr("minter"), addr("leveragedToken"))
+            );
+            logAddr("genesis", DeployLib.deployGenesis(Deployed.BAOMULTISIG, addr("minter")));
         } else {
             console2.log("too many steps");
         }
@@ -255,6 +281,18 @@ contract Deploy is Network, DeployState, Array {
     }
 }
 
+contract Transactions is Network, DeployState {
+    function run() public {
+        vm.startBroadcast(privateKey);
+
+        // it's me, hi, I'm the problem, it's me
+        // add minter as a minter to BaoUSD
+        IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
+
+        vm.stopBroadcast();
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////
 // LeveragedToken
 // --------------
@@ -285,7 +323,7 @@ contract UpgradeLeveraged is Network {
 contract DeployReservePool is Network {
     function run() public {
         vm.startBroadcast(privateKey);
-        DeployLib.deployReservePool();
+        DeployLib.deployReservePool(Deployed.BAOMULTISIG);
         vm.stopBroadcast();
     }
 }
@@ -296,7 +334,7 @@ contract DeployReservePool is Network {
 contract DeployTokenDistributor is Network {
     function run(string memory name) internal {
         vm.startBroadcast(privateKey);
-        DeployLib.deployTokenDistributor(name);
+        DeployLib.deployTokenDistributor(Deployed.BAOMULTISIG, name);
         vm.stopBroadcast();
     }
 }

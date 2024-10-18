@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import { Test } from "forge-std/Test.sol";
-import { console2 as console } from "forge-std/console2.sol";
+import { console2 } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -16,17 +16,18 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
-import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
 
 import { Deployed } from "@bao/Deployed.sol";
 
-contract Test_ReservePool is Test {
-    using SafeERC20 for IERC20;
+contract TestReservePoolSetUp is Test {
     address token1 = Deployed.BaoUSD;
     address token2 = Deployed.wstETH;
+    // TODO: add tests for not ERC20 tokens
     address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
 
     address bonusReceiver;
@@ -34,26 +35,65 @@ contract Test_ReservePool is Test {
     address minter;
     address treasury;
     address reservePool;
-    uint256 minterRole;
+    address reservePoolImpl;
 
-    function setUp() public {
+    function setUpFork() internal virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
-
-        bonusReceiver = vm.createWallet("bonusReceiver").addr;
         owner = vm.createWallet("owner").addr;
+        minter = vm.createWallet("minter").addr;
+        bonusReceiver = vm.createWallet("bonusReceiver").addr;
         treasury = vm.createWallet("treasury").addr;
+    }
 
+    function setUp_impl() internal {
+        reservePoolImpl = address(new ReservePool_v1());
+    }
+
+    function setUp_proxy() internal {
         reservePool = UnsafeUpgrades.deployUUPSProxy(
-            address(new ReservePool_v1()), // "ReservePool_v1.sol",
+            reservePoolImpl, // "ReservePool_v1.sol",
             abi.encodeCall(ReservePool_v1.initialize, (owner))
         );
-        // set up permissions
-        minter = vm.createWallet("minter").addr;
-        minterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
+    }
 
+    function setUpContract() internal virtual {
+        setUp_impl();
+        setUp_proxy();
+
+        uint256 minterRole = IReservePool(reservePool).REQUESTER_ROLE();
+
+        vm.expectEmit();
+        emit IOwnableRoles.RolesUpdated(minter, minterRole);
         vm.prank(owner);
         IOwnableRoles(reservePool).grantRoles(minter, minterRole);
     }
+
+    function setUp() public {
+        setUpFork();
+        setUpContract();
+    }
+}
+
+// TODO: this could be a one liner, if the impl was kept here
+contract TestReservePoolInitEvents is TestReservePoolSetUp {
+    function test_initEventsImpl() public {
+        vm.expectEmit();
+        emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
+        setUp_impl();
+    }
+
+    function test_initEventsProxy() public {
+        setUp_impl();
+        vm.expectEmit();
+        emit IERC1967.Upgraded(reservePoolImpl);
+        vm.expectEmit();
+        emit Initializable.Initialized(1); // from the proxy delegate call
+        setUp_proxy();
+    }
+}
+
+contract TestReservePool is TestReservePoolSetUp {
+    using SafeERC20 for IERC20;
 
     function _balanceOf(address token, address who) private view returns (uint256) {
         if (token == address(0)) {
@@ -75,9 +115,14 @@ contract Test_ReservePool is Test {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         ReservePool_v1(reservePool).initialize(owner);
 
-        // not anyone can grant access
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnableRoles(reservePool).grantRoles(minter, minterRole);
+        // admin role
+        assertEq(IOwnable(reservePool).owner(), owner, "owner should be admin");
+
+        // minter role
+        assertTrue(
+            IOwnableRoles(reservePool).hasAnyRole(minter, IReservePool(reservePool).REQUESTER_ROLE()),
+            "requester should be minter"
+        );
     }
 
     function test_access() public {
@@ -87,6 +132,12 @@ contract Test_ReservePool is Test {
         // not anyone can withdraw funds
         vm.expectRevert(IOwnable.Unauthorized.selector);
         ReservePool_v1(reservePool).sweep(token1, 1 ether, bonusReceiver);
+        // not anyone can grant roles
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        IOwnableRoles(reservePool).grantRoles(minter, 23);
+        // not anyone can transfer ownership
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        IOwnable(reservePool).transferOwnership(address(this));
     }
 
     function test_bonus() public {

@@ -3,30 +3,104 @@ pragma solidity ^0.8.26;
 
 import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
+import { Test } from "forge-std/Test.sol";
 
-import { IMinter } from "src/minter/IMinter.sol";
-import { IRebalancePool } from "src/minter/IRebalancePool.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 
-import "src/minter/LeveragedToken_v1.sol";
-import "src/minter/Genesis_v1.sol";
-
-import { TestMinterBasics, TestMinterSetUp, TestMinter0 } from "test/Minter_base.t.sol";
 import { Deployed } from "@bao/Deployed.sol";
-
 import { DeployState } from "./DeployState.sol";
 
-contract TestDeploySetUp is TestMinterSetUp, DeployState {
+import { TestLeveragedToken } from "test/LeveragedToken.t.sol";
+import { TestReservePool } from "test/ReservePool.t.sol";
+import { TestTokenDistributor } from "test/TokenDistributor.t.sol";
+import { TestMinterBasics } from "test/Minter_base.t.sol";
+import { IBaoUSD } from "test/IBaoUSD.sol";
+
+contract TestDeployed is Test, DeployState {
+    string network;
+
+    function setUp_fork() internal /*string network*/ {
+        network = "local"; // TODO: read from env
+        setStateFile(network);
+        vm.createSelectFork(vm.rpcUrl(network));
+    }
+}
+
+contract TestDeployedLeveragedToken is TestLeveragedToken, TestDeployed {
+    function setUpFork() internal override {
+        setUp_fork();
+        owner = addr("owner");
+        minter = addr("minter");
+        name = "BaoMinter BaoUSD-wstETH";
+        symbol = "BaoUSD-wstETH";
+    }
+
+    function setUpContract() internal override {
+        leveragedToken = addr("leveragedToken");
+    }
+}
+
+contract TestDeployedFeeDistributor is TestTokenDistributor, TestDeployed {
+    function setUpFork() internal override {
+        setUp_fork();
+        owner = addr("owner");
+        claimer = addr("owner");
+    }
+
+    function setUpContract() internal override {
+        name = "FeeDistributor";
+        tokenDistributor = addr("feeReceiver");
+    }
+}
+
+contract TestDeployedReservePool is TestReservePool, TestDeployed {
+    function setUpFork() internal override {
+        setUp_fork();
+        owner = addr("owner");
+        bonusReceiver = addr("minter");
+        minter = addr("minter");
+    }
+
+    function setUpContract() internal override {
+        reservePool = addr("reservePool");
+    }
+}
+
+contract TestDeployedMinter is TestMinterBasics, TestDeployed {
+    function setUpFork() internal override {
+        setUp_fork();
+        owner = addr("owner");
+        peggedToken = addr("peggedToken");
+        leveragedToken = addr("leveragedToken");
+        collateralToken = addr("collateralToken");
+        priceOracle = addr("priceOracle");
+        feeReceiver = addr("feeReceiver");
+        reservePool = addr("reservePool");
+    }
+
+    function setUpConfig() internal override {
+        config = readConfig(network);
+    }
+
+    function setUpContract() internal override {
+        minter = addr("minter");
+
+        postDeployMultisigTransactions();
+    }
+
+    function postDeployMultisigTransactions() internal {
+        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
+        IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
+    }
+}
+
+/*
+contract TestDeploySetUp is TestMinterSetUp, TestDeployed {
     address rebalancePoolCollateral;
     address rebalancePoolLeveraged;
 
     address genesis;
-
-    string network;
-
-    constructor() {
-        network = "local";
-        setStateFile(network);
-    }
 
     function setUpFork() internal virtual override(TestMinterSetUp) {
         console2.log("TestDeploySetUp.setUpFork()");
@@ -57,22 +131,6 @@ contract TestDeploySetUp is TestMinterSetUp, DeployState {
         config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
         config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
         config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
-    }
-}
-
-contract TestDeploy0 is TestMinter0, TestDeploySetUp {
-    function setUp() public override(TestMinter0, TestMinterSetUp) {}
-
-    function setUpFork() internal override(TestDeploySetUp, TestMinterSetUp) {
-        TestDeploySetUp.setUpFork();
-    }
-
-    function setUpConfig() internal override(TestDeploySetUp, TestMinterSetUp) {
-        TestDeploySetUp.setUpConfig();
-    }
-
-    function test_setUp() public virtual override {
-        TestMinter0.setUp();
     }
 }
 
@@ -120,3 +178,5 @@ contract TestDeploy is TestDeploySetUp {
         IGenesis(genesis).claimable(address(this));
     }
 }
+
+*/

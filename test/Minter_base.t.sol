@@ -12,8 +12,8 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
-import { IOwnableRoles, IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
 
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
@@ -32,9 +32,11 @@ import { IBaoUSD } from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import { Array } from "test/Array.sol";
 
+import { ConfigFile } from "test/Config.sol";
+
 import "test/clog.sol";
 
-contract TestMinterSetUp is Test, Clog, Array {
+contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     address minter;
     IMinter.Config config;
     int constant disallow = 10000;
@@ -79,48 +81,53 @@ contract TestMinterSetUp is Test, Clog, Array {
         }
     }
 
-    function setUpConfig_free() internal {
-        setUpConfig(130, 250, ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)));
+    function setUp_config_free() internal {
+        setUp_config(130, 250, ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)), ic(ua(), ia(0)));
+        // config = readConfig("free", config);
     }
 
-    function setUpConfig_flat() internal {
-        setUpConfig(130, 250, ic(ua(), ia(50)), ic(ua(), ia(80)), ic(ua(), ia(70)), ic(ua(), ia(120)));
+    function setUp_config_flat() internal {
+        setUp_config(130, 250, ic(ua(), ia(50)), ic(ua(), ia(80)), ic(ua(), ia(70)), ic(ua(), ia(120)));
+        // config = readConfig("flat");
     }
 
-    function setUpConfig_basicWithDisallow() internal {
-        setUpConfig(
-            130,
-            250,
-            ic(ua(131), ia(disallow, 50)),
-            ic(ua(), ia(80)),
-            ic(ua(), ia(70)),
-            ic(ua(110), ia(disallow, 120))
-        );
+    function setUp_config_basicWithDisallow() internal {
+        // setUp_config(
+        //     130,
+        //     250,
+        //     ic(ua(131), ia(disallow, 50)),
+        //     ic(ua(), ia(80)),
+        //     ic(ua(), ia(70)),
+        //     ic(ua(110), ia(disallow, 120))
+        // );
+        config = readConfig("basicWithDisallow");
     }
 
-    function setUpConfig_likely() internal {
-        setUpConfig(
-            130,
-            250,
-            ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
-            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
-            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
-            ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
-        );
+    function setUp_config_likely() internal {
+        // setUp_config(
+        //     130,
+        //     250,
+        //     ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
+        //     ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+        //     ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
+        //     ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
+        // );
+        config = readConfig("likely");
     }
 
-    function setUpConfig_likelyNoDisallow() internal {
-        setUpConfig(
-            130,
-            250,
-            ic(ua(140), ia(100, 50)), // mint pegged
-            ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
-            ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
-            ic(ua(135), ia(150, 120)) // redeem leveraged
-        );
+    function setUp_config_likelyNoDisallow() internal {
+        // setUp_config(
+        //     130,
+        //     250,
+        //     ic(ua(140), ia(100, 50)), // mint pegged
+        //     ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
+        //     ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
+        //     ic(ua(135), ia(150, 120)) // redeem leveraged
+        // );
+        config = readConfig("likelyNoDisallow");
     }
 
-    function setUpConfig(
+    function setUp_config(
         uint rebalance,
         uint harvest,
         IMinter.IncentiveConfig memory mintPegged,
@@ -192,7 +199,7 @@ contract TestMinterSetUp is Test, Clog, Array {
         );
     }
     function setUpConfig() internal virtual {
-        setUpConfig(
+        setUp_config(
             130,
             250,
             ic(ua(131, 140), ia(disallow, 100, 50)),
@@ -200,6 +207,7 @@ contract TestMinterSetUp is Test, Clog, Array {
             ic(ua(110, 120, 140), ia(-50, 0, 20, 70)),
             ic(ua(110, 140), ia(disallow, 150, 120))
         );
+        writeConfig("default", config);
     }
 
     function setUp_leveragedToken() internal virtual {
@@ -250,26 +258,30 @@ contract TestMinterSetUp is Test, Clog, Array {
         collateralToken = Deployed.wstETH;
 
         setUp_reservePool();
+    }
 
+    function setUpContract() internal virtual {
         setUp_minter();
-    }
 
-    function setUp() public virtual {
-        console2.log("TestMinterSetUp.setUp()");
-        setUpConfig();
-
-        setUpFork();
-        deal(address(Deployed.wstETH), address(this), 20 ether);
-    }
-
-    function setUp_permissions() internal {
-        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
-        IBaoUSD(Deployed.BaoUSD).addMinter(minter);
         vm.prank(owner);
-        OwnableRoles(leveragedToken).grantRoles(minter, minterRole);
+        IOwnableRoles(leveragedToken).grantRoles(minter, minterRole);
         requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
         vm.prank(owner);
         ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
+
+        setUp_BaoUSD();
+    }
+
+    function setUp_BaoUSD() internal {
+        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
+        IBaoUSD(Deployed.BaoUSD).addMinter(minter);
+    }
+
+    function setUp() public virtual {
+        setUpFork();
+        deal(address(Deployed.wstETH), address(this), 20 ether);
+        setUpConfig();
+        setUpContract();
     }
 
     function setUp_collateral(
@@ -289,8 +301,6 @@ contract TestMinterSetUp is Test, Clog, Array {
         uint256 totalAmount = collateralForPegged + collateralForLeveraged;
         deal(address(Deployed.wstETH), owner, totalAmount + 10 ether);
 
-        setUp_permissions();
-
         vm.prank(owner);
         IERC20(Deployed.wstETH).approve(minter, totalAmount);
         if (collateralForPegged > 0) {
@@ -301,14 +311,6 @@ contract TestMinterSetUp is Test, Clog, Array {
             vm.prank(owner);
             leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
-    }
-}
-
-contract TestMinter0 is TestMinterSetUp {
-    function setUp() public virtual override {}
-
-    function test_setUp() public virtual {
-        TestMinterSetUp.setUp();
     }
 }
 
@@ -477,7 +479,7 @@ contract TestMinterBasics is TestMinterSetUp {
         IMinter.IncentiveConfig memory redeemLeveraged,
         bytes memory revertSelector
     ) private {
-        setUpConfig(rebalance, harvest, mintPegged, redeemPegged, mintLeveraged, redeemLeveraged);
+        setUp_config(rebalance, harvest, mintPegged, redeemPegged, mintLeveraged, redeemLeveraged);
         vm.prank(owner);
         if (revertSelector.length != 0) vm.expectRevert(revertSelector);
         IMinter(minter).updateConfig(config);
