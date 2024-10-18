@@ -39,7 +39,7 @@ contract Liquidator_v1 is
 
     // Share-with-proxy Storage
     // ------------------------
-    /// @custom:storage-location erc7201:bao.storage.Genesis
+    /// @custom:storage-location erc7201:bao.storage.Liquidator
     struct LiquidatorStorage {
         /// @notice The address of rebalancePool contract.
         address rebalancePool;

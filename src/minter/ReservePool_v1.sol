@@ -37,7 +37,7 @@ contract ReservePool_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, I
     function initialize(address owner) public initializer {
         _initializeOwner(owner);
         __UUPSUpgradeable_init();
-        // __ERC165_init();
+        __ERC165_init();
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
