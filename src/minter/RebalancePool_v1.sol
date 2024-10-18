@@ -8,9 +8,6 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import { Ownable } from "@solady/auth/Ownable.sol";
-//import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
-
 import { DecrementalFloatingPoint } from "src/common/math/DecrementalFloatingPoint.sol";
 import { IMultipleRewardAccumulator } from "src/common/rewards/accumulator/IMultipleRewardAccumulator.sol";
 import { MultipleRewardCompoundingAccumulator } from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
@@ -206,10 +203,6 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         $.totalSupply.product = DecrementalFloatingPoint.encode(0, 0, uint64(1 ether));
         $.totalSupply.updatedAt = uint40(block.timestamp);
         $.totalSupplyHistory.push($.totalSupply);
-    }
-
-    function _guardInitializeOwner() internal pure override(Ownable) returns (bool guard) {
-        guard = true;
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
