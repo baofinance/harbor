@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { console2 } from "forge-std/console2.sol";
-import { Vm } from "forge-std/Vm.sol";
+import {Test} from "forge-std/Test.sol";
+import {console2} from "forge-std/console2.sol";
+import {Vm} from "forge-std/Vm.sol";
 
-import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
+import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 contract MockBaoAccessControl is BaoOwnableRoles, UUPSUpgradeable {
     uint256 public constant ANOTHER_ROLE = _ROLE_0;

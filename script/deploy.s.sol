@@ -6,16 +6,16 @@ import "forge-std/Script.sol";
 import "forge-std/console2.sol";
 import "forge-std/StdJson.sol";
 
-import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol"; // only used for implementation address change
-import { Options } from "openzeppelin-foundry-upgrades/Options.sol";
-import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol"; // only used for implementation address change
+import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
 import "@bao/Deployed.sol";
-import { IBurnable } from "@bao/interfaces/IBurnable.sol";
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import {IBurnable} from "@bao/interfaces/IBurnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import "src/minter/LeveragedToken_v1.sol";
 import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
@@ -25,11 +25,11 @@ import "src/minter/RebalancePool_v1.sol";
 import "src/minter/Genesis_v1.sol";
 import "test/Array.sol";
 import "test/Useful.sol";
-import { IBaoUSD } from "test/IBaoUSD.sol";
+import {IBaoUSD} from "test/IBaoUSD.sol";
 
-import { ConfigFile } from "test/Config.sol";
+import {ConfigFile} from "test/Config.sol";
 
-import { DeployState } from "./DeployState.sol";
+import {DeployState} from "./DeployState.sol";
 
 // functions are called in this sequence
 // 1) Deploy*

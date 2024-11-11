@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-import { stdJson } from "forge-std/StdJson.sol";
-import { console2 } from "forge-std/console2.sol";
-import { Test } from "forge-std/Test.sol";
+import {stdJson} from "forge-std/StdJson.sol";
+import {console2} from "forge-std/console2.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { IMinter } from "src/minter/IMinter.sol";
+import {IMinter} from "src/minter/IMinter.sol";
 
 abstract contract ConfigFile is Test {
     function readConfig(string memory style) internal view returns (IMinter.Config memory config) {

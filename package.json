@@ -2,6 +2,9 @@
     "license": "MIT",
     "scripts": {
         "install:slither": "pip3 install slither-analyzer --upgrade",
+        "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
+        "fmt": "yarn prettier --write",
+        "fmt:check": "yarn prettier --check",
         "test": "forge test -vvv --nmp script/**/*.t.sol --summary",
         "test:deploy": "forge test --summary --mp script/**/*.t.sol",
         "gas": "yarn test --gas-report | ./lib/bao-base/bin/extract-gas | tee results/gas-report.txt",
@@ -24,8 +27,6 @@
         "sizes:raw:contracts": "yarn sizes:raw | grep -E \"^\\| Contract |^\\|---|$(yarn contracts:regexp)\"",
         "sizes:raw": "forge clean; forge build --sizes",
         "sizes": "echo \"generating contract-sizes.txt ...\"; yarn sizes:raw:contracts > ./results/contract-sizes.txt",
-        "fmt:check": "prettier --log-level warn --ignore-path .gitignore '{src,test,script}/**/*.sol' --check",
-        "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,script}/**/*.sol' --write",
         "lint": "solhint 'src/**/*.sol' --disc",
         "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
         "pre-checkin": "yarn fmt && yarn lint && yarn test && yarn disabled && yarn coverage && yarn sizes && echo \"pre-checking done.\""

@@ -2,33 +2,33 @@
 pragma solidity ^0.8.26;
 
 //import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import { ERC20Mock } from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
-import { Test } from "forge-std/Test.sol";
-import { console2 as console } from "forge-std/console2.sol";
-import { Vm } from "forge-std/Vm.sol";
+import {Test} from "forge-std/Test.sol";
+import {console2 as console} from "forge-std/console2.sol";
+import {Vm} from "forge-std/Vm.sol";
 
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IERC20Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
-import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
-import { IBurnable2Arg } from "@bao/interfaces/IBurnable2Arg.sol";
-import { Minter_v1 } from "src/minter/Minter_v1.sol";
-import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
-import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
-import { IGenesis } from "src/minter/IGenesis.sol";
-import { IMinter } from "src/minter/IMinter.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
+import {Minter_v1} from "src/minter/Minter_v1.sol";
+import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
+import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
+import {IGenesis} from "src/minter/IGenesis.sol";
+import {IMinter} from "src/minter/IMinter.sol";
 
-import { Genesis_v1, Token } from "src/minter/Genesis_v1.sol";
+import {Genesis_v1, Token} from "src/minter/Genesis_v1.sol";
 
-import { MockPriceOracle } from "test/MockPriceOracle.sol";
-import { Array } from "test/Array.sol";
+import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {Array} from "test/Array.sol";
 
 contract Test_GenesisBase is Test, Array {
     address collateral;

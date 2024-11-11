@@ -3,19 +3,19 @@ pragma solidity ^0.8.26;
 
 import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 // import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
 
-import { Deployed } from "@bao/Deployed.sol";
-import { DeployState } from "./DeployState.sol";
+import {Deployed} from "@bao/Deployed.sol";
+import {DeployState} from "./DeployState.sol";
 
-import { TestLeveragedToken } from "test/LeveragedToken.t.sol";
-import { TestReservePool } from "test/ReservePool.t.sol";
-import { TestTokenDistributor } from "test/TokenDistributor.t.sol";
-import { TestMinterBasics } from "test/Minter_base.t.sol";
-import { IBaoUSD } from "test/IBaoUSD.sol";
+import {TestLeveragedToken} from "test/LeveragedToken.t.sol";
+import {TestReservePool} from "test/ReservePool.t.sol";
+import {TestTokenDistributor} from "test/TokenDistributor.t.sol";
+import {TestMinterBasics} from "test/Minter_base.t.sol";
+import {IBaoUSD} from "test/IBaoUSD.sol";
 
 contract TestDeployed is Test, DeployState {
     string network;

@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.26;
 
-import { ITokenHolder } from "@bao/interfaces/ITokenHolder.sol";
+import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
 /// @title IGenesis

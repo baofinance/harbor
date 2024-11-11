@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
-import { Token } from "@bao/Token.sol";
-import { TokenHolder } from "@bao/TokenHolder.sol";
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {Token} from "@bao/Token.sol";
+import {TokenHolder} from "@bao/TokenHolder.sol";
 
-import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
+import {ITokenDistributor} from "src/minter/ITokenDistributor.sol";
 
 /// @notice Distributes tokens to addresses.
 /// @author rootminus0x1

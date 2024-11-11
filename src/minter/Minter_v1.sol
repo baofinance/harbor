@@ -3,26 +3,26 @@
 // and https://docs.soliditylang.org/en/latest/style-guide.html
 pragma solidity 0.8.26;
 
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import { WordCodec } from "src/common/WordCodec.sol";
-import { Token } from "@bao/Token.sol";
-import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
+import {WordCodec} from "src/common/WordCodec.sol";
+import {Token} from "@bao/Token.sol";
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
-import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
-import { IMinter } from "src/minter/IMinter.sol";
-import { IMintable } from "@bao/interfaces/IMintable.sol";
-import { IBurnable } from "@bao/interfaces/IBurnable.sol";
-import { IBurnable2Arg } from "@bao/interfaces/IBurnable2Arg.sol";
-import { IBurnableFrom } from "@bao/interfaces/IBurnableFrom.sol";
-import { IPriceOracle } from "src/price/IPriceOracle.sol";
-import { IReservePool } from "src/minter/IReservePool.sol";
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {IMinter} from "src/minter/IMinter.sol";
+import {IMintable} from "@bao/interfaces/IMintable.sol";
+import {IBurnable} from "@bao/interfaces/IBurnable.sol";
+import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
+import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
+import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IReservePool} from "src/minter/IReservePool.sol";
 
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system

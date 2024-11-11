@@ -2,21 +2,21 @@
 pragma solidity ^0.8.26;
 
 //import { Test } from "forge-std/Test.sol";
-import { console2 as console } from "forge-std/console2.sol";
-import { Vm } from "forge-std/Vm.sol";
+import {console2 as console} from "forge-std/console2.sol";
+import {Vm} from "forge-std/Vm.sol";
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
-import { IMinter } from "src/minter/IMinter.sol";
-import { Deployed } from "@bao/Deployed.sol";
-import { IPriceOracle } from "src/price/IPriceOracle.sol";
-import { MockPriceOracle } from "test/MockPriceOracle.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMinter} from "src/minter/IMinter.sol";
+import {Deployed} from "@bao/Deployed.sol";
+import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {MockPriceOracle} from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";
-import { TestMinterMint } from "test/Minter_mint.t.sol";
+import {TestMinterMint} from "test/Minter_mint.t.sol";
 
 contract TestMinterMintLeveraged is TestMinterMint {
     using SafeERC20 for IERC20;

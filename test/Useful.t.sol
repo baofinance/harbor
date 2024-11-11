@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import { Useful } from "test/Useful.sol";
+import {Useful} from "test/Useful.sol";
 
 contract TestUsefulSimples is Test {
     bytes zeroA = new bytes(0);
