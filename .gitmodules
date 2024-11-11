@@ -13,6 +13,3 @@
 [submodule "lib/openzeppelin-contracts-upgradeable"]
 	path = lib/openzeppelin-contracts-upgradeable
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
-[submodule "lib/baobase"]
-	path = lib/baobase
-	url = https://github.com/baofinance/baobase
