@@ -13,7 +13,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
@@ -49,12 +49,12 @@ contract TestRebalancePool2SetUp is TestRebalancePoolSetUp {
         IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
 
         vm.prank(owner);
-        IOwnableRoles(minter).grantRoles(rebalancePool, zeroFeeRole);
+        IBaoRoles(minter).grantRoles(rebalancePool, zeroFeeRole);
         vm.prank(rebalancePool);
         IERC20(peggedToken).approve(minter, type(uint256).max);
 
         vm.prank(owner);
-        IOwnableRoles(minter).grantRoles(rebalancePoolLeveraged, zeroFeeRole);
+        IBaoRoles(minter).grantRoles(rebalancePoolLeveraged, zeroFeeRole);
         vm.prank(rebalancePoolLeveraged);
         IERC20(peggedToken).approve(minter, type(uint256).max);
     }

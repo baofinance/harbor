@@ -13,7 +13,9 @@ import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/I
 import "@openzeppelin/contracts/utils/Strings.sol";
 
 import "@bao/Deployed.sol";
-import "@bao/interfaces/IBurnable.sol";
+import { IBurnable } from "@bao/interfaces/IBurnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 import "src/minter/LeveragedToken_v1.sol";
 import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
@@ -69,8 +71,8 @@ library DeployLib {
     }
 
     function postDeployLeveragedTokenTransactions(address leveragedToken, address owner, address minter) internal {
-        IOwnableRoles(leveragedToken).grantRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE());
-        IOwnable(leveragedToken).transferOwnership(owner);
+        IBaoRoles(leveragedToken).grantRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE());
+        IBaoOwnable(leveragedToken).transferOwnership(owner);
     }
 
     // ReservePool
@@ -79,8 +81,8 @@ library DeployLib {
     }
 
     function postDeployReservePoolTransactions(address reservePool, address owner, address minter) internal {
-        IOwnableRoles(reservePool).grantRoles(minter, IReservePool(reservePool).REQUESTER_ROLE());
-        IOwnable(reservePool).transferOwnership(owner);
+        IBaoRoles(reservePool).grantRoles(minter, IReservePool(reservePool).REQUESTER_ROLE());
+        IBaoOwnable(reservePool).transferOwnership(owner);
     }
 
     // TokenDistributor

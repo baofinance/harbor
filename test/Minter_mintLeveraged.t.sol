@@ -8,8 +8,8 @@ import { Vm } from "forge-std/Vm.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { Deployed } from "@bao/Deployed.sol";
 import { IPriceOracle } from "src/price/IPriceOracle.sol";
@@ -81,8 +81,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
     function test_freeMintLeveraged() public {
         // mint noaccess
-        assertFalse(IOwnableRoles(minter).hasAllRoles(sender, zeroFeeRole));
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeMintLeveragedToken(1 ether, receiver);
         //-------------------------------------------------------------
@@ -122,7 +122,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
         // first mint
         assertEq(IMinter(minter).collateralRatio(), type(uint256).max, "collateral ratio = 1/0");
-        assertEq(IOwnable(minter).owner(), owner);
+        assertEq(IBaoOwnable(minter).owner(), owner);
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         //---------------------------
@@ -134,7 +134,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.prank(owner);
         IMinter(minter).freeMintPeggedToken(1 ether, owner);
         assertGt(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio > 1");
-        assertEq(IOwnable(minter).owner(), owner);
+        assertEq(IBaoOwnable(minter).owner(), owner);
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         //---------------------------

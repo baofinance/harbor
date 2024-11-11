@@ -111,11 +111,14 @@ contract TestBaoAccessControl is TestBaoAccessControlSetUp {
 
     // TODO: test all the comments in the source file
 
-    function test_init() public view {
+    function test_init() public {
+        assertEq(IBaoOwnable(accessControl).owner(), address(this));
+        IBaoOwnable(accessControl).transferOwnership(owner);
         assertEq(IBaoOwnable(accessControl).owner(), owner);
     }
 
     function test_grantRevoke() public {
+        IBaoOwnable(accessControl).transferOwnership(owner);
         // TODO: test revoking a role that isn't held
 
         // note that anyone can attempt to grant a role

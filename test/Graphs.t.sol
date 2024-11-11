@@ -198,13 +198,13 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         uint256 afterLiquidate;
         uint256 afterLiquidateLeveraged;
         if (currentCollateralRatio < 13 ether / 10) {
-            uint256 snap = vm.snapshot();
+            uint256 snap = vm.snapshotState();
             IRebalancePool(rebalancePool).liquidate(0);
             afterLiquidate = IMinter(minter).collateralRatio();
-            vm.revertTo(snap);
+            vm.revertToState(snap);
             IRebalancePool(rebalancePoolLeveraged).liquidate(0);
             afterLiquidateLeveraged = IMinter(minter).collateralRatio();
-            vm.revertTo(snap);
+            vm.revertToState(snap);
         } else {
             afterLiquidate = IMinter(minter).collateralRatio();
             afterLiquidateLeveraged = afterLiquidate;

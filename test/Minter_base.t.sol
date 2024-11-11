@@ -12,8 +12,8 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
 
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
@@ -215,6 +215,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
             abi.encodeCall(LeveragedToken_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
         );
+        IBaoOwnable(leveragedToken).transferOwnership(owner);
         minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
     }
 
@@ -223,6 +224,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             address(new ReservePool_v1()), //"ReservePool_v1.sol",
             abi.encodeCall(ReservePool_v1.initialize, (owner))
         );
+        IBaoOwnable(reservePool).transferOwnership(owner);
     }
 
     function setUp_minter() internal virtual {
@@ -241,6 +243,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
                 )
             )
         );
+        IBaoOwnable(minter).transferOwnership(owner);
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
     }
 
@@ -264,7 +267,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         setUp_minter();
 
         vm.prank(owner);
-        IOwnableRoles(leveragedToken).grantRoles(minter, minterRole);
+        IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
         requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
         vm.prank(owner);
         ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
@@ -393,7 +396,7 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectEmit();
         emit IERC1967.Upgraded(impl);
         vm.expectEmit();
-        emit IOwnable.OwnershipTransferred(address(0), owner);
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit IMinter.UpdatePriceOracle(address(0), address(priceOracle));
         vm.expectEmit();
@@ -403,7 +406,7 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectEmit();
         emit IMinter.UpdateConfig(config);
         vm.expectEmit();
-        emit IOwnableRoles.RolesUpdated(owner, zeroFeeRole);
+        emit IBaoRoles.RolesUpdated(owner, zeroFeeRole);
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 
@@ -496,7 +499,7 @@ contract TestMinterBasics is TestMinterSetUp {
     // mocks are: priceOracle, feeReceiver, baousd & wstETH
 
     function test_init() public view {
-        assertEq(IOwnable(minter).owner(), owner);
+        assertEq(IBaoOwnable(minter).owner(), owner);
         assertEq(IMinter(minter).collateralToken(), Deployed.wstETH);
         assertEq(IMinter(minter).peggedToken(), Deployed.BaoUSD);
         assertEq(IMinter(minter).leveragedToken(), address(leveragedToken));

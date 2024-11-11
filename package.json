@@ -2,8 +2,8 @@
     "license": "MIT",
     "scripts": {
         "install:slither": "pip3 install slither-analyzer --upgrade",
-        "test": "forge test -vvv --nmp script",
-        "test:deploy": "forge test --summary --mp script",
+        "test": "forge test -vvv --nmp script/**/*.t.sol --summary",
+        "test:deploy": "forge test --summary --mp script/**/*.t.sol",
         "gas": "yarn test --gas-report | ./lib/bao-base/bin/extract-gas | tee results/gas-report.txt",
         "coverage": "echo 'generating coverage.txt (logged to results/coverage.log) ...' && yarn coverage:raw | tee ./results/coverage.log | ./extract-coverage  > ./results/coverage.txt  && echo 'done.'",
         "coverage:raw": "forge coverage --report summary --report lcov --nmp deploy.t.sol && lcov --extract ./lcov.info --output-file lcov.info 'src/*'",

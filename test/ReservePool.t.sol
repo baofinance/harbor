@@ -16,8 +16,8 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { ReservePool_v1 } from "src/minter/ReservePool_v1.sol";
 import { IReservePool } from "src/minter/IReservePool.sol";
@@ -63,9 +63,10 @@ contract TestReservePoolSetUp is Test {
         uint256 minterRole = IReservePool(reservePool).REQUESTER_ROLE();
 
         vm.expectEmit();
-        emit IOwnableRoles.RolesUpdated(minter, minterRole);
-        vm.prank(owner);
-        IOwnableRoles(reservePool).grantRoles(minter, minterRole);
+        emit IBaoRoles.RolesUpdated(minter, minterRole);
+        IBaoRoles(reservePool).grantRoles(minter, minterRole);
+
+        IBaoOwnable(reservePool).transferOwnership(owner);
     }
 
     function setUp() public {
@@ -116,28 +117,28 @@ contract TestReservePool is TestReservePoolSetUp {
         ReservePool_v1(reservePool).initialize(owner);
 
         // admin role
-        assertEq(IOwnable(reservePool).owner(), owner, "owner should be admin");
+        assertEq(IBaoOwnable(reservePool).owner(), owner, "owner should be admin");
 
         // minter role
         assertTrue(
-            IOwnableRoles(reservePool).hasAnyRole(minter, IReservePool(reservePool).REQUESTER_ROLE()),
+            IBaoRoles(reservePool).hasAnyRole(minter, IReservePool(reservePool).REQUESTER_ROLE()),
             "requester should be minter"
         );
     }
 
     function test_access() public {
         // can anyone request bonus
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IReservePool(reservePool).requestBonus(token1, bonusReceiver, 1 ether);
         // not anyone can withdraw funds
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ReservePool_v1(reservePool).sweep(token1, 1 ether, bonusReceiver);
         // not anyone can grant roles
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnableRoles(reservePool).grantRoles(minter, 23);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoRoles(reservePool).grantRoles(minter, 23);
         // not anyone can transfer ownership
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnable(reservePool).transferOwnership(address(this));
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoOwnable(reservePool).transferOwnership(address(this));
     }
 
     function test_bonus() public {

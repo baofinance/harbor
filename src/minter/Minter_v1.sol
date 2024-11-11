@@ -251,9 +251,7 @@ contract Minter_v1 is
     /// @notice Returns true if a given interface is supported.
     /// @dev See {IERC165-supportsInterface}.
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return
-            interfaceId == type(IMinter).interfaceId ||
-            super.supportsInterface(interfaceId);
+        return interfaceId == type(IMinter).interfaceId || super.supportsInterface(interfaceId);
     }
 
     ///////////////////////////

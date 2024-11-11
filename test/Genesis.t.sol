@@ -16,8 +16,8 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { IBurnable2Arg } from "@bao/interfaces/IBurnable2Arg.sol";
 import { Minter_v1 } from "src/minter/Minter_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
@@ -104,10 +104,10 @@ contract Test_GenesisBase is Test, Array {
                 )
             )
         );
+        IBaoOwnable(minter).transferOwnership(owner);
 
         uint256 minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
-        vm.prank(owner);
-        IOwnableRoles(leveragedToken).grantRoles(minter, minterRole);
+        IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
 
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         user1 = vm.createWallet("user1").addr;
@@ -127,6 +127,7 @@ contract Test_GenesisBase is Test, Array {
                 )
             )
         );
+        IBaoOwnable(genesis).transferOwnership(owner);
 
         // approve genesis to use my collateral
         IERC20(collateral).approve(genesis, type(uint256).max);
@@ -146,7 +147,7 @@ contract Test_GenesisBase is Test, Array {
         vm.expectEmit();
         emit IERC1967.Upgraded(genesisImpl);
         vm.expectEmit();
-        emit IOwnable.OwnershipTransferred(address(0), owner);
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
         setUpContract();
@@ -158,7 +159,7 @@ contract Test_GenesisBase is Test, Array {
         Genesis_v1(genesis).initialize(address(this), minter);
 
         // check the data has been set up correctly
-        assertEq(IOwnable(genesis).owner(), owner, "wrong owner");
+        assertEq(IBaoOwnable(genesis).owner(), owner, "wrong owner");
         assertEq(IGenesis(genesis).collateralToken(), collateral, "wrong collateral");
         assertEq(IGenesis(genesis).peggedToken(), peggedToken, "wrong pegged");
         assertEq(IGenesis(genesis).leveragedToken(), leveragedToken, "wrong leveraged");
@@ -210,21 +211,21 @@ contract Test_GenesisBase is Test, Array {
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
         // only owner can call it
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IGenesis(genesis).endGenesis();
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
         // only minter zero fee access can complete it
-        assertFalse(IOwnableRoles(minter).hasAnyRole(genesis, zeroFeeRole));
+        assertFalse(IBaoRoles(minter).hasAnyRole(genesis, zeroFeeRole));
         vm.prank(owner);
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IGenesis(genesis).endGenesis();
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
         // grant zero fee access
         vm.prank(owner);
-        IOwnableRoles(minter).grantRoles(genesis, zeroFeeRole);
-        assertTrue(IOwnableRoles(minter).hasAllRoles(genesis, zeroFeeRole));
+        IBaoRoles(minter).grantRoles(genesis, zeroFeeRole);
+        assertTrue(IBaoRoles(minter).hasAllRoles(genesis, zeroFeeRole));
 
         // actually end it
         // ------------------------------------------------------------------------------------

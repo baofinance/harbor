@@ -12,7 +12,7 @@ import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
 import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
@@ -51,7 +51,7 @@ contract TestRebalancePoolSetUp is TestMinterFeeSetUp {
     }
 
     function test_init(address rp, address liquidateTo) internal view {
-        assertEq(RebalancePool_v1(rp).owner(), owner);
+        assertEq(RebalancePool_v1(rp).owner(), address(this));
         assertEq(IRebalancePool(rp).assetToken(), peggedToken);
         assertEq(IRebalancePool(rp).liquidationToken(), liquidateTo);
         assertEq(IRebalancePool(rp).minter(), minter);
@@ -88,7 +88,7 @@ contract TestRebalancePoolInitEvents is TestRebalancePoolSetUp {
         vm.expectEmit();
         emit IERC1967.Upgraded(address(rp));
         vm.expectEmit();
-        emit IOwnable.OwnershipTransferred(address(0), owner);
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 

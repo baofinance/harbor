@@ -17,8 +17,8 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { ITokenHolder } from "@bao/interfaces/ITokenHolder.sol";
 import { TokenDistributor_v1 } from "src/minter/TokenDistributor_v1.sol";
@@ -62,6 +62,7 @@ contract TestTokenDistributorSetUp is Test, Array {
                 )
             )
         );
+        IBaoOwnable(tokenDistributor).transferOwnership(owner);
     }
 
     function setUp() public virtual {
@@ -78,7 +79,7 @@ contract TestTokenDistributorSetUp is Test, Array {
 
         uint256 claimerRole = ITokenDistributor(tokenDistributor).CLAIMER_ROLE();
         vm.prank(owner);
-        IOwnableRoles(tokenDistributor).grantRoles(claimer, claimerRole);
+        IBaoRoles(tokenDistributor).grantRoles(claimer, claimerRole);
     }
 }
 contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
@@ -90,7 +91,7 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         vm.expectEmit();
         emit IERC1967.Upgraded(impl);
         vm.expectEmit();
-        emit IOwnable.OwnershipTransferred(address(0), owner);
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
         UnsafeUpgrades.deployUUPSProxy(
@@ -102,7 +103,7 @@ contract TestTokenDistributorInitEvents is TestTokenDistributorSetUp {
         vm.expectEmit();
         emit IERC1967.Upgraded(impl);
         vm.expectEmit();
-        emit IOwnable.OwnershipTransferred(address(0), owner);
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1);
         UnsafeUpgrades.deployUUPSProxy(
@@ -122,19 +123,19 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
 
         // IERC165
         IERC165(tokenDistributor).supportsInterface(type(ITokenDistributor).interfaceId);
-        IERC165(tokenDistributor).supportsInterface(type(IOwnable).interfaceId);
-        IERC165(tokenDistributor).supportsInterface(type(IOwnableRoles).interfaceId);
+        IERC165(tokenDistributor).supportsInterface(type(IBaoOwnable).interfaceId);
+        IERC165(tokenDistributor).supportsInterface(type(IBaoRoles).interfaceId);
         IERC165(tokenDistributor).supportsInterface(type(ITokenHolder).interfaceId);
 
         // name
         assertEq(ITokenDistributor(tokenDistributor).name(), name);
 
         // check the data has been set up correctly
-        assertEq(IOwnable(tokenDistributor).owner(), owner, "owner should be admin");
+        assertEq(IBaoOwnable(tokenDistributor).owner(), owner, "owner should be admin");
 
         // claimer role
         assertTrue(
-            IOwnableRoles(tokenDistributor).hasAnyRole(claimer, ITokenDistributor(tokenDistributor).CLAIMER_ROLE()),
+            IBaoRoles(tokenDistributor).hasAnyRole(claimer, ITokenDistributor(tokenDistributor).CLAIMER_ROLE()),
             "this should not be a claimer"
         );
 
@@ -153,26 +154,26 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
     function test_access() public {
         // access to protected functions
         // admin role
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenDistributor(tokenDistributor).addToken(address(0));
 
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenDistributor(tokenDistributor).removeToken(address(0));
 
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenDistributor(tokenDistributor).setDistribution(aa(), ua());
 
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenDistributor(tokenDistributor).addRecipient(address(0), 0);
 
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenDistributor(tokenDistributor).removeRecipient(address(0));
 
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenHolder(tokenDistributor).sweep(address(0), 0, address(0));
 
         // claimer roles
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenDistributor(tokenDistributor).distribute();
     }
 
@@ -438,7 +439,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(IERC20(token2).balanceOf(recipient2), 0 ether);
 
         // not owner
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenHolder(tokenDistributor).sweep(token1, 1 ether, recipient1);
 
         vm.startPrank(owner);

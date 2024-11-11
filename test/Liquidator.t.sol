@@ -13,7 +13,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IMinter } from "src/minter/IMinter.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+// import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { RebalancePool_v1 } from "src/minter/RebalancePool_v1.sol";
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";

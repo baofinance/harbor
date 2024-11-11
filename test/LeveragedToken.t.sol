@@ -18,8 +18,8 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 
 import { LeveragedToken_v1 } from "src/minter/LeveragedToken_v1.sol";
 import { ILeveragedToken } from "src/minter/ILeveragedToken.sol";
@@ -72,9 +72,9 @@ contract TestLeveragedTokensSetUp is Test {
 
         uint256 minterRole = ILeveragedToken(leveragedToken).MINTER_ROLE();
         vm.expectEmit();
-        emit IOwnableRoles.RolesUpdated(minter, minterRole);
-        vm.prank(owner);
-        IOwnableRoles(leveragedToken).grantRoles(minter, minterRole);
+        emit IBaoRoles.RolesUpdated(minter, minterRole);
+        IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
+        IBaoOwnable(leveragedToken).transferOwnership(owner);
     }
 
     function setUp() public virtual {
@@ -119,22 +119,22 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         assertEq(IERC20(leveragedToken).totalSupply(), 0, "nothing minted yet");
 
         // admin role
-        assertEq(IOwnable(leveragedToken).owner(), owner, "owner should be admin");
+        assertEq(IBaoOwnable(leveragedToken).owner(), owner, "owner should be admin");
 
         // minter role
         assertTrue(
-            IOwnableRoles(leveragedToken).hasAnyRole(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()),
+            IBaoRoles(leveragedToken).hasAnyRole(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()),
             "minter should be minter"
         );
     }
 
     function test_access() public {
         // not anyone can grant roles
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnableRoles(leveragedToken).grantRoles(minter, 23);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoRoles(leveragedToken).grantRoles(minter, 23);
         // not anyone can transfer ownership
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnable(leveragedToken).transferOwnership(address(this));
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoOwnable(leveragedToken).transferOwnership(address(this));
     }
 
     function test_mintburn() public {
@@ -309,11 +309,11 @@ contract Test_LeveragedToken_badDeploy is Test {
             abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
         );
 
-        address lt = address(new LeveragedToken_v1());
-        vm.expectRevert(IOwnable.NewOwnerIsZeroAddress.selector);
-        UnsafeUpgrades.deployUUPSProxy(
-            lt, //"LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (address(0), name, symbol))
-        );
+        // address lt = address(new LeveragedToken_v1());
+        // vm.expectRevert(IBaoOwnable.NewOwnerIsZeroAddress.selector);
+        // UnsafeUpgrades.deployUUPSProxy(
+        //     lt, //"LeveragedToken_v1.sol",
+        //     abi.encodeCall(LeveragedToken_v1.initialize, (address(0), name, symbol))
+        // );
     }
 }

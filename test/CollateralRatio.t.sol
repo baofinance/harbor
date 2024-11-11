@@ -8,7 +8,8 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IRebalancePool } from "src/minter/IRebalancePool.sol";
 import { Deployed } from "@bao/Deployed.sol";
@@ -38,7 +39,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         IERC20(peggedToken).approve(rebalancePool, type(uint256).max);
         IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
         vm.prank(owner);
-        IOwnableRoles(minter).grantRoles(address(this), zeroFeeRole);
+        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
         assertEq(0, IERC20(collateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
 
@@ -192,7 +193,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
 
         if (incentive < 1 ether) {
             // minting pegged is allowed
-            snap = vm.snapshot();
+            snap = vm.snapshotState();
             beforeHolding = readHoldings();
             IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
             afterHolding = readHoldings();
@@ -206,7 +207,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 int256(0)
             );
             compareHoldings(beforeHolding, afterHolding, deltas, "mintPegged");
-            vm.revertTo(snap);
+            vm.revertToState(snap);
         } else {
             // minting pegged is disallowed
             vm.expectRevert(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, peggedToken));
@@ -217,7 +218,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         (, data.peggedRedeemed, data.collateralReturned, data.fee, data.reserveCollateralUsed, data.price) = IMinter(
             minter
         ).redeemPeggedTokenDryRun(1000 ether);
-        snap = vm.snapshot();
+        snap = vm.snapshotState();
         beforeHolding = readHoldings();
         IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
         afterHolding = readHoldings();
@@ -231,7 +232,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             int256(0)
         );
         compareHoldings(beforeHolding, afterHolding, deltas, "redeemPegged");
-        vm.revertTo(snap);
+        vm.revertToState(snap);
 
         // leveraged operations don't work for depegged
 
@@ -240,7 +241,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             (, data.collateralUsed, data.leveragedMinted, data.fee, data.reserveCollateralUsed, ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
 
-            snap = vm.snapshot();
+            snap = vm.snapshotState();
             beforeHolding = readHoldings();
             IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
             afterHolding = readHoldings();
@@ -254,7 +255,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 int256(data.leveragedMinted)
             );
             compareHoldings(beforeHolding, afterHolding, deltas, "mintLeveraged");
-            vm.revertTo(snap);
+            vm.revertToState(snap);
 
             // redeem leveraged
             (
@@ -266,7 +267,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
 
             ) = IMinter(minter).redeemLeveragedTokenDryRun(1000 ether);
             if (incentive < 1 ether) {
-                snap = vm.snapshot();
+                snap = vm.snapshotState();
                 beforeHolding = readHoldings();
                 IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
                 afterHolding = readHoldings();
@@ -281,7 +282,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 );
                 compareHoldings(beforeHolding, afterHolding, deltas, "redeemLeveraged");
 
-                vm.revertTo(snap);
+                vm.revertToState(snap);
             }
         }
     }
@@ -421,16 +422,16 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         uint256 snap;
 
         for (uint a = 0; a <= uint(type(Action).max); a++) {
-            snap = vm.snapshot();
+            snap = vm.snapshotState();
             largeChanges = doOne(Action(a), repeats, largeChanges);
-            vm.revertTo(snap);
-            snap = vm.snapshot();
+            vm.revertToState(snap);
+            snap = vm.snapshotState();
             for (uint i = 0; i < repeats; i++) {
                 smallChanges = doOne(Action(a), 1, smallChanges);
             }
             // TODO: see if we can get this tollerance down a bit
             compareDeltaHoldings(largeChanges, smallChanges, 40, toString(Action(a)));
-            vm.revertTo(snap);
+            vm.revertToState(snap);
         }
     }
 }

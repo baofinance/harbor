@@ -93,7 +93,9 @@ contract Liquidator_v1 is
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(BaoOwnableRoles, ERC165Upgradeable) returns (bool) {
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view virtual override(BaoOwnableRoles, ERC165Upgradeable) returns (bool) {
         return
             interfaceId == type(ILiquidator).interfaceId ||
             interfaceId == type(ITokenHolder).interfaceId ||

@@ -5,8 +5,8 @@ import "forge-std/StdJson.sol";
 import "forge-std/console2.sol";
 import { Test } from "forge-std/Test.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+// import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
 
 import { Deployed } from "@bao/Deployed.sol";
 import { DeployState } from "./DeployState.sol";
@@ -145,8 +145,8 @@ contract TestDeploy is TestDeploySetUp {
         assertEq(IERC20Metadata(leveragedToken).decimals(), 18);
 
         // correct access
-        assertEq(IOwnable(leveragedToken).owner(), Deployed.BAOMULTISIG);
-        assertTrue(IOwnableRoles(leveragedToken).hasAllRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()));
+        assertEq(IBaoOwnable(leveragedToken).owner(), Deployed.BAOMULTISIG);
+        assertTrue(IBaoRoles(leveragedToken).hasAllRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()));
     }
 
     function _test_rebalanceConnections(address rp, address liquidateTo) private view {
@@ -167,7 +167,7 @@ contract TestDeploy is TestDeploySetUp {
         Genesis_v1(genesis).initialize(address(this), minter);
 
         // check the data has been set up correctly
-        assertEq(IOwnable(genesis).owner(), owner, "wrong owner");
+        assertEq(IBaoOwnable(genesis).owner(), owner, "wrong owner");
         assertEq(IGenesis(genesis).collateralToken(), collateralToken, "wrong collateral");
         assertEq(IGenesis(genesis).peggedToken(), peggedToken, "wrong pegged");
         assertEq(IGenesis(genesis).leveragedToken(), leveragedToken, "wrong leveraged");
