@@ -10,6 +10,3 @@
 [submodule "lib/bao-base"]
 	path = lib/bao-base
 	url = https://github.com/baofinance/bao-base
-[submodule "lib/dotfiles"]
-	path = lib/dotfiles
-	url = https://github.com/baofinance/dotfiles
