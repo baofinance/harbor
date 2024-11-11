@@ -7,11 +7,10 @@ import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/int
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 import { TokenHolder, ITokenHolder } from "@bao/TokenHolder.sol";
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 import { IRebalancePool } from "./IRebalancePool.sol";
 import { ILiquidator } from "./ILiquidator.sol";
 
@@ -22,7 +21,7 @@ import { ILiquidator } from "./ILiquidator.sol";
 contract Liquidator_v1 is
     Initializable,
     UUPSUpgradeable,
-    OwnableRoles,
+    BaoOwnableRoles,
     ERC165Upgradeable,
     ReentrancyGuardTransientUpgradeable,
     TokenHolder,
@@ -69,8 +68,9 @@ contract Liquidator_v1 is
         __UUPSUpgradeable_init();
         __ERC165_init();
 
-        if (!OwnableRoles(rebalancePool).hasAnyRole(address(this), LIQUIDATOR_ROLE))
-            revert NeedsRole(address(this), LIQUIDATOR_ROLE);
+        // TODO:
+        // if (!BaoOwnableRoles(rebalancePool).hasAnyRole(address(this), LIQUIDATOR_ROLE))
+        //     revert NeedsRole(address(this), LIQUIDATOR_ROLE);
 
         LiquidatorStorage storage $ = _getLiquidatorStorage();
         $.rebalancePool = rebalancePool;
@@ -93,11 +93,9 @@ contract Liquidator_v1 is
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view virtual override(BaoOwnableRoles, ERC165Upgradeable) returns (bool) {
         return
             interfaceId == type(ILiquidator).interfaceId ||
-            interfaceId == type(IOwnable).interfaceId ||
-            interfaceId == type(IOwnableRoles).interfaceId ||
             interfaceId == type(ITokenHolder).interfaceId ||
             super.supportsInterface(interfaceId);
     }

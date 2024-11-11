@@ -10,14 +10,14 @@ import { UnsafeUpgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 
-import { IOwnable, IERC5313 } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-contract MockBaoAccessControl is OwnableRoles, UUPSUpgradeable {
+contract MockBaoAccessControl is BaoOwnableRoles, UUPSUpgradeable {
     uint256 public constant ANOTHER_ROLE = _ROLE_0;
     uint256 public constant ANOTHER_ROLE_ADMIN_ROLE = _ROLE_1;
     uint256 public constant ANOTHER_ROLE2 = _ROLE_2;
@@ -112,7 +112,7 @@ contract TestBaoAccessControl is TestBaoAccessControlSetUp {
     // TODO: test all the comments in the source file
 
     function test_init() public view {
-        assertEq(IOwnable(accessControl).owner(), owner);
+        assertEq(IBaoOwnable(accessControl).owner(), owner);
     }
 
     function test_grantRevoke() public {
@@ -120,24 +120,24 @@ contract TestBaoAccessControl is TestBaoAccessControlSetUp {
 
         // note that anyone can attempt to grant a role
         // can you grant yourself a role - no
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnableRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
 
         // but the default admin can
-        assertFalse(IOwnableRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
-        assertFalse(IOwnableRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
+        assertFalse(IBaoRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
+        assertFalse(IBaoRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
         vm.expectEmit();
-        emit IOwnableRoles.RolesUpdated(address(this), anotherRoleAdminRole);
+        emit IBaoRoles.RolesUpdated(address(this), anotherRoleAdminRole);
         vm.prank(owner);
-        IOwnableRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
-        assertTrue(IOwnableRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
-        assertTrue(IOwnableRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
+        IBaoRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
+        assertTrue(IBaoRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
+        assertTrue(IBaoRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
 
         // if we do it twice?
         vm.prank(owner);
-        IOwnableRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
-        assertTrue(IOwnableRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
-        assertTrue(IOwnableRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
+        IBaoRoles(accessControl).grantRoles(address(this), anotherRoleAdminRole);
+        assertTrue(IBaoRoles(accessControl).hasAnyRole(address(this), anotherRoleAdminRole));
+        assertTrue(IBaoRoles(accessControl).hasAllRoles(address(this), anotherRoleAdminRole));
 
         // TODO: test multiple roles held by one address
         // TODO: revoke roles held

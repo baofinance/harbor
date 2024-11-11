@@ -10,7 +10,7 @@ import { Ownable2StepUpgradeable } from "@openzeppelin/contracts-upgradeable/acc
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
 
 contract FakeUUPSUpgradeable is UUPSUpgradeable, AccessControlUpgradeable {
@@ -25,9 +25,10 @@ contract FakeInitializable is Initializable {
     function initialize() external initializer {}
 }
 
-contract FakeBaoAccessControl is OwnableRoles {
+contract FakeBaoAccessControl is BaoOwnableRoles {
     function initialize(address owner) external {
         _initializeOwner(owner);
+        transferOwnership(owner);
     }
 }
 

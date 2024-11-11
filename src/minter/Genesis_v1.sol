@@ -8,10 +8,12 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import { IMinter } from "src/minter/IMinter.sol";
-import { IGenesis } from "src/minter/IGenesis.sol";
+import { BaoOwnable } from "@bao/BaoOwnable.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
 import { Token } from "@bao/Token.sol";
+
+import { IMinter } from "src/minter/IMinter.sol";
+import { IGenesis } from "src/minter/IGenesis.sol";
 
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
@@ -29,7 +31,7 @@ import { Token } from "@bao/Token.sol";
 /// @dev uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, TokenHolder, IGenesis {
+contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOwnable, TokenHolder, IGenesis {
     using SafeERC20 for IERC20;
 
     /*//////////////////////////////////////////////////////////////

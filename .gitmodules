@@ -1,9 +1,3 @@
-[submodule "lib/dotfiles"]
-	path = lib/dotfiles
-	url = https://github.com/baofinance/dotfiles
-[submodule "lib/solady"]
-	path = lib/solady
-	url = https://github.com/Vectorized/solady
 [submodule "lib/forge-std"]
 	path = lib/forge-std
 	url = https://github.com/foundry-rs/forge-std

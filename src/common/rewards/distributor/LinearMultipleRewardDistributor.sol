@@ -8,7 +8,7 @@ import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/Co
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 
 import { IMultipleRewardDistributor } from "./IMultipleRewardDistributor.sol";
 import { LinearReward } from "./LinearReward.sol";
@@ -21,7 +21,7 @@ abstract contract LinearMultipleRewardDistributor is
     IMultipleRewardDistributor,
     Initializable,
     ContextUpgradeable,
-    OwnableRoles
+    BaoOwnableRoles
 {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;

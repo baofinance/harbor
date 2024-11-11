@@ -9,15 +9,13 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { ReentrancyGuardTransientUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
-import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { WordCodec } from "src/common/WordCodec.sol";
 import { Token } from "@bao/Token.sol";
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 import { IMinter } from "src/minter/IMinter.sol";
 import { IMintable } from "@bao/interfaces/IMintable.sol";
 import { IBurnable } from "@bao/interfaces/IBurnable.sol";
@@ -96,8 +94,7 @@ contract Minter_v1 is
     UUPSUpgradeable,
     ContextUpgradeable,
     ReentrancyGuardTransientUpgradeable,
-    ERC165Upgradeable,
-    OwnableRoles,
+    BaoOwnableRoles,
     IMinter
 {
     using SafeERC20 for IERC20;
@@ -218,7 +215,6 @@ contract Minter_v1 is
         __UUPSUpgradeable_init();
         __Context_init();
         __ReentrancyGuardTransient_init();
-        __ERC165_init();
 
         MinterStorage storage $ = _getMinterStorage();
         // balance tokens
@@ -256,8 +252,6 @@ contract Minter_v1 is
     /// @dev See {IERC165-supportsInterface}.
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
-            interfaceId == type(IOwnable).interfaceId ||
-            interfaceId == type(IOwnableRoles).interfaceId ||
             interfaceId == type(IMinter).interfaceId ||
             super.supportsInterface(interfaceId);
     }

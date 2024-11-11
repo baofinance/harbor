@@ -7,12 +7,11 @@ import { ERC20PermitUpgradeable } from "@openzeppelin/contracts-upgradeable/toke
 import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 
 import { ILeveragedToken } from "./ILeveragedToken.sol";
 import { IOwnable } from "@bao/interfaces/IOwnable.sol";
@@ -32,8 +31,7 @@ contract LeveragedToken_v1 is
     UUPSUpgradeable,
     ERC20Upgradeable,
     ERC20PermitUpgradeable,
-    OwnableRoles,
-    ERC165Upgradeable,
+    BaoOwnableRoles,
     ILeveragedToken,
     IMintable,
     IBurnable,
@@ -46,12 +44,10 @@ contract LeveragedToken_v1 is
     /// @param name The name of the ERC20 token
     /// @param symbol The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
     function initialize(address owner, string memory name, string memory symbol) public initializer {
-        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner);
         __UUPSUpgradeable_init();
         __ERC20_init(name, symbol);
         __ERC20Permit_init(name);
-        __ERC165_init();
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -66,15 +62,13 @@ contract LeveragedToken_v1 is
     /// only owners can upgrade this contract.
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
-    /// @inheritdoc IERC165
+    //TODO: @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
             interfaceId == type(ILeveragedToken).interfaceId ||
             interfaceId == type(IERC20).interfaceId ||
             interfaceId == type(IERC20Metadata).interfaceId ||
             interfaceId == type(IERC20Permit).interfaceId ||
-            interfaceId == type(IOwnable).interfaceId ||
-            interfaceId == type(IOwnableRoles).interfaceId ||
             interfaceId == type(IMintable).interfaceId ||
             interfaceId == type(IBurnable).interfaceId ||
             interfaceId == type(IBurnableFrom).interfaceId ||

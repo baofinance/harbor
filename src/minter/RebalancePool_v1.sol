@@ -172,7 +172,6 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // address veHelper_
         initializer
     {
-        if (owner == address(0)) revert NewOwnerIsZeroAddress();
         _initializeOwner(owner);
         __UUPSUpgradeable_init();
         __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator

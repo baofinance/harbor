@@ -7,10 +7,8 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
 
@@ -32,7 +30,7 @@ import { ITokenDistributor } from "src/minter/ITokenDistributor.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenHolder, OwnableRoles {
+contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenHolder, BaoOwnableRoles {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -92,7 +90,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     function initialize(address owner, string memory name_) public initializer {
         _initializeOwner(owner);
         __UUPSUpgradeable_init();
-        __ERC165_init();
+        // TODO: __ERC165_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         $.name = name_;
     }
@@ -109,11 +107,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
 
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return
-            interfaceId == type(IOwnable).interfaceId ||
-            interfaceId == type(IOwnableRoles).interfaceId ||
-            interfaceId == type(ITokenDistributor).interfaceId ||
-            super.supportsInterface(interfaceId);
+        return interfaceId == type(ITokenDistributor).interfaceId || super.supportsInterface(interfaceId);
     }
 
     /*//////////////////////////////////////////////////////////////
