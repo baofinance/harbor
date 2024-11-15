@@ -25,7 +25,6 @@ lcov.info
 results/*.svg
 results/*.png
 
-
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
