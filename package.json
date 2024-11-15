@@ -1,7 +1,7 @@
 {
     "license": "MIT",
     "scripts": {
-        "pre-push": "act -P ubuntu-latest=-self-hosted",
+        "pre-push": "gh act -P ubuntu-latest=-self-hosted",
         "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
         "fmt": "yarn prettier --write",
         "fmt:check": "yarn prettier --check",
@@ -10,7 +10,7 @@
         "gas": "yarn test --gas-report | ./lib/bao-base/bin/extract-gas | tee results/gas-report.txt",
         "coverage": "forge coverage --report summary --report lcov --nmp script/**/*.t.sol | ./lib/bao-base/bin/extract-coverage.py | tee results/coverage.txt",
         "wake": "wake detect all",
-        "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,naming-convention --filter-paths \"lib/openzeppelin.*|lib/forge-std.*|lib/solady.*\"",
+        "slither": "echo $(which slither) version=$(slither --version) && slither . --config ./lib/bao-base/slither.config.json --exclude-dependencies --fail-pedantic",
         "script": "forge script --force --ffi",
         "disabled": "echo 'disabled tests:' && grep -n -e '^\\s*function\\s*test.*(.*).*private' test/**/*.t.sol",
         "doc": "forge doc",
@@ -27,7 +27,6 @@
         "sizes": "echo \"generating contract-sizes.txt ...\"; yarn sizes:raw:contracts > ./results/contract-sizes.txt",
         "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
         "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
-        "pre-checkin": "yarn fmt && yarn lint && yarn test && yarn disabled && yarn coverage && yarn sizes && echo \"pre-checking done.\"",
         "install:slither": "pip3 install slither-analyzer --upgrade",
         "install:act": "gh extension install https://github.com/nektos/gh-act"
     },

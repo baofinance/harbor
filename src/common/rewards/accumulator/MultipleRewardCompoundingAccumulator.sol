@@ -343,6 +343,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
     /// @notice Internal function to update snapshot for single token.
     /// @param account The address of user to update.
     /// @param token The address of token to update.
+    // slither-disable-next-line dead-code
     function _updateSnapshot(address account, address token) internal virtual {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         UserRewardSnapshot memory snapshot = $.userRewardSnapshot[account][token];

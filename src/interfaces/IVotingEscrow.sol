@@ -24,17 +24,17 @@ interface IVotingEscrow {
 
     function epoch() external view returns (uint256);
 
-    function point_history(uint256 epoch) external view returns (Point memory);
+    function point_history(uint256 epoch_) external view returns (Point memory);
 
     function user_point_epoch(address account) external view returns (uint256);
 
-    function user_point_history(address account, uint256 epoch) external view returns (Point memory);
+    function user_point_history(address account, uint256 epoch_) external view returns (Point memory);
 
     /// @notice Get the timestamp for checkpoint `epoch` for `addr`
     /// @param addr User wallet address
-    /// @param epoch User epoch number
+    /// @param epoch_ User epoch number
     /// @return Epoch time of the checkpoint
-    function user_point_history__ts(address addr, uint256 epoch) external view returns (uint256);
+    function user_point_history__ts(address addr, uint256 epoch_) external view returns (uint256);
 
     /// @notice Get timestamp when `addr`'s lock finishes
     /// @param addr User wallet

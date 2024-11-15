@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -30,7 +31,14 @@ import {ITokenDistributor} from "src/minter/ITokenDistributor.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeable, TokenHolder, BaoOwnableRoles {
+contract TokenDistributor_v1 is
+    ITokenDistributor,
+    Initializable,
+    UUPSUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
+    TokenHolder,
+    BaoOwnableRoles
+{
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -85,12 +93,11 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     }
 
     /// @notice This is the de-fecto constructor
-    /// @param owner The owner of the contract who is granted Role DEFAULT_ADMIN_ROLE
+    /// @param owner_ The owner of the contract who is granted Role DEFAULT_ADMIN_ROLE
     /// @param name_ The name given to this distributor.
-    function initialize(address owner, string memory name_) public initializer {
-        _initializeOwner(owner);
+    function initialize(address owner_, string memory name_) public initializer {
+        _initializeOwner(owner_);
         __UUPSUpgradeable_init();
-        // TODO: __ERC165_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         $.name = name_;
     }
@@ -156,14 +163,14 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     function addToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         Token.ensureERC20Token(token);
-        // wake-disable-next-line unchecked-return-value
+        // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.tokens.add(token); // only adds if one is not already there
     }
 
     /// @inheritdoc ITokenDistributor
     function removeToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
-        // wake-disable-next-line unchecked-return-value
+        // slither-disable-next-line unused-return
         $.tokens.remove(token);
     }
 
@@ -263,7 +270,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
     // has an unprotected distribute function
     // has the correct role to call this function
     // @inheritdoc ITokenDistributor
-    function distribute() public onlyOwnerOrRoles(CLAIMER_ROLE) {
+    function distribute() public nonReentrant onlyOwnerOrRoles(CLAIMER_ROLE) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
 
         address[] memory tokens_ = $.tokens.values();
@@ -276,6 +283,7 @@ contract TokenDistributor_v1 is ITokenDistributor, Initializable, UUPSUpgradeabl
             // how much do we have
             // TODO: only transfer a minimum amount
             // TODO: only transfer at a given minimum frequency
+            //slither-disable-next-line calls-loop
             uint256 ownership = IERC20(tokens_[t]).balanceOf(address(this));
 
             // solhint-disable-next-line explicit-types

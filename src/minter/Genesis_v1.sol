@@ -78,9 +78,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
     //////////////////////////////////////////////////////////////*/
 
     /// @notice In UUPS proxies construction is performed by a function
-    function initialize(address owner, address minter_) external initializer {
+    function initialize(address owner_, address minter_) external initializer {
         // initialise all the state variables
-        _initializeOwner(owner);
+        _initializeOwner(owner_);
         __Context_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();

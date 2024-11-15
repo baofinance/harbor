@@ -76,11 +76,14 @@ library DecrementalFloatingPoint {
                 _epoch += 1;
                 _exponent = 0;
                 _magnitude = PRECISION;
-            } else if ((uint256(scale) * _magnitude) / PRECISION < HALF_PRECISION) {
-                _exponent += 1;
-                _magnitude = (_magnitude * uint256(scale)) / HALF_PRECISION;
             } else {
-                _magnitude = (_magnitude * uint256(scale)) / PRECISION;
+                uint256 scaledMagnitude = _magnitude * uint256(scale);
+                if (scaledMagnitude / PRECISION < HALF_PRECISION) {
+                    _exponent += 1;
+                    _magnitude = scaledMagnitude / HALF_PRECISION;
+                } else {
+                    _magnitude = scaledMagnitude / PRECISION;
+                }
             }
         }
 

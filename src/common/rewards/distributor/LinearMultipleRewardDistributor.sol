@@ -115,9 +115,11 @@ abstract contract LinearMultipleRewardDistributor is
     }
 
     /// @inheritdoc IMultipleRewardDistributor
-    function pendingRewards(address token) external view override returns (uint256, uint256) {
+    function pendingRewards(
+        address token
+    ) external view override returns (uint256 distributable, uint256 undistributed) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        return $.rewardData[token].pending();
+        (distributable, undistributed) = $.rewardData[token].pending();
     }
 
     /****************************
@@ -158,8 +160,10 @@ abstract contract LinearMultipleRewardDistributor is
 
         if ($.activeRewardTokens.contains(token)) revert DuplicatedRewardToken();
 
+        // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.activeRewardTokens.add(token);
         $.distributors[token] = distributor;
+        // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.remove(token);
 
         emit RegisterRewardToken(token, distributor);
@@ -195,8 +199,10 @@ abstract contract LinearMultipleRewardDistributor is
             if (_data.queued + _distributable + _undistributed > 0) revert RewardDistributionNotFinished();
         }
 
+        // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.activeRewardTokens.remove(token);
         $.distributors[token] = address(0);
+        // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.add(token);
 
         emit UnregisterRewardToken(token);
@@ -232,6 +238,7 @@ abstract contract LinearMultipleRewardDistributor is
         address[] memory activeRewardTokens_ = $.activeRewardTokens.values();
         for (uint256 i = 0; i < activeRewardTokens_.length; i++) {
             address token = activeRewardTokens_[i];
+            // slither-disable-next-line unused-return
             (uint256 pending, ) = $.rewardData[token].pending();
             $.rewardData[token].lastUpdate = uint40(block.timestamp);
 

@@ -39,8 +39,8 @@ contract ReservePool_v1 is
 
     uint256 public constant REQUESTER_ROLE = _ROLE_0;
 
-    function initialize(address owner) public initializer {
-        _initializeOwner(owner);
+    function initialize(address owner_) public initializer {
+        _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         // TODO: __ERC165_init();
     }

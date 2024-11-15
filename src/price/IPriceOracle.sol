@@ -11,6 +11,6 @@ interface IPriceOracle {
     function latestAnswer() external view returns (uint256 price);
 
     /// @notice Returns the precison of the returned answers from `latestAnswer()` function
-    /// @return decimals The number of decimals in the answers returned
-    function decimals() external view returns (uint8 decimals);
+    /// @return decimals_ The number of decimals in the answers returned
+    function decimals() external view returns (uint8 decimals_);
 }

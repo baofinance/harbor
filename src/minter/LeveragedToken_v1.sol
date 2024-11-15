@@ -39,13 +39,14 @@ contract LeveragedToken_v1 is
     uint256 public constant MINTER_ROLE = _ROLE_0;
 
     /// @notice initialise the UUPS proxy
-    /// @param name The name of the ERC20 token
-    /// @param symbol The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
-    function initialize(address owner, string memory name, string memory symbol) public initializer {
-        _initializeOwner(owner);
+    /// @param owner_ the address the owner is expected to be after a transferOwnership during deploy
+    /// @param name_ The name of the ERC20 token
+    /// @param symbol_ The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
+    function initialize(address owner_, string memory name_, string memory symbol_) public initializer {
+        _initializeOwner(owner_);
         __UUPSUpgradeable_init();
-        __ERC20_init(name, symbol);
-        __ERC20Permit_init(name);
+        __ERC20_init(name_, symbol_);
+        __ERC20Permit_init(name_);
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version

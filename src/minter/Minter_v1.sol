@@ -201,8 +201,9 @@ contract Minter_v1 is
     // UUPSUpgradeable functions
     // -------------------------
 
+    // TODO: take stuff out of this and put it in deploy script
     function initialize(
-        address owner,
+        address owner_,
         BalanceTokens calldata tokens_,
         bytes4 peggedBurnInterfaceId_,
         address priceOracle_,
@@ -211,7 +212,7 @@ contract Minter_v1 is
         Config calldata config_
     ) external initializer {
         // initialise all the state variables
-        _initializeOwner(owner);
+        _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __Context_init();
         __ReentrancyGuardTransient_init();
@@ -232,7 +233,7 @@ contract Minter_v1 is
         _updateReservePool(reservePool_);
         _updateConfig(config_);
         // wake-disable-next-line unchecked-return-value
-        _grantRoles(owner, ZERO_FEE_ROLE);
+        _grantRoles(owner_, ZERO_FEE_ROLE);
         // TODO: should we be saving the last permissioned price? _fetchSafePrice(priceOracle_)
     }
 
@@ -493,7 +494,6 @@ contract Minter_v1 is
     function redeemLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.redeemLeveragedIncentiveConfig;
-        incentiveRatio = 0;
         // solhint-disable-next-line explicit-types
         uint band = _findBand(
             config_,
@@ -563,6 +563,7 @@ contract Minter_v1 is
             $.peggedTokenBalance,
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
+        // slither-disable-next-line incorrect-equality
         incentiveRatio = peggedRedeemed == 0
             ? int256(1 ether)
             : ((int256(fee) - int256(reserveCollateralUsed)) * int256(price)) / int256(peggedRedeemed);
@@ -626,6 +627,7 @@ contract Minter_v1 is
             _leveragedTokenBalance($.leveragedToken)
         );
         reserveCollateralUsed = 0; // TODO: remove this result?
+        // slither-disable-next-line incorrect-equality
         incentiveRatio = int256(collateralReturned == 0 ? 1 ether : (fee * 1 ether) / collateralReturned);
     }
 
@@ -723,6 +725,7 @@ contract Minter_v1 is
             peggedTokenBalance_,
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
+        // slither-disable-next-line incorrect-equality
         if (peggedIn == 0) {
             revert ReturnZeroAmount(collateralToken_);
         }
@@ -739,6 +742,7 @@ contract Minter_v1 is
         }
 
         // make sure it meets the minimum requirements
+        // slither-disable-next-line incorrect-equality
         if (collateralOut == 0) {
             revert ReturnZeroAmount(pegged_.token);
         }
@@ -838,6 +842,7 @@ contract Minter_v1 is
             peggedTokenBalance_,
             leveragedTokenBalance_
         );
+        // slither-disable-next-line incorrect-equality
         if (leveragedIn == 0) {
             revert ReturnZeroAmount(collateralToken_);
         }
@@ -1092,7 +1097,7 @@ contract Minter_v1 is
     /// @param config_ The user friendly config being checked and copied.
     /// @param disallowNotDiscount If true then the config may have a disallow and not a discount.
     /// @return out the storage efficient config.
-
+    // slither-disable-next-line cyclomatic-complexity as this code is simple in what it tries to do, it's just that there are a few checks
     function _checkAndCopyBands(
         IncentiveConfig calldata config_,
         bool disallowNotDiscount
@@ -1567,6 +1572,7 @@ contract Minter_v1 is
                         peggedInBand = Math.min(peggedIn, peggedInBand);
                     }
                 }
+                // slither-disable-next-line divide-before-multiply
                 collateralInBand$ =
                     (peggedInBand * _peggedTokenPrice$(peggedTokenBalance_, collateralTokenBalance_, price)) /
                     price;
@@ -1584,7 +1590,7 @@ contract Minter_v1 is
                     // then divide by 1 ether at the end
                     fee += (collateralInBand$ * uint256(bandIncentiveRatio)) / 1 ether;
                 } else if (bandIncentiveRatio < 0) {
-                    // any truncation below, benefits the reserve pool.
+                    // slither-disable-next-line divide-before-multiply as any truncation below, benefits the reserve pool by a smidgin
                     uint256 extraCollateralInBand = (collateralInBand$ * uint256(-bandIncentiveRatio)) /
                         (1 ether * 1 ether);
                     // tally the discounts
@@ -1674,6 +1680,7 @@ contract Minter_v1 is
                 // note that 1 - bandIncentiveRatio must always be positive, which it is as:
                 //   * fees < 1 ether. if is was = 1 ether then this would be a disallow band.
                 //   * discount < 0
+                // slither-disable-next-line divide-before-multiply
                 collateralInBand =
                     ((_collateralRatioUpperBounds(config_, band) * balanceOf.pegged - balanceOf.collateral * price) *
                         1 ether) /
@@ -1688,6 +1695,7 @@ contract Minter_v1 is
                 // tally the weighted fee ratios
                 fee += bandFee;
             } else if (bandIncentiveRatio < 0) {
+                // slither-disable-next-line divide-before-multiply as any truncation benefits slightly the reserve pool
                 extraCollateralInBand = (collateralInBand * uint256(-bandIncentiveRatio)) / 1 ether;
                 // tally the discounts
                 if (extraCollateralInBand <= reservePoolBalance_) {
@@ -1778,9 +1786,10 @@ contract Minter_v1 is
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
+            // slither-disable-next-line divide-before-multiply
             uint256 collateralInBand = (collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) / price;
             collateralInBand = Math.min(collateralIn, collateralInBand);
-
+            // slither-disable-next-line divide-before-multiply
             uint256 bandFee = (collateralInBand * uint256(bandFeeRatio)) / 1 ether;
             collateralOut += collateralInBand - bandFee;
             fee += bandFee;

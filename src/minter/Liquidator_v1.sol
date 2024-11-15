@@ -59,12 +59,12 @@ contract Liquidator_v1 is
     }
 
     function initialize(
-        address owner,
+        address owner_,
         address rebalancePool,
         address rewardToken,
         uint256 rewardAmount
     ) public initializer {
-        _initializeOwner(owner);
+        _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ERC165_init();
 

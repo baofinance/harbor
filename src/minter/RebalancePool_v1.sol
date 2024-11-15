@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -20,6 +21,7 @@ import {IMinter} from "src/minter/IMinter.sol";
 // import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
 
 // solhint-disable not-rely-on-time
+// slither-disable-start timestamp
 
 /// @title RebalancePool
 /// @notice To add boost for FXN, we maintain a time-weighted boost ratio for each user.
@@ -34,7 +36,13 @@ import {IMinter} from "src/minter/IMinter.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompoundingAccumulator, IRebalancePool {
+contract RebalancePool_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
+    MultipleRewardCompoundingAccumulator,
+    IRebalancePool
+{
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
 
@@ -160,7 +168,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
      ***************/
 
     function initialize(
-        address owner,
+        address owner_,
         address minter_,
         address liquidationToken_
     )
@@ -172,8 +180,9 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // address veHelper_
         initializer
     {
-        _initializeOwner(owner);
+        _initializeOwner(owner_);
         __UUPSUpgradeable_init();
+        __ReentrancyGuardTransient_init();
         __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator
 
         // TODO: pass in a reward manager - whatever that is
@@ -326,7 +335,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         if (amount > minterMinted - thisBalance) {
             amount = minterMinted - thisBalance;
         }
-
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert DepositZeroAmount();
         if (amount < minAmount) revert DepositAmountLessThanMinimum(amount, minAmount);
         depositedAmount = amount;
@@ -339,15 +348,15 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // It should never exceed `type(uint104).max`.
         TokenBalance memory supply = $.totalSupply;
         TokenBalance memory balance = $.balances[receiver];
-        TokenBalance memory ownerBalance;
+        TokenBalance memory ownerBalance = TokenBalance(0, 0, 0);
         supply.amount += uint104(amount);
         supply.updatedAt = uint40(block.timestamp);
         balance.amount += uint104(amount);
 
         // @note after checkpoint, the voteOwnerBalances are correct.
-        address owner = $.getStakerVoteOwner[receiver];
-        if (owner != address(0)) {
-            ownerBalance = $.voteOwnerBalances[owner];
+        address owner_ = $.getStakerVoteOwner[receiver];
+        if (owner_ != address(0)) {
+            ownerBalance = $.voteOwnerBalances[owner_];
             ownerBalance.amount += uint104(amount);
         }
 
@@ -362,7 +371,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
         // update boost checkpoint at last
         // console.log("updateBoostCheckpoint...");
-        _updateBoostCheckpoint(receiver, owner, balance, ownerBalance, supply);
+        _updateBoostCheckpoint(receiver, owner_, balance, ownerBalance, supply);
 
         emit Deposit(sender, receiver, amount);
         emit UserDepositChange(receiver, balance.amount, 0);
@@ -377,15 +386,15 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
     /// @inheritdoc IRebalancePool
     function withdrawFrom(
-        address owner,
+        address owner_,
         uint256 amount,
         address receiver
     ) external override onlyRoles(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
-        amountWithdrawn = _withdraw(owner, amount, receiver);
+        amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
     /// @inheritdoc IRebalancePool
-    function liquidate(uint256 minLiquidated) external virtual override returns (uint256 liquidated) {
+    function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
         // can only liquidate if the collateral ration is below a certain value
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         address minter_ = $.minter;
@@ -434,28 +443,28 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
     /// @inheritdoc IRebalancePool
     function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
-        address owner = _msgSender();
+        address owner_ = _msgSender();
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
 
-        if (staker == owner) {
+        if (staker == owner_) {
             revert ErrorSelfSharingIsNotAllowed();
         }
-        if ($.getStakerVoteOwner[owner] != address(0)) {
+        if ($.getStakerVoteOwner[owner_] != address(0)) {
             revert ErrorCascadedSharingIsNotAllowed();
         }
 
-        if ($.isStakerAllowed[owner][staker]) {
-            $.isStakerAllowed[owner][staker] = false;
+        if ($.isStakerAllowed[owner_][staker]) {
+            $.isStakerAllowed[owner_][staker] = false;
 
-            emit CancelShareVote(owner, staker);
+            emit CancelShareVote(owner_, staker);
         } else {
-            $.isStakerAllowed[owner][staker] = true;
+            $.isStakerAllowed[owner_][staker] = true;
 
-            emit ShareVote(owner, staker);
+            emit ShareVote(owner_, staker);
         }
 
-        if ($.getStakerVoteOwner[staker] == owner) {
-            _revokeVoteSharing(owner, staker);
+        if ($.getStakerVoteOwner[staker] == owner_) {
+            _revokeVoteSharing(owner_, staker);
         }
     }
 
@@ -492,10 +501,10 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     function rejectSharedVote() external override {
         address staker = _msgSender();
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        address owner = $.getStakerVoteOwner[staker];
-        if (owner == address(0)) revert ErrorNoAcceptedSharedVote();
+        address owner_ = $.getStakerVoteOwner[staker];
+        if (owner_ == address(0)) revert ErrorNoAcceptedSharedVote();
 
-        _revokeVoteSharing(owner, staker);
+        _revokeVoteSharing(owner_, staker);
     }
 
     /************************
@@ -550,11 +559,11 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         //     _notifyReward(fxn, _minted);
         // }
 
-        address owner = $.getStakerVoteOwner[account];
+        address owner_ = $.getStakerVoteOwner[account];
         /*
         if (account != address(0)) {
             // console.log("veHelper=%s", veHelper);
-            IVotingEscrowHelper($.veHelper).checkpoint(owner == address(0) ? account : owner);
+            IVotingEscrowHelper($.veHelper).checkpoint(owner_ == address(0) ? account : owner_);
         }
         */
         MultipleRewardCompoundingAccumulator._checkpoint(account);
@@ -562,8 +571,8 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         if (account != address(0)) {
             TokenBalance memory supply = $.totalSupply;
             TokenBalance memory balance = _updateUserBalance(account, supply);
-            TokenBalance memory ownerBalance = _updateVoteOwnerBalance(owner, supply);
-            _updateBoostCheckpoint(account, owner, balance, ownerBalance, supply);
+            TokenBalance memory ownerBalance = _updateVoteOwnerBalance(owner_, supply);
+            _updateBoostCheckpoint(account, owner_, balance, ownerBalance, supply);
         }
     }
 
@@ -612,7 +621,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     }
 
     /// @dev Internal function to withdraw assets from this contract.
-    /// @param sender The address of owner to withdraw from.
+    /// @param sender The address of owner_ to withdraw from.
     /// @param amount The amount of token to withdraw.
     /// @param receiver The address of token receiver.
     function _withdraw(address sender, uint256 amount, address receiver) internal returns (uint256 amountWithdrawn) {
@@ -622,7 +631,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
         TokenBalance memory supply = $.totalSupply;
         TokenBalance memory balance = $.balances[sender];
-        TokenBalance memory ownerBalance;
+        TokenBalance memory ownerBalance = TokenBalance(0, 0, 0);
         if (amount == type(uint256).max) amount = balance.amount;
         if (amount > balance.amount) revert WithdrawAmountExceedsBalance(amount, balance.amount);
         if (amount == 0) revert WithdrawZeroAmount();
@@ -634,9 +643,9 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         }
 
         // @note after checkpoint, the voteOwnerBalances are correct.
-        address owner = $.getStakerVoteOwner[sender];
-        if (owner != address(0)) {
-            ownerBalance = $.voteOwnerBalances[owner];
+        address owner_ = $.getStakerVoteOwner[sender];
+        if (owner_ != address(0)) {
+            ownerBalance = $.voteOwnerBalances[owner_];
             ownerBalance.amount -= uint104(amount);
         }
 
@@ -649,7 +658,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
 
         // update boost checkpoint at last
         // TODO: this is done in _checkpoint so why are we doing it again here?
-        _updateBoostCheckpoint(sender, owner, balance, ownerBalance, supply);
+        _updateBoostCheckpoint(sender, owner_, balance, ownerBalance, supply);
 
         IERC20($.assetToken).safeTransfer(receiver, amount);
         amountWithdrawn = amount;
@@ -659,39 +668,39 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     }
 
     /// @dev Internal function to revoke vote sharing.
-    /// @param owner The address of vote owner.
+    /// @param owner_ The address of vote owner.
     /// @param staker The address of staker to revoke.
-    function _revokeVoteSharing(address owner, address staker) internal {
+    function _revokeVoteSharing(address owner_, address staker) internal {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         // @note after checkpoint, the epoch of `balances[staker]` and `voteOwnerBalances[oldOwner]`
         // are on the latest epoch, we can safely to do add or subtract.
         _checkpoint(staker);
         TokenBalance memory balance = $.balances[staker];
-        TokenBalance memory ownerBalance = $.voteOwnerBalances[owner];
+        TokenBalance memory ownerBalance = $.voteOwnerBalances[owner_];
         // no uncheck here, just in case
         ownerBalance.amount -= balance.amount;
 
-        $.voteOwnerBalances[owner] = ownerBalance;
+        $.voteOwnerBalances[owner_] = ownerBalance;
         $.getStakerVoteOwner[staker] = address(0);
 
         // @note it is ok to pass a random `ownerBalance` to this function
         _updateBoostCheckpoint(staker, address(0), balance, ownerBalance, $.totalSupply);
 
-        emit AcceptSharedVote(staker, owner, address(0));
+        emit AcceptSharedVote(staker, owner_, address(0));
     }
 
     /// @dev Internal function to update the balance of vote owner.
-    /// @param owner The address of vote owner.
+    /// @param owner_ The address of vote owner.
     /// @param supply The latest total supply struct.
     /// @return balance The updated token balance for vote owner.
     function _updateVoteOwnerBalance(
-        address owner,
+        address owner_,
         TokenBalance memory supply
     ) internal virtual returns (TokenBalance memory balance) {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        // update `voteOwnerBalances[owner]` to latest epoch and record history value
-        if (owner == address(0)) return balance;
-        balance = $.voteOwnerBalances[owner];
+        // update `voteOwnerBalances[owner_]` to latest epoch and record history value
+        if (owner_ == address(0)) return balance;
+        balance = $.voteOwnerBalances[owner_];
         // it happens the owner has no update before
         if (balance.updatedAt == 0) balance.updatedAt = uint40(block.timestamp);
 
@@ -701,7 +710,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         balance.updatedAt = uint40(block.timestamp);
 
         // @note since it will be updated in `updateBoostCheckpoint`, we don't need to update it now.
-        // voteOwnerBalances[owner] = balance;
+        // voteOwnerBalances[owner_] = balance;
 
         // @note Normally, `prevWeekTs` equals to `nextWeekTs` so we will only sstore 1 time in most of the time.
         //
@@ -711,7 +720,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // it is ok to use `ownerBalance.amount` only.
         uint256 nextWeekTs = _getWeekTs(block.timestamp);
         while (prevWeekTs < nextWeekTs) {
-            $.voteOwnerHistoryBalances[owner][prevWeekTs] = balance.amount;
+            $.voteOwnerHistoryBalances[owner_][prevWeekTs] = balance.amount;
             prevWeekTs += 1 weeks;
         }
     }
@@ -744,26 +753,26 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     /// @param supply The latest total supply struct.
     function _updateBoostCheckpoint(
         address account,
-        address owner,
+        address owner_,
         TokenBalance memory balance,
         TokenBalance memory ownerBalance,
         TokenBalance memory supply
     ) internal {
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        if (owner == address(0)) {
+        if (owner_ == address(0)) {
             ownerBalance = balance;
-            owner = account;
+            owner_ = account;
         } else {
-            $.voteOwnerBalances[owner] = ownerBalance;
+            $.voteOwnerBalances[owner_] = ownerBalance;
             uint256 nextWeekTs = _getWeekTs(block.timestamp);
-            $.voteOwnerHistoryBalances[owner][nextWeekTs] = ownerBalance.amount;
+            $.voteOwnerHistoryBalances[owner_][nextWeekTs] = ownerBalance.amount;
         }
 
         uint256 ratio = _computeBoostRatio(
             ownerBalance.amount,
             balance.amount,
             supply.amount
-            // IVotingEscrow($.ve).balanceOf(owner),
+            // IVotingEscrow($.ve).balanceOf(owner_),
             // IVotingEscrow($.ve).totalSupply()
         );
         $.boostCheckpoint[account] = BoostCheckpoint(uint64(ratio), uint64($.totalSupplyHistory.length - 1));
@@ -806,6 +815,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         unchecked {
             uint256 totalSupplyHistoryLast = $.totalSupplyHistory.length - 1;
+            // slither-disable-next-line incorrect-equality
             if ($.totalSupplyHistory[totalSupplyHistoryLast].updatedAt == supply.updatedAt) {
                 $.totalSupplyHistory[totalSupplyHistoryLast] = supply;
             } else {
@@ -826,6 +836,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         uint112 currentProduct
     ) internal pure returns (uint256 compoundedBalance) {
         // no balance before, return 0
+        // slither-disable-next-line incorrect-equality
         if (initialBalance == 0) {
             return 0;
         }
@@ -840,10 +851,12 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // Compute the compounded stake. If a scale change in P was made during the stake's lifetime,
         // account for it. If more than one scale change was made, then the stake has decreased by a factor of
         // at least 1e-9 -- so return 0.
+        // slither-disable-next-line incorrect-equality
         if (exponentDiff == 0) {
             compoundedBalance =
                 (initialBalance * uint256(currentProduct.magnitude())) /
                 uint256(initialProduct.magnitude());
+            // slither-disable-next-line incorrect-equality
         } else if (exponentDiff == 1) {
             compoundedBalance =
                 (initialBalance * uint256(currentProduct.magnitude())) /
@@ -877,12 +890,13 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         if (balance.amount == 0) return 0;
 
         BoostCheckpoint memory boostCheckpoint = $.boostCheckpoint[account];
+        // slither-disable-next-line incorrect-equality as we're checking for a shortcut case of this code running in the same block updatedAt was changed
         if (uint256(balance.updatedAt) == block.timestamp) {
             return boostCheckpoint.boostRatio;
         }
 
-        address owner = $.getStakerVoteOwner[account];
-        // address veHolder = owner == address(0) ? account : owner;
+        address owner_ = $.getStakerVoteOwner[account];
+        // address veHolder = owner_ == address(0) ? account : owner_;
 
         uint256 nextIndex = boostCheckpoint.historyIndex;
         uint256 currentRatio = boostCheckpoint.boostRatio;
@@ -893,10 +907,11 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
             // it is more than 4 years, should be enough
             if (nowTs > block.timestamp) nowTs = block.timestamp;
             boostRatio += currentRatio * (nowTs - prevTs);
+            // slither-disable-next-line incorrect-equality
             if (nowTs == block.timestamp) break;
             // uint256 veBalance = IVotingEscrowHelper($.veHelper).balanceOf(veHolder, nowTs);
             // uint256 veSupply = IVotingEscrowHelper($.veHelper).totalSupply(nowTs);
-            (currentRatio, nextIndex) = _boostRatioAt(owner, balance, /* veBalance, veSupply, */ nextIndex, nowTs);
+            (currentRatio, nextIndex) = _boostRatioAt(owner_, balance, /* veBalance, veSupply, */ nextIndex, nowTs);
             prevTs = nowTs;
             nowTs += 1 weeks;
         }
@@ -907,7 +922,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     ///
     /// Caller should make sure `t` is always a multiple of 1 weeks.
     function _boostRatioAt(
-        address owner,
+        address owner_,
         TokenBalance memory balance,
         // uint256 veBalance,
         // uint256 veSupply,
@@ -931,7 +946,7 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         // Find the actual balance base on the supply.
         TokenBalance memory supply = $.totalSupplyHistory[startIndex];
         uint256 realBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product);
-        uint256 ownerBalance = owner != address(0) ? $.voteOwnerHistoryBalances[owner][t] : realBalance;
+        uint256 ownerBalance = owner_ != address(0) ? $.voteOwnerHistoryBalances[owner_][t] : realBalance;
 
         return (_computeBoostRatio(ownerBalance, realBalance, supply.amount /*, veBalance, veSupply*/), startIndex);
     }
@@ -951,19 +966,23 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
         )
     {
         unchecked {
+            // slither-disable-next-line incorrect-equality timestamp
             if (balance == 0) return 4 ether / 10;
 
             // Compute boost ratio with Curve's rule: min(balance, balance * 0.4 + 0.6 * veBalance * supply / veSupply) / balance
+            // slither-disable-next-line divide-before-multiply
             uint256 boostedBalance = (ownerBalance * 4) / 10;
             // if (veSupply > 0) {
             //     boostedBalance += (((veBalance * supply) / veSupply) * 6) / 10;
             // }
+            // slither-disable-next-line divide-before-multiply
             boostedBalance = (boostedBalance * balance) / ownerBalance;
 
             if (boostedBalance > balance) {
                 boostedBalance = balance;
             }
 
+            // slither-disable-next-line divide-before-multiply
             return (boostedBalance * 1 ether) / balance;
         }
     }
@@ -972,7 +991,10 @@ contract RebalancePool_v1 is Initializable, UUPSUpgradeable, MultipleRewardCompo
     /// @param timestamp The given timestamp.
     function _getWeekTs(uint256 timestamp) internal pure returns (uint256) {
         unchecked {
+            // slither-disable-next-line divide-before-multiply as we actually want to truncate to get an integer number of weeks
             return ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks;
         }
     }
 }
+
+// slither-disable-end timestamp

@@ -35,6 +35,7 @@ library LinearReward {
         _amount = _amount + _data.queued;
         _data.queued = 0;
 
+        // slither-disable-next-line timestamp
         if (block.timestamp >= _data.finishAt) {
             // period finished, distribute to next period
             _data.rate = (_amount / _periodLength).toUint80();
@@ -65,6 +66,7 @@ library LinearReward {
     function pending(RewardData memory _data) internal view returns (uint256, uint256) {
         uint256 _elapsed;
         uint256 _left = 0;
+        // slither-disable-next-line timestamp
         if (block.timestamp > _data.finishAt) {
             // finishAt >= lastUpdate will happen, if `_notifyReward` is not called during current period.
             _elapsed = _data.finishAt >= _data.lastUpdate ? _data.finishAt - _data.lastUpdate : 0;
