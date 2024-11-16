@@ -1,7 +1,0 @@
-node_modules
-lib/*
-!lib/eat
-artifacts
-cache
-coverage*
-gasReporterOutput.json
