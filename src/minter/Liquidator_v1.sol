@@ -60,7 +60,7 @@ contract Liquidator_v1 is
 
     function initialize(
         address owner_,
-        address rebalancePool,
+        address rebalancePool_,
         address rewardToken,
         uint256 rewardAmount
     ) public initializer {
@@ -73,7 +73,7 @@ contract Liquidator_v1 is
         //     revert NeedsRole(address(this), LIQUIDATOR_ROLE);
 
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-        $.rebalancePool = rebalancePool;
+        $.rebalancePool = rebalancePool_;
         $.rewardToken = rewardToken;
         $.rewardAmount = uint96(rewardAmount);
     }
@@ -103,9 +103,21 @@ contract Liquidator_v1 is
     }
 
     /// @inheritdoc ILiquidator
-    function assetToken() external view returns (address) {
+    function rebalancePool() external view returns (address) {
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-        return IRebalancePool($.rebalancePool).assetToken();
+        return $.rebalancePool;
+    }
+
+    /// @inheritdoc ILiquidator
+    function reward() external view returns (address token, uint256 amount) {
+        LiquidatorStorage storage $ = _getLiquidatorStorage();
+        return ($.rewardToken, $.rewardAmount);
+    }
+
+    function setReward(address rewardToken, uint256 rewardAmount) external {
+        LiquidatorStorage storage $ = _getLiquidatorStorage();
+        $.rewardToken = rewardToken;
+        $.rewardAmount = uint96(rewardAmount);
     }
 
     /// @inheritdoc ILiquidator
@@ -114,11 +126,11 @@ contract Liquidator_v1 is
         uint256 minLiquidation
     ) public virtual nonReentrant returns (uint256 liquidated) {
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-        address rebalancePool = $.rebalancePool;
-
-        // wake-disable-next-line reentrancy // rebalancePool is trusted and reentrancy guard
-        liquidated = IRebalancePool(rebalancePool).liquidate(minLiquidation);
-
+        // send the reward - do this first because it is the cheapest to do
         IERC20($.rewardToken).safeTransfer(rewardReceiver, $.rewardAmount);
+
+        // do the actual liquidation
+        // wake-disable-next-line reentrancy // rebalancePool is trusted and reentrancy guard
+        liquidated = IRebalancePool($.rebalancePool).liquidate(minLiquidation);
     }
 }

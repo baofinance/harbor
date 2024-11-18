@@ -395,14 +395,14 @@ contract RebalancePool_v1 is
 
     /// @inheritdoc IRebalancePool
     function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
-        // can only liquidate if the collateral ration is below a certain value
+        // can only liquidate if the collateral ratio is below a certain value
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         address minter_ = $.minter;
 
         // check we are in the right collateral ratio band
         uint256 rebalanceCollateralRatio_ = IMinter(minter_).rebalanceCollateralRatio();
         if (IMinter(minter_).collateralRatio() >= rebalanceCollateralRatio_) {
-            revert NotInRebalanceMode(IMinter(minter_).collateralRatio(), rebalanceCollateralRatio_);
+            revert collateralRatioTooHigh(IMinter(minter_).collateralRatio(), rebalanceCollateralRatio_);
         }
 
         address liquidationToken_ = $.liquidationToken;

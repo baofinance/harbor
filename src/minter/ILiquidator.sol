@@ -20,8 +20,11 @@ interface ILiquidator {
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Return the address of underlying token of this contract.
-    function assetToken() external view returns (address);
+    /// @notice Return the address of underlying rebalance pool.
+    function rebalancePool() external view returns (address);
+
+    /// @notice Returns the reward for calling liquidate successfully
+    function reward() external view returns (address token, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS

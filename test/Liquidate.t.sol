@@ -108,7 +108,9 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         uint256 startCR = IMinter(minter).collateralRatio(); // 1421052631578947368
 
         // not in rebalance mode
-        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, startCR, 130 ether / 100));
+        vm.expectRevert(
+            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, startCR, 130 ether / 100)
+        );
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
         // (5) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), startCR);
@@ -154,7 +156,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
 
         // collateral ratio has gone to rebalance, liquidate it, with no effect
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, 13 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
         );
         IRebalancePool(rebalancePool).liquidate(0);
         // (2) --------------------------------------------------------
@@ -163,7 +165,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         // move the CR up a bit, liquidate it, with no effect
         setUp_collateral(0 ether, 1 ether); // cr=14/10 = 140%
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, 14 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, 14 ether / 10, 13 ether / 10)
         );
         IRebalancePool(rebalancePool).liquidate(1 ether);
         // (3) --------------------------------------------------------
@@ -211,7 +213,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
 
         // collateral ratio has gone to rebalance, liquidate it, with no effect
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.NotInRebalanceMode.selector, 13 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
         );
         IRebalancePool(rebalancePoolLeveraged).liquidate(0);
         // (2) --------------------------------------------------------
@@ -223,7 +225,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         assertGt(beforeCR, uint256(13 ether) / 10);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IRebalancePool.NotInRebalanceMode.selector,
+                IRebalancePool.collateralRatioTooHigh.selector,
                 IMinter(minter).collateralRatio(),
                 13 ether / 10
             )
