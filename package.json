@@ -27,7 +27,7 @@
     "sizes": "echo \"generating contract-sizes.txt ...\"; yarn sizes:raw:contracts > ./results/contract-sizes.txt",
     "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
-    "install:slither": "pip3 install slither-analyzer --upgrade",
+    "install:slither": "pipx install slither-analyzer",
     "install:act": "gh extension install https://github.com/nektos/gh-act"
   },
   "prettier": "./lib/bao-base/prettier.config.js",
