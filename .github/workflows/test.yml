@@ -8,3 +8,5 @@ on:
 jobs:
   call_bao-foundry-project:
     uses: baofinance/bao-base/.github/workflows/bao-foundry-project.yml@main
+    secrets:
+      API_KEY: ${{ secrets.ALCHEMY_KEY }}
