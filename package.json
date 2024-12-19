@@ -8,7 +8,7 @@
     "test": "forge test -vvv --nmp script/**/*.t.sol --summary",
     "test:deploy": "forge test --summary --mp script/**/*.t.sol",
     "gas": "yarn test --gas-report | ./lib/bao-base/bin/extract-gas | tee results/gas-report.txt",
-    "coverage": "forge coverage --report summary --report lcov --nmp script/**/*.t.sol | ./lib/bao-base/bin/extract-coverage.py | tee results/coverage.txt",
+    "coverage": "forge coverage --report summary --report lcov --nmp script/**/*.t.sol | ./lib/bao-base/run extract-coverage.py | tee results/coverage.txt",
     "wake": "wake detect all",
     "slither": "echo $(which slither) version=$(slither --version) && slither . --config ./lib/bao-base/slither.config.json --exclude-dependencies --fail-pedantic",
     "script": "forge script --force --ffi",
