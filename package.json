@@ -1,16 +1,16 @@
 {
   "license": "MIT",
   "scripts": {
-    "pre-push": "gh act -P ubuntu-latest=-self-hosted",
+    "pre-push": "./lib/bao-base/run pre-push",
     "prettier": "prettier --log-level warn '{src,test,script}/**/*.sol'",
     "fmt": "yarn prettier --write",
     "fmt:check": "yarn prettier --check",
     "test": "forge test -vvv --nmp script/**/*.t.sol --summary",
     "test:deploy": "forge test --summary --mp script/**/*.t.sol",
     "gas": "yarn test --gas-report | ./lib/bao-base/bin/extract-gas | tee results/gas-report.txt",
-    "coverage": "forge coverage --report summary --report lcov --nmp script/**/*.t.sol | ./lib/bao-base/run extract-coverage.py | tee results/coverage.txt",
+    "coverage": "./lib/bao-base/run coverage",
     "wake": "wake detect all",
-    "slither": "echo $(which slither) version=$(slither --version) && slither . --config ./lib/bao-base/slither.config.json --exclude-dependencies --fail-pedantic",
+    "slither": "./lib/bao-base/run slither .",
     "script": "forge script --force --ffi",
     "disabled": "echo 'disabled tests:' && grep -n -e '^\\s*function\\s*test.*(.*).*private' test/**/*.t.sol",
     "doc": "forge doc",
@@ -26,9 +26,7 @@
     "sizes:raw": "forge clean; forge build --sizes",
     "sizes": "echo \"generating contract-sizes.txt ...\"; yarn sizes:raw:contracts > ./results/contract-sizes.txt",
     "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
-    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
-    "install:slither": "pipx install slither-analyzer",
-    "install:act": "gh extension install https://github.com/nektos/gh-act"
+    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'"
   },
   "prettier": "./lib/bao-base/prettier.config.js",
   "dependencies": {
