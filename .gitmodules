@@ -12,4 +12,4 @@
 	url = https://github.com/baofinance/bao-base
 [submodule "lib/solady"]
 	path = lib/solady
-	url = https://github.com/vectorized/solady
+	url = https://github.com/http://vectorized/solady
