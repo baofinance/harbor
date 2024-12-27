@@ -1,8 +1,9 @@
 {
   "license": "MIT",
   "scripts": {
-    "pre-push": "./lib/bao-base/run pre-push",
+    "CI": "./lib/bao-base/run CI",
     "clean": "./lib/bao-base/run clean",
+    "git-status": "./lib/bao-base/run git-status",
     "prettier": "prettier --log-level warn '{src,test,script}/**/*.sol'",
     "fmt": "yarn prettier --write",
     "fmt:check": "yarn prettier --check",
