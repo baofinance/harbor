@@ -3,7 +3,7 @@
   "scripts": {
     "CI": "./lib/bao-base/run CI",
     "clean": "./lib/bao-base/run clean",
-    "git-status": "./lib/bao-base/run git-status",
+    "git-diffs": "./lib/bao-base/run git-diffs",
     "prettier": "prettier --log-level warn '{src,test,script}/**/*.sol'",
     "fmt": "yarn prettier --write",
     "fmt:check": "yarn prettier --check",
