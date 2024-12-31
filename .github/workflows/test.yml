@@ -7,6 +7,25 @@ on:
 
 jobs:
   call_bao-foundry-project:
-    uses: baofinance/bao-base/.github/workflows/CI-test-foundry.yml@v0.1-latest
-    secrets:
-      ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            foundry: nightly
+          - os: macos-latest
+            foundry: nightly
+          - os: windows-latest
+            foundry: nightly
+      fail-fast: false # ensure all jobs run even if one fails
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Run Bao-base CI actions
+        uses: ./lib/bao-base/.github/actions/test-foundry
+        with:
+          foundry: ${{ matrix.foundry }}
