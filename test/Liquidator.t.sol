@@ -31,9 +31,5 @@ import {TestRebalancePoolSetUp} from "test/RebalancePool.t.sol";
 import "test/clog.sol";
 
 contract TestLiquidator is TestRebalancePoolSetUp {
-    function test_storage() public pure {
-        console2.logBytes32(
-            keccak256(abi.encode(uint256(keccak256("bao.storage.Liquidator")) - 1)) & ~bytes32(uint256(0xff))
-        );
-    }
+    function test_storage() public pure {}
 }
