@@ -5,7 +5,7 @@ pragma solidity ^0.8.26;
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {Test} from "forge-std/Test.sol";
-import {console2 as console} from "forge-std/console2.sol";
+import {console2} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
