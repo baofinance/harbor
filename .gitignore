@@ -8,7 +8,7 @@ node_modules
 cache/
 out/
 lcov.info
-eat-cache/
+log/
 
 # yarn files (see https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored)
 .pnp.*
