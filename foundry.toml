@@ -19,6 +19,7 @@ gas_reports = [
 fs_permissions = [
   { access = "read", path = "./" },
   { access = "read-write", path = "./results" },
+  { access = "read-write", path = "./log" },
 ]
 auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"

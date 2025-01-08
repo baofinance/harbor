@@ -31,6 +31,7 @@ import {ConfigFile} from "test/Config.sol";
 
 import {DeployState} from "./DeployState.sol";
 
+// TODO: update this
 // functions are called in this sequence
 // 1) Deploy*
 //      - deploys the proxy and the first implementation
@@ -49,11 +50,24 @@ import {DeployState} from "./DeployState.sol";
 // 3, 5, 7, ...) Upgrade*
 //      - updates the proxy with the new implementation and runs a function to convert the data
 //      - this is in the form of a transaction list for the multisig
+
 // Note: before running the commands to get your .env file into the environment do:
 // $ set -a
 // $ source .env
 // $ set +a
 
+// Deploylib
+// has two functions per contract to be deployed:
+// * function deploy<contract>(<minimal parameters for deployment, e.g. owner>)
+//   this deploys the contract
+// * function postDeploy<contract>Transactions(<additional parameters to complete deployment>)
+//   this performs all the actions required to set up and integrate the contract with other contracts
+// The postDeploy* functions serve two main purposes:
+// * they can reduce the size of the initialisation code needed for the contract. This is a problem for upgradeable contracts
+//   where the "constructor" code remains deployed and uses up an amount of the allowed 24kb for a contract. The contructor code
+//   for non-upgradeable contracts is run once and so is not actually deployed.
+// * if two contracts hold each other's address then the postDeploy* function allows that to happen.
+//
 library DeployLib {
     // Leveraged Token
     function deployLeveragedToken(
@@ -93,7 +107,12 @@ library DeployLib {
         );
     }
 
+    function postDeployTokenDistributorTransactions(address tokenDistributor, address owner) internal {
+        IBaoOwnable(tokenDistributor).transferOwnership(owner);
+    }
+
     // Minter
+    // TODO: move a lot of this to the postDeploy function
     function deployMinter(
         address owner,
         Minter_v1.BalanceTokens memory tokens,
@@ -109,6 +128,10 @@ library DeployLib {
                 (owner, tokens, type(IBurnable).interfaceId, priceOracle, feeReceiver, reservePool_, config)
             )
         );
+    }
+
+    function postDeployMinterTransactions(address minter, address owner) internal {
+        IBaoOwnable(minter).transferOwnership(owner);
     }
 
     // RebalancePool
@@ -176,7 +199,7 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
         if (step() == 1) {
             logAddr("owner", Deployed.BAOMULTISIG);
             logAddr("peggedToken", Deployed.BaoUSD);
-            logAddr("leveragedToken", DeployLib.deployLeveragedToken(publicKey, "BaoUSD", "wstETH"));
+            logAddr("leveragedToken", DeployLib.deployLeveragedToken(Deployed.BAOMULTISIG, "BaoUSD", "wstETH"));
             logAddr("collateralToken", Deployed.wstETH);
 
             Minter_v1.BalanceTokens memory tokens;
@@ -189,7 +212,7 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
             // TODO: how do we do claiming of distributed fees
             address feeReceiver = DeployLib.deployTokenDistributor(Deployed.BAOMULTISIG, "FeeDistributor");
             logAddr("feeReceiver", feeReceiver);
-            address reservePool = DeployLib.deployReservePool(publicKey);
+            address reservePool = DeployLib.deployReservePool(Deployed.BAOMULTISIG);
             logAddr("reservePool", reservePool);
 
             int disallow = 10000; // code in config for a disallowed action at that collateral ratio
@@ -214,6 +237,8 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
             logAddr("minter", minter);
 
             DeployLib.postDeployLeveragedTokenTransactions(tokens.leveragedToken, Deployed.BAOMULTISIG, minter);
+            DeployLib.postDeployTokenDistributorTransactions(feeReceiver, Deployed.BAOMULTISIG);
+            DeployLib.postDeployMinterTransactions(minter, Deployed.BAOMULTISIG);
             DeployLib.postDeployReservePoolTransactions(reservePool, Deployed.BAOMULTISIG, minter);
         } else if (step() == 2) {
             logAddr(

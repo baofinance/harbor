@@ -7,8 +7,8 @@
     "prettier": "prettier --log-level warn '{src,test,script}/**/*.sol'",
     "fmt": "yarn prettier --write",
     "fmt:check": "yarn prettier --check",
-    "test": "forge test -vvv --nmp script/**/*.t.sol --summary",
-    "test:deploy": "forge test --summary --mp script/**/*.t.sol",
+    "test": "mkdir -p results; ./lib/bao-base/run test",
+    "test:deploy": "forge test -vvv --summary --mp script/**/*.t.sol",
     "gas": "./lib/bao-base/run regression-of gas",
     "coverage": "./lib/bao-base/run regression-of coverage",
     "wake": "wake detect all",
@@ -19,7 +19,7 @@
     "svg": "cd results && find . -name \"*.gp\" -exec gnuplot -e \"set output '{}.svg'\" {} \\;",
     "png": "cd results && find . -name \"*.svg\" -exec convert {} {}.png \\;",
     "deploy:one": "forge script --force --ffi script/deploy.s.sol:Deploy --broadcast --slow",
-    "deploy": "RESUME=false yarn deploy:one && RESUME=true yarn deploy:one",
+    "deploy": "mkdir -p ./log; RESUME=false yarn deploy:one && RESUME=true yarn deploy:one",
     "deploy:local": "NETWORK=local yarn deploy",
     "deploy:local:test": "NETWORK=local:test yarn deploy",
     "contracts": "awk '/gas_reports *=/ {flag=1; next} /]/ {flag=0} flag {gsub(/\"|,/, \"\"); print $1}' foundry.toml",
@@ -27,8 +27,7 @@
     "sizes:raw:contracts": "yarn sizes:raw | grep -E \"^\\| Contract |^\\|---|$(yarn contracts:regexp)\"",
     "sizes:raw": "forge clean; forge build --sizes",
     "sizes": "./lib/bao-base/run regression-of sizes",
-    "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
-    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'"
+    "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc"
   },
   "prettier": "./lib/bao-base/prettier.config.js",
   "dependencies": {

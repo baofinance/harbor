@@ -12,7 +12,7 @@ abstract contract DeployState is Test {
     string filename;
 
     function setStateFile(string memory network) internal {
-        filename = string.concat("./results/deploy-", network, ".log");
+        filename = string.concat("./log/deploy-", network, ".log");
     }
 
     function step() internal view returns (uint step_) {
