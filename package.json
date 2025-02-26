@@ -1,6 +1,7 @@
 {
   "license": "MIT",
   "scripts": {
+    "foundryup": "curl -L https://foundry.paradigm.xyz | bash && foundryup",
     "CI": "./lib/bao-base/run CI",
     "clean": "./lib/bao-base/run clean",
     "git-diffs": "./lib/bao-base/run git-diffs",
