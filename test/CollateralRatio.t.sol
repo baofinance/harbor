@@ -10,8 +10,8 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "src/minter/IMinter.sol";
-import {IRebalancePool} from "src/minter/IRebalancePool.sol";
+import {IMinter} from "@interfaces/IMinter.sol";
+import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IPriceOracle} from "src/price/IPriceOracle.sol";
 import {MockPriceOracle} from "test/MockPriceOracle.sol";

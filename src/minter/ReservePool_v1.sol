@@ -9,7 +9,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
-import {IReservePool} from "src/minter/IReservePool.sol";
+import {IReservePool} from "@interfaces/IReservePool.sol";
 
 /// @title Reserve Pool
 /// @author rootminus0x1
