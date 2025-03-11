@@ -22,7 +22,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 import {TokenDistributor_v1} from "src/minter/TokenDistributor_v1.sol";
-import {ITokenDistributor} from "src/minter/ITokenDistributor.sol";
+import {ITokenDistributor} from "@interfaces/ITokenDistributor.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 

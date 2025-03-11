@@ -11,7 +11,7 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "src/minter/IMinter.sol";
+import {IMinter} from "@interfaces/IMinter.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IPriceOracle} from "src/price/IPriceOracle.sol";

@@ -10,7 +10,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "src/minter/IMinter.sol";
+import {IMinter} from "@interfaces/IMinter.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import {Deployed} from "@bao/Deployed.sol";

@@ -22,8 +22,8 @@ import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {Minter_v1} from "src/minter/Minter_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
-import {IGenesis} from "src/minter/IGenesis.sol";
-import {IMinter} from "src/minter/IMinter.sol";
+import {IGenesis} from "@interfaces/IGenesis.sol";
+import {IMinter} from "@interfaces/IMinter.sol";
 
 import {Genesis_v1, Token} from "src/minter/Genesis_v1.sol";
 
