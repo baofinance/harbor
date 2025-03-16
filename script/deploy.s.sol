@@ -249,7 +249,13 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
                 "rebalancePoolLeveraged",
                 DeployLib.deployRebalancePool(Deployed.BAOMULTISIG, addr("minter"), addr("leveragedToken"))
             );
+
             logAddr("genesis", DeployLib.deployGenesis(Deployed.BAOMULTISIG, addr("minter")));
+
+            if (keccak256(abi.encodePacked(network)) == keccak256(abi.encodePacked("local"))) {
+                vm.prank(Deployed.BAOMULTISIG);
+                IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
+            }
         } else {
             console2.log("too many steps");
         }

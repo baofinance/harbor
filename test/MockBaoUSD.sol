@@ -42,11 +42,11 @@ contract MockBaoUSD is
 
     /// @notice initialise the UUPS proxy
     function initialize(address owner) public initializer {
+        __ERC20_init("Mock BaoUSD", "BaoUSD");
+        __ERC20Permit_init("BaoUSD");
         __Ownable_init(owner);
         __AccessControl_init();
         __UUPSUpgradeable_init();
-        __ERC20_init("Mock BaoUSD", "BaoUSD");
-        __ERC20Permit_init("BaoUSD");
         __ERC165_init();
     }
 

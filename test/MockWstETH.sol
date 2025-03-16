@@ -38,10 +38,10 @@ contract MockWstETH is
 
     /// @notice initialise the UUPS proxy
     function initialize(address owner) public initializer {
-        __Ownable_init(owner);
-        __UUPSUpgradeable_init();
         __ERC20_init("Mock wstETH", "wstETH");
         __ERC20Permit_init("wstETH");
+        __Ownable_init(owner);
+        __UUPSUpgradeable_init();
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
