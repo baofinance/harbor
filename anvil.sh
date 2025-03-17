@@ -6,7 +6,7 @@ network=${1:-mainnet}
 # start a subprocess to set up anvil after it has been started (see below)
 (
 baousd=$(lib/bao-base/run -q bcinfo $network baousd address)
-multisig=$(lib/bao-base/run -q bcinfo $network safe_gov address)
+multisig=$(lib/bao-base/run -q bcinfo $network baomultisig address)
 
 echo "baousd: $baousd"
 echo "multisig: $multisig"

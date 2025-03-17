@@ -307,6 +307,7 @@ contract Transactions is Network, DeployState {
         // For local networks, you can impersonate
         if (keccak256(abi.encodePacked(network)) == keccak256(abi.encodePacked("local"))) {
             // vm.deal(operator, 100 ether);
+            console2.log("BaoUSD operator=%s", operator);
             console2.log("BaoUSD operator ETH balance=%s", Useful.toStringScaled(operator.balance, 18));
             vm.startBroadcast(operator); // Use your own key
             // vm.prank(operator); // Impersonate multisig for this call
