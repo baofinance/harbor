@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+network=${1:-mainnet}
+
 # start a subprocess to set up anvil after it has been started (see below)
 (
-baoUSD=$(lib/bao-base/run -q bcinfo mainnet baousd address)
-multisig=$(lib/bao-base/run -q bcinfo mainnet safe_gov address)
+baousd=$(lib/bao-base/run -q bcinfo $network baousd address)
+multisig=$(lib/bao-base/run -q bcinfo $network safe_gov address)
 
-echo "baoUSD: $baoUSD"
+echo "baousd: $baousd"
 echo "multisig: $multisig"
 # wait for anvil to start
 while ! nc -z localhost 8545; do
   sleep 1
 done
 echo "allowing Bao multisig to be impersonated..."
-cast rpc anvil_impersonateAccount 0xfc69e0a5823e2afcbeb8a35d33588360f1496a00
+cast rpc anvil_impersonateAccount "$multisig"
 echo "giving Bao multisig some ETH..."
-cast rpc anvil_setBalance 0xfc69e0a5823e2afcbeb8a35d33588360f1496a00 0x56BC75E2D63100000
+cast rpc anvil_setBalance "$multisig" $(cast to-hex $(cast to-wei 100)) #0x56BC75E2D63100000
+cast balance $multisig
 echo "anvil ready to use..."
 echo "---------------------"
 )&
 
 # start anvil
-anvil -f mainnet
+anvil -f $network
