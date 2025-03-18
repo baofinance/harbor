@@ -1,0 +1,37 @@
+name: Minter
+contract_name: Minter_v1
+source_file: src/minter/Minter_v1.sol
+upgradeable: true
+deploy_script: script/deploy.s.sol:Deploy
+dependencies:
+  - LeveragedToken
+  - ReservePool
+  - TokenDistributor
+
+initialize:
+  - function: initialize(address,address,address,address,address,address,address,(uint256[],int256[]),int256,uint256,uint256,uint256)
+    args:
+      - type: address
+        value: $baomultisig
+      - type: address
+        value: $baousd
+      - type: address
+        value: "{{LeveragedToken}}"
+      - type: address
+        value: $tbtc
+      - type: address
+        value: "{{TokenDistributor}}"
+      - type: address
+        value: "{{ReservePool}}"
+      - type: address
+        value: $PriceOracle
+      - type: tuple
+        value: "[[10000000000000000000, 15000000000000000000, 20000000000000000000], [100000000000000000, 75000000000000000, 50000000000000000]]"
+      - type: int256
+        value: 100000000000000000
+      - type: uint256
+        value: 500000000000000000
+      - type: uint256
+        value: 200000000000000000
+      - type: uint256
+        value: 500000000000000000
