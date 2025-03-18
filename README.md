@@ -8,6 +8,9 @@ The system maintains the pegging by varying the price of the leveraged token suc
 This works perfectly while the value of the collateral held doesn't drop below the value of all the minted pegged tokens.
 A healthy collateral ratio is maintained through four mechanisms some of which operate throughout the collateral ratio spectrum and others kick in when collateral ratio levels are tending downward.
 
+## Build status
+[![CI](https://github.com/baofinance/bao-minter/actions/workflows/test.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
+
 ## Stability mechanisms
 
 ### Incentives
