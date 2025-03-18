@@ -12,8 +12,8 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
-import {IMinter} from "src/minter/IMinter.sol";
-import {IGenesis} from "src/minter/IGenesis.sol";
+import {IMinter} from "@interfaces/IMinter.sol";
+import {IGenesis} from "@interfaces/IGenesis.sol";
 
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder
 

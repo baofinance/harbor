@@ -14,7 +14,7 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
 contract FakeUUPSUpgradeable is UUPSUpgradeable, AccessControlUpgradeable {
-    function initialize() external {
+    function initialize() external initializer {
         __UUPSUpgradeable_init();
     }
 
@@ -33,13 +33,14 @@ contract FakeBaoAccessControl is BaoOwnableRoles {
 }
 
 contract FakeAccessControl is AccessControlUpgradeable {
-    function initialize() external {
+    function initialize() external initializer {
         __AccessControl_init();
     }
 }
 
 contract FakeOwnable2Step is Ownable2StepUpgradeable {
-    function initialize() external {
+    function initialize(address owner) external initializer {
+        __Ownable_init(owner);
         __Ownable2Step_init();
     }
 }

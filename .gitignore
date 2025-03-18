@@ -3,6 +3,8 @@
 node_modules
 # put your personal stuff in your personal vscode settings file
 .vscode/settings.json
+# wake
+.wake
 
 # generated files
 cache/

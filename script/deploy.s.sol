@@ -20,7 +20,7 @@ import "src/minter/LeveragedToken_v1.sol";
 import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
 import "src/minter/Minter_v1.sol";
-import "src/minter/IMinter.sol";
+import "@interfaces/IMinter.sol";
 import "src/minter/RebalancePool_v1.sol";
 import "src/minter/Genesis_v1.sol";
 import "test/Array.sol";
@@ -194,7 +194,15 @@ contract Network is Script {
 
 contract Deploy is Network, DeployState, Array, ConfigFile {
     function run() public {
-        begin();
+        vm.startBroadcast(privateKey);
+        setStateFile(network);
+        if (vm.envOr("RESUME", false)) {
+            setStep(step() + 1);
+            console2.log("Resuming deployment at step=%s", step());
+        } else {
+            setStep(1);
+            console2.log("Starting deployment at step=%s", step());
+        }
 
         if (step() == 1) {
             logAddr("owner", Deployed.BAOMULTISIG);
@@ -249,36 +257,17 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
                 "rebalancePoolLeveraged",
                 DeployLib.deployRebalancePool(Deployed.BAOMULTISIG, addr("minter"), addr("leveragedToken"))
             );
+
             logAddr("genesis", DeployLib.deployGenesis(Deployed.BAOMULTISIG, addr("minter")));
         } else {
             console2.log("too many steps");
         }
-        end();
-    }
-
-    // string jsonObject;
-
-    function begin() private {
-        vm.startBroadcast(privateKey);
-        setStateFile(network);
-        if (vm.envOr("RESUME", false)) {
-            setStep(step() + 1);
-            console2.log("Resuming deployment at step=%s", step());
-        } else {
-            setStep(1);
-            console2.log("Starting deployment at step=%s", step());
-        }
-        // jsonObject = "";
+        vm.stopBroadcast();
     }
 
     function logAddr(string memory name, address addr) private {
-        //jsonObject = vm.serializeAddress("addresses", name, addr);
         setAddr(name, addr);
         console2.log("%s = %s", name, addr);
-    }
-
-    function end() private {
-        vm.stopBroadcast();
     }
 
     function _percentToEther(uint amount) private pure returns (uint256) {
@@ -310,13 +299,28 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
 
 contract Transactions is Network, DeployState {
     function run() public {
-        vm.startBroadcast(privateKey);
+        setStateFile(network);
 
-        // it's me, hi, I'm the problem, it's me
-        // add minter as a minter to BaoUSD
-        IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
+        address minter = addr("minter");
+        address operator = Deployed.BAOMULTISIG; // TODO: IBaoUSD(Deployed.BaoUSD).operator();
 
-        vm.stopBroadcast();
+        // For local networks, you can impersonate
+        if (keccak256(abi.encodePacked(network)) == keccak256(abi.encodePacked("local"))) {
+            // vm.deal(operator, 100 ether);
+            console2.log("BaoUSD operator=%s", operator);
+            console2.log("BaoUSD operator ETH balance=%s", Useful.toStringScaled(operator.balance, 18));
+            vm.startBroadcast(operator); // Use your own key
+            // vm.prank(operator); // Impersonate multisig for this call
+            // it's me, hi, I'm the problem, it's me
+            // add minter as a minter to BaoUSD
+            IBaoUSD(Deployed.BaoUSD).addMinter(minter);
+            vm.stopBroadcast();
+        } else {
+            // For real networks, just generate the transaction data
+            // console2.log("Transaction to submit to multisig:");
+            // console2.log("Target: %s", address(Deployed.BaoUSD));
+            // console2.log("calldata: %s", abi.encodeCall(IBaoUSD.addMinter, (minter)));
+        }
     }
 }
 

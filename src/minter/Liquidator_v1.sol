@@ -11,8 +11,8 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {IRebalancePool} from "./IRebalancePool.sol";
-import {ILiquidator} from "./ILiquidator.sol";
+import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {ILiquidator} from "@interfaces/ILiquidator.sol";
 
 /// @author rootminus0x1
 /// @dev Uses UUPS proxy, erc7201 storage

@@ -90,8 +90,8 @@ contract TestDeployedMinter is TestMinterBasics, TestDeployed {
     }
 
     function postDeployMultisigTransactions() internal {
-        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
-        IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
+        // vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
+        // IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
     }
 }
 
