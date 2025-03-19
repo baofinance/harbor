@@ -1,28 +1,90 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-network=${1:-mainnet}
-
-lookup_env() {
-    local env_name="$1"
-    local value=""
-    # look up the environment - check if the variable exists before trying to access it
-    if declare -p "$env_name" &>/dev/null; then
-        eval "value=\${$env_name}"
-    elif [[ -f .env ]]; then
-        # Use a subshell to source .env without polluting the parent environment
-        value=$(
-            # shellcheck disable=SC1091 # file exists check above
-            source .env
-            if declare -p "$env_name" &>/dev/null; then
-                eval "echo \${$env_name}"
-            else
-                echo ""
-            fi
-        )
-    fi
-    echo "$value"
+# Function to handle SIGINT and terminate subprocess
+cleanup() {
+    echo "Terminating subprocess..."
+    kill 0
 }
+
+# Trap SIGINT and call cleanup
+trap cleanup SIGINT
+
+
+network="mainnet"
+command="start"
+token=""
+to=""
+amount=""
+role=""
+on=""
+deploy_log="./log/deploy-local.log"
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 -f <network> [command] [options]"
+    echo "Commands:"
+    echo "  steal [--erc20 <token>] --to <address> --amount <amount>"
+    echo "  grant --role <number> --on <address> --to <address>"
+    echo "  impersonate --on <address>"
+    echo "  start (default)"
+    exit 1
+}
+
+# Parse command line options using getopt
+PARSED_OPTIONS=$(getopt -n "$0" -o hf:t:a:r:o: --long help,rpc-url:,erc20:,to:,amount:,role:,on: -- "$@")
+if [[ $? -ne 0 ]]; then
+    usage
+fi
+eval set -- "$PARSED_OPTIONS"
+
+while true; do
+    echo "Processing option: $1"
+    case "$1" in
+        -f|--rpc-url)
+            network=$2
+            shift 2
+            ;;
+        --erc20)
+            token=$2
+            shift 2
+            ;;
+        -t|--to)
+            to=$2
+            shift 2
+            ;;
+        -a|--amount)
+            amount=$2
+            shift 2
+            ;;
+        -r|--role)
+            role=$2
+            shift 2
+            ;;
+        -o|--on)
+            on=$2
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
+
+# Check for required options
+if [[ -z "$network" ]]; then
+    usage
+fi
+
+command="${1:-$command}"
+
+#############################################################################################################
+# internal functions
+
+# TODO: add a function to extract the address from the deployment log
 
 bcinfo() {
     local name="$1"
@@ -30,15 +92,44 @@ bcinfo() {
     lib/bao-base/run -q bcinfo $network $name $field
 }
 
+address_of() {
+    local wallet="$1"
+    local address
+    if [[ "$wallet" == 0x* ]]; then
+        address=$wallet
+    elif [[ "$wallet" == "me" ]]; then
+        local pk=$(lookup_env "PRIVATE_KEY")
+        if [[ "$pk" != "" ]]; then
+            address=$(cast wallet address --private-key $pk)
+        else
+            echo "error: no private key found in env"
+            exit 1
+        fi
+    else
+        address=$(bcinfo $wallet)
+
+        # If not found in bcinfo, check the local deploy log
+        if [[ -z "$address" && -f "$deploy_log" ]]; then
+            # Look for pattern: name = 0xaddress
+            address=$(jq -r ".addresses.$wallet // empty" "$deploy_log")
+        fi
+
+        # If still not found, use wallet as ENS name
+        if [[ -z "$address" ]]; then
+            # may be an ENS name
+            address="$wallet"
+        fi
+    fi
+    echo "$address"
+}
+
 grab() {
     local wallet="$1"
     local eth_amount="$2" # whole units
     shift 2
     local address
-    if [[ "$wallet" == 0x* ]]; then
-        address=$wallet
-    else
-        address=$(bcinfo $wallet)
+    address=$(address_of "$wallet")
+    if [[ "$wallet" != "$address" ]]; then
         wallet="$wallet ($address)"
     fi
     local wei_amount=$(cast to-wei "$eth_amount")
@@ -57,18 +148,13 @@ grab_erc20() {
     local token="$3"
 
     local wallet_address
-    if [[ "$wallet" == 0x* ]]; then
-        wallet_address=$wallet
-    else
-        wallet_address=$(bcinfo $wallet)
+    wallet_address=$(address_of "$wallet")
+    if [[ "$wallet" != "$wallet_address" ]]; then
         wallet="$wallet ($wallet_address)"
     fi
-
     local token_address
-    if [[ "$token" == 0x* ]]; then
-        token_address=$token
-    else
-        token_address=$(bcinfo $token)
+    token_address=$(address_of "$token")
+    if [[ "$token" != "$token_address" ]]; then
         token="$token ($token_address)"
     fi
 
@@ -104,6 +190,9 @@ grab_erc20() {
 
                 if (( $(echo "$wei_pawn_holding > 10000000000000" | bc) == 1 )); then
                     local wei_to_steal=$(echo "$wei_pawn_holding * 9 / 10" | bc) # steal 90% of the balance
+                    if (( $(echo "$wei_to_steal > $wei_amount - $wei_amount_transferred" | bc) == 1 )); then
+                        wei_to_steal=$(echo "$wei_amount - $wei_amount_transferred" | bc)
+                    fi
                     local eth_to_steal=$(cast from-wei "$wei_to_steal")
                     echo "*** stealing $eth_to_steal of $token from $to..."
 
@@ -133,41 +222,112 @@ grab_erc20() {
     done
 }
 
-# Function to handle SIGINT and terminate subprocess
-cleanup() {
-    echo "Terminating subprocess..."
-    kill 0
+lookup_env() {
+    local env_name="$1"
+    local value=""
+    # look up the environment - check if the variable exists before trying to access it
+    if declare -p "$env_name" &>/dev/null; then
+        eval "value=\${$env_name}"
+    elif [[ -f .env ]]; then
+        # Use a subshell to source .env without polluting the parent environment
+        value=$(
+            # shellcheck disable=SC1091 # file exists check above
+            source .env
+            if declare -p "$env_name" &>/dev/null; then
+                eval "echo \${$env_name}"
+            else
+                echo ""
+            fi
+        )
+    fi
+    echo "$value"
 }
 
-# Trap SIGINT and call cleanup
-trap cleanup SIGINT
+#############################################################################################################
 
-# start a subprocess to set up anvil after it has been started (see below)
-(
-    # wait for anvil to start
-    while ! nc -z localhost 8545; do
-        sleep 1
-    done
+transfer() {
+    local to="$1"
+    local eth_amount="$2"
+    local token="$3"
 
-    baousd=$(bcinfo baousd)
-    wsteth=$(bcinfo wsteth)
-
-    echo "*** allowing baomultisig to be impersonated..."
-    cast rpc anvil_impersonateAccount $(bcinfo baomultisig)
-    echo "*** done."
-
-    grab baomultisig 100
-
-    pk=$(lookup_env "PRIVATE_KEY")
-    if [[ "$pk" != "" ]]; then
-        wallet=$(cast wallet address --private-key $pk)
-        grab $wallet 100
-        grab_erc20 $wallet 100 wsteth
+    if [[ -n "$token" ]]; then
+        echo "*** transfer $to $eth_amount ERC20 $token"
+        grab_erc20 "$to" "$eth_amount" "$token"
+    else
+        echo "*** transfer $to $eth_amount ETH"
+        grab "$to" "$eth_amount"
     fi
+}
 
-    echo "anvil ready to use..."
-    echo "---------------------"
-)&
+grant() {
+    local role="$1"
+    local on="$2"
+    local to="$3"
+    echo "*** grant role $role on $on to $to..."
+    # Add the logic to grant the role here
+}
 
-# start anvil
-anvil -f $network
+impersonate() {
+    local on="$1"
+    echo "Impersonating $on..."
+    cast rpc anvil_impersonateAccount "$on"
+}
+
+start() {
+    network="$1"
+    # Start Anvil process
+    (
+        # wait for anvil to start
+        while ! nc -z localhost 8545; do
+            sleep 1
+        done
+
+        echo "*** allowing baomultisig to be impersonated..."
+        cast rpc anvil_impersonateAccount $(bcinfo baomultisig) > /dev/null
+
+        grab baomultisig 1
+
+        # pk=$(lookup_env "PRIVATE_KEY")
+        # if [[ "$pk" != "" ]]; then
+        #     wallet=$(cast wallet address --private-key $pk)
+        #     grab $wallet 100
+        #     grab_erc20 $wallet 100 wsteth
+        # fi
+
+        echo "anvil ready to use..."
+        echo "---------------------"
+    )&
+
+    # start anvil
+    anvil -f $network
+}
+
+# Execute the command
+echo "processing command: $command"
+case $command in
+
+    steal | pinch | nick | grab | pilfer | embezzle | rob | swipe | thieve | filch | purloin |  lift | pillage | plunder | loot | snatch)
+        if [[ -z "$to" || -z "$amount" ]]; then
+            usage
+        fi
+        transfer "$to" "$amount" "$token"
+        ;;
+    grant)
+        if [[ -z "$role" || -z "$on" || -z "$to" ]]; then
+            usage
+        fi
+        grant "$role" "$on" "$to"
+        ;;
+    impersonate)
+        if [[ -z "$on" ]]; then
+            usage
+        fi
+        impersonate "$on"
+        ;;
+    start)
+        start "$network"
+        ;;
+    *)
+        usage
+        ;;
+esac
