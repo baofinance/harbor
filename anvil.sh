@@ -17,6 +17,7 @@ to=""
 amount=""
 role=""
 on=""
+as=""
 deploy_log="./log/deploy-local.log"
 
 # Function to display usage
@@ -24,14 +25,13 @@ usage() {
     echo "Usage: $0 -f <network> [command] [options]"
     echo "Commands:"
     echo "  steal [--erc20 <token>] --to <address> --amount <amount>"
-    echo "  grant --role <number> --on <address> --to <address>"
-    echo "  impersonate --on <address>"
+    echo "  grant --role <number> --on <address> --to <address> [--as <address>]"
     echo "  start (default)"
     exit 1
 }
 
 # Parse command line options using getopt
-PARSED_OPTIONS=$(getopt -n "$0" -o hf:t:a:r:o: --long help,rpc-url:,erc20:,to:,amount:,role:,on: -- "$@")
+PARSED_OPTIONS=$(getopt -n "$0" -o hf:r:a: --long help,rpc-url:,erc20:,to:,amount:,role:,on:,as: -- "$@")
 if [[ $? -ne 0 ]]; then
     usage
 fi
@@ -48,7 +48,7 @@ while true; do
             token=$2
             shift 2
             ;;
-        -t|--to)
+        --to)
             to=$2
             shift 2
             ;;
@@ -62,6 +62,10 @@ while true; do
             ;;
         -o|--on)
             on=$2
+            shift 2
+            ;;
+        -o|--as)
+            as=$2
             shift 2
             ;;
         --)
@@ -83,8 +87,6 @@ command="${1:-$command}"
 
 #############################################################################################################
 # internal functions
-
-# TODO: add a function to extract the address from the deployment log
 
 bcinfo() {
     local name="$1"
@@ -121,6 +123,30 @@ address_of() {
         fi
     fi
     echo "$address"
+}
+
+role_number_of() {
+    local role="$1"
+    local on="$2"
+    local number
+
+    if [[ "$role" =~ ^0x[0-9a-fA-F]+$ ]]; then
+        number=$role
+    # Check if it's a decimal number
+    elif [[ "$role" =~ ^[0-9]+$ ]]; then
+        number=$role
+    else
+        # look up the role by calling the on contract
+        local on_address
+        on_address=$(address_of "$on")
+        if [[ "$on" != "$on_address" ]]; then
+            on="$on ($on_address)"
+        fi
+        # call the role name (translated to upper case) on the on contract by calling the function that is the same as the role name
+        # and get the first 4 bytes of the result
+        number=$(cast call "$on_address" "${role}()(uint256)" | cut -d' ' -f1)
+    fi
+    echo "$number"
 }
 
 grab() {
@@ -263,14 +289,32 @@ grant() {
     local role="$1"
     local on="$2"
     local to="$3"
-    echo "*** grant role $role on $on to $to..."
-    # Add the logic to grant the role here
-}
-
-impersonate() {
-    local on="$1"
-    echo "Impersonating $on..."
-    cast rpc anvil_impersonateAccount "$on"
+    local as="$4"
+    # echo "*** on..."
+    local on_address=$(address_of "$on")
+    if [[ "$on" != "$on_address" ]]; then
+        on="$on ($on_address)"
+    fi
+    # echo "*** to..."
+    local to_address=$(address_of "$to")
+    if [[ "$to" != "$to_address" ]]; then
+        to="$to ($to_address)"
+    fi
+    # echo "*** as..."
+    local as_address=$(address_of "$as")
+    if [[ "$as" != "$as_address" ]]; then
+        as="$as ($as_address)"
+    fi
+    # echo "*** role_number..."
+    local role_number=$(role_number_of "$role" "$on_address")
+    # echo "*** role_number=$role_number."
+    if [[ "$role" != "$role_number" ]]; then
+        role="$role ($role_number)"
+    fi
+    echo "*** grant role $role on $on to $to ${as:+as $as}..."
+    cast rpc anvil_impersonateAccount "$as_address" > /dev/null
+    cast send "$on_address" "grantRoles(address,uint256)" "$to_address" "$role_number" --from "$as_address" --unlocked > /dev/null
+    cast rpc anvil_stopImpersonatingAccount "$as_address" > /dev/null # stop impersonating
 }
 
 start() {
@@ -316,13 +360,7 @@ case $command in
         if [[ -z "$role" || -z "$on" || -z "$to" ]]; then
             usage
         fi
-        grant "$role" "$on" "$to"
-        ;;
-    impersonate)
-        if [[ -z "$on" ]]; then
-            usage
-        fi
-        impersonate "$on"
+        grant "$role" "$on" "$to" "$as"
         ;;
     start)
         start "$network"
