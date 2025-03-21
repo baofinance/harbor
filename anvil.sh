@@ -38,7 +38,6 @@ fi
 eval set -- "$PARSED_OPTIONS"
 
 while true; do
-    echo "Processing option: $1"
     case "$1" in
         -f|--rpc-url)
             network=$2
@@ -76,6 +75,7 @@ while true; do
             usage
             ;;
     esac
+    echo "Processing option: $1"
 done
 
 # Check for required options
