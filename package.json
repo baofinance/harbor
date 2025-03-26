@@ -20,8 +20,8 @@
     "doc": "forge doc",
     "svg": "cd results && find . -name \"*.gp\" -exec gnuplot -e \"set output '{}.svg'\" {} \\;",
     "png": "cd results && find . -name \"*.svg\" -exec convert {} {}.png \\;",
-    "anvil": "./anvil.sh",
-    "anvil:stop": "kill -- -$(ps -o pgid= -p $(pgrep -f \"bash ./anvil.sh\" || echo 0) | tr -d ' ') 2>/dev/null || true",
+    "anvil": "./lib/bao-base/run anvil",
+    "anvil:stop": "kill -- -$(ps -o pgid= -p $(pgrep -f \"run-python anvil\" || echo 0) | tr -d ' ') 2>/dev/null || true",
     "deploy:one": "forge script --ffi script/deploy.s.sol:Deploy --broadcast --slow",
     "deploy": "mkdir -p ./log; RESUME=false yarn deploy:one --force && RESUME=true yarn deploy:one",
     "deploy:local": "NETWORK=local yarn deploy",
@@ -37,6 +37,7 @@
   },
   "prettier": "./lib/bao-base/prettier.config.js",
   "dependencies": {
+    "@openzeppelin/upgrades-core": "^1.42.2",
     "prettier": "^3.2.5",
     "prettier-plugin-solidity": "^1.3.1",
     "solhint": "^5.0.3"
