@@ -175,12 +175,10 @@ contract Minter_v1 is
         // @custom:security non-reentrant
         address feeReceiver; //                         160
         //                                             slot
-        // TODO: do we want a collateral cap?
-        //                                             slot
         address priceOracle; //                         160
         //                                              slot*2
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        // TODO:
+        // TODO: remove harvestCollateralRatioLowerBound?
         uint256 harvestCollateralRatioLowerBound; // above this harvesting of collateral can begin
         //                                             slot*2
         ActionIncentive mintPeggedIncentiveConfig;
