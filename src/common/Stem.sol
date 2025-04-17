@@ -57,7 +57,13 @@ contract Stem is Initializable, UUPSUpgradeable, BaoOwnable {
      */
     function initialize(address owner_) external initializer {
         __UUPSUpgradeable_init();
+        // first step of two step transfer
         _initializeOwner(owner_);
+        // right now the owner is the deployer
+        // The second step of the transfer (transferOwnership) must be done either:
+        // in scenario 1, after the upgrade is performed or
+        // in scenario 2, immediately, for a pause which can only now be unpaused
+        ///               by the owner_, when a new implementation is ready.
     }
 
     /**
