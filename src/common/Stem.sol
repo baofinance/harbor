@@ -20,16 +20,21 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
  *    "stems" the flow of calls to the data. A subsequent upgrade will reconnect
  *    the implementation to its original state or to an upgrade that has a bug fix.
  *
- * This contract intentionally has no initializer or additional functionality.
- * It only implements the required _authorizeUpgrade function to enable upgradeability.
+ * This contract intentionally has no initializer but must initialize ownership in the constructor
+ * to ensure the _authorizeUpgrade function works properly.
  */
 contract Stem is Initializable, UUPSUpgradeable, BaoOwnable {
     /**
-     * @dev Disables initializers as this contract is not meant to be initialized
+     * @dev Disables initializers and initializes BaoOwnable with the deployer as owner
+     * to ensure _authorizeUpgrade can be called later
      */
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address owner_) {
         _disableInitializers();
+        // start the two-step ownerrship set-up process
+        _initializeOwner(owner_); // this just sets the pending owner
+        // complete the two-step ownership set-up process
+        transferOwnership(owner_); // pending owner becomes owner
     }
 
     /**
