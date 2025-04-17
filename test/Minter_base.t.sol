@@ -24,7 +24,7 @@ import {IMinter} from "@interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IReservePool} from "@interfaces/IReservePool.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {MockPriceOracle} from "test/MockPriceOracle.sol";

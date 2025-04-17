@@ -20,7 +20,7 @@ import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
 import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
 
 import {Token} from "@bao/Token.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {MockPriceOracle} from "test/MockPriceOracle.sol";

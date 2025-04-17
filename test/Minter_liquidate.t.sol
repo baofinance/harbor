@@ -11,7 +11,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IMinter} from "@interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
 import {MockPriceOracle} from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";

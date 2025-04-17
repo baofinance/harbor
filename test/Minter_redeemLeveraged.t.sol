@@ -14,7 +14,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "@interfaces/IMinter.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
 import {MockPriceOracle} from "test/MockPriceOracle.sol";
 
 import "test/Useful.sol";

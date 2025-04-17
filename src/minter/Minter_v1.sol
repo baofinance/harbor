@@ -21,7 +21,7 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
 import {IReservePool} from "@interfaces/IReservePool.sol";
 
 /// @title Bao Minter

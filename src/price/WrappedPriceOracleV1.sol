@@ -1,78 +1,103 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity ^0.8.0;
 
 import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/AggregatorV3Interface.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 
 /**
- * @title PriceFeedConsumer
- * @notice A contract demonstrating safe Chainlink price feed consumption
- * with timestamp validation for multiple feeds
+ * @title WrappedPriceOracle
+ * @notice A contract for safely consuming Chainlink price feeds with robust heartbeat detection
  */
 contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
-    // the feed addresses
     AggregatorV3Interface public immutable underlyingFeed;
     AggregatorV3Interface public immutable wrappedFeed;
-
-    // decimals for the underlying and wrapped feeds
     uint8 public immutable underlyingDecimals;
     uint8 public immutable wrappedDecimals;
 
-    uint24 public immutable underlyingInitialHeartbeat; // Manually set heartbeat (via constructor)
-    uint24 public immutable wrappedInitialHeartbeat; // Manually set heartbeat (via constructor)
-
     struct Config {
-        // 48 bits
-        // uint32 has enough seconds for 136 years, uint24 has 6 months
-        uint24 maxTimeDelay; // how old the data read is allowed to be
-        uint24 maxTimeDifference; // how far apart the two feeds can be
+        uint64 maxTimeDelay;
+        uint64 maxTimeDifference;
     }
 
-    uint32 private constant HISTORY_SIZE = 3; // Number of historical updates to track
-    uint32 private constant MIN_SAMPLE_SIZE = 2; // Minimum samples needed for reliable calculation
-    uint32 private constant HEARTBEAT_BUFFER_MULTIPLIER = 12; // Safety factor (×1.2)
-    struct FeedData {
-        // Historical timestamps for heartbeat calculation (circular buffer)
-        uint80 lastRound; //           80 -> 80
-        uint24 calculatedHeartbeat; // Dynamically calculated heartbeat
-        uint24 lastUpdateCount; // Number of updates tracked
-        uint64[HISTORY_SIZE] updateHistory; //   192 -> 128
+    struct HeartbeatData {
+        uint32 calculatedHeartbeat; // Dynamically calculated heartbeat
+        uint32 manualHeartbeat; // Manually set heartbeat (if any)
+        uint32 lastUpdateCount; // Number of updates tracked
+        uint32 minSampleSize; // Minimum samples needed for reliable calculation
     }
 
     struct WrappedPriceOracleStorage {
-        //                                     size -> extent
-        //                                      slot
-        Config config; //                       128 -> 128
-        uint64 lastUpdateTimestamp; //           64 -> 208
-        FeedData underlying; //
-        FeedData wrapped; //                 8 -> 144
+        //                              slot
+        Config config; // 128 -> 128
+        uint80 lastUnderlyingRound; //  80 -> 80 (position adjusted)
+        //                              slot
+        uint80 lastWrappedRound; //  80 -> 80
+        uint64 lastUpdateTimestamp; //  64 -> 144
+        HeartbeatData underlyingHeartbeat; // 128 -> 272
+        //                              slot
+        HeartbeatData wrappedHeartbeat; // 128 -> 128
+        // Historical timestamps for heartbeat calculation (circular buffer)
+        uint64[3] underlyingUpdateHistory; // 192 -> 320
+        uint64[3] wrappedUpdateHistory; // 192 -> 512
     }
 
     WrappedPriceOracleStorage private $;
 
+    // Default network heartbeats (in seconds) to use when calculation isn't possible
+    uint32 private constant DEFAULT_HEARTBEAT_MAINNET = 3600; // 1 hour
+    uint32 private constant DEFAULT_HEARTBEAT_POLYGON = 27; // 27 seconds
+    uint32 private constant DEFAULT_HEARTBEAT_ARBITRUM = 3600; // 1 hour
+    uint32 private constant DEFAULT_HEARTBEAT_OPTIMISM = 3600; // 1 hour
+    uint32 private constant HEARTBEAT_BUFFER_MULTIPLIER = 12; // Safety factor (×1.2)
+    uint32 private constant HISTORY_SIZE = 3; // Number of historical updates to track
+
     event PriceDataRequested(uint256 ratio, uint256 timestamp);
     event ConfigUpdated(uint256 newMaxTimeDelay, uint256 newMaxTimeDifference);
     event HeartbeatCalculated(address feed, uint256 newHeartbeat);
-    event HeartbeatManuallySet(address feed, uint256 newHseartbeat);
+    event HeartbeatManuallySet(address feed, uint256 heartbeat);
 
-    error StalePrice(uint256 underlyingTimestamp, uint256 wrappedTimestamp, uint256 currentTime);
+    error StalePrice(uint256 timestamp, uint256 currentTime);
     error PricesOutOfSync(uint256 underlyingTimestamp, uint256 wrappedTimestamp);
     error InvalidPrice(uint256 underlyingPrice, uint256 wrappedPrice);
-    error NoRoundProgression(address feed, uint256 roundId);
+    error NoRoundProgression();
 
-    constructor(
-        address underlyingFeed_,
-        address wrappedFeed_,
-        uint256 underlyingHeartbeat_,
-        uint256 wrappedHeartbeat_,
-        uint256 maxTimeDelay_,
-        uint256 maxTimeDifference_
-    ) {
-        underlyingFeed = AggregatorV3Interface(underlyingFeed);
-        wrappedFeed = AggregatorV3Interface(wrappedFeed);
+    constructor(address underlyingFeed_, address wrappedFeed_) {
+        underlyingFeed = AggregatorV3Interface(underlyingFeed_);
+        wrappedFeed = AggregatorV3Interface(wrappedFeed_);
         underlyingDecimals = underlyingFeed.decimals();
         wrappedDecimals = wrappedFeed.decimals();
+
+        // Initialize heartbeat tracking
+        $.underlyingHeartbeat.minSampleSize = 2;
+        $.wrappedHeartbeat.minSampleSize = 2;
+
+        // Set default values based on network
+        uint256 chainId;
+        assembly {
+            chainId := chainid()
+        }
+
+        uint32 defaultHeartbeat = getDefaultHeartbeat(chainId);
+        $.underlyingHeartbeat.calculatedHeartbeat = defaultHeartbeat;
+        $.wrappedHeartbeat.calculatedHeartbeat = defaultHeartbeat;
+    }
+
+    /**
+     * @dev Returns appropriate default heartbeat based on the network
+     */
+    function getDefaultHeartbeat(uint256 chainId) internal pure returns (uint32) {
+        if (chainId == 1) {
+            return DEFAULT_HEARTBEAT_MAINNET;
+        } else if (chainId == 137) {
+            return DEFAULT_HEARTBEAT_POLYGON;
+        } else if (chainId == 42161) {
+            return DEFAULT_HEARTBEAT_ARBITRUM;
+        } else if (chainId == 10) {
+            return DEFAULT_HEARTBEAT_OPTIMISM;
+        } else {
+            return DEFAULT_HEARTBEAT_MAINNET; // Default to mainnet value
+        }
     }
 
     /**
@@ -156,18 +181,13 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
         return heartbeatData.calculatedHeartbeat;
     }
 
-    function getPriceData() external view returns (int256 underlyingPrice, int256 wrappedRate) {
-        // Get underlying and wrapped price data:
-        // roundId          is the round ID from the aggregator for which the data was retrieved
-        //                  combined with a phase to ensure that round IDs get larger as time moves forward.
-        // answer           is the answer for the given round
-        // startedAt        is the timestamp when the round was started.
-        //                  (Only some AggregatorV3Interface implementations return meaningful values)
-        // updatedAt        is the timestamp when the round last was updated (i.e. answer was last computed)
-        // answeredInRound  is the round ID of the round in which the answer was computed.
-        //                  (Only some AggregatorV3Interface implementations return meaningful values)
-        // we ignore startedAt and answeredInRound for now as they have inconsistent values across different aggregators
-
+    /**
+     * @notice Get price data from both feeds with robust validation
+     * @return underlyingPrice The price from the underlying feed
+     * @return wrappedRate The calculated rate between the feeds
+     */
+    function getPriceData() external nonReentrant returns (int256 underlyingPrice, int256 wrappedRate) {
+        // Get data from both feeds
         (uint80 underlyingRound, int256 underlyingAnswer, , uint256 underlyingUpdatedAt, ) = underlyingFeed
             .latestRoundData();
         (uint80 wrappedRound, int256 wrappedAnswer, , uint256 wrappedUpdatedAt, ) = wrappedFeed.latestRoundData();
@@ -177,12 +197,12 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
             revert InvalidPrice(uint256(underlyingAnswer), uint256(wrappedAnswer));
         }
 
-        // Check for stale data
-        if (
-            (block.timestamp - underlyingUpdatedAt > $.config.maxTimeDelay) ||
-            (block.timestamp - wrappedUpdatedAt > $.config.maxTimeDelay)
-        ) {
-            revert StalePrice(underlyingUpdatedAt, wrappedUpdatedAt, block.timestamp);
+        // Check for stale prices using maxTimeDelay
+        if (block.timestamp - underlyingUpdatedAt > $.config.maxTimeDelay) {
+            revert StalePrice(underlyingUpdatedAt, block.timestamp);
+        }
+        if (block.timestamp - wrappedUpdatedAt > $.config.maxTimeDelay) {
+            revert StalePrice(wrappedUpdatedAt, block.timestamp);
         }
 
         // Ensure timestamps are reasonably in sync
@@ -212,6 +232,7 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
                 }
             }
         }
+
         // Update historical data for heartbeat calculation
         updateHeartbeatData(true, underlyingUpdatedAt);
         updateHeartbeatData(false, wrappedUpdatedAt);
@@ -222,11 +243,11 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
         $.lastUpdateTimestamp = uint64(block.timestamp);
 
         // Calculate wrapped rate with decimal adjustment
-        if ($.underlyingDecimals >= $.wrappedDecimals) {
-            uint256 adjustedPrice = uint256(underlyingAnswer) * 10 ** ($.underlyingDecimals - $.wrappedDecimals);
+        if (underlyingDecimals >= wrappedDecimals) {
+            uint256 adjustedPrice = uint256(underlyingAnswer) * 10 ** (underlyingDecimals - wrappedDecimals);
             wrappedRate = int256((adjustedPrice * 1e18) / uint256(wrappedAnswer));
         } else {
-            uint256 adjustedPrice = uint256(wrappedAnswer) * 10 ** ($.wrappedDecimals - $.underlyingDecimals);
+            uint256 adjustedPrice = uint256(wrappedAnswer) * 10 ** (wrappedDecimals - underlyingDecimals);
             wrappedRate = int256((uint256(underlyingAnswer) * 1e18) / adjustedPrice);
         }
 
@@ -236,13 +257,13 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
     }
 
     /**
-     * @notice Update the maximum allowed time delay for price feed data and the maximum allowed time difference between price feeds
-     * @param maxTimeDelay New maximum time delay in seconds
-     * @param maxTimeDifference New maximum time difference in seconds
+     * @notice Update the configuration parameters
+     * @param maxTimeDelay Maximum time delay allowed for price data
+     * @param maxTimeDifference Maximum time difference allowed between feeds
      */
-    function updateConfig(uint256 maxTimeDelay, uint256 maxTimeDifference) external onlyOwner {
-        $.config.maxTimeDifference = maxTimeDifference;
+    function updateConfig(uint64 maxTimeDelay, uint64 maxTimeDifference) external onlyOwner {
         $.config.maxTimeDelay = maxTimeDelay;
+        $.config.maxTimeDifference = maxTimeDifference;
         emit ConfigUpdated(maxTimeDelay, maxTimeDifference);
     }
 }
