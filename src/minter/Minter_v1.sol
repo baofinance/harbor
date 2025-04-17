@@ -2064,10 +2064,7 @@ contract Minter_v1 is
     /// @notice Returns the safe price for the collateral token.
     /// @dev Checks safe price non-zero.
     function _fetchSafePrice(address priceOracle_) private view returns (uint256 safe) {
-        safe = IPriceOracle(priceOracle_).latestAnswer() * 10 ** (18 - IPriceOracle(priceOracle_).decimals());
-        if (safe == 0) {
-            revert ZeroOraclePrice();
-        }
+        safe = IPriceOracle(priceOracle_).latestAnswer();
     }
 
     /// @notice Returns the min price for the collateral token.

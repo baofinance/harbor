@@ -5,13 +5,14 @@ import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/Aggr
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {IWrappedPriceOracle} from "@interfaces/IWrappedPriceOracle.sol";
 
 /**
  * @title WrappedPriceOracleV1
  * @notice A contract for safely consuming Chainlink price feeds with heartbeat detection
  * @dev This contract is designed to be used with a UUPS proxy
  */
-contract WrappedPriceOracleV1 is UUPSUpgradeable, ReentrancyGuardTransientUpgradeable, BaoOwnable {
+contract WrappedPriceOracleV1 is IWrappedPriceOracle, UUPSUpgradeable, ReentrancyGuardTransientUpgradeable, BaoOwnable {
     // Constants remain non-state variables
     uint32 private constant HEARTBEAT_BUFFER_MULTIPLIER = 12; // Safety factor (×1.2)
     uint32 private constant HISTORY_SIZE = 3; // Number of historical updates to track
@@ -232,7 +233,7 @@ contract WrappedPriceOracleV1 is UUPSUpgradeable, ReentrancyGuardTransientUpgrad
      * @return underlyingPrice The price from the underlying feed
      * @return wrappedRate The calculated rate between the feeds
      */
-    function getPriceData() external nonReentrant returns (int256 underlyingPrice, int256 wrappedRate) {
+    function latestAnswer() external nonReentrant returns (uint256 underlyingPrice, uint256 wrappedRate) {
         WrappedPriceOracleStorage storage $ = _getPriceOracleStorage();
 
         // Get data from both feeds

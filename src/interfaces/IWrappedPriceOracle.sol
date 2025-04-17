@@ -8,10 +8,7 @@ pragma solidity ^0.8.26;
 
 interface IWrappedPriceOracle {
     /// @notice Return the oracle price.
-    /// @return price The price - get the decimals from the `decimals()` function
-    function latestAnswer() external view returns (uint256 price);
-
-    /// @notice Returns the precison of the returned answers from `latestAnswer()` function
-    /// @return decimals_ The number of decimals in the answers returned
-    function decimals() external view returns (uint8 decimals_);
+    /// @return underlyingPrice The price, always 18 decimals
+    /// @return wrappedRate The rate of the wrapped asset to the underlying asset, always 18 decimals
+    function latestAnswer() external view returns (uint256 underlyingPrice, uint256 wrappedRate);
 }

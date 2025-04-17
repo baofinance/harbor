@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Stem} from "../../src/common/Stem.sol";
+
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 // Mock contracts for testing
@@ -25,31 +27,40 @@ contract StemTest is Test {
 
     function testInitialDeployment() public {
         // 1. Deploy proxy with Stem implementation
-        bytes memory initData = abi.encodeWithSelector(
-            Stem.initialize.selector,
-            proxyAdmin // Initial owner is the deployment script/admin
+        Stem stemProxy = Stem(
+            UnsafeUpgrades.deployUUPSProxy(
+                stemImplementation, // "StemV1.sol" for Upgrades version
+                abi.encodeWithSelector(
+                    Stem.initialize.selector,
+                    proxyAdmin // Initial owner is the deployment script/admin
+                )
+            )
         );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(stemImplementation), initData);
-        Stem stemProxy = Stem(address(proxy));
+        // Verify dproxy deployment
+        assertEq(stemProxy.owner(), address(this)); // Owner is the deployer of the proxy
+        assertEq(stemProxy.getImplementation(), address(stemImplementation)); // Implementation is Stem
+
+        // 2. Deploy the actual implementation we want to use
+        MockImplementation actualImplementation = new MockImplementation(); // this would be prepare upgrade
+        // TODO: test that an implementation call here has no effect on the proxy call
+
+        // 3. Upgrade from Stem to actual implementation & initialise it
+        vm.prank(proxyAdmin);
+        // stemProxy.upgradeTo(address(actualImplementation));
+        UnsafeUpgrades.upgradeProxy(
+            stemProxy,
+            stemImplementation,
+            abi.encodeWithSelector(Stem.initialize.selector, proxyAdmin, 42)
+        );
+        // 4 transfer the ownership to the new Owner
+        stemProxy.transferOwnership(proxyAdmin);
+
+        // Verify actual implementation works
+        assertEq(stemImplementation.value(), 42);
+        assertEq(stemImplementation.owner(), proxyAdmin); // Ownership carries over
 
         // Verify initialization
         assertEq(stemProxy.owner(), proxyAdmin);
-
-        // 2. Deploy the actual implementation we want to use
-        MockImplementation actualImplementation = new MockImplementation();
-
-        // 3. Upgrade from Stem to actual implementation
-        vm.prank(proxyAdmin);
-        stemProxy.upgradeTo(address(actualImplementation));
-
-        // 4. Initialize the actual implementation
-        MockImplementation implementation = MockImplementation(address(proxy));
-        vm.prank(proxyAdmin);
-        implementation.initialize(42);
-
-        // Verify actual implementation works
-        assertEq(implementation.value(), 42);
-        assertEq(implementation.owner(), proxyAdmin); // Ownership carries over
     }
 
     function testCannotReinitializeImplementation() public {
