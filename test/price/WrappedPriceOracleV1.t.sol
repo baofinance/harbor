@@ -3,12 +3,16 @@ pragma solidity 0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import {WrappedPriceOracleV1} from "../../src/price/WrappedPriceOracleV1.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockAggregator} from "../mocks/MockAggregator.sol";
+import {OracleStorageV1} from "../../src/price/OracleStorage.sol";
 
 contract WrappedPriceOracleV1Test is Test {
-    WrappedPriceOracleV1 public oracle;
+    WrappedPriceOracleV1 public implementation;
+    WrappedPriceOracleV1 public oracle; // This will be the proxy
     MockAggregator public underlyingFeed;
     MockAggregator public wrappedFeed;
+    ERC1967Proxy public proxy;
 
     // Test parameters
     uint32 public constant UNDERLYING_HEARTBEAT = 3600; // 1 hour
@@ -23,6 +27,7 @@ contract WrappedPriceOracleV1Test is Test {
     event ConfigUpdated(uint256 newMaxTimeDelay, uint256 newMaxTimeDifference);
     event HeartbeatCalculated(address feed, uint256 newHeartbeat);
     event HeartbeatManuallySet(address feed, uint256 heartbeat);
+    event Initialized(uint8 version);
 
     function setUp() public {
         // Setup underlying feed with 8 decimals
@@ -33,22 +38,31 @@ contract WrappedPriceOracleV1Test is Test {
         wrappedFeed = new MockAggregator(18);
         wrappedFeed.setLatestRoundData(1, 1 * 10 ** 18, block.timestamp, block.timestamp, 1); // 1:1 ratio
 
-        // Deploy oracle with owner
-        vm.startPrank(owner);
-        oracle = new WrappedPriceOracleV1(
+        // Deploy implementation
+        implementation = new WrappedPriceOracleV1();
+
+        // Prepare initialization data
+        bytes memory initData = abi.encodeWithSelector(
+            WrappedPriceOracleV1.initialize.selector,
             address(underlyingFeed),
             address(wrappedFeed),
             UNDERLYING_HEARTBEAT,
-            WRAPPED_HEARTBEAT
+            WRAPPED_HEARTBEAT,
+            owner
         );
-        oracle.transferOwnership(owner);
+
+        // Deploy proxy with implementation and initialization
+        proxy = new ERC1967Proxy(address(implementation), initData);
+
+        // Cast proxy to the oracle interface
+        oracle = WrappedPriceOracleV1(address(proxy));
 
         // Set initial configuration
+        vm.prank(owner);
         oracle.updateConfig(MAX_TIME_DELAY, MAX_TIME_DIFFERENCE);
-        vm.stopPrank();
     }
 
-    function testInitialization() public view {
+    function testInitialization() public {
         assertEq(address(oracle.underlyingFeed()), address(underlyingFeed));
         assertEq(address(oracle.wrappedFeed()), address(wrappedFeed));
         assertEq(oracle.underlyingDecimals(), 8);
@@ -57,6 +71,29 @@ contract WrappedPriceOracleV1Test is Test {
         // Test heartbeat initialization (internal values, so we need to call getEffectiveHeartbeat)
         assertEq(oracle.getEffectiveHeartbeat(true), UNDERLYING_HEARTBEAT);
         assertEq(oracle.getEffectiveHeartbeat(false), WRAPPED_HEARTBEAT);
+    }
+
+    function testCannotInitializeImplementation() public {
+        vm.expectRevert();
+        implementation.initialize(
+            address(underlyingFeed),
+            address(wrappedFeed),
+            UNDERLYING_HEARTBEAT,
+            WRAPPED_HEARTBEAT,
+            owner
+        );
+    }
+
+    function testCannotReinitialize() public {
+        vm.prank(owner);
+        vm.expectRevert();
+        oracle.initialize(
+            address(underlyingFeed),
+            address(wrappedFeed),
+            UNDERLYING_HEARTBEAT,
+            WRAPPED_HEARTBEAT,
+            owner
+        );
     }
 
     function testGetPriceData() public {
@@ -209,5 +246,34 @@ contract WrappedPriceOracleV1Test is Test {
 
         // This would fail with the old MAX_TIME_DIFFERENCE (300) but should pass now (150)
         oracle.getPriceData();
+    }
+
+    function testUpgrade() public {
+        // Deploy a new implementation version
+        WrappedPriceOracleV1 newImplementation = new WrappedPriceOracleV1();
+
+        // Non-owner can't upgrade
+        vm.prank(user);
+        vm.expectRevert("BaoOwnable: caller is not the owner");
+        oracle.upgradeTo(address(newImplementation));
+
+        // Owner can upgrade
+        vm.prank(owner);
+        oracle.upgradeTo(address(newImplementation));
+
+        // Verify state is preserved after upgrade
+        assertEq(address(oracle.underlyingFeed()), address(underlyingFeed));
+        assertEq(address(oracle.wrappedFeed()), address(wrappedFeed));
+        assertEq(oracle.underlyingDecimals(), 8);
+        assertEq(oracle.wrappedDecimals(), 18);
+
+        // Check functionality after upgrade
+        uint256 currentTime = block.timestamp;
+        underlyingFeed.setLatestRoundData(3, 130000000, currentTime, currentTime, 3); // $1.30
+        wrappedFeed.setLatestRoundData(3, 1 * 10 ** 18, currentTime, currentTime, 3);
+
+        // Can still call functions
+        (int256 underlyingPrice, ) = oracle.getPriceData();
+        assertEq(underlyingPrice, 130000000);
     }
 }

@@ -3,96 +3,108 @@ pragma solidity 0.8.28;
 
 import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/AggregatorV3Interface.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {OracleStorageV1} from "./OracleStorage.sol";
 
 /**
  * @title WrappedPriceOracleV1
  * @notice A contract for safely consuming Chainlink price feeds with heartbeat detection
+ * @dev This contract is designed to be used with a UUPS proxy
  */
-contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable {
-    AggregatorV3Interface public immutable underlyingFeed;
-    AggregatorV3Interface public immutable wrappedFeed;
-    uint8 public immutable underlyingDecimals; //                               8 bits
-    uint8 public immutable wrappedDecimals; //                                  8 bits
+contract WrappedPriceOracleV1 is UUPSUpgradeable, ReentrancyGuardTransientUpgradeable, BaoOwnable {
+    using OracleStorageV1 for OracleStorageV1.Layout;
 
-    struct Config {
-        // how old the data read is allowed to be
-        uint64 maxTimeDelay; //                                                64 bits
-        // how far apart the two feeds can be
-        uint64 maxTimeDifference; //                                           64 bits
-        // Total: 128 bits (half a slot)
-    }
-
-    struct HeartbeatData {
-        // Dynamically calculated heartbeat
-        uint32 calculatedHeartbeat; //                                         32 bits
-        // Manually set heartbeat (if any)
-        uint32 manualHeartbeat; //                                             32 bits
-        // Number of updates tracked
-        uint32 lastUpdateCount; //                                             32 bits
-    }
-
-    struct WrappedPriceOracleStorage {
-        // Slot 1
-        Config config; //                          128 bits -> 128/256 bits used in slot 1
-        uint80 lastUnderlyingRound; //              80 bits -> 208/256 bits used (48 bits remaining in slot 1)
-        // Slot 2
-        uint80 lastWrappedRound; //                 80 bits -> 80/256 bits used in slot 2
-        uint64 lastUpdateTimestamp; //              64 bits -> 144/256 bits used in slot 2
-        // 128 bits -> Spans slot 2 and 3
-        // First 112 bits in slot 2 -> 256/256 bits used (slot 2 full)
-        HeartbeatData underlyingHeartbeat;
-        // Slot 3
-        // (16 bits of underlyingHeartbeat continue here) -> 16/256 bits used in slot 3
-        HeartbeatData wrappedHeartbeat; //         128 bits -> 144/256 bits used in slot 3
-        // Historical timestamps for heartbeat calculation (circular buffer)
-        // 192 bits total (3 × 64-bit values):
-        // - First uint64: 64 bits -> 208/256 bits used in slot 3
-        // - 48 more bits from second uint64 -> 256/256 bits used (slot 3 full)
-        uint64[3] underlyingUpdateHistory;
-        // Slot 4
-        // (16 bits of second uint64 from underlyingUpdateHistory continue here) -> 16/256 bits used in slot 4
-        // - Remaining uint64 from underlyingUpdateHistory: 64 bits -> 80/256 bits used in slot 4
-
-        // 192 bits total (3 × 64-bit values):
-        // - First uint64: 64 bits -> 144/256 bits used in slot 4
-        // - Second uint64: 64 bits -> 208/256 bits used in slot 4
-        uint64[3] wrappedUpdateHistory;
-
-        // - 48 bits from third uint64 -> 256/256 bits used (slot 4 full)
-
-        // Slot 5
-        // (16 remaining bits from third uint64 of wrappedUpdateHistory) -> 16/256 bits used in slot 5
-        // (240 bits remaining unused in slot 5)
-    }
-
-    WrappedPriceOracleStorage private $;
-
+    // Constants remain non-state variables
     uint32 private constant HEARTBEAT_BUFFER_MULTIPLIER = 12; // Safety factor (×1.2)
     uint32 private constant HISTORY_SIZE = 3; // Number of historical updates to track
     uint32 private constant MIN_SAMPLE_SIZE = 2; // Minimum samples needed for reliable calculation
 
+    // Events
     event PriceDataRequested(uint256 ratio, uint256 timestamp);
     event ConfigUpdated(uint256 newMaxTimeDelay, uint256 newMaxTimeDifference);
     event HeartbeatCalculated(address feed, uint256 newHeartbeat);
     event HeartbeatManuallySet(address feed, uint256 heartbeat);
+    event Initialized(uint8 version);
 
+    // Errors
     error StalePrice(uint256 timestamp, uint256 currentTime);
     error PricesOutOfSync(uint256 underlyingTimestamp, uint256 wrappedTimestamp);
     error InvalidPrice(uint256 underlyingPrice, uint256 wrappedPrice);
     error NoRoundProgression();
 
-    constructor(address underlyingFeed_, address wrappedFeed_, uint32 underlyingHeartbeat_, uint32 wrappedHeartbeat_) {
-        underlyingFeed = AggregatorV3Interface(underlyingFeed_);
-        wrappedFeed = AggregatorV3Interface(wrappedFeed_);
-        underlyingDecimals = underlyingFeed.decimals();
-        wrappedDecimals = wrappedFeed.decimals();
+    /**
+     * @dev Blocks initialization of the implementation contract
+     */
+    constructor() {
+        _disableInitializers();
+    }
 
-        // Initialize heartbeat tracking
+    /**
+     * @notice Initialize the contract with required parameters
+     * @param underlyingFeed_ Chainlink feed for the underlying asset
+     * @param wrappedFeed_ Chainlink feed for the wrapped asset
+     * @param underlyingHeartbeat_ Initial heartbeat for underlying asset
+     * @param wrappedHeartbeat_ Initial heartbeat for wrapped asset
+     * @param owner_ Address of the contract owner
+     */
+    function initialize(
+        address underlyingFeed_,
+        address wrappedFeed_,
+        uint32 underlyingHeartbeat_,
+        uint32 wrappedHeartbeat_,
+        address owner_
+    ) external initializer {
+        __UUPSUpgradeable_init();
+        __ReentrancyGuardTransient_init();
+        _initializeOwner(owner_);
 
-        // Set initial heartbeats from constructor parameters
-        $.underlyingHeartbeat.calculatedHeartbeat = underlyingHeartbeat_;
-        $.wrappedHeartbeat.calculatedHeartbeat = wrappedHeartbeat_;
+        // Set feed addresses and retrieve decimals
+        OracleStorageV1.layout().underlyingFeed = AggregatorV3Interface(underlyingFeed_);
+        OracleStorageV1.layout().wrappedFeed = AggregatorV3Interface(wrappedFeed_);
+        OracleStorageV1.layout().underlyingDecimals = OracleStorageV1.layout().underlyingFeed.decimals();
+        OracleStorageV1.layout().wrappedDecimals = OracleStorageV1.layout().wrappedFeed.decimals();
+
+        // Set initial heartbeats
+        OracleStorageV1.layout().underlyingHeartbeat.calculatedHeartbeat = underlyingHeartbeat_;
+        OracleStorageV1.layout().wrappedHeartbeat.calculatedHeartbeat = wrappedHeartbeat_;
+
+        // emit Initialized(1);
+    }
+
+    /**
+     * @dev Function that authorizes upgrades, restricted to owner
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
+        // Validation can be added here if needed
+    }
+
+    /**
+     * @notice Get the underlying feed
+     */
+    function underlyingFeed() external view returns (AggregatorV3Interface) {
+        return OracleStorageV1.layout().underlyingFeed;
+    }
+
+    /**
+     * @notice Get the wrapped feed
+     */
+    function wrappedFeed() external view returns (AggregatorV3Interface) {
+        return OracleStorageV1.layout().wrappedFeed;
+    }
+
+    /**
+     * @notice Get the underlying asset decimals
+     */
+    function underlyingDecimals() external view returns (uint8) {
+        return OracleStorageV1.layout().underlyingDecimals;
+    }
+
+    /**
+     * @notice Get the wrapped asset decimals
+     */
+    function wrappedDecimals() external view returns (uint8) {
+        return OracleStorageV1.layout().wrappedDecimals;
     }
 
     /**
@@ -102,12 +114,16 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
      * @param heartbeat Heartbeat value in seconds
      */
     function setHeartbeat(address feed, uint32 heartbeat) external onlyOwner {
-        require(feed == address(underlyingFeed) || feed == address(wrappedFeed), "Invalid feed address");
+        require(
+            feed == address(OracleStorageV1.layout().underlyingFeed) ||
+                feed == address(OracleStorageV1.layout().wrappedFeed),
+            "Invalid feed address"
+        );
 
-        if (feed == address(underlyingFeed)) {
-            $.underlyingHeartbeat.manualHeartbeat = heartbeat;
+        if (feed == address(OracleStorageV1.layout().underlyingFeed)) {
+            OracleStorageV1.layout().underlyingHeartbeat.manualHeartbeat = heartbeat;
         } else {
-            $.wrappedHeartbeat.manualHeartbeat = heartbeat;
+            OracleStorageV1.layout().wrappedHeartbeat.manualHeartbeat = heartbeat;
         }
 
         emit HeartbeatManuallySet(feed, heartbeat);
@@ -119,8 +135,13 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
      * @param timestamp New timestamp to record
      */
     function updateHeartbeatData(bool isUnderlying, uint256 timestamp) internal {
-        HeartbeatData storage heartbeatData = isUnderlying ? $.underlyingHeartbeat : $.wrappedHeartbeat;
-        uint64[HISTORY_SIZE] storage history = isUnderlying ? $.underlyingUpdateHistory : $.wrappedUpdateHistory;
+        OracleStorageV1.HeartbeatData storage heartbeatData = isUnderlying
+            ? OracleStorageV1.layout().underlyingHeartbeat
+            : OracleStorageV1.layout().wrappedHeartbeat;
+
+        uint64[HISTORY_SIZE] storage history = isUnderlying
+            ? OracleStorageV1.layout().underlyingUpdateHistory
+            : OracleStorageV1.layout().wrappedUpdateHistory;
 
         // Calculate index for circular buffer
         uint256 idx = heartbeatData.lastUpdateCount % HISTORY_SIZE;
@@ -152,7 +173,12 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
                 uint32 newHeartbeat = uint32(((totalTime / validSamples) * HEARTBEAT_BUFFER_MULTIPLIER) / 10);
                 heartbeatData.calculatedHeartbeat = newHeartbeat;
 
-                emit HeartbeatCalculated(isUnderlying ? address(underlyingFeed) : address(wrappedFeed), newHeartbeat);
+                emit HeartbeatCalculated(
+                    isUnderlying
+                        ? address(OracleStorageV1.layout().underlyingFeed)
+                        : address(OracleStorageV1.layout().wrappedFeed),
+                    newHeartbeat
+                );
             }
         }
     }
@@ -163,7 +189,9 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
      * @return The effective heartbeat in seconds
      */
     function getEffectiveHeartbeat(bool isUnderlying) public view returns (uint256) {
-        HeartbeatData storage heartbeatData = isUnderlying ? $.underlyingHeartbeat : $.wrappedHeartbeat;
+        OracleStorageV1.HeartbeatData storage heartbeatData = isUnderlying
+            ? OracleStorageV1.layout().underlyingHeartbeat
+            : OracleStorageV1.layout().wrappedHeartbeat;
 
         // Manual heartbeat takes precedence if set
         if (heartbeatData.manualHeartbeat > 0) {
@@ -180,9 +208,15 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
      */
     function getPriceData() external nonReentrant returns (int256 underlyingPrice, int256 wrappedRate) {
         // Get data from both feeds
-        (uint80 underlyingRound, int256 underlyingAnswer, , uint256 underlyingUpdatedAt, ) = underlyingFeed
+        (uint80 underlyingRound, int256 underlyingAnswer, , uint256 underlyingUpdatedAt, ) = OracleStorageV1
+            .layout()
+            .underlyingFeed
             .latestRoundData();
-        (uint80 wrappedRound, int256 wrappedAnswer, , uint256 wrappedUpdatedAt, ) = wrappedFeed.latestRoundData();
+
+        (uint80 wrappedRound, int256 wrappedAnswer, , uint256 wrappedUpdatedAt, ) = OracleStorageV1
+            .layout()
+            .wrappedFeed
+            .latestRoundData();
 
         // Check for valid prices
         if (underlyingAnswer <= 0 || wrappedAnswer <= 0) {
@@ -190,10 +224,10 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
         }
 
         // Check for stale prices using maxTimeDelay
-        if (block.timestamp - underlyingUpdatedAt > $.config.maxTimeDelay) {
+        if (block.timestamp - underlyingUpdatedAt > OracleStorageV1.layout().config.maxTimeDelay) {
             revert StalePrice(underlyingUpdatedAt, block.timestamp);
         }
-        if (block.timestamp - wrappedUpdatedAt > $.config.maxTimeDelay) {
+        if (block.timestamp - wrappedUpdatedAt > OracleStorageV1.layout().config.maxTimeDelay) {
             revert StalePrice(wrappedUpdatedAt, block.timestamp);
         }
 
@@ -202,24 +236,24 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
             ? underlyingUpdatedAt - wrappedUpdatedAt
             : wrappedUpdatedAt - underlyingUpdatedAt;
 
-        if (timeDiff > $.config.maxTimeDifference) {
+        if (timeDiff > OracleStorageV1.layout().config.maxTimeDifference) {
             revert PricesOutOfSync(underlyingUpdatedAt, wrappedUpdatedAt);
         }
 
         // Check for round progression using heartbeats
-        if ($.lastUpdateTimestamp > 0) {
+        if (OracleStorageV1.layout().lastUpdateTimestamp > 0) {
             uint256 underlyingHeartbeat = getEffectiveHeartbeat(true);
             uint256 wrappedHeartbeat = getEffectiveHeartbeat(false);
 
             // Only check round progression if enough time has passed (2x heartbeat)
-            if (block.timestamp > $.lastUpdateTimestamp + 2 * underlyingHeartbeat) {
-                if (underlyingRound <= $.lastUnderlyingRound) {
+            if (block.timestamp > OracleStorageV1.layout().lastUpdateTimestamp + 2 * underlyingHeartbeat) {
+                if (underlyingRound <= OracleStorageV1.layout().lastUnderlyingRound) {
                     revert NoRoundProgression();
                 }
             }
 
-            if (block.timestamp > $.lastUpdateTimestamp + 2 * wrappedHeartbeat) {
-                if (wrappedRound <= $.lastWrappedRound) {
+            if (block.timestamp > OracleStorageV1.layout().lastUpdateTimestamp + 2 * wrappedHeartbeat) {
+                if (wrappedRound <= OracleStorageV1.layout().lastWrappedRound) {
                     revert NoRoundProgression();
                 }
             }
@@ -230,16 +264,18 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
         updateHeartbeatData(false, wrappedUpdatedAt);
 
         // Update storage with latest rounds and timestamp
-        $.lastUnderlyingRound = underlyingRound;
-        $.lastWrappedRound = wrappedRound;
-        $.lastUpdateTimestamp = uint64(block.timestamp);
+        OracleStorageV1.layout().lastUnderlyingRound = underlyingRound;
+        OracleStorageV1.layout().lastWrappedRound = wrappedRound;
+        OracleStorageV1.layout().lastUpdateTimestamp = uint64(block.timestamp);
 
         // Calculate wrapped rate with decimal adjustment
-        if (underlyingDecimals >= wrappedDecimals) {
-            uint256 adjustedPrice = uint256(underlyingAnswer) * 10 ** (underlyingDecimals - wrappedDecimals);
+        if (OracleStorageV1.layout().underlyingDecimals >= OracleStorageV1.layout().wrappedDecimals) {
+            uint256 adjustedPrice = uint256(underlyingAnswer) *
+                10 ** (OracleStorageV1.layout().underlyingDecimals - OracleStorageV1.layout().wrappedDecimals);
             wrappedRate = int256((adjustedPrice * 1e18) / uint256(wrappedAnswer));
         } else {
-            uint256 adjustedPrice = uint256(wrappedAnswer) * 10 ** (wrappedDecimals - underlyingDecimals);
+            uint256 adjustedPrice = uint256(wrappedAnswer) *
+                10 ** (OracleStorageV1.layout().wrappedDecimals - OracleStorageV1.layout().underlyingDecimals);
             wrappedRate = int256((uint256(underlyingAnswer) * 1e18) / adjustedPrice);
         }
 
@@ -254,8 +290,8 @@ contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable
      * @param maxTimeDifference Maximum time difference allowed between feeds
      */
     function updateConfig(uint64 maxTimeDelay, uint64 maxTimeDifference) external onlyOwner {
-        $.config.maxTimeDelay = maxTimeDelay;
-        $.config.maxTimeDifference = maxTimeDifference;
+        OracleStorageV1.layout().config.maxTimeDelay = maxTimeDelay;
+        OracleStorageV1.layout().config.maxTimeDifference = maxTimeDifference;
         emit ConfigUpdated(maxTimeDelay, maxTimeDifference);
     }
 }
