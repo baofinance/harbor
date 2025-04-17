@@ -8,39 +8,64 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 /**
  * @title Stem
  * @author rootminus0x1
- * @notice A minimal upgradeable contract with no functionality
- * @dev This contract serves two purposes:
+ * @notice A minimal upgradeable contract with no functionality beyond upgradeability
+ * @dev This contract serves two critical purposes:
  *
- * 1) Like the stem of a plant that has a flower at its end, this contract is a
- *    placeholder for the proxy, which needs a contract address in its constructor,
- *    until the proxy can be "upgraded" to the actual implementation.
+ * 1) INITIAL DEPLOYMENT SCENARIO:
+ *    Like a stem of a plant that has a flower at its end, this contract acts as a
+ *    placeholder during initial deployment. A proxy requires an implementation address
+ *    in its constructor, so we deploy Stem first, point the proxy to it, then immediately
+ *    upgrade to the actual implementation contract.
  *
- * 2) As an emergency pause mechanism - when we need to stop a contract from
- *    doing anything, we can upgrade the proxy to this Stem contract so it
- *    "stems" the flow of calls to the data. A subsequent upgrade will reconnect
- *    the implementation to its original state or to an upgrade that has a bug fix.
+ *    In this scenario, the initializer would set ownership to the deployer (e.g., a
+ *    deployment script), allowing the deployer to perform the upgrade to the real
+ *    implementation and then transfer ownership to the intended owner (e.g., multisig).
  *
- * This contract intentionally has no initializer but must initialize ownership in the constructor
- * to ensure the _authorizeUpgrade function works properly.
+ * 2) EMERGENCY PAUSE SCENARIO:
+ *    When critical issues are detected in a production contract, we can upgrade the proxy
+ *    to this Stem contract to "stem" the flow of calls to potentially vulnerable logic.
+ *    This effectively pauses all functionality until fixes can be implemented.
+ *
+ *    More importantly, if the original owner (e.g., multisig) has been compromised,
+ *    the emergency upgrade to Stem can specify a different, secure owner in the initializer.
+ *    This prevents the compromised multisig from further upgrading the contract, putting
+ *    control solely in the hands of the new trusted owner who can later upgrade to a fixed
+ *    implementation.
+ *
+ * This contract has minimal functionality - just enough to ensure proper upgradeability.
+ * The initializer only sets ownership and initializes UUPSUpgradeable.
  */
 contract Stem is Initializable, UUPSUpgradeable, BaoOwnable {
     /**
-     * @dev Disables initializers and initializes BaoOwnable with the deployer as owner
-     * to ensure _authorizeUpgrade can be called later
+     * @dev Disables initializers for the implementation contract
      */
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address owner_) {
+    constructor() {
         _disableInitializers();
-        // start the two-step ownerrship set-up process
-        _initializeOwner(owner_); // this just sets the pending owner
-        // complete the two-step ownership set-up process
-        transferOwnership(owner_); // pending owner becomes owner
+    }
+
+    /**
+     * @notice Initializes the contract with an owner
+     * @dev This simple initializer performs the minimum necessary setup for the contract to function:
+     * 1. Set the owner who will have exclusive rights to upgrade the proxy
+     * 2. Initialize the UUPSUpgradeable functionality
+     *
+     * When used in the Initial Deployment scenario, the owner would typically be the deployer
+     * When used in the Emergency Pause scenario, the owner should be a secure, uncompromised address
+     *
+     * @param owner_ The address to set as the contract owner
+     */
+    function initialize(address owner_) external initializer {
+        __UUPSUpgradeable_init();
+        _initializeOwner(owner_);
     }
 
     /**
      * @dev Authorizes the upgrade of this contract to a new implementation
      * @param newImplementation Address of the new implementation
-     * Only the owner can upgrade this contract
+     * Only the owner can upgrade this contract, which is crucial for both usage scenarios:
+     * - In initial deployment: The deployer upgrades to the real implementation
+     * - In emergency: The trusted owner upgrades to a fixed implementation when ready
      */
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
         // No additional requirements needed
