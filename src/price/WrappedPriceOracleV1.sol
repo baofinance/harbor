@@ -6,51 +6,71 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 
 /**
- * @title WrappedPriceOracle
- * @notice A contract for safely consuming Chainlink price feeds with robust heartbeat detection
+ * @title WrappedPriceOracleV1
+ * @notice A contract for safely consuming Chainlink price feeds with heartbeat detection
  */
-contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
+contract WrappedPriceOracleV1 is ReentrancyGuardTransientUpgradeable, BaoOwnable {
     AggregatorV3Interface public immutable underlyingFeed;
     AggregatorV3Interface public immutable wrappedFeed;
-    uint8 public immutable underlyingDecimals;
-    uint8 public immutable wrappedDecimals;
+    uint8 public immutable underlyingDecimals; //                               8 bits
+    uint8 public immutable wrappedDecimals; //                                  8 bits
 
     struct Config {
-        uint64 maxTimeDelay;
-        uint64 maxTimeDifference;
+        // how old the data read is allowed to be
+        uint64 maxTimeDelay; //                                                64 bits
+        // how far apart the two feeds can be
+        uint64 maxTimeDifference; //                                           64 bits
+        // Total: 128 bits (half a slot)
     }
 
     struct HeartbeatData {
-        uint32 calculatedHeartbeat; // Dynamically calculated heartbeat
-        uint32 manualHeartbeat; // Manually set heartbeat (if any)
-        uint32 lastUpdateCount; // Number of updates tracked
-        uint32 minSampleSize; // Minimum samples needed for reliable calculation
+        // Dynamically calculated heartbeat
+        uint32 calculatedHeartbeat; //                                         32 bits
+        // Manually set heartbeat (if any)
+        uint32 manualHeartbeat; //                                             32 bits
+        // Number of updates tracked
+        uint32 lastUpdateCount; //                                             32 bits
     }
 
     struct WrappedPriceOracleStorage {
-        //                              slot
-        Config config; // 128 -> 128
-        uint80 lastUnderlyingRound; //  80 -> 80 (position adjusted)
-        //                              slot
-        uint80 lastWrappedRound; //  80 -> 80
-        uint64 lastUpdateTimestamp; //  64 -> 144
-        HeartbeatData underlyingHeartbeat; // 128 -> 272
-        //                              slot
-        HeartbeatData wrappedHeartbeat; // 128 -> 128
+        // Slot 1
+        Config config; //                          128 bits -> 128/256 bits used in slot 1
+        uint80 lastUnderlyingRound; //              80 bits -> 208/256 bits used (48 bits remaining in slot 1)
+        // Slot 2
+        uint80 lastWrappedRound; //                 80 bits -> 80/256 bits used in slot 2
+        uint64 lastUpdateTimestamp; //              64 bits -> 144/256 bits used in slot 2
+        // 128 bits -> Spans slot 2 and 3
+        // First 112 bits in slot 2 -> 256/256 bits used (slot 2 full)
+        HeartbeatData underlyingHeartbeat;
+        // Slot 3
+        // (16 bits of underlyingHeartbeat continue here) -> 16/256 bits used in slot 3
+        HeartbeatData wrappedHeartbeat; //         128 bits -> 144/256 bits used in slot 3
         // Historical timestamps for heartbeat calculation (circular buffer)
-        uint64[3] underlyingUpdateHistory; // 192 -> 320
-        uint64[3] wrappedUpdateHistory; // 192 -> 512
+        // 192 bits total (3 × 64-bit values):
+        // - First uint64: 64 bits -> 208/256 bits used in slot 3
+        // - 48 more bits from second uint64 -> 256/256 bits used (slot 3 full)
+        uint64[3] underlyingUpdateHistory;
+        // Slot 4
+        // (16 bits of second uint64 from underlyingUpdateHistory continue here) -> 16/256 bits used in slot 4
+        // - Remaining uint64 from underlyingUpdateHistory: 64 bits -> 80/256 bits used in slot 4
+
+        // 192 bits total (3 × 64-bit values):
+        // - First uint64: 64 bits -> 144/256 bits used in slot 4
+        // - Second uint64: 64 bits -> 208/256 bits used in slot 4
+        uint64[3] wrappedUpdateHistory;
+
+        // - 48 bits from third uint64 -> 256/256 bits used (slot 4 full)
+
+        // Slot 5
+        // (16 remaining bits from third uint64 of wrappedUpdateHistory) -> 16/256 bits used in slot 5
+        // (240 bits remaining unused in slot 5)
     }
 
     WrappedPriceOracleStorage private $;
 
-    // Default network heartbeats (in seconds) to use when calculation isn't possible
-    uint32 private constant DEFAULT_HEARTBEAT_MAINNET = 3600; // 1 hour
-    uint32 private constant DEFAULT_HEARTBEAT_POLYGON = 27; // 27 seconds
-    uint32 private constant DEFAULT_HEARTBEAT_ARBITRUM = 3600; // 1 hour
-    uint32 private constant DEFAULT_HEARTBEAT_OPTIMISM = 3600; // 1 hour
     uint32 private constant HEARTBEAT_BUFFER_MULTIPLIER = 12; // Safety factor (×1.2)
     uint32 private constant HISTORY_SIZE = 3; // Number of historical updates to track
+    uint32 private constant MIN_SAMPLE_SIZE = 2; // Minimum samples needed for reliable calculation
 
     event PriceDataRequested(uint256 ratio, uint256 timestamp);
     event ConfigUpdated(uint256 newMaxTimeDelay, uint256 newMaxTimeDifference);
@@ -62,42 +82,17 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
     error InvalidPrice(uint256 underlyingPrice, uint256 wrappedPrice);
     error NoRoundProgression();
 
-    constructor(address underlyingFeed_, address wrappedFeed_) {
+    constructor(address underlyingFeed_, address wrappedFeed_, uint32 underlyingHeartbeat_, uint32 wrappedHeartbeat_) {
         underlyingFeed = AggregatorV3Interface(underlyingFeed_);
         wrappedFeed = AggregatorV3Interface(wrappedFeed_);
         underlyingDecimals = underlyingFeed.decimals();
         wrappedDecimals = wrappedFeed.decimals();
 
         // Initialize heartbeat tracking
-        $.underlyingHeartbeat.minSampleSize = 2;
-        $.wrappedHeartbeat.minSampleSize = 2;
 
-        // Set default values based on network
-        uint256 chainId;
-        assembly {
-            chainId := chainid()
-        }
-
-        uint32 defaultHeartbeat = getDefaultHeartbeat(chainId);
-        $.underlyingHeartbeat.calculatedHeartbeat = defaultHeartbeat;
-        $.wrappedHeartbeat.calculatedHeartbeat = defaultHeartbeat;
-    }
-
-    /**
-     * @dev Returns appropriate default heartbeat based on the network
-     */
-    function getDefaultHeartbeat(uint256 chainId) internal pure returns (uint32) {
-        if (chainId == 1) {
-            return DEFAULT_HEARTBEAT_MAINNET;
-        } else if (chainId == 137) {
-            return DEFAULT_HEARTBEAT_POLYGON;
-        } else if (chainId == 42161) {
-            return DEFAULT_HEARTBEAT_ARBITRUM;
-        } else if (chainId == 10) {
-            return DEFAULT_HEARTBEAT_OPTIMISM;
-        } else {
-            return DEFAULT_HEARTBEAT_MAINNET; // Default to mainnet value
-        }
+        // Set initial heartbeats from constructor parameters
+        $.underlyingHeartbeat.calculatedHeartbeat = underlyingHeartbeat_;
+        $.wrappedHeartbeat.calculatedHeartbeat = wrappedHeartbeat_;
     }
 
     /**
@@ -130,9 +125,6 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
         // Calculate index for circular buffer
         uint256 idx = heartbeatData.lastUpdateCount % HISTORY_SIZE;
 
-        // Get previous timestamp at this position
-        uint256 prevTimestamp = history[idx];
-
         // Store new timestamp
         history[idx] = uint64(timestamp);
 
@@ -140,7 +132,7 @@ contract WrappedPriceOracle is ReentrancyGuardTransientUpgradeable, BaoOwnable {
         heartbeatData.lastUpdateCount++;
 
         // Only calculate heartbeat when we have enough samples
-        if (heartbeatData.lastUpdateCount >= heartbeatData.minSampleSize) {
+        if (heartbeatData.lastUpdateCount >= MIN_SAMPLE_SIZE) {
             uint256 totalTime = 0;
             uint256 validSamples = 0;
 
