@@ -16,8 +16,4 @@ contract MockPriceOracle is IPriceOracle {
     function setLatestAnswer(uint256 price_) public {
         latestAnswer = price_;
     }
-
-    function setDecimals(uint8 decimals_) public {
-        decimals = decimals_;
-    }
 }
