@@ -21,14 +21,14 @@ contract StakedETHWrappedPriceOracleV1 is
     BaoOwnable
 {
     // Immutable variables for gas-efficient access
-    address public immutable underlyingFeed;
+    address public immutable stethFeed;
+    uint256 public immutable stethFeedDecimals;
+    bool public immutable hasAnsweredInRound;
     IWstETH public immutable wstETH;
-    uint64 private immutable _maxTimeDelay;
-    uint64 private immutable _maxPercentageDeviation;
+    uint64 private immutable _maxPriceAge;
+    uint64 private immutable _maxRelativeDeviation;
     uint256 private immutable _maxAbsoluteDeviation;
-
-    // Events specific to implementation and not needed by consumers
-    event ConfigUpdated(uint256 newMaxTimeDelay);
+    uint256 private immutable _maxTrendReversalDeviation;
 
     // Errors specific to implementation details
     error InconsistentRoundData(uint80 roundId, uint80 prevRoundId);
@@ -37,17 +37,23 @@ contract StakedETHWrappedPriceOracleV1 is
      * @notice Gets the validated price from the underlying feed without updating state
      * @dev This is the primary function for price validation, now using the PriceOracle library
      * @return underlyingPrice The validated underlying price
-     * @return wrappedRate Currently returns 1 ether as a fixed rate
+     * @return wrappedRate The rate of the wrapped asset to the underlying asset
      */
     function latestAnswer() external view returns (uint256 underlyingPrice, uint256 wrappedRate) {
-        // Using immutable variables directly for gas efficiency
-        underlyingPrice = PriceOracle.latestAnswer(
-            AggregatorV3Interface(underlyingFeed),
-            _maxTimeDelay,
-            _maxPercentageDeviation,
-            _maxAbsoluteDeviation
-        );
-        // now calculate the wrapped rate
+        PriceOracle.Feed memory feed = PriceOracle.Feed({
+            priceFeed: AggregatorV3Interface(stethFeed),
+            decimals: uint8(stethFeedDecimals),
+            hasAnsweredInRound: hasAnsweredInRound
+        });
+        PriceOracle.Constraints memory constraints = PriceOracle.Constraints({
+            maxAnswerAge: _maxPriceAge,
+            maxPercentageDeviation: _maxRelativeDeviation,
+            maxAbsoluteDeviation: _maxAbsoluteDeviation,
+            maxTrendReversalDeviation: _maxTrendReversalDeviation
+        });
+
+        underlyingPrice = PriceOracle.latestAnswer(feed, constraints);
+
         uint256 stEthPerToken = wstETH.stEthPerToken();
         return (underlyingPrice, stEthPerToken);
     }
@@ -56,16 +62,24 @@ contract StakedETHWrappedPriceOracleV1 is
      * @dev Blocks initialization of the implementation contract and sets immutable configuration
      */
     constructor(
-        address underlyingFeed_,
-        uint64 maxTimeDelay_,
-        uint64 maxPercentageDeviation_,
-        uint256 maxAbsoluteDeviation_
+        address stethFeed_,
+        bool hasAnsweredInRound_,
+        uint64 maxPriceAge_,
+        uint64 maxRelativeDeviation_,
+        uint256 maxAbsoluteDeviation_,
+        uint256 maxTrendReversalDeviation_
     ) {
+        // only allow initialization via the proxy
         _disableInitializers();
-        underlyingFeed = underlyingFeed_;
-        _maxTimeDelay = maxTimeDelay_;
-        _maxPercentageDeviation = maxPercentageDeviation_;
+        // Set immutable variables
+        stethFeed = stethFeed_;
+        stethFeedDecimals = AggregatorV3Interface(stethFeed_).decimals();
+        hasAnsweredInRound = hasAnsweredInRound_;
+        wstETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+        _maxPriceAge = maxPriceAge_;
+        _maxRelativeDeviation = maxRelativeDeviation_;
         _maxAbsoluteDeviation = maxAbsoluteDeviation_;
+        _maxTrendReversalDeviation = maxTrendReversalDeviation_;
     }
 
     /**
@@ -88,8 +102,8 @@ contract StakedETHWrappedPriceOracleV1 is
     // /**
     //  * @notice Get the underlying feed
     //  */
-    // function underlyingFeed() external view returns (AggregatorV3Interface) {
-    //     return AggregatorV3Interface(_underlyingFeed);
+    // function stethFeed() external view returns (AggregatorV3Interface) {
+    //     return AggregatorV3Interface(_stethFeed);
     // }
 
     // /// @notice The storage hash for the shared-with-proxy storage

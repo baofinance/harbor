@@ -23,4 +23,11 @@ interface IPriceOracleErrors {
     /// @param prevPrice The previous round's price
     /// @param maxDeviationPercent The maximum allowed percentage deviation
     error UnderlyingPriceDeviation(address feed, int256 newPrice, int256 prevPrice, uint256 maxDeviationPercent);
+
+    /**
+     * @notice Thrown when there's an error interacting with the Chainlink oracle
+     * @param feed The address of the failing oracle
+     * @param reason The error message
+     */
+    error ChainlinkOracleError(address feed, string reason);
 }
