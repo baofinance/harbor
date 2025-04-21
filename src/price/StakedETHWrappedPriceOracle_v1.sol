@@ -33,13 +33,12 @@ contract StakedETHWrappedPriceOracleV1 is
     // Errors specific to implementation details
     error InconsistentRoundData(uint80 roundId, uint80 prevRoundId);
 
-    /**
-     * @notice Gets the validated price from the underlying feed without updating state
-     * @dev This is the primary function for price validation, now using the PriceOracle library
-     * @return underlyingPrice The validated underlying price
-     * @return wrappedRate The rate of the wrapped asset to the underlying asset
-     */
-    function latestAnswer() external view returns (uint256 underlyingPrice, uint256 wrappedRate) {
+    /// @inheritdoc IWrappedPriceOracle
+    function latestAnswer()
+        external
+        view
+        returns (uint256 minUnderlyingPrice, uint256 maxUnderlyingPrice, uint256 minWrappedRate, uint256 maxWrappedRate)
+    {
         PriceOracle.Feed memory feed = PriceOracle.Feed({
             priceFeed: AggregatorV3Interface(stethFeed),
             decimals: uint8(stethFeedDecimals),
@@ -52,10 +51,9 @@ contract StakedETHWrappedPriceOracleV1 is
             maxTrendReversalDeviation: _maxTrendReversalDeviation
         });
 
-        underlyingPrice = PriceOracle.latestAnswer(feed, constraints);
+        minUnderlyingPrice = maxUnderlyingPrice = PriceOracle.latestAnswer(feed, constraints);
 
-        uint256 stEthPerToken = wstETH.stEthPerToken();
-        return (underlyingPrice, stEthPerToken);
+        minWrappedRate = maxWrappedRate = wstETH.stEthPerToken();
     }
 
     /**
