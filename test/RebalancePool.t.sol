@@ -14,16 +14,16 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {RebalancePool_v1} from "src/minter/RebalancePool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 
 import {Token} from "@bao/Token.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/clog.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
@@ -124,7 +124,7 @@ contract TestRebalancePoolDepositWithdraw is TestRebalancePoolSetUp {
     }
 
     function _depositWithdraw(address receiver) private {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // more than holding
         setUp_collateral(20 ether, 0 ether);
         deal(peggedToken, user1, 10 * price);

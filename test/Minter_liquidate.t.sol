@@ -9,10 +9,10 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
@@ -23,7 +23,7 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
 
     function setUp() public override(TestMinterFeeSetUp) {
         super.setUp();
-        price = MockPriceOracle(priceOracle).latestAnswer();
+        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         vm.prank(owner);
         IERC20(peggedToken).approve(minter, type(uint256).max);
     }

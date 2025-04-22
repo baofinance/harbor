@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
-import {IMultipleRewardAccumulator} from "@interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
 import {DecrementalFloatingPoint} from "../../math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor} from "../distributor/LinearMultipleRewardDistributor.sol";

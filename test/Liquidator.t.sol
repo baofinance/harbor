@@ -12,18 +12,18 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 // import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 import {RebalancePool_v1} from "src/minter/RebalancePool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 
 import {Token} from "@bao/Token.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import {TestRebalancePoolSetUp} from "test/RebalancePool.t.sol";

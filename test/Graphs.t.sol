@@ -10,11 +10,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestCollateralRatioRangeSetUp} from "test/CollateralRatio.t.sol";

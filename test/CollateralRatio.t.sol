@@ -10,11 +10,11 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestRebalancePool2SetUp} from "test/Liquidate.t.sol";
@@ -30,7 +30,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        startPrice = MockPriceOracle(priceOracle).latestAnswer();
+        (startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 10 ether, address(this));
         deal(address(collateralToken), address(this), 1000 ether);
         IERC20(collateralToken).approve(minter, type(uint256).max);
@@ -152,7 +152,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         ) {
             currentPrice = (startPrice * currentCollateralRatio) / startCollateralRatio;
 
-            MockPriceOracle(priceOracle).setLatestAnswer(currentPrice);
+            MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);
             assertEq(currentCollateralRatio, IMinter(minter).collateralRatio(), "crs must match");
 
             doOneCollateralRatio();

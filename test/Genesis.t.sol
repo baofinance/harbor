@@ -22,12 +22,12 @@ import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {Minter_v1} from "src/minter/Minter_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
-import {IGenesis} from "@interfaces/IGenesis.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IGenesis} from "src/interfaces/IGenesis.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 
 import {Genesis_v1, Token} from "src/minter/Genesis_v1.sol";
 
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {Array} from "test/Array.sol";
 
 contract Test_GenesisBase is Test, Array {
@@ -41,7 +41,7 @@ contract Test_GenesisBase is Test, Array {
 
     address leveragedToken;
     address reservePool;
-    MockPriceOracle priceOracle;
+    MockWrappedPriceOracle priceOracle;
     address minter;
     uint256 zeroFeeRole;
 
@@ -89,7 +89,7 @@ contract Test_GenesisBase is Test, Array {
             percent1
         );
 
-        priceOracle = new MockPriceOracle();
+        priceOracle = new MockWrappedPriceOracle();
 
         minter = UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1(collateral, peggedToken, leveragedToken, wrappedCollateral)), // "Minter_v1.sol",

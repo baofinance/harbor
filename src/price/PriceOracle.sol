@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/AggregatorV3Interface.sol";
 import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
-import {IPriceOracleErrors} from "@interfaces/IPriceOracleErrors.sol";
+import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
 import {console2} from "forge-std/console2.sol";
 
 /**

@@ -9,10 +9,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestMinterSetUp} from "test/Minter_base.t.sol";
@@ -47,7 +47,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             "mint pegged incentive config"
         );
 
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(2 ether, 1 ether); // CR = 3/2 = 1.5
         assertEq(IMinter(minter).collateralRatio(), 15 ether / 10);
         assertLt(
@@ -230,7 +230,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     function test_mintLeveragedFeeCalcs() public {
         // ic(ua(110, 120, 145), ia(-50, 0, 20, 70)), // mint leveraged
         // TODO: start in critical 120, then go to danger 140, then normal
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(3 ether, 1 ether); // CR = 4/3 = 1.33
         assertGe(
             ultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -486,7 +486,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     function _redeemPeggedFeeCalc(uint256 collateral) private returns (int256 redeemPeggedFeeRatio) {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         redeemPeggedFeeRatio = IMinter(minter).redeemPeggedTokenIncentiveRatio();
         assertEq(redeemPeggedFeeRatio, penultimate(config.redeemPeggedIncentiveConfig.incentiveRatios));
 
@@ -512,7 +512,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         );
         // TODO: start in critical 115, then go to danger 150, then normal
         // TODO: add bonus band in. Also in mintLeveraged
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(3 ether, 1 ether, owner); // CR = 4/3 = 1.33
         assertLt(
             IMinter(minter).collateralRatio(),
@@ -602,7 +602,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         uint iTotalRedeem,
         uint step
     ) private returns (uint256 peggedRedeemed, uint256 collateralReturned, uint256 fee, uint256 reserveCollateralUsed) {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         (, peggedRedeemed, collateralReturned, fee, reserveCollateralUsed, ) = IMinter(minter).redeemPeggedTokenDryRun(
             iTotalRedeem * price
         );
@@ -682,7 +682,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     function _checkRedeemPeggedFeesIntegralList() private {
         // ic(ua(105, 115, 150), ia(-75, -25, 60, 80)), // redeem pegged
         // critical CRs = 105% (big bonus 75), 115% (small bonus 25), 150% (danger, 60), -> 80
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(100 ether, 4 ether); // CR = 104/100 = 104%, bonus
         assertGt(
             initial(config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -789,7 +789,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     }
 
     function test_redeemPeggedFeesAreIntegralsBoundary() public {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 4 ether); // CR = 14/10 = 140%
 
         deal(address(Deployed.BaoUSD), user, IMinter(minter).peggedTokenBalance());
@@ -818,7 +818,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
     ) private returns (int256 totalFee) {
         // bool log = true; // step == 6;
         // console.log("_checkRedeemLeveragedIntegral(%s, %s)", iTotalRedeem, step);
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // console.log("------------------------------------------");
         (, , , uint256 fee, uint256 discount, ) = IMinter(minter).redeemLeveragedTokenDryRun(iTotalRedeem * price);
         // if (log) clog("  incentiveRatio", incentiveRatio);
@@ -859,7 +859,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
     function test_redeemLeveragedFeesAreIntegrals() public {
         // ic(ua(105, 135), ia(disallow, 150, 120)) // redeem leveraged
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(40 ether, 20 ether); // CR = 60/40 = 150%, normal
         assertLt(
             ultimate(config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -954,7 +954,7 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
 
     function test_leveraged() public {
         // go depegged
-        MockPriceOracle(priceOracle).setLatestAnswer(500 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(500 ether);
         vm.expectRevert(IMinter.ActionPaused.selector);
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
@@ -962,7 +962,7 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
 
         // actually re-pegged but on the border where there be zero divides
-        MockPriceOracle(priceOracle).setLatestAnswer(1000 ether);
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1000 ether);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 

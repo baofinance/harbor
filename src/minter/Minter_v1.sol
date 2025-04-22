@@ -16,13 +16,13 @@ import {Token} from "@bao/Token.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
-import {IWrappedPriceOracle} from "@interfaces/IWrappedPriceOracle.sol";
-import {IReservePool} from "@interfaces/IReservePool.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IReservePool} from "src/interfaces/IReservePool.sol";
 
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system

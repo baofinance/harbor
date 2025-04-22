@@ -7,7 +7,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {Test} from "forge-std/Test.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 
 abstract contract ConfigFile is Test {
     function readConfig(string memory style) internal view returns (IMinter.Config memory config) {

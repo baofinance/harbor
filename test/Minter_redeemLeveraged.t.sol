@@ -11,11 +11,11 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestMinterMint} from "test/Minter_mint.t.sol";
@@ -32,7 +32,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _freeRedeemLeveragedToken(uint256 leveragedIn) private {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         uint256 ownerLeveragedDecrease;
         if (leveragedIn == type(uint256).max) {
@@ -80,7 +80,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     }
 
     function test_freeRedeemLeveraged() public {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "should have no minted leveraged tokens");
 
         // mint noaccess
@@ -328,9 +328,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
     function test_redeemLeveraged() public {
         setUp_collateral(20 ether, 0);
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         price *= 2;
-        MockPriceOracle(priceOracle).setLatestAnswer(price); // put the collateral ratio to 2, so no excess fees
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         setUp_collateral(0, 10 ether, sender);

@@ -20,14 +20,14 @@ import {Minter_v1} from "src/minter/Minter_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {IReservePool} from "@interfaces/IReservePool.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
+import {IReservePool} from "src/interfaces/IReservePool.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
@@ -250,7 +250,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
         owner = vm.createWallet("owner").addr;
 
-        priceOracle = address(new MockPriceOracle());
+        priceOracle = address(new MockWrappedPriceOracle());
 
         setUp_leveragedToken();
         peggedToken = Deployed.BaoUSD;

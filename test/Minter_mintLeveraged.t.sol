@@ -10,10 +10,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestMinterMint} from "test/Minter_mint.t.sol";
@@ -30,7 +30,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _freeMintLeveragedToken(uint256 collateralIn) private {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         uint256 ownerCollateralDecrease;
         if (collateralIn == type(uint256).max) {
@@ -117,7 +117,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         IMinter(minter).freeMintLeveragedToken(0, receiver);
         //--------------------------------------------------------------
 
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // got to add some pegged tokens or collateral ratio checks don't work
 
         // first mint
@@ -154,7 +154,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _mintLeveragedToken(uint256 collateralIn) private {
-        //uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        //(uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         uint256 senderCollateralDecrease;
         if (collateralIn == type(uint256).max) {
@@ -302,7 +302,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
     function test_mintLeveraged() public {
         setUp_collateral(10 ether, 0);
-        MockPriceOracle(priceOracle).setLatestAnswer(4000 ether); // put the collateral ratio to 2, so no excess fees
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(4000 ether); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         // first mint
