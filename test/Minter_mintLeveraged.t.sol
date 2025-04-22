@@ -13,7 +13,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "@interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestMinterMint} from "test/Minter_mint.t.sol";

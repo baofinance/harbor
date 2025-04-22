@@ -27,7 +27,7 @@ import {IReservePool} from "@interfaces/IReservePool.sol";
 import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
@@ -237,7 +237,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         IMinter(minter).updateFeeReceiver(feeReceiver);
         IMinter(minter).updateReservePool(reservePool);
         IMinter(minter).updateConfig(config);
-        IBaoRoles(minter).grantRoles(Deployed.BAOMULTISIG, IMinter(minter).ZERO_FEE_ROLE());
+        IBaoRoles(minter).grantRoles(owner, IMinter(minter).ZERO_FEE_ROLE());
 
         IBaoOwnable(minter).transferOwnership(owner);
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();

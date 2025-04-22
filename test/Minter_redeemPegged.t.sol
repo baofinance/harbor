@@ -15,7 +15,7 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
 
 import "test/clog.sol";
 import {TestMinterMint} from "test/Minter_mint.t.sol";

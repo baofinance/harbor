@@ -2,10 +2,10 @@
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {PriceOracle} from "../../src/price/PriceOracle.sol";
+import {PriceOracle} from "src/price/PriceOracle.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/AggregatorV3Interface.sol";
-import {IPriceOracleErrors} from "../../src/interfaces/IPriceOracleErrors.sol";
-import {MockAggregator} from "../mocks/MockAggregator.sol";
+import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
+import {MockAggregator} from "test/mock/MockAggregator.sol";
 
 contract PriceOracleTest is Test {
     uint64 constant MAX_ANSWER_AGE = 3600; // 1 hour

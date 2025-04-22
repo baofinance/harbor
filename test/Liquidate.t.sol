@@ -23,7 +23,7 @@ import {Token} from "@bao/Token.sol";
 import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import {TestRebalancePoolSetUp} from "test/RebalancePool.t.sol";

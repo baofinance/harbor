@@ -27,7 +27,7 @@ import {IMinter} from "@interfaces/IMinter.sol";
 
 import {Genesis_v1, Token} from "src/minter/Genesis_v1.sol";
 
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {MockPriceOracle} from "test/mock/MockPriceOracle.sol";
 import {Array} from "test/Array.sol";
 
 contract Test_GenesisBase is Test, Array {
