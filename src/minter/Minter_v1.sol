@@ -21,7 +21,7 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
-import {IPriceOracle} from "@interfaces/IPriceOracle.sol";
+import {IWrappedPriceOracle} from "@interfaces/IWrappedPriceOracle.sol";
 import {IReservePool} from "@interfaces/IReservePool.sol";
 
 /// @title Bao Minter
@@ -232,7 +232,7 @@ contract Minter_v1 is
         _updateConfig(config_);
         // wake-disable-next-line unchecked-return-value
         _grantRoles(owner_, ZERO_FEE_ROLE);
-        // TODO: should we be saving the last permissioned price? _fetchSafePrice(priceOracle_)
+        // TODO: should we be saving the last permissioned price? _fetchMidPrice(priceOracle_)
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -337,7 +337,7 @@ contract Minter_v1 is
             return
                 _collateralRatio(
                     _collateralTokenBalance($.collateralToken),
-                    _fetchSafePrice($.priceOracle),
+                    _fetchMidPrice($.priceOracle),
                     $.peggedTokenBalance
                 );
         }
@@ -349,7 +349,7 @@ contract Minter_v1 is
         return
             _leverageRatio(
                 _collateralTokenBalance($.collateralToken),
-                _fetchSafePrice($.priceOracle),
+                _fetchMidPrice($.priceOracle),
                 $.peggedTokenBalance
             );
     }
@@ -357,7 +357,7 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function leveragedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchSafePrice($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         nav = _leveragedTokenPrice(
             _leveragedTokenBalance($.leveragedToken),
             $.peggedTokenBalance,
@@ -369,7 +369,7 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function peggedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchSafePrice($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         nav = _peggedTokenPrice$($.peggedTokenBalance, _collateralTokenBalance($.collateralToken), price) / 1 ether;
     }
 
@@ -378,7 +378,7 @@ contract Minter_v1 is
         uint256 forCollateral
     ) external view override returns (uint256 leveragedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchSafePrice($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         leveragedTokens = _leveragedTokensForCollateral(
             forCollateral,
             _leveragedTokenBalance($.leveragedToken),
@@ -450,7 +450,7 @@ contract Minter_v1 is
         uint band = _findBand(
             config_,
             _collateralTokenBalance($.collateralToken),
-            _fetchSafePrice($.priceOracle),
+            _fetchMidPrice($.priceOracle),
             $.peggedTokenBalance,
             false
         );
@@ -481,7 +481,7 @@ contract Minter_v1 is
         uint band = _findBand(
             config_,
             _collateralTokenBalance($.collateralToken),
-            _fetchSafePrice($.priceOracle),
+            _fetchMidPrice($.priceOracle),
             $.peggedTokenBalance,
             false
         );
@@ -521,7 +521,7 @@ contract Minter_v1 is
         )
     {
         MinterStorage storage $ = _getMinterStorage();
-        price = _fetchSafePrice($.priceOracle);
+        price = _fetchMidPrice($.priceOracle);
         (fee, peggedMinted, collateralUsed) = _mintPeggedAdjustments(
             $.mintPeggedIncentiveConfig,
             collateralIn,
@@ -586,7 +586,7 @@ contract Minter_v1 is
         address collateralToken_ = $.collateralToken;
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        price = _fetchSafePrice($.priceOracle);
+        price = _fetchMidPrice($.priceOracle);
         (fee, leveragedMinted, reserveCollateralUsed) = _mintLeveragedAdjustments(
             $.mintLeveragedIncentiveConfig,
             collateralIn,
@@ -667,7 +667,7 @@ contract Minter_v1 is
         address collateralToken_ = $.collateralToken;
         collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
 
-        uint256 price = _fetchSafePrice($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
 
@@ -782,7 +782,7 @@ contract Minter_v1 is
                 $.peggedTokenBalance,
                 _leveragedTokenBalance(leveragedToken_)
             ),
-            _fetchSafePrice($.priceOracle),
+            _fetchMidPrice($.priceOracle),
             IERC20(collateralToken_).balanceOf($.reservePool)
         );
         // slither-disable-next-line incorrect-equality
@@ -874,7 +874,7 @@ contract Minter_v1 is
         collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
 
         // transfer and mint
-        uint256 price = _fetchSafePrice($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         peggedOut = (collateralIn * price) / 1 ether;
         _mintPeggedToken(collateralToken_, collateralIn, $.pegged.token, peggedOut, receiver);
 
@@ -920,7 +920,7 @@ contract Minter_v1 is
         peggedIn = Token.allOf(_msgSender(), peggedToken_, peggedIn);
         peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
 
-        uint256 price = _fetchSafePrice($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
 
         leveragedOut = _leveragedTokensForPegged(
             peggedIn,
@@ -954,7 +954,7 @@ contract Minter_v1 is
             _leveragedTokenBalance(leveragedToken_),
             $.peggedTokenBalance,
             _collateralTokenBalance(collateralToken_),
-            _fetchSafePrice($.priceOracle)
+            _fetchMidPrice($.priceOracle)
         );
 
         _mintLeveragedToken(collateralToken_, collateralIn, leveragedToken_, leveragedOut, receiver);
@@ -2063,21 +2063,22 @@ contract Minter_v1 is
 
     /// @notice Returns the safe price for the collateral token.
     /// @dev Checks safe price non-zero.
-    function _fetchSafePrice(address priceOracle_) private view returns (uint256 safe) {
-        safe = IPriceOracle(priceOracle_).latestAnswer();
+    function _fetchMidPrice(address priceOracle_) private view returns (uint256 safe) {
+        (uint256 min, uint256 max, , ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
+        safe = (min + max) >> 1;
     }
 
     /// @notice Returns the min price for the collateral token.
     /// If the safe price is valid it is returned, else the min price.
     /// @dev Checks the returned price is non-zero.
     function _fetchMinPrice(address priceOracle_) private view returns (uint256 min) {
-        min = _fetchSafePrice(priceOracle_);
+        (min, , , ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
     }
 
     /// @notice Returns the max price for the collateral token.
     /// If the safe price is valid it is returned, else the max price.
     /// @dev Checks the returned price is non-zero.
     function _fetchMaxPrice(address priceOracle_) private view returns (uint256 max) {
-        max = _fetchSafePrice(priceOracle_);
+        (, max, , ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
     }
 }

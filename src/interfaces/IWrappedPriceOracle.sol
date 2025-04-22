@@ -9,7 +9,17 @@ import {IPriceOracleErrors} from "./IPriceOracleErrors.sol";
 interface IWrappedPriceOracle is IPriceOracleErrors {
     /// @notice Return the validated oracle price.
     /// @dev Checks and validates prices from the underlying feed, returning zero only if the price is valid.
-    /// @return underlyingPrice The validated underlying price, always positive, returned as uint256 always 18 decimals
-    /// @return wrappedRate The rate of the wrapped asset to the underlying asset, always 18 decimals
-    function latestAnswer() external view returns (uint256 underlyingPrice, uint256 wrappedRate);
+    /// @return minUnderlyingPrice The validated min underlying price, always positive, returned as uint256 always 18 decimals
+    /// @return maxUnderlyingPrice The validated max underlying price, always positive, returned as uint256 always 18 decimals
+    /// @return minWrappedRate The min rate of the wrapped asset to the underlying asset, always 18 decimals
+    /// @return maxWrappedRate The max rate of the wrapped asset to the underlying asset, always 18 decimals
+    function latestAnswer()
+        external
+        view
+        returns (
+            uint256 minUnderlyingPrice,
+            uint256 maxUnderlyingPrice,
+            uint256 minWrappedRate,
+            uint256 maxWrappedRate
+        );
 }
