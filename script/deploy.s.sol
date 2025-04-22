@@ -119,19 +119,14 @@ library DeployLib {
     // TODO: move a lot of this initialisation to the postDeploy function
     function deployMinter(
         address owner,
-        Minter_v1.BalanceTokens memory tokens,
-        address priceOracle,
-        address feeReceiver,
-        address reservePool_,
-        IMinter.Config memory config
+        address collateralToken,
+        address peggedToken,
+        address leveragedToken,
+        address wrappedCollateralToken
     ) internal returns (address minter_) {
-        minter_ = Upgrades.deployUUPSProxy(
-            "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (owner, tokens, type(IBurnable).interfaceId, priceOracle, feeReceiver, reservePool_, config)
-            )
-        );
+        Options memory opts;
+        opts.constructorData = abi.encode(collateralToken, peggedToken, leveragedToken, wrappedCollateralToken);
+        minter_ = Upgrades.deployUUPSProxy("Minter_v1.sol", abi.encodeCall(Minter_v1.initialize, owner));
     }
 
     function postDeployMinterTransactions(address minter, address owner) internal {
@@ -223,15 +218,12 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
 
         if (step() == 1) {
             logAddr("owner", Deployed.BAOMULTISIG);
+            // TODO: add the new Pegged Token here, and make minter a minter of it
             logAddr("peggedToken", Deployed.BaoUSD);
             logAddr("leveragedToken", DeployLib.deployLeveragedToken(Deployed.BAOMULTISIG, "BaoUSD", "wstETH"));
             //                                  --------------------
-            logAddr("collateralToken", Deployed.wstETH);
-
-            Minter_v1.BalanceTokens memory tokens;
-            tokens.peggedToken = addr("peggedToken");
-            tokens.leveragedToken = addr("leveragedToken");
-            tokens.collateralToken = addr("collateralToken");
+            logAddr("collateralToken", Deployed.stETH);
+            logAddr("wrappedCollateralToken", Deployed.wstETH);
 
             address priceOracle = Deployed.PriceOracle_wstETHUSD;
             logAddr("priceOracle", priceOracle);
@@ -258,15 +250,21 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
             address minter = DeployLib.deployMinter(
                 //                     ------------
                 Deployed.BAOMULTISIG,
-                tokens,
-                addr("priceOracle"),
-                addr("feeReceiver"),
-                addr("reservePool"),
-                config
+                addr("collateralToken"),
+                addr("peggedToken"),
+                addr("leveragedToken"),
+                addr("wrappedCollateralToken")
             );
             logAddr("minter", minter);
 
-            DeployLib.postDeployLeveragedTokenTransactions(tokens.leveragedToken, Deployed.BAOMULTISIG, minter);
+            // call the post deploy functions
+            IMinter(minter).updatePriceOracle(addr("priceOracle"));
+            IMinter(minter).updateFeeReceiver(addr("feeReceiver"));
+            IMinter(minter).updateReservePool(addr("reservePool"));
+            IMinter(minter).updateConfig(config);
+            IBaoRoles(minter).grantRoles(Deployed.BAOMULTISIG, IMinter(minter).ZERO_FEE_ROLE());
+
+            DeployLib.postDeployLeveragedTokenTransactions(addr("leveragedToken"), Deployed.BAOMULTISIG, minter);
             DeployLib.postDeployTokenDistributorTransactions(feeReceiver, Deployed.BAOMULTISIG);
             DeployLib.postDeployReservePoolTransactions(reservePool, Deployed.BAOMULTISIG, minter);
         } else if (step() == 2) {

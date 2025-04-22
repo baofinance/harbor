@@ -26,12 +26,6 @@ interface IMinter {
                            DATA STRUCTURES
     //////////////////////////////////////////////////////////////*/
 
-    struct BalanceTokens {
-        address peggedToken;
-        address leveragedToken;
-        address collateralToken;
-    }
-
     struct IncentiveConfig {
         // note: incentive ratios have one more entry than the band bounds do
         // the boundaries of the collateral ratio where the incentive ratios apply

@@ -229,20 +229,16 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp_minter() internal virtual {
         minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1()), // "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (
-                    owner,
-                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
-                    type(IBurnable).interfaceId,
-                    address(priceOracle),
-                    feeReceiver,
-                    reservePool,
-                    config
-                )
-            )
+            address(new Minter_v1(Deployed.stETH, Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH)), // "Minter_v1.sol",
+            abi.encodeCall(Minter_v1.initialize, (owner))
         );
+
+        IMinter(minter).updatePriceOracle(address(priceOracle));
+        IMinter(minter).updateFeeReceiver(feeReceiver);
+        IMinter(minter).updateReservePool(reservePool);
+        IMinter(minter).updateConfig(config);
+        IBaoRoles(minter).grantRoles(Deployed.BAOMULTISIG, IMinter(minter).ZERO_FEE_ROLE());
+
         IBaoOwnable(minter).transferOwnership(owner);
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
     }
@@ -323,73 +319,74 @@ contract TestMinterInit is TestMinterSetUp {
 
     function setUp() public override {
         super.setUp();
-        impl = address(new Minter_v1());
+        impl = address(new Minter_v1(Deployed.stETH, Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH));
     }
-    // TODO: test the ERC20 check in Token - expect revert doesn't work for deployUUPS
-    function test_notERC20() private {
-        //                   -------
-        /*
-        // console.log("good deploy");
-        UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1()), // "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (
-                    address(this),
-                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
-                    address(priceOracle),
-                    feeReceiver,
-                    reservePool,
-                    config
-                )
-            )
-        );
-        */
+    // TODO: remove this as we no longer test for valid erc20 token on initialisation
+    // test the ERC20 check in Token - expect revert doesn't work for deployUUPS
+    // function test_notERC20() private {
+    //     //                   -------
+    //     /*
+    //     // console.log("good deploy");
+    //     UnsafeUpgrades.deployUUPSProxy(
+    //         address(new Minter_v1()), // "Minter_v1.sol",
+    //         abi.encodeCall(
+    //             Minter_v1.initialize,
+    //             (
+    //                 address(this),
+    //                 IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
+    //                 address(priceOracle),
+    //                 feeReceiver,
+    //                 reservePool,
+    //                 config
+    //             )
+    //         )
+    //     );
+    //     */
 
-        // not a contract
-        // console.log("not a contract");
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
+    //     // not a contract
+    //     // console.log("not a contract");
+    //     vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
 
-        UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1()), // "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (
-                    address(this),
-                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), owner),
-                    type(IBurnable).interfaceId,
-                    address(priceOracle),
-                    feeReceiver,
-                    reservePool,
-                    config
-                )
-            )
-        );
+    //     UnsafeUpgrades.deployUUPSProxy(
+    //         address(new Minter_v1()), // "Minter_v1.sol",
+    //         abi.encodeCall(
+    //             Minter_v1.initialize,
+    //             (
+    //                 address(this),
+    //                 IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), owner),
+    //                 type(IBurnable).interfaceId,
+    //                 address(priceOracle),
+    //                 feeReceiver,
+    //                 reservePool,
+    //                 config
+    //             )
+    //         )
+    //     );
 
-        // contract but not ERC20
-        // console.log("not an ERC20");
-        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, address(priceOracle)));
-        UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1()), // "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (
-                    address(this),
-                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
-                    type(IBurnable).interfaceId,
-                    address(priceOracle),
-                    feeReceiver,
-                    reservePool,
-                    config
-                )
-            )
-        );
-    }
+    //     // contract but not ERC20
+    //     // console.log("not an ERC20");
+    //     vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, address(priceOracle)));
+    //     UnsafeUpgrades.deployUUPSProxy(
+    //         address(new Minter_v1()), // "Minter_v1.sol",
+    //         abi.encodeCall(
+    //             Minter_v1.initialize,
+    //             (
+    //                 address(this),
+    //                 IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
+    //                 type(IBurnable).interfaceId,
+    //                 address(priceOracle),
+    //                 feeReceiver,
+    //                 reservePool,
+    //                 config
+    //             )
+    //         )
+    //     );
+    // }
 
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new Minter_v1());
+        address(new Minter_v1(Deployed.stETH, Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH));
     }
 
     function test_initEvents() public {
@@ -398,32 +395,11 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
-        emit IMinter.UpdatePriceOracle(address(0), address(priceOracle));
-        vm.expectEmit();
-        emit IMinter.UpdateFeeReceiver(address(0), feeReceiver);
-        vm.expectEmit();
-        emit IMinter.UpdateReservePool(address(0), address(reservePool));
-        vm.expectEmit();
-        emit IMinter.UpdateConfig(config);
-        vm.expectEmit();
-        emit IBaoRoles.RolesUpdated(owner, zeroFeeRole);
-        vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 
         UnsafeUpgrades.deployUUPSProxy(
             impl, // "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (
-                    owner,
-                    IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
-                    type(IBurnable).interfaceId,
-                    address(priceOracle),
-                    feeReceiver,
-                    reservePool,
-                    config
-                )
-            )
+            abi.encodeCall(Minter_v1.initialize, (owner))
         );
     }
 
@@ -433,15 +409,7 @@ contract TestMinterInit is TestMinterSetUp {
 
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        Minter_v1(minter).initialize(
-            address(this),
-            IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
-            type(IBurnable).interfaceId,
-            address(priceOracle),
-            feeReceiver,
-            reservePool,
-            config
-        );
+        Minter_v1(minter).initialize(address(this));
 
         assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
         _assertEqConfig(IMinter(minter).config(), config);

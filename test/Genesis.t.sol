@@ -32,6 +32,7 @@ import {Array} from "test/Array.sol";
 
 contract Test_GenesisBase is Test, Array {
     address collateral;
+    address wrappedCollateral;
     address peggedToken;
 
     address genesisImpl;
@@ -63,6 +64,7 @@ contract Test_GenesisBase is Test, Array {
         feeReceiver = vm.createWallet("feeReceiver").addr;
 
         // collateral = address(deployMockERC20("mock wstETH", "wstETH", 18));
+        wrappedCollateral = address(new ERC20Mock());
         collateral = address(new ERC20Mock());
         // peggedToken = address(deployMockERC20("mock BaoUSD", "BaoUSD", 18));
         peggedToken = address(new ERC20Mock());
@@ -90,20 +92,15 @@ contract Test_GenesisBase is Test, Array {
         priceOracle = new MockPriceOracle();
 
         minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1()), // "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (
-                    owner,
-                    IMinter.BalanceTokens(peggedToken, leveragedToken, collateral),
-                    type(IBurnable2Arg).interfaceId,
-                    address(priceOracle),
-                    feeReceiver,
-                    reservePool,
-                    config
-                )
-            )
+            address(new Minter_v1(collateral, peggedToken, leveragedToken, wrappedCollateral)), // "Minter_v1.sol",
+            abi.encodeCall(Minter_v1.initialize, (owner))
         );
+        IMinter(minter).updatePriceOracle(address(priceOracle));
+        IMinter(minter).updateFeeReceiver(feeReceiver);
+        IMinter(minter).updateReservePool(reservePool);
+        IMinter(minter).updateConfig(config);
+        IBaoRoles(minter).grantRoles(owner, IMinter(minter).ZERO_FEE_ROLE());
+
         IBaoOwnable(minter).transferOwnership(owner);
 
         uint256 minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
