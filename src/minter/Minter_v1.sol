@@ -293,16 +293,14 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function collateralRatio() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
-        if ($.peggedTokenBalance == 0) {
-            return type(uint256).max; // TODO: consider reverting here or returning 1 ether
-        } else {
-            return
-                _collateralRatio(
-                    _collateralTokenBalance(collateralToken),
-                    _fetchMidPrice($.priceOracle),
-                    $.peggedTokenBalance
-                );
-        }
+        if ($.peggedTokenBalance == 0) return 1 ether * 1 ether;
+        if (_collateralTokenBalance(collateralToken) == 0) return 1 ether;
+        return
+            _collateralRatio(
+                _collateralTokenBalance(collateralToken),
+                _fetchMidPrice($.priceOracle),
+                $.peggedTokenBalance
+            );
     }
 
     /// @inheritdoc IMinter
