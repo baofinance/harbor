@@ -394,6 +394,7 @@ contract RebalancePool_v1 is
     }
 
     /// @inheritdoc IRebalancePool
+    // slither-disable-next-line reentrancy-no-eth
     function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
         // can only liquidate if the collateral ratio is below a certain value
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
