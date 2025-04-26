@@ -280,6 +280,66 @@ contract Array {
         result[5] = f;
     }
 
+    function sa(
+        string memory a_,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e,
+        string memory f,
+        string memory g
+    ) internal pure returns (string[] memory result) {
+        result = new string[](7);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+    }
+    function sa(
+        string memory a_,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e,
+        string memory f,
+        string memory g,
+        string memory h
+    ) internal pure returns (string[] memory result) {
+        result = new string[](8);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+    }
+    function sa(
+        string memory a_,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e,
+        string memory f,
+        string memory g,
+        string memory h,
+        string memory i
+    ) internal pure returns (string[] memory result) {
+        result = new string[](9);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
+    }
     function cons(uint car, uint[] memory cdr) private pure returns (uint[] memory list) {
         list = new uint[](cdr.length + 1);
         list[0] = car;

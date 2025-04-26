@@ -12,7 +12,9 @@ import {IWstETH} from "@bao/interfaces/IWstETH.sol";
 /**
  * @title StakedETHWrappedPriceOracleV1
  * @notice A contract for safely consuming Chainlink price feeds for staked ETH with heartbeat detection
- * @dev This contract is designed to be used with a UUPS proxy
+ * @dev This contract is designed to be used with a UUPS proxy.
+ * @dev even though the contract has no state variables in the proxy space, it still uses the UUPS pattern
+ *      to allow for future upgrades without requiring updates of all the contracts that use it
  */
 contract StakedETHWrappedPriceOracleV1 is
     IWrappedPriceOracle,
@@ -24,7 +26,9 @@ contract StakedETHWrappedPriceOracleV1 is
     address public immutable stethFeed;
     uint256 public immutable stethFeedDecimals;
     bool public immutable hasAnsweredInRound;
-    IWstETH public immutable wstETH;
+    IWstETH public constant wstETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+
+    // PriceOracle.Constraints
     uint64 private immutable _maxPriceAge;
     uint64 private immutable _maxRelativeDeviation;
     uint256 private immutable _maxAbsoluteDeviation;
@@ -69,11 +73,13 @@ contract StakedETHWrappedPriceOracleV1 is
     ) {
         // only allow initialization via the proxy
         _disableInitializers();
-        // Set immutable variables
+
+        // Set feed constants
         stethFeed = stethFeed_;
         stethFeedDecimals = AggregatorV3Interface(stethFeed_).decimals();
         hasAnsweredInRound = hasAnsweredInRound_;
-        wstETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+
+        // Set price feed constraints
         _maxPriceAge = maxPriceAge_;
         _maxRelativeDeviation = maxRelativeDeviation_;
         _maxAbsoluteDeviation = maxAbsoluteDeviation_;
@@ -96,23 +102,4 @@ contract StakedETHWrappedPriceOracleV1 is
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
         // Validation can be added here if needed
     }
-
-    // /**
-    //  * @notice Get the underlying feed
-    //  */
-    // function stethFeed() external view returns (AggregatorV3Interface) {
-    //     return AggregatorV3Interface(_stethFeed);
-    // }
-
-    // /// @notice The storage hash for the shared-with-proxy storage
-    // /// @dev keccak256(abi.encode(uint256(keccak256("bao.storage.WrappedPriceOracle")) - 1)) & ~bytes32(uint256(0xff));
-    // bytes32 private constant _PRICE_ORACLE_STORAGE = 0x3c0f448ab3cca9ae0473c5ddfae9fee617b16a5a264b49d4b2ef5fda40f1e300;
-
-    // /// @notice Returns a reference to the contract state
-    // function _getPriceOracleStorage() private pure returns (WrappedPriceOracleStorage storage $) {
-    //     // solhint-disable-next-line no-inline-assembly
-    //     assembly {
-    //         $.slot := _PRICE_ORACLE_STORAGE
-    //     }
-    // }
 }

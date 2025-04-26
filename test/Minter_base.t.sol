@@ -421,7 +421,7 @@ contract TestMinterInit is TestMinterSetUp {
         // no pegged tokens so divide by zero
         assertEq(
             IMinter(minter).collateralRatio(),
-            type(uint256).max,
+            1 ether, // 1 when nothing has happened
             "very high collateral ratios capped at maxuint256"
         );
     }
@@ -478,7 +478,7 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).leveragedTokenBalance(), 0);
         assertEq(IMinter(minter).collateralTokenBalance(), 0);
         assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IMinter(minter).leverageRatio(), type(uint256).max);
         assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether);
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);

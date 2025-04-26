@@ -3,6 +3,8 @@ pragma solidity 0.8.28;
 
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 contract MockWrappedPriceOracle is IWrappedPriceOracle {
     // Errors specific to implementation details
     error InconsistentRoundData(uint80 roundId, uint80 prevRoundId);
@@ -26,6 +28,20 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
         maxUnderlyingPrice_ = maxUnderlyingPrice;
         minWrappedRate_ = minWrappedRate;
         maxWrappedRate_ = maxWrappedRate;
+        // console2.log("MockWrappedPriceOracle.latestAnswer() -> (%s, , %s, )", minUnderlyingPrice_, minWrappedRate_);
+    }
+
+    function _setLatestAnswer(
+        uint256 minUnderlyingPrice_,
+        uint256 maxUnderlyingPrice_,
+        uint256 minWrappedRate_,
+        uint256 maxWrappedRate_
+    ) internal {
+        minUnderlyingPrice = minUnderlyingPrice_;
+        maxUnderlyingPrice = maxUnderlyingPrice_;
+        minWrappedRate = minWrappedRate_;
+        maxWrappedRate = maxWrappedRate_;
+        // console2.log("MockWrappedPriceOracle.setLatestAnswer(%s, , %s, )", minUnderlyingPrice_, minWrappedRate_);
     }
 
     function setLatestAnswer(
@@ -34,21 +50,14 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
         uint256 minWrappedRate_,
         uint256 maxWrappedRate_
     ) external {
-        minUnderlyingPrice = minUnderlyingPrice_;
-        maxUnderlyingPrice = maxUnderlyingPrice_;
-        minWrappedRate = minWrappedRate_;
-        maxWrappedRate = maxWrappedRate_;
+        _setLatestAnswer(minUnderlyingPrice_, maxUnderlyingPrice_, minWrappedRate_, maxWrappedRate_);
     }
 
     function setLatestAnswer(uint256 price, uint256 rate) external {
-        minUnderlyingPrice = price;
-        maxUnderlyingPrice = price;
-        minWrappedRate = rate;
-        maxWrappedRate = rate;
+        _setLatestAnswer(price, price, rate, rate);
     }
 
     function setLatestAnswer(uint256 price) external {
-        minUnderlyingPrice = price;
-        maxUnderlyingPrice = price;
+        _setLatestAnswer(price, price, minWrappedRate, maxWrappedRate);
     }
 }

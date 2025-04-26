@@ -48,15 +48,18 @@ library PriceOracle {
         console2.log("PriceOracle.answer", answer);
         console2.log("PriceOracle.updatedAt", updatedAt);
 
-        // Inline: Basic validations
+        // Basic validation
+        // updatedAt == 0 means the feed has never answered and so the answer is invalid
         if (updatedAt == 0) {
             console2.log("PriceOracle.InvalidUnderlyingPrice (updtedAt == 0)");
             revert IPriceOracleErrors.InvalidUnderlyingPrice(feedAddress, answer);
         }
+        // a zero price is allowed, but not a negative one for this type of feed
         if (answer < 0) {
-            console2.log("PriceOracle.InvalidUnderlyingPrice (updtedAt == 0)");
+            console2.log("PriceOracle.InvalidUnderlyingPrice (answer < 0)");
             revert IPriceOracleErrors.InvalidUnderlyingPrice(feedAddress, answer);
         }
+        // we don't accept a price that is too old, because we return a rate too which is up-to-date by definition
         if (block.timestamp - updatedAt > constraints.maxAnswerAge) {
             console2.log("PriceOracle.StaleUnderlyingPrice (block.timestamp - updatedAt > maxAnswerAge)");
             revert IPriceOracleErrors.StaleUnderlyingPrice(feedAddress, updatedAt, block.timestamp);
@@ -66,6 +69,7 @@ library PriceOracle {
         uint80 prevRoundId = _prevRoundId(roundId);
         console2.log("PriceOracle.prevRoundId", prevRoundId);
 
+        // Historic validation
         // Only perform deviation checks if there is a previous round in this phase
         if (prevRoundId > 0) {
             (, int256 prevAnswer /*uint256 prevStartedAt*/, , uint256 prevUpdatedAt, ) = feed.priceFeed.getRoundData(
@@ -106,7 +110,7 @@ library PriceOracle {
                         constraints.maxPercentageDeviation
                     );
                 }
-
+                // Trend reversal check
                 // Do not remove this commented out code vvv
                 // (uint80 oldRoundId, uint256 oldAnswer, uint256 oldAnsweredAt) = _normalizedRoundData(feed, roundId - 2);
 
