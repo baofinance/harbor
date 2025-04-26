@@ -79,6 +79,7 @@ contract TestGraphBasicCalculations is TestGraphs {
     // redeem all leveraged
     // price drops and we redeem all pegged
     // price drops and we redeem all leveraged
+    uint256 iterations = 400;
 
     function setUp() public override {
         super.setUp();
@@ -153,6 +154,35 @@ contract TestGraphBasicCalculations is TestGraphs {
         for (uint256 price = 0; price <= midway * 2; price += 10) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(price * 1 ether);
 
+            writeOneLine(priceChangeFile);
+        }
+
+        vm.closeFile(priceChangeFile);
+    }
+
+    function test_mintPegged() public {
+        // at a price mid-way between the value rang below
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 * 1 ether);
+
+        string memory priceChangeFile = openFile("mintPegged");
+
+        for (uint256 i = 0; i <= iterations; i++) {
+            setUp_collateral(1e17, 0, address(this)); // 0.1 worth of collateral = 200 pegged
+            writeOneLine(priceChangeFile);
+        }
+
+        vm.closeFile(priceChangeFile);
+    }
+
+    function test_mintPegged_initialCollateral() public {
+        // at a price mid-way between the value rang below
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 * 1 ether);
+        setUp_collateral(10 ether, 10 ether, address(this));
+
+        string memory priceChangeFile = openFile("mintPegged-initialCollateral");
+
+        for (uint256 i = 0; i <= iterations; i++) {
+            setUp_collateral(1e17, 0, address(this)); // 0.1 worth of collateral = 200 pegged
             writeOneLine(priceChangeFile);
         }
 
