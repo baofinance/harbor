@@ -292,31 +292,30 @@ contract Minter_v1 is
         uint256 collateralPrice = _fetchMidPrice($.priceOracle);
         uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken);
 
-        // 1) there's no collateral tokens,
-        //    so we get 0 / 0 which we are defining to be 1 in this case.
-        //    why? because immediately after the first mint of a pegged token, we have a collateral ratio of 1.
-        // if (collateralTokenBalance_ == 0) {
-        //     collateralRatio_ = 1 ether;
-        // } else if (peggedTokenBalance_ == 0) {
-        //     // we're going to get a divide by zero!
-        //     // we're not going to revert, but return a number.
-        //     // and we're not going to use uint(-1) because that is often used for something else.
-        //     // in 256 bits we have up to 77 digits (before and after the poinyt) to represent big numbers
-        //     // BUT, there are two possibilities:
-
-        //     // 1) there is collateral, but the price is 0,
-        //     //    so we get 0 / 0 which we are defining to be a very big number, in this case
-        //     //    we don't use the biggest number because the price may be zero due to truncation
-        //     if (collateralPrice == 0) {
-        //         collateralRatio_ = 1 ether * 1 ether; // that's 54 decimal digits, 36 before the point
-        //     } else {
-        //         // 2) there is collateral value, because there are leveraged tokens (i.e. all the pegged are redeemed)
-        //         //    in this case, the collateral ratio is x / 0, which is a very very big number
-        //         collateralRatio_ = 1 ether * 1 ether * 1 ether; // that's 72 decimal digits, 54 before the point
-        //     }
-        // } else {
-        collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
-        // }
+        // there's no collateral tokens,
+        // so we get 0 / 0 which we are defining to be 1 in this case.
+        // why? because immediately after the first mint of a pegged token, we have a collateral ratio of 1.
+        if (collateralTokenBalance_ == 0) {
+            collateralRatio_ = 1 ether;
+        } else if (peggedTokenBalance_ == 0) {
+            // we're going to get a divide by zero!
+            // we're not going to revert but return a number!
+            // and we're not going to use uint(-1) because that is often used for something else.
+            // in 256 bits we have up to 77 digits (before and after the poinyt) to represent big numbers
+            // BUT, there are two possibilities:
+            if (collateralPrice == 0) {
+                // 1) there is collateral, but the price is 0,
+                //    so we get 0 / 0 which we are defining to be a very big number, in this case
+                //    we don't use the biggest number because the price may be zero due to truncation
+                collateralRatio_ = 1 ether * 1 ether; // that's 54 decimal digits, 36 before the point
+            } else {
+                // 2) there is collateral value, because there are leveraged tokens (i.e. all the pegged are redeemed)
+                //    in this case, the collateral ratio is x / 0, which is a very very big number
+                collateralRatio_ = 1 ether * 1 ether * 1 ether; // that's 72 decimal digits, 54 before the point
+            }
+        } else {
+            collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
+        }
     }
 
     /// @inheritdoc IMinter

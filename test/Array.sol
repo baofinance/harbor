@@ -80,21 +80,25 @@ contract Array {
     function ia() internal pure returns (int[] memory result) {
         result = new int[](0);
     }
+
     function ia(int a_) internal pure returns (int[] memory result) {
         result = new int[](1);
         result[0] = a_;
     }
+
     function ia(int a_, int b) internal pure returns (int[] memory result) {
         result = new int[](2);
         result[0] = a_;
         result[1] = b;
     }
+
     function ia(int a_, int b, int c) internal pure returns (int[] memory result) {
         result = new int[](3);
         result[0] = a_;
         result[1] = b;
         result[2] = c;
     }
+
     function ia(int a_, int b, int c, int d) internal pure returns (int[] memory result) {
         result = new int[](4);
         result[0] = a_;
@@ -102,6 +106,7 @@ contract Array {
         result[2] = c;
         result[3] = d;
     }
+
     function ia(int a_, int b, int c, int d, int e) internal pure returns (int[] memory result) {
         result = new int[](5);
         result[0] = a_;
@@ -110,6 +115,7 @@ contract Array {
         result[3] = d;
         result[4] = e;
     }
+
     function ia(int a_, int b, int c, int d, int e, int f) internal pure returns (int[] memory result) {
         result = new int[](6);
         result[0] = a_;
@@ -119,6 +125,7 @@ contract Array {
         result[4] = e;
         result[5] = f;
     }
+
     function ia(int a_, int b, int c, int d, int e, int f, int g) internal pure returns (int[] memory result) {
         result = new int[](7);
         result[0] = a_;
@@ -129,6 +136,7 @@ contract Array {
         result[5] = f;
         result[6] = g;
     }
+
     function ia(int a_, int b, int c, int d, int e, int f, int g, int h) internal pure returns (int[] memory result) {
         result = new int[](8);
         result[0] = a_;
@@ -140,6 +148,7 @@ contract Array {
         result[6] = g;
         result[7] = h;
     }
+
     function ia(
         int a_,
         int b,
@@ -161,6 +170,31 @@ contract Array {
         result[6] = g;
         result[7] = h;
         result[8] = i;
+    }
+
+    function ia(
+        int a_,
+        int b,
+        int c,
+        int d,
+        int e,
+        int f,
+        int g,
+        int h,
+        int i,
+        int j
+    ) internal pure returns (int[] memory result) {
+        result = new int[](10);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
+        result[9] = j;
     }
 
     function aa() internal pure returns (address[] memory result) {
@@ -237,6 +271,7 @@ contract Array {
         result[1] = b;
         result[2] = c;
     }
+
     function sa(
         string memory a_,
         string memory b,
@@ -249,6 +284,7 @@ contract Array {
         result[2] = c;
         result[3] = d;
     }
+
     function sa(
         string memory a_,
         string memory b,
@@ -263,6 +299,7 @@ contract Array {
         result[3] = d;
         result[4] = e;
     }
+
     function sa(
         string memory a_,
         string memory b,
@@ -298,6 +335,7 @@ contract Array {
         result[5] = f;
         result[6] = g;
     }
+
     function sa(
         string memory a_,
         string memory b,
@@ -318,6 +356,7 @@ contract Array {
         result[6] = g;
         result[7] = h;
     }
+
     function sa(
         string memory a_,
         string memory b,
@@ -340,6 +379,32 @@ contract Array {
         result[7] = h;
         result[8] = i;
     }
+
+    function sa(
+        string memory a_,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e,
+        string memory f,
+        string memory g,
+        string memory h,
+        string memory i,
+        string memory j
+    ) internal pure returns (string[] memory result) {
+        result = new string[](10);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
+        result[9] = j;
+    }
+
     function cons(uint car, uint[] memory cdr) private pure returns (uint[] memory list) {
         list = new uint[](cdr.length + 1);
         list[0] = car;
