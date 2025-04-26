@@ -229,7 +229,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp_minter() internal virtual {
         minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1(Deployed.stETH, Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH)), // "Minter_v1.sol",
+            address(new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, address(leveragedToken))), // "Minter_v1.sol",
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
 
@@ -319,7 +319,7 @@ contract TestMinterInit is TestMinterSetUp {
 
     function setUp() public override {
         super.setUp();
-        impl = address(new Minter_v1(Deployed.stETH, Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH));
+        impl = address(new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, address(leveragedToken)));
     }
     // TODO: remove this as we no longer test for valid erc20 token on initialisation
     // test the ERC20 check in Token - expect revert doesn't work for deployUUPS
@@ -386,7 +386,7 @@ contract TestMinterInit is TestMinterSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new Minter_v1(Deployed.stETH, Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH));
+        address(new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, address(leveragedToken)));
     }
 
     function test_initEvents() public {

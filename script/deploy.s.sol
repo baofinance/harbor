@@ -121,11 +121,10 @@ library DeployLib {
         address owner,
         address collateralToken,
         address peggedToken,
-        address leveragedToken,
-        address wrappedCollateralToken
+        address leveragedToken
     ) internal returns (address minter_) {
         Options memory opts;
-        opts.constructorData = abi.encode(collateralToken, peggedToken, leveragedToken, wrappedCollateralToken);
+        opts.constructorData = abi.encode(collateralToken, peggedToken, leveragedToken);
         minter_ = Upgrades.deployUUPSProxy("Minter_v1.sol", abi.encodeCall(Minter_v1.initialize, owner));
     }
 
@@ -222,8 +221,7 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
             logAddr("peggedToken", Deployed.BaoUSD);
             logAddr("leveragedToken", DeployLib.deployLeveragedToken(Deployed.BAOMULTISIG, "BaoUSD", "wstETH"));
             //                                  --------------------
-            logAddr("collateralToken", Deployed.stETH);
-            logAddr("wrappedCollateralToken", Deployed.wstETH);
+            logAddr("collateralToken", Deployed.wstETH);
 
             address priceOracle = Deployed.PriceOracle_wstETHUSD;
             logAddr("priceOracle", priceOracle);
@@ -252,8 +250,7 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
                 Deployed.BAOMULTISIG,
                 addr("collateralToken"),
                 addr("peggedToken"),
-                addr("leveragedToken"),
-                addr("wrappedCollateralToken")
+                addr("leveragedToken")
             );
             logAddr("minter", minter);
 

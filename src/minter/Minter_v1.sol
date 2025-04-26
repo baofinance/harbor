@@ -135,8 +135,7 @@ contract Minter_v1 is
     // Immutables //
     ////////////////
 
-    address public immutable collateralToken;
-    address public immutable wrappedCollateralToken;
+    address public immutable collateralToken; // this is the wrapped token
     address public immutable peggedToken;
     address public immutable leveragedToken;
 
@@ -211,17 +210,11 @@ contract Minter_v1 is
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        address collateralToken_,
-        address peggedToken_,
-        address leveragedToken_,
-        address wrappedCollateralToken_
-    ) {
+    constructor(address collateralToken_, address peggedToken_, address leveragedToken_) {
         _disableInitializers();
         collateralToken = collateralToken_;
         peggedToken = peggedToken_;
         leveragedToken = leveragedToken_;
-        wrappedCollateralToken = wrappedCollateralToken_;
     }
 
     /// @notice The check that allow this contract to be upgraded:
