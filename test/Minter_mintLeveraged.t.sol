@@ -121,13 +121,21 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // got to add some pegged tokens or collateral ratio checks don't work
 
         // first mint
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max, "collateral ratio = 1/0");
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            1 ether,
+            "collateral ratio = 1 for the first mint: 0/0, a special case = 1"
+        );
         assertEq(IBaoOwnable(minter).owner(), owner);
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         //---------------------------
         // collateral ratio is undefined for just minting leveraged tokens
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max, unicode"collateral ratio = ∞");
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            1 ether * 1 ether * 1 ether,
+            unicode"now we have collateral but no pegged, collateral ratio = x/0 = ∞"
+        );
         assertEq(IERC20(leveragedToken).balanceOf(receiver), price);
 
         // mint with some collateral ratio
@@ -230,7 +238,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     }
 
     function test_mintLeveragedBasic() public {
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // zero input, when none

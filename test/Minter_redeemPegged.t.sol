@@ -397,7 +397,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     }
 
     function test_redeemPeggedBasic() public {
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
 
         // zero input, when none

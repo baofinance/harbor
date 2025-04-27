@@ -14,6 +14,11 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
     uint256 minWrappedRate;
     uint256 maxWrappedRate;
 
+    constructor() {
+        minUnderlyingPrice = maxUnderlyingPrice = 2000 ether;
+        minWrappedRate = maxWrappedRate = 13e17; // 1.3
+    }
+
     function latestAnswer()
         external
         view

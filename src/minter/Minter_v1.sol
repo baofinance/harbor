@@ -167,6 +167,8 @@ contract Minter_v1 is
         //                                             slot
         // we keep track of pegged tokens as they can be minted through other rmeans
         uint256 peggedTokenBalance; //                  256
+        // we keep track of underlying collateal tokens as they are the collateral, not the wrapped collateral tokens
+        uint256 underlyingCollateral; //                256
         //                                             slot
         // @custom:security non-reentrant
         address reservePool; //                         160

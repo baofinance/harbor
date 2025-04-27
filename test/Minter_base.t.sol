@@ -479,7 +479,7 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).collateralTokenBalance(), 0);
         assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
-        assertEq(IMinter(minter).leverageRatio(), type(uint256).max);
+        assertEq(IMinter(minter).leverageRatio(), 100 ether); // 100 is the cap.
         assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether);
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);
     }

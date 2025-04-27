@@ -261,7 +261,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     }
 
     function test_redeemLeveragedBasic() public {
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // zero input, when none

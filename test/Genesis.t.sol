@@ -165,6 +165,7 @@ contract Test_GenesisBase is Test, Array {
     }
 
     function test_depositWithdraw() public {
+        vm.skip(true); // skip this test pending a decision to remove the withdrae function
         // ERC20Mock(collateralToken).mint(address(this), 1 ether);
         deal(collateralToken, address(this), 10 ether);
 

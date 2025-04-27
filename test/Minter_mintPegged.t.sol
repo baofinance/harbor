@@ -116,7 +116,11 @@ contract TestMinterMintPegged is TestMinterMint {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         // first mint
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max, "collateral ratio = 1/0");
+        assertEq(
+            IMinter(minter).collateralRatio(),
+            1 ether,
+            "collateral ratio = 0/0, which we define as 1, in this case"
+        );
         assertEq(IBaoOwnable(minter).owner(), owner);
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
         _freeMintPeggedToken(1 ether);
@@ -215,7 +219,7 @@ contract TestMinterMintPegged is TestMinterMint {
     }
 
     function test_mintPeggedBasic() public {
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
 
         // zero input, when none
