@@ -11,9 +11,9 @@ set ylabel "Price / Invariant / CollateralRatio"
 set yrange [-1:6]
 set ytics nomirror
 
-set y2label "LeverageRatio"
-set y2range [-20:120]
-set y2tics 20
+# set y2label "LeverageRatio"
+# set y2range [-20:120]
+# set y2tics 20
 
 set colorsequence default
 # $4 y1 pegged price
@@ -26,5 +26,4 @@ plot \
     datafile using ($2):($6) axes x1y1 with lines linewidth 2 linetype 4, \
     datafile using ($2):($7) axes x1y1 with lines linewidth 2 linetype 6, \
     datafile using ($2):($8) axes x1y1 with lines linewidth 3 linetype 8 dashtype 2, \
-    datafile using ($2):($9) axes x1y2 with lines linewidth 3 linetype 4 dashtype 2 title "> LeverageRatio",\
-    datafile using ($2):($9) axes x1y1 with lines linewidth 2 linetype 4 dashtype 2 title "< LeverageRatio"
+    datafile using ($2):($9) axes x1y1 with lines linewidth 2 linetype 4 dashtype 2

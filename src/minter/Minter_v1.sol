@@ -1987,6 +1987,7 @@ contract Minter_v1 is
     ) private pure returns (uint256 collateralRatio_) {
         collateralRatio_ = (collateralTokenBalance_ * collateralPrice) / peggedTokenBalance_;
     }
+
     /// @notice Returns the leverage ratio.
     function _leverageRatio(
         uint256 collateralTokenBalance_,

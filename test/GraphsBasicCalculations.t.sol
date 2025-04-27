@@ -247,8 +247,8 @@ contract TestGraphBasicCalculations is TestGraphs {
         string memory file = openFile("mintPegged");
 
         for (uint256 i = 0; i <= iterations; i++) {
-            setUp_collateral(1e17, 0, address(this)); // 0.1 worth of collateral = 200 pegged
             writeOneLine(file);
+            setUp_collateral(1e17, 0, address(this)); // 0.1 worth of collateral = 200 pegged
         }
 
         vm.closeFile(file);
@@ -262,8 +262,8 @@ contract TestGraphBasicCalculations is TestGraphs {
         string memory file = openFile("mintPegged-initialCollateral");
 
         for (uint256 i = 0; i <= iterations; i++) {
-            setUp_collateral(1e17, 0, address(this)); // 0.1 worth of collateral = 200 pegged
             writeOneLine(file);
+            setUp_collateral(1e17, 0, address(this)); // 0.1 worth of collateral = 200 pegged
         }
 
         vm.closeFile(file);
@@ -277,17 +277,61 @@ contract TestGraphBasicCalculations is TestGraphs {
 
         string memory file = openFile("redeemPegged");
 
+        int256 commandStatus = 0; // 0 = success
         for (uint256 i = 0; i <= iterations; i++) {
+            writeOneLine(file, commandStatus);
             if (IMinter(minter).peggedTokenBalance() > 0) {
                 try IMinter(minter).freeRedeemPeggedToken(price * 1 ether, address(this)) {
-                    writeOneLine(file);
+                    commandStatus = 0; // 0 = success
                 } catch {
                     // unexpected revert
-                    writeOneLine(file, NaN);
+                    commandStatus = NaN;
                 }
             } else {
                 // expected revert
-                writeOneLine(file, 0);
+                commandStatus = 0;
+            }
+        }
+
+        vm.closeFile(file);
+    }
+
+    function test_mintLeveraged_initialCollateral() public {
+        // at a price mid-way between the value rang below
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 * 1 ether);
+        setUp_collateral(10 ether, 10 ether, address(this));
+
+        string memory file = openFile("mintLeveraged-initialCollateral");
+
+        for (uint256 i = 0; i <= iterations; i++) {
+            setUp_collateral(0, 1e17, address(this)); // 0.1 worth of collateral = 200 pegged
+            writeOneLine(file);
+        }
+
+        vm.closeFile(file);
+    }
+
+    function test_redeemLeveraged() public {
+        // at a price mid-way between the value rang below
+        uint256 price = 2000;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price * 1 ether);
+        setUp_collateral(40 ether, 40 ether, address(this));
+
+        string memory file = openFile("redeemLeveraged");
+
+        int256 commandStatus = 0; // 0 = success
+        for (uint256 i = 0; i <= iterations; i++) {
+            writeOneLine(file, commandStatus);
+            if (IMinter(minter).leveragedTokenBalance() > 0) {
+                try IMinter(minter).freeRedeemLeveragedToken(price * 1 ether, address(this)) {
+                    commandStatus = 0; // 0 = success
+                } catch {
+                    // unexpected revert
+                    commandStatus = NaN;
+                }
+            } else {
+                // expected revert
+                commandStatus = 0;
             }
         }
 
