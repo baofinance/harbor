@@ -1995,8 +1995,8 @@ contract Minter_v1 is
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 ratio) {
         uint256 collateralValue = collateralTokenBalance_ * collateralPrice;
-        uint256 peggedValue = _peggedTokenPrice$(peggedTokenBalance_, collateralTokenBalance_, collateralPrice) /
-            1 ether;
+        uint256 peggedValue = (peggedTokenBalance_ *
+            _peggedTokenPrice$(peggedTokenBalance_, collateralTokenBalance_, collateralPrice)) / 1 ether;
 
         // if (collateralValue <= peggedValue // we depegged or on the brink of it
         //     || collateralValue > (peggedValue / 99) // or the calculation below would take the ratio above 100 ether
@@ -2004,12 +2004,13 @@ contract Minter_v1 is
         // {
         //     ratio = 100 ether; // cap it at 100
         // } else {
-        if (collateralValue == 0) {
-            ratio = 1 ether;
+        if (peggedValue >= collateralValue) {
+            // it divides by 0 or goes negative!
+            ratio = 100 ether;
         } else {
             // we have collateral and it's worth something
-            // lither-disable-next-line divide-before-multiply
             ratio = (1 ether * 1 ether) / (1 ether - ((peggedValue * 1 ether) / collateralValue));
+            if (ratio > 100 ether) ratio = 100 ether;
         }
     }
 

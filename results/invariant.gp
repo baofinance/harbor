@@ -21,9 +21,14 @@ set arrow from depeg, graph 0 to depeg, graph 1 nohead linetype 1 dashtype 2 lin
 set label "de-peg  " at depeg, 2 right textcolor "red"
 
 set colorsequence default
+# $1 = Collateral Ratio,
+# $2 = Leveraged Ratio,
+# $3 = Pegged NAV,
+# $4 = Leveraged NAV,
+# $5 = Collateral NAV
 plot \
      datafile using ($1):($3) axes x1y1 with lines linewidth 1 linetype 2, \
      datafile using ($1):($4) axes x1y1 with lines linewidth 1 linetype 4, \
-     datafile using ($1):(($2 > max_value) ? max_value : $2) axes x1y2 with lines linewidth 1 linetype 1, \
+     datafile using ($1):(($2 > max_value) ? max_value : $2) axes x1y2 with lines linewidth 1 linetype 1 title "> Leverage Ratio", \
      datafile using ($1):($5) axes x1y2 with lines linewidth 1 linetype 6, \
-     datafile using ($1):(($2 > 10) ? 10 : $2) axes x1y1 with lines linewidth 1 dashtype 2 linetype 1
+     datafile using ($1):(($2 > 10) ? 10 : $2) axes x1y1 with lines linewidth 1 dashtype 2 linetype 1 title "< Leverage Ratio"

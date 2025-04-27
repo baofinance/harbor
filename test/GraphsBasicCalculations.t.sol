@@ -69,7 +69,7 @@ contract TestGraphs is TestRebalancePool2SetUp {
     }
 }
 
-contract TestGraphBasicCalculations is TestGraphs {
+contract TestGraphsBasicCalculations is TestGraphs {
     // TODO: collateral ratio
     // TODO: leveraged Ratio
     // TODO: pegged price on depeg

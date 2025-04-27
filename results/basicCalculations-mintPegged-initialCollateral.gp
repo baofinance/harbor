@@ -9,12 +9,12 @@ set xlabel "Pegged Tokens"
 set xrange [0:100000]
 
 set ylabel "Price / Invariant / Ratios"
-set yrange [-1:3]
+set yrange [-1:6]
 set ytics nomirror
 
 # set y2label "LeverageRatio"
-# set y2range [-20:120]
-# set y2tics 20
+# set y2range [0:6]
+# set y2tics 1
 
 set colorsequence default
 # $4 y1 pegged price

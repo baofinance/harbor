@@ -30,7 +30,8 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        (startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        startPrice = 2000 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice);
         setUp_collateral(10 ether, 10 ether, address(this));
         deal(address(collateralToken), address(this), 1000 ether);
         IERC20(collateralToken).approve(minter, type(uint256).max);

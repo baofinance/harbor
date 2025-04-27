@@ -33,7 +33,8 @@
     "sizes:raw:contracts": "yarn sizes:raw | grep -E \"^\\| Contract |^\\|---|$(yarn contracts:regexp)\"",
     "sizes:raw": "forge clean; forge build --sizes",
     "sizes": "./lib/bao-base/run regression-of sizes",
-    "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc"
+    "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
+    "wtf": "grep -rn NaN results/*.csv | awk -F: '!a[$1]++'"
   },
   "prettier": "./lib/bao-base/prettier.config.js",
   "dependencies": {
