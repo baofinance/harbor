@@ -570,12 +570,43 @@ contract TestMinterBasics is TestMinterSetUp {
     }
 
     function test_mint() public {
-        // compare the dry run with the actual
+        // TODO: compare the dry run with the actual
     }
 
-    // function test_leverageRatio() public {
+    function test_ratios() public {
+        // initial values
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "initial collateral ratio");
+        assertEq(IMinter(minter).leverageRatio(), 100 ether, "initial leverage ratio"); // highest value
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "initial pegged token price");
+        assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether, "initial leveraged token price");
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "initial pegged token balance");
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "initial leveraged token balance");
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "initial collateral token balance");
 
-    // }
+        // add collateral from minting pegged
+        (uint256 peggedMinted, uint256 leveragedMinted) = setUp_collateral(10 ether, 0);
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "post pegged mint collateral ratio");
+        assertEq(IMinter(minter).leverageRatio(), 100 ether, "post pegged mint leverage ratio"); // highest value
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "post pegged mint pegged token price");
+        assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether, "post pegged mint leveraged token price");
+        assertEq(IMinter(minter).peggedTokenBalance(), peggedMinted, "post pegged mint pegged token balance"); // minted some pegged
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "post pegged mint leveraged token balance");
+        assertEq(IMinter(minter).collateralTokenBalance(), 10 ether, "post pegged mint collateral token balance"); // updated collateral balance
+
+        // add collateral from minting pegged
+        (, leveragedMinted) = setUp_collateral(0, 10 ether);
+        assertEq(IMinter(minter).collateralRatio(), 2 ether, "post leveraged mint collateral ratio");
+        assertEq(IMinter(minter).leverageRatio(), 2 ether, "post leveraged mint leverage ratio"); // highest value
+        assertEq(IMinter(minter).peggedTokenPrice(), 1 ether, "post leveraged mint pegged token price");
+        assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether, "post leveraged mint leveraged token price");
+        assertEq(IMinter(minter).peggedTokenBalance(), peggedMinted, "post leveraged mint pegged token balance"); // minted some pegged
+        assertEq(
+            IMinter(minter).leveragedTokenBalance(),
+            leveragedMinted,
+            "post leveraged mint leveraged token balance"
+        ); // minted some leveraged
+        assertEq(IMinter(minter).collateralTokenBalance(), 20 ether, "post leveraged mint collateral token balance"); // updated collateral balance
+    }
 
     function test_config() public {
         int256 incentivePrecision = 10 ** 9;

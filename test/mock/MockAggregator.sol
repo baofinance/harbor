@@ -57,13 +57,13 @@ contract MockAggregator is AggregatorV3Interface {
             latestRoundId = roundId;
         }
 
-        console2.log("MockAggregator.setRoundData: phaseId", phaseId);
-        console2.log("MockAggregator.setRoundData: aggregatorRoundId", aggregatorRoundId);
-        console2.log("MockAggregator.setRoundData: roundId", roundId);
-        console2.log("MockAggregator.setRoundData: answer (scaled to decimals)", answer);
-        console2.log("MockAggregator.setRoundData: startedAt_", startedAt_);
-        console2.log("MockAggregator.setRoundData: updatedAt_", updatedAt_);
-        console2.log("MockAggregator.setRoundData: latestRoundId", latestRoundId);
+        // console2.log("MockAggregator.setRoundData: phaseId", phaseId);
+        // console2.log("MockAggregator.setRoundData: aggregatorRoundId", aggregatorRoundId);
+        // console2.log("MockAggregator.setRoundData: roundId", roundId);
+        // console2.log("MockAggregator.setRoundData: answer (scaled to decimals)", answer);
+        // console2.log("MockAggregator.setRoundData: startedAt_", startedAt_);
+        // console2.log("MockAggregator.setRoundData: updatedAt_", updatedAt_);
+        // console2.log("MockAggregator.setRoundData: latestRoundId", latestRoundId);
     }
 
     function decimals() external view override returns (uint8) {

@@ -293,67 +293,91 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function collateralRatio() external view override returns (uint256 collateralRatio_) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 collateralPrice = _fetchMidPrice($.priceOracle);
         uint256 collateralTokenBalance_ = _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN);
 
-        // there's no collateral tokens,
-        // so we get 0 / 0 which we are defining to be 1 in this case.
-        // why? because immediately after the first mint of a pegged token, we have a collateral ratio of 1.
         // slither-disable-next-line incorrect-equality // testing for initial conditions
         if (collateralTokenBalance_ == 0) {
+            // there's no collateral tokens,
+            // so we get 0 / 0 which we are defining to be 1 in this case.
+            // why? because immediately after the first mint of a pegged token, we have a collateral ratio of 1.
             collateralRatio_ = 1 ether;
-        } else if (peggedTokenBalance_ == 0) {
-            // we're going to get a divide by zero!
-            // we're not going to revert but return a number!
-            // and we're not going to use uint(-1) because that is often used for something else.
-            // in 256 bits we have up to 77 digits (before and after the poinyt) to represent big numbers
-            // BUT, there are two possibilities:
-            if (collateralPrice == 0) {
-                // 1) there is collateral, but the price is 0,
-                //    so we get 0 / 0 which we are defining to be a very big number, in this case
-                //    we don't use the biggest number because the price may be zero due to truncation
-                collateralRatio_ = 1 ether * 1 ether; // that's 54 decimal digits, 36 before the point
-            } else {
-                // 2) there is collateral value, because there are leveraged tokens (i.e. all the pegged are redeemed)
-                //    in this case, the collateral ratio is x / 0, which is a very very big number
-                collateralRatio_ = 1 ether * 1 ether * 1 ether; // that's 72 decimal digits, 54 before the point
-            }
         } else {
-            collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
+            uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+            uint256 collateralPrice = _fetchMidPrice($.priceOracle);
+            if (peggedTokenBalance_ == 0) {
+                // we're going to get a divide by zero!
+                // we're not going to revert but return a number!
+                // and we're not going to use uint(-1) because that is often used for something else.
+                // in 256 bits we have up to 77 digits (before and after the poinyt) to represent big numbers
+                // BUT, there are two possibilities:
+                if (collateralPrice == 0) {
+                    // 1) there is collateral, but the price is 0,
+                    //    so we get 0 / 0 which we are defining to be a very big number, in this case
+                    //    we don't use the biggest number because the price may be zero due to truncation
+                    collateralRatio_ = 1 ether * 1 ether; // that's 54 decimal digits, 36 before the point
+                } else {
+                    // 2) there is collateral value, because there are leveraged tokens (i.e. all the pegged are redeemed)
+                    //    in this case, the collateral ratio is x / 0, which is a very very big number
+                    collateralRatio_ = 1 ether * 1 ether * 1 ether; // that's 72 decimal digits, 54 before the point
+                }
+            } else {
+                collateralRatio_ = _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
+            }
         }
     }
 
     /// @inheritdoc IMinter
-    function leverageRatio() external view override returns (uint256) {
+    function leverageRatio() external view override returns (uint256 ratio) {
         MinterStorage storage $ = _getMinterStorage();
-        return
-            _leverageRatio(
-                _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-                _fetchMidPrice($.priceOracle),
-                $.peggedTokenBalance
-            );
+
+        // slither-disable-next-line unused-return we don't need the leveraged value here
+        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
+            $.peggedTokenBalance,
+            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
+            _fetchMidPrice($.priceOracle)
+        );
+        if (peggedValue$ >= collateralValue$) {
+            // it divides by 0 or goes negative!
+            ratio = 100 ether;
+        } else {
+            // we have collateral and it's worth something
+            // ratio = (1 ether * 1 ether) / (1 ether - (peggedValue$ / (collateralValue$ / 1 ether)));
+            ratio = (1 ether * 1 ether) / (1 ether - ((peggedValue$ * 1 ether) / collateralValue$));
+            if (ratio > 100 ether) ratio = 100 ether;
+        }
     }
 
     /// @inheritdoc IMinter
     function leveragedTokenPrice() external view override returns (uint256 nav) {
-        MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchMidPrice($.priceOracle);
-        nav = _leveragedTokenPrice(
-            _leveragedTokenBalance(LEVERAGED_TOKEN),
-            $.peggedTokenBalance,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-            price
-        );
+        uint256 leveragedBalance = _leveragedTokenBalance(LEVERAGED_TOKEN);
+        if (leveragedBalance == 0) {
+            nav = 1 ether;
+        } else {
+            MinterStorage storage $ = _getMinterStorage();
+            (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
+                $.peggedTokenBalance,
+                _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
+                _fetchMidPrice($.priceOracle)
+            );
+            // by definition the leveraged token value is the difference
+            nav = (collateralValue$ - peggedValue$) / leveragedBalance;
+        }
     }
 
     /// @inheritdoc IMinter
     function peggedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchMidPrice($.priceOracle);
-        nav =
-            _peggedTokenPrice$($.peggedTokenBalance, _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN), price) /
-            1 ether;
+        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        if (peggedTokenBalance_ == 0) {
+            nav = 1 ether;
+        } else {
+            (, uint256 peggedValue$) = _tokenValues$(
+                peggedTokenBalance_,
+                _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
+                _fetchMidPrice($.priceOracle)
+            );
+            nav = peggedValue$ / peggedTokenBalance_;
+        }
     }
 
     /// @inheritdoc IMinter
@@ -1831,59 +1855,25 @@ contract Minter_v1 is
     // other calculations
     // ------------------
 
-    // the price of a leveraged token in terms of the pegged token's underlying (i.e. USD for a USD pegged token)
-    function _leveragedTokenPrice(
-        uint256 leveragedTokenBalance_,
-        uint256 peggedTokenBalance_,
-        uint256 collateralTokenBalance_,
-        uint256 collateralPrice
-    ) private pure returns (uint256 nav) {
-        // if the collateral ratio is <= 1, nav is 0
-        // slither-disable-next-line incorrect-equality
-        if (leveragedTokenBalance_ == 0) {
-            nav = 1 ether;
-        } else {
-            if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
-                nav = 0;
-            } else {
-                // from the invariant collateral value = pegged value + leveraged value
-                nav =
-                    (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether) /
-                    leveragedTokenBalance_;
-            }
-        }
-    }
-
     // the price of a leveraged token in terms of the pegged token's underlying
     function _peggedTokenPrice$(
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 nav$) {
-        // slither-disable-next-line incorrect-equality
-        if (peggedTokenBalance_ == 0) {
-            nav$ = 1 ether * 1 ether;
-        } else {
-            if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
-                // the nav becomes the value of the collateral,
-                // so that, for example, if the collateral value is 0 (either by price or collateral held going to 0)
-                // the pegged price becomes zero, too
-                nav$ = (collateralTokenBalance_ * collateralPrice * 1 ether) / peggedTokenBalance_;
-            } else {
-                // this is the invariant: collateral value  = pegged value + leveraged value
-                nav$ = 1 ether * 1 ether;
-            }
-        }
+        (, nav$) = _tokenValues$(peggedTokenBalance_, collateralTokenBalance_, collateralPrice);
+        nav$ = (nav$ * 1 ether) / peggedTokenBalance_;
     }
 
-    function _peggedAndCollateralValues$(
+    function _tokenValues$(
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
-    ) private pure returns (uint256 peggedValue$, uint256 collateralValue$) {
+    ) private pure returns (uint256 collateralValue$, uint256 peggedValue$) {
         collateralValue$ = collateralTokenBalance_ * collateralPrice;
         peggedValue$ = peggedTokenBalance_ * 1 ether;
-        if (collateralValue$ < peggedValue$) {
+        // the value of the pegged cannot be greater than the value of the collateral
+        if (peggedValue$ > collateralValue$) {
             peggedValue$ = collateralValue$;
         }
     }
@@ -2006,27 +1996,6 @@ contract Minter_v1 is
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 collateralRatio_) {
         collateralRatio_ = (collateralTokenBalance_ * collateralPrice) / peggedTokenBalance_;
-    }
-
-    /// @notice Returns the leverage ratio.
-    function _leverageRatio(
-        uint256 collateralTokenBalance_,
-        uint256 collateralPrice,
-        uint256 peggedTokenBalance_
-    ) private pure returns (uint256 ratio) {
-        (uint256 peggedValue$, uint256 collateralValue$) = _peggedAndCollateralValues$(
-            peggedTokenBalance_,
-            collateralTokenBalance_,
-            collateralPrice
-        );
-        if (peggedValue$ >= collateralValue$) {
-            // it divides by 0 or goes negative!
-            ratio = 100 ether;
-        } else {
-            // we have collateral and it's worth something
-            ratio = (1 ether * 1 ether) / (1 ether - (peggedValue$ / collateralValue$));
-            if (ratio > 100 ether) ratio = 100 ether;
-        }
     }
 
     /// @notice Returns the amount of leveraged tokens being managed
