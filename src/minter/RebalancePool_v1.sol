@@ -192,16 +192,16 @@ contract RebalancePool_v1 is
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
 
-        if (liquidationToken_ == IMinter(minter_).collateralToken()) {
+        if (liquidationToken_ == IMinter(minter_).WRAPPED_COLLATERAL_TOKEN()) {
             $.liquidationTokenIsCollateral = true;
-        } else if (liquidationToken_ == IMinter(minter_).leveragedToken()) {
+        } else if (liquidationToken_ == IMinter(minter_).LEVERAGED_TOKEN()) {
             $.liquidationTokenIsCollateral = false;
         } else {
             revert InvalidLiquidationToken(liquidationToken_);
         }
 
         $.minter = minter_;
-        $.assetToken = IMinter(minter_).peggedToken();
+        $.assetToken = IMinter(minter_).PEGGED_TOKEN();
         $.liquidationToken = liquidationToken_;
 
         // TODO: what purpose does the wrapper give.

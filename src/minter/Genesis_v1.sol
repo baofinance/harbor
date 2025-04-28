@@ -87,9 +87,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
 
         GenesisStorage storage $ = _getGenesisStorage();
         // balance tokens
-        $.collateralToken = IMinter(minter_).collateralToken();
-        $.peggedToken = IMinter(minter_).peggedToken();
-        $.leveragedToken = IMinter(minter_).leveragedToken();
+        $.collateralToken = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        $.peggedToken = IMinter(minter_).PEGGED_TOKEN();
+        $.leveragedToken = IMinter(minter_).LEVERAGED_TOKEN();
         $.minter = minter_;
     }
 

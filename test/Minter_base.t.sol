@@ -468,9 +468,9 @@ contract TestMinterBasics is TestMinterSetUp {
 
     function test_init() public view {
         assertEq(IBaoOwnable(minter).owner(), owner);
-        assertEq(IMinter(minter).collateralToken(), Deployed.wstETH);
-        assertEq(IMinter(minter).peggedToken(), Deployed.BaoUSD);
-        assertEq(IMinter(minter).leveragedToken(), address(leveragedToken));
+        assertEq(IMinter(minter).WRAPPED_COLLATERAL_TOKEN(), Deployed.wstETH);
+        assertEq(IMinter(minter).PEGGED_TOKEN(), Deployed.BaoUSD);
+        assertEq(IMinter(minter).LEVERAGED_TOKEN(), address(leveragedToken));
         assertEq(IMinter(minter).priceOracle(), address(priceOracle));
         assertEq(IMinter(minter).feeReceiver(), feeReceiver);
         assertEq(IMinter(minter).reservePool(), reservePool);
@@ -549,8 +549,8 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral + collateralReturned - 1 ether);
 
         // tokens
-        assertEq(IMinter(minter).peggedToken(), Deployed.BaoUSD);
-        assertEq(IMinter(minter).collateralToken(), Deployed.wstETH);
+        assertEq(IMinter(minter).PEGGED_TOKEN(), Deployed.BaoUSD);
+        assertEq(IMinter(minter).WRAPPED_COLLATERAL_TOKEN(), Deployed.wstETH);
 
         // TODO: rebalance pool
     }

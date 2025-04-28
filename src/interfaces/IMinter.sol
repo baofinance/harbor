@@ -181,13 +181,16 @@ interface IMinter {
     function ZERO_FEE_ROLE() external view returns (uint256);
 
     /// @notice Return the address of the collateral token
-    function collateralToken() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
+    function WRAPPED_COLLATERAL_TOKEN() external view returns (address);
 
     /// @notice Return the address of the pegged token.
-    function peggedToken() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
+    function PEGGED_TOKEN() external view returns (address);
 
     /// @notice Return the address of the leveraged token.
-    function leveragedToken() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
+    function LEVERAGED_TOKEN() external view returns (address);
 
     /// @notice Return the current config.
     function config() external view returns (Config memory);

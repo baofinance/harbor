@@ -4,7 +4,6 @@ pragma solidity 0.8.28;
 import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/AggregatorV3Interface.sol";
 import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
-import {console2} from "forge-std/console2.sol";
 
 /**
  * @title PriceOracle
@@ -19,7 +18,6 @@ library PriceOracle {
     struct Feed {
         AggregatorV3Interface priceFeed;
         uint8 decimals;
-        bool hasAnsweredInRound;
     }
 
     struct Constraints {
@@ -32,7 +30,7 @@ library PriceOracle {
     /**
      * @notice Validates and normalizes price data from a Chainlink feed.
      * @dev All returned and validated values are normalized to 18 decimals.
-     * @param feed Feed struct containing priceFeed, decimals, hasAnsweredInRound
+     * @param feed Feed struct containing priceFeed, decimals
      * @param constraints Constraints struct for validation (all in 18 decimals)
      * @return price The validated price (positive value, 18 decimals)
      */
@@ -40,54 +38,43 @@ library PriceOracle {
         address feedAddress = address(feed.priceFeed);
 
         // Get latest round data and normalize to 18 decimals in one step
-        (uint80 roundId, int256 answer /* uint256 startedAt*/, , uint256 updatedAt, ) = feed
+        // slither-disable-next-line unused-return // startedAt isn't used, for now, and answeredInRound is deprecated
+        (uint80 roundId, int256 answer /* uint256 startedAt*/, , uint256 updatedAt /*uint256 answeredInRound*/, ) = feed
             .priceFeed
             .latestRoundData();
         answer = _normaliseTo18(answer, feed.decimals);
-        console2.log("PriceOracle.roundId", roundId);
-        console2.log("PriceOracle.answer", answer);
-        console2.log("PriceOracle.updatedAt", updatedAt);
 
         // Basic validation
         // updatedAt == 0 means the feed has never answered and so the answer is invalid
         if (updatedAt == 0) {
-            console2.log("PriceOracle.InvalidUnderlyingPrice (updtedAt == 0)");
             revert IPriceOracleErrors.InvalidUnderlyingPrice(feedAddress, answer);
         }
         // a zero price is allowed, but not a negative one for this type of feed
         if (answer < 0) {
-            console2.log("PriceOracle.InvalidUnderlyingPrice (answer < 0)");
             revert IPriceOracleErrors.InvalidUnderlyingPrice(feedAddress, answer);
         }
         // we don't accept a price that is too old, because we return a rate too which is up-to-date by definition
+        // slither-disable-next-line timestamp
         if (block.timestamp - updatedAt > constraints.maxAnswerAge) {
-            console2.log("PriceOracle.StaleUnderlyingPrice (block.timestamp - updatedAt > maxAnswerAge)");
             revert IPriceOracleErrors.StaleUnderlyingPrice(feedAddress, updatedAt, block.timestamp);
         }
 
         // Inline: Price deviation checks (if historical data available)
         uint80 prevRoundId = _prevRoundId(roundId);
-        console2.log("PriceOracle.prevRoundId", prevRoundId);
 
         // Historic validation
         // Only perform deviation checks if there is a previous round in this phase
         if (prevRoundId > 0) {
-            (, int256 prevAnswer /*uint256 prevStartedAt*/, , uint256 prevUpdatedAt, ) = feed.priceFeed.getRoundData(
-                prevRoundId
-            );
+            // slither-disable-next-line unused-return // just get the data needed for the check
+            (, int256 prevAnswer, , uint256 prevUpdatedAt, ) = feed.priceFeed.getRoundData(prevRoundId);
             prevAnswer = _normaliseTo18(prevAnswer, feed.decimals);
 
             // Debug: log previous normalized answer and timestamp
-            console2.log("PriceOracle.prevAnswer", prevAnswer);
-            console2.log("PriceOracle.prevUpdatedAt", prevUpdatedAt);
 
             if (prevAnswer > 0 && prevUpdatedAt < updatedAt) {
                 uint256 absoluteDeviation = SignedMath.abs(answer - prevAnswer);
-                console2.log("PriceOracle.absoluteDeviation", absoluteDeviation);
-                console2.log("PriceOracle.maxAbsoluteDeviation", constraints.maxAbsoluteDeviation);
 
                 if (absoluteDeviation > constraints.maxAbsoluteDeviation) {
-                    console2.log("PriceOracle.UnderlyingPriceDeviation (absoluteDeviation > maxAbsoluteDeviation)");
                     revert IPriceOracleErrors.UnderlyingPriceDeviation(
                         feedAddress,
                         int256(answer),
@@ -98,11 +85,8 @@ library PriceOracle {
 
                 // can cast prevAnswer to uint256 because it is positive
                 uint256 relativeDeviation = (absoluteDeviation * 1 ether) / uint256(prevAnswer);
-                console2.log("PriceOracle.relativeDeviation", relativeDeviation);
-                console2.log("PriceOracle.maxPercentageDeviation", constraints.maxPercentageDeviation);
 
                 if (relativeDeviation > constraints.maxPercentageDeviation) {
-                    console2.log("PriceOracle.UnderlyingPriceDeviation (relativeDeviation > maxPercentageDeviation)");
                     revert IPriceOracleErrors.UnderlyingPriceDeviation(
                         feedAddress,
                         int256(answer),

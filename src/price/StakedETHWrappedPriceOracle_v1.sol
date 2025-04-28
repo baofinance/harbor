@@ -16,23 +16,28 @@ import {IWstETH} from "@bao/interfaces/IWstETH.sol";
  * @dev even though the contract has no state variables in the proxy space, it still uses the UUPS pattern
  *      to allow for future upgrades without requiring updates of all the contracts that use it
  */
-contract StakedETHWrappedPriceOracleV1 is
+// solhint-disable contract-name-camelcase
+contract StakedETHWrappedPriceOracle_v1 is
     IWrappedPriceOracle,
     UUPSUpgradeable,
     ReentrancyGuardTransientUpgradeable,
     BaoOwnable
 {
+    error InvalidPriceFeed(address stethPriceFeed);
+    error InvalidMaxPriceAge(uint64 maxPriceAge);
+    error InvalidMaxRelativeDeviation(uint64 maxRelativeDeviation);
+    error InvalidMaxAbsoluteDeviation(uint256 maxAbsoluteDeviation);
+
     // Immutable variables for gas-efficient access
-    address public immutable stethFeed;
-    uint256 public immutable stethFeedDecimals;
-    bool public immutable hasAnsweredInRound;
-    IWstETH public constant wstETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+    address public immutable STETH_FEED;
+    uint8 public immutable STETH_FEED_DECIMALS;
+    IWstETH public constant WSTETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
 
     // PriceOracle.Constraints
-    uint64 private immutable _maxPriceAge;
-    uint64 private immutable _maxRelativeDeviation;
-    uint256 private immutable _maxAbsoluteDeviation;
-    uint256 private immutable _maxTrendReversalDeviation;
+    uint64 private immutable _MAX_PRICE_AGE;
+    uint64 private immutable _MAX_RELATIVE_DEVIATION;
+    uint256 private immutable _MAX_ABSOLUTE_DEVIATION;
+    uint256 private immutable _MAX_TREND_REVERSAL;
 
     // Errors specific to implementation details
     error InconsistentRoundData(uint80 roundId, uint80 prevRoundId);
@@ -44,20 +49,19 @@ contract StakedETHWrappedPriceOracleV1 is
         returns (uint256 minUnderlyingPrice, uint256 maxUnderlyingPrice, uint256 minWrappedRate, uint256 maxWrappedRate)
     {
         PriceOracle.Feed memory feed = PriceOracle.Feed({
-            priceFeed: AggregatorV3Interface(stethFeed),
-            decimals: uint8(stethFeedDecimals),
-            hasAnsweredInRound: hasAnsweredInRound
+            priceFeed: AggregatorV3Interface(STETH_FEED),
+            decimals: STETH_FEED_DECIMALS
         });
         PriceOracle.Constraints memory constraints = PriceOracle.Constraints({
-            maxAnswerAge: _maxPriceAge,
-            maxPercentageDeviation: _maxRelativeDeviation,
-            maxAbsoluteDeviation: _maxAbsoluteDeviation,
-            maxTrendReversalDeviation: _maxTrendReversalDeviation
+            maxAnswerAge: _MAX_PRICE_AGE,
+            maxPercentageDeviation: _MAX_RELATIVE_DEVIATION,
+            maxAbsoluteDeviation: _MAX_ABSOLUTE_DEVIATION,
+            maxTrendReversalDeviation: _MAX_TREND_REVERSAL
         });
 
         minUnderlyingPrice = maxUnderlyingPrice = PriceOracle.latestAnswer(feed, constraints);
 
-        minWrappedRate = maxWrappedRate = wstETH.stEthPerToken();
+        minWrappedRate = maxWrappedRate = WSTETH.stEthPerToken();
     }
 
     /**
@@ -65,7 +69,6 @@ contract StakedETHWrappedPriceOracleV1 is
      */
     constructor(
         address stethFeed_,
-        bool hasAnsweredInRound_,
         uint64 maxPriceAge_,
         uint64 maxRelativeDeviation_,
         uint256 maxAbsoluteDeviation_,
@@ -74,16 +77,28 @@ contract StakedETHWrappedPriceOracleV1 is
         // only allow initialization via the proxy
         _disableInitializers();
 
+        if (stethFeed_ == address(0)) {
+            revert InvalidPriceFeed(stethFeed_);
+        }
+        if (maxPriceAge_ == 0) {
+            revert InvalidMaxPriceAge(maxPriceAge_);
+        }
+        if (maxRelativeDeviation_ == 0) {
+            revert InvalidMaxRelativeDeviation(maxRelativeDeviation_);
+        }
+        if (maxAbsoluteDeviation_ == 0) {
+            revert InvalidMaxAbsoluteDeviation(maxAbsoluteDeviation_);
+        }
+
         // Set feed constants
-        stethFeed = stethFeed_;
-        stethFeedDecimals = AggregatorV3Interface(stethFeed_).decimals();
-        hasAnsweredInRound = hasAnsweredInRound_;
+        STETH_FEED = stethFeed_;
+        STETH_FEED_DECIMALS = AggregatorV3Interface(stethFeed_).decimals();
 
         // Set price feed constraints
-        _maxPriceAge = maxPriceAge_;
-        _maxRelativeDeviation = maxRelativeDeviation_;
-        _maxAbsoluteDeviation = maxAbsoluteDeviation_;
-        _maxTrendReversalDeviation = maxTrendReversalDeviation_;
+        _MAX_PRICE_AGE = maxPriceAge_;
+        _MAX_RELATIVE_DEVIATION = maxRelativeDeviation_;
+        _MAX_ABSOLUTE_DEVIATION = maxAbsoluteDeviation_;
+        _MAX_TREND_REVERSAL = maxTrendReversalDeviation_;
     }
 
     /**
@@ -99,6 +114,7 @@ contract StakedETHWrappedPriceOracleV1 is
     /**
      * @dev Function that authorizes upgrades, restricted to owner
      */
+    // solhint-disable-next-line no-empty-blocks
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
         // Validation can be added here if needed
     }
