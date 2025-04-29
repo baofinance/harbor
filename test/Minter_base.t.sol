@@ -233,7 +233,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
 
-        IMinter(minter).updatePriceOracle(address(priceOracle));
+        IMinter(minter).updatePriceOracle(priceOracle);
         IMinter(minter).updateFeeReceiver(feeReceiver);
         IMinter(minter).updateReservePool(reservePool);
         IMinter(minter).updateConfig(config);
@@ -247,7 +247,6 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
         feeReceiver = vm.createWallet("feeReceiver").addr;
-
         owner = vm.createWallet("owner").addr;
 
         priceOracle = address(new MockWrappedPriceOracle());
@@ -518,11 +517,16 @@ contract TestMinterBasics is TestMinterSetUp {
         deal(collateralToken, reservePool, 1 ether);
 
         // price
-        (, uint256 collateralUsed, uint256 peggedMinted, uint256 fee, , uint256 price) = IMinter(minter)
+        (, uint256 collateralUsed, uint256 peggedMinted, uint256 fee, , uint256 price, uint256 rate) = IMinter(minter)
             .mintPeggedTokenDryRun(1 ether);
         assertGt(price, 1 ether, "if eth drops below 1 usd this test will be no use to anyone");
-        assertEq(IMinter(minter).peggedTokenBalance(), price, "correct amount minted");
-        assertEq(collateralUsed, 1 ether);
+        assertEq(
+            IMinter(minter).peggedTokenBalance(),
+            (price * rate) / 1 ether,
+            "TODO: correct amount minted, should take fee into acount"
+        );
+        assertEq(collateralUsed, 1 ether, "all the collateral is used");
+        assertEq(fee, 1 ether, "TODO: the fee calculation based on config");
 
         // feeReceiver
         assertEq(IERC20(collateralToken).balanceOf(feeReceiver), 0);
@@ -536,7 +540,7 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral - 1 ether);
 
         // reserve pool - same as above but with a discount, not a fee
-        (, uint256 peggedRedeemed, uint256 collateralReturned, , uint256 reserveCollateralUsed, ) = IMinter(minter)
+        (, uint256 peggedRedeemed, uint256 collateralReturned, , uint256 reserveCollateralUsed, , ) = IMinter(minter)
             .redeemPeggedTokenDryRun(price);
         assertEq(IERC20(collateralToken).balanceOf(reservePool), 1 ether);
         uint256 returned = IMinter(minter).redeemPeggedToken(price, address(this), 0);
@@ -558,7 +562,7 @@ contract TestMinterBasics is TestMinterSetUp {
     function test_incentiveRatios() private view {
         // TODO: add these back in when collateral ratio function is fixed
         int256 instantaneousIr = IMinter(minter).mintPeggedTokenIncentiveRatio();
-        (int256 ir, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
+        (int256 ir, , , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
         assertEq(instantaneousIr, ir, "mint pegged ir");
     }
 

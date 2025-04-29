@@ -23,10 +23,12 @@ import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IReservePool} from "src/interfaces/IReservePool.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
 /// @notice Provides a gas-efficient, feature-rich implementation for the `IMinter` interface.
-/// Functions are provided for users to mint (for collateral) and redeem (for collateral) pegged and leveraged tokens
+/// Functions are provided for users to mint (for wrapped collateral) and redeem (for wrapped collateral) pegged and leveraged tokens
 /// ### Pegged tokens
 /// Pegged tokens are ERC20 tokens that are pegged to some price provided by the `priceOracle`.
 /// Pegged tokens have value, not just because they provide exposure to a price, for example, a real world asset,
@@ -43,26 +45,28 @@ import {IReservePool} from "src/interfaces/IReservePool.sol";
 /// contract to do so.
 /// ### Leveraged Tokens
 /// Leveraged tokens are ERC20 tokens that are minted only by this contract. These tokens have value in that they can be
-/// redeemed for collateral at a leveraged ratio, hence the name 'leveraged token'.
-/// The leverage mechanism is provided by this contract and are designed such that the leverage ratio increases as the
-/// collateral ratio decreases. The leveraged ratio is capped at 100,000.
-// TODO: cap the leveraged ratio?, and test it
+/// redeemed for wrapped collateral at a leveraged ratio, hence the name 'leveraged token'.
+/// The leverage mechanism is provided by this contract and is designed such that the leverage ratio increases as the
+/// underlying collateral ratio decreases. The leveraged ratio is capped at 100.
 /// ### Collateral Ratio
-/// The collateral ratio value referred to in this contract is the value of the collateral tokens divided by the value
-/// of the pegged tokens, assuming one pegged token's value is 1. This allows the collateral ratio to reach 0.
-/// In reality the pegged token's value changes when the collateral value drops below the value of the pegged tokens and
-/// adjusts such that the value of the pegged tokens managed equals the value of the collateral.
+/// The collateral ratio value returned by the this contract is the value of the underlying collateral tokens divided by the value
+/// of the pegged tokens, not assuming one pegged token's value is 1 - if the underlying collateral value is less than the
+/// value of the underlying collateral, then the pegged token is valued as it's share of the underlying collateral. This effectively
+/// places a lower limit on the collateral ration of 1.
+/// The collateral ration used internally assumes the pegged token value is 1. This allows the collateral ratio to reach 0.
+/// and consequently allows the configuration of fees/discounts to be applied in the event of a depeg.
 /// ### Fees, discounts and disallows
 /// Fees, discounts and disallows are defined by the config. Two arrays, one defining fee/discount/disallow values
 /// between -1 and 1, and the other defining the collateral ratio levels at which those values apply.
 /// <ul>
 /// <li> positive values refer to fees as a ratio of the input tokens, e.g. a fee for minting pegged/leverage tokens would
 ///   be levied as a portion of the collateral tokens supplied, and a fee for redeeming a token would be a portion of
-///   the pegged or leveraged tokens supplied and revalued at their price at the given collateral ratio level.
+///   the pegged or leveraged tokens supplied and revalued at their actual price (i.e. pegged tokens can have a price less than 1)
+///   at the given collateral ratio level.
 /// <li> negative values refer to discounts. The collateral needed to make up the discount is retrieved from the reserve
-///   pool.
+///   pool. If the reserve pool does not have sufficient collateral to provide the full discount, the discount it can provide is.
 /// <li> values == 1 ether are treated as a 'disallow', i.e. the action being requested is disallowed at that collateral
-///   ratio level.
+///   ratio level. The interpretation is that the fee is 100% and so we don't apply that. Fees are expected to be much lower than 100%
 /// </ul>
 /// The collateral ratio levels are defined by an array of upper bounds, each strictly increasing from the previous one.
 /// Some actions - minting pegged tokens and redeemin leveraged tokens - tend to lower the collateral ratio and other
@@ -82,10 +86,8 @@ import {IReservePool} from "src/interfaces/IReservePool.sol";
 /// Rebalance pools know about the minter contract they are offering a rebalance service to and set themselves up to use
 /// The collateral ratio stored in this contract's config to allow or disallow liquidation calls to them.
 /// ### Harvesting
-/// Harvesting occurs when collateral ratio levels reach the level defined in the config. Harvesting works by taking
-/// increases in collateral value and sending that collateral to the harvest receiver for distribution to rebalance
-/// pools as rewards and/or reserve pools, etc.
-// TODO: implement harvesting
+/// Harvesting becomes available to be executed, transferring to the rebalance pools the value accrued by holding wrapped collateral
+/// instead of underlying collateral. A portion of that is handed to the caller of the harvest function as a reward.
 /// @dev Uses UUPS proxy, erc7201 storage
 // solhint-disable-next-line contract-name-camelcase
 contract Minter_v1 is
@@ -265,12 +267,13 @@ contract Minter_v1 is
 
     /// @inheritdoc IMinter
     function leveragedTokenBalance() external view override returns (uint256) {
-        return _leveragedTokenBalance(LEVERAGED_TOKEN);
+        return _leveragedTokenBalance();
     }
 
     /// @inheritdoc IMinter
     function collateralTokenBalance() external view override returns (uint256) {
-        return _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN);
+        MinterStorage storage $ = _getMinterStorage();
+        return $.underlyingCollateral;
     }
 
     /// @inheritdoc IMinter
@@ -293,7 +296,7 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function collateralRatio() external view override returns (uint256 collateralRatio_) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 collateralTokenBalance_ = _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN);
+        uint256 collateralTokenBalance_ = $.underlyingCollateral;
 
         // slither-disable-next-line incorrect-equality // testing for initial conditions
         if (collateralTokenBalance_ == 0) {
@@ -303,7 +306,7 @@ contract Minter_v1 is
             collateralRatio_ = 1 ether;
         } else {
             uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-            uint256 collateralPrice = _fetchMidPrice($.priceOracle);
+            (uint256 collateralPrice, ) = _fetchMid($.priceOracle);
             if (peggedTokenBalance_ == 0) {
                 // we're going to get a divide by zero!
                 // we're not going to revert but return a number!
@@ -331,10 +334,11 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
 
         // slither-disable-next-line unused-return we don't need the leveraged value here
+        (uint256 price, ) = _fetchMid($.priceOracle);
         (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
             $.peggedTokenBalance,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-            _fetchMidPrice($.priceOracle)
+            $.underlyingCollateral,
+            price
         );
         if (peggedValue$ >= collateralValue$) {
             // it divides by 0 or goes negative!
@@ -349,15 +353,16 @@ contract Minter_v1 is
 
     /// @inheritdoc IMinter
     function leveragedTokenPrice() external view override returns (uint256 nav) {
-        uint256 leveragedBalance = _leveragedTokenBalance(LEVERAGED_TOKEN);
+        uint256 leveragedBalance = _leveragedTokenBalance();
         if (leveragedBalance == 0) {
             nav = 1 ether;
         } else {
             MinterStorage storage $ = _getMinterStorage();
+            (uint256 price, ) = _fetchMid($.priceOracle);
             (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
                 $.peggedTokenBalance,
-                _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-                _fetchMidPrice($.priceOracle)
+                $.underlyingCollateral,
+                price
             );
             // by definition the leveraged token value is the difference
             nav = (collateralValue$ - peggedValue$) / leveragedBalance;
@@ -371,26 +376,23 @@ contract Minter_v1 is
         if (peggedTokenBalance_ == 0) {
             nav = 1 ether;
         } else {
-            (, uint256 peggedValue$) = _tokenValues$(
-                peggedTokenBalance_,
-                _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-                _fetchMidPrice($.priceOracle)
-            );
+            (uint256 price, ) = _fetchMid($.priceOracle);
+            (, uint256 peggedValue$) = _tokenValues$(peggedTokenBalance_, $.underlyingCollateral, price);
             nav = peggedValue$ / peggedTokenBalance_;
         }
     }
 
     /// @inheritdoc IMinter
     function leverageTokensForCollateral(
-        uint256 forCollateral
+        uint256 forWrappedCollateral
     ) external view override returns (uint256 leveragedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 price = _fetchMidPrice($.priceOracle);
+        (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
         leveragedTokens = _leveragedTokensForCollateral(
-            forCollateral,
-            _leveragedTokenBalance(LEVERAGED_TOKEN),
+            _underlyingValueOf(forWrappedCollateral, rate),
+            _leveragedTokenBalance(),
             $.peggedTokenBalance,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
+            $.underlyingCollateral,
             price
         );
     }
@@ -398,15 +400,19 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function collateralForLeverageTokens(
         uint256 forLeveragedTokens
-    ) external view override returns (uint256 collateral) {
+    ) external view override returns (uint256 wrappedCollateral) {
         MinterStorage storage $ = _getMinterStorage();
+        (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
         // TODO: add check for being depegged here and remove it from the below function
-        collateral = _collateralForLeveragedTokens(
-            forLeveragedTokens,
-            _leveragedTokenBalance(LEVERAGED_TOKEN),
-            $.peggedTokenBalance,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-            _fetchMinPrice($.priceOracle)
+        wrappedCollateral = _wrappedValueOf(
+            _underlyingCollateralForLeveragedTokens(
+                forLeveragedTokens,
+                _leveragedTokenBalance(),
+                $.peggedTokenBalance,
+                $.underlyingCollateral,
+                price
+            ),
+            rate
         );
     }
 
@@ -415,14 +421,14 @@ contract Minter_v1 is
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 collateralPrice = _fetchMaxPrice($.priceOracle);
-        uint256 collateralTokenBalance_ = _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN);
+        (uint256 price, ) = _fetchMax($.priceOracle);
+        uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_)) {
             peggedTokens = _redeemPeggedForCollateralRatio(
                 targetCollateralRatio,
                 collateralTokenBalance_,
-                collateralPrice,
+                price,
                 peggedTokenBalance_
             );
         } else {
@@ -435,12 +441,12 @@ contract Minter_v1 is
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 collateralPrice = _fetchMaxPrice($.priceOracle);
-        uint256 collateralTokenBalance_ = _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN);
+        (uint256 price, ) = _fetchMax($.priceOracle);
+        uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_)) {
             // from the definition of collateral ratio with no change in collateral only change in pegged
-            peggedTokens = peggedTokenBalance_ - (collateralTokenBalance_ * collateralPrice) / targetCollateralRatio;
+            peggedTokens = peggedTokenBalance_ - (collateralTokenBalance_ * price) / targetCollateralRatio;
         } else {
             peggedTokens = 0;
         }
@@ -454,13 +460,8 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.mintPeggedIncentiveConfig;
         // solhint-disable-next-line explicit-types
-        uint band = _findBand(
-            config_,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-            _fetchMidPrice($.priceOracle),
-            $.peggedTokenBalance,
-            false
-        );
+        (uint256 price, ) = _fetchMid($.priceOracle);
+        uint band = _findBand(config_, $.underlyingCollateral, price, $.peggedTokenBalance, false);
         incentiveRatio = _incentiveRatio(config_, band);
     }
 
@@ -469,13 +470,8 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.redeemPeggedIncentiveConfig;
         // solhint-disable-next-line explicit-types
-        uint band = _findBand(
-            config_,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-            _fetchMaxPrice($.priceOracle),
-            $.peggedTokenBalance,
-            false
-        );
+        (uint256 price, ) = _fetchMax($.priceOracle);
+        uint band = _findBand(config_, $.underlyingCollateral, price, $.peggedTokenBalance, false);
         incentiveRatio = _incentiveRatio(config_, band);
     }
 
@@ -484,14 +480,9 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.mintLeveragedIncentiveConfig;
         // just want the fee/bonus at the current collateral
+        (uint256 price, ) = _fetchMid($.priceOracle);
         // solhint-disable-next-line explicit-types
-        uint band = _findBand(
-            config_,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-            _fetchMidPrice($.priceOracle),
-            $.peggedTokenBalance,
-            false
-        );
+        uint band = _findBand(config_, $.underlyingCollateral, price, $.peggedTokenBalance, false);
         incentiveRatio = _incentiveRatio(config_, band);
     }
 
@@ -499,14 +490,9 @@ contract Minter_v1 is
     function redeemLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
         ActionIncentive memory config_ = $.redeemLeveragedIncentiveConfig;
+        (uint256 price, ) = _fetchMin($.priceOracle);
         // solhint-disable-next-line explicit-types
-        uint band = _findBand(
-            config_,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
-            _fetchMinPrice($.priceOracle),
-            $.peggedTokenBalance,
-            false
-        );
+        uint band = _findBand(config_, $.underlyingCollateral, price, $.peggedTokenBalance, false);
         incentiveRatio = _incentiveRatio(config_, band);
     }
 
@@ -514,32 +500,36 @@ contract Minter_v1 is
 
     /// @inheritdoc IMinter
     function mintPeggedTokenDryRun(
-        uint256 collateralIn
+        uint256 wrappedCollateralIn
     )
         external
         view
         returns (
             int256 incentiveRatio,
-            uint256 collateralUsed,
+            uint256 wrappedCollateralUsed,
             uint256 peggedMinted,
-            uint256 fee,
-            uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 wrappedFee,
+            uint256 reserveWrappedCollateralUsed,
+            uint256 price,
+            uint256 rate
         )
     {
         MinterStorage storage $ = _getMinterStorage();
-        price = _fetchMidPrice($.priceOracle);
-        (fee, peggedMinted, collateralUsed) = _mintPeggedAdjustments(
+        (price, rate) = _fetchMid($.priceOracle);
+        console2.log("mintPeggedTokenDryRun: price=%s, rate=%s.", price, rate);
+        uint256 underlyingFee;
+        uint256 underlyingCollateralUsed;
+        (underlyingFee, peggedMinted, underlyingCollateralUsed) = _mintPeggedAdjustments(
             $.mintPeggedIncentiveConfig,
-            collateralIn,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
+            _underlyingValueOf(wrappedCollateralIn, rate),
+            $.underlyingCollateral,
             price,
             $.peggedTokenBalance
         );
-        reserveCollateralUsed = 0;
-        incentiveRatio = int256(
-            collateralUsed == 0 ? 1 ether : ((fee - reserveCollateralUsed) * 1 ether) / collateralUsed
-        );
+        reserveWrappedCollateralUsed = 0;
+        wrappedFee = _wrappedValueOf(underlyingFee, rate);
+        wrappedCollateralUsed = _wrappedValueOf(underlyingCollateralUsed, rate);
+        incentiveRatio = int256(wrappedCollateralUsed == 0 ? 1 ether : (wrappedFee * 1 ether) / wrappedCollateralUsed);
     }
 
     /// @inheritdoc IMinter
@@ -551,58 +541,72 @@ contract Minter_v1 is
         returns (
             int256 incentiveRatio,
             uint256 peggedRedeemed,
-            uint256 collateralReturned,
-            uint256 fee,
-            uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 wrappedCollateralReturned,
+            uint256 wrappedFee,
+            uint256 reserveWrappedCollateralUsed,
+            uint256 price,
+            uint256 rate
         )
     {
         MinterStorage storage $ = _getMinterStorage();
-        price = _fetchMaxPrice($.priceOracle);
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        (fee, peggedRedeemed, collateralReturned, reserveCollateralUsed) = _redeemPeggedAdjustments(
+        (price, rate) = _fetchMax($.priceOracle);
+        uint256 underlyingFee;
+        uint256 underlyingCollateralReturned;
+        uint256 reserveUnderlyingCollateralUsed;
+        (
+            underlyingFee,
+            peggedRedeemed,
+            underlyingCollateralReturned,
+            reserveUnderlyingCollateralUsed
+        ) = _redeemPeggedAdjustments(
             $.redeemPeggedIncentiveConfig,
             peggedIn,
-            _collateralTokenBalance(collateralToken_),
+            $.underlyingCollateral,
             price,
             $.peggedTokenBalance,
-            IERC20(collateralToken_).balanceOf($.reservePool)
+            _underlyingValueOf(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool), rate)
         );
+        wrappedCollateralReturned = _wrappedValueOf(underlyingCollateralReturned, rate);
+        wrappedFee = _wrappedValueOf(underlyingFee, rate);
+        reserveWrappedCollateralUsed = _wrappedValueOf(reserveUnderlyingCollateralUsed, rate);
         // slither-disable-next-line incorrect-equality
         incentiveRatio = peggedRedeemed == 0
             ? int256(1 ether)
-            : ((int256(fee) - int256(reserveCollateralUsed)) * int256(price)) / int256(peggedRedeemed);
+            : ((int256(wrappedFee) - int256(reserveWrappedCollateralUsed)) * int256(price)) / int256(peggedRedeemed);
     }
 
     /// @inheritdoc IMinter
     function mintLeveragedTokenDryRun(
-        uint256 collateralIn
+        uint256 wrappedCollateralIn
     )
         external
         view
         returns (
             int256 incentiveRatio,
-            uint256 collateralUsed,
+            uint256 wrappedCollateralUsed,
             uint256 leveragedMinted,
             uint256 fee,
-            uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 reserveWrappedCollateralUsed,
+            uint256 price,
+            uint256 rate
         )
     {
         MinterStorage storage $ = _getMinterStorage();
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        price = _fetchMidPrice($.priceOracle);
-        (fee, leveragedMinted, reserveCollateralUsed) = _mintLeveragedAdjustments(
+        (price, rate) = _fetchMid($.priceOracle);
+        uint256 underLyingFee;
+        uint256 reserveUnderlyingCollateralUsed;
+        (underLyingFee, leveragedMinted, reserveUnderlyingCollateralUsed) = _mintLeveragedAdjustments(
             $.mintLeveragedIncentiveConfig,
-            collateralIn,
-            Balances(collateralTokenBalance_, peggedTokenBalance_, _leveragedTokenBalance(LEVERAGED_TOKEN)),
+            _underlyingValueOf(wrappedCollateralIn, rate),
+            Balances($.underlyingCollateral, $.peggedTokenBalance, _leveragedTokenBalance()),
             price,
-            IERC20(collateralToken_).balanceOf($.reservePool)
+            _underlyingValueOf(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool), rate)
         );
-        collateralUsed = collateralIn; // we never disallow minting leveraged tokens
-        incentiveRatio = ((int256(fee) - int256(reserveCollateralUsed)) * 1 ether) / int256(collateralUsed);
+        wrappedCollateralUsed = wrappedCollateralIn; // we never disallow minting leveraged tokens
+        reserveWrappedCollateralUsed = _wrappedValueOf(reserveUnderlyingCollateralUsed, rate);
+        incentiveRatio =
+            ((int256(fee) - int256(_wrappedValueOf(reserveUnderlyingCollateralUsed, rate))) * 1 ether) /
+            int256(wrappedCollateralUsed);
     }
 
     /// @inheritdoc IMinter
@@ -614,26 +618,33 @@ contract Minter_v1 is
         returns (
             int256 incentiveRatio,
             uint256 leveragedRedeemed,
-            uint256 collateralReturned,
-            uint256 fee,
-            uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 wrappedCollateralReturned,
+            uint256 wrappedFee,
+            uint256 reserveWrappedCollateralUsed,
+            uint256 price,
+            uint256 rate
         )
     {
         MinterStorage storage $ = _getMinterStorage();
         // TODO: what to do if leveragedTokenBalance_ == 0
-        price = _fetchMinPrice($.priceOracle);
-        (fee, leveragedRedeemed, collateralReturned) = _redeemLeveragedAdjustments(
+        (price, rate) = _fetchMin($.priceOracle);
+        uint256 underlyingFee;
+        uint256 underlyingCollateralReturned;
+        (underlyingFee, leveragedRedeemed, underlyingCollateralReturned) = _redeemLeveragedAdjustments(
             $.redeemLeveragedIncentiveConfig,
             leveragedIn,
-            _collateralTokenBalance(WRAPPED_COLLATERAL_TOKEN),
+            $.underlyingCollateral,
             price,
             $.peggedTokenBalance,
-            _leveragedTokenBalance(LEVERAGED_TOKEN)
+            _leveragedTokenBalance()
         );
-        reserveCollateralUsed = 0; // TODO: remove this result?
+        reserveWrappedCollateralUsed = 0; // TODO: remove this result?
         // slither-disable-next-line incorrect-equality
-        incentiveRatio = int256(collateralReturned == 0 ? 1 ether : (fee * 1 ether) / collateralReturned);
+        wrappedCollateralReturned = _wrappedValueOf(underlyingCollateralReturned, rate);
+        wrappedFee = _wrappedValueOf(underlyingFee, rate);
+        incentiveRatio = int256(
+            underlyingCollateralReturned == 0 ? 1 ether : (wrappedFee * 1 ether) / wrappedCollateralReturned
+        );
     }
 
     //////////////////////////////
@@ -665,43 +676,47 @@ contract Minter_v1 is
 
     /// @inheritdoc IMinter
     function mintPeggedToken(
-        uint256 collateralIn,
+        uint256 wrappedCollateralIn,
         address receiver,
         uint256 minPeggedOut
     ) external override nonReentrant returns (uint256 peggedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // work out how much collateral to use
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
+        (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
-        uint256 price = _fetchMidPrice($.priceOracle);
+        uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, rate);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
+        uint256 underlyingCollateral_ = $.underlyingCollateral;
 
-        // fee calculation
-        uint256 fee;
-        (fee, peggedOut, collateralIn) = _mintPeggedAdjustments(
+        // fee, etc. calculation
+        uint256 underlyingFee;
+        (underlyingFee, peggedOut, underlyingCollateralIn) = _mintPeggedAdjustments(
             $.mintPeggedIncentiveConfig,
-            collateralIn,
-            collateralTokenBalance_,
+            underlyingCollateralIn,
+            underlyingCollateral_,
             price,
             peggedTokenBalance_
         );
 
-        if (collateralIn == 0) revert MintZeroAmount(PEGGED_TOKEN);
+        if (underlyingCollateralIn == 0) revert MintZeroAmount(PEGGED_TOKEN);
 
-        // recalculate the amounts involved
+        // check the amounts involved
         if (peggedOut == 0) revert MintZeroAmount(PEGGED_TOKEN);
         if (peggedOut < minPeggedOut) {
             revert MintInsufficientAmount(PEGGED_TOKEN, minPeggedOut, peggedOut);
         }
 
-        _mintPeggedToken(collateralToken_, collateralIn, PEGGED_TOKEN, peggedOut, receiver);
+        // do the mint for collateral
+        _mintPeggedToken(_wrappedValueOf(underlyingCollateralIn, rate), peggedOut, receiver);
 
-        if (fee > 0) {
-            IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+        // take the fee
+        if (underlyingFee > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, _wrappedValueOf(underlyingFee, rate));
         }
+
         // update our records
+        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralIn;
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
     }
 
@@ -709,156 +724,161 @@ contract Minter_v1 is
     function redeemPeggedToken(
         uint256 peggedIn,
         address receiver,
-        uint256 minCollateralOut
-    ) external override nonReentrant returns (uint256 collateralOut) {
+        uint256 minWrappedCollateralOut
+    ) external override nonReentrant returns (uint256 wrappedCollateralOut) {
         MinterStorage storage $ = _getMinterStorage();
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
         peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
 
-        uint256 price = _fetchMaxPrice($.priceOracle);
-        uint256 fee;
-        uint256 extraCollateral;
-        (fee, peggedIn, collateralOut, extraCollateral) = _redeemPeggedAdjustments(
+        (uint256 price, uint256 rate) = _fetchMax($.priceOracle);
+        uint256 underlyingFee;
+        uint256 underlyingCollateralOut;
+        uint256 extraUnderlyingCollateral;
+        uint256 underlyingCollateral_ = $.underlyingCollateral;
+        (underlyingFee, peggedIn, underlyingCollateralOut, extraUnderlyingCollateral) = _redeemPeggedAdjustments(
             $.redeemPeggedIncentiveConfig,
             peggedIn,
-            _collateralTokenBalance(collateralToken_),
+            underlyingCollateral_,
             price,
             peggedTokenBalance_,
-            IERC20(collateralToken_).balanceOf($.reservePool)
+            _underlyingValueOf(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool), rate)
         );
         // slither-disable-next-line incorrect-equality
         if (peggedIn == 0) {
-            revert ReturnZeroAmount(collateralToken_);
+            revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
         }
         // add any extra collateral (we reuse the collateralOut variable)
-        if (extraCollateral > 0) {
+        wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, rate);
+        if (extraUnderlyingCollateral > 0) {
             // it's a discount, so collect the extra collateral, if available
             // TODO: check rebalance pools are exhausted before discounts are handed out?
             // wake-disable-next-line reentrancy // reservePool is trusted and reentrancy guard
-            extraCollateral = IReservePool($.reservePool).requestBonus(
-                collateralToken_,
+            wrappedCollateralOut += IReservePool($.reservePool).requestBonus(
+                WRAPPED_COLLATERAL_TOKEN,
                 address(this),
-                extraCollateral
+                _wrappedValueOf(extraUnderlyingCollateral, rate)
             );
         }
 
         // make sure it meets the minimum requirements
         // slither-disable-next-line incorrect-equality
-        if (collateralOut == 0) {
+        if (wrappedCollateralOut == 0) {
             revert ReturnZeroAmount(PEGGED_TOKEN);
         }
 
-        if (collateralOut < minCollateralOut) {
-            revert ReturnInsufficientAmount(collateralToken_, minCollateralOut, collateralOut);
+        if (wrappedCollateralOut < minWrappedCollateralOut) {
+            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, minWrappedCollateralOut, wrappedCollateralOut);
         }
 
         // redeem pegged tokens and send the remainder of the collateral
-        _redeemPeggedToken(PEGGED_TOKEN, peggedIn, collateralToken_, collateralOut, receiver);
+        _redeemPeggedToken(peggedIn, wrappedCollateralOut, receiver);
 
-        if (fee > 0) {
+        if (underlyingFee > 0) {
             // send the fee
-            IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, _wrappedValueOf(underlyingFee, rate));
         }
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
+        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralOut;
     }
 
     /// @inheritdoc IMinter
     function mintLeveragedToken(
-        uint256 collateralIn,
+        uint256 wrappedCollateralIn,
         address receiver,
         uint256 minLeveragedOut
     ) external override nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
+        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
-        address leveragedToken_ = LEVERAGED_TOKEN;
-        uint256 fee;
-        uint256 extraCollateral;
-        (fee, leveragedOut, extraCollateral) = _mintLeveragedAdjustments(
+        (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+        uint256 underlyingFee;
+        uint256 extraUnderlyingCollateral;
+        uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, rate);
+        uint256 underlyingCollateral_ = $.underlyingCollateral;
+        // TODO: don't return fee and extraCollateral, just do one number int256 (-ve means discount) and SOS, save our stack
+        (underlyingFee, leveragedOut, extraUnderlyingCollateral) = _mintLeveragedAdjustments(
             $.mintLeveragedIncentiveConfig,
-            collateralIn,
-            Balances(
-                _collateralTokenBalance(collateralToken_),
-                $.peggedTokenBalance,
-                _leveragedTokenBalance(leveragedToken_)
-            ),
-            _fetchMidPrice($.priceOracle),
-            IERC20(collateralToken_).balanceOf($.reservePool)
+            underlyingCollateralIn,
+            Balances(underlyingCollateral_, $.peggedTokenBalance, _leveragedTokenBalance()),
+            price,
+            _underlyingValueOf(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool), rate)
         );
         // slither-disable-next-line incorrect-equality
         if (leveragedOut == 0) {
-            revert ReturnZeroAmount(leveragedToken_);
+            revert ReturnZeroAmount(LEVERAGED_TOKEN);
         }
-        // net out the fee & extra collateral
-        if (extraCollateral > 0) {
+        uint256 extraWrappedCollateral = 0;
+        if (extraUnderlyingCollateral > 0) {
             // TODO: check rebalance pools are exhausted before discounts are handed out?
             // it's a discount, so collect the extra collateral, if available
             // wake-disable-next-line reentrancy // reservePool is trusted
-            extraCollateral = IReservePool($.reservePool).requestBonus(
-                collateralToken_,
+            extraWrappedCollateral = IReservePool($.reservePool).requestBonus(
+                WRAPPED_COLLATERAL_TOKEN,
                 address(this),
-                extraCollateral
+                _wrappedValueOf(extraUnderlyingCollateral, rate)
             );
-            // TODO: what happens if extraCollateral is not available, and the leveragedOut value is therefore wrong?
         }
         // make sure it meets the minimum requirements
         if (leveragedOut < minLeveragedOut) {
-            revert MintInsufficientAmount(leveragedToken_, minLeveragedOut, leveragedOut);
+            revert MintInsufficientAmount(LEVERAGED_TOKEN, minLeveragedOut, leveragedOut);
         }
-        // mint the leveraged tokens and take collateralIn
-        _mintLeveragedToken(collateralToken_, collateralIn, leveragedToken_, leveragedOut, receiver);
+        // mint the leveraged tokens and take wrappedCollateralIn
+        _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);
         // take the fee
-        if (fee > 0) {
-            IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+        if (underlyingFee > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, _wrappedValueOf(underlyingFee, rate));
         }
+        // update our records
+        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralIn;
     }
 
     /// @inheritdoc IMinter
     function redeemLeveragedToken(
         uint256 leveragedIn,
         address receiver,
-        uint256 minCollateralOut
-    ) external override returns (uint256 collateralOut) {
+        uint256 minWrappedCollateralOut
+    ) external override returns (uint256 wrappedCollateralOut) {
         MinterStorage storage $ = _getMinterStorage();
-        address leveragedToken_ = LEVERAGED_TOKEN;
-        leveragedIn = Token.allOf(_msgSender(), leveragedToken_, leveragedIn);
+        leveragedIn = Token.allOf(_msgSender(), LEVERAGED_TOKEN, leveragedIn);
 
-        uint256 leveragedTokenBalance_ = _leveragedTokenBalance(leveragedToken_);
-        leveragedIn = _redeemable(leveragedToken_, leveragedIn, leveragedTokenBalance_);
-        uint256 price = _fetchMinPrice($.priceOracle);
+        uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
+        leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
+        (uint256 price, uint256 rate) = _fetchMin($.priceOracle);
 
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        uint256 collateralTokenBalance_ = _collateralTokenBalance(collateralToken_);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        uint256 underlyingCollateral_ = $.underlyingCollateral;
 
-        uint256 fee;
-        (fee, leveragedIn, collateralOut) = _redeemLeveragedAdjustments(
+        uint256 underlyingFee;
+        uint256 underlyingCollateralOut;
+        (underlyingFee, leveragedIn, underlyingCollateralOut) = _redeemLeveragedAdjustments(
             $.redeemLeveragedIncentiveConfig,
             leveragedIn,
-            collateralTokenBalance_,
+            underlyingCollateral_,
             price,
             peggedTokenBalance_,
             leveragedTokenBalance_
         );
         // slither-disable-next-line incorrect-equality
         if (leveragedIn == 0) {
-            revert ReturnZeroAmount(collateralToken_);
+            revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
         }
-        if (collateralOut < minCollateralOut) {
-            revert ReturnInsufficientAmount(collateralToken_, minCollateralOut, collateralOut);
+        wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, rate);
+        if (wrappedCollateralOut < minWrappedCollateralOut) {
+            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, minWrappedCollateralOut, wrappedCollateralOut);
         }
 
-        _redeemLeveragedToken(leveragedToken_, leveragedIn, collateralToken_, collateralOut, receiver);
+        _redeemLeveragedToken(leveragedIn, wrappedCollateralOut, receiver);
 
-        if (fee > 0) {
+        if (underlyingFee > 0) {
             // send the fee
-            IERC20(collateralToken_).safeTransfer($.feeReceiver, fee);
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, _wrappedValueOf(underlyingFee, rate));
         }
+
+        // update our records
+        $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
     }
 
     //////////////////////////////////
@@ -870,44 +890,47 @@ contract Minter_v1 is
 
     /// @inheritdoc IMinter
     function freeMintPeggedToken(
-        uint256 collateralIn,
+        uint256 wrappedCollateralIn,
         address receiver
     ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
-
+        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
+        (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+        uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, rate);
         // transfer and mint
-        uint256 price = _fetchMidPrice($.priceOracle);
-        peggedOut = (collateralIn * price) / 1 ether;
-        _mintPeggedToken(collateralToken_, collateralIn, PEGGED_TOKEN, peggedOut, receiver);
+        // TODO: should this be the mid price/rate?
+        // TODO: should this use the actual price not the 1 ether price, i.e. mint them at the depegged amount
+        peggedOut = (underlyingCollateralIn * price) / 1 ether;
+        _mintPeggedToken(wrappedCollateralIn, peggedOut, receiver);
 
         // update our records
         $.peggedTokenBalance += peggedOut;
+        $.underlyingCollateral += underlyingCollateralIn;
     }
 
     // @inheritdoc IMinter
     function freeRedeemPeggedToken(
         uint256 peggedIn,
         address receiver
-    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
+    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut) {
         MinterStorage storage $ = _getMinterStorage();
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
         peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
 
-        uint256 price = _fetchMaxPrice($.priceOracle);
-        collateralOut =
-            (peggedIn * _peggedTokenPrice$(peggedTokenBalance_, _collateralTokenBalance(collateralToken_), price)) /
-            (price * 1 ether);
+        (uint256 price, uint256 rate) = _fetchMax($.priceOracle);
+        wrappedCollateralOut = _wrappedValueOf(
+            (peggedIn * _peggedTokenPrice$(peggedTokenBalance_, $.underlyingCollateral, price)) / (price * 1 ether),
+            rate
+        );
 
         // burn pegged tokens and send the collateral to the receiver
-        _redeemPeggedToken(PEGGED_TOKEN, peggedIn, collateralToken_, collateralOut, receiver);
+        _redeemPeggedToken(peggedIn, wrappedCollateralOut, receiver);
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
+        $.underlyingCollateral += _underlyingValueOf(wrappedCollateralOut, rate);
     }
 
     /// @inheritdoc IMinter
@@ -916,52 +939,51 @@ contract Minter_v1 is
         address receiver
     ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        address peggedToken_ = PEGGED_TOKEN;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        address leveragedToken_ = LEVERAGED_TOKEN;
 
-        peggedIn = Token.allOf(_msgSender(), peggedToken_, peggedIn);
-        peggedIn = _redeemable(peggedToken_, peggedIn, peggedTokenBalance_);
+        peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
+        peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
 
-        uint256 price = _fetchMidPrice($.priceOracle);
+        (uint256 price, ) = _fetchMid($.priceOracle);
 
         leveragedOut = _leveragedTokensForPegged(
             peggedIn,
-            _leveragedTokenBalance(leveragedToken_),
+            _leveragedTokenBalance(),
             peggedTokenBalance_,
-            _collateralTokenBalance(collateralToken_),
+            $.underlyingCollateral,
             price
         );
 
         // burn pegged tokens and send the collateral
-        _swapPeggedForLeveraged(peggedToken_, peggedIn, leveragedToken_, leveragedOut, receiver);
+        _swapPeggedForLeveraged(peggedIn, leveragedOut, receiver);
 
-        // update our records
+        // update our records (collateral doesn't change)
         $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
     }
 
     // @inheritdoc IMinter
     function freeMintLeveragedToken(
-        uint256 collateralIn,
+        uint256 wrappedCollateralIn,
         address receiver
     ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
-        collateralIn = Token.allOf(_msgSender(), collateralToken_, collateralIn);
-
+        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
+        (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
+        uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, rate);
         // mint the tokens to the receiver
-        address leveragedToken_ = LEVERAGED_TOKEN;
         leveragedOut = _leveragedTokensForCollateral(
-            collateralIn,
-            _leveragedTokenBalance(leveragedToken_),
+            underlyingCollateralIn,
+            _leveragedTokenBalance(),
             $.peggedTokenBalance,
-            _collateralTokenBalance(collateralToken_),
-            _fetchMidPrice($.priceOracle)
+            $.underlyingCollateral,
+            price
         );
 
-        _mintLeveragedToken(collateralToken_, collateralIn, leveragedToken_, leveragedOut, receiver);
+        _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);
+
+        // update our records
+        $.underlyingCollateral += underlyingCollateralIn;
     }
 
     // @inheritdoc IMinter
@@ -971,25 +993,27 @@ contract Minter_v1 is
     ) external override onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
-        address leveragedToken_ = LEVERAGED_TOKEN;
-        leveragedIn = Token.allOf(_msgSender(), leveragedToken_, leveragedIn);
+        leveragedIn = Token.allOf(_msgSender(), LEVERAGED_TOKEN, leveragedIn);
 
-        uint256 leveragedTokenBalance_ = _leveragedTokenBalance(leveragedToken_);
-        leveragedIn = _redeemable(leveragedToken_, leveragedIn, leveragedTokenBalance_);
+        uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
+        leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
 
-        uint256 price = _fetchMinPrice($.priceOracle);
+        (uint256 price, uint256 rate) = _fetchMin($.priceOracle);
 
-        address collateralToken_ = WRAPPED_COLLATERAL_TOKEN;
         // TODO: add check for depegged here as we'll remove it from below
-        collateralOut = _collateralForLeveragedTokens(
+        uint256 underlyingCollateralOut = _underlyingCollateralForLeveragedTokens(
             leveragedIn,
             leveragedTokenBalance_,
             $.peggedTokenBalance,
-            _collateralTokenBalance(collateralToken_),
+            $.underlyingCollateral,
             price
         );
+        collateralOut = _wrappedValueOf(underlyingCollateralOut, rate);
 
-        _redeemLeveragedToken(leveragedToken_, leveragedIn, collateralToken_, collateralOut, receiver);
+        _redeemLeveragedToken(leveragedIn, collateralOut, receiver);
+
+        // update our records
+        $.underlyingCollateral -= underlyingCollateralOut;
     }
 
     ///////////////////////
@@ -1069,7 +1093,7 @@ contract Minter_v1 is
     }
 
     /// @notice Returns whether a depeg boundary has been added. This is used when returning the config to
-    /// a caller to return it in the same form it was provided.
+    /// a caller so that it is returned the same as it was provided.
     function _depegBandAdded(ActionIncentive memory config_) private pure returns (bool) {
         return config_.slot0.decodeBool(232);
     }
@@ -1098,6 +1122,8 @@ contract Minter_v1 is
     /// @notice Checks a given incentive config for errors and returns it ready for storage
     /// @param config_ The user friendly config being checked and copied.
     /// @param disallowNotDiscount If true then the config may have a disallow and not a discount.
+    /// true means it's a mint pegged or redeem leveraged config
+    /// false means it's a redeem pegged or mint leveraged config
     /// @return out the storage efficient config.
     // slither-disable-next-line cyclomatic-complexity as this code is simple in what it tries to do, it's just that there are a few checks
     function _checkAndCopyBands(
@@ -1126,12 +1152,10 @@ contract Minter_v1 is
             }
 
             // check the incentive array values given
-            // if disallowNotDiscount (i.e. mint pegged or redeem leveraged) then
-            // check against interval [0, 1] i.e. zero fees to some fees to disallow (100% fees)
-            //    also disallow is only valid in the first band
-            // else (i.e. redeem pegged or mint leveraged)
-            // check against interval (-1, 1) i.e. some discount; to zero; to some fees
+
             if (disallowNotDiscount) {
+                // it's mint pegged or redeem leveraged
+                // check against interval [0, 1] i.e. zero fees to some fees to disallow (100% fees)
                 if (incentiveRatio < 0 ether || incentiveRatio > 1 ether) {
                     revert InvalidIncentiveRatioValue(config_.incentiveRatios[i]);
                 }
@@ -1140,7 +1164,8 @@ contract Minter_v1 is
                     revert InvalidIncentiveRatioValue(config_.incentiveRatios[i]);
                 }
             } else {
-                // discountNotDisallow
+                // it's a redeem pegged or mint leveraged
+                // check against interval (-1, 1) i.e. some discount; to zero; to some fees
                 if (incentiveRatio <= -1 ether || incentiveRatio >= 1 ether) {
                     revert InvalidIncentiveRatioValue(config_.incentiveRatios[i]);
                 }
@@ -1161,25 +1186,23 @@ contract Minter_v1 is
             }
 
             if (i == 0) {
-                // add a depeg boundary as the first band one unless
-                //  - there is already one
-                //  - it is a disallow band
+                // add a depeg boundary as the first band one unless there is already one or it is a disallow band
                 // if we didn't do it here, we would have to do it in each of the fee calculation functions
                 // this makes the check against band == 0 the same as a check for depegged
-                // it also makes the math simpler - how do we manage multiple incentive ratios for the depegged situation?
-                // especially as the actual collateral ratio (not the one we calculate as collateralRatio()) never goes below 1 ether
+                // it also makes the math simpler: i.e. how, otherwise, do we manage multiple incentive ratios for the depegged situation?
+                // especially as the actual collateral ratio (not the one we calculate as _collateralRatio()) never goes below 1 ether
                 if (currentUpperBound == 1 ether || incentiveRatio == 1 ether) {
                     // we have a user defined depegged boundary or a disallow bound
                     _setDepegBandAdded(out, false);
                 } else {
                     // add the depeg and use the same incentive ratio on each side of the depeg boundary
                     _setIncentiveRatio(out, iOut, incentiveRatio);
-                    _setCollateralRatioUpperBounds(out, iOut, 1 ether);
+                    _setCollateralRatioUpperBounds(out, iOut, 1 ether); // the depeg boundary
                     _setDepegBandAdded(out, true);
                     iOut++;
                 }
             } else {
-                // each subsequent must be strictly increasing (at the storage precision)
+                // each subsequent must be strictly increasing at the storage precision
                 if (currentUpperBound <= prevUpperBound) {
                     revert CollateralRatioBoundValueNotIncreasing(
                         config_.collateralRatioBandUpperBounds[i],
@@ -1239,6 +1262,14 @@ contract Minter_v1 is
     // Price Oracle
     // ------------
 
+    function _underlyingValueOf(uint256 wrapped, uint256 rate) internal pure returns (uint256) {
+        return (wrapped * rate) / 1 ether;
+    }
+
+    function _wrappedValueOf(uint256 underlying, uint256 rate) internal pure returns (uint256) {
+        return (underlying * 1 ether) / rate;
+    }
+
     /// @notice Updates the price oracle address.
     function _updatePriceOracle(address priceOracle_) private {
         MinterStorage storage $ = _getMinterStorage();
@@ -1275,138 +1306,98 @@ contract Minter_v1 is
     /// @notice Perform the transfers and event emissions for minting pegged tokens.
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
-    /// @param collateralToken_ The address of the collateral token.
-    /// @param collateralIn The amount of collateral to be taken from the sender.
-    /// @param peggedToken_ The address of the pegged token.
+    /// @param wrappedCollateralIn The amount of collateral to be taken from the sender.
     /// @param peggedOut The amount of pegged to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _mintPeggedToken(
-        address collateralToken_,
-        uint256 collateralIn,
-        address peggedToken_,
-        uint256 peggedOut,
-        address receiver
-    ) private {
-        emit MintPeggedToken(_msgSender(), receiver, collateralIn, peggedOut);
+    function _mintPeggedToken(uint256 wrappedCollateralIn, uint256 peggedOut, address receiver) private {
+        emit MintPeggedToken(_msgSender(), receiver, wrappedCollateralIn, peggedOut);
 
         // mint the tokens to the receiver
         // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
-        IMintable(peggedToken_).mint(receiver, peggedOut);
+        IMintable(PEGGED_TOKEN).mint(receiver, peggedOut);
 
         // take the collateral
-        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(_msgSender(), address(this), wrappedCollateralIn);
     }
 
     /// @notice Perform the transfers and event emissions for redeeming pegged tokens
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
-    /// @param peggedToken_ The address of the pegged token
     /// @param peggedIn The amount of pegged tokens to be taken from the sender.
-    /// @param collateralToken_ The address of the collateral token.
-    /// @param collateralOut The amount of collateral to be transferred to the `receiver`.
+    /// @param wrappedCollateralOut The amount of collateral to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _redeemPeggedToken(
-        address peggedToken_,
-        uint256 peggedIn,
-        address collateralToken_,
-        uint256 collateralOut,
-        address receiver
-    ) private {
+    function _redeemPeggedToken(uint256 peggedIn, uint256 wrappedCollateralOut, address receiver) private {
         // tell the world
-        emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, collateralOut);
+        emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut);
         // burn the tokens from the sender
         // if (burnInterfaceId == type(IBurnable).interfaceId) {
         // get the tokens here first
-        IERC20(peggedToken_).safeTransferFrom(_msgSender(), address(this), peggedIn);
-        IBurnable(peggedToken_).burn(peggedIn);
+        IERC20(PEGGED_TOKEN).safeTransferFrom(_msgSender(), address(this), peggedIn);
+        IBurnable(PEGGED_TOKEN).burn(peggedIn);
         // } else if (burnInterfaceId == type(IBurnable2Arg).interfaceId) {
-        //     IBurnable2Arg(peggedToken_).burn(_msgSender(), peggedIn);
+        //     IBurnable2Arg(PEGGED_TOKEN).burn(_msgSender(), peggedIn);
         // } else if (burnInterfaceId == type(IBurnableFrom).interfaceId) {
-        //     IBurnableFrom(peggedToken_).burnFrom(_msgSender(), peggedIn);
+        //     IBurnableFrom(PEGGED_TOKEN).burnFrom(_msgSender(), peggedIn);
         // } else {
         //     revert UnsupportedBurnInterface(pegged_.burnInterfaceId);
         // }
         // return the collateral
-        IERC20(collateralToken_).safeTransfer(receiver, collateralOut);
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
     }
 
     /// @notice Perform the transfers and event emissions for redeeming pegged tokens for leveraged tokens
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
-    /// @param peggedToken_ The address of the pegged token.
     /// @param peggedIn The amount of pegged tokens to be taken from the sender.
-    /// @param leveragedToken_ The address of the leveraged token.
     /// @param leveragedOut The amount of leveraged to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _swapPeggedForLeveraged(
-        address peggedToken_,
-        uint256 peggedIn,
-        address leveragedToken_,
-        uint256 leveragedOut,
-        address receiver
-    ) private {
+    function _swapPeggedForLeveraged(uint256 peggedIn, uint256 leveragedOut, address receiver) private {
         // tell the world
         emit SwapPeggedForLeveraged(_msgSender(), receiver, peggedIn, leveragedOut);
         // burn the tokens from the sender - get them first then burn them
-        IERC20(peggedToken_).safeTransferFrom(_msgSender(), address(this), peggedIn);
+        IERC20(PEGGED_TOKEN).safeTransferFrom(_msgSender(), address(this), peggedIn);
         // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
-        IBurnable(peggedToken_).burn(peggedIn);
+        IBurnable(PEGGED_TOKEN).burn(peggedIn);
         // mint the tokens to the receiver
         // wake-disable-next-line reentrancy
-        IMintable(leveragedToken_).mint(receiver, leveragedOut);
+        IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
     }
 
     /// @notice Perform the transfers and event emissions for minting leveraged tokens
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
-    /// @param collateralToken_ The address of the collateral token.
-    /// @param collateralIn The amount of collateral to be taken from the sender.
-    /// @param leveragedToken_ The address of the leveraged token.
+    /// @param wrappedCollateralIn The amount of collateral to be taken from the sender.
     /// @param leveragedOut The amount of leveraged to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _mintLeveragedToken(
-        address collateralToken_,
-        uint256 collateralIn,
-        address leveragedToken_,
-        uint256 leveragedOut,
-        address receiver
-    ) private {
+    function _mintLeveragedToken(uint256 wrappedCollateralIn, uint256 leveragedOut, address receiver) private {
         // tell the world
-        emit MintLeveragedToken(_msgSender(), receiver, collateralIn, leveragedOut);
+        emit MintLeveragedToken(_msgSender(), receiver, wrappedCollateralIn, leveragedOut);
         // mint the tokens to the receiver
         // wake-disable-next-line reentrancy
-        IMintable(leveragedToken_).mint(receiver, leveragedOut);
+        IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
         // take the collateral
-        IERC20(collateralToken_).safeTransferFrom(_msgSender(), address(this), collateralIn);
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(_msgSender(), address(this), wrappedCollateralIn);
     }
 
     /// @notice Perform the transfers and event emissions for redeeming leveraged tokens.
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
-    /// @param leveragedToken_ The address of the leveraged token.
     /// @param leveragedIn The amount of leveraged tokens to be taken from the sender.
-    /// @param collateralToken_ The address of the collateral token.
     /// @param collateralOut The amount of collateral to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _redeemLeveragedToken(
-        address leveragedToken_,
-        uint256 leveragedIn,
-        address collateralToken_,
-        uint256 collateralOut,
-        address receiver
-    ) private {
+    function _redeemLeveragedToken(uint256 leveragedIn, uint256 collateralOut, address receiver) private {
         // tell the world
         emit RedeemLeveragedToken(_msgSender(), receiver, leveragedIn, collateralOut);
         // burn the leveraged
         // wake-disable-next-line reentrancy // leveragedToken is trusted
-        IBurnableFrom(leveragedToken_).burnFrom(_msgSender(), leveragedIn);
+        IBurnableFrom(LEVERAGED_TOKEN).burnFrom(_msgSender(), leveragedIn);
         // return the collateral
-        IERC20(collateralToken_).safeTransfer(receiver, collateralOut);
+        IERC20(WRAPPED_COLLATERAL_TOKEN /*  */).safeTransfer(receiver, collateralOut);
     }
 
     /// @notice Checks and returns whether a token can be redeemed.
@@ -1437,8 +1428,8 @@ contract Minter_v1 is
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for minting pegged tokens.
-    /// @param collateralIn The proposed amount of collateral being posted in exchange for pegged tokens.
-    /// @param collateralTokenBalance_ The amount of collateral held. This is used to calculate collateral ratios.
+    /// @param underlyingCollateralIn The proposed amount of collateral being posted in exchange for pegged tokens.
+    /// @param underlyingCollateral_ The amount of collateral held. This is used to calculate collateral ratios.
     /// @param price The value of a collateral token in terms of the pegged token.
     /// @param peggedTokenBalance_ The amount of pegged tokens issued. This is used to calculate collateral ratios.
     /// @return fee The pro-rated fee.
@@ -1447,22 +1438,30 @@ contract Minter_v1 is
 
     function _mintPeggedAdjustments(
         ActionIncentive memory config_,
-        uint256 collateralIn,
-        uint256 collateralTokenBalance_,
+        uint256 underlyingCollateralIn,
+        uint256 underlyingCollateral_,
         uint256 price,
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 fee, uint256 peggedMinted, uint256 maxCollateral) {
+        console2.log("_mintPeggedAdjustments(");
+        console2.log("   underlyingCollateralIn:", underlyingCollateralIn);
+        console2.log("   underlyingCollateral_:", underlyingCollateral_);
+        console2.log("   price:", price);
+        console2.log("   peggedTokenBalance_:", peggedTokenBalance_);
+        console2.log(")...");
+
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) revert ActionPaused();
 
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
-        uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
+        uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
         fee = 0;
         peggedMinted = 0;
         maxCollateral = 0;
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
+            console2.log("band=%s", band);
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
@@ -1470,40 +1469,44 @@ contract Minter_v1 is
             }
             uint256 collateralInBand;
             if (band == 0) {
-                // TODO: band 0 doesn't exactly equal _depegged (out by one)
-                // TODO: band 1 may also be depegged! - maybe we only allow a single depegged band
+                // This band is the depegged band - exactly one (or a disallow) is guaranteed to be there when the config is added
                 // if we check for _depegged then the phi calc below results in an underflow as band lower bound is 0
-                collateralInBand = collateralIn;
+                //  all the requested collateral can be consumed
+                collateralInBand = underlyingCollateralIn;
             } else {
                 uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
                 uint256 phi = (bandLowerBound * (1 ether - bandFeeRatio)) + bandFeeRatio * 1 ether - 1 ether * 1 ether;
                 if (phi == 0) {
-                    collateralInBand = collateralIn;
+                    collateralInBand = underlyingCollateralIn;
                 } else {
                     collateralInBand =
-                        (collateralTokenBalance_ * 1 ether * 1 ether) /
+                        (underlyingCollateral_ * 1 ether * 1 ether) /
                         phi -
                         ((bandLowerBound * peggedTokenBalance_) * 1 ether * 1 ether) /
                         (price * phi);
 
-                    collateralInBand = Math.min(collateralIn, collateralInBand);
+                    collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
                 }
             }
+            console2.log("collateralInBand=%s", collateralInBand);
             uint256 bandFee = (collateralInBand * bandFeeRatio) / 1 ether;
             maxCollateral += collateralInBand;
             fee += bandFee;
-            collateralIn -= collateralInBand;
+            underlyingCollateralIn -= collateralInBand;
             uint256 collateralAddedInBand = collateralInBand - bandFee;
+            // no minting of pegged when it is at collateral ratio < 1, price is 1
             uint256 peggedMintedInBand = (collateralAddedInBand * price * 1 ether) /
-                _peggedTokenPrice$(peggedTokenBalance_, collateralTokenBalance_, price);
+                _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, price);
+            console2.log("peggedMintedInBand=%s", peggedMintedInBand);
+
             peggedMinted += peggedMintedInBand;
 
-            if (collateralIn == 0) {
+            if (underlyingCollateralIn == 0) {
                 // we haverun out of collateral for the simulation
                 break;
             }
             // still some collateral left and we're allowed to mint or redeem, so simulate
-            collateralTokenBalance_ += collateralAddedInBand;
+            underlyingCollateral_ += collateralAddedInBand;
             peggedTokenBalance_ += peggedMintedInBand;
             if (band == 0) {
                 // we are now in the lowest band, so exit
@@ -1520,7 +1523,7 @@ contract Minter_v1 is
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for redeeming pegged tokens.
     /// @param peggedIn The given amount of pegged tokens.
-    /// @param collateralTokenBalance_ The amount of collateral held.
+    /// @param underlyingCollateral_ The amount of collateral held.
     /// @param price The value in pegged of each collateral token.
     /// @param peggedTokenBalance_ The balance of pegged tokens minted.
     /// @param reservePoolBalance_ The current balance of the reserve pool.
@@ -1532,7 +1535,7 @@ contract Minter_v1 is
     function _redeemPeggedAdjustments(
         ActionIncentive memory config_,
         uint256 peggedIn,
-        uint256 collateralTokenBalance_,
+        uint256 underlyingCollateral_,
         uint256 price,
         uint256 peggedTokenBalance_,
         uint256 reservePoolBalance_
@@ -1541,7 +1544,7 @@ contract Minter_v1 is
         if (peggedTokenBalance_ == 0) revert ActionPaused();
         // TODO: test for first mint of pegged, in the context of existing and non-existing leveraged tokens
 
-        uint band = _findBand(config_, collateralTokenBalance_, price, peggedTokenBalance_, true); // solhint-disable-line explicit-types
+        uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, true); // solhint-disable-line explicit-types
         // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
@@ -1566,7 +1569,7 @@ contract Minter_v1 is
                     } else {
                         peggedInBand = _redeemPeggedForCollateralRatio(
                             bandUpperBound,
-                            collateralTokenBalance_,
+                            underlyingCollateral_,
                             price,
                             peggedTokenBalance_
                         );
@@ -1574,9 +1577,8 @@ contract Minter_v1 is
                         peggedInBand = Math.min(peggedIn, peggedInBand);
                     }
                 }
-                // slither-disable-next-line divide-before-multiply
                 collateralInBand$ =
-                    (peggedInBand * _peggedTokenPrice$(peggedTokenBalance_, collateralTokenBalance_, price)) /
+                    (peggedInBand * _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, price)) /
                     price;
                 collateralReturned += collateralInBand$;
                 peggedIn -= peggedInBand;
@@ -1613,7 +1615,7 @@ contract Minter_v1 is
                 break;
             }
             // still some pegged tokens left and we're allowed to redeem
-            collateralTokenBalance_ -= collateralInBand$ / 1 ether;
+            underlyingCollateral_ -= collateralInBand$ / 1 ether;
 
             band++;
         }
@@ -1637,7 +1639,7 @@ contract Minter_v1 is
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for minting leveraged tokens.
-    /// @param collateralIn The given amount of collateral tokens, assumed to be > 0.
+    /// @param underlyingCollateralIn The given amount of collateral tokens, assumed to be > 0.
     /// @param balanceOf The amount of collateral, pegged and leveraged tokens managed.
     /// @param price The value in pegged of each collateral token.
     /// @param reservePoolBalance_ The current balance of the reserve pool.
@@ -1647,7 +1649,7 @@ contract Minter_v1 is
 
     function _mintLeveragedAdjustments(
         ActionIncentive memory config_,
-        uint256 collateralIn,
+        uint256 underlyingCollateralIn,
         Balances memory balanceOf,
         uint256 price,
         uint256 reservePoolBalance_
@@ -1674,7 +1676,7 @@ contract Minter_v1 is
             uint256 collateralInBand;
             if (band == _collateralRatioBandCount(config_) - 1) {
                 // the last band has no upper bound
-                collateralInBand = collateralIn;
+                collateralInBand = underlyingCollateralIn;
             } else {
                 // the collateral needed to be deposited to reach the upper bound of the band taking fees into account
                 // The fee is deducted because it goes to the fee receiver
@@ -1688,7 +1690,7 @@ contract Minter_v1 is
                         1 ether) /
                     (price * uint256(1 ether - bandIncentiveRatio));
                 // can't have more collateral in the band that there is collateral left
-                collateralInBand = Math.min(collateralIn, collateralInBand);
+                collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
             }
             uint256 bandFee = 0;
             uint256 extraCollateralInBand = 0;
@@ -1697,6 +1699,12 @@ contract Minter_v1 is
                 // tally the weighted fee ratios
                 fee += bandFee;
             } else if (bandIncentiveRatio < 0) {
+                // TODO: we need need to net out the fee accrued so far with the discount in this band
+                // TODO: to do the above we need to go backwards accruing the fees first then netting with the discount
+                // note that there would have to be a large movement of collateral or to have two bands close to each other
+                // with discount in one and fee in the other.
+                // or maybe we can net them out at the end, checking against the _reservePool balance then, and once
+                // TODO: check the other adjustments for the same issue
                 // slither-disable-next-line divide-before-multiply as any truncation benefits slightly the reserve pool
                 extraCollateralInBand = (collateralInBand * uint256(-bandIncentiveRatio)) / 1 ether;
                 // tally the discounts
@@ -1723,9 +1731,9 @@ contract Minter_v1 is
                 leveragedMinted += leveragedInBand;
                 balanceOf.leveraged += leveragedInBand;
             }
-            collateralIn -= collateralInBand;
+            underlyingCollateralIn -= collateralInBand;
             // slither-disable-next-line incorrect-equality
-            if (collateralIn == 0) {
+            if (underlyingCollateralIn == 0) {
                 // we have run out of collateral for the simulation
                 // collateralTokenBalance_ += collateralInBand - bandFee + extraCollateralInBand;
                 break;
@@ -1743,7 +1751,7 @@ contract Minter_v1 is
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for redeeming leveraged tokens.
     /// @param leveragedIn The given amount of leveraged tokens.
-    /// @param startCollateralTokenBalance The amount of collateral held.
+    /// @param underlyingCollateral_ The amount of collateral held.
     /// @param price The value in pegged of each collateral token.
     /// @param peggedTokenBalance_ The balance of pegged tokens managed.
     /// @param leveragedTokenBalance_ The current balance of the reserve pool.
@@ -1754,7 +1762,7 @@ contract Minter_v1 is
     function _redeemLeveragedAdjustments(
         ActionIncentive memory config_,
         uint256 leveragedIn,
-        uint256 startCollateralTokenBalance,
+        uint256 underlyingCollateral_,
         uint256 price,
         uint256 peggedTokenBalance_,
         uint256 leveragedTokenBalance_
@@ -1764,23 +1772,23 @@ contract Minter_v1 is
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         // and we an do this once, here, and not in the loop below, because redeeming tokens, albeit reducing the
         // collateral ratio, will never cause a depeg.
-        if (_isDepegged(startCollateralTokenBalance, price, peggedTokenBalance_)) revert ActionPaused();
+        if (_isDepegged(underlyingCollateral_, price, peggedTokenBalance_)) revert ActionPaused();
 
-        uint256 collateralIn = _collateralForLeveragedTokens(
+        uint256 underlyingCollateralIn = _underlyingCollateralForLeveragedTokens(
             leveragedIn,
             leveragedTokenBalance_,
             peggedTokenBalance_,
-            startCollateralTokenBalance,
+            underlyingCollateral_,
             price
         );
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
-        uint band = _findBand(config_, startCollateralTokenBalance, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
+        uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
         // simulate redeeming until we run out of leveraged tokens, adding the fee & reserve collateral as we go
 
         fee = 0;
         collateralOut = 0;
-        uint256 collateralTokenBalance_ = startCollateralTokenBalance;
+        uint256 collateralTokenBalance_ = underlyingCollateral_;
         while (true) {
             uint256 bandLowerBound = _collateralRatioLowerBounds(config_, band);
             uint256 bandFeeRatio = uint256(_incentiveRatio(config_, band)); // no discounts for this action
@@ -1790,14 +1798,14 @@ contract Minter_v1 is
             }
             // slither-disable-next-line divide-before-multiply
             uint256 collateralInBand = (collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) / price;
-            collateralInBand = Math.min(collateralIn, collateralInBand);
+            collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
             // slither-disable-next-line divide-before-multiply
             uint256 bandFee = (collateralInBand * uint256(bandFeeRatio)) / 1 ether;
             collateralOut += collateralInBand - bandFee;
             fee += bandFee;
-            collateralIn -= collateralInBand;
+            underlyingCollateralIn -= collateralInBand;
             // slither-disable-next-line incorrect-equality
-            if (collateralIn == 0) {
+            if (underlyingCollateralIn == 0) {
                 // we have run out of collateral
                 break;
             }
@@ -1813,7 +1821,7 @@ contract Minter_v1 is
             collateralOut + fee,
             leveragedTokenBalance_,
             peggedTokenBalance_,
-            startCollateralTokenBalance,
+            underlyingCollateral_,
             price
         );
     }
@@ -1861,8 +1869,16 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 nav$) {
+        console2.log(
+            "_peggedTokenPrice$(peggedTokenBalance_:%s, collateralTokenBalance_:%s, collateralPrice:%s",
+            peggedTokenBalance_,
+            collateralTokenBalance_,
+            collateralPrice
+        );
         (, nav$) = _tokenValues$(peggedTokenBalance_, collateralTokenBalance_, collateralPrice);
+        console2.log("_tokenValues$()->(, %s)", nav$);
         nav$ = (nav$ * 1 ether) / peggedTokenBalance_;
+        console2.log("_peggedTokenPrice$()->%s", nav$);
     }
 
     function _tokenValues$(
@@ -1881,11 +1897,11 @@ contract Minter_v1 is
     /// @dev pegged value must not be greater than collateral value, i.e. it's depegged
 
     function _leveragedTokensForCollateral(
-        uint256 collateralIn,
+        uint256 underlyingCollateralIn,
         uint256 leveragedTokenBalance_,
         uint256 peggedTokenBalance_,
-        uint256 collateralTokenBalance_,
-        uint256 collateralPrice
+        uint256 underlyingCollateral_,
+        uint256 price
     ) private pure returns (uint256 leveragedTokens) {
         // this is the first derivative of the leveraged balance with respect to the collateral balance
         // in the invariant: collateral value = leveraged value + pegged value.
@@ -1893,17 +1909,16 @@ contract Minter_v1 is
         //       or work out the correct equation, assuming there is one solution:
         //           leveraged nav can vary or leveraged balance can vary
         if (leveragedTokenBalance_ > 0) {
-            int256 collateralDifference = int256(collateralTokenBalance_ * collateralPrice) -
-                int256(peggedTokenBalance_ * 1 ether);
+            int256 collateralDifference = int256(underlyingCollateral_ * price) - int256(peggedTokenBalance_ * 1 ether); // TODO: should this be the pegged price, to handle depegging?
             if (collateralDifference <= 0) {
                 leveragedTokens = 0;
             } else {
                 leveragedTokens =
-                    (collateralIn * collateralPrice * leveragedTokenBalance_) /
+                    (underlyingCollateralIn * price * leveragedTokenBalance_) /
                     uint256(collateralDifference);
             }
         } else {
-            leveragedTokens = (collateralIn * collateralPrice) / 1 ether; // TODO: check if there can be any starting price seems moire natural to price it on the same scale as the collateral token
+            leveragedTokens = (underlyingCollateralIn * price) / 1 ether; // TODO: check if there can be any starting price seems more natural to price it on the same scale as the collateral token
         }
     }
 
@@ -1938,7 +1953,7 @@ contract Minter_v1 is
     /// @return collateral The amount of collateral `forLeveraged` leveraged tokens are worth.
 
     // TODO: whereever there is a collateral balance and price passed, pass the product instead.
-    function _collateralForLeveragedTokens(
+    function _underlyingCollateralForLeveragedTokens(
         uint256 forLeveraged,
         uint256 leveragedTokenBalance_,
         uint256 peggedTokenBalance_,
@@ -1999,13 +2014,13 @@ contract Minter_v1 is
     }
 
     /// @notice Returns the amount of leveraged tokens being managed
-    function _leveragedTokenBalance(address leveragedToken_) private view returns (uint256) {
-        return IERC20(leveragedToken_).totalSupply();
+    function _leveragedTokenBalance() private view returns (uint256) {
+        return IERC20(LEVERAGED_TOKEN).totalSupply();
     }
 
-    /// @notice Returns the amount of collateral being managed
-    function _collateralTokenBalance(address collateralToken_) private view returns (uint256) {
-        return IERC20(collateralToken_).balanceOf(address(this));
+    /// @notice Returns the amount of wrapped collateral being held
+    function _wrappedCollateral() private view returns (uint256) {
+        return IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
     }
 
     // fetching collateral price in terms of the pegged tokens
@@ -2013,26 +2028,29 @@ contract Minter_v1 is
 
     /// @notice Returns the safe price for the collateral token.
     /// @dev Checks safe price non-zero.
-    function _fetchMidPrice(address priceOracle_) private view returns (uint256 safe) {
+    function _fetchMid(address priceOracle_) private view returns (uint256 midPrice, uint256 midRate) {
         // TODO: remove the slither disable
         // slither-disable-next-line unused-return
-        (uint256 min, uint256 max, , ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
-        safe = (min + max) >> 1;
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(priceOracle_)
+            .latestAnswer();
+        midPrice = (minPrice + maxPrice) >> 1;
+        midRate = (minRate + maxRate) >> 1;
+        console2.log("_fetchMid: midPrice=%s, rate=%s.", midPrice, midRate);
     }
 
     /// @notice Returns the min price for the collateral token.
     /// If the safe price is valid it is returned, else the min price.
     /// @dev Checks the returned price is non-zero.
-    function _fetchMinPrice(address priceOracle_) private view returns (uint256 min) {
+    function _fetchMin(address priceOracle_) private view returns (uint256 minPrice, uint256 minRate) {
         // slither-disable-next-line unused-return
-        (min, , , ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
+        (minPrice, , minRate, ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
     }
 
     /// @notice Returns the max price for the collateral token.
     /// If the safe price is valid it is returned, else the max price.
     /// @dev Checks the returned price is non-zero.
-    function _fetchMaxPrice(address priceOracle_) private view returns (uint256 max) {
+    function _fetchMax(address priceOracle_) private view returns (uint256 maxPrice, uint256 maxRate) {
         // slither-disable-next-line unused-return
-        (, max, , ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
+        (, maxPrice, , maxRate) = IWrappedPriceOracle(priceOracle_).latestAnswer();
     }
 }

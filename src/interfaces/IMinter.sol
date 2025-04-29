@@ -293,6 +293,7 @@ interface IMinter {
     /// @return fee The amount deducted from `collateralIn` as a fee.
     /// @return reserveCollateralUsed The amount deducted from the reserve pool as a discount.
     /// @return price The price of collateral in terms of pegged tokens used in the calculations.
+    /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function mintPeggedTokenDryRun(
         uint256 collateralIn
     )
@@ -304,7 +305,8 @@ interface IMinter {
             uint256 peggedMinted,
             uint256 fee,
             uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 price,
+            uint256 rate
         );
 
     /// @notice Returns values that will be used if an actual `redeemPeggedToken` function call is made.
@@ -316,6 +318,7 @@ interface IMinter {
     /// @return fee The amount deducted from the returned collateral as a fee.
     /// @return reserveCollateralUsed The amount deducted from the reserve pool a a discount.
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
+    /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function redeemPeggedTokenDryRun(
         uint256 peggedIn
     )
@@ -327,7 +330,8 @@ interface IMinter {
             uint256 collateralReturned,
             uint256 fee,
             uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 price,
+            uint256 rate
         );
 
     /// @notice Returns values that will be used if an actual `mintLeveragedToken` function call is made.
@@ -341,6 +345,7 @@ interface IMinter {
     /// @return fee The amount deducted from `collateralIn` as a fee.
     /// @return reserveCollateralUsed The amount deducted from the reserve pool as a discount.
     /// @return price is the price of collateral used in terms of pegged tokens used in the calculations.
+    /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function mintLeveragedTokenDryRun(
         uint256 collateralIn
     )
@@ -352,7 +357,8 @@ interface IMinter {
             uint256 leveragedMinted,
             uint256 fee,
             uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 price,
+            uint256 rate
         );
 
     /// @notice Returns values that will be used if an actual `redeemLeveragedToken` function call is made.
@@ -364,6 +370,7 @@ interface IMinter {
     /// @return fee The amount deducted from the returned collateral as a fee.
     /// @return reserveCollateralUsed The amount deducted from the reserve pool a a discount.
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
+    /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function redeemLeveragedTokenDryRun(
         uint256 leveragedIn
     )
@@ -375,7 +382,8 @@ interface IMinter {
             uint256 collateralReturned,
             uint256 fee,
             uint256 reserveCollateralUsed,
-            uint256 price
+            uint256 price,
+            uint256 rate
         );
 
     /*//////////////////////////////////////////////////////////////
