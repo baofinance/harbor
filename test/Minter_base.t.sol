@@ -320,7 +320,7 @@ contract TestMinterInit is TestMinterSetUp {
         super.setUp();
         impl = address(new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, address(leveragedToken)));
     }
-    // TODO: remove this as we no longer test for valid erc20 token on initialisation
+    // TODO: we no longer test for valid erc20 token on initialisation but on construction
     // test the ERC20 check in Token - expect revert doesn't work for deployUUPS
     // function test_notERC20() private {
     //     //                   -------
@@ -506,49 +506,119 @@ contract TestMinterBasics is TestMinterSetUp {
 
     // TODO: test that if the config is set up for no fees or discounts then free mint/redeem = normal mint/redeem
 
+    function test_depegBoundary() public {
+        // simple config that has a fee and a discount but no depeg boundary
+        _checkConfig(
+            130,
+            250,
+            ic(ua(), ia(50)), // mint pegged 50 basis points = 0.5 %
+            ic(ua(), ia(-100)), // redeem pegged
+            ic(ua(), ia(-50)), // mint leveraged
+            ic(ua(), ia(100)), // redeem leveraged
+            ""
+        );
+
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0);
+
+        // can't mint some because the config has it disallowed at < 1.31 and we're at 1
+        // mint some then redeem it:
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "CR is 1");
+        IMinter(minter).mintPeggedToken(3 ether, user, 0);
+        //--------------------------------------------------
+        assertEq(IERC20(Deployed.BaoUSD).balanceOf(user), 3 * price);
+        assertEq(IMinter(minter).collateralTokenBalance(), 3 ether, "collaterals should be 3");
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(address(Deployed.wstETH)).balanceOf(minter),
+            "collaterals balance after freeMint"
+        );
+        vm.prank(user);
+        IMinter(minter).redeemPeggedToken(2 * price, user, 0);
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(address(Deployed.wstETH)).balanceOf(minter),
+            "collaterals balance after freeMint"
+        );
+    }
+
     function test_connections() public {
         // simple config that has a fee and a discount
-        _checkConfig(130, 250, ic(ua(), ia(50)), ic(ua(), ia(-100)), ic(ua(), ia(-50)), ic(ua(), ia(100)), "");
+        _checkConfig(
+            130,
+            250,
+            ic(ua(), ia(50)), // mint pegged 50 basis points = 0.5 %
+            ic(ua(), ia(-100)), // redeem pegged
+            ic(ua(), ia(-50)), // mint leveraged
+            ic(ua(), ia(100)), // redeem leveraged
+            ""
+        );
         // need collateral to start the process
         setUp_collateral(1 ether, 1 ether, address(this));
+        (uint256 rawPrice, , uint256 rawRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 startPeggedOrLeveraged = (rawRate * rawPrice) / 1 ether;
+        assertEq(IMinter(minter).peggedTokenBalance(), startPeggedOrLeveraged, "setup_collateral works - pegged");
+        assertEq(IMinter(minter).leveragedTokenBalance(), startPeggedOrLeveraged, "setup_collateral works - leveraged");
+        assertEq(IMinter(minter).collateralTokenBalance(), 2 ether, "setup_collateral works - leveraged");
+
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         IERC20(collateralToken).approve(minter, type(uint256).max);
         deal(collateralToken, reservePool, 1 ether);
 
         // price
-        (, uint256 collateralUsed, uint256 peggedMinted, uint256 fee, , uint256 price, uint256 rate) = IMinter(minter)
-            .mintPeggedTokenDryRun(1 ether);
-        assertGt(price, 1 ether, "if eth drops below 1 usd this test will be no use to anyone");
+        (
+            int256 incentiveRatio,
+            int256 feeDiscount,
+            uint256 collateralTaken,
+            uint256 peggedMinted,
+            uint256 price,
+            uint256 rate
+        ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+        assertEq(price, rawPrice, "stETH price");
+        assertEq(rate, rate, "stETH/wstETH rate");
         assertEq(
-            IMinter(minter).peggedTokenBalance(),
-            (price * rate) / 1 ether,
+            peggedMinted,
+            (uint256(1 ether - feeDiscount) * (price * rate)) / (1 ether * 1 ether),
             "TODO: correct amount minted, should take fee into acount"
         );
-        assertEq(collateralUsed, 1 ether, "all the collateral is used");
-        assertEq(fee, 1 ether, "TODO: the fee calculation based on config");
+        assertEq(collateralTaken, 1 ether, "all the collateral is used");
+        assertEq(
+            uint256(incentiveRatio),
+            uint256(config.mintPeggedIncentiveConfig.incentiveRatios[0]), // 5e15
+            "the incentive ratio should match the config"
+        );
+        assertEq(
+            uint256(feeDiscount),
+            uint256(config.mintPeggedIncentiveConfig.incentiveRatios[0]), // 5e15
+            "the fee should match the config for unit collateral"
+        );
 
         // feeReceiver
         assertEq(IERC20(collateralToken).balanceOf(feeReceiver), 0);
         uint256 startCollateral = IERC20(collateralToken).balanceOf(address(this));
         uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
         // --------------------------------------------------------------------------
-        assertEq(fee, (1 ether * 5) / 1000);
+        assertEq(uint256(feeDiscount), (1 ether * 5) / 1000);
         assertEq(IERC20(collateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000);
         assertEq(IMinter(minter).peggedTokenBalance(), price + (price * 995) / 1000, "correct amount minted, 2");
         assertEq(minted, peggedMinted, "amount minted is the same as predicted");
         assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral - 1 ether);
 
         // reserve pool - same as above but with a discount, not a fee
-        (, uint256 peggedRedeemed, uint256 collateralReturned, , uint256 reserveCollateralUsed, , ) = IMinter(minter)
+        (, int256 feeOrDiscount, uint256 peggedRedeemed, uint256 collateralReturned, , ) = IMinter(minter)
             .redeemPeggedTokenDryRun(price);
+        assertEq(feeOrDiscount, config.redeemPeggedIncentiveConfig.incentiveRatios[0], "dryRun feeOrDiscount");
+        assertEq(collateralReturned, uint256(1 ether - feeOrDiscount), "dryRun collateralReturned");
+        assertEq(peggedRedeemed, price, "dryRun peggedRedeemed");
+
         assertEq(IERC20(collateralToken).balanceOf(reservePool), 1 ether);
         uint256 returned = IMinter(minter).redeemPeggedToken(price, address(this), 0);
         // --------------------------------------------------------------------------
-        assertEq(peggedRedeemed, price);
-        assertEq(reserveCollateralUsed, (1 ether * 10) / 1000);
-        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000);
-        assertEq(IMinter(minter).peggedTokenBalance(), (price * 995) / 1000, "correct amount minted, 2");
+        assertEq(peggedRedeemed, price, "Pegged redeemed");
+        assertEq(feeOrDiscount, config.redeemPeggedIncentiveConfig.incentiveRatios[0], "feeOrDiscount");
+        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000, "feeReceiver as before");
+        assertEq(IMinter(minter).peggedTokenBalance(), (price * 995) / 1000, "pegged balance as before - redeemed");
         assertEq(returned, collateralReturned, "amount returned is the same as predicted");
         assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral + collateralReturned - 1 ether);
 
@@ -562,7 +632,7 @@ contract TestMinterBasics is TestMinterSetUp {
     function test_incentiveRatios() private view {
         // TODO: add these back in when collateral ratio function is fixed
         int256 instantaneousIr = IMinter(minter).mintPeggedTokenIncentiveRatio();
-        (int256 ir, , , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
+        (int256 ir, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
         assertEq(instantaneousIr, ir, "mint pegged ir");
     }
 

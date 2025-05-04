@@ -49,11 +49,22 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 leveragedSupplyBefore = IERC20(leveragedToken).totalSupply();
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance before freeMintLeveraged"
+        );
+
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintLeveragedToken(owner, receiver, ownerCollateralDecrease, receiverLeveragedIncrease);
         vm.prank(owner);
         uint256 minted = IMinter(minter).freeMintLeveragedToken(collateralIn, receiver);
         //               ---------------------------------------------------------------------------
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance after freeMintLeveraged"
+        );
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount free minted leveraged compared to price");
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(owner),

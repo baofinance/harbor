@@ -51,11 +51,22 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         uint256 minterWstETHBefore = IERC20(Deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance before freeRedeemLeveraged"
+        );
+
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.RedeemLeveragedToken(owner, receiver, ownerLeveragedDecrease, receiverCollateralIncrease);
         vm.prank(owner);
         uint256 returned = IMinter(minter).freeRedeemLeveragedToken(leveragedIn, receiver);
         //                 ----------------------------------------------------------------------
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance after freeRedeemLeveraged"
+        );
         assertEq(
             returned,
             receiverCollateralIncrease,

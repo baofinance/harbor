@@ -125,6 +125,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
 
     struct Data {
         int256 incentiveRatio;
+        int256 feeDiscount;
         uint256 peggedMinted;
         uint256 peggedRedeemed;
         uint256 leveragedMinted;
@@ -189,10 +190,10 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         // mint pegged
         (
             data.incentiveRatio,
+            data.feeDiscount,
             data.collateralUsed,
             data.peggedMinted,
-            data.fee,
-            data.reserveCollateralUsed,
+
             // data.price,
             // data.rate
             ,
@@ -223,15 +224,8 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         }
 
         // redeem pegged
-        (
-            ,
-            data.peggedRedeemed,
-            data.collateralReturned,
-            data.fee,
-            data.reserveCollateralUsed,
-            data.price,
-            data.rate
-        ) = IMinter(minter).redeemPeggedTokenDryRun(1000 ether);
+        (, data.feeDiscount, data.peggedRedeemed, data.collateralReturned, data.price, data.rate) = IMinter(minter)
+            .redeemPeggedTokenDryRun(1000 ether);
         snap = vm.snapshotState();
         beforeHolding = readHoldings();
         IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
@@ -252,7 +246,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
 
         // mint leveraged
         if (currentCollateralRatio > 1 ether) {
-            (, data.collateralUsed, data.leveragedMinted, data.fee, data.reserveCollateralUsed, , ) = IMinter(minter)
+            (, data.feeDiscount, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
 
             snap = vm.snapshotState();
@@ -272,15 +266,9 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             vm.revertToState(snap);
 
             // redeem leveraged
-            (
-                data.incentiveRatio,
-                data.levergedRedeemed,
-                data.collateralReturned,
-                data.fee,
-                data.reserveCollateralUsed,
-                ,
-
-            ) = IMinter(minter).redeemLeveragedTokenDryRun(1000 ether);
+            (data.feeDiscount, data.incentiveRatio, data.levergedRedeemed, data.collateralReturned, , ) = IMinter(
+                minter
+            ).redeemLeveragedTokenDryRun(1000 ether);
             if (data.incentiveRatio < 1 ether) {
                 snap = vm.snapshotState();
                 beforeHolding = readHoldings();

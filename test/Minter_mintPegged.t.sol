@@ -48,11 +48,22 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 minterPeggedBefore = IMinter(minter).peggedTokenBalance();
         uint256 peggedSupplyBefore = IERC20(Deployed.BaoUSD).totalSupply();
 
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance before freeMintPegged"
+        );
+
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintPeggedToken(owner, receiver, ownerCollateralDecrease, receiverBaoUSDIncrease);
         vm.prank(owner);
         uint256 minted = IMinter(minter).freeMintPeggedToken(collateralIn, receiver);
         //               ------------------------------------------------------------------------
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance after freeMintPegged"
+        );
         assertEq(minted, receiverBaoUSDIncrease, "unexpected amount minted compared to price");
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(owner),
@@ -219,6 +230,7 @@ contract TestMinterMintPegged is TestMinterMint {
     }
 
     function test_mintPeggedBasic() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
 
@@ -288,6 +300,28 @@ contract TestMinterMintPegged is TestMinterMint {
         IMinter(minter).mintPeggedToken(0, receiver, 0);
         //--------------------------------------------------
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+
+        // non-zero input, when some
+        uint256 collateralBefore = IMinter(minter).collateralTokenBalance();
+        vm.prank(sender);
+        uint256 peggedMinted = IMinter(minter).mintPeggedToken(1 ether, receiver, 0);
+        //--------------------------------------------------
+        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), peggedMinted, "received = returned");
+        assertEq(
+            IERC20(Deployed.BaoUSD).balanceOf(receiver),
+            ((1 ether - uint256(config.mintPeggedIncentiveConfig.incentiveRatios[1])) * price) / 1 ether,
+            "received 1 minus fees"
+        );
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            collateralBefore + 1 ether - uint256(config.mintPeggedIncentiveConfig.incentiveRatios[1]),
+            "collaterals should be 1 more minus the fee"
+        );
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(address(Deployed.wstETH)).balanceOf(minter),
+            "collaterals balance after freeMint"
+        );
     }
 
     function test_mintPeggedDisallow() public {
@@ -299,6 +333,14 @@ contract TestMinterMintPegged is TestMinterMint {
         // no minting in disallow zone
         setUp_collateral(1 ether, 0); // make a finite collateral ratio, 1.0
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "CR=1.0");
+        assertEq(IMinter(minter).peggedTokenBalance(), 2000 ether, "2000 pegged");
+        assertEq(IMinter(minter).collateralTokenBalance(), 1 ether, "CR=1.0");
+        assertEq(
+            IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(minter),
+            IMinter(minter).collateralTokenBalance(),
+            "wrapped = underlying"
+        );
+
         vm.expectRevert(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, Deployed.BaoUSD));
         vm.prank(sender);
         IMinter(minter).mintPeggedToken(1 ether, receiver, 0);
@@ -308,12 +350,21 @@ contract TestMinterMintPegged is TestMinterMint {
         // no minting into rebalance zone
         setUp_collateral(3 ether, 2 ether); // make CR = 6/4  = 1.5
         assertEq(IMinter(minter).collateralRatio(), 6 ether / 4, "CR=1.5");
+        assertEq(IMinter(minter).peggedTokenBalance(), 4 * 2000 ether, "8000 pegged");
+        assertEq(IMinter(minter).collateralTokenBalance(), 6 ether, "CR=1.0");
+        assertEq(
+            IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(minter),
+            IMinter(minter).collateralTokenBalance(),
+            "wrapped = underlying"
+        );
+
         assertGt(
             initial(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
-            10 ether / 8,
+            10 ether / 8, // This is where the CR should go if there were no disallow preventing it
             "test should push CR below disallow"
         );
         vm.prank(sender);
+        // this mint pegged should hit the disallow boundary leaving the CR at 1.3
         IMinter(minter).mintPeggedToken(4 ether, receiver, 0); // push CR to 10/8 = 1.25
         //--------------------------------------------------------
         // CR should now be disallow (1.3+), not 1.25
