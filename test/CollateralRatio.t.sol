@@ -125,7 +125,6 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
 
     struct Data {
         int256 incentiveRatio;
-        int256 feeDiscount;
         uint256 peggedMinted;
         uint256 peggedRedeemed;
         uint256 leveragedMinted;
@@ -133,7 +132,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         uint256 collateralUsed;
         uint256 collateralReturned;
         uint256 fee;
-        uint256 reserveCollateralUsed;
+        uint256 discount;
         uint256 price;
         uint256 rate;
     }
@@ -188,17 +187,8 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         uint256 snap;
 
         // mint pegged
-        (
-            data.incentiveRatio,
-            data.feeDiscount,
-            data.collateralUsed,
-            data.peggedMinted,
-
-            // data.price,
-            // data.rate
-            ,
-
-        ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
+        (data.incentiveRatio, data.fee, data.collateralUsed, data.peggedMinted, , ) = IMinter(minter)
+            .mintPeggedTokenDryRun(1 ether);
 
         if (data.incentiveRatio < 1 ether) {
             // minting pegged is allowed
@@ -224,16 +214,17 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         }
 
         // redeem pegged
-        (, data.feeDiscount, data.peggedRedeemed, data.collateralReturned, data.price, data.rate) = IMinter(minter)
-            .redeemPeggedTokenDryRun(1000 ether);
+        (, data.fee, data.discount, data.peggedRedeemed, data.collateralReturned, data.price, data.rate) = IMinter(
+            minter
+        ).redeemPeggedTokenDryRun(1000 ether);
         snap = vm.snapshotState();
         beforeHolding = readHoldings();
         IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
         afterHolding = readHoldings();
         deltas = DeltaHoldings(
             int256(data.fee),
-            -int256(data.reserveCollateralUsed),
-            -int256(data.collateralReturned) + int256(data.reserveCollateralUsed) - int256(data.fee),
+            -int256(data.discount),
+            -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
             -int256(data.peggedRedeemed),
             int256(data.collateralReturned),
             -int256(data.peggedRedeemed),
@@ -246,7 +237,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
 
         // mint leveraged
         if (currentCollateralRatio > 1 ether) {
-            (, data.feeDiscount, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
+            (, data.fee, data.discount, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
 
             snap = vm.snapshotState();
@@ -255,8 +246,8 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             afterHolding = readHoldings();
             deltas = DeltaHoldings(
                 int256(data.fee),
-                -int256(data.reserveCollateralUsed),
-                int256(data.collateralUsed) + int256(data.reserveCollateralUsed) - int256(data.fee),
+                -int256(data.discount),
+                int256(data.collateralUsed) + int256(data.discount) - int256(data.fee),
                 int256(0),
                 -int256(data.collateralUsed),
                 int256(0),
@@ -266,9 +257,8 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             vm.revertToState(snap);
 
             // redeem leveraged
-            (data.feeDiscount, data.incentiveRatio, data.levergedRedeemed, data.collateralReturned, , ) = IMinter(
-                minter
-            ).redeemLeveragedTokenDryRun(1000 ether);
+            (data.incentiveRatio, data.fee, data.levergedRedeemed, data.collateralReturned, , ) = IMinter(minter)
+                .redeemLeveragedTokenDryRun(1000 ether);
             if (data.incentiveRatio < 1 ether) {
                 snap = vm.snapshotState();
                 beforeHolding = readHoldings();
@@ -276,8 +266,8 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 afterHolding = readHoldings();
                 deltas = DeltaHoldings(
                     int256(data.fee),
-                    -int256(data.reserveCollateralUsed),
-                    -int256(data.collateralReturned) + int256(data.reserveCollateralUsed) - int256(data.fee),
+                    -int256(data.discount),
+                    -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
                     -int256(0),
                     int256(data.collateralReturned),
                     int256(0),

@@ -388,6 +388,11 @@ contract TestMinterRedeemPegged is TestMinterMint {
         //   ---------------------------------------------------------------------------------------
         assertEq(returned, receiverCollateralIncrease, "unexpected amount returned compared to price");
         assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            minterCollateralBalanceBefore - receiverCollateralIncrease - redeemPeggedFee,
+            "minter is tracking the underlying collateral"
+        );
+        assertEq(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver),
             feeReceiverCollateralBefore + redeemPeggedFee,
             "fee transferred"
@@ -403,11 +408,6 @@ contract TestMinterRedeemPegged is TestMinterMint {
             IERC20(Deployed.wstETH).balanceOf(minter),
             minterCollateralBalanceBefore - receiverCollateralIncrease - redeemPeggedFee,
             "minter is tracking the wrapped collateral"
-        );
-        assertEq(
-            IMinter(minter).collateralTokenBalance(),
-            minterCollateralBalanceBefore - receiverCollateralIncrease - redeemPeggedFee,
-            "minter is tracking the underlying collateral"
         );
         assertEq(
             IMinter(minter).peggedTokenBalance(),
@@ -517,7 +517,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // mixed bonus and fee
     }
 
-    function test_redeemPegged() public {
+    function test_redeemPeggedNormal() public {
         setUp_collateral(20 ether, 0);
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         price *= 2;

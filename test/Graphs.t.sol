@@ -141,11 +141,12 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     {
         // collect the data and check against actuals
         (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(multiplier * 1 ether);
-        (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
+        (redeemPeggedIncentive, , , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
 
         try IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether) returns (
             int256 mintLeveraged,
-            int256,
+            uint256,
+            uint256,
             uint256,
             uint256,
             uint256,
@@ -162,7 +163,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
         try IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether) returns (
             int256 redeemLeveraged,
-            int256,
+            uint256,
             uint256,
             uint256,
             uint256,

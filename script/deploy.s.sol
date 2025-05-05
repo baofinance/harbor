@@ -237,13 +237,12 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
             int disallow = 10000; // code in config for a disallowed action at that collateral ratio
             IMinter.Config memory config;
             config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
-            config.harvestCollateralRatioLowerBound = _percentToEther(250);
             config.mintPeggedIncentiveConfig = ic(ua(131, 140), ia(disallow, 100, 50));
             config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
             config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
             config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
 
-            writeConfig(network, config);
+            writeConfig(config, network);
 
             address minter = DeployLib.deployMinter(
                 //                     ------------

@@ -78,14 +78,7 @@ contract Test_GenesisBase is Test, Array {
         );
 
         IMinter.IncentiveConfig memory percent1 = IMinter.IncentiveConfig(ua(), ia(1 ether / 100));
-        IMinter.Config memory config = IMinter.Config(
-            130 ether / 100,
-            200 ether / 100,
-            percent1,
-            percent1,
-            percent1,
-            percent1
-        );
+        IMinter.Config memory config = IMinter.Config(130 ether / 100, percent1, percent1, percent1, percent1);
 
         priceOracle = new MockWrappedPriceOracle();
 

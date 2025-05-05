@@ -40,7 +40,6 @@ interface IMinter {
     struct Config {
         // points at which specific activity commences
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        uint256 harvestCollateralRatioLowerBound; // above this harvesting of collateral can begin.
         // bonus/fees
         IncentiveConfig mintPeggedIncentiveConfig;
         IncentiveConfig redeemPeggedIncentiveConfig;
@@ -165,6 +164,7 @@ interface IMinter {
     error IncentiveRatioTooPrecise(int256 value);
     error CollateralRatioBoundsIncentivesLengthsMismatch(uint256 oneLess, uint256 oneMore);
     error CollateralRatioBoundTooPrecise(uint256 value);
+    error NoDepegBoundaryOrDisallow();
 
     /// @notice Thrown when the burn interface does not match one known by this contract
     error UnsupportedBurnInterface(bytes4 interfaceId);
@@ -296,7 +296,7 @@ interface IMinter {
     /// @return collateralTaken The amount of collateral used in the exchange.
     /// This is usually the same as `collateralIn` but at certain collateral ratio levels minting pegged tokens may be
     /// disallowed by configuration.
-    /// @return peggedMinted The amount of pegged tokens that would be minted.
+    /// @return peggedMinted The amount of pegged tokens that would be minted, given the 'collateralTaken' value and 'fee'.
     /// @return price The price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function mintPeggedTokenDryRun(
@@ -306,7 +306,7 @@ interface IMinter {
         view
         returns (
             int256 incentiveRatio,
-            int256 fee,
+            uint256 fee,
             uint256 collateralTaken,
             uint256 peggedMinted,
             uint256 price,
@@ -314,20 +314,20 @@ interface IMinter {
         );
 
     /// @notice Returns values that will be used if an actual `redeemPeggedToken` function call is made.
-    ///                                                                        ┌──────────────┐
-    /// ┌──────┐                           ┌────────┐                      ┌─► │ fee receiver │
-    /// │ user │ ════ peggedRedeemed ════▶ │ minter │ ─── +ve feeDiscount ─┘   └──────────────┘
-    /// │      │ ◄── collateralReturned ── │        │ ◄── -ve feeDiscount ─┐   ┌──────────────┐
-    /// └──────┘  (including any discount) └────────┘                      └── │ reserve pool │
-    ///                                                                        └──────────────┘
+    ///                                                                 ┌──────────────┐
+    /// ┌──────┐                           ┌────────┐               ┌─► │ fee receiver │
+    /// │ user │ ════ peggedRedeemed ════▶ │ minter │ ───── fee ────┘   └──────────────┘
+    /// │      │ ◄── collateralReturned ── │        │ ◄── discount ─┐   ┌──────────────┐
+    /// └──────┘  (including any discount) └────────┘               └── │ reserve pool │
+    ///                                                                 └──────────────┘
     /// @param peggedIn The amount of pegged token to be redeemed.
     /// @return incentiveRatio the effective incentive ratio for `peggedIn` pegged tokens.  A positive number is a fee
     /// ratio; a negative number indicates a discount. This is the theoretic value.
-    /// @return feeDiscount The amount deducted or discounted, if negative, from the returned collateral. This is the actual amount
-    /// given the reserve pool may be exhauste.
+    /// @return fee The amount deducted in wrapped collateral from 'peggedIn' as a fee.
+    /// @return discount The amount in wrapped collateral added to 'collateralReturned' taken from the reserve pool.
+    /// This takes into account the possibility the reserve pool may be exhausted by this action.
     /// @return peggedRedeemed The amount of pegged tokens that would be redeemed.
     /// @return wrappedCollateralReturned The amount of collateral returned to the caller including from the reserve pool (if a discount has been configured)
-    /// This takes into account the possibility the reserve pool may be exhausted by this action.
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
     function redeemPeggedTokenDryRun(
@@ -337,7 +337,8 @@ interface IMinter {
         view
         returns (
             int256 incentiveRatio,
-            int256 feeDiscount,
+            uint256 fee,
+            uint256 discount,
             uint256 peggedRedeemed,
             uint256 wrappedCollateralReturned,
             uint256 price,
@@ -348,11 +349,11 @@ interface IMinter {
     /// @param collateralIn The amount of collateral to be exchanged for leveraged tokens.
     /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
     /// a fee ratio; a negative number indicates a discount.
-    /// @return feeDiscount The amount deducted from `collateralIn` as a fee. Or added value to the leveragedTokens returned
+    /// @return fee The amount deducted from 'collateralIn' as a fee.
+    /// @return discount The amount in wrapped collateral added to 'leverageMinted' taken from the reserve pool.
+    /// This takes into account the possibility the reserve pool may be exhausted by this action.
     /// @return collateralUsed The amount of collateral used in the exchange.
-    /// This is usually the same as `collateralIn` but at certain collateral ratio levels minting pegged tokens may be
-    /// disallowed by configuration.
-    /// @return leveragedMinted The amount of leveraged tokens that would be minted.
+    /// @return leveragedMinted The amount of leveraged tokens that would be minted. This takes into account the discount applied.
 
     function mintLeveragedTokenDryRun(
         uint256 collateralIn
@@ -361,7 +362,8 @@ interface IMinter {
         view
         returns (
             int256 incentiveRatio,
-            int256 feeDiscount,
+            uint256 fee,
+            uint256 discount,
             uint256 collateralUsed,
             uint256 leveragedMinted,
             uint256 price,
@@ -374,6 +376,7 @@ interface IMinter {
     /// fee ratio; a negative number indicates a discount.
     /// @return fee The amount deducted from the returned collateral as a fee.
     /// @return leveragedRedeemed The amount of leveraged tokens that would be redeemed.
+    /// This could be limited (some or all redeeming being disallowed) by configuration
     /// @return collateralReturned The amount of collateral returned from the reserve pool and passed to the caller.
     /// @return price is the price of collateral in terms of pegged tokens used in the calculations.
     /// @return rate The conversion rate from underlying collateral to wrapped collateral.
@@ -384,7 +387,7 @@ interface IMinter {
         view
         returns (
             int256 incentiveRatio,
-            int256 fee,
+            uint256 fee,
             uint256 leveragedRedeemed,
             uint256 collateralReturned,
             uint256 price,

@@ -319,7 +319,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // CR out of bonus zone = no bonus
     }
 
-    function test_mintLeveraged() public {
+    function test_mintLeveragedNormal() public {
         setUp_collateral(10 ether, 0);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(4000 ether); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
