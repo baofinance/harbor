@@ -40,8 +40,8 @@ contract TestRebalancePool2SetUp is TestRebalancePoolSetUp {
         deal(address(peggedToken), user2, 2000 ether);
 
         rebalancePoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter, leveragedToken))
+            address(new RebalancePool_v1(minter, leveragedToken)), // "RebalancePool_v1.sol",
+            abi.encodeCall(RebalancePool_v1.initialize, owner)
         );
         vm.prank(user1);
         IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);

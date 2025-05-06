@@ -77,7 +77,10 @@ contract Test_GenesisBase is Test, Array {
             abi.encodeCall(ReservePool_v1.initialize, (owner))
         );
 
-        IMinter.IncentiveConfig memory percent1 = IMinter.IncentiveConfig(ua(), ia(1 ether / 100));
+        IMinter.IncentiveConfig memory percent1 = IMinter.IncentiveConfig(
+            ua(1 ether),
+            ia(1 ether / 100, 1 ether / 100)
+        );
         IMinter.Config memory config = IMinter.Config(130 ether / 100, percent1, percent1, percent1, percent1);
 
         priceOracle = new MockWrappedPriceOracle();

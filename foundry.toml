@@ -25,7 +25,7 @@ auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"
 optimizer = true
 optimizer_runs = 500 # 10000 builds & tests but 20 deploys
-# via_ir = true, now causes a stack overflow that doesn't happen without this
+# via_ir = true # now causes a stack overflow that doesn't happen without this
 # deny_warnings = true # enable to stop compilations if there are warnings
 
 [etherscan]

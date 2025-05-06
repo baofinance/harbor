@@ -139,9 +139,11 @@ library DeployLib {
         address minter_,
         address liquidationToken
     ) internal returns (address rebalancePool_) {
+        Options memory opts;
+        opts.constructorData = abi.encode(minter_, liquidationToken);
         rebalancePool_ = Upgrades.deployUUPSProxy(
             "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter_, liquidationToken))
+            abi.encodeCall(RebalancePool_v1.initialize, (owner))
         );
         //console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
     }

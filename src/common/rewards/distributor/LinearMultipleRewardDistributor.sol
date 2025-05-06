@@ -38,19 +38,18 @@ abstract contract LinearMultipleRewardDistributor is
     // TODO: the above may well be a bit much
     // as this is simulating solidity's automatic generation for public constants,
     // solhint-disable-next-line func-name-mixedcase
-    function REWARD_MANAGER_ROLE() public pure virtual returns (uint256) {
-        return _ROLE_0;
-    }
+    uint256 public constant REWARD_MANAGER_ROLE = _ROLE_0;
+
+    /// @notice The length of reward period in seconds.
+    /// @dev If the value is zero, the reward will be distributed immediately.
+    /// @dev It is either zero or at least 1 day (which is 86400).
+    uint40 public immutable PERIOD_LENGTH;
 
     /*************
      * Variables *
      *************/
 
     struct LinearMultipleRewardDistributorStorage {
-        /// @notice The length of reward period in seconds.
-        /// @dev If the value is zero, the reward will be distributed immediately.
-        /// @dev It is either zero or at least 1 day (which is 86400).
-        uint40 periodLength;
         /// @inheritdoc IMultipleRewardDistributor
         mapping(address => address) distributors;
         /// @notice Mapping from reward token address to linear distribution reward data.
@@ -80,17 +79,18 @@ abstract contract LinearMultipleRewardDistributor is
     /***************
      * Constructor *
      ***************/
-    // solhint-disable-next-line func-name-mixedcase
-    function __LinearMultipleRewardDistributor_init(uint40 periodLength_) internal onlyInitializing {
-        __LinearMultipleRewardDistributor_init_unchained(periodLength_);
-    }
+    // // solhint-disable-next-line func-name-mixedcase
+    // function __LinearMultipleRewardDistributor_init() internal onlyInitializing {
+    //     __LinearMultipleRewardDistributor_init_unchained();
+    // }
 
-    // solhint-disable-next-line func-name-mixedcase
-    function __LinearMultipleRewardDistributor_init_unchained(uint40 periodLength_) internal onlyInitializing {
+    // // solhint-disable-next-line func-name-mixedcase
+    // function __LinearMultipleRewardDistributor_init_unchained() internal onlyInitializing {}
+
+    constructor(uint40 periodLength_) {
         if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days))
             revert InvalidPeriodLength(periodLength_);
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        $.periodLength = periodLength_;
+        PERIOD_LENGTH = periodLength_;
     }
 
     /*************************
@@ -154,7 +154,7 @@ abstract contract LinearMultipleRewardDistributor is
     ///
     /// @param token The address of reward token.
     /// @param distributor The address of reward distributor.
-    function registerRewardToken(address token, address distributor) external onlyRoles(REWARD_MANAGER_ROLE()) {
+    function registerRewardToken(address token, address distributor) external onlyRoles(REWARD_MANAGER_ROLE) {
         if (distributor == address(0)) revert RewardDistributorIsZero();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
@@ -173,7 +173,7 @@ abstract contract LinearMultipleRewardDistributor is
     ///
     /// @param token The address of reward token.
     /// @param newDistributor The address of new reward distributor.
-    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(REWARD_MANAGER_ROLE()) {
+    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(REWARD_MANAGER_ROLE) {
         if (newDistributor == address(0)) revert RewardDistributorIsZero();
 
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
@@ -188,14 +188,14 @@ abstract contract LinearMultipleRewardDistributor is
     /// @notice Unregister an existing reward token.
     ///
     /// @param token The address of reward token.
-    function unregisterRewardToken(address token) external onlyRoles(REWARD_MANAGER_ROLE()) {
+    function unregisterRewardToken(address token) external onlyRoles(REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
 
         LinearReward.RewardData memory _data = $.rewardData[token];
         unchecked {
             (uint256 _distributable, uint256 _undistributed) = _data.pending();
-            if (_data.queued < $.periodLength) _data.queued = 0; // ignore round error
+            if (_data.queued < PERIOD_LENGTH) _data.queued = 0; // ignore round error
             if (_data.queued + _distributable + _undistributed > 0) revert RewardDistributionNotFinished();
         }
 
@@ -218,13 +218,12 @@ abstract contract LinearMultipleRewardDistributor is
     /// @param amount The amount of new rewards.
     function _notifyReward(address token, uint256 amount) internal {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        uint40 periodLength_ = $.periodLength;
 
-        if (periodLength_ == 0) {
+        if (PERIOD_LENGTH == 0) {
             _accumulateReward(token, amount);
         } else {
             LinearReward.RewardData memory data = $.rewardData[token];
-            data.increase(periodLength_, amount);
+            data.increase(PERIOD_LENGTH, amount);
             $.rewardData[token] = data;
         }
     }
@@ -233,7 +232,7 @@ abstract contract LinearMultipleRewardDistributor is
     function _distributePendingReward() internal {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if ($.periodLength == 0 || $.activeRewardTokens.length() == 0) return;
+        if (PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) return;
 
         address[] memory activeRewardTokens_ = $.activeRewardTokens.values();
         for (uint256 i = 0; i < activeRewardTokens_.length; i++) {

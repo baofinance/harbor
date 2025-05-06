@@ -504,7 +504,7 @@ contract TestMinterBasics is TestMinterSetUp {
         // simple config that has a fee and a discount but no depeg boundary
         _checkConfig(
             130,
-            ic(ua(100), ia(50, 150)), // mint pegged 50 basis points = 0.5 %
+            ic(ua(100), ia(150, 50)), // mint pegged 50 basis points = 0.5 %
             ic(ua(100), ia(-100, -100)), // redeem pegged
             ic(ua(100), ia(-50, -50)), // mint leveraged
             ic(ua(100), ia(100, 100)), // redeem leveraged
@@ -737,7 +737,7 @@ contract TestMinterBasics is TestMinterSetUp {
             ic(ua(100, 110, 120, 140), ia(-50, -50, 0, 60, 80)),
             ic(ua(110, 140), ia(disallow, 150, 120)),
             ""
-        );
+        ); //1
         // now test for other conditions
 
         // depeg already added
@@ -749,7 +749,7 @@ contract TestMinterBasics is TestMinterSetUp {
             // no bounds
             ic(ua(100), ia(120, 120)),
             ""
-        );
+        ); //2
 
         _checkConfig(
             130,
@@ -760,44 +760,56 @@ contract TestMinterBasics is TestMinterSetUp {
             // min bands
             ic(ua(), ia(disallow)),
             ""
-        );
+        ); //3
 
         // mismatched length, too many bands
         config.mintPeggedIncentiveConfig = ic(ua(), ia(disallow, 100));
-        vm.expectRevert(abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, 0, 2));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, "mint pegged", 0, 2)
+        );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //4
 
         // mismatched length, too many bands
         config.mintPeggedIncentiveConfig = ic(ua(100), ia(100));
-        vm.expectRevert(abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, 1, 1));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMinter.CollateralRatioBoundsIncentivesLengthsMismatch.selector, "mint pegged", 1, 1)
+        );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //5
 
         // depegged not first
         config.mintPeggedIncentiveConfig = ic(
             ua(90, 100, 131, 140, 150, 160, 170),
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidCollateralRatioBoundValue.selector, 9 ether / 10, 0));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.InvalidCollateralRatioBoundValue.selector,
+                "mint pegged",
+                9 ether / 10,
+                0,
+                "first boundary must be >= 1"
+            )
+        );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //6
 
         config.mintPeggedIncentiveConfig = ic(
             ua(100, 101, 131, 140, 150, 160, 170),
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //7
 
         // more than max number
         config.mintPeggedIncentiveConfig = ic(
             ua(100, 102, 131, 140, 150, 160, 170, 180),
             ia(disallow, 100, 50, 100, 200, 300, 400, 500, 600)
         );
-        vm.expectRevert(abi.encodeWithSelector(IMinter.TooManyIncentiveRatios.selector, 9, 8));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.TooManyIncentiveRatios.selector, "mint pegged", 9, 8));
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //8
 
         // more than max with no depeg band, we allow one less unless it's a disallow
         config.mintPeggedIncentiveConfig = ic(
@@ -805,68 +817,102 @@ contract TestMinterBasics is TestMinterSetUp {
             ia(disallow, 100, 50, 100, 200, 300, 400, 500)
         );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //9
 
         // numerical precision
         config.mintPeggedIncentiveConfig = ic(ua(100, 130), ia(100, 50, 10));
         config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds[1] = 130 * 10 ** 16 + 1;
-        vm.expectRevert(abi.encodeWithSelector(IMinter.CollateralRatioBoundTooPrecise.selector, 130 * 10 ** 16 + 1));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMinter.CollateralRatioBoundTooPrecise.selector, "mint pegged", 130 * 10 ** 16 + 1)
+        );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //10
 
         config.mintPeggedIncentiveConfig = ic(ua(100, 130), ia(100, 50, 10));
         config.mintPeggedIncentiveConfig.incentiveRatios[1] = 50 * 10 ** 16 + 1;
-        vm.expectRevert(abi.encodeWithSelector(IMinter.IncentiveRatioTooPrecise.selector, 50 * 10 ** 16 + 1));
+        vm.expectRevert(
+            abi.encodeWithSelector(IMinter.IncentiveRatioTooPrecise.selector, "mint pegged", 50 * 10 ** 16 + 1)
+        );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //11
 
         // less than min length
         config.mintPeggedIncentiveConfig = ic(ua(), ia());
-        vm.expectRevert(abi.encodeWithSelector(IMinter.TooFewIncentiveRatios.selector, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.TooFewIncentiveRatios.selector, "mint pegged", 0, 1));
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //12
 
         // check the collateral ratio bounds are are checked for strictly increasing
         // all
         config.mintPeggedIncentiveConfig = ic(ua(200, 200), ia(disallow, 2, 3));
         vm.expectRevert(
-            abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 1, 2 ether)
+            abi.encodeWithSelector(
+                IMinter.CollateralRatioBoundValueNotIncreasing.selector,
+                "mint pegged",
+                2 ether,
+                1,
+                2 ether
+            )
         );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //13
         // middle
-        config.mintPeggedIncentiveConfig = ic(ua(100, 200, 200, 300), ia(1, 2, 3, 4, 5));
+        config.mintPeggedIncentiveConfig = ic(ua(100, 200, 200, 300), ia(5, 4, 3, 2, 1));
         vm.expectRevert(
-            abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 2, 2 ether)
+            abi.encodeWithSelector(
+                IMinter.CollateralRatioBoundValueNotIncreasing.selector,
+                "mint pegged",
+                2 ether,
+                2,
+                2 ether
+            )
         );
         vm.prank(owner);
-        IMinter(minter).updateConfig(config);
+        IMinter(minter).updateConfig(config); //14
         // start
         config.mintPeggedIncentiveConfig = ic(ua(200, 200, 300, 400), ia(disallow, 2, 3, 4, 5));
         vm.expectRevert(
-            abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 1, 2 ether)
+            abi.encodeWithSelector(
+                IMinter.CollateralRatioBoundValueNotIncreasing.selector,
+                "mint pegged",
+                2 ether,
+                1,
+                2 ether
+            )
         );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); // 15
         // end
-        config.mintPeggedIncentiveConfig = ic(ua(100, 200, 300, 300), ia(1, 2, 3, 4, 5));
+        config.mintPeggedIncentiveConfig = ic(ua(100, 200, 300, 300), ia(5, 4, 3, 2, 1));
         vm.expectRevert(
-            abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 3 ether, 3, 3 ether)
+            abi.encodeWithSelector(
+                IMinter.CollateralRatioBoundValueNotIncreasing.selector,
+                "mint pegged",
+                3 ether,
+                3,
+                3 ether
+            )
         );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //16
         // < not <=
-        config.mintPeggedIncentiveConfig = ic(ua(300, 200, 300, 300), ia(disallow, 2, 3, 4, 5));
+        config.mintPeggedIncentiveConfig = ic(ua(300, 200, 300, 300), ia(disallow, 5, 4, 4, 3));
         vm.expectRevert(
-            abi.encodeWithSelector(IMinter.CollateralRatioBoundValueNotIncreasing.selector, 2 ether, 1, 3 ether)
+            abi.encodeWithSelector(
+                IMinter.CollateralRatioBoundValueNotIncreasing.selector,
+                "mint pegged",
+                2 ether,
+                1,
+                3 ether
+            )
         );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //17
 
         // set up the incentive configs for precise testing of values
         config.mintPeggedIncentiveConfig = ic(ua(100), ia(0, 0));
-        config.mintLeveragedIncentiveConfig = ic(ua(100), ia(0, 0));
         config.redeemPeggedIncentiveConfig = ic(ua(100), ia(0, 0));
+        config.mintLeveragedIncentiveConfig = ic(ua(100), ia(0, 0));
         config.redeemLeveragedIncentiveConfig = ic(ua(100), ia(0, 0));
 
         // check the incentive ratios are in the range for the action
@@ -874,7 +920,13 @@ contract TestMinterBasics is TestMinterSetUp {
         // > max
         config.mintPeggedIncentiveConfig.incentiveRatios[0] = 1 ether + incentivePrecision;
         vm.expectRevert(
-            abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether + incentivePrecision)
+            abi.encodeWithSelector(
+                IMinter.InvalidIncentiveRatioValue.selector,
+                "mint pegged",
+                0,
+                1 ether + incentivePrecision,
+                "must be in [0, 1]"
+            )
         );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //18
@@ -885,46 +937,87 @@ contract TestMinterBasics is TestMinterSetUp {
 
         // max - mint leveraged = 1 ether -1
         // > max
-        config.mintLeveragedIncentiveConfig.incentiveRatios[0] = 1 ether;
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether));
+        config.mintLeveragedIncentiveConfig.incentiveRatios[1] = 1 ether;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.InvalidIncentiveRatioValue.selector,
+                "mint leveraged",
+                1,
+                1 ether,
+                "must be in (-1, 1)"
+            )
+        );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //20
         // = max
-        config.mintLeveragedIncentiveConfig.incentiveRatios[0] = 1 ether - incentivePrecision;
+        config.mintLeveragedIncentiveConfig.incentiveRatios[1] = 1 ether - incentivePrecision;
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //21
 
         // min - mint pegged = 0
         // < min
-        config.mintPeggedIncentiveConfig.incentiveRatios[0] = -incentivePrecision;
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, -incentivePrecision));
+        config.mintPeggedIncentiveConfig.incentiveRatios[1] = -incentivePrecision;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.InvalidIncentiveRatioValue.selector,
+                "mint pegged",
+                1,
+                -incentivePrecision,
+                "must be in [0, 1]"
+            )
+        );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //22
         // = min
-        config.mintPeggedIncentiveConfig.incentiveRatios[0] = 0;
+        config.mintPeggedIncentiveConfig.incentiveRatios[1] = 0;
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //23
 
         // min - mint leveraged = - 1 ether
         // < min
-        config.mintLeveragedIncentiveConfig.incentiveRatios[0] = -1 ether;
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, -1 ether));
+        config.mintLeveragedIncentiveConfig.incentiveRatios[1] = -1 ether;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.InvalidIncentiveRatioValue.selector,
+                "mint leveraged",
+                1,
+                -1 ether,
+                "must be in (-1, 1)"
+            )
+        );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //24
         // = min
         config.mintLeveragedIncentiveConfig.incentiveRatios[0] = -1 ether + incentivePrecision;
+        config.mintLeveragedIncentiveConfig.incentiveRatios[1] = 0;
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //25
 
         // two disallow bands
         config.mintPeggedIncentiveConfig = ic(ua(120), ia(disallow, disallow));
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.InvalidIncentiveRatioValue.selector,
+                "mint pegged",
+                1,
+                1 ether,
+                "disallow (1) must be at index 0"
+            )
+        );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //26
 
         // disallow not in first band
         config.mintPeggedIncentiveConfig = ic(ua(100, 120), ia(100, disallow, 200));
-        vm.expectRevert(abi.encodeWithSelector(IMinter.InvalidIncentiveRatioValue.selector, 1 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.InvalidIncentiveRatioValue.selector,
+                "mint pegged",
+                1,
+                1 ether,
+                "disallow (1) must be at index 0"
+            )
+        );
         vm.prank(owner);
         IMinter(minter).updateConfig(config); //27
 

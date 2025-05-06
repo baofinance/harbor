@@ -151,20 +151,21 @@ interface IMinter {
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
     // TODO: make these expected, actual.
-    error TooManyCollateralRatioBounds(uint count, uint max); // solhint-disable-line explicit-types
-    error InvalidCollateralRatioBoundValue(uint256 value, uint index); // solhint-disable-line explicit-types
+    error TooManyCollateralRatioBounds(string config, uint count, uint max); // solhint-disable-line explicit-types
+    error InvalidCollateralRatioBoundValue(string config, uint256 value, uint index, string reason); // solhint-disable-line explicit-types
     error CollateralRatioBoundValueNotIncreasing(
+        string config,
         uint256 shouldBeLessOrEqual,
         uint index, // solhint-disable-line explicit-types
         uint256 shouldBeGreaterOrEqual
     );
-    error TooManyIncentiveRatios(uint count, uint max); // solhint-disable-line explicit-types
-    error TooFewIncentiveRatios(uint count, uint min); // solhint-disable-line explicit-types
-    error InvalidIncentiveRatioValue(int256 shouldBeMinusOnetoOne);
-    error IncentiveRatioTooPrecise(int256 value);
-    error CollateralRatioBoundsIncentivesLengthsMismatch(uint256 oneLess, uint256 oneMore);
-    error CollateralRatioBoundTooPrecise(uint256 value);
-    error NoDepegBoundaryOrDisallow();
+    error TooManyIncentiveRatios(string config, uint count, uint max); // solhint-disable-line explicit-types
+    error TooFewIncentiveRatios(string config, uint count, uint min); // solhint-disable-line explicit-types
+    error InvalidIncentiveRatioValue(string config, uint index, int256 shouldBeMinusOnetoOne, string reason);
+    error IncentiveRatioTooPrecise(string config, int256 value);
+    error CollateralRatioBoundsIncentivesLengthsMismatch(string config, uint256 oneLess, uint256 oneMore);
+    error CollateralRatioBoundTooPrecise(string config, uint256 value);
+    error NoDepegBoundaryOrDisallow(string config);
 
     /// @notice Thrown when the burn interface does not match one known by this contract
     error UnsupportedBurnInterface(bytes4 interfaceId);
