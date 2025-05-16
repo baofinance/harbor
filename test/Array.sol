@@ -464,4 +464,16 @@ contract Array {
     function initial(address[] memory list) internal pure returns (address) {
         return list[0];
     }
+
+    function second(uint[] memory list) internal pure returns (uint) {
+        return list[1];
+    }
+
+    function second(int[] memory list) internal pure returns (int) {
+        return list[1];
+    }
+
+    function second(address[] memory list) internal pure returns (address) {
+        return list[1];
+    }
 }

@@ -55,6 +55,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         uint256 feeReceiverCollateral;
         uint256 reservePoolCollateral;
         uint256 minterCollateral;
+        uint256 minterUnderlyingCollateral;
         uint256 minterPegged;
         uint256 thisCollateral;
         uint256 thisPegged;
@@ -64,6 +65,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         int256 feeReceiverCollateral;
         int256 reservePoolCollateral;
         int256 minterCollateral;
+        int256 minterUnderlyingCollateral;
         int256 minterPegged;
         int256 thisCollateral;
         int256 thisPegged;
@@ -75,6 +77,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         console2.log("   feeReceiverCollateral=%s", holdings.feeReceiverCollateral);
         console2.log("   reservePoolCollateral=%s", holdings.reservePoolCollateral);
         console2.log("   minterCollateral=%s", holdings.minterCollateral);
+        console2.log("   minterUnderlyingCollateral=%s", holdings.minterUnderlyingCollateral);
         console2.log("   minterPegged=%s", holdings.minterPegged);
         console2.log("   thisCollateral=%s", holdings.thisCollateral);
         console2.log("   thisPegged=%s", holdings.thisPegged);
@@ -86,6 +89,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         console2.log("   feeReceiverCollateral=%s", holdings.feeReceiverCollateral);
         console2.log("   reservePoolCollateral=%s", holdings.reservePoolCollateral);
         console2.log("   minterCollateral=%s", holdings.minterCollateral);
+        console2.log("   minterUnderlyingCollateral=%s", holdings.minterUnderlyingCollateral);
         console2.log("   minterPegged=%s", holdings.minterPegged);
         console2.log("   thisCollateral=%s", holdings.thisCollateral);
         console2.log("   thisPegged=%s", holdings.thisPegged);
@@ -96,6 +100,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         holdings.feeReceiverCollateral = IERC20(collateralToken).balanceOf(feeReceiver);
         holdings.reservePoolCollateral = IERC20(collateralToken).balanceOf(reservePool);
         holdings.minterCollateral = IERC20(collateralToken).balanceOf(minter);
+        holdings.minterUnderlyingCollateral = IMinter(minter).collateralTokenBalance();
         holdings.minterPegged = IMinter(minter).peggedTokenBalance();
         holdings.thisCollateral = IERC20(collateralToken).balanceOf(address(this));
         holdings.thisPegged = IERC20(peggedToken).balanceOf(address(this));
@@ -124,7 +129,12 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         assertEq(
             postres.minterCollateral,
             uint256(int256(antes.minterCollateral) + cambios.minterCollateral),
-            string.concat(context, ":", "minterCollateral")
+            string.concat(context, ":", "minterWrappedCollateral")
+        );
+        assertEq(
+            postres.minterCollateral,
+            uint256(int256(antes.minterUnderlyingCollateral) + cambios.minterUnderlyingCollateral),
+            string.concat(context, ":", "minterUnderlyingCollateral")
         );
         assertEq(
             postres.minterPegged,
@@ -225,6 +235,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 int256(data.fee),
                 int256(0),
                 int256(data.collateralUsed) - int256(data.fee),
+                int256(data.collateralUsed) - int256(data.fee),
                 int256(data.peggedMinted),
                 -int256(data.collateralUsed),
                 int256(data.peggedMinted),
@@ -251,6 +262,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             int256(data.fee),
             -int256(data.discount),
             -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
+            -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
             -int256(data.peggedRedeemed),
             int256(data.collateralReturned),
             -int256(data.peggedRedeemed),
@@ -271,15 +283,27 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             beforeHolding = readHoldings();
             IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
             afterHolding = readHoldings();
+            logHoldings("before mint leveraged", beforeHolding);
+            logHoldings("after mint leveraged", afterHolding);
             deltas = DeltaHoldings(
+                //int256 feeReceiverCollateral;
                 int256(data.fee),
+                // int256 reservePoolCollateral;
                 -int256(data.discount),
-                int256(data.collateralUsed) + int256(data.discount) - int256(data.fee),
+                // int256 minterCollateral;
+                int256(data.collateralUsed - data.fee + data.discount),
+                // int256 minterUnderlyingCollateral;
+                int256(data.collateralUsed - data.fee + data.discount),
+                // int256 minterPegged;
                 int256(0),
+                // int256 thisCollateral;
                 -int256(data.collateralUsed),
+                // int256 thisPegged;
                 int256(0),
+                // int256 thisLeveraged;
                 int256(data.leveragedMinted)
             );
+            logDeltaHoldings(deltas);
             compareHoldings(beforeHolding, afterHolding, deltas, "mintLeveraged");
             vm.revertToState(snap);
 
@@ -295,6 +319,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 deltas = DeltaHoldings(
                     int256(data.fee),
                     -int256(data.discount),
+                    -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
                     -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
                     -int256(0),
                     int256(data.collateralReturned),
@@ -445,10 +470,14 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         for (uint a = 0; a <= uint(type(Action).max); a++) {
             snap = vm.snapshotState();
             largeChanges = doOne(Action(a), repeats, largeChanges);
+            console2.log("in one go:");
+            logDeltaHoldings(largeChanges);
             vm.revertToState(snap);
             snap = vm.snapshotState();
             for (uint i = 0; i < repeats; i++) {
                 smallChanges = doOne(Action(a), 1, smallChanges);
+                console2.log("%s th iteration", i + 1);
+                logDeltaHoldings(smallChanges);
             }
             // TODO: see if we can get this tolerance down a bit
             compareDeltaHoldings(largeChanges, smallChanges, 40, toString(Action(a)));

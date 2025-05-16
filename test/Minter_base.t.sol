@@ -501,7 +501,7 @@ contract TestMinterBasics is TestMinterSetUp {
     // TODO: test that if the config is set up for no fees or discounts then free mint/redeem = normal mint/redeem
 
     function test_depegBoundary() public {
-        // simple config that has a fee and a discount but no depeg boundary
+        // simple config that has a fee and a discount
         _checkConfig(
             130,
             ic(ua(100), ia(150, 50)), // mint pegged 50 basis points = 0.5 %

@@ -1,5 +1,15 @@
+[lsp]
+compilation_delay = 0.1
+
+[compiler.solc.optimizer]
+# enabled=false # unset = let the compiler decide
+runs = 1
+
 [compiler.solc]
-exclude_paths = ["node_modules", "lib", "src_deployed"]
+# Exclude paths define locations of Solidity files that should not be compiled unless imported from another non-excluded file.
+exclude_paths = ["node_modules", "venv", "lib", "script", "fx", "src_deployed"]
+# include paths are for import resolution
+include_paths = []
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
@@ -7,7 +17,8 @@ remappings = [
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
-  # "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
+  "dummy/=/lib/dummy",
+  "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
   "@solady/=lib/solady/src/",
   "@bao/=lib/bao-base/src/",
   "@interfaces/=src/interfaces/",
@@ -15,12 +26,6 @@ remappings = [
   "test/=test/",
 ]
 
-[compiler.solc.optimizer]
-# enabled=false (unset - let the compiler decide)
-runs = 1
-
-[lsp]
-compilation_delay = 0.1
 
 [lsp.code_lens]
 enable = true
@@ -29,8 +34,8 @@ enable = true
 enable = false
 
 [detectors]
-ignore_paths = ["test"]
-exclude_paths = ["node_modules", "lib", "script"]
+# ignore_paths = ["test"]
+# exclude_paths = ["node_modules", "lib", "script"]
 only = []
 # exclude = []
 #exclude = [

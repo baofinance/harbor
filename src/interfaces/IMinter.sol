@@ -219,7 +219,7 @@ interface IMinter {
 
     /// @notice Return the leveraged tokens that are the same value are the given collateral token (at the current
     /// collateral ratio).
-    function leverageTokensForCollateral(uint256 forCollateral) external view returns (uint256 collateral);
+    function leveragedTokensForCollateral(uint256 forWrappedCollateral) external view returns (uint256 leveragedTokens);
 
     /// @notice Returns the amount of Pegged tokens that need to be redeemed to achieve a given target collateral ratio
     /// This is based on the fact that redeeming pegged tokens has a upward pressure on collateral ratio
@@ -242,7 +242,7 @@ interface IMinter {
     /// @notice Returns the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and
     /// discounts
     /// @param forLeveragedTokens The amount of leveraged tokens
-    /// @return collateral The amount of collateral tokens equivalent to `forLeveragedTokens`
+    /// @return collateral The amount of collateral tokens equivalent to `forLeveragedTokens` wrapped collateral
     function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 collateral);
 
     /// @notice Returns the address of the price oracle contract

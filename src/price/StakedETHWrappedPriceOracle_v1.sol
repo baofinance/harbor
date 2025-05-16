@@ -30,7 +30,7 @@ contract StakedETHWrappedPriceOracle_v1 is
 
     // Immutable variables for gas-efficient access
     address public immutable STETH_FEED;
-    uint8 public immutable STETH_FEED_DECIMALS;
+    uint8 public immutable STETH_FEED_DECIMALS; // TODO: is this immutable - can chainlink change the decimals of a feed?
     IWstETH public constant WSTETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
 
     // PriceOracle.Constraints
@@ -68,7 +68,7 @@ contract StakedETHWrappedPriceOracle_v1 is
      * @dev Blocks initialization of the implementation contract and sets immutable configuration
      */
     constructor(
-        address stethFeed_,
+        address stethFeed_, // 0xCfE54B5cD566aB89272946F602D76Ea879CAb4a8 for ethereum mainnet
         uint64 maxPriceAge_,
         uint64 maxRelativeDeviation_,
         uint256 maxAbsoluteDeviation_,
