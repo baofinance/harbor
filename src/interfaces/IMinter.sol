@@ -177,9 +177,13 @@ interface IMinter {
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    // @notice returns the role needed to access the zero fee functions (free*)
+    /// @notice returns the role needed to access the zero fee functions (free*)
     // solhint-disable-next-line func-name-mixedcase
     function ZERO_FEE_ROLE() external view returns (uint256);
+
+    /// @notice returns the role needed to access the harvesting function
+    // solhint-disable-next-line func-name-mixedcase
+    function HARVESTER_ROLE() external view returns (uint256);
 
     /// @notice Return the address of the collateral token
     // solhint-disable-next-line func-name-mixedcase
@@ -394,6 +398,10 @@ interface IMinter {
             uint256 price,
             uint256 rate
         );
+
+    /// @notice Returns value accrued, and thus harvestable, by holding wrapped collateral tokens as opposed to underlying
+    /// @return wrappedAmount the amount of wrapped collateral that can be distributed as rewards.
+    function harvestable() external view returns (uint256 wrappedAmount);
 
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS

@@ -130,6 +130,7 @@ contract Liquidator_v1 is
         IERC20($.rewardToken).safeTransfer(rewardReceiver, $.rewardAmount);
 
         // do the actual liquidation
+        // TODO: bring more from rebalance pools
         // wake-disable-next-line reentrancy // rebalancePool is trusted and reentrancy guard
         liquidated = IRebalancePool($.rebalancePool).liquidate(minLiquidation);
     }
