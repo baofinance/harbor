@@ -283,8 +283,8 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             beforeHolding = readHoldings();
             IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
             afterHolding = readHoldings();
-            logHoldings("before mint leveraged", beforeHolding);
-            logHoldings("after mint leveraged", afterHolding);
+            // logHoldings("before mint leveraged", beforeHolding);
+            // logHoldings("after mint leveraged", afterHolding);
             deltas = DeltaHoldings(
                 //int256 feeReceiverCollateral;
                 int256(data.fee),
@@ -303,7 +303,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
                 // int256 thisLeveraged;
                 int256(data.leveragedMinted)
             );
-            logDeltaHoldings(deltas);
+            // logDeltaHoldings(deltas);
             compareHoldings(beforeHolding, afterHolding, deltas, "mintLeveraged");
             vm.revertToState(snap);
 
@@ -338,6 +338,13 @@ contract TestCollateralRatioRangeTransfersWithReserve is TestCollateralRatioRang
     function setUp() public override {
         super.setUp();
         deal(address(collateralToken), reservePool, 1000 ether);
+    }
+}
+
+contract TestCollateralRatioRangeTransfersWithPartialReserve is TestCollateralRatioRangeTransfersNoReserve {
+    function setUp() public override {
+        super.setUp();
+        deal(address(collateralToken), reservePool, 1e15);
     }
 }
 
@@ -470,14 +477,14 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         for (uint a = 0; a <= uint(type(Action).max); a++) {
             snap = vm.snapshotState();
             largeChanges = doOne(Action(a), repeats, largeChanges);
-            console2.log("in one go:");
-            logDeltaHoldings(largeChanges);
+            // console2.log("in one go:");
+            // logDeltaHoldings(largeChanges);
             vm.revertToState(snap);
             snap = vm.snapshotState();
             for (uint i = 0; i < repeats; i++) {
                 smallChanges = doOne(Action(a), 1, smallChanges);
-                console2.log("%s th iteration", i + 1);
-                logDeltaHoldings(smallChanges);
+                // console2.log("%s th iteration", i + 1);
+                // logDeltaHoldings(smallChanges);
             }
             // TODO: see if we can get this tolerance down a bit
             compareDeltaHoldings(largeChanges, smallChanges, 40, toString(Action(a)));
@@ -490,5 +497,12 @@ contract TestCollateralRatioRangeIntegralWithReserve is TestCollateralRatioRange
     function setUp() public virtual override {
         super.setUp();
         deal(address(collateralToken), reservePool, 1000 ether);
+    }
+}
+
+contract TestCollateralRatioRangeIntegralWithPartialReserve is TestCollateralRatioRangeIntegralNoReserve {
+    function setUp() public virtual override {
+        super.setUp();
+        deal(address(collateralToken), reservePool, 1e15);
     }
 }

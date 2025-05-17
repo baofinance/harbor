@@ -126,14 +126,13 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // 3 ----------------------------------------------------------------
 
         // some input, when none
-        //vm.expectRevert("ERC20: transfer amount exceeds balance");
+        assertEq(IERC20(leveragedToken).totalSupply(), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
         // 4 ----------------------------------------------------
 
         // some input, when none, but minter has some
-
         assertEq(IBaoOwnable(minter).owner(), owner);
         deal(address(Deployed.wstETH), owner, 20 ether);
         vm.prank(owner);
@@ -150,11 +149,11 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // 5 ------------------------------------------------------
 
         uint256 leveragedTotalSupplyBefore = IERC20(leveragedToken).totalSupply();
-        console2.log("leveragedTotalSupplyBefore=%s", leveragedTotalSupplyBefore);
+        // console2.log("leveragedTotalSupplyBefore=%s", leveragedTotalSupplyBefore);
         uint256 leveragedBalanceOfOwnerBefore = IERC20(leveragedToken).balanceOf(owner);
-        console2.log("leveragedBalanceOfOwnerBefore=%s", leveragedBalanceOfOwnerBefore);
+        // console2.log("leveragedBalanceOfOwnerBefore=%s", leveragedBalanceOfOwnerBefore);
 
-        console2.log("leveragedTokenPrice=%s", IMinter(minter).leveragedTokenPrice());
+        // console2.log("leveragedTokenPrice=%s", IMinter(minter).leveragedTokenPrice());
         uint256 mintedLeveraged = price;
         vm.prank(owner);
         IMinter(minter).freeMintLeveragedToken(1 ether, owner);
@@ -297,6 +296,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
     }
 
     function test_redeemLeveragedBasic() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
@@ -315,7 +315,8 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // 2 ----------------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
-        // some input, when infinite collateral ratio
+        // some input, when no leveraged tokens
+        assertEq(IERC20(leveragedToken).totalSupply(), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(1 ether, receiver, 0);
@@ -323,9 +324,9 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
         // some input, when none
-        setUp_collateral(1 ether, 0); // make collateral ratio 1.0
-        // vm.expectRevert("ERC20: transfer amount exceeds balance");
+        setUp_collateral(1 ether, 0); // collateral ratio 1.0
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
+        // vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, sender, 0, 1 ether));
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(1 ether, receiver, 0);
         // 4 -------------------------------------------------------------
@@ -338,10 +339,6 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // 5 ------------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
-        // get tokens to redeem
-        setUp_collateral(1 ether, 0, sender);
-        // deal(address(Deployed.wstETH), sender, 10 ether);
-
         // get allowance
         vm.prank(sender);
         IERC20(leveragedToken).approve(minter, 10 ether);
@@ -352,6 +349,64 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         IMinter(minter).redeemLeveragedToken(0, receiver, 0);
         // 6 ----------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
+
+        // disallowed
+        setUp_collateral(10 ether, 1 ether, sender); // sender has 6 leveraged, CR = 11/10
+        assertLt(IMinter(minter).collateralRatio(), 13e17, "shoule be in disallowed");
+
+        // TODO: test all the other places this error is raised
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, Deployed.wstETH));
+        vm.prank(sender);
+        IMinter(minter).redeemLeveragedToken(1 ether, receiver, 0);
+        // 7 ----------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
+
+        // first normal redeem
+        setUp_collateral(0, 5 ether, sender); // sender has 6 now
+        setUp_collateral(10 ether, 100 ether, owner); // make a nice collateral ratio
+
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
+        vm.prank(sender);
+        IMinter(minter).redeemLeveragedToken(0, receiver, 0);
+        // 8 -----------------------------------------------
+
+        assertEq(IERC20(leveragedToken).balanceOf(sender), 6 * price, "sender has 6");
+        vm.prank(sender);
+        IMinter(minter).redeemLeveragedToken(1 * price, receiver, 0);
+        // 9 -------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender has 5");
+
+        // TODO: check all 4+ places where ReturnInsufficientAmount can be reverted
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.ReturnInsufficientAmount.selector,
+                Deployed.wstETH,
+                6 ether,
+                6 ether - (6 * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios)))
+            )
+        );
+        vm.prank(sender);
+        IMinter(minter).redeemLeveragedToken(6 * price, receiver, 6 ether);
+        // 10 -------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender still has 5");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IMinter.ReturnInsufficientAmount.selector,
+                Deployed.wstETH,
+                5 ether,
+                5 ether - (5 * uint256(ultimate(config.redeemLeveragedIncentiveConfig.incentiveRatios)))
+            )
+        );
+        vm.prank(sender);
+        IMinter(minter).redeemLeveragedToken(5 * price, receiver, 5 ether);
+        // 11 -------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender still has 5");
+
+        vm.prank(sender);
+        IMinter(minter).redeemLeveragedToken(5 * price, receiver, 0);
+        // 12 -------------------------------------------------------
+        assertEq(IERC20(leveragedToken).balanceOf(sender), 0, "sender has 0");
     }
 
     // TODO: check bonus function - do this as part of reserve pool

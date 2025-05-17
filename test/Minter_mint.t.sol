@@ -93,7 +93,7 @@ contract TestMinterMintMechanics is TestMinterMint {
         uint256 leveragedCalculated = IMinter(minter).leveragedTokensForCollateral(collateral - fee);
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintLeveragedToken(sender, sender, collateral, leveragedCalculated);
-        console2.log("expected leveraged minted=%s", leveragedCalculated);
+        // console2.log("expected leveraged minted=%s", leveragedCalculated);
         vm.prank(sender);
         uint256 leveragedMinted = IMinter(minter).mintLeveragedToken(collateral, sender, 0);
         // 1 ----------------------------------------------------------------------------
