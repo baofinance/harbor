@@ -103,9 +103,11 @@ contract Test_HarvesterBasics is Test_HarvesterSetup {
         IHarvester(harvester).harvest(harvestReceiver, 2 ether);
 
         // now do a real harvest
+        uint256 collateralRatio = IMinter(minter).collateralRatio();
         assertEq(IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(harvestReceiver), 0);
         assertEq(IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(bountyReceiver), 0);
         IHarvester(harvester).harvest(bountyReceiver, 0);
+        assertEq(IMinter(minter).collateralRatio(), collateralRatio, "collateral ratio should be unchanged");
         assertEq(IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(harvestReceiver), harvestable - bounty);
         assertEq(IERC20(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(bountyReceiver), bounty);
     }

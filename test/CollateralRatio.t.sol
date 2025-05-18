@@ -486,8 +486,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
                 // console2.log("%s th iteration", i + 1);
                 // logDeltaHoldings(smallChanges);
             }
-            // TODO: see if we can get this tolerance down a bit
-            compareDeltaHoldings(largeChanges, smallChanges, 40, toString(Action(a)));
+            compareDeltaHoldings(largeChanges, smallChanges, 36, toString(Action(a)));
             vm.revertToState(snap);
         }
     }

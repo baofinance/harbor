@@ -1320,10 +1320,8 @@ contract Minter_v1 is
                     (bandFeeRatio * 1 ether) -
                     (1 ether * 1 ether);
                 collateralInBand =
-                    (underlyingCollateral_ * 1 ether * 1 ether) /
-                    phi -
-                    ((bandLowerBound * peggedTokenBalance_) * 1 ether * 1 ether) /
-                    (price * phi);
+                    ((underlyingCollateral_ * 1 ether * 1 ether) / phi) -
+                    (((bandLowerBound * peggedTokenBalance_) * 1 ether * 1 ether) / (price * phi));
 
                 collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
             }
