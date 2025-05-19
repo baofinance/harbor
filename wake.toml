@@ -31,37 +31,37 @@ remappings = [
 enable = true
 
 [lsp.detectors]
-enable = false
+enable = true
 
 [detectors]
 # ignore_paths = ["test"]
 # exclude_paths = ["node_modules", "lib", "script"]
-only = []
-# exclude = []
-#exclude = [
-#  "abi-encode-with-signature",
-#  "axelar-proxy-contract-id",
-#  "balance-relied-on",
-#  "calldata-tuple-reencoding-head-overflow-bug",
-#  "call-options-not-called",
-#  "empty-byte-array-copy-bug",
-#  "msg-value-nonpayable-function",
-#  "unchecked-return-value",
-#]
+# only = []
+exclude = [
+  #  "abi-encode-with-signature",
+  #  "axelar-proxy-contract-id",
+  #  "balance-relied-on",
+  #  "calldata-tuple-reencoding-head-overflow-bug",
+  #  "call-options-not-called",
+  #  "empty-byte-array-copy-bug",
+  #  "msg-value-nonpayable-function",
+  #  "unused-contract",
+  #  "unchecked-return-value"
+]
 
 [printers]
-only = []
-# exclude = [
-#   "control-flow-graph",
-#   "imports-graph",
-#   "inheritance-graph",
-#   "inheritance-tree",
-#   "lsp-control-flow-graph",
-#   "lsp-inheritance-graph",
-#   "lsp-linearized-inheritance-graph",
-#   "lsp-selectors",
-#   "modifiers",
-#   "state-changes",
-#   "storage-layout",
-#   "tokens",
-# ]
+# only = []
+exclude = [
+  #   "control-flow-graph",
+  #   "imports-graph",
+  #   "inheritance-graph",
+  #   "inheritance-tree",
+  #   "lsp-control-flow-graph",
+  #   "lsp-inheritance-graph",
+  #   "lsp-linearized-inheritance-graph",
+  #   "lsp-selectors",
+  #   "modifiers",
+  #   "state-changes",
+  #   "storage-layout",
+  #   "tokens",
+]
