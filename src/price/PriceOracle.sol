@@ -5,15 +5,13 @@ import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/Aggr
 import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
 
-/**
- * @title PriceOracle
- * @notice Library for validating Chainlink price feed data.
- * @dev All price values returned and validated by this library are normalized to 18 decimals.
- *      All constraints (max deviations, etc.) are interpreted in 18 decimals.
- *      This ensures consistent, safe, and least-surprise behavior for all consumers.
- *      The library performs normalization, validation, and delivers normalized values.
- *      If a constraint is violated, a revert is triggered with normalized values in the error.
- */
+/// @title PriceOracle
+/// @notice Library for validating Chainlink price feed data.
+/// @dev All price values returned and validated by this library are normalized to 18 decimals.
+///      All constraints (max deviations, etc.) are interpreted in 18 decimals.
+///      This ensures consistent, safe, and least-surprise behavior for all consumers.
+///      The library performs normalization, validation, and delivers normalized values.
+///      If a constraint is violated, a revert is triggered with normalized values in the error.
 library PriceOracle {
     struct Feed {
         AggregatorV3Interface priceFeed;
@@ -27,13 +25,11 @@ library PriceOracle {
         uint256 maxTrendReversalDeviation;
     }
 
-    /**
-     * @notice Validates and normalizes price data from a Chainlink feed.
-     * @dev All returned and validated values are normalized to 18 decimals.
-     * @param feed Feed struct containing priceFeed, decimals
-     * @param constraints Constraints struct for validation (all in 18 decimals)
-     * @return price The validated price (positive value, 18 decimals)
-     */
+    /// @notice Validates and normalizes price data from a Chainlink feed.
+    /// @dev All returned and validated values are normalized to 18 decimals.
+    /// @param feed Feed struct containing priceFeed, decimals
+    /// @param constraints Constraints struct for validation (all in 18 decimals)
+    /// @return price The validated price (positive value, 18 decimals)
     function latestAnswer(Feed memory feed, Constraints memory constraints) public view returns (uint256 price) {
         address feedAddress = address(feed.priceFeed);
 
@@ -126,12 +122,10 @@ library PriceOracle {
         return uint256(answer);
     }
 
-    /**
-     * @notice Finds the previous roundId, returning 0 if there are none,
-     * or the previous one is in a different aggregator.
-     * @param roundId The starting roundId
-     * @return prevRoundId the previous roundId or 0 if there are none with no aggregator discontinuities
-     */
+    /// @notice Finds the previous roundId, returning 0 if there are none,
+    /// or the previous one is in a different aggregator.
+    /// @param roundId The starting roundId
+    /// @return prevRoundId the previous roundId or 0 if there are none with no aggregator discontinuities
     function _prevRoundId(uint80 roundId) internal pure returns (uint80 prevRoundId) {
         // Extract phaseId and aggregatorRoundId from roundId
         if (uint64(roundId) <= 1) {

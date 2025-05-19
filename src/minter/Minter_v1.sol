@@ -90,7 +90,10 @@ import {Config_v1} from "src/minter/lib/Config_v1.sol";
 /// Harvesting becomes available to be executed, transferring to the rebalance pools the value accrued by holding wrapped collateral
 /// instead of underlying collateral. A portion of that is handed to the caller of the harvest function as a reward.
 /// @dev Uses UUPS proxy, erc7201 storage
-// TODO: should this inherit TokenHolder, because it holds wrapped tokens
+/// @dev As openzeppelin's validator doesn't currently suppoprt external libraries
+/// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
+/// we add this:
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable-next-line contract-name-camelcase
 contract Minter_v1 is
     Initializable,
@@ -143,8 +146,13 @@ contract Minter_v1 is
     // Immutables //
     ////////////////
 
+    // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
+    // to change them the contract must be upgraded
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable WRAPPED_COLLATERAL_TOKEN; // this is the wrapped token
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable PEGGED_TOKEN;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
 
     /////////////

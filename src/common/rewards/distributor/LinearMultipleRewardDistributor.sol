@@ -43,6 +43,7 @@ abstract contract LinearMultipleRewardDistributor is
     /// @notice The length of reward period in seconds.
     /// @dev If the value is zero, the reward will be distributed immediately.
     /// @dev It is either zero or at least 1 day (which is 86400).
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint40 public immutable PERIOD_LENGTH;
 
     /*************
@@ -79,14 +80,8 @@ abstract contract LinearMultipleRewardDistributor is
     /***************
      * Constructor *
      ***************/
-    // // solhint-disable-next-line func-name-mixedcase
-    // function __LinearMultipleRewardDistributor_init() internal onlyInitializing {
-    //     __LinearMultipleRewardDistributor_init_unchained();
-    // }
-
-    // // solhint-disable-next-line func-name-mixedcase
-    // function __LinearMultipleRewardDistributor_init_unchained() internal onlyInitializing {}
-
+    /// @dev there is no need for an initializer
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(uint40 periodLength_) {
         if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days))
             revert InvalidPeriodLength(periodLength_);

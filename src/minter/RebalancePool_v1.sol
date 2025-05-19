@@ -75,12 +75,18 @@ contract RebalancePool_v1 is
     /// @notice The address of FXN token minter.
     // address public immutable minter;
 
+    // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
+    // to change them the contract must be upgraded
     /// @notice The minter contract this rebalance pool operates for
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable MINTER;
     /// @inheritdoc IRebalancePool
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LIQUIDATION_TOKEN;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bool private immutable _liquidationTokenIsCollateral; // solhint-disable-line immutable-vars-naming
     /// @inheritdoc IRebalancePool
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable ASSET_TOKEN;
     /***********
      * Structs *

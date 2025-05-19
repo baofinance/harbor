@@ -24,8 +24,13 @@ contract Harvester_v1 is Initializable, UUPSUpgradeable, ReentrancyGuardTransien
      * Variables *
      *************/
 
+    // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
+    // to change them the contract must be upgraded
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable MINTER;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable BOUNTY_TOKEN;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable HARVEST_RECEIVER;
 
     function initialize(address owner_) public initializer {

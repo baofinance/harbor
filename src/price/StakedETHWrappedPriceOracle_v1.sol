@@ -9,13 +9,12 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {PriceOracle} from "./PriceOracle.sol";
 import {IWstETH} from "@bao/interfaces/IWstETH.sol";
 
-/**
- * @title StakedETHWrappedPriceOracleV1
- * @notice A contract for safely consuming Chainlink price feeds for staked ETH with heartbeat detection
- * @dev This contract is designed to be used with a UUPS proxy.
- * @dev even though the contract has no state variables in the proxy space, it still uses the UUPS pattern
- *      to allow for future upgrades without requiring updates of all the contracts that use it
- */
+/// @title StakedETHWrappedPriceOracleV1
+/// @notice A contract for safely consuming Chainlink price feeds for staked ETH with heartbeat detection
+/// @dev This contract is designed to be used with a UUPS proxy.
+/// @dev even though the contract has no state variables in the proxy space, it still uses the UUPS pattern
+///      to allow for future upgrades without requiring updates of all the contracts that use it
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable contract-name-camelcase
 contract StakedETHWrappedPriceOracle_v1 is
     IWrappedPriceOracle,
@@ -28,15 +27,22 @@ contract StakedETHWrappedPriceOracle_v1 is
     error InvalidMaxRelativeDeviation(uint64 maxRelativeDeviation);
     error InvalidMaxAbsoluteDeviation(uint256 maxAbsoluteDeviation);
 
-    // Immutable variables for gas-efficient access
+    // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
+    // to change them the contract must be upgraded
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STETH_FEED;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint8 public immutable STETH_FEED_DECIMALS; // TODO: is this immutable - can chainlink change the decimals of a feed?
     IWstETH public constant WSTETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
 
     // PriceOracle.Constraints
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint64 private immutable _MAX_PRICE_AGE;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint64 private immutable _MAX_RELATIVE_DEVIATION;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 private immutable _MAX_ABSOLUTE_DEVIATION;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 private immutable _MAX_TREND_REVERSAL;
 
     // Errors specific to implementation details
@@ -64,9 +70,8 @@ contract StakedETHWrappedPriceOracle_v1 is
         minWrappedRate = maxWrappedRate = WSTETH.stEthPerToken();
     }
 
-    /**
-     * @dev Blocks initialization of the implementation contract and sets immutable configuration
-     */
+    /// @dev Blocks initialization of the implementation contract and sets immutable configuration
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address stethFeed_, // 0xCfE54B5cD566aB89272946F602D76Ea879CAb4a8 for ethereum mainnet
         uint64 maxPriceAge_,
@@ -101,19 +106,15 @@ contract StakedETHWrappedPriceOracle_v1 is
         _MAX_TREND_REVERSAL = maxTrendReversalDeviation_;
     }
 
-    /**
-     * @notice Initialize the contract with the owner
-     * @param owner_ Address of the contract owner
-     */
+    /// @notice Initialize the contract with the owner
+    /// @param owner_ Address of the contract owner
     function initialize(address owner_) external initializer {
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
         _initializeOwner(owner_);
     }
 
-    /**
-     * @dev Function that authorizes upgrades, restricted to owner
-     */
+    /// @dev Function that authorizes upgrades, restricted to owner
     // solhint-disable-next-line no-empty-blocks
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
         // Validation can be added here if needed

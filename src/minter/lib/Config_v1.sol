@@ -6,7 +6,9 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @title Config_v1 Library
 /// @notice Handles validation and storage-efficient formatting for infrequently called config operations
-/// @dev Extracts config validation from the main Minter contract to reduce its size
+/// @dev Extracts config validation from the main Minter contract to reduce its size, at the cost of increased gas.
+/// We take this hit because upgrading the config is an infrequent cost.
+/// @dev this contract doesn't modify storage so is upgrade safe
 // solhint-disable-next-line contract-name-camelcase
 library Config_v1 {
     using ConfigIncentiveLib for ConfigIncentiveLib.ActionIncentive;
