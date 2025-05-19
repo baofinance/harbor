@@ -16,6 +16,7 @@ import {MultipleRewardCompoundingAccumulator} from "src/common/rewards/accumulat
 
 import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+import {Token} from "@bao/Token.sol";
 // import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
 // import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
 // import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
@@ -78,7 +79,7 @@ contract RebalancePool_v1 is
     address public immutable MINTER;
     /// @inheritdoc IRebalancePool
     address public immutable LIQUIDATION_TOKEN;
-    bool private immutable _liquidationTokenIsCollateral;
+    bool private immutable _liquidationTokenIsCollateral; // solhint-disable-line immutable-vars-naming
     /// @inheritdoc IRebalancePool
     address public immutable ASSET_TOKEN;
     /***********
@@ -205,8 +206,14 @@ contract RebalancePool_v1 is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address minter_, address liquidationToken_) MultipleRewardCompoundingAccumulator(1 weeks) {
         _disableInitializers();
+        Token.ensureContract(minter_);
+        // slither-disable-next-line missing-zero-check
         MINTER = minter_;
-        ASSET_TOKEN = IMinter(minter_).PEGGED_TOKEN();
+        address asset = IMinter(minter_).PEGGED_TOKEN();
+        Token.ensureERC20Token(asset);
+        // slither-disable-next-line missing-zero-check
+        ASSET_TOKEN = asset;
+        Token.ensureERC20Token(liquidationToken_);
         if (liquidationToken_ == IMinter(minter_).WRAPPED_COLLATERAL_TOKEN()) {
             _liquidationTokenIsCollateral = true;
         } else if (liquidationToken_ == IMinter(minter_).LEVERAGED_TOKEN()) {
@@ -371,6 +378,7 @@ contract RebalancePool_v1 is
     }
 
     /// @inheritdoc IRebalancePool
+    // slither-disable-next-line reentrancy-no-eth
     function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
         // can only liquidate if the collateral ratio is below a certain value
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();

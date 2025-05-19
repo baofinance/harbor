@@ -315,67 +315,42 @@ contract TestMinterInit is TestMinterSetUp {
         super.setUp();
         impl = address(new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, address(leveragedToken)));
     }
-    // TODO: we no longer test for valid erc20 token on initialisation but on construction
-    // test the ERC20 check in Token - expect revert doesn't work for deployUUPS
-    // function test_notERC20() private {
-    //     //                   -------
-    //     /*
-    //     // console.log("good deploy");
-    //     UnsafeUpgrades.deployUUPSProxy(
-    //         address(new Minter_v1()), // "Minter_v1.sol",
-    //         abi.encodeCall(
-    //             Minter_v1.initialize,
-    //             (
-    //                 address(this),
-    //                 IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), Deployed.wstETH),
-    //                 address(priceOracle),
-    //                 feeReceiver,
-    //                 reservePool,
-    //                 config
-    //             )
-    //         )
-    //     );
-    //     */
 
-    //     // not a contract
-    //     // console.log("not a contract");
-    //     vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
+    // TODO: do this test for all contracts
+    // TODO: do test for initialize calls
+    function test_notERC20() public {
+        new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, leveragedToken);
 
-    //     UnsafeUpgrades.deployUUPSProxy(
-    //         address(new Minter_v1()), // "Minter_v1.sol",
-    //         abi.encodeCall(
-    //             Minter_v1.initialize,
-    //             (
-    //                 address(this),
-    //                 IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), owner),
-    //                 type(IBurnable).interfaceId,
-    //                 address(priceOracle),
-    //                 feeReceiver,
-    //                 reservePool,
-    //                 config
-    //             )
-    //         )
-    //     );
+        // zero address
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
+        new Minter_v1(address(0), Deployed.BaoUSD, leveragedToken);
 
-    //     // contract but not ERC20
-    //     // console.log("not an ERC20");
-    //     vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, address(priceOracle)));
-    //     UnsafeUpgrades.deployUUPSProxy(
-    //         address(new Minter_v1()), // "Minter_v1.sol",
-    //         abi.encodeCall(
-    //             Minter_v1.initialize,
-    //             (
-    //                 address(this),
-    //                 IMinter.BalanceTokens(Deployed.BaoUSD, address(leveragedToken), address(priceOracle)),
-    //                 type(IBurnable).interfaceId,
-    //                 address(priceOracle),
-    //                 feeReceiver,
-    //                 reservePool,
-    //                 config
-    //             )
-    //         )
-    //     );
-    // }
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
+        new Minter_v1(Deployed.wstETH, address(0), leveragedToken);
+
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
+        new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, address(0));
+
+        // not a contract
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
+        new Minter_v1(owner, Deployed.BaoUSD, leveragedToken);
+
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
+        new Minter_v1(Deployed.wstETH, owner, leveragedToken);
+
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
+        new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, owner);
+
+        // contract but not ERC20
+        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
+        new Minter_v1(priceOracle, Deployed.BaoUSD, leveragedToken);
+
+        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
+        new Minter_v1(Deployed.wstETH, priceOracle, leveragedToken);
+
+        vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
+        new Minter_v1(Deployed.wstETH, Deployed.BaoUSD, priceOracle);
+    }
 
     function test_initEventsImplementation() public {
         vm.expectEmit();

@@ -137,6 +137,7 @@ interface IMinter {
     // @inderitdoc Token
     /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero
     error ZeroInputBalance(address token);
+    error RequestedBonusNotGiven(uint256 requested, uint256 available);
 
     /// @dev Thrown when collateral is passed but minting is prevented for some other reason.
     error MintZeroAmount(address mintingToken);
@@ -161,7 +162,7 @@ interface IMinter {
     );
     error TooManyIncentiveRatios(string config, uint count, uint max); // solhint-disable-line explicit-types
     error TooFewIncentiveRatios(string config, uint count, uint min); // solhint-disable-line explicit-types
-    error InvalidIncentiveRatioValue(string config, uint index, int256 shouldBeMinusOnetoOne, string reason);
+    error InvalidIncentiveRatioValue(string config, uint index, int256 shouldBeMinusOnetoOne, string reason); // solhint-disable-line explicit-types
     error IncentiveRatioTooPrecise(string config, int256 value);
     error CollateralRatioBoundsIncentivesLengthsMismatch(string config, uint256 oneLess, uint256 oneMore);
     error CollateralRatioBoundTooPrecise(string config, uint256 value);

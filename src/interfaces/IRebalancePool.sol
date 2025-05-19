@@ -75,16 +75,16 @@ interface IRebalancePool {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
-    function MINTER() external view returns (address);
+    function MINTER() external view returns (address); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the liquidatable collateral ratio.
     function liquidatableCollateralRatio() external view returns (uint256);
 
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
-    function LIQUIDATION_TOKEN() external view returns (address);
+    function LIQUIDATION_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of underlying token of this contract.
-    function ASSET_TOKEN() external view returns (address);
+    function ASSET_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the total amount of asset deposited to this contract.
     function totalAssetSupply() external view returns (uint256);

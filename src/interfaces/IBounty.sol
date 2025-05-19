@@ -10,7 +10,7 @@ interface IBounty {
     function setBounty(uint256 bountyAmount_, uint256 bountyRatio_, bool useHigher_) external;
 
     /// @notice Returns the bounty amounts configuration
-    function bounty() external view returns (uint256 amount, uint256 ratio, bool useHigher);
+    function bounty() external view returns (uint256 amount, uint256 ratio, bool useLower);
 
     /// @notice Returns the bounty amount for a given value
     function calcBounty(uint256 value) external pure returns (uint256 bounty_);

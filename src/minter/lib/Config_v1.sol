@@ -7,6 +7,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 /// @title Config_v1 Library
 /// @notice Handles validation and storage-efficient formatting for infrequently called config operations
 /// @dev Extracts config validation from the main Minter contract to reduce its size
+// solhint-disable-next-line contract-name-camelcase
 library Config_v1 {
     using ConfigIncentiveLib for ConfigIncentiveLib.ActionIncentive;
 
@@ -38,7 +39,7 @@ library Config_v1 {
         uint256 prevUpperBound = 0;
         int256 prevIncentiveRatio;
         uint iOut = 0; // solhint-disable-line explicit-types
-
+        // solhint-disable-next-line explicit-types
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
             int256 incentiveRatio = ConfigIncentiveLib._incentiveRatioToStoragePrecision(config_.incentiveRatios[i]);
 
@@ -129,10 +130,8 @@ library Config_v1 {
                 // this makes the check against band == 0 the same as a check for depegged
                 // it also makes the math simpler: i.e. how, otherwise, do we manage multiple incentive ratios for the depegged situation?
                 // especially as the actual collateral ratio (not the one we calculate as _collateralRatio()) never goes below 1 ether
-                require(
-                    currentUpperBound == 1 ether || incentiveRatio == 1 ether,
-                    IMinter.NoDepegBoundaryOrDisallow(name)
-                );
+                if (currentUpperBound != 1 ether && incentiveRatio != 1 ether)
+                    revert IMinter.NoDepegBoundaryOrDisallow(name);
             } else {
                 // each subsequent must be strictly increasing at the storage precision
                 if (currentUpperBound <= prevUpperBound) {
@@ -170,8 +169,8 @@ library Config_v1 {
     function copyBandsBack(
         ConfigIncentiveLib.ActionIncentive memory config_
     ) external pure returns (IMinter.IncentiveConfig memory out) {
-        uint iOut = 0;
-        uint outBands = ConfigIncentiveLib._collateralRatioBandCount(config_);
+        uint iOut = 0; // solhint-disable-line explicit-types
+        uint outBands = ConfigIncentiveLib._collateralRatioBandCount(config_); // solhint-disable-line explicit-types
         out.collateralRatioBandUpperBounds = new uint256[](outBands - 1);
         out.incentiveRatios = new int256[](outBands);
         // solhint-disable-next-line explicit-types

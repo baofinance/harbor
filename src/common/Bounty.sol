@@ -6,7 +6,6 @@ import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/intro
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {Token} from "@bao/Token.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {IBounty} from "src/interfaces/IBounty.sol";
 
@@ -22,7 +21,7 @@ abstract contract Bounty is Initializable, BaoOwnableRoles, ERC165Upgradeable, I
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.Liquidator
-    struct DoSomethingForBountyStorage {
+    struct BountyStorage {
         /// @notice the amount of bounty to be given
         /// Either 'bountyAmount' or 'bountyRatio' which ever is the greater, or lesser, depending on 'useLower'
         uint96 bountyAmount; // absolute value, decimals = 18
@@ -30,26 +29,18 @@ abstract contract Bounty is Initializable, BaoOwnableRoles, ERC165Upgradeable, I
         bool useLower;
     }
 
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.dosomethingforbounty")) - 1)) & ~bytes32(uint256(0xff))'
-    bytes32 private constant _DO_SOMETHING_FOR_BOUNTY_STORAGE =
-        0x977542f90d83824dcd0ce4c1da9ed307590a2e8cbf8f54cf12b04a1969c89a00;
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.bounty")) - 1)) & ~bytes32(uint256(0xff))'
+    bytes32 private constant _BOUNTY_STORAGE = 0x538a2fbe59f927c0e72a0c6b292feea8a04b00edae946a97d277ea844e1ee000;
 
-    function _getDoSomethingForBountyStorage() private pure returns (DoSomethingForBountyStorage storage $) {
+    function _getBountyStorage() private pure returns (BountyStorage storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := _DO_SOMETHING_FOR_BOUNTY_STORAGE
+            $.slot := _BOUNTY_STORAGE
         }
     }
-
-    // solhint-disable-next-line func-name-mixedcase
-    function __DoSomethingForBountyStorage_init(
-        address owner_,
-        uint256 bountyAmount,
-        uint256 bountyRatio,
-        bool useLower
-    ) public initializer {
+    // solhint-disable-next-line func-name-mixedcase, private-vars-leading-underscore
+    function __Bounty_init(address owner_) public initializer {
         _initializeOwner(owner_);
-        setBounty(bountyAmount, bountyRatio, useLower);
         __ERC165_init();
     }
 
@@ -71,7 +62,7 @@ abstract contract Bounty is Initializable, BaoOwnableRoles, ERC165Upgradeable, I
 
     /// @inheritdoc IBounty
     function setBounty(uint256 bountyAmount_, uint256 bountyRatio_, bool useLower_) public onlyOwner {
-        DoSomethingForBountyStorage storage $ = _getDoSomethingForBountyStorage();
+        BountyStorage storage $ = _getBountyStorage();
         $.bountyAmount = uint96(bountyAmount_);
         if (bountyRatio_ >= 1 ether) revert BountyRatioTooLarge(bountyRatio_, 1 ether);
         $.bountyRatio = uint96(bountyRatio_);
@@ -80,7 +71,7 @@ abstract contract Bounty is Initializable, BaoOwnableRoles, ERC165Upgradeable, I
 
     /// @inheritdoc IBounty
     function bounty() external view returns (uint256 amount, uint256 ratio, bool useLower) {
-        DoSomethingForBountyStorage storage $ = _getDoSomethingForBountyStorage();
+        BountyStorage storage $ = _getBountyStorage();
         amount = $.bountyAmount;
         ratio = $.bountyRatio;
         useLower = $.useLower;
@@ -92,7 +83,7 @@ abstract contract Bounty is Initializable, BaoOwnableRoles, ERC165Upgradeable, I
     }
 
     function _calcBounty(uint256 value) internal pure returns (uint256 bounty_) {
-        DoSomethingForBountyStorage memory local = _getDoSomethingForBountyStorage();
+        BountyStorage memory local = _getBountyStorage();
         // calculate the ratio amount
         uint256 fromRatio = (value * local.bountyRatio) / 1 ether;
         uint256 fromAmount = Math.min(value, local.bountyAmount);

@@ -12,7 +12,6 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 
-import {WordCodec} from "src/common/WordCodec.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
@@ -26,8 +25,6 @@ import {IReservePool} from "src/interfaces/IReservePool.sol";
 
 import {ConfigIncentiveLib} from "src/minter/lib/ConfigIncentiveLib.sol";
 import {Config_v1} from "src/minter/lib/Config_v1.sol";
-
-import {console2} from "forge-std/console2.sol";
 
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
@@ -474,7 +471,7 @@ contract Minter_v1 is
         ConfigIncentiveLib.ActionIncentive memory config_ = $.mintPeggedIncentiveConfig;
         // solhint-disable-next-line explicit-types
         OracleData memory oracle = _fetchMid($.priceOracle);
-        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
+        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
         incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
     }
 
@@ -484,7 +481,7 @@ contract Minter_v1 is
         ConfigIncentiveLib.ActionIncentive memory config_ = $.redeemPeggedIncentiveConfig;
         // solhint-disable-next-line explicit-types
         OracleData memory oracle = _fetchMax($.priceOracle);
-        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
+        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
         incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
     }
 
@@ -541,6 +538,7 @@ contract Minter_v1 is
         );
         wrappedFee = _wrappedValueOf(underlyingFee, rate);
         wrappedCollateralTaken = _wrappedValueOf(underlyingCollateralTaken, rate);
+        // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralTaken == 0
             ? int256(1 ether)
             : int256(wrappedFee * 1 ether) / int256(wrappedCollateralTaken);
@@ -651,9 +649,9 @@ contract Minter_v1 is
             $.peggedTokenBalance,
             _leveragedTokenBalance()
         );
-        // slither-disable-next-line incorrect-equality
         wrappedCollateralReturned = _wrappedValueOf(underlyingCollateralReturned, rate);
         wrappedFee = _wrappedValueOf(underlyingFee, rate);
+        // slither-disable-next-line incorrect-equality
         incentiveRatio = int256(
             underlyingCollateralReturned == 0 ? 1 ether : (wrappedFee * 1 ether) / wrappedCollateralReturned
         );
@@ -747,10 +745,11 @@ contract Minter_v1 is
             peggedTokenBalance_
         );
 
+        // slither-disable-next-line incorrect-equality
         if (underlyingCollateralIn == 0) revert MintZeroAmount(PEGGED_TOKEN);
 
         // check the amounts involved
-        if (peggedOut == 0) revert MintZeroAmount(PEGGED_TOKEN);
+        // slither-disable-next-line incorrect-equality        if (peggedOut == 0) revert MintZeroAmount(PEGGED_TOKEN);
         if (peggedOut < minPeggedOut) {
             revert MintInsufficientAmount(PEGGED_TOKEN, minPeggedOut, peggedOut);
         }
@@ -825,14 +824,15 @@ contract Minter_v1 is
             underlyingCollateral_ -= (underlyingFee$ / 1 ether);
         }
         if (underlyingDiscount$ > 0) {
+            uint256 requestedBonus = _wrappedValueOf(underlyingDiscount$, oracle.rate) / 1 ether;
             // it's a discount, so collect the extra collateral, if available
-            // TODO: check rebalance pools are exhausted before discounts are handed out?
-            // wake-disable-next-line unchecked-return-value, reentrancy // reservePool is trusted and reentrancy guard
-            IReservePool($.reservePool).requestBonus(
+            // wake-disable-next-line reentrancy // reservePool is trusted and reentrancy guard
+            uint256 actualBonus = IReservePool($.reservePool).requestBonus(
                 WRAPPED_COLLATERAL_TOKEN,
                 address(this),
-                _wrappedValueOf(underlyingDiscount$, oracle.rate) / 1 ether
+                requestedBonus
             );
+            if (actualBonus != requestedBonus) revert RequestedBonusNotGiven(requestedBonus, actualBonus);
             underlyingCollateral_ += underlyingDiscount$ / 1 ether;
         }
 
@@ -876,14 +876,15 @@ contract Minter_v1 is
             revert ReturnZeroAmount(LEVERAGED_TOKEN);
         }
         if (underlyingDiscount > 0) {
-            // TODO: check rebalance pools are exhausted before discounts are handed out?
+            uint256 requestedBonus = _wrappedValueOf(underlyingDiscount, oracle.rate);
             // it's a discount, so collect the extra collateral, if available
-            // wake-disable-next-line reentrancy,unchecked-return-value // reservePool is trusted
-            IReservePool(reservePool_).requestBonus(
+            // wake-disable-next-line reentrancy // reservePool is trusted
+            uint256 actualBonus = IReservePool(reservePool_).requestBonus(
                 WRAPPED_COLLATERAL_TOKEN,
                 address(this),
-                _wrappedValueOf(underlyingDiscount, oracle.rate)
+                requestedBonus
             );
+            if (actualBonus != requestedBonus) revert RequestedBonusNotGiven(requestedBonus, actualBonus);
             // for minting leveraged, the discount collateral is held by the minter
             underlyingCollateral_ += underlyingDiscount;
         }
@@ -1335,17 +1336,15 @@ contract Minter_v1 is
 
             peggedMinted += peggedMintedInBand;
 
-            if (underlyingCollateralIn == 0) {
+            // slither-disable-next-line incorrect-equality
+            if (underlyingCollateralIn == 0 || band == 0) {
                 // we have run out of collateral for the simulation
+                // or we are in the lowest band, so no more, so exit
                 break;
             }
             // still some collateral left and we're allowed to mint, so simulate
             underlyingCollateral_ += collateralAddedInBand;
             peggedTokenBalance_ += peggedMintedInBand;
-            if (band == 0) {
-                // we are now in the lowest band, so exit
-                break;
-            }
             band--;
         }
     }
@@ -1646,16 +1645,13 @@ contract Minter_v1 is
             fee += bandFee;
             underlyingCollateralIn -= collateralInBand;
             // slither-disable-next-line incorrect-equality
-            if (underlyingCollateralIn == 0) {
+            if (underlyingCollateralIn == 0 || band == 0) {
                 // we have run out of collateral
+                // or we are now in the lowest band, so exit
                 break;
             }
             // still some collateral left and we're allowed to mint or redeem, so simulate
             collateralTokenBalance_ += collateralInBand;
-            if (band == 0) {
-                // we are now in the lowest band, so exit
-                break;
-            }
             band--;
         }
         leveragedRedeemed = _leveragedTokensForCollateral(
@@ -1852,11 +1848,6 @@ contract Minter_v1 is
     /// @notice Returns the amount of leveraged tokens being managed
     function _leveragedTokenBalance() private view returns (uint256) {
         return IERC20(LEVERAGED_TOKEN).totalSupply();
-    }
-
-    /// @notice Returns the amount of wrapped collateral being held
-    function _wrappedCollateral() private view returns (uint256) {
-        return IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
     }
 
     // fetching collateral price in terms of the pegged tokens
