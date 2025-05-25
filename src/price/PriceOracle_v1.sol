@@ -5,14 +5,14 @@ import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/Aggr
 import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
 
-/// @title PriceOracle
+/// @title PriceOracle_v1
 /// @notice Library for validating Chainlink price feed data.
 /// @dev All price values returned and validated by this library are normalized to 18 decimals.
 ///      All constraints (max deviations, etc.) are interpreted in 18 decimals.
 ///      This ensures consistent, safe, and least-surprise behavior for all consumers.
 ///      The library performs normalization, validation, and delivers normalized values.
 ///      If a constraint is violated, a revert is triggered with normalized values in the error.
-library PriceOracle {
+library PriceOracle_v1 {
     struct Feed {
         AggregatorV3Interface priceFeed;
         uint8 decimals;

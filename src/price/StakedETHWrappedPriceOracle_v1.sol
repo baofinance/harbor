@@ -6,7 +6,7 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {PriceOracle} from "./PriceOracle.sol";
+import {PriceOracle_v1} from "./PriceOracle_v1.sol";
 import {IWstETH} from "@bao/interfaces/IWstETH.sol";
 
 /// @title StakedETHWrappedPriceOracleV1
@@ -22,7 +22,11 @@ contract StakedETHWrappedPriceOracle_v1 is
     ReentrancyGuardTransientUpgradeable,
     BaoOwnable
 {
-    error InvalidPriceFeed(address stethPriceFeed);
+    using PriceOracle_v1 for PriceOracle_v1.Feed;
+    using PriceOracle_v1 for PriceOracle_v1.Constraints;
+
+    error InvalidPriceSource(address stethPriceSource);
+    error InvalidRateSource(address wstethRateSource);
     error InvalidMaxPriceAge(uint64 maxPriceAge);
     error InvalidMaxRelativeDeviation(uint64 maxRelativeDeviation);
     error InvalidMaxAbsoluteDeviation(uint256 maxAbsoluteDeviation);
@@ -32,10 +36,10 @@ contract StakedETHWrappedPriceOracle_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STETH_FEED;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint8 public immutable STETH_FEED_DECIMALS; // TODO: is this immutable - can chainlink change the decimals of a feed?
-    IWstETH public constant WSTETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+    uint8 public immutable STETH_FEED_DECIMALS; // chainlink doesn't change the decimals of a feed
+    IWstETH public immutable WSTETH;
 
-    // PriceOracle.Constraints
+    // PriceOracle_v1.Constraints
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint64 private immutable _MAX_PRICE_AGE;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -54,18 +58,18 @@ contract StakedETHWrappedPriceOracle_v1 is
         view
         returns (uint256 minUnderlyingPrice, uint256 maxUnderlyingPrice, uint256 minWrappedRate, uint256 maxWrappedRate)
     {
-        PriceOracle.Feed memory feed = PriceOracle.Feed({
+        PriceOracle_v1.Feed memory feed = PriceOracle_v1.Feed({
             priceFeed: AggregatorV3Interface(STETH_FEED),
             decimals: STETH_FEED_DECIMALS
         });
-        PriceOracle.Constraints memory constraints = PriceOracle.Constraints({
+        PriceOracle_v1.Constraints memory constraints = PriceOracle_v1.Constraints({
             maxAnswerAge: _MAX_PRICE_AGE,
             maxPercentageDeviation: _MAX_RELATIVE_DEVIATION,
             maxAbsoluteDeviation: _MAX_ABSOLUTE_DEVIATION,
             maxTrendReversalDeviation: _MAX_TREND_REVERSAL
         });
 
-        minUnderlyingPrice = maxUnderlyingPrice = PriceOracle.latestAnswer(feed, constraints);
+        minUnderlyingPrice = maxUnderlyingPrice = PriceOracle_v1.latestAnswer(feed, constraints);
 
         minWrappedRate = maxWrappedRate = WSTETH.stEthPerToken();
     }
@@ -74,6 +78,7 @@ contract StakedETHWrappedPriceOracle_v1 is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address stethFeed_, // 0xCfE54B5cD566aB89272946F602D76Ea879CAb4a8 for ethereum mainnet
+        address wstETH, // (0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0 for ethereum mainnet
         uint64 maxPriceAge_,
         uint64 maxRelativeDeviation_,
         uint256 maxAbsoluteDeviation_,
@@ -83,7 +88,10 @@ contract StakedETHWrappedPriceOracle_v1 is
         _disableInitializers();
 
         if (stethFeed_ == address(0)) {
-            revert InvalidPriceFeed(stethFeed_);
+            revert InvalidPriceSource(stethFeed_);
+        }
+        if (wstETH == address(0)) {
+            revert InvalidRateSource(wstETH);
         }
         if (maxPriceAge_ == 0) {
             revert InvalidMaxPriceAge(maxPriceAge_);
@@ -98,6 +106,7 @@ contract StakedETHWrappedPriceOracle_v1 is
         // Set feed constants
         STETH_FEED = stethFeed_;
         STETH_FEED_DECIMALS = AggregatorV3Interface(stethFeed_).decimals();
+        WSTETH = IWstETH(wstETH);
 
         // Set price feed constraints
         _MAX_PRICE_AGE = maxPriceAge_;

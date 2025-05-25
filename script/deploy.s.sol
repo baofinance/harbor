@@ -16,6 +16,8 @@ import "@bao/Deployed.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+
+import "src/minter/lib/Config_v1.sol";
 import "src/minter/LeveragedToken_v1.sol";
 import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
@@ -56,6 +58,33 @@ import {DeployState} from "./DeployState.sol";
 // $ source .env
 // $ set +a
 
+contract Network is Script {
+    uint256 public privateKey;
+    address public publicKey;
+    string public network;
+
+    constructor() {
+        network = vm.envString("NETWORK");
+        if (keccak256(abi.encodePacked(network)) == keccak256(abi.encodePacked("local:test"))) {
+            console2.log("using the first default wallet for deploying");
+            privateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+            publicKey = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+            network = "local";
+        } else {
+            privateKey = vm.envUint("PRIVATE_KEY");
+            publicKey = vm.addr(privateKey);
+        }
+        vm.createSelectFork(network);
+        console2.log("deployer ETH balance=%s", Useful.toStringScaled(publicKey.balance, 18));
+    }
+
+    modifier deployer() {
+        vm.startBroadcast(privateKey);
+        _;
+        vm.stopBroadcast();
+    }
+}
+
 // Deploylib
 // has two functions per contract to be deployed:
 // * function deploy<contract>(<minimal parameters for deployment, e.g. owner>)
@@ -68,7 +97,7 @@ import {DeployState} from "./DeployState.sol";
 //   for non-upgradeable contracts is run once and so is not actually deployed.
 // * if two contracts hold each other's address then the postDeploy* function allows that to happen.
 //
-library DeployLib {
+contract DeployLib is Network {
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Leveraged Token
     function deployLeveragedToken(
@@ -123,9 +152,19 @@ library DeployLib {
         address peggedToken,
         address leveragedToken
     ) internal returns (address minter_) {
+        // Deploy Config_v1 library - we do it here because it's only used by Minter to reduce it's size
+        address configLib = vm.deployCode("Config_v1.sol:Config_v1");
+        console2.log("Deployed Config_v1 at: %s", configLib);
+
+        // Link the Config_v1 library
+        vm.setEnv("DAPP_LIBRARIES", string.concat("Config_v1:", Strings.toHexString(uint160(configLib))));
+
+        // constructor args
         Options memory opts;
         opts.constructorData = abi.encode(collateralToken, peggedToken, leveragedToken);
-        minter_ = Upgrades.deployUUPSProxy("Minter_v1.sol", abi.encodeCall(Minter_v1.initialize, owner));
+
+        // deploy Minter, with opts
+        minter_ = Upgrades.deployUUPSProxy("Minter_v1.sol", abi.encodeCall(Minter_v1.initialize, owner), opts);
     }
 
     function postDeployMinterTransactions(address minter, address owner) internal {
@@ -168,33 +207,6 @@ library DeployLib {
     // Liquidator
 }
 
-contract Network is Script {
-    uint256 public privateKey;
-    address public publicKey;
-    string public network;
-
-    constructor() {
-        network = vm.envString("NETWORK");
-        if (keccak256(abi.encodePacked(network)) == keccak256(abi.encodePacked("local:test"))) {
-            console2.log("using the first default wallet for deploying");
-            privateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-            publicKey = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
-            network = "local";
-        } else {
-            privateKey = vm.envUint("PRIVATE_KEY");
-            publicKey = vm.addr(privateKey);
-        }
-        vm.createSelectFork(network);
-        console2.log("deployer ETH balance=%s", Useful.toStringScaled(publicKey.balance, 18));
-    }
-
-    modifier deployer() {
-        vm.startBroadcast(privateKey);
-        _;
-        vm.stopBroadcast();
-    }
-}
-
 ///////////////////////////////////////////////////////////////////////////
 // deploy the contract for the first time, only be called once per network
 ///////////////////////////////////////////////////////////////////////////
@@ -205,7 +217,7 @@ contract Network is Script {
 // set RESUME false or unset for first iteration
 // $ RESUME=true NETWORK=<e.g. mainnet> yarn script script/deploy.s.sol:Deploy --force --ffi --broadcast --verify
 
-contract Deploy is Network, DeployState, Array, ConfigFile {
+contract Deploy is DeployLib, DeployState, Array, ConfigFile {
     function run() public {
         vm.startBroadcast(privateKey);
         setStateFile(network);
@@ -390,7 +402,7 @@ contract UpgradeLeveraged is Network {
 // -----------
 // $ NETWORK=<mainnet or sepolia> yarn script script/deploy.s.sol:DeployReservePool --broadcast --verify
 
-contract DeployReservePool is Network {
+contract DeployReservePool is DeployLib {
     function run() public {
         vm.startBroadcast(privateKey);
         DeployLib.deployReservePool(Deployed.BAOMULTISIG);
@@ -401,7 +413,7 @@ contract DeployReservePool is Network {
 ///////////////////////////////////////////////////////////////////////////
 // TokenDistributor
 // ---------------
-contract DeployTokenDistributor is Network {
+contract DeployTokenDistributor is DeployLib {
     function run(string memory name) internal {
         vm.startBroadcast(privateKey);
         DeployLib.deployTokenDistributor(Deployed.BAOMULTISIG, name);
@@ -422,7 +434,7 @@ contract DeployFeeDistributor is DeployTokenDistributor {
 // upgrade the TokenDistributor proxy to point to a given implementation
 // $ yarn script script/deploy.s.sol:UpgradeTokenDistributor --rpc-url $<e.g.MAINNET or SEPOLIA>_RPC_URL "run(address proxy, address implementation)" "<address from Deploy*>" "<address from prepareUpgrade*" --broadcast
 // for running in prod leave off the --broadcast and look into the log file for the transactions
-contract UpgradeUpgradeFeeDistributor is Network {
+contract UpgradeUpgradeFeeDistributor is DeployLib {
     function run(address proxy, address implementation) external {
         vm.startBroadcast(privateKey);
         // all we are doing here is changing the proxy's implememtation pointer
@@ -440,7 +452,7 @@ contract UpgradeUpgradeFeeDistributor is Network {
 // deploy am upgrade implementation - prepared for the upgrade transaction
 // this is a general function - can be used with any contract - just needs its name to check the files, storage etc.
 // $ yarn script script/deploy.s.sol:PrepareUpgrade --rpc-url $<e.g.MAINNET or SEPOLIA>_RPC_URL --sig "run(string memory contractBase, string memory oldVersion, string memory newVersion)" "<e.g. LeveragedToken>" "<e.g. v1a>" "<e.g. v1>" --broadcast --slow --verify
-contract PrepareUpgrade is Network {
+contract PrepareUpgrade is DeployLib {
     function run(string memory contractBase, string memory oldVersion, string memory newVersion) external {
         // check the upgrade from files,and deploy
         Options memory opts;

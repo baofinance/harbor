@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {PriceOracle} from "src/price/PriceOracle.sol";
+import {PriceOracle_v1} from "src/price/PriceOracle_v1.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/AggregatorV3Interface.sol";
 import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
 import {MockAggregator} from "test/mock/MockAggregator.sol";
@@ -19,9 +19,9 @@ contract PriceOracleTest is Test {
         vm.warp(100000);
     }
 
-    function _constraints() internal pure returns (PriceOracle.Constraints memory) {
+    function _constraints() internal pure returns (PriceOracle_v1.Constraints memory) {
         return
-            PriceOracle.Constraints({
+            PriceOracle_v1.Constraints({
                 maxAnswerAge: MAX_ANSWER_AGE,
                 maxPercentageDeviation: MAX_RELATIVE_DEVIATION,
                 maxAbsoluteDeviation: MAX_ABSOLUTE_DEVIATION,
@@ -36,8 +36,8 @@ contract PriceOracleTest is Test {
         mockFeed.setRoundData(1, 2, 2000 * 1 ether, block.timestamp - 10, block.timestamp - 10);
         mockFeed.setRoundData(1, 3, 2000 * 1 ether, block.timestamp, block.timestamp);
 
-        uint256 price = PriceOracle.latestAnswer(
-            PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}),
+        uint256 price = PriceOracle_v1.latestAnswer(
+            PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}),
             _constraints()
         );
         assertEq(price, 2000 * 1 ether, "Price should match the mocked price");
@@ -57,7 +57,7 @@ contract PriceOracleTest is Test {
                 -100 * 1 ether
             )
         );
-        PriceOracle.latestAnswer(PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
+        PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
         // TODO: when the price is negative in the past (for validation) and not in the latest round
     }
 
@@ -72,8 +72,8 @@ contract PriceOracleTest is Test {
     //     vm.expectRevert(
     //         abi.encodeWithSelector(IPriceOracleErrors.InvalidUnderlyingPrice.selector, address(mockFeed), 0)
     //     );
-    //     PriceOracle.latestAnswer(
-    //         PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}),
+    //     PriceOracle_v1.latestAnswer(
+    //         PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}),
     //         _constraints()
     //     );
     // }
@@ -98,7 +98,7 @@ contract PriceOracleTest is Test {
                 block.timestamp
             )
         );
-        PriceOracle.latestAnswer(PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
+        PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
     }
 
     function test_RevertWhen_PercentageDeviationTooHigh() public {
@@ -117,7 +117,7 @@ contract PriceOracleTest is Test {
                 MAX_RELATIVE_DEVIATION
             )
         );
-        PriceOracle.latestAnswer(PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
+        PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
     }
 
     function test_RevertWhen_AbsoluteDeviationTooHigh() public {
@@ -136,7 +136,7 @@ contract PriceOracleTest is Test {
                 MAX_ABSOLUTE_DEVIATION
             )
         );
-        PriceOracle.latestAnswer(PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
+        PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
     }
 
     function test_TrendReversalDetection() public {
@@ -156,7 +156,7 @@ contract PriceOracleTest is Test {
                 MAX_RELATIVE_DEVIATION
             )
         );
-        PriceOracle.latestAnswer(PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
+        PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
     }
 
     function test_AcceptableDeviation() public {
@@ -166,8 +166,8 @@ contract PriceOracleTest is Test {
         mockFeed.setRoundData(1, 2, 2400 * 1 ether, block.timestamp - 10, block.timestamp - 10);
         mockFeed.setRoundData(1, 3, 2400 * 1 ether, block.timestamp, block.timestamp);
 
-        uint256 price = PriceOracle.latestAnswer(
-            PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}),
+        uint256 price = PriceOracle_v1.latestAnswer(
+            PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}),
             _constraints()
         );
         assertEq(price, 2400 * 1 ether, "Price should be accepted when at max deviation");
@@ -181,19 +181,22 @@ contract PriceOracleTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IPriceOracleErrors.InvalidUnderlyingPrice.selector, address(mockFeed), 0)
         );
-        PriceOracle.latestAnswer(PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
+        PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
 
         // add some data but not enough for validation
         mockFeed.setRoundData(1, 1, 2000 * 1 ether, block.timestamp, block.timestamp);
-        uint256 price = PriceOracle.latestAnswer(
-            PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}),
+        uint256 price = PriceOracle_v1.latestAnswer(
+            PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}),
             _constraints()
         );
         assertEq(price, 2000 * 1 ether, "Price should be accepted when only one round is available");
 
         // add enough for simple validation
         mockFeed.setRoundData(1, 2, 2000 * 1 ether, block.timestamp, block.timestamp);
-        price = PriceOracle.latestAnswer(PriceOracle.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
+        price = PriceOracle_v1.latestAnswer(
+            PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}),
+            _constraints()
+        );
         assertEq(price, 2000 * 1 ether, "Price should be accepted when two rounds are available");
     }
 
@@ -204,8 +207,8 @@ contract PriceOracleTest is Test {
         mockFeed6.setRoundData(1, 2, 2000 * 1 ether, block.timestamp - 10, block.timestamp - 10);
         mockFeed6.setRoundData(1, 3, 2400 * 1 ether, block.timestamp, block.timestamp);
 
-        uint256 price6 = PriceOracle.latestAnswer(
-            PriceOracle.Feed({priceFeed: mockFeed6, decimals: mockFeed6.decimals()}),
+        uint256 price6 = PriceOracle_v1.latestAnswer(
+            PriceOracle_v1.Feed({priceFeed: mockFeed6, decimals: mockFeed6.decimals()}),
             _constraints()
         );
         // Should be normalised to 18 decimals
@@ -217,8 +220,8 @@ contract PriceOracleTest is Test {
         mockFeed18.setRoundData(1, 2, 2000 * 1 ether, block.timestamp - 10, block.timestamp - 10);
         mockFeed18.setRoundData(1, 3, 2400 * 1 ether, block.timestamp, block.timestamp);
 
-        uint256 price18 = PriceOracle.latestAnswer(
-            PriceOracle.Feed({priceFeed: mockFeed18, decimals: mockFeed18.decimals()}),
+        uint256 price18 = PriceOracle_v1.latestAnswer(
+            PriceOracle_v1.Feed({priceFeed: mockFeed18, decimals: mockFeed18.decimals()}),
             _constraints()
         );
         assertEq(price18, 2400 * 1 ether, "Price should be correct for 18 decimals");

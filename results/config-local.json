@@ -1,5 +1,4 @@
 {
-  "harvestCollateralRatioLowerBound": 2500000000000000000,
   "mintLeveragedIncentiveConfig": {
     "collateralRatioBandUpperBounds": [
       1100000000000000000,
