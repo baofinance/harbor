@@ -13,12 +13,12 @@
       "args": "--rpc-url local --config MinterV1 -vvvv"
     }
     {
-        "name": "Python Debugger: info",
-        "type": "debugpy",
-        "request": "launch",
-        "program": "${file}",
-        "console": "integratedTerminal",
-        "args": "--rpc-url local --config MinterV1 -vv"
-      }
+      "name": "Python Debugger: info",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": "--rpc-url local --config MinterV1 -vv"
+    }
   ]
 }

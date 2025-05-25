@@ -10,12 +10,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {DecrementalFloatingPoint} from "src/common/math/DecrementalFloatingPoint.sol";
-import {IMultipleRewardAccumulator} from "@interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
 // import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {Token} from "@bao/Token.sol";
 // import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
 // import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
 // import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
@@ -74,6 +75,19 @@ contract RebalancePool_v1 is
     /// @notice The address of FXN token minter.
     // address public immutable minter;
 
+    // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
+    // to change them the contract must be upgraded
+    /// @notice The minter contract this rebalance pool operates for
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable MINTER;
+    /// @inheritdoc IRebalancePool
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable LIQUIDATION_TOKEN;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bool private immutable _liquidationTokenIsCollateral; // solhint-disable-line immutable-vars-naming
+    /// @inheritdoc IRebalancePool
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable ASSET_TOKEN;
     /***********
      * Structs *
      ***********/
@@ -122,13 +136,7 @@ contract RebalancePool_v1 is
         // address veHelper; TODO: add back in (here and elsewhere) when we know how to integrate it
         /// @notice The gauge struct.
         // Gauge gauge;
-        /// @notice The minter contract this rebalance pool operates for
-        address minter;
-        /// @inheritdoc IRebalancePool
-        address liquidationToken;
-        bool liquidationTokenIsCollateral;
-        /// @inheritdoc IRebalancePool
-        address assetToken;
+
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalSupply;
         /// @dev Mapping account address to TokenBalance struct. Accesses via assetBalanceOf
@@ -168,9 +176,7 @@ contract RebalancePool_v1 is
      ***************/
 
     function initialize(
-        address owner_,
-        address minter_,
-        address liquidationToken_
+        address owner_
     )
         external
         // address gauge,
@@ -183,7 +189,7 @@ contract RebalancePool_v1 is
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
-        __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator
+        // __MultipleRewardCompoundingAccumulator_init(); // from MultipleRewardCompoundingAccumulator
 
         // TODO: pass in a reward manager - whatever that is
         // super._grantRole(REWARD_MANAGER_ROLE, _msgSender());
@@ -191,18 +197,6 @@ contract RebalancePool_v1 is
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
-
-        if (liquidationToken_ == IMinter(minter_).collateralToken()) {
-            $.liquidationTokenIsCollateral = true;
-        } else if (liquidationToken_ == IMinter(minter_).leveragedToken()) {
-            $.liquidationTokenIsCollateral = false;
-        } else {
-            revert InvalidLiquidationToken(liquidationToken_);
-        }
-
-        $.minter = minter_;
-        $.assetToken = IMinter(minter_).peggedToken();
-        $.liquidationToken = liquidationToken_;
 
         // TODO: what purpose does the wrapper give.
         // I'm guessing that this contract wraps because it keeps a track of shares
@@ -216,8 +210,24 @@ contract RebalancePool_v1 is
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address minter_, address liquidationToken_) MultipleRewardCompoundingAccumulator(1 weeks) {
         _disableInitializers();
+        Token.ensureContract(minter_);
+        // slither-disable-next-line missing-zero-check
+        MINTER = minter_;
+        address asset = IMinter(minter_).PEGGED_TOKEN();
+        Token.ensureERC20Token(asset);
+        // slither-disable-next-line missing-zero-check
+        ASSET_TOKEN = asset;
+        Token.ensureERC20Token(liquidationToken_);
+        if (liquidationToken_ == IMinter(minter_).WRAPPED_COLLATERAL_TOKEN()) {
+            _liquidationTokenIsCollateral = true;
+        } else if (liquidationToken_ == IMinter(minter_).LEVERAGED_TOKEN()) {
+            _liquidationTokenIsCollateral = false;
+        } else {
+            revert InvalidLiquidationToken(liquidationToken_);
+        }
+        LIQUIDATION_TOKEN = liquidationToken_;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -230,27 +240,8 @@ contract RebalancePool_v1 is
      *************************/
 
     /// @inheritdoc IRebalancePool
-    function minter() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.minter;
-    }
-
-    /// @inheritdoc IRebalancePool
     function liquidatableCollateralRatio() public view returns (uint256) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return IMinter($.minter).rebalanceCollateralRatio();
-    }
-
-    /// @inheritdoc IRebalancePool
-    function liquidationToken() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.liquidationToken;
-    }
-
-    /// @inheritdoc IRebalancePool
-    function assetToken() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.assetToken;
+        return IMinter(MINTER).rebalanceCollateralRatio();
     }
 
     /// @inheritdoc IRebalancePool
@@ -324,14 +315,13 @@ contract RebalancePool_v1 is
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
 
         // transfer asset token to this contract
-        address assetToken_ = $.assetToken;
         if (amount == type(uint256).max) {
-            amount = IERC20(assetToken_).balanceOf(sender);
+            amount = IERC20(ASSET_TOKEN).balanceOf(sender);
         }
 
         // we ensure that we don't deposit more tokens than the minter we are paired with has
-        uint256 minterMinted = IMinter($.minter).peggedTokenBalance();
-        uint256 thisBalance = IERC20(assetToken_).balanceOf(address(this));
+        uint256 minterMinted = IMinter(MINTER).peggedTokenBalance();
+        uint256 thisBalance = IERC20(ASSET_TOKEN).balanceOf(address(this));
         if (amount > minterMinted - thisBalance) {
             amount = minterMinted - thisBalance;
         }
@@ -340,7 +330,7 @@ contract RebalancePool_v1 is
         if (amount < minAmount) revert DepositAmountLessThanMinimum(amount, minAmount);
         depositedAmount = amount;
 
-        IERC20(assetToken_).safeTransferFrom(sender, address(this), amount);
+        IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), amount);
 
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         _checkpoint(receiver);
@@ -394,25 +384,23 @@ contract RebalancePool_v1 is
     }
 
     /// @inheritdoc IRebalancePool
+    // slither-disable-next-line reentrancy-no-eth
     function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
         // can only liquidate if the collateral ratio is below a certain value
         RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        address minter_ = $.minter;
 
         // check we are in the right collateral ratio band
-        uint256 rebalanceCollateralRatio_ = IMinter(minter_).rebalanceCollateralRatio();
-        if (IMinter(minter_).collateralRatio() >= rebalanceCollateralRatio_) {
-            revert collateralRatioTooHigh(IMinter(minter_).collateralRatio(), rebalanceCollateralRatio_);
+        uint256 rebalanceCollateralRatio_ = IMinter(MINTER).rebalanceCollateralRatio();
+        if (IMinter(MINTER).collateralRatio() >= rebalanceCollateralRatio_) {
+            revert collateralRatioTooHigh(IMinter(MINTER).collateralRatio(), rebalanceCollateralRatio_);
         }
 
-        address liquidationToken_ = $.liquidationToken;
-        bool liquidationTokenIsCollateral = $.liquidationTokenIsCollateral;
-
         // depending on the token, determine the amount that needs to be liquidated
-        if (liquidationTokenIsCollateral) {
-            liquidated = IMinter(minter_).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
+        // TODO: merge the query and action functions in minter, so there is only one call
+        if (_liquidationTokenIsCollateral) {
+            liquidated = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
         } else {
-            liquidated = IMinter(minter_).swapPeggedForLeveragedForCollateralRatio(rebalanceCollateralRatio_);
+            liquidated = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(rebalanceCollateralRatio_);
         }
         _checkpoint(address(0));
         liquidated = Math.min(liquidated, $.totalSupply.amount);
@@ -422,24 +410,23 @@ contract RebalancePool_v1 is
         }
 
         uint256 returnAmount;
-        if (liquidationTokenIsCollateral) {
-            returnAmount = IMinter(minter_).freeRedeemPeggedToken(liquidated, address(this));
+        if (_liquidationTokenIsCollateral) {
+            returnAmount = IMinter(MINTER).freeRedeemPeggedToken(liquidated, address(this));
         } else {
-            returnAmount = IMinter(minter_).freeSwapPeggedForLeveraged(liquidated, address(this));
+            returnAmount = IMinter(MINTER).freeSwapPeggedForLeveraged(liquidated, address(this));
         }
 
         emit Liquidate(liquidated);
 
-        _accumulateReward(liquidationToken_, returnAmount);
+        _accumulateReward(LIQUIDATION_TOKEN, returnAmount);
 
         // notify loss
         _notifyLoss(liquidated);
     }
 
-    // TODO: consider keeping this function for random rewards given, e.g. harvests
-    // function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRole(REWARDER_ROLE) {
-    //     _accumulateReward(rewardToken, rewardAmount);
-    // }
+    function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRoles(REWARDER_ROLE) {
+        _accumulateReward(rewardToken, rewardAmount);
+    }
 
     /// @inheritdoc IRebalancePool
     function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
@@ -660,7 +647,7 @@ contract RebalancePool_v1 is
         // TODO: this is done in _checkpoint so why are we doing it again here?
         _updateBoostCheckpoint(sender, owner_, balance, ownerBalance, supply);
 
-        IERC20($.assetToken).safeTransfer(receiver, amount);
+        IERC20(ASSET_TOKEN).safeTransfer(receiver, amount);
         amountWithdrawn = amount;
 
         emit Withdraw(sender, receiver, amount);

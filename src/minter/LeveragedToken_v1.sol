@@ -13,7 +13,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
-import {ILeveragedToken} from "@interfaces/ILeveragedToken.sol";
+import {ILeveragedToken} from "src/interfaces/ILeveragedToken.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";

@@ -20,14 +20,13 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
-import {IReservePool} from "@interfaces/IReservePool.sol";
+import {IReservePool} from "src/interfaces/IReservePool.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 
 contract TestReservePoolSetUp is Test {
     address token1 = Deployed.BaoUSD;
     address token2 = Deployed.wstETH;
-    // TODO: add tests for not ERC20 tokens
     address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
 
     address bonusReceiver;
@@ -75,7 +74,6 @@ contract TestReservePoolSetUp is Test {
     }
 }
 
-// TODO: this could be a one liner, if the impl was kept here
 contract TestReservePoolInitEvents is TestReservePoolSetUp {
     function test_initEventsImpl() public {
         vm.expectEmit();
@@ -183,6 +181,14 @@ contract TestReservePool is TestReservePoolSetUp {
             assertEq(_balanceOf(tokens[i], reservePool), 0 ether);
         }
     }
+
+    function test_notERC20() public {
+        // request
+        vm.expectRevert();
+        vm.prank(minter);
+        IReservePool(reservePool).requestBonus(tokenNotERC20, bonusReceiver, 1 ether);
+    }
+
     function test_introspection() public view {
         assertTrue(
             ReservePool_v1(reservePool).supportsInterface(type(IReservePool).interfaceId),

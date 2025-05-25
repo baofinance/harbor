@@ -1,8 +1,10 @@
 {
-  "harvestCollateralRatioLowerBound": 2500000000000000000,
   "mintLeveragedIncentiveConfig": {
-    "collateralRatioBandUpperBounds": [],
+    "collateralRatioBandUpperBounds": [
+      1000000000000000000
+    ],
     "incentiveRatios": [
+      7000000000000000,
       7000000000000000
     ]
   },
@@ -26,8 +28,11 @@
     ]
   },
   "redeemPeggedIncentiveConfig": {
-    "collateralRatioBandUpperBounds": [],
+    "collateralRatioBandUpperBounds": [
+      1000000000000000000
+    ],
     "incentiveRatios": [
+      8000000000000000,
       8000000000000000
     ]
   }

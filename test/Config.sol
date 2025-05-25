@@ -7,12 +7,11 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {Test} from "forge-std/Test.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 
 abstract contract ConfigFile is Test {
     function readConfig(string memory style) internal view returns (IMinter.Config memory config) {
         string memory json = vm.readFile(_filename(style));
-        config.harvestCollateralRatioLowerBound = stdJson.readUint(json, ".harvestCollateralRatioLowerBound");
         config.rebalanceCollateralRatioUpperBound = stdJson.readUint(json, ".rebalanceCollateralRatioUpperBound");
 
         config.mintPeggedIncentiveConfig = _readIncentiveConfig(json, "mintPeggedIncentiveConfig");
@@ -21,9 +20,8 @@ abstract contract ConfigFile is Test {
         config.redeemLeveragedIncentiveConfig = _readIncentiveConfig(json, "redeemLeveragedIncentiveConfig");
     }
 
-    function writeConfig(string memory style, IMinter.Config memory config) internal {
+    function writeConfig(IMinter.Config memory config, string memory style) internal {
         // serialise the thresholds
-        vm.serializeUint("config", "harvestCollateralRatioLowerBound", config.harvestCollateralRatioLowerBound);
         vm.serializeUint("config", "rebalanceCollateralRatioUpperBound", config.rebalanceCollateralRatioUpperBound);
 
         string memory json = _addIncentiveConfig(config.mintPeggedIncentiveConfig, "mintPeggedIncentiveConfig");

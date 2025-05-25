@@ -16,11 +16,13 @@ import "@bao/Deployed.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+
+import "src/minter/lib/Config_v1.sol";
 import "src/minter/LeveragedToken_v1.sol";
 import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
 import "src/minter/Minter_v1.sol";
-import "@interfaces/IMinter.sol";
+import "src/interfaces/IMinter.sol";
 import "src/minter/RebalancePool_v1.sol";
 import "src/minter/Genesis_v1.sol";
 import "test/Array.sol";
@@ -56,105 +58,6 @@ import {DeployState} from "./DeployState.sol";
 // $ source .env
 // $ set +a
 
-// Deploylib
-// has two functions per contract to be deployed:
-// * function deploy<contract>(<minimal parameters for deployment, e.g. owner>)
-//   this deploys the contract
-// * function postDeploy<contract>Transactions(<additional parameters to complete deployment>)
-//   this performs all the actions required to set up and integrate the contract with other contracts
-// The postDeploy* functions serve two main purposes:
-// * they can reduce the size of the initialisation code needed for the contract. This is a problem for upgradeable contracts
-//   where the "constructor" code remains deployed and uses up an amount of the allowed 24kb for a contract. The contructor code
-//   for non-upgradeable contracts is run once and so is not actually deployed.
-// * if two contracts hold each other's address then the postDeploy* function allows that to happen.
-//
-library DeployLib {
-    // Leveraged Token
-    function deployLeveragedToken(
-        address owner,
-        string memory pegged,
-        string memory collateral
-    ) internal returns (address leveragedToken_) {
-        string memory symbol = string.concat(pegged, "-", collateral);
-        string memory name = string.concat("BaoMinter ", pegged, "-", collateral);
-
-        leveragedToken_ = Upgrades.deployUUPSProxy(
-            "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
-        );
-    }
-
-    function postDeployLeveragedTokenTransactions(address leveragedToken, address owner, address minter) internal {
-        IBaoRoles(leveragedToken).grantRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE());
-        IBaoOwnable(leveragedToken).transferOwnership(owner);
-    }
-
-    // ReservePool
-    function deployReservePool(address owner) internal returns (address reservePool_) {
-        reservePool_ = Upgrades.deployUUPSProxy("ReservePool_v1.sol", abi.encodeCall(ReservePool_v1.initialize, owner));
-    }
-
-    function postDeployReservePoolTransactions(address reservePool, address owner, address minter) internal {
-        IBaoRoles(reservePool).grantRoles(minter, IReservePool(reservePool).REQUESTER_ROLE());
-        IBaoOwnable(reservePool).transferOwnership(owner);
-    }
-
-    // TokenDistributor
-    function deployTokenDistributor(address owner, string memory name) internal returns (address tokenDistributor_) {
-        tokenDistributor_ = Upgrades.deployUUPSProxy(
-            "TokenDistributor_v1.sol",
-            abi.encodeCall(TokenDistributor_v1.initialize, (owner, name))
-        );
-    }
-
-    function postDeployTokenDistributorTransactions(address tokenDistributor, address owner) internal {
-        IBaoOwnable(tokenDistributor).transferOwnership(owner);
-    }
-
-    // Minter
-    // TODO: move a lot of this to the postDeploy function
-    function deployMinter(
-        address owner,
-        Minter_v1.BalanceTokens memory tokens,
-        address priceOracle,
-        address feeReceiver,
-        address reservePool_,
-        IMinter.Config memory config
-    ) internal returns (address minter_) {
-        minter_ = Upgrades.deployUUPSProxy(
-            "Minter_v1.sol",
-            abi.encodeCall(
-                Minter_v1.initialize,
-                (owner, tokens, type(IBurnable).interfaceId, priceOracle, feeReceiver, reservePool_, config)
-            )
-        );
-    }
-
-    function postDeployMinterTransactions(address minter, address owner) internal {
-        IBaoOwnable(minter).transferOwnership(owner);
-    }
-
-    // RebalancePool
-    function deployRebalancePool(
-        address owner,
-        address minter_,
-        address liquidationToken
-    ) internal returns (address rebalancePool_) {
-        rebalancePool_ = Upgrades.deployUUPSProxy(
-            "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter_, liquidationToken))
-        );
-        //console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
-    }
-
-    // Genesis
-    function deployGenesis(address owner, address minter_) internal returns (address genesis) {
-        genesis = Upgrades.deployUUPSProxy("Genesis_v1.sol", abi.encodeCall(Genesis_v1.initialize, (owner, minter_)));
-    }
-
-    // Liquidator
-}
-
 contract Network is Script {
     uint256 public privateKey;
     address public publicKey;
@@ -182,6 +85,128 @@ contract Network is Script {
     }
 }
 
+// Deploylib
+// has two functions per contract to be deployed:
+// * function deploy<contract>(<minimal parameters for deployment, e.g. owner>)
+//   this deploys the contract
+// * function postDeploy<contract>Transactions(<additional parameters to complete deployment>)
+//   this performs all the actions required to set up and integrate the contract with other contracts
+// The postDeploy* functions serve two main purposes:
+// * they can reduce the size of the initialisation code needed for the contract. This is a problem for upgradeable contracts
+//   where the "constructor" code remains deployed and uses up an amount of the allowed 24kb for a contract. The contructor code
+//   for non-upgradeable contracts is run once and so is not actually deployed.
+// * if two contracts hold each other's address then the postDeploy* function allows that to happen.
+//
+contract DeployLib is Network {
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Leveraged Token
+    function deployLeveragedToken(
+        address owner,
+        string memory pegged,
+        string memory collateral
+    ) internal returns (address leveragedToken_) {
+        string memory symbol = string.concat(pegged, "-", collateral);
+        string memory name = string.concat("BaoMinter ", pegged, "-", collateral);
+
+        leveragedToken_ = Upgrades.deployUUPSProxy(
+            "LeveragedToken_v1.sol",
+            abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
+        );
+    }
+
+    function postDeployLeveragedTokenTransactions(address leveragedToken, address owner, address minter) internal {
+        IBaoRoles(leveragedToken).grantRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE());
+        IBaoOwnable(leveragedToken).transferOwnership(owner);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // ReservePool
+    function deployReservePool(address owner) internal returns (address reservePool_) {
+        reservePool_ = Upgrades.deployUUPSProxy("ReservePool_v1.sol", abi.encodeCall(ReservePool_v1.initialize, owner));
+    }
+
+    function postDeployReservePoolTransactions(address reservePool, address owner, address minter) internal {
+        IBaoRoles(reservePool).grantRoles(minter, IReservePool(reservePool).REQUESTER_ROLE());
+        IBaoOwnable(reservePool).transferOwnership(owner);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // TokenDistributor
+    function deployTokenDistributor(address owner, string memory name) internal returns (address tokenDistributor_) {
+        tokenDistributor_ = Upgrades.deployUUPSProxy(
+            "TokenDistributor_v1.sol",
+            abi.encodeCall(TokenDistributor_v1.initialize, (owner, name))
+        );
+    }
+
+    function postDeployTokenDistributorTransactions(address tokenDistributor, address owner) internal {
+        IBaoOwnable(tokenDistributor).transferOwnership(owner);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Minter
+    // TODO: move a lot of this initialisation to the postDeploy function
+    function deployMinter(
+        address owner,
+        address collateralToken,
+        address peggedToken,
+        address leveragedToken
+    ) internal returns (address minter_) {
+        // Deploy Config_v1 library - we do it here because it's only used by Minter to reduce it's size
+        address configLib = vm.deployCode("Config_v1.sol:Config_v1");
+        console2.log("Deployed Config_v1 at: %s", configLib);
+
+        // Link the Config_v1 library
+        vm.setEnv("DAPP_LIBRARIES", string.concat("Config_v1:", Strings.toHexString(uint160(configLib))));
+
+        // constructor args
+        Options memory opts;
+        opts.constructorData = abi.encode(collateralToken, peggedToken, leveragedToken);
+
+        // deploy Minter, with opts
+        minter_ = Upgrades.deployUUPSProxy("Minter_v1.sol", abi.encodeCall(Minter_v1.initialize, owner), opts);
+    }
+
+    function postDeployMinterTransactions(address minter, address owner) internal {
+        IBaoOwnable(minter).transferOwnership(owner);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // RebalancePool
+    function deployRebalancePool(
+        address owner,
+        address minter_,
+        address liquidationToken
+    ) internal returns (address rebalancePool_) {
+        Options memory opts;
+        opts.constructorData = abi.encode(minter_, liquidationToken);
+        rebalancePool_ = Upgrades.deployUUPSProxy(
+            "RebalancePool_v1.sol",
+            abi.encodeCall(RebalancePool_v1.initialize, (owner))
+        );
+        //console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
+    }
+
+    function postDeployRebalancePoolTransactions(address rebalancePool_, address owner, address minter) internal {
+        IBaoRoles(minter).grantRoles(rebalancePool_, IMinter(minter).ZERO_FEE_ROLE());
+        IBaoOwnable(rebalancePool_).transferOwnership(owner);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Genesis
+    function deployGenesis(address owner, address minter_) internal returns (address genesis) {
+        genesis = Upgrades.deployUUPSProxy("Genesis_v1.sol", abi.encodeCall(Genesis_v1.initialize, (owner, minter_)));
+    }
+
+    function postDeployGenesisTransactions(address genesis, address owner, address minter) internal {
+        IBaoRoles(minter).grantRoles(genesis, IMinter(minter).ZERO_FEE_ROLE());
+        IBaoOwnable(genesis).transferOwnership(owner);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Liquidator
+}
+
 ///////////////////////////////////////////////////////////////////////////
 // deploy the contract for the first time, only be called once per network
 ///////////////////////////////////////////////////////////////////////////
@@ -192,7 +217,7 @@ contract Network is Script {
 // set RESUME false or unset for first iteration
 // $ RESUME=true NETWORK=<e.g. mainnet> yarn script script/deploy.s.sol:Deploy --force --ffi --broadcast --verify
 
-contract Deploy is Network, DeployState, Array, ConfigFile {
+contract Deploy is DeployLib, DeployState, Array, ConfigFile {
     function run() public {
         vm.startBroadcast(privateKey);
         setStateFile(network);
@@ -206,59 +231,85 @@ contract Deploy is Network, DeployState, Array, ConfigFile {
 
         if (step() == 1) {
             logAddr("owner", Deployed.BAOMULTISIG);
+            // TODO: add the new Pegged Token here, and make minter a minter of it
             logAddr("peggedToken", Deployed.BaoUSD);
             logAddr("leveragedToken", DeployLib.deployLeveragedToken(Deployed.BAOMULTISIG, "BaoUSD", "wstETH"));
+            //                                  --------------------
             logAddr("collateralToken", Deployed.wstETH);
-
-            Minter_v1.BalanceTokens memory tokens;
-            tokens.peggedToken = addr("peggedToken");
-            tokens.leveragedToken = addr("leveragedToken");
-            tokens.collateralToken = addr("collateralToken");
 
             address priceOracle = Deployed.PriceOracle_wstETHUSD;
             logAddr("priceOracle", priceOracle);
             // TODO: how do we do claiming of distributed fees
             address feeReceiver = DeployLib.deployTokenDistributor(Deployed.BAOMULTISIG, "FeeDistributor");
+            //                              ----------------------
             logAddr("feeReceiver", feeReceiver);
             address reservePool = DeployLib.deployReservePool(Deployed.BAOMULTISIG);
+            //                              -----------------
+
             logAddr("reservePool", reservePool);
 
             int disallow = 10000; // code in config for a disallowed action at that collateral ratio
             IMinter.Config memory config;
             config.rebalanceCollateralRatioUpperBound = _percentToEther(130);
-            config.harvestCollateralRatioLowerBound = _percentToEther(250);
             config.mintPeggedIncentiveConfig = ic(ua(131, 140), ia(disallow, 100, 50));
             config.mintLeveragedIncentiveConfig = ic(ua(110, 120, 145), ia(-50, 0, 20, 70));
             config.redeemPeggedIncentiveConfig = ic(ua(105, 115, 150), ia(-75, -25, 60, 80));
             config.redeemLeveragedIncentiveConfig = ic(ua(105, 135), ia(disallow, 150, 120));
 
-            writeConfig(network, config);
+            writeConfig(config, network);
 
             address minter = DeployLib.deployMinter(
+                //                     ------------
                 Deployed.BAOMULTISIG,
-                tokens,
-                addr("priceOracle"),
-                addr("feeReceiver"),
-                addr("reservePool"),
-                config
+                addr("collateralToken"),
+                addr("peggedToken"),
+                addr("leveragedToken")
             );
             logAddr("minter", minter);
 
-            DeployLib.postDeployLeveragedTokenTransactions(tokens.leveragedToken, Deployed.BAOMULTISIG, minter);
+            // call the post deploy functions
+            IMinter(minter).updatePriceOracle(addr("priceOracle"));
+            IMinter(minter).updateFeeReceiver(addr("feeReceiver"));
+            IMinter(minter).updateReservePool(addr("reservePool"));
+            IMinter(minter).updateConfig(config);
+            IBaoRoles(minter).grantRoles(Deployed.BAOMULTISIG, IMinter(minter).ZERO_FEE_ROLE());
+
+            DeployLib.postDeployLeveragedTokenTransactions(addr("leveragedToken"), Deployed.BAOMULTISIG, minter);
             DeployLib.postDeployTokenDistributorTransactions(feeReceiver, Deployed.BAOMULTISIG);
-            DeployLib.postDeployMinterTransactions(minter, Deployed.BAOMULTISIG);
             DeployLib.postDeployReservePoolTransactions(reservePool, Deployed.BAOMULTISIG, minter);
         } else if (step() == 2) {
-            logAddr(
-                "rebalancePoolCollateral",
-                DeployLib.deployRebalancePool(Deployed.BAOMULTISIG, addr("minter"), addr("collateralToken"))
+            address rebalancePoolCollateral = DeployLib.deployRebalancePool(
+                //                                      -------------------
+                Deployed.BAOMULTISIG,
+                addr("minter"),
+                addr("collateralToken")
             );
-            logAddr(
-                "rebalancePoolLeveraged",
-                DeployLib.deployRebalancePool(Deployed.BAOMULTISIG, addr("minter"), addr("leveragedToken"))
+            logAddr("rebalancePoolCollateral", rebalancePoolCollateral);
+
+            address rebalancePoolLeveraged = DeployLib.deployRebalancePool(
+                //                                      -------------------
+                Deployed.BAOMULTISIG,
+                addr("minter"),
+                addr("leveragedToken")
+            );
+            logAddr("rebalancePoolLeveraged", rebalancePoolLeveraged);
+
+            address genesis = DeployLib.deployGenesis(
+                //                      ------------
+                Deployed.BAOMULTISIG,
+                addr("minter")
+            );
+            logAddr("genesis", genesis);
+
+            DeployLib.postDeployRebalancePoolTransactions(
+                rebalancePoolCollateral,
+                Deployed.BAOMULTISIG,
+                addr("minter")
             );
 
-            logAddr("genesis", DeployLib.deployGenesis(Deployed.BAOMULTISIG, addr("minter")));
+            DeployLib.postDeployRebalancePoolTransactions(rebalancePoolLeveraged, Deployed.BAOMULTISIG, addr("minter"));
+            DeployLib.postDeployGenesisTransactions(genesis, Deployed.BAOMULTISIG, addr("minter"));
+            DeployLib.postDeployMinterTransactions(addr("minter"), Deployed.BAOMULTISIG);
         } else {
             console2.log("too many steps");
         }
@@ -351,7 +402,7 @@ contract UpgradeLeveraged is Network {
 // -----------
 // $ NETWORK=<mainnet or sepolia> yarn script script/deploy.s.sol:DeployReservePool --broadcast --verify
 
-contract DeployReservePool is Network {
+contract DeployReservePool is DeployLib {
     function run() public {
         vm.startBroadcast(privateKey);
         DeployLib.deployReservePool(Deployed.BAOMULTISIG);
@@ -362,7 +413,7 @@ contract DeployReservePool is Network {
 ///////////////////////////////////////////////////////////////////////////
 // TokenDistributor
 // ---------------
-contract DeployTokenDistributor is Network {
+contract DeployTokenDistributor is DeployLib {
     function run(string memory name) internal {
         vm.startBroadcast(privateKey);
         DeployLib.deployTokenDistributor(Deployed.BAOMULTISIG, name);
@@ -383,7 +434,7 @@ contract DeployFeeDistributor is DeployTokenDistributor {
 // upgrade the TokenDistributor proxy to point to a given implementation
 // $ yarn script script/deploy.s.sol:UpgradeTokenDistributor --rpc-url $<e.g.MAINNET or SEPOLIA>_RPC_URL "run(address proxy, address implementation)" "<address from Deploy*>" "<address from prepareUpgrade*" --broadcast
 // for running in prod leave off the --broadcast and look into the log file for the transactions
-contract UpgradeUpgradeFeeDistributor is Network {
+contract UpgradeUpgradeFeeDistributor is DeployLib {
     function run(address proxy, address implementation) external {
         vm.startBroadcast(privateKey);
         // all we are doing here is changing the proxy's implememtation pointer
@@ -401,7 +452,7 @@ contract UpgradeUpgradeFeeDistributor is Network {
 // deploy am upgrade implementation - prepared for the upgrade transaction
 // this is a general function - can be used with any contract - just needs its name to check the files, storage etc.
 // $ yarn script script/deploy.s.sol:PrepareUpgrade --rpc-url $<e.g.MAINNET or SEPOLIA>_RPC_URL --sig "run(string memory contractBase, string memory oldVersion, string memory newVersion)" "<e.g. LeveragedToken>" "<e.g. v1a>" "<e.g. v1>" --broadcast --slow --verify
-contract PrepareUpgrade is Network {
+contract PrepareUpgrade is DeployLib {
     function run(string memory contractBase, string memory oldVersion, string memory newVersion) external {
         // check the upgrade from files,and deploy
         Options memory opts;

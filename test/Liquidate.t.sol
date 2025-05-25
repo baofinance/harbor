@@ -12,18 +12,18 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 import {RebalancePool_v1} from "src/minter/RebalancePool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 
 import {Token} from "@bao/Token.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import {TestRebalancePoolSetUp} from "test/RebalancePool.t.sol";
@@ -40,8 +40,8 @@ contract TestRebalancePool2SetUp is TestRebalancePoolSetUp {
         deal(address(peggedToken), user2, 2000 ether);
 
         rebalancePoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(new RebalancePool_v1()), // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner, minter, leveragedToken))
+            address(new RebalancePool_v1(minter, leveragedToken)), // "RebalancePool_v1.sol",
+            abi.encodeCall(RebalancePool_v1.initialize, owner)
         );
         vm.prank(user1);
         IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
@@ -62,7 +62,7 @@ contract TestRebalancePool2SetUp is TestRebalancePoolSetUp {
 
 contract TestLiquidate is TestRebalancePool2SetUp {
     function test_liquidateFailure() public {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         uint256 liquidated;
 
         // set up - no leveraged tokens
@@ -84,7 +84,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         // does it work when depegged?
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1
         price /= 2;
-        MockPriceOracle(priceOracle).setLatestAnswer(price); // depeg: CR = 0.5
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // depeg: CR = 0.5
         vm.prank(user1);
         IRebalancePool(rebalancePool).deposit(1 * price, user1, 0);
         liquidated = IRebalancePool(rebalancePool).liquidate(0);
@@ -92,7 +92,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
 
         price *= 2;
-        MockPriceOracle(priceOracle).setLatestAnswer(price); // CR = 1 again
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // CR = 1 again
         // some deposits - liquidate more than min
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1
         vm.prank(user1);
@@ -124,7 +124,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
     }
 
     function test_liquidate() public {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);
@@ -173,7 +173,7 @@ contract TestLiquidate is TestRebalancePool2SetUp {
     }
 
     function test_liquidateLeveraged() public {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
         assertEq(IMinter(minter).collateralRatio(), uint256(12 ether) / 9);

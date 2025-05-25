@@ -10,12 +10,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/clog.sol";
 import {TestMinterMint} from "test/Minter_mint.t.sol";
@@ -32,7 +32,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _freeRedeemPeggedToken(uint256 peggedIn) private {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         uint256 ownerPeggedDecrease;
         if (peggedIn == type(uint256).max) {
@@ -51,11 +51,22 @@ contract TestMinterRedeemPegged is TestMinterMint {
         uint256 minterWstETHBefore = IERC20(Deployed.wstETH).balanceOf(minter);
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance before freeRedeemPegged"
+        );
+
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.RedeemPeggedToken(owner, receiver, ownerPeggedDecrease, receiverCollateralIncrease);
         vm.prank(owner);
         uint256 returned = IMinter(minter).freeRedeemPeggedToken(peggedIn, receiver);
         //                 ----------------------------------------------------------------------
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance after freeRedeemPegged"
+        );
         assertEq(
             returned,
             receiverCollateralIncrease,
@@ -80,7 +91,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     }
 
     function test_freeRedeemPegged() public {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         // mint noaccess
         assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
@@ -133,7 +144,6 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IBaoOwnable(minter).owner(), owner);
 
         // check that we can't redeem more than minter has minted, i.e 0
-        // TODO: check this for non-free redeems
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, Deployed.BaoUSD));
         vm.prank(owner);
         IMinter(minter).freeRedeemPeggedToken(price, receiver);
@@ -149,6 +159,11 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).freeMintPeggedToken(1 ether, owner);
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         assertEq(IERC20(Deployed.BaoUSD).balanceOf(owner), mintedBaoUSD + price);
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance"
+        );
 
         // check that we can't redeem more than minter has minted
         // TODO: check this for non-free redeems
@@ -162,9 +177,15 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 1 ether);
 
-        // first normal redeem
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
+            "collaterals balance before mint pegged"
+        );
+        // first normal mint
         vm.prank(owner);
         IMinter(minter).freeMintPeggedToken(6 ether, owner);
+
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio = 1");
         _freeRedeemPeggedToken(price);
@@ -225,7 +246,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     }
 
     function test_freeSwapPegged() public {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         // mint noaccess
         assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
@@ -327,7 +348,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     //---------------------------------------------------------------------------------------------
 
     function _redeemPeggedToken(uint256 peggedIn) private {
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         uint256 senderPeggedDecrease;
         if (peggedIn == type(uint256).max) {
@@ -366,6 +387,11 @@ contract TestMinterRedeemPegged is TestMinterMint {
         //   ---------------------------------------------------------------------------------------
         assertEq(returned, receiverCollateralIncrease, "unexpected amount returned compared to price");
         assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            minterCollateralBalanceBefore - receiverCollateralIncrease - redeemPeggedFee,
+            "minter is tracking the underlying collateral"
+        );
+        assertEq(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver),
             feeReceiverCollateralBefore + redeemPeggedFee,
             "fee transferred"
@@ -378,9 +404,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
             "collateral returned"
         );
         assertEq(
-            IMinter(minter).collateralTokenBalance(),
+            IERC20(Deployed.wstETH).balanceOf(minter),
             minterCollateralBalanceBefore - receiverCollateralIncrease - redeemPeggedFee,
-            "minter is tracking the collateral"
+            "minter is tracking the wrapped collateral"
         );
         assertEq(
             IMinter(minter).peggedTokenBalance(),
@@ -397,68 +423,97 @@ contract TestMinterRedeemPegged is TestMinterMint {
     }
 
     function test_redeemPeggedBasic() public {
-        assertEq(IMinter(minter).collateralRatio(), type(uint256).max);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        assertEq(IMinter(minter).collateralRatio(), 1 ether);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // zero input, when none
-        assertEq(IERC20(Deployed.wstETH).balanceOf(sender), 0);
+        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(0, receiver, 0);
         // 1 --------------------------------------------------
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(type(uint256).max, receiver, 0);
         // 2 ----------------------------------------------------------------------
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
-        // some input, when infinite collateral ratio
+        // some input, when no leveraged Tokens
+        assertEq(IMinter(minter).peggedTokenBalance(), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, Deployed.BaoUSD));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
         // 3 -------------------------------------------------------------
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // some input, when none
-        setUp_collateral(1 ether, 0); // make collateral ratio 1.0
+        setUp_collateral(1 ether, 0); // collateral ratio == 1.0
         vm.expectRevert /*"ERC20: transfer amount exceeds balance"*/(); // BaoUSD just reverts with a subtraction underflow
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
         // 4 -------------------------------------------------------------
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(type(uint256).max, receiver, 0);
         // 5 ------------------------------------------------------------------
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // get tokens to redeem
         setUp_collateral(1 ether, 0, sender);
-        // deal(address(Deployed.wstETH), sender, 10 ether);
+        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 1 * price, "sender has 1");
 
         // redeem no allowance
         assertEq(IERC20(Deployed.BaoUSD).allowance(sender, minter), 0);
         vm.expectRevert /*"ERC20: transfer amount exceeds allowance"*/();
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
-        // 6 ----------------------------------------------------
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
-
-        // get allowance
-        vm.prank(sender);
-        IERC20(Deployed.BaoUSD).approve(minter, 10 ether);
+        // 6 --------------------------------------------------
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // zero input, when some
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(0, receiver, 0);
-        //----------------------------------------------------
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        // 7 --------------------------------------------
+        assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
+
+        // can't mint some because the config has it disallowed at < 1.31 and we're at 1
+        // mint some then redeem it:
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "CR is 1");
+        // setUp_collateral(0, 100 ether, owner); // make the collateral ratio nice
+        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 1 * price, "sender still has 1");
+        setUp_collateral(2 ether, 0, sender);
+        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 3 * price, "sender has 3");
+        assertEq(IMinter(minter).collateralRatio(), 1 ether, "CR is still 1");
+        // get allowance
+        vm.prank(sender);
+        IERC20(Deployed.BaoUSD).approve(minter, 3 * price);
+
+        assertEq(IMinter(minter).collateralTokenBalance(), 4 ether, "collaterals should be 3");
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(address(Deployed.wstETH)).balanceOf(minter),
+            "collaterals balance after freeMint"
+        );
+        vm.prank(sender);
+        IMinter(minter).redeemPeggedToken(2 * price, receiver, 0);
+        // 8 ------------------------------------------------
+        assertEq(
+            IERC20(Deployed.wstETH).balanceOf(receiver),
+            2 ether - (2 * uint256(ultimate(config.redeemPeggedIncentiveConfig.incentiveRatios)))
+        );
+        assertEq(
+            IMinter(minter).collateralTokenBalance(),
+            IERC20(address(Deployed.wstETH)).balanceOf(minter),
+            "collaterals balance after freeMint"
+        );
     }
 
     // TODO: check bonus function - do this as part of reserve pool
@@ -469,11 +524,11 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // mixed bonus and fee
     }
 
-    function test_redeemPegged() public {
+    function test_redeemPeggedNormal() public {
         setUp_collateral(20 ether, 0);
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         price *= 2;
-        MockPriceOracle(priceOracle).setLatestAnswer(price); // put the collateral ratio to 2, so no excess fees
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // put the collateral ratio to 2, so no excess fees
         assertEq(IMinter(minter).collateralRatio(), 2 ether);
 
         // first redeem
@@ -541,9 +596,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
     function test_redeemPeggedDepegged() public {
         setUp_collateral(20 ether, 0);
-        uint256 price = MockPriceOracle(priceOracle).latestAnswer();
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         price /= 2;
-        MockPriceOracle(priceOracle).setLatestAnswer(price); // put the collateral ratio to 0.5, tro depeg
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // put the collateral ratio to 0.5, to depeg
         assertEq(IMinter(minter).collateralRatio(), 1 ether / 2);
 
         // first mint

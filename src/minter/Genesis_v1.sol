@@ -12,8 +12,8 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
-import {IGenesis} from "@interfaces/IGenesis.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {IGenesis} from "src/interfaces/IGenesis.sol";
 
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
@@ -87,9 +87,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
 
         GenesisStorage storage $ = _getGenesisStorage();
         // balance tokens
-        $.collateralToken = IMinter(minter_).collateralToken();
-        $.peggedToken = IMinter(minter_).peggedToken();
-        $.leveragedToken = IMinter(minter_).leveragedToken();
+        $.collateralToken = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        $.peggedToken = IMinter(minter_).PEGGED_TOKEN();
+        $.leveragedToken = IMinter(minter_).LEVERAGED_TOKEN();
         $.minter = minter_;
     }
 
@@ -204,8 +204,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         address minter_ = $.minter;
         // get the collateral back - minus the fees
         // we redeem the pegged first because that potentially reduces the fee for redeeming the leveraged
-        // wake-disable-next-line reentrancy // minter is trusted
+        // wake-disable-next-line reentrancy // we have nonReentrant on this function
         IERC20(peggedToken_).forceApprove(minter_, peggedAmount);
+        // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
         collateralOut += IMinter(minter_).redeemPeggedToken(peggedAmount, receiver, 0);
         IERC20(leveragedToken_).forceApprove(minter_, leveragedAmount);
         collateralOut += IMinter(minter_).redeemLeveragedToken(leveragedAmount, receiver, 0);
@@ -279,8 +280,9 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         // into this contract.
         uint256 halfCollateral = totalCollateral / 2;
         address minter_ = $.minter;
-        // wake-disable-next-line reentrancy // minter is trusted
+        // wake-disable-next-line reentrancy // nonReentrant on this function
         IERC20(collateralToken_).forceApprove(minter_, totalCollateral);
+        // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
         $.totalPeggedAtGenesisEnd = IMinter(minter_).freeMintPeggedToken(halfCollateral, address(this));
         $.totalLeveragedAtGenesisEnd = IMinter(minter_).freeMintLeveragedToken(
             totalCollateral - halfCollateral,

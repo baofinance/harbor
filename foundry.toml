@@ -5,28 +5,32 @@ libs = ["lib"]
 
 ast = true
 build_info = true
-extra_output = ["storageLayout"]
 
-gas_reports = [
-  "Genesis_v1",
-  "LeveragedToken_v1",
-  "Minter_v1",
-  "RebalancePool_v1",
-  "ReservePool_v1",
-  "TokenDistributor_v1",
-  "Liquidator_v1",
-]
+auto_detect_remappings = false # remappings seem to cause problems
+evm_version = "Cancun"
+optimizer = true
+optimizer_runs = 500           # 10000 builds & tests but 20 deploys
+# via_ir = true # now causes a stack overflow that doesn't happen without this
+# deny_warnings = true # enable to stop compilations if there are warnings
+
+# gas_reports = [
+#   "Genesis_v1",
+#   "LeveragedToken_v1",
+#   "Minter_v1",
+#   "RebalancePool_v1",
+#   "ReservePool_v1",
+#   "TokenDistributor_v1",
+#   "Liquidator_v1",
+# ]
+gas_reports_ignore = ["test"]
+extra_output_files = ["evm.assembly", "ir"]
+extra_output = ["evm.assembly", "ir", "storageLayout"]
+
 fs_permissions = [
   { access = "read", path = "./" },
   { access = "read-write", path = "./results" },
   { access = "read-write", path = "./log" },
 ]
-auto_detect_remappings = false # remappings seem to cause problems
-evm_version = "Cancun"
-optimizer = true
-optimizer_runs = 500 # 10000 builds & tests but 20 deploys
-# via_ir = true, now causes a stack overflow that doesn't happen without this
-# deny_warnings = true # enable to stop compilations if there are warnings
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

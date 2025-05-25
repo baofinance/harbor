@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
-import {IMultipleRewardAccumulator} from "@interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
 import {DecrementalFloatingPoint} from "../../math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor} from "../distributor/LinearMultipleRewardDistributor.sol";
@@ -186,17 +186,17 @@ abstract contract MultipleRewardCompoundingAccumulator is
      ***************/
 
     // solhint-disable-next-line func-name-mixedcase
-    function __MultipleRewardCompoundingAccumulator_init(uint40 periodLength) internal onlyInitializing {
-        __LinearMultipleRewardDistributor_init(periodLength);
-        __ReentrancyGuardTransient_init();
-        __MultipleRewardCompoundingAccumulator_init_unchained();
-    }
+    // function __MultipleRewardCompoundingAccumulator_init() internal onlyInitializing {
+    //     // __LinearMultipleRewardDistributor_init();
+    //     __ReentrancyGuardTransient_init();
+    //     // __MultipleRewardCompoundingAccumulator_init_unchained();
+    // }
 
-    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
-    function __MultipleRewardCompoundingAccumulator_init_unchained() internal onlyInitializing {}
+    // // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
+    // function __MultipleRewardCompoundingAccumulator_init_unchained() internal onlyInitializing {}
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(uint40 periodLength) LinearMultipleRewardDistributor(periodLength) {
         // stop the implementation being initialized to any version
         // https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
         _disableInitializers();

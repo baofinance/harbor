@@ -10,11 +10,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestCollateralRatioRangeSetUp} from "test/CollateralRatio.t.sol";
@@ -65,7 +65,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
         invariantFile = openFile(
             string.concat("invariant", context()),
-            sa("Collateral Ratio", "Leveraged Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
+            sa("Collateral Ratio", "Leverage Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
         );
 
         IRebalancePool(rebalancePool).deposit(4 * startPrice, address(this), 0);
@@ -80,6 +80,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         vm.closeFile(feesFile);
         vm.closeFile(fees1File);
         vm.closeFile(invariantFile);
+        vm.closeFile(liquidateFile);
     }
 
     function openFile(string memory name, string[] memory header) private returns (string memory file) {
@@ -116,13 +117,14 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     {
         mintPeggedIncentive = IMinter(minter).mintPeggedTokenIncentiveRatio();
         redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio();
-        if (leveraged()) {
-            mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
-            redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
-        } else {
-            mintLeveragedIncentive = NaN;
-            redeemLeveragedIncentive = NaN;
-        }
+
+        // if (leveraged()) {
+        mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
+        redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
+        // } else {
+        //     mintLeveragedIncentive = NaN;
+        //     redeemLeveragedIncentive = NaN;
+        // }
     }
 
     function getDryRunIncentives(
@@ -139,13 +141,41 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     {
         // collect the data and check against actuals
         (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(multiplier * 1 ether);
-        (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
-        if (pegged()) {
-            (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether);
-            (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether);
-        } else {
-            mintLeveragedIncentive = NaN;
-            redeemLeveragedIncentive = NaN;
+        (redeemPeggedIncentive, , , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
+
+        try IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether) returns (
+            int256 mintLeveraged,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        ) {
+            mintLeveragedIncentive = mintLeveraged;
+        } catch (bytes memory reason) {
+            require(
+                keccak256(reason) == keccak256(abi.encodeWithSelector(IMinter.ActionPaused.selector)),
+                "unexpected error"
+            );
+            mintLeveragedIncentive = 0;
+        }
+
+        try IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether) returns (
+            int256 redeemLeveraged,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        ) {
+            redeemLeveragedIncentive = redeemLeveraged;
+        } catch (bytes memory reason) {
+            require(
+                keccak256(reason) == keccak256(abi.encodeWithSelector(IMinter.ActionPaused.selector)),
+                "unexpected error"
+            );
+            redeemLeveragedIncentive = 0;
         }
     }
 

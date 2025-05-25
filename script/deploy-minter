@@ -1,0 +1,185 @@
+#!lib/bao-base/run deploy
+set -euo pipefail
+
+log "deploying minter"
+
+THIS="$0"
+
+MOCK_PRICE=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --mock-price)
+    MOCK_PRICE=true
+    shift
+    ;;
+  -*)
+    error "unexpected option for ${THIS}: $1"
+    exit 1
+    ;;
+  *)
+    error "unexpected argument for ${THIS}: $1"
+    exit 1
+    ;;
+  esac
+done
+
+record "${MOCK_PRICE}" "arguments.mockPrice"
+
+###################################################################################################
+# read the already deployed addresses
+###################################################################################################
+
+# shellcheck disable=SC2154 # PUBLIC_KEY is exported elsewhere
+# TODO: make these work without adding .address
+record "${PUBLIC_KEY}" deployer.address
+record_from_network owner.address baomultisig.address
+
+record_from_network peggedToken.address baousd.address
+record_from_call peggedToken.symbol peggedToken "symbol()(string)"
+
+# collateral
+record_from_network collateralToken.address steth.address
+record_from_call collateralToken.symbol collateralToken "symbol()(string)"
+record_from_network collateralToken.priceFeed.usd.address steth.priceFeed.usd.address
+
+# wrapped collateral
+record_from_network wrappedCollateralToken.address wsteth.address
+
+###################################################################################################
+# deploy the stem for this deployer
+###################################################################################################
+# make the owner the deployer so the deployer can change it
+deploy_contract Stem_v1 "lib/bao-base/src/Stem_v1.sol:Stem_v1" "--constructor-args" deployer 3600
+
+###################################################################################################
+# deploy the proxies, stemmed, recording the addresses
+###################################################################################################
+
+deploy_stemmed leveragedToken
+deploy_stemmed StakedETHWrappedPriceOracle
+deploy_stemmed feeReceiver
+deploy_stemmed harvestReceiver
+deploy_stemmed reservePool
+deploy_stemmed minter
+deploy_stemmed stabilityPoolCollateral
+deploy_stemmed stabilityPoolSteamed
+deploy_stemmed genesis
+
+###################################################################################################
+# upgrade the proxies with implementations
+###################################################################################################
+
+# leveraged token
+# ---------------
+deploy_contract LeveragedToken_v1 "src/minter/LeveragedToken_v1.sol:LeveragedToken_v1"
+
+peggedSymbol=$(query peggedToken.symbol)
+collateralSymbol=$(query collateralToken.symbol)
+record "steamed${collateralSymbol}-${peggedSymbol}" leveragedToken.symbol
+record "Bao Zhenglong steamed ${collateralSymbol}-${peggedSymbol}" leveragedToken.name
+
+upgrade_proxy leveragedToken LeveragedToken_v1 \
+  "initialize(address,string,string)" owner leveragedToken.name leveragedToken.symbol
+
+record_from_call leveragedToken.MINTER_ROLE leveragedToken "MINTER_ROLE()"
+
+# priceOracle
+# -----------
+# mock price oracle
+deploy_contract MockWrappedPriceOracle "test/mock/MockWrappedPriceOracle.sol:MockWrappedPriceOracle"
+
+# real price oracle
+deploy_library PriceOracle_v1 "src/price/PriceOracle_v1.sol:PriceOracle_v1"
+
+deploy_contract StakedETHWrappedPriceOracle_v1 "src/price/StakedETHWrappedPriceOracle_v1.sol:StakedETHWrappedPriceOracle_v1" \
+  --libraries PriceOracle_v1 \
+  --constructor-args collateralToken.priceFeed.usd wrappedCollateralToken 3600 300 300 300
+
+upgrade_proxy StakedETHWrappedPriceOracle StakedETHWrappedPriceOracle_v1 "initialize(address)" owner
+
+# TODO: make these work wiythout adding .address
+local priceOracle
+if [[ ${MOCK_PRICE} == true ]]; then
+  priceOracle=$(query MockWrappedPriceOracle.address)
+else
+  priceOracle=$(query StakedETHWrappedPriceOracle.address)
+fi
+record "${priceOracle}" priceOracle.address
+
+# token distribution
+#####################
+
+# token distributor
+deploy_contract TokenDistributor_v1 "src/minter/TokenDistributor_v1.sol:TokenDistributor_v1"
+
+# feeReceiver
+# -----------
+upgrade_proxy feeReceiver TokenDistributor_v1 "initialize(address,string)" owner "Fee Receiver"
+
+# harvestReceiver
+# ---------------
+upgrade_proxy harvestReceiver TokenDistributor_v1 "initialize(address,string)" owner "Harvest Receiver"
+
+# minter
+#########
+
+# reservePool
+# -----------
+deploy_contract ReservePool_v1 "src/minter/ReservePool_v1.sol:ReservePool_v1"
+upgrade_proxy reservePool ReservePool_v1 "initialize(address)" owner
+
+record_from_call ReservePool_v1.REQUESTER_ROLE reservePool "REQUESTER_ROLE()"
+
+# minter
+# ------
+deploy_library Config_v1 src/minter/lib/Config_v1.sol:Config_v1
+
+deploy_contract Minter_v1 src/minter/Minter_v1.sol:Minter_v1 \
+  --libraries Config_v1 \
+  --constructor-args wrappedCollateralToken peggedToken leveragedToken
+
+upgrade_proxy minter Minter_v1 "initialize(address)" owner
+
+record_from_call Minter_v1.ZERO_FEE_ROLE minter "ZERO_FEE_ROLE()"
+send_transaction minter "grantRoles(address,uint256)" owner Minter_v1.ZERO_FEE_ROLE
+send_transaction leveragedToken "grantRoles(address,uint256)" minter leveragedToken.MINTER_ROLE
+send_transaction reservePool "grantRoles(address,uint256)" minter ReservePool_v1.REQUESTER_ROLE
+
+# TODO: set up the minter config
+# TODO: set up the price oracle
+
+# stability pools
+#################
+
+# stabilityPoolCollateral
+# -----------------------
+deploy_contract RebalancePool_v1Collateral "src/minter/RebalancePool_v1.sol:RebalancePool_v1" \
+  --constructor-args minter wrappedCollateralToken
+upgrade_proxy stabilityPoolCollateral RebalancePool_v1Collateral "initialize(address)" owner
+send_transaction minter "grantRoles(address,uint256)" stabilityPoolCollateral Minter_v1.ZERO_FEE_ROLE
+
+# stabilityPoolSteamed
+# --------------------
+deploy_contract RebalancePool_v1Steamed "src/minter/RebalancePool_v1.sol:RebalancePool_v1" \
+  --constructor-args minter leveragedToken
+upgrade_proxy stabilityPoolSteamed RebalancePool_v1Steamed "initialize(address)" owner
+send_transaction minter "grantRoles(address,uint256)" stabilityPoolSteamed Minter_v1.ZERO_FEE_ROLE
+
+# genesis
+# -------
+deploy_contract Genesis_v1 "src/minter/Genesis_v1.sol:Genesis_v1"
+upgrade_proxy genesis Genesis_v1 "initialize(address,address)" owner minter
+send_transaction minter "grantRoles(address,uint256)" genesis Minter_v1.ZERO_FEE_ROLE
+
+###################################################################################################
+# upgrade the proxies with implementations
+###################################################################################################
+# finalise tokens by transferring ownership
+send_transaction leveragedToken "transferOwnership(address)" owner
+send_transaction feeReceiver "transferOwnership(address)" owner
+send_transaction harvestReceiver "transferOwnership(address)" owner
+send_transaction reservePool "transferOwnership(address)" owner
+send_transaction minter "transferOwnership(address)" owner
+send_transaction stabilityPoolCollateral "transferOwnership(address)" owner
+send_transaction stabilityPoolSteamed "transferOwnership(address)" owner
+send_transaction genesis "transferOwnership(address)" owner

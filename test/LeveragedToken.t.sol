@@ -22,7 +22,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {ILeveragedToken} from "@interfaces/ILeveragedToken.sol";
+import {ILeveragedToken} from "src/interfaces/ILeveragedToken.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";

@@ -13,7 +13,7 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
-import {ITokenDistributor} from "@interfaces/ITokenDistributor.sol";
+import {ITokenDistributor} from "src/interfaces/ITokenDistributor.sol";
 
 /// @notice Distributes tokens to addresses.
 /// @author rootminus0x1

@@ -11,8 +11,8 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
-import {ILiquidator} from "@interfaces/ILiquidator.sol";
+import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {ILiquidator} from "src/interfaces/ILiquidator.sol";
 
 /// @author rootminus0x1
 /// @dev Uses UUPS proxy, erc7201 storage
@@ -130,6 +130,7 @@ contract Liquidator_v1 is
         IERC20($.rewardToken).safeTransfer(rewardReceiver, $.rewardAmount);
 
         // do the actual liquidation
+        // TODO: bring more from rebalance pools
         // wake-disable-next-line reentrancy // rebalancePool is trusted and reentrancy guard
         liquidated = IRebalancePool($.rebalancePool).liquidate(minLiquidation);
     }

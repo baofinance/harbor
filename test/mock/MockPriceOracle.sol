@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.26;
 
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
+import {IPriceOracle} from "src/interfaces/IPriceOracle.sol";
 
 contract MockPriceOracle is IPriceOracle {
     uint256 public latestAnswer;
@@ -15,9 +15,5 @@ contract MockPriceOracle is IPriceOracle {
 
     function setLatestAnswer(uint256 price_) public {
         latestAnswer = price_;
-    }
-
-    function setDecimals(uint8 decimals_) public {
-        decimals = decimals_;
     }
 }

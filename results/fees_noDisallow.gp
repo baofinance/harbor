@@ -18,9 +18,9 @@ plot datafile using ($2):($3 < 1 ? $3 : NaN) with lines linewidth 1 linetype 1, 
      datafile using ($2):($4 < 1 ? $4 : NaN) with lines linewidth 1 linetype 2, \
      datafile using ($2):($5 < 1 ? $5 : NaN) with lines linewidth 1 linetype 4, \
      datafile using ($2):($6 < 1 ? $6 : NaN) with lines linewidth 1 linetype 6, \
-     datafile1 using ($2):($3 < 1 ? $3 : NaN) with lines linewidth 1 dashtype 3 linetype 1, \
-     datafile1 using ($2):($4 < 1 ? $4 : NaN) with lines linewidth 1 dashtype 3 linetype 2, \
-     datafile1 using ($2):($5 < 1 ? $5 : NaN) with lines linewidth 1 dashtype 3 linetype 4, \
-     datafile1 using ($2):($6 < 1 ? $6 : NaN) with lines linewidth 1 dashtype 3 linetype 6
+     datafile1 using ($2):($3 < 1 ? $3 : NaN) with lines linewidth 2 dashtype 3 linetype 1, \
+     datafile1 using ($2):($4 < 1 ? $4 : NaN) with lines linewidth 2 dashtype 3 linetype 2, \
+     datafile1 using ($2):($5 < 1 ? $5 : NaN) with lines linewidth 2 dashtype 3 linetype 4, \
+     datafile1 using ($2):($6 < 1 ? $6 : NaN) with lines linewidth 2 dashtype 3 linetype 6
 
 #     datafile1 using ($2):($3) with points pointtype 1 linetype 2
