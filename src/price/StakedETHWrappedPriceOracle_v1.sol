@@ -37,6 +37,7 @@ contract StakedETHWrappedPriceOracle_v1 is
     address public immutable STETH_FEED;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint8 public immutable STETH_FEED_DECIMALS; // chainlink doesn't change the decimals of a feed
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     IWstETH public immutable WSTETH;
 
     // PriceOracle_v1.Constraints

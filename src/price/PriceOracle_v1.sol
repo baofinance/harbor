@@ -12,6 +12,7 @@ import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
 ///      This ensures consistent, safe, and least-surprise behavior for all consumers.
 ///      The library performs normalization, validation, and delivers normalized values.
 ///      If a constraint is violated, a revert is triggered with normalized values in the error.
+// solhint-disable-next-line contract-name-camelcase
 library PriceOracle_v1 {
     struct Feed {
         AggregatorV3Interface priceFeed;

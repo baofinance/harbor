@@ -58,12 +58,7 @@ contract Liquidator_v1 is
         }
     }
 
-    function initialize(
-        address owner_,
-        address rebalancePool_,
-        address rewardToken,
-        uint256 rewardAmount
-    ) public initializer {
+    function initialize(address owner_, address rebalancePool_, address rewardToken) public initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ERC165_init();
@@ -75,7 +70,6 @@ contract Liquidator_v1 is
         LiquidatorStorage storage $ = _getLiquidatorStorage();
         $.rebalancePool = rebalancePool_;
         $.rewardToken = rewardToken;
-        $.rewardAmount = uint96(rewardAmount);
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
