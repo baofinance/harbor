@@ -84,7 +84,7 @@ record "Bao Zhenglong steamed ${collateralSymbol}-${peggedSymbol}" leveragedToke
 upgrade_proxy leveragedToken LeveragedToken_v1 \
   "initialize(address,string,string)" owner leveragedToken.name leveragedToken.symbol
 
-record_from_call leveragedToken.MINTER_ROLE leveragedToken "MINTER_ROLE()"
+record_from_call leveragedToken.MINTER_ROLE leveragedToken "MINTER_ROLE()(uint256)"
 
 # priceOracle
 # -----------
@@ -131,7 +131,7 @@ upgrade_proxy harvestReceiver TokenDistributor_v1 "initialize(address,string)" o
 deploy_contract ReservePool_v1 "src/minter/ReservePool_v1.sol:ReservePool_v1"
 upgrade_proxy reservePool ReservePool_v1 "initialize(address)" owner
 
-record_from_call ReservePool_v1.REQUESTER_ROLE reservePool "REQUESTER_ROLE()"
+record_from_call ReservePool_v1.REQUESTER_ROLE reservePool "REQUESTER_ROLE()(uint256)"
 
 # minter
 # ------
@@ -143,8 +143,8 @@ deploy_contract Minter_v1 src/minter/Minter_v1.sol:Minter_v1 \
 
 upgrade_proxy minter Minter_v1 "initialize(address)" owner
 
-record_from_call Minter_v1.ZERO_FEE_ROLE minter "ZERO_FEE_ROLE()"
-record_from_call Minter_v1.HARVESTER_ROLE minter "HARVESTER_ROLE()"
+record_from_call Minter_v1.ZERO_FEE_ROLE minter "ZERO_FEE_ROLE()(uint256)"
+record_from_call Minter_v1.HARVESTER_ROLE minter "HARVESTER_ROLE()(uint256)"
 
 send_transaction minter "grantRoles(address,uint256)" owner Minter_v1.ZERO_FEE_ROLE
 send_transaction leveragedToken "grantRoles(address,uint256)" minter leveragedToken.MINTER_ROLE
