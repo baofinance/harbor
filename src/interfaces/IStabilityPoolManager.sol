@@ -2,31 +2,65 @@
 pragma solidity ^0.8.26;
 
 interface IStabilityPoolManager {
-    // Events
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
     event StabilityPoolAdded(address indexed stabilityPool);
     event StabilityPoolRemoved(address indexed stabilityPool);
-    event BountyUpdated(address token, uint256 rebalanceAamount, uint256 harvestRratio);
+    event RebalanceBountyUpdated(uint256 rebalanceBountyRatio);
+    event HarvestBountyUpdated(uint256 harvestBountyRatio);
     event LiquidationPerformed(address indexed stabilityPool, uint256 amount);
     event HarvestPerformed(uint256 harvestedAmount, uint256 bounty);
+    event RebalanceCollateralRatio(uint256 collateralRatio);
 
-    // Errors
+    /// @notice Emitted when liquidation happens.
+    /// @param liquidated The amount of asset liquidated.
+    event Liquidate(uint256 liquidated);
+
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
     error InvalidStabilityPool(address pool);
     error InsufficientBounty(address token, uint256 given, uint256 expected);
-    error NoStabilityPools();
     error NoHarvestable();
-    error InsufficientLiquidation(uint256 actual, uint256 expected);
+    error InsufficientLiquidation(address token, uint256 actual, uint256 expected);
+    error InvalidCollateralRatio(uint256 ratio);
 
-    // View functions
+    /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
+    error CollateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
+
+    /// @dev Thrown when the amount requested to be liquidated isn't met
+    error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
+
+    // @dev Thrown when initiaising with an invalid liquidation token
+    error InvalidLiquidationToken(address token);
+
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
     function stabilityPools() external view returns (address[] memory);
     function hasStabilityPool(address stabilityPool) external view returns (bool);
     function harvestable() external view returns (uint256);
     function rebalanceable() external view returns (bool);
-    function bounty() external view returns (address token, uint256 bountyAmount, uint256 HarvestRatio);
+    function harvestBountyRatio() external view returns (uint256 harvestRatio);
+    function rebalanceBountyRatio() external view returns (uint256 rebalanceRatio);
+    function rebalanceCollateralRatio() external view returns (uint256);
 
-    // Mutator functions
-    // function addStabilityPool(address stabilityPool) external;
-    // function removeStabilityPool(address stabilityPool) external;
-    function setRebalanceBounty(uint256 rebalanceAmount, uint256 harvestRatio) external;
-    function rebalance(address bountyReceiver, uint256 minLiquidation) external returns (uint256 totalLiquidated);
+    /*//////////////////////////////////////////////////////////////
+                        PUBLIC UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    function rebalance(
+        address bountyReceiver,
+        uint256 minWrappedCollateralOut,
+        uint256 minLeveragedOut
+    ) external returns (uint256 wrappedCollateralOut, uint256 leveragedOut);
+
     function harvest(address bountyReceiver, uint256 minBounty) external returns (uint256 harvestedAmount);
+
+    /*//////////////////////////////////////////////////////////////
+                      PROTECTED UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    function setRebalanceBountyRatio(uint256 rebalanceRatio) external;
+    function setHarvestBountyRatio(uint256 harvestRatio) external;
+    function setRebalanceCollateralRatio(uint256 newRatio) external;
 }

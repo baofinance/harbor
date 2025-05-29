@@ -469,6 +469,26 @@ contract Minter_v1 is
         }
     }
 
+    function wrappedCollateralForCollateralRatio(
+        uint256 targetCollateralRatio
+    ) external view returns (uint256 wrappedCollateral) {
+        MinterStorage storage $ = _getMinterStorage();
+        OracleData memory oracle = _fetchMid($.priceOracle);
+        uint256 collateralTokenBalance_ = $.underlyingCollateral;
+        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_);
+        if (targetCollateralRatio > currentCollateralRatio) {
+            wrappedCollateral = _wrappedValueOf(
+                ($.peggedTokenBalance * 1 ether * 1 ether) /
+                    (targetCollateralRatio * oracle.price) -
+                    currentCollateralRatio,
+                oracle.rate
+            );
+        } else {
+            wrappedCollateral = 0;
+        }
+    }
+
     // incentive ratios
     // ----------------
 
@@ -1109,7 +1129,7 @@ contract Minter_v1 is
     ///////////////////////
 
     /// @notice The storage hash for the shared-with-proxy storage
-    /// @dev keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _MINTER_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
 
     /// @notice Returns a reference to the contract state
@@ -1120,8 +1140,8 @@ contract Minter_v1 is
         }
     }
 
-    // Price Oracle
-    // ------------
+    // Price/Rate Oracle
+    // -----------------
 
     function _underlyingValueOf(uint256 wrapped, uint256 rate) internal pure returns (uint256 value) {
         value = (wrapped * rate) / 1 ether;

@@ -62,7 +62,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         bool genesisEnded;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.Genesis")) - 1)) & ~bytes32(uint256(0xff));
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.Genesis")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _GENESIS_STORAGE = 0x0664bd1ecb0513904298180c56323018f000c9153e463401931cf3813b7eb300;
 
     /// @notice Returns the storage for this contract

@@ -2,18 +2,10 @@
 pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {MockERC20} from "test/mock/MockERC20.sol";
+// import {IMinter} from "src/interfaces/IMinter.sol";
+
 import {TokenHolder} from "@bao/TokenHolder.sol";
-
-contract MockToken is ERC20 {
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
-        _mint(msg.sender, 1000 ether);
-    }
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-}
 
 contract MockMinter is TokenHolder {
     address public immutable WRAPPED_COLLATERAL_TOKEN;
@@ -28,9 +20,9 @@ contract MockMinter is TokenHolder {
     uint256 private _peggedTokenBalance;
 
     constructor() {
-        WRAPPED_COLLATERAL_TOKEN = address(new MockToken("Mock Wrapped", "MWRAP"));
-        PEGGED_TOKEN = address(new MockToken("Mock Pegged", "MPEG"));
-        LEVERAGED_TOKEN = address(new MockToken("Mock Leveraged", "MLEV"));
+        WRAPPED_COLLATERAL_TOKEN = address(new MockERC20("Mock Wrapped", "MWRAP"));
+        PEGGED_TOKEN = address(new MockERC20("Mock Pegged", "MPEG"));
+        LEVERAGED_TOKEN = address(new MockERC20("Mock Leveraged", "MLEV"));
 
         _collateralRatio = 150 ether / 100; // 150%
         _peggedTokenBalance = 100 ether;

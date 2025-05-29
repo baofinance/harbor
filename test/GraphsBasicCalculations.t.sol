@@ -18,7 +18,7 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
-import {TestStabilityPool2SetUp} from "test/Liquidate.t.sol";
+import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 import {Array} from "test/Array.sol";
 
 contract TestGraphs is TestStabilityPool2SetUp {

@@ -244,6 +244,10 @@ interface IMinter {
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedTokens);
 
+    function wrappedCollateralForCollateralRatio(
+        uint256 targetCollateralRatio
+    ) external view returns (uint256 wrappedCollateral);
+
     /// @notice Returns the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and
     /// discounts
     /// @param forLeveragedTokens The amount of leveraged tokens

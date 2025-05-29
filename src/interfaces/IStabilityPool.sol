@@ -25,10 +25,6 @@ interface IStabilityPool {
     /// @param amount The amount of token to withdraw.
     event Withdraw(address indexed owner, address indexed reciever, uint256 amount);
 
-    /// @notice Emitted when liquidation happens.
-    /// @param liquidated The amount of asset liquidated.
-    event Liquidate(uint256 liquidated);
-
     /// @notice Emitted when a reward token is gained.
     /// @param rewardToken address of the reward token
     /// @param rewardAmount The amount of token gained.
@@ -61,13 +57,8 @@ interface IStabilityPool {
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
 
-    /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
-    error CollateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
-
-    /// @dev Thrown when the amount requested to be liquidated isn't met
-    error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
-
-    // @dev Thrown when initiaising with an invalid liquidation token
+    /// @dev Thrown when the liquidation token given is not a valid one
+    /// either wrapped collateral or leveraged tokens
     error InvalidLiquidationToken(address token);
 
     /*//////////////////////////////////////////////////////////////
@@ -119,13 +110,14 @@ interface IStabilityPool {
     /// @notice Withdraw asset from this contract.
     function withdraw(uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
 
-    /// @notice Liquidate asset. Calling into the minter to
-    /// @param minPeggedAmount The minimum amount of asset to liquidate.
-    /// @return liquidated The amount of asset liquidated.
-    function liquidate(uint256 minPeggedAmount) external returns (uint256 liquidated);
+    /// @notice prepare for updates
+    function checkpoint() external;
 
     /// @notice Account for an increase in rewards
     function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+
+    /// @notice Account for some loss, e.g. a rebalance which liquidates the asset in favour of the liquidation token
+    function notifyLoss(uint256 liquidatedAmount) external;
 
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS

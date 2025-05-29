@@ -33,49 +33,45 @@ contract StabilityPoolManager_v1 is
 {
     using SafeERC20 for IERC20;
 
-    /// @notice The role for liquidator.
-    uint256 public constant LIQUIDATOR_ROLE = _ROLE_0;
-
-    /// @notice The role for harvester.
-    uint256 public constant HARVESTER_ROLE = _ROLE_1;
-
     /*************
      * Variables *
      *************/
 
-    // Immutable variables (set in constructor)
+    // Immutable variables
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable MINTER;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable BOUNTY_TOKEN;
+    address public immutable WRAPPED_COLLATERAL_TOKEN;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable LEVERAGED_TOKEN;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable TREASURY;
 
-    // Store up to 2 stability pools as immutable variables
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint8 private immutable STABILITY_POOL_COUNT;
+    address private immutable STABILITY_POOL_COLLATERAL;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address private immutable STABILITY_POOL_0;
-
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address private immutable STABILITY_POOL_1;
+    address private immutable STABILITY_POOL_LEVERAGED;
 
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPoolManager
     struct StabilityPoolManagerStorage {
         /// @notice Fixed bounty amount for rebalancing
-        uint256 rebalanceAmount;
+        uint256 rebalanceBountyRatio;
+        uint256 rebalanceBountyToken;
+        /// @notice The collateral ratio at which rebalancing should occur
+        uint256 rebalanceCollateralRatio;
         /// @notice Percentage-based bounty for harvesting (as a ratio of the harvested amount)
         uint256 harvestRatio;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPoolManager")) - 1)) & ~bytes32(uint256(0xff));
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPoolManager")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _STABILITYPOOL_MANAGER_STORAGE =
-        0xf7b9d56d5f95eb31caba66756cf6f0b2d5c8f273df336044eab94218477ab900;
+        0x3cb83b3e94c8a4ad8337f0089bb72418805efcd5c4adb4969513c1b21fc84100;
 
     function _getStabilityPoolManagerStorage() private pure returns (StabilityPoolManagerStorage storage $) {
         // solhint-disable-next-line no-inline-assembly
@@ -86,39 +82,32 @@ contract StabilityPoolManager_v1 is
 
     /// @notice In UUPS proxies the constructor sets immutables
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address minter_, address treasury_, address[] memory stabilityPools_) {
+    constructor(address minter_, address treasury_, address stabilityPoolCollateral, address stabilityPoolLeveraged) {
         _disableInitializers();
 
         Token.ensureContract(minter_);
         // slither-disable-next-line missing-zero-check
         MINTER = minter_;
 
-        address bountyToken = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
-        Token.ensureERC20Token(bountyToken);
         // slither-disable-next-line missing-zero-check
-        BOUNTY_TOKEN = bountyToken;
+        WRAPPED_COLLATERAL_TOKEN = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        Token.ensureERC20Token(WRAPPED_COLLATERAL_TOKEN);
+
+        // slither-disable-next-line missing-zero-check
+        LEVERAGED_TOKEN = IMinter(minter_).LEVERAGED_TOKEN();
+        Token.ensureERC20Token(LEVERAGED_TOKEN);
 
         Token.ensureNonZeroAddress(treasury_);
         // slither-disable-next-line missing-zero-check
         TREASURY = treasury_;
 
-        // Store stability pools
-        require(stabilityPools_.length > 0, "No stability pools provided");
-        require(stabilityPools_.length <= 2, "Too many stability pools");
-        STABILITY_POOL_COUNT = uint8(stabilityPools_.length);
-
+        bool liquidateToWrapped = false;
+        bool liquidateToLeveraged = false;
         // Validate and store the stability pools
-        if (STABILITY_POOL_COUNT > 0) {
-            Token.ensureContract(stabilityPools_[0]);
-            _validateStabilityPool(stabilityPools_[0], minter_);
-            STABILITY_POOL_0 = stabilityPools_[0];
-        }
-
-        if (STABILITY_POOL_COUNT > 1) {
-            Token.ensureContract(stabilityPools_[1]);
-            _validateStabilityPool(stabilityPools_[1], minter_);
-            STABILITY_POOL_1 = stabilityPools_[1];
-        }
+        Token.ensureContract(stabilityPoolCollateral);
+        STABILITY_POOL_COLLATERAL = stabilityPoolCollateral;
+        Token.ensureContract(stabilityPoolLeveraged);
+        STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
     }
 
     /// @notice Initialize the contract with starting configuration
@@ -128,11 +117,6 @@ contract StabilityPoolManager_v1 is
         __UUPSUpgradeable_init();
         __ERC165_init();
         __ReentrancyGuardTransient_init();
-
-        // Set default bounty values
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.rebalanceAmount = 0.1 ether;
-        $.harvestRatio = 0.05 ether; // 5%
     }
 
     /// @notice The check that allows this contract to be upgraded
@@ -151,47 +135,20 @@ contract StabilityPoolManager_v1 is
             super.supportsInterface(interfaceId);
     }
 
-    /// @notice Helper function to validate a stability pool
-    /// @param stabilityPool The address of the stability pool to validate
-    /// @param minter_ The address of the minter contract
-    function _validateStabilityPool(address stabilityPool, address minter_) private view {
-        try IStabilityPool(stabilityPool).MINTER() returns (address poolMinter) {
-            require(poolMinter == minter_, "Stability pool has wrong minter");
-        } catch {
-            revert InvalidStabilityPool(stabilityPool);
-        }
-    }
-
     /*************************
      * Public View Functions *
      *************************/
 
     /// @inheritdoc IStabilityPoolManager
     function stabilityPools() external view returns (address[] memory pools) {
-        pools = new address[](STABILITY_POOL_COUNT);
-
-        if (STABILITY_POOL_COUNT > 0) {
-            pools[0] = STABILITY_POOL_0;
-        }
-
-        if (STABILITY_POOL_COUNT > 1) {
-            pools[1] = STABILITY_POOL_1;
-        }
-
-        return pools;
+        pools = new address[](2);
+        pools[0] = STABILITY_POOL_COLLATERAL;
+        pools[1] = STABILITY_POOL_LEVERAGED;
     }
 
     /// @inheritdoc IStabilityPoolManager
     function hasStabilityPool(address stabilityPool) external view returns (bool) {
-        if (STABILITY_POOL_COUNT > 0 && STABILITY_POOL_0 == stabilityPool) {
-            return true;
-        }
-
-        if (STABILITY_POOL_COUNT > 1 && STABILITY_POOL_1 == stabilityPool) {
-            return true;
-        }
-
-        return false;
+        return (STABILITY_POOL_COLLATERAL == stabilityPool) || STABILITY_POOL_LEVERAGED == stabilityPool;
     }
 
     /// @inheritdoc IStabilityPoolManager
@@ -201,182 +158,188 @@ contract StabilityPoolManager_v1 is
 
     /// @inheritdoc IStabilityPoolManager
     function rebalanceable() external view returns (bool) {
-        // Check if any pools exist
-        if (STABILITY_POOL_COUNT == 0) {
-            return false;
-        }
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
 
         // Check if collateral ratio is below the rebalance threshold
         uint256 currentCR = IMinter(MINTER).collateralRatio();
-        uint256 rebalanceCR = IMinter(MINTER).rebalanceCollateralRatio();
-
-        return currentCR < rebalanceCR;
+        return currentCR < $.rebalanceCollateralRatio;
     }
 
     /// @inheritdoc IStabilityPoolManager
-    function bounty() external view returns (address token, uint256 rebalanceAmount, uint256 harvestRatio) {
+    function harvestBountyRatio() external view returns (uint256 harvestRatio) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        return (BOUNTY_TOKEN, $.rebalanceAmount, $.harvestRatio);
+        harvestRatio = $.harvestRatio;
+    }
+
+    function rebalanceBountyRatio() external view returns (uint256 rebalanceRatio) {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        rebalanceRatio = $.rebalanceBountyRatio;
+    }
+
+    /// @notice Returns the collateral ratio at which rebalancing should occur
+    /// @return The rebalance collateral ratio
+    function rebalanceCollateralRatio() external view returns (uint256) {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        return $.rebalanceCollateralRatio;
     }
 
     /*************************
      * Admin Functions *
      *************************/
 
-    /// @inheritdoc IStabilityPoolManager
-    function setRebalanceBounty(uint256 rebalanceAmount, uint256 harvestRatio) external onlyOwner {
+    /// @notice Updates the rebalance collateral ratio
+    /// @param newRatio The new rebalance collateral ratio
+    function setRebalanceCollateralRatio(uint256 newRatio) external onlyOwner {
+        if (newRatio < 1 ether) revert InvalidCollateralRatio(newRatio);
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.rebalanceAmount = rebalanceAmount;
-        $.harvestRatio = harvestRatio;
+        $.rebalanceCollateralRatio = newRatio;
 
-        emit BountyUpdated(BOUNTY_TOKEN, rebalanceAmount, harvestRatio);
+        emit RebalanceCollateralRatio(newRatio);
+    }
+
+    /// @inheritdoc IStabilityPoolManager
+    function setRebalanceBountyRatio(uint256 rebalanceRatio_) external onlyOwner {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        $.rebalanceBountyRatio = rebalanceRatio_;
+
+        emit RebalanceBountyUpdated(rebalanceRatio_);
+    }
+
+    /// @inheritdoc IStabilityPoolManager
+    function setHarvestBountyRatio(uint256 harvestRatio_) external onlyOwner {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        $.harvestRatio = harvestRatio_;
+
+        emit HarvestBountyUpdated(harvestRatio_);
     }
 
     /*************************
      * Core Functions *
      *************************/
 
+    function _poolHoldings()
+        private
+        view
+        returns (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged)
+    {
+        poolHoldingCollateral = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(STABILITY_POOL_COLLATERAL);
+        poolHoldingLeveraged = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(STABILITY_POOL_LEVERAGED);
+        totalPoolHolding = poolHoldingCollateral + poolHoldingLeveraged;
+    }
+
     /// @inheritdoc IStabilityPoolManager
     function rebalance(
         address bountyReceiver,
-        uint256 minLiquidation
-    ) external nonReentrant onlyRoles(LIQUIDATOR_ROLE) returns (uint256 totalLiquidated) {
-        if (STABILITY_POOL_COUNT == 0) {
-            revert NoStabilityPools();
-        }
-
-        // Send bounty
+        uint256 minWrappedCollateralOut,
+        uint256 minLeveragedOut
+    ) external nonReentrant returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        IERC20(BOUNTY_TOKEN).safeTransfer(bountyReceiver, $.rebalanceAmount);
+        uint256 rebalanceCollateralRatio_ = $.rebalanceCollateralRatio;
+        {
+            // check we are in the right collateral ratio band
 
-        // Try to liquidate from each pool until we reach the target
-        totalLiquidated = 0;
-        uint256 remaining = minLiquidation;
-
-        // Try the first pool
-        if (STABILITY_POOL_COUNT > 0) {
-            try IStabilityPool(STABILITY_POOL_0).liquidate(remaining) returns (uint256 liquidated) {
-                totalLiquidated += liquidated;
-                emit LiquidationPerformed(STABILITY_POOL_0, liquidated);
-
-                if (totalLiquidated >= minLiquidation) {
-                    return totalLiquidated;
-                }
-
-                remaining = minLiquidation - totalLiquidated;
-            } catch {
-                // Skip failed liquidations
+            uint256 collateralRatio = IMinter(MINTER).collateralRatio();
+            if (collateralRatio > rebalanceCollateralRatio_) {
+                revert CollateralRatioTooHigh(collateralRatio, rebalanceCollateralRatio_);
             }
         }
 
-        // Try the second pool if needed and available
-        if (STABILITY_POOL_COUNT > 1 && totalLiquidated < minLiquidation) {
-            try IStabilityPool(STABILITY_POOL_1).liquidate(remaining) returns (uint256 liquidated) {
-                totalLiquidated += liquidated;
-                emit LiquidationPerformed(STABILITY_POOL_1, liquidated);
-            } catch {
-                // Skip failed liquidations
-            }
-        }
+        // sum up the relative sizes of the stabilility pools - this is the wrapped collateral holdings
+        // note that these holdings are depleted by the liquidation process
+        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
 
-        if (totalLiquidated < minLiquidation) {
-            revert InsufficientLiquidation(totalLiquidated, minLiquidation);
-        }
+        // get the amount to liquidate (double(ish) the anmount)
+        uint256 peggedForCollateral = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
+        uint256 peggedForLeveraged = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(
+            rebalanceCollateralRatio_
+        );
 
-        return totalLiquidated;
+        // rescale to the pool holdings - TODO: round up, just to be sure we are out of rebalance
+        peggedForCollateral = (peggedForCollateral * poolHoldingCollateral) / totalPoolHolding;
+        peggedForLeveraged = (peggedForLeveraged * poolHoldingLeveraged) / totalPoolHolding;
+
+        // do the actual liquidation for each pool
+        // collateral return
+        wrappedCollateralOut = IMinter(MINTER).freeRedeemPeggedToken(peggedForCollateral, STABILITY_POOL_COLLATERAL);
+        if (wrappedCollateralOut < minWrappedCollateralOut) {
+            revert InsufficientLiquidation(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
+        }
+        IStabilityPool(STABILITY_POOL_COLLATERAL).checkpoint();
+        IStabilityPool(STABILITY_POOL_COLLATERAL).accumulateReward(WRAPPED_COLLATERAL_TOKEN, peggedForCollateral);
+        IStabilityPool(STABILITY_POOL_COLLATERAL).notifyLoss(peggedForCollateral);
+
+        // leveraged return
+        leveragedOut = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, STABILITY_POOL_LEVERAGED);
+        if (leveragedOut < minLeveragedOut) {
+            revert InsufficientLiquidation(LEVERAGED_TOKEN, leveragedOut, minLeveragedOut);
+        }
+        IStabilityPool(STABILITY_POOL_LEVERAGED).checkpoint();
+        IStabilityPool(STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, peggedForLeveraged);
+        IStabilityPool(STABILITY_POOL_LEVERAGED).notifyLoss(peggedForLeveraged);
+    }
+
+    function _harvestToPool(
+        uint256 harvestableAmount,
+        uint256 totalHolding,
+        address pool,
+        uint256 poolHolding
+    ) private returns (uint256 harvestedAmount) {
+        harvestedAmount = 0;
+        if (poolHolding > 0) {
+            // in the math we get truncation errors, but all that means is that dust is collected in the next harvest
+            harvestedAmount = (harvestableAmount * poolHolding) / totalHolding;
+            ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestedAmount, pool);
+            IStabilityPool(pool).accumulateReward(WRAPPED_COLLATERAL_TOKEN, harvestedAmount);
+        }
     }
 
     /// @inheritdoc IStabilityPoolManager
     function harvest(
         address bountyReceiver,
         uint256 minBounty
-    ) external nonReentrant onlyRoles(HARVESTER_ROLE) returns (uint256 harvestedAmount) {
+    ) external nonReentrant returns (uint256 harvestedAmount) {
         // Check if there's anything to harvest
-        harvestedAmount = IMinter(MINTER).harvestable();
-        if (harvestedAmount == 0) {
+        uint256 harvestableAmount = IMinter(MINTER).harvestable();
+        if (harvestableAmount == 0) {
             revert NoHarvestable();
         }
 
         // Calculate bounty
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 bountyAmount = (harvestedAmount * $.harvestRatio) / 1 ether;
+        uint256 bountyAmount = (harvestableAmount * $.harvestRatio) / 1 ether;
         if (bountyAmount < minBounty) {
-            revert InsufficientBounty(BOUNTY_TOKEN, bountyAmount, minBounty);
+            revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
+        // harvest the bounty
+        ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, bountyAmount, bountyReceiver);
 
-        // Perform the harvest
-        uint256 beforeBalance = IERC20(BOUNTY_TOKEN).balanceOf(address(this));
+        // keep a running total of the amount harvested
+        uint256 actuallyHarvested = bountyAmount;
+        harvestableAmount -= bountyAmount;
 
-        // Sweep from the minter to this contract
-        ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, harvestedAmount, address(this));
+        // Calculate total pool balances (similar to Harvester_v1)
+        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
 
-        uint256 afterBalance = IERC20(BOUNTY_TOKEN).balanceOf(address(this));
-        uint256 actuallyHarvested = afterBalance - beforeBalance;
-
-        // Send bounty to the caller
-        IERC20(BOUNTY_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
-
-        // Distribute the rest to stability pools
-        uint256 amountForPools = actuallyHarvested - bountyAmount;
-        _distributeHarvest(amountForPools);
+        // Distribute proportionally based on current holdings
+        if (totalPoolHolding > 0) {
+            actuallyHarvested += _harvestToPool(
+                harvestableAmount,
+                totalPoolHolding,
+                STABILITY_POOL_COLLATERAL,
+                poolHoldingCollateral
+            );
+            actuallyHarvested += _harvestToPool(
+                harvestableAmount,
+                totalPoolHolding,
+                STABILITY_POOL_LEVERAGED,
+                poolHoldingLeveraged
+            );
+        } else {
+            // Send to treasury if no pools have a balance
+            ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestableAmount, TREASURY);
+        }
 
         emit HarvestPerformed(actuallyHarvested, bountyAmount);
         return actuallyHarvested;
-    }
-
-    /// @dev Distributes harvested rewards to the registered stability pools
-    /// @param amount Amount to distribute
-    function _distributeHarvest(uint256 amount) internal {
-        address wrappedCollateralToken = BOUNTY_TOKEN;
-
-        if (STABILITY_POOL_COUNT == 0) {
-            // Send to treasury if no stability pools
-            IERC20(wrappedCollateralToken).safeTransfer(TREASURY, amount);
-            return;
-        }
-
-        // Calculate total pool balances (similar to Harvester_v1)
-        uint256 totalBalance = 0;
-        uint256 poolHolding_0 = 0;
-        uint256 poolHolding_1 = 0;
-
-        if (STABILITY_POOL_COUNT > 0) {
-            poolHolding_0 = IERC20(wrappedCollateralToken).balanceOf(STABILITY_POOL_0);
-            totalBalance += poolHolding_0;
-        }
-
-        if (STABILITY_POOL_COUNT > 1) {
-            poolHolding_1 = IERC20(wrappedCollateralToken).balanceOf(STABILITY_POOL_1);
-            totalBalance += poolHolding_1;
-        }
-
-        // Distribute proportionally based on current holdings
-        if (totalBalance > 0) {
-            if (poolHolding_0 > 0) {
-                uint256 amountToSend = (amount * poolHolding_0) / totalBalance;
-                IERC20(wrappedCollateralToken).safeTransfer(STABILITY_POOL_0, amountToSend);
-                try IStabilityPool(STABILITY_POOL_0).accumulateReward(
-                    wrappedCollateralToken,
-                    amountToSend
-                ) {} catch {}
-            }
-
-            if (poolHolding_1 > 0) {
-                uint256 amountToSend = (amount * poolHolding_1) / totalBalance;
-                IERC20(wrappedCollateralToken).safeTransfer(STABILITY_POOL_1, amountToSend);
-                try IStabilityPool(STABILITY_POOL_1).accumulateReward(
-                    wrappedCollateralToken,
-                    amountToSend
-                ) {} catch {}
-            }
-        } else {
-            // Send to treasury if no pools have a balance
-            IERC20(wrappedCollateralToken).safeTransfer(TREASURY, amount);
-        }
-    }
-
-    /// @dev Override the TokenHolder check for sweeping
-    function _checkSweeper() internal view override(TokenHolder) {
-        _checkOwnerOrRoles(HARVESTER_ROLE);
     }
 }

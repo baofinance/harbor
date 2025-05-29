@@ -14,10 +14,9 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 
 import "test/Useful.sol";
-import {TestStabilityPool2SetUp} from "test/Liquidate.t.sol";
 import {Array} from "test/Array.sol";
 
 import "test/clog.sol";

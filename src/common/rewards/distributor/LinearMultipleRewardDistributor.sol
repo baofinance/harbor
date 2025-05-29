@@ -62,7 +62,7 @@ abstract contract LinearMultipleRewardDistributor is
         EnumerableSet.AddressSet historicalRewardTokens;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff));
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE =
         0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
 

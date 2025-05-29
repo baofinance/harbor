@@ -67,7 +67,7 @@ contract MockStabilityPool {
         return _totalAssetSupply;
     }
 
-    function liquidatableCollateralRatio() external pure returns (uint256) {
+    function rebalanceCollateralRatio() external pure returns (uint256) {
         return 130 ether / 100; // 130%
     }
 }

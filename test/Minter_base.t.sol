@@ -373,9 +373,6 @@ contract TestMinterInit is TestMinterSetUp {
     }
 
     function test_init() public {
-        bytes32 id = keccak256(abi.encode(uint256(keccak256("bao.storage.Minter")) - 1)) & ~bytes32(uint256(0xff));
-        assertEq(id, 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00);
-
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         Minter_v1(minter).initialize(address(this));

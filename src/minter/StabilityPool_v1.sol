@@ -160,9 +160,9 @@ contract StabilityPool_v1 is
         mapping(address => address) getStakerVoteOwner;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff));
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _STABILITYPOOL_STORAGE =
-        0x45788b9b76e33b92143d170ad6d8d6c40c3d574d34daa7020827daf770a8d900;
+        0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
 
     function _getStabilityPoolStorage() private pure returns (StabilityPoolStorage storage $) {
         // solhint-disable-next-line no-inline-assembly
@@ -383,49 +383,16 @@ contract StabilityPool_v1 is
         amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
-    /// @inheritdoc IStabilityPool
-    // slither-disable-next-line reentrancy-no-eth
-    function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
-        // can only liquidate if the collateral ratio is below a certain value
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // check we are in the right collateral ratio band
-        uint256 stabilityCollateralRatio_ = IMinter(MINTER).rebalanceCollateralRatio();
-        if (IMinter(MINTER).collateralRatio() >= stabilityCollateralRatio_) {
-            revert CollateralRatioTooHigh(IMinter(MINTER).collateralRatio(), stabilityCollateralRatio_);
-        }
-
-        // depending on the token, determine the amount that needs to be liquidated
-        // TODO: merge the query and action functions in minter, so there is only one call
-        if (_liquidationTokenIsCollateral) {
-            liquidated = IMinter(MINTER).redeemPeggedForCollateralRatio(stabilityCollateralRatio_);
-        } else {
-            liquidated = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(stabilityCollateralRatio_);
-        }
+    function checkpoint() external onlyRoles(LIQUIDATOR_ROLE) {
         _checkpoint(address(0));
-        liquidated = Math.min(liquidated, $.totalSupply.amount);
-
-        if (liquidated == 0 || liquidated < minLiquidated) {
-            revert NotEnoughTokensToLiquidate(liquidated, minLiquidated);
-        }
-
-        uint256 returnAmount;
-        if (_liquidationTokenIsCollateral) {
-            returnAmount = IMinter(MINTER).freeRedeemPeggedToken(liquidated, address(this));
-        } else {
-            returnAmount = IMinter(MINTER).freeSwapPeggedForLeveraged(liquidated, address(this));
-        }
-
-        emit Liquidate(liquidated);
-
-        _accumulateReward(LIQUIDATION_TOKEN, returnAmount);
-
-        // notify loss
-        _notifyLoss(liquidated);
     }
 
     function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRoles(REWARDER_ROLE) {
         _accumulateReward(rewardToken, rewardAmount);
+    }
+
+    function notifyLoss(uint256 liquidatedAmount) external onlyRoles(LIQUIDATOR_ROLE) {
+        _notifyLoss(liquidatedAmount);
     }
 
     /// @inheritdoc IStabilityPool
