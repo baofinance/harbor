@@ -124,6 +124,9 @@ interface IStabilityPool {
     /// @return liquidated The amount of asset liquidated.
     function liquidate(uint256 minPeggedAmount) external returns (uint256 liquidated);
 
+    /// @notice Account for an increase in rewards
+    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/

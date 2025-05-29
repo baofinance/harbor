@@ -11,6 +11,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
+import {Token} from "@bao/Token.sol";
 
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
@@ -18,7 +19,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @title StabilityPoolManager
 /// @author Based on original Liquidator and Harvester contracts
-/// @notice Manages stability pools for liquidation and harvesting operations
+/// @notice Manages stability pools for rebalancing and harvesting operations
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 contract StabilityPoolManager_v1 is
@@ -42,26 +43,34 @@ contract StabilityPoolManager_v1 is
      * Variables *
      *************/
 
+    // Immutable variables (set in constructor)
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable MINTER;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable BOUNTY_TOKEN;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable TREASURY;
+
+    // Store up to 2 stability pools as immutable variables
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint8 private immutable STABILITY_POOL_COUNT;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address private immutable STABILITY_POOL_0;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address private immutable STABILITY_POOL_1;
+
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPoolManager
     struct StabilityPoolManagerStorage {
-        /// @notice The address of the minter contract
-        address minter;
-        /// @notice The address of the treasury (for fallback distribution)
-        address treasury;
-        /// @notice List of stability pools to manage
-        address[] stabilityPools;
-        /// @notice Mapping to check if a stability pool is registered
-        mapping(address => bool) isStabilityPool;
-        /// @notice The token used for bounties
-        address bountyToken;
-        /// @notice Fixed bounty amount
-        uint256 bountyAmount;
-        /// @notice Percentage-based bounty (as a ratio of the harvested amount)
-        uint256 bountyRatio;
-        /// @notice If true, use the minimum of fixed and percentage bounties; otherwise use maximum
-        bool useMinBounty;
+        /// @notice Fixed bounty amount for rebalancing
+        uint256 rebalanceAmount;
+        /// @notice Percentage-based bounty for harvesting (as a ratio of the harvested amount)
+        uint256 harvestRatio;
     }
 
     // keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPoolManager")) - 1)) & ~bytes32(uint256(0xff));
@@ -77,37 +86,53 @@ contract StabilityPoolManager_v1 is
 
     /// @notice In UUPS proxies the constructor sets immutables
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address minter_, address bountyToken_) {
+    constructor(address minter_, address treasury_, address[] memory stabilityPools_) {
         _disableInitializers();
 
-        // Store the immutable addresses
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.minter = minter_;
-        $.bountyToken = bountyToken_;
+        Token.ensureContract(minter_);
+        // slither-disable-next-line missing-zero-check
+        MINTER = minter_;
+
+        address bountyToken = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        Token.ensureERC20Token(bountyToken);
+        // slither-disable-next-line missing-zero-check
+        BOUNTY_TOKEN = bountyToken;
+
+        Token.ensureNonZeroAddress(treasury_);
+        // slither-disable-next-line missing-zero-check
+        TREASURY = treasury_;
+
+        // Store stability pools
+        require(stabilityPools_.length > 0, "No stability pools provided");
+        require(stabilityPools_.length <= 2, "Too many stability pools");
+        STABILITY_POOL_COUNT = uint8(stabilityPools_.length);
+
+        // Validate and store the stability pools
+        if (STABILITY_POOL_COUNT > 0) {
+            Token.ensureContract(stabilityPools_[0]);
+            _validateStabilityPool(stabilityPools_[0], minter_);
+            STABILITY_POOL_0 = stabilityPools_[0];
+        }
+
+        if (STABILITY_POOL_COUNT > 1) {
+            Token.ensureContract(stabilityPools_[1]);
+            _validateStabilityPool(stabilityPools_[1], minter_);
+            STABILITY_POOL_1 = stabilityPools_[1];
+        }
     }
 
     /// @notice Initialize the contract with starting configuration
     /// @param owner_ The owner address
-    /// @param treasury_ The treasury address for fallback distributions
-    /// @param initialPools Array of initial stability pools to add
-    function initialize(address owner_, address treasury_, address[] memory initialPools) external initializer {
+    function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ERC165_init();
         __ReentrancyGuardTransient_init();
 
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.treasury = treasury_;
-
-        // Add initial stability pools
-        for (uint i = 0; i < initialPools.length; i++) {
-            _addStabilityPool(initialPools[i]);
-        }
-
         // Set default bounty values
-        $.bountyAmount = 0.1 ether;
-        $.bountyRatio = 0.05 ether; // 5%
-        $.useMinBounty = true;
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        $.rebalanceAmount = 0.1 ether;
+        $.harvestRatio = 0.05 ether; // 5%
     }
 
     /// @notice The check that allows this contract to be upgraded
@@ -126,32 +151,72 @@ contract StabilityPoolManager_v1 is
             super.supportsInterface(interfaceId);
     }
 
+    /// @notice Helper function to validate a stability pool
+    /// @param stabilityPool The address of the stability pool to validate
+    /// @param minter_ The address of the minter contract
+    function _validateStabilityPool(address stabilityPool, address minter_) private view {
+        try IStabilityPool(stabilityPool).MINTER() returns (address poolMinter) {
+            require(poolMinter == minter_, "Stability pool has wrong minter");
+        } catch {
+            revert InvalidStabilityPool(stabilityPool);
+        }
+    }
+
     /*************************
      * Public View Functions *
      *************************/
 
     /// @inheritdoc IStabilityPoolManager
-    function stabilityPools() external view returns (address[] memory) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        return $.stabilityPools;
+    function stabilityPools() external view returns (address[] memory pools) {
+        pools = new address[](STABILITY_POOL_COUNT);
+
+        if (STABILITY_POOL_COUNT > 0) {
+            pools[0] = STABILITY_POOL_0;
+        }
+
+        if (STABILITY_POOL_COUNT > 1) {
+            pools[1] = STABILITY_POOL_1;
+        }
+
+        return pools;
     }
 
     /// @inheritdoc IStabilityPoolManager
     function hasStabilityPool(address stabilityPool) external view returns (bool) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        return $.isStabilityPool[stabilityPool];
+        if (STABILITY_POOL_COUNT > 0 && STABILITY_POOL_0 == stabilityPool) {
+            return true;
+        }
+
+        if (STABILITY_POOL_COUNT > 1 && STABILITY_POOL_1 == stabilityPool) {
+            return true;
+        }
+
+        return false;
     }
 
     /// @inheritdoc IStabilityPoolManager
     function harvestable() external view returns (uint256) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        return IMinter($.minter).harvestable();
+        return IMinter(MINTER).harvestable();
     }
 
     /// @inheritdoc IStabilityPoolManager
-    function bounty() external view returns (address token, uint256 amount, uint256 ratio, bool useMin) {
+    function rebalanceable() external view returns (bool) {
+        // Check if any pools exist
+        if (STABILITY_POOL_COUNT == 0) {
+            return false;
+        }
+
+        // Check if collateral ratio is below the rebalance threshold
+        uint256 currentCR = IMinter(MINTER).collateralRatio();
+        uint256 rebalanceCR = IMinter(MINTER).rebalanceCollateralRatio();
+
+        return currentCR < rebalanceCR;
+    }
+
+    /// @inheritdoc IStabilityPoolManager
+    function bounty() external view returns (address token, uint256 rebalanceAmount, uint256 harvestRatio) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        return ($.bountyToken, $.bountyAmount, $.bountyRatio, $.useMinBounty);
+        return (BOUNTY_TOKEN, $.rebalanceAmount, $.harvestRatio);
     }
 
     /*************************
@@ -159,44 +224,12 @@ contract StabilityPoolManager_v1 is
      *************************/
 
     /// @inheritdoc IStabilityPoolManager
-    function addStabilityPool(address stabilityPool) external onlyOwner {
-        _addStabilityPool(stabilityPool);
-    }
-
-    /// @inheritdoc IStabilityPoolManager
-    function removeStabilityPool(address stabilityPool) external onlyOwner {
+    function setRebalanceBounty(uint256 rebalanceAmount, uint256 harvestRatio) external onlyOwner {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        $.rebalanceAmount = rebalanceAmount;
+        $.harvestRatio = harvestRatio;
 
-        if (!$.isStabilityPool[stabilityPool]) {
-            revert StabilityPoolNotFound(stabilityPool);
-        }
-
-        // Find and remove from array
-        uint256 length = $.stabilityPools.length;
-        for (uint256 i = 0; i < length; i++) {
-            if ($.stabilityPools[i] == stabilityPool) {
-                // Move the last element to this position (if not already the last)
-                if (i < length - 1) {
-                    $.stabilityPools[i] = $.stabilityPools[length - 1];
-                }
-                // Remove the last element
-                $.stabilityPools.pop();
-                $.isStabilityPool[stabilityPool] = false;
-
-                emit StabilityPoolRemoved(stabilityPool);
-                return;
-            }
-        }
-    }
-
-    /// @inheritdoc IStabilityPoolManager
-    function setBounty(uint256 amount, uint256 ratio, bool useMin) external onlyOwner {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.bountyAmount = amount;
-        $.bountyRatio = ratio;
-        $.useMinBounty = useMin;
-
-        emit BountyUpdated($.bountyToken, amount, ratio, useMin);
+        emit BountyUpdated(BOUNTY_TOKEN, rebalanceAmount, harvestRatio);
     }
 
     /*************************
@@ -204,38 +237,45 @@ contract StabilityPoolManager_v1 is
      *************************/
 
     /// @inheritdoc IStabilityPoolManager
-    function liquidate(
+    function rebalance(
         address bountyReceiver,
         uint256 minLiquidation
     ) external nonReentrant onlyRoles(LIQUIDATOR_ROLE) returns (uint256 totalLiquidated) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-
-        if ($.stabilityPools.length == 0) {
+        if (STABILITY_POOL_COUNT == 0) {
             revert NoStabilityPools();
         }
 
-        // Calculate and send bounty
-        uint256 bountyToSend = _calculateBounty(0); // No input amount for liquidation bounty
-        IERC20($.bountyToken).safeTransfer(bountyReceiver, bountyToSend);
+        // Send bounty
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        IERC20(BOUNTY_TOKEN).safeTransfer(bountyReceiver, $.rebalanceAmount);
 
         // Try to liquidate from each pool until we reach the target
+        totalLiquidated = 0;
         uint256 remaining = minLiquidation;
-        for (uint256 i = 0; i < $.stabilityPools.length; i++) {
-            try IStabilityPool($.stabilityPools[i]).liquidate(remaining) returns (uint256 liquidated) {
+
+        // Try the first pool
+        if (STABILITY_POOL_COUNT > 0) {
+            try IStabilityPool(STABILITY_POOL_0).liquidate(remaining) returns (uint256 liquidated) {
                 totalLiquidated += liquidated;
+                emit LiquidationPerformed(STABILITY_POOL_0, liquidated);
 
-                emit LiquidationPerformed($.stabilityPools[i], liquidated);
-
-                // If we've reached the minimum, we can stop
                 if (totalLiquidated >= minLiquidation) {
-                    break;
+                    return totalLiquidated;
                 }
 
-                // Update remaining amount needed
                 remaining = minLiquidation - totalLiquidated;
             } catch {
                 // Skip failed liquidations
-                continue;
+            }
+        }
+
+        // Try the second pool if needed and available
+        if (STABILITY_POOL_COUNT > 1 && totalLiquidated < minLiquidation) {
+            try IStabilityPool(STABILITY_POOL_1).liquidate(remaining) returns (uint256 liquidated) {
+                totalLiquidated += liquidated;
+                emit LiquidationPerformed(STABILITY_POOL_1, liquidated);
+            } catch {
+                // Skip failed liquidations
             }
         }
 
@@ -251,31 +291,30 @@ contract StabilityPoolManager_v1 is
         address bountyReceiver,
         uint256 minBounty
     ) external nonReentrant onlyRoles(HARVESTER_ROLE) returns (uint256 harvestedAmount) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-
         // Check if there's anything to harvest
-        harvestedAmount = IMinter($.minter).harvestable();
+        harvestedAmount = IMinter(MINTER).harvestable();
         if (harvestedAmount == 0) {
             revert NoHarvestable();
         }
 
         // Calculate bounty
-        uint256 bountyAmount = _calculateBounty(harvestedAmount);
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        uint256 bountyAmount = (harvestedAmount * $.harvestRatio) / 1 ether;
         if (bountyAmount < minBounty) {
-            revert InsufficientBounty($.bountyToken, bountyAmount, minBounty);
+            revert InsufficientBounty(BOUNTY_TOKEN, bountyAmount, minBounty);
         }
 
         // Perform the harvest
-        uint256 beforeBalance = IERC20(IMinter($.minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(address(this));
+        uint256 beforeBalance = IERC20(BOUNTY_TOKEN).balanceOf(address(this));
 
         // Sweep from the minter to this contract
-        ITokenHolder($.minter).sweep(IMinter($.minter).WRAPPED_COLLATERAL_TOKEN(), harvestedAmount, address(this));
+        ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, harvestedAmount, address(this));
 
-        uint256 afterBalance = IERC20(IMinter($.minter).WRAPPED_COLLATERAL_TOKEN()).balanceOf(address(this));
+        uint256 afterBalance = IERC20(BOUNTY_TOKEN).balanceOf(address(this));
         uint256 actuallyHarvested = afterBalance - beforeBalance;
 
         // Send bounty to the caller
-        IERC20(IMinter($.minter).WRAPPED_COLLATERAL_TOKEN()).safeTransfer(bountyReceiver, bountyAmount);
+        IERC20(BOUNTY_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
 
         // Distribute the rest to stability pools
         uint256 amountForPools = actuallyHarvested - bountyAmount;
@@ -285,99 +324,54 @@ contract StabilityPoolManager_v1 is
         return actuallyHarvested;
     }
 
-    /*************************
-     * Internal Functions *
-     *************************/
-
-    /// @dev Internal function to add a stability pool
-    /// @param stabilityPool The address of the stability pool to add
-    function _addStabilityPool(address stabilityPool) internal {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-
-        // Validate the stability pool
-        if (!_isValidStabilityPool(stabilityPool)) {
-            revert InvalidStabilityPool(stabilityPool);
-        }
-
-        // Check if already added
-        if ($.isStabilityPool[stabilityPool]) {
-            revert StabilityPoolAlreadyAdded(stabilityPool);
-        }
-
-        // Add to list and mapping
-        $.stabilityPools.push(stabilityPool);
-        $.isStabilityPool[stabilityPool] = true;
-
-        emit StabilityPoolAdded(stabilityPool);
-    }
-
-    /// @dev Validates if an address is a valid stability pool for this manager
-    /// @param stabilityPool The address to validate
-    /// @return valid True if the address is a valid stability pool
-    function _isValidStabilityPool(address stabilityPool) internal view returns (bool valid) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-
-        // Check if the address is a contract
-        uint256 codeSize;
-        assembly {
-            codeSize := extcodesize(stabilityPool)
-        }
-        if (codeSize == 0) return false;
-
-        // Check if it implements the IStabilityPool interface
-        try IStabilityPool(stabilityPool).MINTER() returns (address minter) {
-            // Check if it's for the same minter
-            return minter == $.minter;
-        } catch {
-            return false;
-        }
-    }
-
-    /// @dev Calculates the bounty amount based on configured rules
-    /// @param harvestedAmount The amount being harvested (0 for liquidations)
-    /// @return bountyAmount The calculated bounty amount
-    function _calculateBounty(uint256 harvestedAmount) internal view returns (uint256 bountyAmount) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-
-        if (harvestedAmount == 0) {
-            return $.bountyAmount; // Fixed bounty for liquidations
-        }
-
-        uint256 percentBounty = (harvestedAmount * $.bountyRatio) / 1 ether;
-
-        if ($.useMinBounty) {
-            return Math.min($.bountyAmount, percentBounty);
-        } else {
-            return Math.max($.bountyAmount, percentBounty);
-        }
-    }
-
     /// @dev Distributes harvested rewards to the registered stability pools
     /// @param amount Amount to distribute
     function _distributeHarvest(uint256 amount) internal {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        address wrappedCollateralToken = IMinter($.minter).WRAPPED_COLLATERAL_TOKEN();
+        address wrappedCollateralToken = BOUNTY_TOKEN;
 
-        if ($.stabilityPools.length == 0) {
+        if (STABILITY_POOL_COUNT == 0) {
             // Send to treasury if no stability pools
-            IERC20(wrappedCollateralToken).safeTransfer($.treasury, amount);
+            IERC20(wrappedCollateralToken).safeTransfer(TREASURY, amount);
             return;
         }
 
-        // Distribute evenly among pools
-        uint256 amountPerPool = amount / $.stabilityPools.length;
-        for (uint256 i = 0; i < $.stabilityPools.length; i++) {
-            // For the last pool, transfer all remaining tokens to handle rounding
-            uint256 poolAmount = i == $.stabilityPools.length - 1
-                ? IERC20(wrappedCollateralToken).balanceOf(address(this))
-                : amountPerPool;
+        // Calculate total pool balances (similar to Harvester_v1)
+        uint256 totalBalance = 0;
+        uint256 poolHolding_0 = 0;
+        uint256 poolHolding_1 = 0;
 
-            if (poolAmount > 0) {
-                IERC20(wrappedCollateralToken).safeTransfer($.stabilityPools[i], poolAmount);
+        if (STABILITY_POOL_COUNT > 0) {
+            poolHolding_0 = IERC20(wrappedCollateralToken).balanceOf(STABILITY_POOL_0);
+            totalBalance += poolHolding_0;
+        }
 
-                // Notify the pool about the reward
-                try IStabilityPool($.stabilityPools[i]).accumulateReward(wrappedCollateralToken, poolAmount) {} catch {}
+        if (STABILITY_POOL_COUNT > 1) {
+            poolHolding_1 = IERC20(wrappedCollateralToken).balanceOf(STABILITY_POOL_1);
+            totalBalance += poolHolding_1;
+        }
+
+        // Distribute proportionally based on current holdings
+        if (totalBalance > 0) {
+            if (poolHolding_0 > 0) {
+                uint256 amountToSend = (amount * poolHolding_0) / totalBalance;
+                IERC20(wrappedCollateralToken).safeTransfer(STABILITY_POOL_0, amountToSend);
+                try IStabilityPool(STABILITY_POOL_0).accumulateReward(
+                    wrappedCollateralToken,
+                    amountToSend
+                ) {} catch {}
             }
+
+            if (poolHolding_1 > 0) {
+                uint256 amountToSend = (amount * poolHolding_1) / totalBalance;
+                IERC20(wrappedCollateralToken).safeTransfer(STABILITY_POOL_1, amountToSend);
+                try IStabilityPool(STABILITY_POOL_1).accumulateReward(
+                    wrappedCollateralToken,
+                    amountToSend
+                ) {} catch {}
+            }
+        } else {
+            // Send to treasury if no pools have a balance
+            IERC20(wrappedCollateralToken).safeTransfer(TREASURY, amount);
         }
     }
 
