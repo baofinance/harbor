@@ -1,9 +1,9 @@
 #!lib/bao-base/run deploy
 set -euo pipefail
 
-log "deploying minter"
+log "deploying minter $*"
 
-THIS="$0"
+THIS="${BASH_SOURCE[0]}"
 
 MOCK_PRICE=false
 while [[ $# -gt 0 ]]; do

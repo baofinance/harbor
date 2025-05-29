@@ -668,9 +668,13 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function harvestable() external view returns (uint256 wrappedAmount) {
         MinterStorage storage $ = _getMinterStorage();
-        uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
-        uint256 value = _wrappedValueOf($.underlyingCollateral, _fetchMid($.priceOracle).rate);
-        wrappedAmount = (balance > value) ? balance - value : 0;
+        uint256 rate = _fetchMid($.priceOracle).rate;
+        wrappedAmount = 0;
+        if (rate > 0) {
+            uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
+            uint256 value = _wrappedValueOf($.underlyingCollateral, rate);
+            wrappedAmount = (balance > value) ? balance - value : 0;
+        }
     }
 
     //////////////////////////////

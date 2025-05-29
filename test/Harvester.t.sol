@@ -22,6 +22,7 @@ contract Test_HarvesterSetup is TestMinterSetUp {
     address harvester;
     address harvestReceiver;
     address bountyReceiver;
+    address treasury;
 
     function setUp() public virtual override {
         super.setUp();
@@ -29,11 +30,14 @@ contract Test_HarvesterSetup is TestMinterSetUp {
         setUp_collateral(10 ether, 10 ether);
         harvestReceiver = vm.createWallet("harvestReceiver").addr;
         bountyReceiver = vm.createWallet("bountyReceiver").addr;
+        treasury = vm.createWallet("treasury").addr;
 
+        address[] memory receivers = new address[](1);
+        receivers[0] = harvestReceiver;
         harvester = address(
             Harvester_v1(
                 UnsafeUpgrades.deployUUPSProxy(
-                    address(new Harvester_v1(minter, harvestReceiver)), //"Harvester_v1.sol",
+                    address(new Harvester_v1(minter, receivers, treasury)), //"Harvester_v1.sol",
                     abi.encodeCall(Harvester_v1.initialize, (owner))
                 )
             )

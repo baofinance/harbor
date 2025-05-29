@@ -31,7 +31,29 @@ contract Harvester_v1 is Initializable, UUPSUpgradeable, ReentrancyGuardTransien
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable BOUNTY_TOKEN;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable HARVEST_RECEIVER;
+    address public immutable TREASURY;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+
+    // The number of harvest receivers
+    uint8 private immutable HARVEST_RECEIVER_COUNT;
+    // Individual immutable addresses instead of an array
+    address private immutable HARVEST_RECEIVER_0;
+    address private immutable HARVEST_RECEIVER_1;
+    address private immutable HARVEST_RECEIVER_2;
+    address private immutable HARVEST_RECEIVER_3;
+
+    /// @inheritdoc IHarvester
+    function HARVEST_RECEIVER(uint index) external view returns (address) {
+        require(index < HARVEST_RECEIVER_COUNT, "Index out of bounds");
+
+        if (index == 0) return HARVEST_RECEIVER_0;
+        if (index == 1) return HARVEST_RECEIVER_1;
+        if (index == 2) return HARVEST_RECEIVER_2;
+        if (index == 3) return HARVEST_RECEIVER_3;
+        // Add more if needed
+
+        return address(0);
+    }
 
     function initialize(address owner_) public initializer {
         __Bounty_init(owner_);
@@ -41,7 +63,7 @@ contract Harvester_v1 is Initializable, UUPSUpgradeable, ReentrancyGuardTransien
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address minter_, address harvestReceiver) {
+    constructor(address minter_, address[] memory harvestReceivers, address treasury) {
         Token.ensureContract(minter_);
         // slither-disable-next-line missing-zero-check
         MINTER = minter_;
@@ -51,9 +73,32 @@ contract Harvester_v1 is Initializable, UUPSUpgradeable, ReentrancyGuardTransien
         // slither-disable-next-line missing-zero-check
         BOUNTY_TOKEN = bountyToken;
 
-        Token.ensureNonZeroAddress(harvestReceiver);
+        // Store length
+        require(harvestReceivers.length > 0, "Too few harvest receivers"); // Adjust limit as needed
+        require(harvestReceivers.length <= 4, "Too many harvest receivers"); // Adjust limit as needed
+        HARVEST_RECEIVER_COUNT = uint8(harvestReceivers.length);
+
+        // Store individual addresses
+        if (HARVEST_RECEIVER_COUNT > 0) {
+            Token.ensureNonZeroAddress(harvestReceivers[0]);
+            HARVEST_RECEIVER_0 = harvestReceivers[0];
+        }
+        if (HARVEST_RECEIVER_COUNT > 1) {
+            Token.ensureNonZeroAddress(harvestReceivers[1]);
+            HARVEST_RECEIVER_1 = harvestReceivers[1];
+        }
+        if (HARVEST_RECEIVER_COUNT > 2) {
+            Token.ensureNonZeroAddress(harvestReceivers[2]);
+            HARVEST_RECEIVER_2 = harvestReceivers[2];
+        }
+        if (HARVEST_RECEIVER_COUNT > 3) {
+            Token.ensureNonZeroAddress(harvestReceivers[3]);
+            HARVEST_RECEIVER_3 = harvestReceivers[3];
+        }
+
+        Token.ensureNonZeroAddress(treasury);
         // slither-disable-next-line missing-zero-check
-        HARVEST_RECEIVER = harvestReceiver;
+        TREASURY = treasury;
 
         _disableInitializers();
     }
@@ -85,8 +130,58 @@ contract Harvester_v1 is Initializable, UUPSUpgradeable, ReentrancyGuardTransien
         if (totalHarvest - bounty_ > 0) {
             // send the bounty
             ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, bounty_, bountyReceiver);
+
+            // Amount to distribute
+            uint256 harvestAmount = totalHarvest - bounty_;
+
             // now do the actual harvest
-            ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, totalHarvest - bounty_, HARVEST_RECEIVER);
+            // Calculate total BOUNTY_TOKEN balance across all receivers
+            uint256 totalBalance = 0;
+            uint256 receiverHolding_0;
+            uint256 receiverHolding_1;
+            uint256 receiverHolding_2;
+            uint256 receiverHolding_3;
+            // Store individual addresses
+            if (HARVEST_RECEIVER_COUNT > 0) {
+                receiverHolding_0 = IERC20(BOUNTY_TOKEN).balanceOf(HARVEST_RECEIVER_0);
+                totalBalance += receiverHolding_0;
+            }
+            if (HARVEST_RECEIVER_COUNT > 1) {
+                receiverHolding_1 = IERC20(BOUNTY_TOKEN).balanceOf(HARVEST_RECEIVER_1);
+                totalBalance += receiverHolding_1;
+            }
+            if (HARVEST_RECEIVER_COUNT > 2) {
+                receiverHolding_2 = IERC20(BOUNTY_TOKEN).balanceOf(HARVEST_RECEIVER_2);
+                totalBalance += receiverHolding_2;
+            }
+            if (HARVEST_RECEIVER_COUNT > 3) {
+                receiverHolding_3 = IERC20(BOUNTY_TOKEN).balanceOf(HARVEST_RECEIVER_3);
+                totalBalance += receiverHolding_3;
+            }
+
+            // distribute the harvest amount proportionally
+            // we don't worry about dust here, as it will be picked up in a later harvest call
+            if (totalBalance > 0) {
+                if (receiverHolding_0 > 0) {
+                    uint256 amountToSweep = (harvestAmount * receiverHolding_0) / totalBalance;
+                    ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, amountToSweep, HARVEST_RECEIVER_0);
+                }
+                if (receiverHolding_1 > 0) {
+                    uint256 amountToSweep = (harvestAmount * receiverHolding_1) / totalBalance;
+                    ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, amountToSweep, HARVEST_RECEIVER_1);
+                }
+                if (receiverHolding_2 > 0) {
+                    uint256 amountToSweep = (harvestAmount * receiverHolding_2) / totalBalance;
+                    ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, amountToSweep, HARVEST_RECEIVER_2);
+                }
+                if (receiverHolding_3 > 0) {
+                    uint256 amountToSweep = (harvestAmount * receiverHolding_3) / totalBalance;
+                    ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, amountToSweep, HARVEST_RECEIVER_3);
+                }
+            } else {
+                // we sent it to the treasury for use in reserve
+                ITokenHolder(MINTER).sweep(BOUNTY_TOKEN, harvestAmount, TREASURY);
+            }
         }
     }
 }
