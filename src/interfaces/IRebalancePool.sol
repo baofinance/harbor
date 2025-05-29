@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.26;
 
-interface IRebalancePool {
+interface IStabilityPool {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -60,9 +60,6 @@ interface IRebalancePool {
 
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
-
-    /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
-    error collateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
 
     /// @dev Thrown when the amount requested to be liquidated isn't met
     error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);

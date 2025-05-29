@@ -14,7 +14,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {MultipleRewardCompoundingAccumulator} from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
 // import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
-import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {IStabilityPool} from "src/interfaces/IRebalancePool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 // import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
@@ -24,7 +24,7 @@ import {Token} from "@bao/Token.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
-/// @title RebalancePool
+/// @title StabilityPool
 /// @notice To add boost for FXN, we maintain a time-weighted boost ratio for each user.
 ///   boost[u][i] = min(balance[u][i], 0.4 * balance[u][i] + ve[u][i] * totalSupply[i] / veTotal[i] * 0.6)
 ///   ratio[u][x -> y] = sum(boost[u][i] / balance[u][i] * (t[i] - t[i - 1])) / (t[y] - t[x])
@@ -37,12 +37,12 @@ import {Token} from "@bao/Token.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract RebalancePool_v1 is
+contract StabilityPool_v1 is
     Initializable,
     UUPSUpgradeable,
     ReentrancyGuardTransientUpgradeable,
     MultipleRewardCompoundingAccumulator,
-    IRebalancePool
+    IStabilityPool
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
@@ -128,8 +128,8 @@ contract RebalancePool_v1 is
 
     // Share-with-proxy Storage
     // ------------------------
-    /// @custom:storage-location erc7201:bao.storage.RebalancePool
-    struct RebalancePoolStorage {
+    /// @custom:storage-location erc7201:bao.storage.StabilityPool
+    struct StabilityPoolStorage {
         /// @notice The address of Voting Escrow FXN.
         // address ve;
         /// @notice The address of VotingEscrowHelper contract.
@@ -156,18 +156,18 @@ contract RebalancePool_v1 is
         mapping(address => mapping(uint256 => uint256)) voteOwnerHistoryBalances;
         /// @notice Mapping from owner address to staker address to the vote sharing status.
         mapping(address => mapping(address => bool)) isStakerAllowed;
-        /// @inheritdoc IRebalancePool
+        /// @inheritdoc IStabilityPool
         mapping(address => address) getStakerVoteOwner;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.RebalancePool")) - 1)) & ~bytes32(uint256(0xff));
-    bytes32 private constant _REBALANCEPOOL_STORAGE =
+    // keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff));
+    bytes32 private constant _STABILITYPOOL_STORAGE =
         0x45788b9b76e33b92143d170ad6d8d6c40c3d574d34daa7020827daf770a8d900;
 
-    function _getRebalancePoolStorage() private pure returns (RebalancePoolStorage storage $) {
+    function _getStabilityPoolStorage() private pure returns (StabilityPoolStorage storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := _REBALANCEPOOL_STORAGE
+            $.slot := _STABILITYPOOL_STORAGE
         }
     }
 
@@ -194,7 +194,7 @@ contract RebalancePool_v1 is
         // TODO: pass in a reward manager - whatever that is
         // super._grantRole(REWARD_MANAGER_ROLE, _msgSender());
 
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
 
@@ -239,9 +239,9 @@ contract RebalancePool_v1 is
      * Public View Functions *
      *************************/
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function liquidatableCollateralRatio() public view returns (uint256) {
-        return IMinter(MINTER).rebalanceCollateralRatio();
+        return IMinter(MINTER).stabilityCollateralRatio();
     }
 
     /// @inheritdoc IRebalancePool
@@ -387,20 +387,20 @@ contract RebalancePool_v1 is
     // slither-disable-next-line reentrancy-no-eth
     function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
         // can only liquidate if the collateral ratio is below a certain value
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         // check we are in the right collateral ratio band
-        uint256 rebalanceCollateralRatio_ = IMinter(MINTER).rebalanceCollateralRatio();
-        if (IMinter(MINTER).collateralRatio() >= rebalanceCollateralRatio_) {
-            revert collateralRatioTooHigh(IMinter(MINTER).collateralRatio(), rebalanceCollateralRatio_);
+        uint256 stabilityCollateralRatio_ = IMinter(MINTER).stabilityCollateralRatio();
+        if (IMinter(MINTER).collateralRatio() >= stabilityCollateralRatio_) {
+            revert collateralRatioTooHigh(IMinter(MINTER).collateralRatio(), stabilityCollateralRatio_);
         }
 
         // depending on the token, determine the amount that needs to be liquidated
         // TODO: merge the query and action functions in minter, so there is only one call
         if (_liquidationTokenIsCollateral) {
-            liquidated = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
+            liquidated = IMinter(MINTER).redeemPeggedForCollateralRatio(stabilityCollateralRatio_);
         } else {
-            liquidated = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(rebalanceCollateralRatio_);
+            liquidated = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(stabilityCollateralRatio_);
         }
         _checkpoint(address(0));
         liquidated = Math.min(liquidated, $.totalSupply.amount);
@@ -418,7 +418,7 @@ contract RebalancePool_v1 is
 
         emit Liquidate(liquidated);
 
-        _accumulateReward(LIQUIDATION_TOKEN, returnAmount);
+        _accumulateReward(rewardToken, returnAmount);
 
         // notify loss
         _notifyLoss(liquidated);

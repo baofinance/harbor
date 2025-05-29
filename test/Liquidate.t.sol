@@ -14,10 +14,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
-import {RebalancePool_v1} from "src/minter/RebalancePool_v1.sol";
+import {IStabilityPool} from "src/interfaces/IRebalancePool.sol";
+import {StabilityPool_v1} from "src/minter/RebalancePool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {IStabilityPool} from "src/interfaces/IRebalancePool.sol";
 
 import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
@@ -26,41 +26,41 @@ import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
-import {TestRebalancePoolSetUp} from "test/RebalancePool.t.sol";
+import {TestStabilityPoolSetUp} from "test/RebalancePool.t.sol";
 
 import "test/clog.sol";
 
-contract TestRebalancePool2SetUp is TestRebalancePoolSetUp {
-    address rebalancePoolLeveraged;
+contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
+    address stabilityPoolLeveraged;
 
-    function setUp() public virtual override(TestRebalancePoolSetUp) {
+    function setUp() public virtual override(TestStabilityPoolSetUp) {
         super.setUp();
 
         deal(address(peggedToken), user1, 1000 ether);
         deal(address(peggedToken), user2, 2000 ether);
 
-        rebalancePoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(new RebalancePool_v1(minter, leveragedToken)), // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, owner)
+        stabilityPoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, leveragedToken)), // "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         vm.prank(user1);
-        IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(user2);
-        IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
 
         vm.prank(owner);
-        IBaoRoles(minter).grantRoles(rebalancePool, zeroFeeRole);
-        vm.prank(rebalancePool);
+        IBaoRoles(minter).grantRoles(stabilityPool, zeroFeeRole);
+        vm.prank(stabilityPool);
         IERC20(peggedToken).approve(minter, type(uint256).max);
 
         vm.prank(owner);
-        IBaoRoles(minter).grantRoles(rebalancePoolLeveraged, zeroFeeRole);
-        vm.prank(rebalancePoolLeveraged);
+        IBaoRoles(minter).grantRoles(stabilityPoolLeveraged, zeroFeeRole);
+        vm.prank(stabilityPoolLeveraged);
         IERC20(peggedToken).approve(minter, type(uint256).max);
     }
 }
 
-contract TestLiquidate is TestRebalancePool2SetUp {
+contract TestLiquidate is TestStabilityPool2SetUp {
     function test_liquidateFailure() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         uint256 liquidated;
@@ -69,15 +69,15 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         setUp_collateral(8 ether, 0 ether); // 8:0 CR = 1
 
         // liquidate with 0 deposited
-        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.NotEnoughTokensToLiquidate.selector, 0, 0));
-        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.NotEnoughTokensToLiquidate.selector, 0, 0));
+        liquidated = IStabilityPool(stabilityPool).liquidate(0);
         // (1) -------------------------------------------------
 
         // some deposits - liquidate more than deposit?
         setUp_collateral(1 ether, 0 ether, user1); // 9:0 CR = 1
         vm.prank(user1);
-        IRebalancePool(rebalancePool).deposit(1 * price, user1, 0);
-        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        IStabilityPool(stabilityPool).deposit(1 * price, user1, 0);
+        liquidated = IStabilityPool(stabilityPool).liquidate(0);
         // (2) -------------------------------------------------
         assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
 
@@ -86,8 +86,8 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         price /= 2;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // depeg: CR = 0.5
         vm.prank(user1);
-        IRebalancePool(rebalancePool).deposit(1 * price, user1, 0);
-        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        IStabilityPool(stabilityPool).deposit(1 * price, user1, 0);
+        liquidated = IStabilityPool(stabilityPool).liquidate(0);
         // (3) -------------------------------------------------
         assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
 
@@ -96,29 +96,29 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         // some deposits - liquidate more than min
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1
         vm.prank(user1);
-        IRebalancePool(rebalancePool).deposit(1 * price, user1, 0);
+        IStabilityPool(stabilityPool).deposit(1 * price, user1, 0);
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.NotEnoughTokensToLiquidate.selector, 1 * price, 2 * price)
+            abi.encodeWithSelector(IStabilityPool.NotEnoughTokensToLiquidate.selector, 1 * price, 2 * price)
         );
-        liquidated = IRebalancePool(rebalancePool).liquidate(2 * price);
+        liquidated = IStabilityPool(stabilityPool).liquidate(2 * price);
         // (4) --------------------------------------------------------
 
         // 130% = 13/10
         setUp_collateral(0 ether, 4 ether); // cr=12/9 = 133%
         uint256 startCR = IMinter(minter).collateralRatio(); // 1421052631578947368
 
-        // not in rebalance mode
+        // not in stability mode
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, startCR, 130 ether / 100)
+            abi.encodeWithSelector(IStabilityPool.collateralRatioTooHigh.selector, startCR, 130 ether / 100)
         );
-        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        liquidated = IStabilityPool(stabilityPool).liquidate(0);
         // (5) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), startCR);
 
         // mint more pegged to move CR
         setUp_collateral(5 ether, 0 ether); // cr =18/14 = 129%
 
-        liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        liquidated = IStabilityPool(stabilityPool).liquidate(0);
         // (6) ------------------------------------------------
         assertEq(liquidated, price, "should have liquidated 2");
     }
@@ -135,39 +135,39 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         // deposit it
         // only need 1 price deposit to do a successful liquidation
         vm.prank(user1);
-        IRebalancePool(rebalancePool).deposit(2 * price, user1, 0);
+        IStabilityPool(stabilityPool).deposit(2 * price, user1, 0);
 
-        uint256 poolPegged = IERC20(peggedToken).balanceOf(rebalancePool);
-        uint256 poolCollateral = IERC20(collateralToken).balanceOf(rebalancePool);
-        uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(rebalancePool);
+        uint256 poolPegged = IERC20(peggedToken).balanceOf(stabilityPool);
+        uint256 poolCollateral = IERC20(collateralToken).balanceOf(stabilityPool);
+        uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(stabilityPool);
         assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR");
         // liquidate it
-        uint256 liquidated = IRebalancePool(rebalancePool).liquidate(0);
+        uint256 liquidated = IStabilityPool(stabilityPool).liquidate(0);
         // (1) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
         assertEq(liquidated, 1 * price, "wrong amount of pegged 1");
-        assertEq(poolPegged - IERC20(peggedToken).balanceOf(rebalancePool), 1 * price, "wrong amount of pegged");
+        assertEq(poolPegged - IERC20(peggedToken).balanceOf(stabilityPool), 1 * price, "wrong amount of pegged");
         assertEq(
-            IERC20(collateralToken).balanceOf(rebalancePool) - poolCollateral,
+            IERC20(collateralToken).balanceOf(stabilityPool) - poolCollateral,
             1 ether,
             "wrong amount of collateral"
         );
-        assertEq(poolLeveraged, IERC20(leveragedToken).balanceOf(rebalancePoolLeveraged), "wrong amount of leveraged");
+        assertEq(poolLeveraged, IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged), "wrong amount of leveraged");
 
-        // collateral ratio has gone to rebalance, liquidate it, with no effect
+        // collateral ratio has gone to stability, liquidate it, with no effect
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(IStabilityPool.collateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
         );
-        IRebalancePool(rebalancePool).liquidate(0);
+        IStabilityPool(stabilityPool).liquidate(0);
         // (2) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130 still");
 
         // move the CR up a bit, liquidate it, with no effect
         setUp_collateral(0 ether, 1 ether); // cr=14/10 = 140%
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, 14 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(IStabilityPool.collateralRatioTooHigh.selector, 14 ether / 10, 13 ether / 10)
         );
-        IRebalancePool(rebalancePool).liquidate(1 ether);
+        IStabilityPool(stabilityPool).liquidate(1 ether);
         // (3) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 10, "collateral ratio should still be 140");
     }
@@ -184,38 +184,38 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         // deposit it
         // only need 1 price deposit to do a successful liquidation
         vm.prank(user1);
-        IRebalancePool(rebalancePoolLeveraged).deposit(2 * price, user1, 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(2 * price, user1, 0);
 
-        uint256 poolPegged = IERC20(peggedToken).balanceOf(rebalancePoolLeveraged); // 2 * price
-        uint256 poolCollateral = IERC20(collateralToken).balanceOf(rebalancePoolLeveraged); // 0
-        uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(rebalancePoolLeveraged); // 0
+        uint256 poolPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged); // 2 * price
+        uint256 poolCollateral = IERC20(collateralToken).balanceOf(stabilityPoolLeveraged); // 0
+        uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged); // 0
         assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR"); // 127%
         // liquidate it 0.23 * price vs 1 * price for liquidate to collateral
-        uint256 liquidated = IRebalancePool(rebalancePoolLeveraged).liquidate(0);
+        uint256 liquidated = IStabilityPool(stabilityPoolLeveraged).liquidate(0);
         // (1) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
         assertEq(liquidated, 461538461538461538462, "wrong amount of pegged");
         assertEq(
-            poolPegged - IERC20(peggedToken).balanceOf(rebalancePoolLeveraged),
+            poolPegged - IERC20(peggedToken).balanceOf(stabilityPoolLeveraged),
             liquidated,
             "wrong amount of pegged"
         );
         assertEq(
-            IERC20(collateralToken).balanceOf(rebalancePoolLeveraged) - poolCollateral,
+            IERC20(collateralToken).balanceOf(stabilityPoolLeveraged) - poolCollateral,
             0,
             "wrong amount of collateral"
         );
         assertEq(
-            IERC20(leveragedToken).balanceOf(rebalancePoolLeveraged) - poolLeveraged,
+            IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged) - poolLeveraged,
             liquidated, // TODO: why is this exactly the same as the liquidated pegged?
             "wrong amount of leveraged"
         );
 
-        // collateral ratio has gone to rebalance, liquidate it, with no effect
+        // collateral ratio has gone to stability, liquidate it, with no effect
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.collateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(IStabilityPool.collateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
         );
-        IRebalancePool(rebalancePoolLeveraged).liquidate(0);
+        IStabilityPool(stabilityPoolLeveraged).liquidate(0);
         // (2) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130 still");
 
@@ -225,12 +225,12 @@ contract TestLiquidate is TestRebalancePool2SetUp {
         assertGt(beforeCR, uint256(13 ether) / 10);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IRebalancePool.collateralRatioTooHigh.selector,
+                IStabilityPool.collateralRatioTooHigh.selector,
                 IMinter(minter).collateralRatio(),
                 13 ether / 10
             )
         );
-        IRebalancePool(rebalancePoolLeveraged).liquidate(1 ether);
+        IStabilityPool(stabilityPoolLeveraged).liquidate(1 ether);
         // (3) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), beforeCR, "collateral ratio should still be 140");
     }
