@@ -11,7 +11,7 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {ILiquidator} from "src/interfaces/ILiquidator.sol";
 
 /// @author rootminus0x1
@@ -40,8 +40,8 @@ contract Liquidator_v1 is
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.Liquidator
     struct LiquidatorStorage {
-        /// @notice The address of rebalancePool contract.
-        address rebalancePool;
+        /// @notice The address of stabilityPool contract.
+        address stabilityPool;
         /// @notice the reward given to a successful liquidator
         address rewardToken;
         /// @notice the ampount of reward to be given to the liquidator caller
@@ -58,17 +58,17 @@ contract Liquidator_v1 is
         }
     }
 
-    function initialize(address owner_, address rebalancePool_, address rewardToken) public initializer {
+    function initialize(address owner_, address stabilityPool_, address rewardToken) public initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ERC165_init();
 
         // TODO:
-        // if (!BaoOwnableRoles(rebalancePool).hasAnyRole(address(this), LIQUIDATOR_ROLE))
+        // if (!BaoOwnableRoles(stabilityPool).hasAnyRole(address(this), LIQUIDATOR_ROLE))
         //     revert NeedsRole(address(this), LIQUIDATOR_ROLE);
 
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-        $.rebalancePool = rebalancePool_;
+        $.stabilityPool = stabilityPool_;
         $.rewardToken = rewardToken;
     }
 
@@ -96,10 +96,10 @@ contract Liquidator_v1 is
             super.supportsInterface(interfaceId);
     }
 
-    /// @inheritdoc ILiquidator
-    function rebalancePool() external view returns (address) {
+    // @inheritdoc ILiquidator
+    function stabilityPool() external view returns (address) {
         LiquidatorStorage storage $ = _getLiquidatorStorage();
-        return $.rebalancePool;
+        return $.stabilityPool;
     }
 
     /// @inheritdoc ILiquidator
@@ -124,8 +124,8 @@ contract Liquidator_v1 is
         IERC20($.rewardToken).safeTransfer(rewardReceiver, $.rewardAmount);
 
         // do the actual liquidation
-        // TODO: bring more from rebalance pools
-        // wake-disable-next-line reentrancy // rebalancePool is trusted and reentrancy guard
-        liquidated = IRebalancePool($.rebalancePool).liquidate(minLiquidation);
+        // TODO: bring more from stability pools
+        // wake-disable-next-line reentrancy // stabilityPool is trusted and reentrancy guard
+        liquidated = IStabilityPool($.stabilityPool).liquidate(minLiquidation);
     }
 }

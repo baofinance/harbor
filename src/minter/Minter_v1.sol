@@ -33,7 +33,7 @@ import {Config_v1} from "src/minter/lib/Config_v1.sol";
 /// ### Pegged tokens
 /// Pegged tokens are ERC20 tokens that are pegged to some price provided by the `priceOracle`.
 /// Pegged tokens have value, not just because they provide exposure to a price, for example, a real world asset,
-/// but they can also be deposited into one of the rebalance pools for a reward.
+/// but they can also be deposited into one of the stability pools for a reward.
 /// <br>
 /// Note:
 /// * This contract must be given access to mint the pegged tokens by the owners of that pegged token.
@@ -42,7 +42,7 @@ import {Config_v1} from "src/minter/lib/Config_v1.sol";
 /// ensures that it will not redeem more than it has minted. Pegged tokened minted elsewhere can be used here.
 /// * This contract provides the pegging mechanism.
 /// #### Price Stability
-/// The price stability is provided by a set of rebalance pools which utilise protected functionality provided by this
+/// The price stability is provided by a set of stability pools which utilise protected functionality provided by this
 /// contract to do so.
 /// ### Leveraged Tokens
 /// Leveraged tokens are ERC20 tokens that are minted only by this contract. These tokens have value in that they can be
@@ -84,10 +84,10 @@ import {Config_v1} from "src/minter/lib/Config_v1.sol";
 ///    array. The author also cannot envisage a situation where a discount is applied to an action that lowers
 ///    collateral ratio and so configs that contain them are rejected.
 /// ### Rebalancing
-/// Rebalance pools know about the minter contract they are offering a rebalance service to and set themselves up to use
+/// Stability pools know about the minter contract they are offering a rebalance service to and set themselves up to use
 /// The collateral ratio stored in this contract's config to allow or disallow liquidation calls to them.
 /// ### Harvesting
-/// Harvesting becomes available to be executed, transferring to the rebalance pools the value accrued by holding wrapped collateral
+/// Harvesting becomes available to be executed, transferring to the stability pools the value accrued by holding wrapped collateral
 /// instead of underlying collateral. A portion of that is handed to the caller of the harvest function as a reward.
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @dev As openzeppelin's validator doesn't currently suppoprt external libraries
@@ -206,7 +206,7 @@ contract Minter_v1 is
         ConfigIncentiveLib.ActionIncentive redeemLeveragedIncentiveConfig;
     }
 
-    // TODO: add function to add a rebalancer, granting role and keeping track of it for liquidation?
+    // TODO: add function to add a stabilizer, granting role and keeping track of it for liquidation?
 
     ////////////////////
     // Initialisation //
@@ -215,7 +215,6 @@ contract Minter_v1 is
     // UUPSUpgradeable functions
     // -------------------------
 
-    // TODO: take stuff out of this and put it in deploy script
     function initialize(address owner_) external initializer {
         // initialise all the state variables
         _initializeOwner(owner_);

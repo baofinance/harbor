@@ -11,7 +11,7 @@ pragma solidity ^0.8.26;
 /// Configuration functions are available such as for allowing setting of:
 /// <ul>
 /// <li>the fee/discount/disallow configuration
-/// <li>the collateral ratio that rebalancing and harvesting can start
+/// <li>the collateral ratio that rebalancing can start
 /// <li>the price oracle and rate (for wrapped) of the collateral
 /// <li>the fee receiver and discount provider (reserve pool)
 /// </ul>

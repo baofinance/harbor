@@ -12,16 +12,16 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
-import {TestRebalancePool2SetUp} from "test/Liquidate.t.sol";
+import {TestStabilityPool2SetUp} from "test/Liquidate.t.sol";
 import {Array} from "test/Array.sol";
 
-contract TestGraphs is TestRebalancePool2SetUp {
+contract TestGraphs is TestStabilityPool2SetUp {
     int256 NaN = type(int256).max;
     uint256 uNaN = type(uint256).max;
 
@@ -31,8 +31,8 @@ contract TestGraphs is TestRebalancePool2SetUp {
         IERC20(collateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        IERC20(peggedToken).approve(rebalancePool, type(uint256).max);
-        IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPool, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
         assertEq(0, IERC20(collateralToken).balanceOf(reservePool), "reserve pool should be empty");

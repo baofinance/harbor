@@ -97,8 +97,8 @@ contract TestDeployedMinter is TestMinterBasics, TestDeployed {
 
 /*
 contract TestDeploySetUp is TestMinterSetUp, TestDeployed {
-    address rebalancePoolCollateral;
-    address rebalancePoolLeveraged;
+    address stabilityPoolCollateral;
+    address stabilityPoolLeveraged;
 
     address genesis;
 
@@ -114,8 +114,8 @@ contract TestDeploySetUp is TestMinterSetUp, TestDeployed {
         collateralToken = addr("collateralToken");
         reservePool = addr("reservePool");
         minter = addr("minter");
-        rebalancePoolCollateral = addr("rebalancePoolCollateral");
-        rebalancePoolLeveraged = addr("rebalancePoolLeveraged");
+        stabilityPoolCollateral = addr("stabilityPoolCollateral");
+        stabilityPoolLeveraged = addr("stabilityPoolLeveraged");
         genesis = addr("genesis");
 
         uint256 minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
@@ -149,17 +149,17 @@ contract TestDeploy is TestDeploySetUp {
         assertTrue(IBaoRoles(leveragedToken).hasAllRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()));
     }
 
-    function _test_rebalanceConnections(address rp, address liquidateTo) private view {
-        assertEq(IRebalancePool(rp).minter(), minter);
-        assertEq(IRebalancePool(rp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
-        assertEq(IRebalancePool(rp).liquidationToken(), liquidateTo);
-        assertEq(IRebalancePool(rp).assetToken(), peggedToken);
-        assertEq(IRebalancePool(rp).totalAssetSupply(), 0);
+    function _test_stabilityConnections(address sp, address liquidateTo) private view {
+        assertEq(IStabilityPool(sp).minter(), minter);
+        assertEq(IStabilityPool(sp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
+        assertEq(IStabilityPool(sp).liquidationToken(), liquidateTo);
+        assertEq(IStabilityPool(sp).assetToken(), peggedToken);
+        assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
     }
 
-    function test_rebalancePool() public view {
-        _test_rebalanceConnections(rebalancePoolLeveraged, leveragedToken);
-        _test_rebalanceConnections(rebalancePoolCollateral, collateralToken);
+    function test_stabilityPool() public view {
+        _test_stabilityConnections(stabilityPoolLeveraged, leveragedToken);
+        _test_stabilityConnections(stabilityPoolCollateral, collateralToken);
     }
 
     function test_genesis() public {
@@ -178,5 +178,4 @@ contract TestDeploy is TestDeploySetUp {
         IGenesis(genesis).claimable(address(this));
     }
 }
-
 */

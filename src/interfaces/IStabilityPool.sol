@@ -61,6 +61,9 @@ interface IStabilityPool {
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
 
+    /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
+    error CollateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
+
     /// @dev Thrown when the amount requested to be liquidated isn't met
     error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
 

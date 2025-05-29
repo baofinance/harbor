@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
@@ -68,8 +68,8 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             sa("Collateral Ratio", "Leverage Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
         );
 
-        IRebalancePool(rebalancePool).deposit(4 * startPrice, address(this), 0);
-        IRebalancePool(rebalancePoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool(stabilityPool).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
         liquidateFile = openFile(
             string.concat("liquidate", context()),
             sa("antes CR", "liquidate to collateral", "liquidate to leveraged")
@@ -229,10 +229,10 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         uint256 afterLiquidateLeveraged;
         if (currentCollateralRatio < 13 ether / 10) {
             uint256 snap = vm.snapshotState();
-            IRebalancePool(rebalancePool).liquidate(0);
+            IStabilityPool(stabilityPool).liquidate(0);
             afterLiquidate = IMinter(minter).collateralRatio();
             vm.revertToState(snap);
-            IRebalancePool(rebalancePoolLeveraged).liquidate(0);
+            IStabilityPool(stabilityPoolLeveraged).liquidate(0);
             afterLiquidateLeveraged = IMinter(minter).collateralRatio();
             vm.revertToState(snap);
         } else {

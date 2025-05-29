@@ -15,9 +15,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {RebalancePool_v1} from "src/minter/RebalancePool_v1.sol";
+import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {IRebalancePool} from "src/interfaces/IRebalancePool.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
@@ -28,68 +28,68 @@ import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/clog.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
 
-contract TestRebalancePoolSetUp is TestMinterFeeSetUp {
-    address rebalancePool;
+contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
+    address stabilityPool;
     address user1;
     address user2;
 
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
-        rebalancePool = UnsafeUpgrades.deployUUPSProxy(
-            address(new RebalancePool_v1(minter, collateralToken)), // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, owner)
+        stabilityPool = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, collateralToken)), // "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
-        IERC20(Deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+        IERC20(Deployed.BaoUSD).approve(stabilityPool, type(uint256).max);
 
         user2 = vm.createWallet("user2").addr;
         vm.prank(user2);
-        IERC20(Deployed.BaoUSD).approve(rebalancePool, type(uint256).max);
+        IERC20(Deployed.BaoUSD).approve(stabilityPool, type(uint256).max);
     }
 
-    function test_init(address rp, address liquidateTo) internal view {
-        assertEq(RebalancePool_v1(rp).owner(), address(this));
-        assertEq(IRebalancePool(rp).ASSET_TOKEN(), peggedToken);
-        assertEq(IRebalancePool(rp).LIQUIDATION_TOKEN(), liquidateTo);
-        assertEq(IRebalancePool(rp).MINTER(), minter);
-        assertEq(IRebalancePool(rp).totalAssetSupply(), 0);
-        assertEq(IRebalancePool(rp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
+    function test_init(address sp, address liquidateTo) internal view {
+        assertEq(StabilityPool_v1(sp).owner(), address(this));
+        assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
+        assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
+        assertEq(IStabilityPool(sp).MINTER(), minter);
+        assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
+        assertEq(IStabilityPool(sp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
     }
 }
 
-contract TestRebalancePoolInit is TestRebalancePoolSetUp {
+contract TestStabilityPoolInit is TestStabilityPoolSetUp {
     using SafeERC20 for IERC20;
 
     function test_init() public view {
-        test_init(rebalancePool, collateralToken);
+        test_init(stabilityPool, collateralToken);
     }
 }
 
-contract TestRebalancePoolInitEvents is TestRebalancePoolSetUp {
+contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new RebalancePool_v1(minter, collateralToken));
+        address(new StabilityPool_v1(minter, collateralToken));
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address rp = address(new RebalancePool_v1(minter, liquidateTo));
+        address sp = address(new StabilityPool_v1(minter, liquidateTo));
         vm.expectEmit();
-        emit IERC1967.Upgraded(address(rp));
+        emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
 
-        address rpProxy = UnsafeUpgrades.deployUUPSProxy(
-            rp, // "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner))
+        address spProxy = UnsafeUpgrades.deployUUPSProxy(
+            sp, // "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
 
-        test_init(rpProxy, liquidateTo);
+        test_init(spProxy, liquidateTo);
     }
 
     function test_initEventsCollateral() public {
@@ -101,13 +101,13 @@ contract TestRebalancePoolInitEvents is TestRebalancePoolSetUp {
     }
 
     function test_initEventsBad() public {
-        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.InvalidLiquidationToken.selector, peggedToken));
-        new RebalancePool_v1(minter, peggedToken);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
+        new StabilityPool_v1(minter, peggedToken);
     }
 }
 
-contract TestRebalancePoolDepositWithdraw is TestRebalancePoolSetUp {
-    function setUp() public virtual override(TestRebalancePoolSetUp) {
+contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
+    function setUp() public virtual override(TestStabilityPoolSetUp) {
         super.setUp();
     }
 
@@ -119,84 +119,84 @@ contract TestRebalancePoolDepositWithdraw is TestRebalancePoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price, "user1 has");
         vm.expectRevert("SafeMath: subtraction underflow"); // should be amount exceeds balance, but hey-ho
         vm.prank(user1);
-        IRebalancePool(rebalancePool).deposit(20 * price, receiver, 0);
+        IStabilityPool(stabilityPool).deposit(20 * price, receiver, 0);
         // --------------------------------------------------------
 
         // $2 deposit
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price);
-        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 0);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 0);
         vm.prank(user1);
-        uint256 deposited = IRebalancePool(rebalancePool).deposit(2 * price, receiver, 0);
+        uint256 deposited = IStabilityPool(stabilityPool).deposit(2 * price, receiver, 0);
         // 1 deposit --------------------------------------------------------------------
         assertEq(deposited, 2 * price, "returned value");
-        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 2 * price);
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 2 * price);
+        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 2 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 8 * price);
 
         // $3 withdrawal
         vm.prank(user1);
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
+            abi.encodeWithSelector(IStabilityPool.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
         );
-        IRebalancePool(rebalancePool).withdraw(3 * price, receiver);
+        IStabilityPool(stabilityPool).withdraw(3 * price, receiver);
         // 1 withdraw ---------------------------------------------
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 2 * price);
+        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 2 * price);
 
         // $5 second deposit
         vm.prank(user1);
-        deposited = IRebalancePool(rebalancePool).deposit(5 * price, receiver, 0);
+        deposited = IStabilityPool(stabilityPool).deposit(5 * price, receiver, 0);
         // 2 deposit ------------------------------------------------------------
         assertEq(deposited, 5 * price, "returned value 5");
-        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 7 * price);
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 7 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 7 * price);
+        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 7 * price);
 
         // withdraw some
         vm.prank(user1);
-        uint256 withdrawn = IRebalancePool(rebalancePool).withdraw(4 * price, receiver);
+        uint256 withdrawn = IStabilityPool(stabilityPool).withdraw(4 * price, receiver);
         // 2 withdraw -----------------------------------------------------------------
         assertEq(withdrawn, 4 * price, "withdraw 4");
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 3 * price);
+        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 3 * price);
 
         // withdraw rest
         vm.prank(user1);
-        withdrawn = IRebalancePool(rebalancePool).withdraw(type(uint256).max, receiver);
+        withdrawn = IStabilityPool(stabilityPool).withdraw(type(uint256).max, receiver);
         // 3 withdraw -----------------------------------------------------------------
         assertEq(withdrawn, 3 * price, "withdraw 3 (-1)");
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 0);
+        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 0);
 
         // deposit -1
         vm.prank(user1);
-        deposited = IRebalancePool(rebalancePool).deposit(type(uint256).max, receiver, 0);
+        deposited = IStabilityPool(stabilityPool).deposit(type(uint256).max, receiver, 0);
         // 3 deposit --------------------------------------------------------------------
         assertEq(deposited, 10 * price, "returned value 10");
-        assertEq(IRebalancePool(rebalancePool).assetBalanceOf(receiver), 10 * price);
+        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0);
 
         // deposit for more than the minter has minted, deposits up to the minter's balance
         // mint from another source, not minter
         setUp_collateral(1 ether, 0 ether); // add more minter
         assertEq(IMinter(minter).peggedTokenBalance(), 21 * price, "minted by minter");
-        assertEq(IERC20(peggedToken).balanceOf(rebalancePool), 10 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 10 * price);
         deal(address(peggedToken), user1, 20 * price);
         vm.prank(user1);
-        deposited = IRebalancePool(rebalancePool).deposit(20 * price, receiver, 0);
+        deposited = IStabilityPool(stabilityPool).deposit(20 * price, receiver, 0);
         // 4 deposit -------------------------------------------------------------
         assertEq(deposited, 11 * price, "returned value 11, not 20");
 
         // minter has none left, so zero deposit
-        vm.expectRevert(abi.encodeWithSelector(IRebalancePool.DepositZeroAmount.selector));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.DepositZeroAmount.selector));
         vm.prank(user1);
-        deposited = IRebalancePool(rebalancePool).deposit(9 * price, receiver, 0);
+        deposited = IStabilityPool(stabilityPool).deposit(9 * price, receiver, 0);
         // 5 deposit -------------------------------------------------------------
 
         // check min deposit amount
         setUp_collateral(1 ether, 0 ether); // add more minter
         deal(address(peggedToken), user1, 3 * price);
         vm.expectRevert(
-            abi.encodeWithSelector(IRebalancePool.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
+            abi.encodeWithSelector(IStabilityPool.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
         );
         vm.prank(user1);
-        IRebalancePool(rebalancePool).deposit(3 * price, receiver, 2 * price);
+        IStabilityPool(stabilityPool).deposit(3 * price, receiver, 2 * price);
         // 6 deposit --------------------------------------------------------
     }
 

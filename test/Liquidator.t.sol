@@ -14,10 +14,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 // import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
-import {IStabilityPool} from "src/interfaces/IRebalancePool.sol";
-import {StabilityPool_v1} from "src/minter/RebalancePool_v1.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {IStabilityPool} from "src/interfaces/IRebalancePool.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
@@ -26,7 +26,7 @@ import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
-import {TestStabilityPoolSetUp} from "test/RebalancePool.t.sol";
+import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 import "test/clog.sol";
 

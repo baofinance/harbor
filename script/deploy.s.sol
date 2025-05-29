@@ -23,7 +23,7 @@ import "src/minter/ReservePool_v1.sol";
 import "src/minter/TokenDistributor_v1.sol";
 import "src/minter/Minter_v1.sol";
 import "src/interfaces/IMinter.sol";
-import "src/minter/RebalancePool_v1.sol";
+import "src/minter/StabilityPool_v1.sol";
 import "src/minter/Genesis_v1.sol";
 import "test/Array.sol";
 import "test/Useful.sol";
@@ -172,24 +172,24 @@ contract DeployLib is Network {
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // RebalancePool
-    function deployRebalancePool(
+    // StabilityPool
+    function deployStabilityPool(
         address owner,
         address minter_,
         address liquidationToken
-    ) internal returns (address rebalancePool_) {
+    ) internal returns (address stabilityPool_) {
         Options memory opts;
         opts.constructorData = abi.encode(minter_, liquidationToken);
-        rebalancePool_ = Upgrades.deployUUPSProxy(
-            "RebalancePool_v1.sol",
-            abi.encodeCall(RebalancePool_v1.initialize, (owner))
+        stabilityPool_ = Upgrades.deployUUPSProxy(
+            "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
-        //console2.log("RebalancePool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), rebalancePool_);
+        //console2.log("StabilityPool(%s) = %s", IERC20Metadata(liquidationToken).symbol(), stabilityPool_);
     }
 
-    function postDeployRebalancePoolTransactions(address rebalancePool_, address owner, address minter) internal {
-        IBaoRoles(minter).grantRoles(rebalancePool_, IMinter(minter).ZERO_FEE_ROLE());
-        IBaoOwnable(rebalancePool_).transferOwnership(owner);
+    function postDeployStabilityPoolTransactions(address stabilityPool_, address owner, address minter) internal {
+        IBaoRoles(minter).grantRoles(stabilityPool_, IMinter(minter).ZERO_FEE_ROLE());
+        IBaoOwnable(stabilityPool_).transferOwnership(owner);
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -278,21 +278,21 @@ contract Deploy is DeployLib, DeployState, Array, ConfigFile {
             DeployLib.postDeployTokenDistributorTransactions(feeReceiver, Deployed.BAOMULTISIG);
             DeployLib.postDeployReservePoolTransactions(reservePool, Deployed.BAOMULTISIG, minter);
         } else if (step() == 2) {
-            address rebalancePoolCollateral = DeployLib.deployRebalancePool(
+            address stabilityPoolCollateral = DeployLib.deployStabilityPool(
                 //                                      -------------------
                 Deployed.BAOMULTISIG,
                 addr("minter"),
                 addr("collateralToken")
             );
-            logAddr("rebalancePoolCollateral", rebalancePoolCollateral);
+            logAddr("stabilityPoolCollateral", stabilityPoolCollateral);
 
-            address rebalancePoolLeveraged = DeployLib.deployRebalancePool(
+            address stabilityPoolLeveraged = DeployLib.deployStabilityPool(
                 //                                      -------------------
                 Deployed.BAOMULTISIG,
                 addr("minter"),
                 addr("leveragedToken")
             );
-            logAddr("rebalancePoolLeveraged", rebalancePoolLeveraged);
+            logAddr("stabilityPoolLeveraged", stabilityPoolLeveraged);
 
             address genesis = DeployLib.deployGenesis(
                 //                      ------------
@@ -301,13 +301,13 @@ contract Deploy is DeployLib, DeployState, Array, ConfigFile {
             );
             logAddr("genesis", genesis);
 
-            DeployLib.postDeployRebalancePoolTransactions(
-                rebalancePoolCollateral,
+            DeployLib.postDeployStabilityPoolTransactions(
+                stabilityPoolCollateral,
                 Deployed.BAOMULTISIG,
                 addr("minter")
             );
 
-            DeployLib.postDeployRebalancePoolTransactions(rebalancePoolLeveraged, Deployed.BAOMULTISIG, addr("minter"));
+            DeployLib.postDeployStabilityPoolTransactions(stabilityPoolLeveraged, Deployed.BAOMULTISIG, addr("minter"));
             DeployLib.postDeployGenesisTransactions(genesis, Deployed.BAOMULTISIG, addr("minter"));
             DeployLib.postDeployMinterTransactions(addr("minter"), Deployed.BAOMULTISIG);
         } else {
