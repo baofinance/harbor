@@ -28,7 +28,6 @@ contract StabilityPoolManager_v1 is
     BaoOwnableRoles,
     ERC165Upgradeable,
     ReentrancyGuardTransientUpgradeable,
-    TokenHolder,
     IStabilityPoolManager
 {
     using SafeERC20 for IERC20;
@@ -251,8 +250,8 @@ contract StabilityPoolManager_v1 is
         // sum up the relative sizes of the stabilility pools - this is the pegged token holdings
         // note that these holdings are depleted by the liquidation process
         (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
-        if (totalPoolHolding < minPeggedLiquidated) {
-            revert NotEnoughTokensToLiquidate(totalPoolHolding, minPeggedLiquidated);
+        if (totalPoolHolding == 0) {
+            revert NoTokensToLiquidate(PEGGED_TOKEN);
         }
 
         // get the amount to liquidate (double(ish) the anmount)
@@ -272,23 +271,39 @@ contract StabilityPoolManager_v1 is
         }
 
         // do the actual liquidation for each pool
-        // collateral return
-        uint256 wrappedCollateralOut = IMinter(MINTER).freeRedeemPeggedToken(
-            peggedForCollateral,
-            STABILITY_POOL_COLLATERAL
-        );
+        // * take the pegged tokens to be lqiudated
+        // * liquidate them into the other token (collateral/leveraged)
+        // * extract the feed and transfer to the fee receiver
+        // * transfer the remainder to the stability pool, notifying it of that "reward"
 
-        IStabilityPool(STABILITY_POOL_COLLATERAL).checkpoint();
-        IStabilityPool(STABILITY_POOL_COLLATERAL).accumulateReward(WRAPPED_COLLATERAL_TOKEN, peggedForCollateral);
-        IStabilityPool(STABILITY_POOL_COLLATERAL).notifyLoss(peggedForCollateral);
+        uint256 rebalanceBountyRatio_ = $.rebalanceBountyRatio;
+
+        // collateral return pool
+        ITokenHolder(STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
+        uint256 wrappedCollateralReturned = IMinter(MINTER).freeRedeemPeggedToken(peggedForCollateral, address(this));
+
+        // extract the bounty
+        uint256 collateralBounty = (wrappedCollateralReturned * 1 ether) / rebalanceBountyRatio_;
+        wrappedCollateralReturned -= collateralBounty;
+
+        // transfer the amounts and update the stability pool accounts
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, collateralBounty);
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
+        IStabilityPool(STABILITY_POOL_COLLATERAL).accumulateReward(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralReturned);
 
         // leveraged return
-        uint256 leveragedOut = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, STABILITY_POOL_LEVERAGED);
+        ITokenHolder(STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
+        uint256 leveragedReturned = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, address(this));
 
-        emit Rebalanced(peggedLiquidated, wrappedCollateralOut, leveragedOut);
-        IStabilityPool(STABILITY_POOL_LEVERAGED).checkpoint();
-        IStabilityPool(STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, peggedForLeveraged);
-        IStabilityPool(STABILITY_POOL_LEVERAGED).notifyLoss(peggedForLeveraged);
+        // extract the bounty
+        uint256 leveragedBounty = (leveragedReturned * 1 ether) / rebalanceBountyRatio_;
+        leveragedReturned -= leveragedBounty;
+
+        IERC20(LEVERAGED_TOKEN).safeTransfer(bountyReceiver, leveragedBounty);
+        IERC20(LEVERAGED_TOKEN).safeTransfer(STABILITY_POOL_LEVERAGED, leveragedReturned);
+        IStabilityPool(STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, leveragedReturned);
+
+        emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
     }
 
     function _harvestToPool(

@@ -106,7 +106,7 @@ contract Test_GenesisBase is Test, Array {
     }
 
     function setUpContractImplementation() internal {
-        genesisImpl = address(new Genesis_v1());
+        genesisImpl = address(new Genesis_v1(minter));
     }
 
     function setUpContract() internal {
@@ -114,7 +114,7 @@ contract Test_GenesisBase is Test, Array {
             Genesis_v1(
                 UnsafeUpgrades.deployUUPSProxy(
                     genesisImpl, //"Genesis_v1.sol",
-                    abi.encodeCall(Genesis_v1.initialize, (owner, minter))
+                    abi.encodeCall(Genesis_v1.initialize, owner)
                 )
             )
         );
@@ -147,13 +147,14 @@ contract Test_GenesisBase is Test, Array {
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        Genesis_v1(genesis).initialize(address(this), minter);
+        Genesis_v1(genesis).initialize(address(this));
 
         // check the data has been set up correctly
         assertEq(IBaoOwnable(genesis).owner(), owner, "wrong owner");
-        assertEq(IGenesis(genesis).collateralToken(), collateralToken, "wrong collateral");
-        assertEq(IGenesis(genesis).peggedToken(), peggedToken, "wrong pegged");
-        assertEq(IGenesis(genesis).leveragedToken(), leveragedToken, "wrong leveraged");
+        assertEq(IGenesis(genesis).MINTER(), minter, "wrong minter");
+        assertEq(IGenesis(genesis).WRAPPED_COLLATERAL_TOKEN(), collateralToken, "wrong collateral");
+        assertEq(IGenesis(genesis).PEGGED_TOKEN(), peggedToken, "wrong pegged");
+        assertEq(IGenesis(genesis).LEVERAGED_TOKEN(), leveragedToken, "wrong leveraged");
         assertEq(IGenesis(genesis).balanceOf(address(this)), 0, "wrong balance");
         assertFalse(IGenesis(genesis).genesisIsEnded());
         vm.expectRevert(IGenesis.GenesisIsNotEnded.selector);

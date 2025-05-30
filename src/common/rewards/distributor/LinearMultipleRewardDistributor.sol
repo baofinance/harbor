@@ -18,10 +18,10 @@ import {LinearReward} from "./LinearReward.sol";
 
 // AccessControl,
 abstract contract LinearMultipleRewardDistributor is
-    IMultipleRewardDistributor,
     Initializable,
     ContextUpgradeable,
-    BaoOwnableRoles
+    BaoOwnableRoles,
+    IMultipleRewardDistributor
 {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;

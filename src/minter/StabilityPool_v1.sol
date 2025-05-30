@@ -17,6 +17,8 @@ import {LinearMultipleRewardDistributor} from "src/common/rewards/distributor/Li
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
+import {TokenHolder} from "@bao/TokenHolder.sol";
+
 // import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
 // import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
 // import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
@@ -40,8 +42,8 @@ import {Token} from "@bao/Token.sol";
 contract StabilityPool_v1 is
     Initializable,
     UUPSUpgradeable,
-    ReentrancyGuardTransientUpgradeable,
     MultipleRewardCompoundingAccumulator,
+    TokenHolder,
     IStabilityPool
 {
     using SafeERC20 for IERC20;
@@ -386,16 +388,20 @@ contract StabilityPool_v1 is
         amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
-    function checkpoint() external onlyRoles(REBALANCER_ROLE) {
-        _checkpoint(address(0));
-    }
-
     function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRoles(REWARDER_ROLE) {
         _accumulateReward(rewardToken, rewardAmount);
     }
 
-    function notifyLoss(uint256 liquidatedAmount) external onlyRoles(REBALANCER_ROLE) {
+    function liquidate(uint256 liquidatedAmount) external onlyRoles(REBALANCER_ROLE) returns (uint256 returnedAmount) {
+        if (_liquidationTokenIsCollateral) {
+            returnedAmount = IMinter(MINTER).freeRedeemPeggedToken(liquidatedAmount, address(this));
+        } else {
+            returnedAmount = IMinter(MINTER).freeSwapPeggedForLeveraged(liquidatedAmount, address(this));
+        }
+        _accumulateReward(LIQUIDATION_TOKEN, returnedAmount);
+        _checkpoint(address(0));
         _notifyLoss(liquidatedAmount);
+        emit Liquidated(ASSET_TOKEN, liquidatedAmount, LIQUIDATION_TOKEN, returnedAmount);
     }
 
     /// @inheritdoc IStabilityPool
@@ -950,6 +956,21 @@ contract StabilityPool_v1 is
         unchecked {
             // slither-disable-next-line divide-before-multiply as we actually want to truncate to get an integer number of weeks
             return ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks;
+        }
+    }
+
+    // Rebalancing support
+    // -------------------------------------------------------
+    /// @notice function used to control access to the sweep function for extracting harvestable amounts
+    function _checkSweeper() internal view override(TokenHolder) {
+        _checkOwnerOrRoles(REBALANCER_ROLE);
+    }
+
+    function sweep(address token, uint256 amount, address receiver) public override onlySweeper {
+        TokenHolder.sweep(token, amount, receiver);
+        if (token == ASSET_TOKEN) {
+            _checkpoint(address(0));
+            _notifyLoss(amount);
         }
     }
 }

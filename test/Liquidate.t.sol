@@ -19,6 +19,7 @@ import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
@@ -45,6 +46,8 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
             address(new StabilityPool_v1(minter, leveragedToken)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
+        IBaoOwnable(stabilityPoolLeveraged).transferOwnership(owner);
+
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(user2);
@@ -82,8 +85,17 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         vm.prank(user);
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);
 
-        stabilityPoolCollateralEmpty = address(new StabilityPool_v1(minter, wrappedCollateralToken));
-        stabilityPoolLeveragedEmpty = address(new StabilityPool_v1(minter, wrappedCollateralToken));
+        stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)),
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
+        );
+        IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
+
+        stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, leveragedToken)),
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
+        );
+        IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);
 
         stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
             address(
@@ -91,6 +103,8 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
+        IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceCollateralRatio(1.3 ether);
+        IBaoOwnable(stabilityPoolManagerCollateral).transferOwnership(owner);
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
             address(
@@ -98,18 +112,22 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceCollateralRatio(1.3 ether);
+        IBaoOwnable(stabilityPoolManagerLeveraged).transferOwnership(owner);
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
+        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
         // Grant roles
+        vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
         IBaoRoles(stabilityPoolLeveragedEmpty).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, harvesterRole);
+        IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);
 
         IBaoRoles(stabilityPoolCollateralEmpty).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
         IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManagerLeveraged, harvesterRole);
+        IBaoRoles(minter).grantRoles(stabilityPoolManagerLeveraged, zeroFeeRole);
+        vm.stopPrank();
     }
 
     function test_liquidateFailure() public {
@@ -120,16 +138,16 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         setUp_collateral(8 ether, 0 ether); // 8:0 CR = 1
 
         // liquidate with 0 deposited
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager.NotEnoughTokensToLiquidate.selector, 0, 0));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager.NoTokensToLiquidate.selector, peggedToken));
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
-        // (1) -------------------------------------------------------------------------------------------------
+        // (1) ----------------------------------------------------------------------------------------
 
         // some deposits - liquidate more than deposit?
         setUp_collateral(1 ether, 0 ether, user1); // 9:0 CR = 1
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
-        // (2) ------------------------------------------------------------------------------------------
+        // (2) ----------------------------------------------------------------------------------------
         assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
 
         // does it work when depegged?
@@ -139,7 +157,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
-        // (3) ------------------------------------------------------------------------------------------
+        // (3) ----------------------------------------------------------------------------------------
         assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
 
         price *= 2;
@@ -149,7 +167,12 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.NotEnoughTokensToLiquidate.selector, 1 * price, 2 * price)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.InsufficientLiquidation.selector,
+                peggedToken,
+                1 * price,
+                2 * price
+            )
         );
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 2 * price);
         // (4) --------------------------------------------------------------------------------------------------

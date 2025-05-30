@@ -194,8 +194,11 @@ contract DeployLib is Network {
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Genesis
+
     function deployGenesis(address owner, address minter_) internal returns (address genesis) {
-        genesis = Upgrades.deployUUPSProxy("Genesis_v1.sol", abi.encodeCall(Genesis_v1.initialize, (owner, minter_)));
+        Options memory opts;
+        opts.constructorData = abi.encode(minter_);
+        genesis = Upgrades.deployUUPSProxy("Genesis_v1.sol", abi.encodeCall(Genesis_v1.initialize, owner), opts);
     }
 
     function postDeployGenesisTransactions(address genesis, address owner, address minter) internal {

@@ -13,6 +13,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
@@ -40,6 +41,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
+        IBaoOwnable(stabilityPoolCollateral).transferOwnership(owner);
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
@@ -51,7 +53,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     }
 
     function test_init(address sp, address liquidateTo) internal view {
-        assertEq(StabilityPool_v1(sp).owner(), address(this));
+        assertEq(StabilityPool_v1(sp).owner(), owner);
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
         assertEq(IStabilityPool(sp).MINTER(), minter);
@@ -87,6 +89,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
             sp, // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
+        IBaoOwnable(spProxy).transferOwnership(owner);
 
         test_init(spProxy, liquidateTo);
     }
@@ -106,8 +109,13 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 }
 
 contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
-    function setUp() public virtual override(TestStabilityPoolSetUp) {
-        super.setUp();
+    function test_access() public {
+        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
+
+        vm.prank(owner);
+        IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
     }
 
     function _depositWithdraw(address receiver) private {

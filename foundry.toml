@@ -7,7 +7,6 @@ ast = true
 build_info = true
 
 auto_detect_remappings = false # remappings seem to cause problems
-evm_version = "Cancun"
 optimizer = true
 optimizer_runs = 500           # 10000 builds & tests but 20 deploys
 # via_ir = true # now causes a stack overflow that doesn't happen without this

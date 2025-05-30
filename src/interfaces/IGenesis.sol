@@ -31,14 +31,17 @@ interface IGenesis is ITokenHolder {
                         PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice returns the minter contract
+    function MINTER() external view returns (address);
+
     /// @notice returns the collateral token used by the minter
-    function collateralToken() external view returns (address token);
+    function WRAPPED_COLLATERAL_TOKEN() external view returns (address token);
 
     /// @notice returns the pegged token used by the minter
-    function peggedToken() external view returns (address token);
+    function PEGGED_TOKEN() external view returns (address token);
 
     /// @notice returns the leveraged token used by the minter
-    function leveragedToken() external view returns (address token);
+    function LEVERAGED_TOKEN() external view returns (address token);
 
     /// @notice returns the amount of collateral deposited by `depositor`
     function balanceOf(address depositor) external view returns (uint256 share);

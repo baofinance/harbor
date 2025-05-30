@@ -35,6 +35,13 @@ interface IStabilityPool {
     /// @param newWrapper The address of current reward wrapper.
     event UpdateWrapper(address indexed oldWrapper, address indexed newWrapper);
 
+    event Liquidated(
+        address liquidatedToken,
+        uint256 liquidatedAmount,
+        address liquidatedToToken,
+        uint256 liquidatedToAmount
+    );
+
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -127,14 +134,11 @@ interface IStabilityPool {
     /// @notice Withdraw asset from this contract.
     function withdraw(uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
 
-    /// @notice prepare for updates
-    function checkpoint() external;
-
     /// @notice Account for an increase in rewards
     function accumulateReward(address rewardToken, uint256 rewardAmount) external;
 
-    /// @notice Account for some loss, e.g. a rebalance which liquidates the asset in favour of the liquidation token
-    function notifyLoss(uint256 liquidatedAmount) external;
+    /// @notice perform a liquidation of the amount
+    function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
 
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS

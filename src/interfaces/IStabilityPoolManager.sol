@@ -23,16 +23,18 @@ interface IStabilityPoolManager {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
     error InvalidStabilityPool(address pool);
-    error InsufficientBounty(address token, uint256 given, uint256 expected);
+    error InsufficientBounty(address token, uint256 given, uint256 minExpected);
     error NoHarvestable();
-    error InsufficientLiquidation(address token, uint256 actual, uint256 expected);
     error InvalidCollateralRatio(uint256 ratio);
 
     /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
     error CollateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
 
     /// @dev Thrown when the amount requested to be liquidated isn't met
-    error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
+    error NoTokensToLiquidate(address token);
+
+    /// @dev raised when there are no tokens to liquidate
+    error InsufficientLiquidation(address token, uint256 peggedTokensToLiquidate, uint256 minLiquidated);
 
     // @dev Thrown when initiaising with an invalid liquidation token
     error InvalidLiquidationToken(address token);
