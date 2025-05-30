@@ -42,7 +42,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     int constant disallow = 10000;
 
     address peggedToken;
-    address collateralToken;
+    address wrappedCollateralToken;
 
     address leveragedToken;
     address reservePool;
@@ -248,7 +248,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
         setUp_leveragedToken();
         peggedToken = Deployed.BaoUSD;
-        collateralToken = Deployed.wstETH;
+        wrappedCollateralToken = Deployed.wstETH;
 
         setUp_reservePool();
     }
@@ -377,7 +377,6 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         Minter_v1(minter).initialize(address(this));
 
-        assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
         _assertEqConfig(IMinter(minter).config(), config);
 
         // TODO: add configuration check - also add it to the setup config function
@@ -442,7 +441,6 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
         assertEq(IMinter(minter).leveragedTokenBalance(), 0);
         assertEq(IMinter(minter).collateralTokenBalance(), 0);
-        assertEq(IMinter(minter).rebalanceCollateralRatio(), 130 ether / 100);
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IMinter(minter).leverageRatio(), 100 ether); // 100 is the cap.
         assertEq(IMinter(minter).leveragedTokenPrice(), 1 ether);
@@ -492,8 +490,8 @@ contract TestMinterBasics is TestMinterSetUp {
         );
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        IERC20(collateralToken).approve(minter, type(uint256).max);
-        deal(collateralToken, reservePool, 1 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        deal(wrappedCollateralToken, reservePool, 1 ether);
 
         // mint some then redeem it
         uint256 depeggedCollateral = 1 ether - uint256(config.mintPeggedIncentiveConfig.incentiveRatios[0]);
@@ -566,8 +564,8 @@ contract TestMinterBasics is TestMinterSetUp {
 
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        IERC20(collateralToken).approve(minter, type(uint256).max);
-        deal(collateralToken, reservePool, 1 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        deal(wrappedCollateralToken, reservePool, 1 ether);
 
         // price
         (
@@ -598,15 +596,15 @@ contract TestMinterBasics is TestMinterSetUp {
         );
 
         // feeReceiver
-        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), 0);
-        uint256 startCollateral = IERC20(collateralToken).balanceOf(address(this));
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), 0);
+        uint256 startCollateral = IERC20(wrappedCollateralToken).balanceOf(address(this));
         uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
         // --------------------------------------------------------------------------
         assertEq(fee, (1 ether * 5) / 1000);
-        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000);
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000);
         assertEq(IMinter(minter).peggedTokenBalance(), price + (price * 995) / 1000, "correct amount minted, 2");
         assertEq(minted, peggedMinted, "amount minted is the same as predicted");
-        assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral - 1 ether);
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(address(this)), startCollateral - 1 ether);
 
         // reserve pool - same as above but with a discount, not a fee
         (, uint256 redeemFee, uint256 discount, uint256 peggedRedeemed, uint256 collateralReturned, , ) = IMinter(
@@ -620,7 +618,7 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(collateralReturned, 1 ether + discount - redeemFee, "dryRun collateralReturned");
         assertEq(peggedRedeemed, price, "dryRun peggedRedeemed");
 
-        assertEq(IERC20(collateralToken).balanceOf(reservePool), 1 ether);
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(reservePool), 1 ether);
         uint256 returned = IMinter(minter).redeemPeggedToken(price, address(this), 0);
         // --------------------------------------------------------------------------
         assertEq(peggedRedeemed, price, "Pegged redeemed");
@@ -629,10 +627,13 @@ contract TestMinterBasics is TestMinterSetUp {
             config.redeemPeggedIncentiveConfig.incentiveRatios[0],
             "feeOrDiscount"
         );
-        assertEq(IERC20(collateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000, "feeReceiver as before");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), (1 ether * 5) / 1000, "feeReceiver as before");
         assertEq(IMinter(minter).peggedTokenBalance(), (price * 995) / 1000, "pegged balance as before - redeemed");
         assertEq(returned, collateralReturned, "amount returned is the same as predicted");
-        assertEq(IERC20(collateralToken).balanceOf(address(this)), startCollateral + collateralReturned - 1 ether);
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(address(this)),
+            startCollateral + collateralReturned - 1 ether
+        );
 
         // tokens
         assertEq(IMinter(minter).PEGGED_TOKEN(), Deployed.BaoUSD);

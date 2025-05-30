@@ -12,7 +12,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DecrementalFloatingPoint} from "src/common/math/DecrementalFloatingPoint.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
-// import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
+import {LinearMultipleRewardDistributor} from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -51,16 +51,16 @@ contract StabilityPool_v1 is
      * Constants *
      *************/
 
-    /// @notice The role for liquidator.
-    uint256 public constant LIQUIDATOR_ROLE = _ROLE_1; // start at _ROLE_1 as Linear MultipleRewardDistributor uses _ROLE_0
+    /// @inheritdoc IStabilityPool
+    uint256 public constant REBALANCER_ROLE = _ROLE_1; // start at _ROLE_1 as Linear MultipleRewardDistributor uses _ROLE_0
 
-    /// @notice The role for any reward sender, including the liquidator
+    /// @inheritdoc IStabilityPool
     uint256 public constant REWARDER_ROLE = _ROLE_2;
 
-    /// @notice The role for ve balance sharing.
+    /// @inheritdoc IStabilityPool
     uint256 public constant VE_SHARING_ROLE = _ROLE_3;
 
-    /// @notice The role for ve balance sharing.
+    /// @inheritdoc IStabilityPool
     uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
 
     /// @notice The address of FXN token.
@@ -239,9 +239,12 @@ contract StabilityPool_v1 is
      * Public View Functions *
      *************************/
 
-    /// @inheritdoc IStabilityPool
-    function liquidatableCollateralRatio() public view returns (uint256) {
-        return IMinter(MINTER).rebalanceCollateralRatio();
+    function REWARD_MANAGER_ROLE() external pure returns (uint256) {
+        return LinearMultipleRewardDistributor._REWARD_MANAGER_ROLE;
+    }
+
+    function REWARD_PERIOD_LENGTH() external view returns (uint40) {
+        return LinearMultipleRewardDistributor._PERIOD_LENGTH;
     }
 
     /// @inheritdoc IStabilityPool
@@ -383,7 +386,7 @@ contract StabilityPool_v1 is
         amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
-    function checkpoint() external onlyRoles(LIQUIDATOR_ROLE) {
+    function checkpoint() external onlyRoles(REBALANCER_ROLE) {
         _checkpoint(address(0));
     }
 
@@ -391,7 +394,7 @@ contract StabilityPool_v1 is
         _accumulateReward(rewardToken, rewardAmount);
     }
 
-    function notifyLoss(uint256 liquidatedAmount) external onlyRoles(LIQUIDATOR_ROLE) {
+    function notifyLoss(uint256 liquidatedAmount) external onlyRoles(REBALANCER_ROLE) {
         _notifyLoss(liquidatedAmount);
     }
 

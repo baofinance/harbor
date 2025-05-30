@@ -208,9 +208,6 @@ interface IMinter {
     /// if there are no pegged tokens, `uint256(-1)` is returned.
     function collateralRatio() external view returns (uint256);
 
-    /// @notice Return the upper bound of the collateral ratio when  the rebalance pools allow liquidation
-    function rebalanceCollateralRatio() external view returns (uint256);
-
     /// @notice Return the current leveraged ratio of the leveragedToken (18 decimals).
     function leverageRatio() external view returns (uint256);
 

@@ -73,7 +73,7 @@ contract TestDeployedMinter is TestMinterBasics, TestDeployed {
         owner = addr("owner");
         peggedToken = addr("peggedToken");
         leveragedToken = addr("leveragedToken");
-        collateralToken = addr("collateralToken");
+        wrappedCollateralToken = addr("collateralToken");
         priceOracle = addr("priceOracle");
         feeReceiver = addr("feeReceiver");
         reservePool = addr("reservePool");

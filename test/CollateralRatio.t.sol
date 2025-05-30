@@ -15,6 +15,7 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
@@ -31,15 +32,15 @@ contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
         super.setUp();
         (startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 10 ether, address(this));
-        deal(address(collateralToken), address(this), 1000 ether);
-        IERC20(collateralToken).approve(minter, type(uint256).max);
+        deal(address(wrappedCollateralToken), address(this), 1000 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        IERC20(peggedToken).approve(stabilityPool, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
-        assertEq(0, IERC20(collateralToken).balanceOf(reservePool), "reserve pool should be empty");
+        assertEq(0, IERC20(wrappedCollateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
 
     function pegged() internal view returns (bool) {
@@ -96,12 +97,12 @@ contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
     }
 
     function readHoldings() internal view returns (Holdings memory holdings) {
-        holdings.feeReceiverCollateral = IERC20(collateralToken).balanceOf(feeReceiver);
-        holdings.reservePoolCollateral = IERC20(collateralToken).balanceOf(reservePool);
-        holdings.minterCollateral = IERC20(collateralToken).balanceOf(minter);
+        holdings.feeReceiverCollateral = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        holdings.reservePoolCollateral = IERC20(wrappedCollateralToken).balanceOf(reservePool);
+        holdings.minterCollateral = IERC20(wrappedCollateralToken).balanceOf(minter);
         holdings.minterUnderlyingCollateral = IMinter(minter).collateralTokenBalance();
         holdings.minterPegged = IMinter(minter).peggedTokenBalance();
-        holdings.thisCollateral = IERC20(collateralToken).balanceOf(address(this));
+        holdings.thisCollateral = IERC20(wrappedCollateralToken).balanceOf(address(this));
         holdings.thisPegged = IERC20(peggedToken).balanceOf(address(this));
         holdings.thisLeveraged = IERC20(leveragedToken).balanceOf(address(this));
     }
@@ -336,14 +337,14 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
 contract TestCollateralRatioRangeTransfersWithReserve is TestCollateralRatioRangeTransfersNoReserve {
     function setUp() public override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1000 ether);
+        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
     }
 }
 
 contract TestCollateralRatioRangeTransfersWithPartialReserve is TestCollateralRatioRangeTransfersNoReserve {
     function setUp() public override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1e15);
+        deal(address(wrappedCollateralToken), reservePool, 1e15);
     }
 }
 
@@ -494,13 +495,13 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
 contract TestCollateralRatioRangeIntegralWithReserve is TestCollateralRatioRangeIntegralNoReserve {
     function setUp() public virtual override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1000 ether);
+        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
     }
 }
 
 contract TestCollateralRatioRangeIntegralWithPartialReserve is TestCollateralRatioRangeIntegralNoReserve {
     function setUp() public virtual override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1e15);
+        deal(address(wrappedCollateralToken), reservePool, 1e15);
     }
 }

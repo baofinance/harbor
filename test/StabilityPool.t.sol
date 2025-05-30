@@ -29,25 +29,25 @@ import "test/clog.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
-    address stabilityPool;
+    address stabilityPoolCollateral;
     address user1;
     address user2;
 
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
-        stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, collateralToken)), // "StabilityPool_v1.sol",
+        stabilityPoolCollateral = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
-        IERC20(Deployed.BaoUSD).approve(stabilityPool, type(uint256).max);
+        IERC20(Deployed.BaoUSD).approve(stabilityPoolCollateral, type(uint256).max);
 
         user2 = vm.createWallet("user2").addr;
         vm.prank(user2);
-        IERC20(Deployed.BaoUSD).approve(stabilityPool, type(uint256).max);
+        IERC20(Deployed.BaoUSD).approve(stabilityPoolCollateral, type(uint256).max);
     }
 
     function test_init(address sp, address liquidateTo) internal view {
@@ -56,7 +56,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
         assertEq(IStabilityPool(sp).MINTER(), minter);
         assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
-        assertEq(IStabilityPool(sp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
     }
 }
 
@@ -64,7 +63,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
     using SafeERC20 for IERC20;
 
     function test_init() public view {
-        test_init(stabilityPool, collateralToken);
+        test_init(stabilityPoolCollateral, wrappedCollateralToken);
     }
 }
 
@@ -72,7 +71,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v1(minter, collateralToken));
+        address(new StabilityPool_v1(minter, wrappedCollateralToken));
     }
 
     function test_initEvents(address liquidateTo) internal {
@@ -93,7 +92,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     }
 
     function test_initEventsCollateral() public {
-        test_initEvents(collateralToken);
+        test_initEvents(wrappedCollateralToken);
     }
 
     function test_initEventsLeveraged() public {
@@ -119,18 +118,18 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price, "user1 has");
         vm.expectRevert("SafeMath: subtraction underflow"); // should be amount exceeds balance, but hey-ho
         vm.prank(user1);
-        IStabilityPool(stabilityPool).deposit(20 * price, receiver, 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
         // --------------------------------------------------------
 
         // $2 deposit
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price);
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 0);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
         vm.prank(user1);
-        uint256 deposited = IStabilityPool(stabilityPool).deposit(2 * price, receiver, 0);
+        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(2 * price, receiver, 0);
         // 1 deposit --------------------------------------------------------------------
         assertEq(deposited, 2 * price, "returned value");
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 2 * price);
-        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 2 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 2 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 2 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 8 * price);
 
         // $3 withdrawal
@@ -138,55 +137,55 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPool.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
         );
-        IStabilityPool(stabilityPool).withdraw(3 * price, receiver);
+        IStabilityPool(stabilityPoolCollateral).withdraw(3 * price, receiver);
         // 1 withdraw ---------------------------------------------
-        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 2 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 2 * price);
 
         // $5 second deposit
         vm.prank(user1);
-        deposited = IStabilityPool(stabilityPool).deposit(5 * price, receiver, 0);
+        deposited = IStabilityPool(stabilityPoolCollateral).deposit(5 * price, receiver, 0);
         // 2 deposit ------------------------------------------------------------
         assertEq(deposited, 5 * price, "returned value 5");
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 7 * price);
-        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 7 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 7 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 7 * price);
 
         // withdraw some
         vm.prank(user1);
-        uint256 withdrawn = IStabilityPool(stabilityPool).withdraw(4 * price, receiver);
+        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(4 * price, receiver);
         // 2 withdraw -----------------------------------------------------------------
         assertEq(withdrawn, 4 * price, "withdraw 4");
-        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 3 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 3 * price);
 
         // withdraw rest
         vm.prank(user1);
-        withdrawn = IStabilityPool(stabilityPool).withdraw(type(uint256).max, receiver);
+        withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, receiver);
         // 3 withdraw -----------------------------------------------------------------
         assertEq(withdrawn, 3 * price, "withdraw 3 (-1)");
-        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 0);
 
         // deposit -1
         vm.prank(user1);
-        deposited = IStabilityPool(stabilityPool).deposit(type(uint256).max, receiver, 0);
+        deposited = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, receiver, 0);
         // 3 deposit --------------------------------------------------------------------
         assertEq(deposited, 10 * price, "returned value 10");
-        assertEq(IStabilityPool(stabilityPool).assetBalanceOf(receiver), 10 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0);
 
         // deposit for more than the minter has minted, deposits up to the minter's balance
         // mint from another source, not minter
         setUp_collateral(1 ether, 0 ether); // add more minter
         assertEq(IMinter(minter).peggedTokenBalance(), 21 * price, "minted by minter");
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPool), 10 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 10 * price);
         deal(address(peggedToken), user1, 20 * price);
         vm.prank(user1);
-        deposited = IStabilityPool(stabilityPool).deposit(20 * price, receiver, 0);
+        deposited = IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
         // 4 deposit -------------------------------------------------------------
         assertEq(deposited, 11 * price, "returned value 11, not 20");
 
         // minter has none left, so zero deposit
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.DepositZeroAmount.selector));
         vm.prank(user1);
-        deposited = IStabilityPool(stabilityPool).deposit(9 * price, receiver, 0);
+        deposited = IStabilityPool(stabilityPoolCollateral).deposit(9 * price, receiver, 0);
         // 5 deposit -------------------------------------------------------------
 
         // check min deposit amount
@@ -196,7 +195,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
             abi.encodeWithSelector(IStabilityPool.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
         );
         vm.prank(user1);
-        IStabilityPool(stabilityPool).deposit(3 * price, receiver, 2 * price);
+        IStabilityPool(stabilityPoolCollateral).deposit(3 * price, receiver, 2 * price);
         // 6 deposit --------------------------------------------------------
     }
 

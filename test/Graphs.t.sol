@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+
 //import { Test } from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -12,6 +14,10 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
+import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
+import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
+
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
@@ -27,6 +33,10 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     string liquidateFile;
     int256 NaN = type(int256).max;
     uint256 uNaN = type(uint256).max;
+    address stabilityPoolManager10;
+    address stabilityPoolManager01;
+    address bountyReceiver;
+    address treasury;
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -38,7 +48,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
     function setUp() public override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1000 ether);
+        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
 
         feesFile = openFile(
             string.concat("fees", context()),
@@ -68,8 +78,35 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             sa("Collateral Ratio", "Leverage Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
         );
 
-        IStabilityPool(stabilityPool).deposit(4 * startPrice, address(this), 0);
+        bountyReceiver = vm.createWallet("bountyReceiver").addr;
+        treasury = vm.createWallet("treasury").addr;
+
+        IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
         IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
+
+        address stabilityPoolEmpty = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
+        );
+
+        address stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
+        );
+
+        // set up the stability pool managers
+        stabilityPoolManager10 = UnsafeUpgrades.deployUUPSProxy(
+            address(
+                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
+            ),
+            abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
+        );
+
+        stabilityPoolManager01 = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPoolManager_v1(minter, treasury, stabilityPoolEmpty, stabilityPoolLeveraged)),
+            abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
+        );
+
         liquidateFile = openFile(
             string.concat("liquidate", context()),
             sa("antes CR", "liquidate to collateral", "liquidate to leveraged")
@@ -229,10 +266,10 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         uint256 afterLiquidateLeveraged;
         if (currentCollateralRatio < 13 ether / 10) {
             uint256 snap = vm.snapshotState();
-            IStabilityPool(stabilityPool).liquidate(0);
+            IStabilityPoolManager(stabilityPoolManager10).rebalance(bountyReceiver, 0);
             afterLiquidate = IMinter(minter).collateralRatio();
             vm.revertToState(snap);
-            IStabilityPool(stabilityPoolLeveraged).liquidate(0);
+            IStabilityPoolManager(stabilityPoolManager01).rebalance(bountyReceiver, 0);
             afterLiquidateLeveraged = IMinter(minter).collateralRatio();
             vm.revertToState(snap);
         } else {

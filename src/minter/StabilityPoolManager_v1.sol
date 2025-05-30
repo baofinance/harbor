@@ -42,6 +42,9 @@ contract StabilityPoolManager_v1 is
     address public immutable MINTER;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable PEGGED_TOKEN;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable WRAPPED_COLLATERAL_TOKEN;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -90,6 +93,10 @@ contract StabilityPoolManager_v1 is
         MINTER = minter_;
 
         // slither-disable-next-line missing-zero-check
+        PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
+        Token.ensureERC20Token(PEGGED_TOKEN);
+
+        // slither-disable-next-line missing-zero-check
         WRAPPED_COLLATERAL_TOKEN = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
         Token.ensureERC20Token(WRAPPED_COLLATERAL_TOKEN);
 
@@ -101,8 +108,6 @@ contract StabilityPoolManager_v1 is
         // slither-disable-next-line missing-zero-check
         TREASURY = treasury_;
 
-        bool liquidateToWrapped = false;
-        bool liquidateToLeveraged = false;
         // Validate and store the stability pools
         Token.ensureContract(stabilityPoolCollateral);
         STABILITY_POOL_COLLATERAL = stabilityPoolCollateral;
@@ -194,7 +199,7 @@ contract StabilityPoolManager_v1 is
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         $.rebalanceCollateralRatio = newRatio;
 
-        emit RebalanceCollateralRatio(newRatio);
+        emit RebalanceCollateralRatioUpdated(newRatio);
     }
 
     /// @inheritdoc IStabilityPoolManager
@@ -222,17 +227,16 @@ contract StabilityPoolManager_v1 is
         view
         returns (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged)
     {
-        poolHoldingCollateral = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(STABILITY_POOL_COLLATERAL);
-        poolHoldingLeveraged = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(STABILITY_POOL_LEVERAGED);
+        poolHoldingCollateral = IERC20(PEGGED_TOKEN).balanceOf(STABILITY_POOL_COLLATERAL);
+        poolHoldingLeveraged = IERC20(PEGGED_TOKEN).balanceOf(STABILITY_POOL_LEVERAGED);
         totalPoolHolding = poolHoldingCollateral + poolHoldingLeveraged;
     }
 
     /// @inheritdoc IStabilityPoolManager
     function rebalance(
         address bountyReceiver,
-        uint256 minWrappedCollateralOut,
-        uint256 minLeveragedOut
-    ) external nonReentrant returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
+        uint256 minPeggedLiquidated
+    ) external nonReentrant returns (uint256 peggedLiquidated) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         uint256 rebalanceCollateralRatio_ = $.rebalanceCollateralRatio;
         {
@@ -244,9 +248,12 @@ contract StabilityPoolManager_v1 is
             }
         }
 
-        // sum up the relative sizes of the stabilility pools - this is the wrapped collateral holdings
+        // sum up the relative sizes of the stabilility pools - this is the pegged token holdings
         // note that these holdings are depleted by the liquidation process
         (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
+        if (totalPoolHolding < minPeggedLiquidated) {
+            revert NotEnoughTokensToLiquidate(totalPoolHolding, minPeggedLiquidated);
+        }
 
         // get the amount to liquidate (double(ish) the anmount)
         uint256 peggedForCollateral = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
@@ -258,21 +265,27 @@ contract StabilityPoolManager_v1 is
         peggedForCollateral = (peggedForCollateral * poolHoldingCollateral) / totalPoolHolding;
         peggedForLeveraged = (peggedForLeveraged * poolHoldingLeveraged) / totalPoolHolding;
 
+        peggedLiquidated = peggedForCollateral + peggedForLeveraged;
+
+        if (peggedLiquidated < minPeggedLiquidated) {
+            revert InsufficientLiquidation(PEGGED_TOKEN, peggedLiquidated, minPeggedLiquidated);
+        }
+
         // do the actual liquidation for each pool
         // collateral return
-        wrappedCollateralOut = IMinter(MINTER).freeRedeemPeggedToken(peggedForCollateral, STABILITY_POOL_COLLATERAL);
-        if (wrappedCollateralOut < minWrappedCollateralOut) {
-            revert InsufficientLiquidation(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
-        }
+        uint256 wrappedCollateralOut = IMinter(MINTER).freeRedeemPeggedToken(
+            peggedForCollateral,
+            STABILITY_POOL_COLLATERAL
+        );
+
         IStabilityPool(STABILITY_POOL_COLLATERAL).checkpoint();
         IStabilityPool(STABILITY_POOL_COLLATERAL).accumulateReward(WRAPPED_COLLATERAL_TOKEN, peggedForCollateral);
         IStabilityPool(STABILITY_POOL_COLLATERAL).notifyLoss(peggedForCollateral);
 
         // leveraged return
-        leveragedOut = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, STABILITY_POOL_LEVERAGED);
-        if (leveragedOut < minLeveragedOut) {
-            revert InsufficientLiquidation(LEVERAGED_TOKEN, leveragedOut, minLeveragedOut);
-        }
+        uint256 leveragedOut = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, STABILITY_POOL_LEVERAGED);
+
+        emit Rebalanced(peggedLiquidated, wrappedCollateralOut, leveragedOut);
         IStabilityPool(STABILITY_POOL_LEVERAGED).checkpoint();
         IStabilityPool(STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, peggedForLeveraged);
         IStabilityPool(STABILITY_POOL_LEVERAGED).notifyLoss(peggedForLeveraged);
@@ -339,7 +352,7 @@ contract StabilityPoolManager_v1 is
             ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestableAmount, TREASURY);
         }
 
-        emit HarvestPerformed(actuallyHarvested, bountyAmount);
+        emit Harvested(actuallyHarvested); //, bountyAmount);
         return actuallyHarvested;
     }
 }

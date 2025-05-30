@@ -65,11 +65,28 @@ interface IStabilityPool {
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice The role used for notifying rebalancing.
+    function REBALANCER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The role used for notifying rewards (including when rebalancing).
+    function REWARDER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The role for ve balance sharing.
+    function VE_SHARING_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The role for ve balance sharing.
+    function WITHDRAW_FROM_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The role used to manage rewards.
+    function REWARD_MANAGER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The length of reward period in seconds.
+    /// @dev If the value is zero, the reward will be distributed immediately.
+    /// @dev It is either zero or at least 1 day (which is 86400).
+    function REWARD_PERIOD_LENGTH() external view returns (uint40); // solhint-disable-line func-name-mixedcase
+
     /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
     function MINTER() external view returns (address); // solhint-disable-line func-name-mixedcase
-
-    /// @notice Return the liquidatable collateral ratio.
-    function liquidatableCollateralRatio() external view returns (uint256);
 
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
     function LIQUIDATION_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase

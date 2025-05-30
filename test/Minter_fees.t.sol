@@ -954,8 +954,8 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
         setUp_collateral(10 ether, 10 ether);
-        deal(address(collateralToken), address(this), 100 ether);
-        IERC20(collateralToken).approve(minter, type(uint256).max);
+        deal(address(wrappedCollateralToken), address(this), 100 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         deal(address(peggedToken), address(this), 5000 ether);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         deal(address(leveragedToken), address(this), 5000 ether);
@@ -977,7 +977,7 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, collateralToken));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
     }
 }

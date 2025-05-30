@@ -305,12 +305,6 @@ contract Minter_v1 is
     }
 
     /// @inheritdoc IMinter
-    function rebalanceCollateralRatio() external view returns (uint256) {
-        MinterStorage storage $ = _getMinterStorage();
-        return $.rebalanceCollateralRatioUpperBound;
-    }
-
-    /// @inheritdoc IMinter
     function collateralRatio() external view override returns (uint256 collateralRatio_) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 collateralTokenBalance_ = $.underlyingCollateral;

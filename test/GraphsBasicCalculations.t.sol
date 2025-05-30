@@ -27,15 +27,15 @@ contract TestGraphs is TestStabilityPool2SetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        deal(address(collateralToken), address(this), 1000 ether);
-        IERC20(collateralToken).approve(minter, type(uint256).max);
+        deal(address(wrappedCollateralToken), address(this), 1000 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        IERC20(peggedToken).approve(stabilityPool, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
-        assertEq(0, IERC20(collateralToken).balanceOf(reservePool), "reserve pool should be empty");
+        assertEq(0, IERC20(wrappedCollateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
 
     function setUpConfig() internal virtual override {
@@ -83,7 +83,7 @@ contract TestGraphsBasicCalculations is TestGraphs {
 
     function setUp() public override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1000 ether);
+        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
     }

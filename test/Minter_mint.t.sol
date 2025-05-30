@@ -40,9 +40,9 @@ contract TestMinterMintMechanics is TestMinterMint {
     function setUp() public virtual override {
         super.setUp();
 
-        deal(collateralToken, sender, 10 ether);
+        deal(wrappedCollateralToken, sender, 10 ether);
         vm.prank(sender);
-        IERC20(collateralToken).approve(minter, 10 ether);
+        IERC20(wrappedCollateralToken).approve(minter, 10 ether);
 
         // (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(3 ether, 1 ether); // CR = 4/3 = 1.33
@@ -63,9 +63,9 @@ contract TestMinterMintMechanics is TestMinterMint {
         vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
-        deal(collateralToken, owner, 10 ether);
+        deal(wrappedCollateralToken, owner, 10 ether);
         vm.prank(owner);
-        IERC20(collateralToken).approve(minter, 10 ether);
+        IERC20(wrappedCollateralToken).approve(minter, 10 ether);
 
         // how much can I get for 2 eth
         uint256 leveragedFor2 = IMinter(minter).leveragedTokensForCollateral(2 ether);

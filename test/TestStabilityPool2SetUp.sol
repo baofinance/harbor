@@ -37,8 +37,8 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
 
         vm.prank(owner);
-        IBaoRoles(minter).grantRoles(stabilityPool, zeroFeeRole);
-        vm.prank(stabilityPool);
+        IBaoRoles(minter).grantRoles(stabilityPoolCollateral, zeroFeeRole);
+        vm.prank(stabilityPoolCollateral);
         IERC20(peggedToken).approve(minter, type(uint256).max);
 
         vm.prank(owner);

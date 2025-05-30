@@ -5,17 +5,19 @@ interface IStabilityPoolManager {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-    event StabilityPoolAdded(address indexed stabilityPool);
-    event StabilityPoolRemoved(address indexed stabilityPool);
+
     event RebalanceBountyUpdated(uint256 rebalanceBountyRatio);
     event HarvestBountyUpdated(uint256 harvestBountyRatio);
-    event LiquidationPerformed(address indexed stabilityPool, uint256 amount);
-    event HarvestPerformed(uint256 harvestedAmount, uint256 bounty);
-    event RebalanceCollateralRatio(uint256 collateralRatio);
+    // event LiquidationPerformed(address indexed stabilityPool, uint256 amount);
+    // event HarvestPerformed(uint256 harvestedAmount, uint256 bounty);
+    event RebalanceCollateralRatioUpdated(uint256 collateralRatio);
 
     /// @notice Emitted when liquidation happens.
     /// @param liquidated The amount of asset liquidated.
-    event Liquidate(uint256 liquidated);
+    /// @param forWrappedCollateral The resulting collateral.
+    /// @param forLeveraged The resulting leveraged tokens.
+    event Rebalanced(uint256 liquidated, uint256 forWrappedCollateral, uint256 forLeveraged);
+    event Harvested(uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -49,11 +51,7 @@ interface IStabilityPoolManager {
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-    function rebalance(
-        address bountyReceiver,
-        uint256 minWrappedCollateralOut,
-        uint256 minLeveragedOut
-    ) external returns (uint256 wrappedCollateralOut, uint256 leveragedOut);
+    function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 
     function harvest(address bountyReceiver, uint256 minBounty) external returns (uint256 harvestedAmount);
 
