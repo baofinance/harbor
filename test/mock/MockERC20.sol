@@ -16,8 +16,44 @@ contract MockERC20 is ERC20, IMintable, IBurnable2Arg {
     }
 
     function burn(address account, uint256 amount) external {
+        _spendAllowance(account, _msgSender(), amount);
         _burn(account, amount);
+    }
+
+    function burnSignature() external pure returns (string memory) {
+        return "burn(address,uint256)";
     }
 }
 
-// TODO: make mocks for the other interfaces and test them with the minter mint pegged
+contract MockERC20Burn1Arg is ERC20, IMintable, IBurnable {
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
+
+    function mint(address account, uint256 amount) external {
+        _mint(account, amount);
+    }
+
+    function burn(uint256 amount) external {
+        _burn(_msgSender(), amount);
+    }
+
+    function burnSignature() external pure returns (string memory) {
+        return "burn(uint256)";
+    }
+}
+
+contract MockERC20BurnFrom is ERC20, IMintable, IBurnableFrom {
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
+
+    function mint(address account, uint256 amount) external {
+        _mint(account, amount);
+    }
+
+    function burnFrom(address account, uint256 amount) external {
+        _spendAllowance(account, _msgSender(), amount);
+        _burn(account, amount);
+    }
+
+    function burnSignature() external pure returns (string memory) {
+        return "burnFrom(address,uint256)";
+    }
+}

@@ -141,12 +141,21 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         IMinter(minter).freeMintLeveragedToken(1 ether, sender); // not owner
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++
 
+        //vm.expectRevert("ERC20: transfer amount exceeds allowance");
+        assertEq(IERC20(leveragedToken).allowance(owner, minter), 0, "owner has none allowed");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, minter, 0, 1 ether));
+        vm.prank(owner);
+        IMinter(minter).freeRedeemLeveragedToken(1 ether, receiver);
+        // 5 ------------------------------------------------------
+
         //vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.prank(owner);
+        IERC20(leveragedToken).approve(minter, 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(owner), 0, "owner has none");
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, owner, 0, 1 ether));
         vm.prank(owner);
         IMinter(minter).freeRedeemLeveragedToken(1 ether, receiver);
-        // 5 ------------------------------------------------------
+        // 6 ------------------------------------------------------
 
         uint256 leveragedTotalSupplyBefore = IERC20(leveragedToken).totalSupply();
         // console2.log("leveragedTotalSupplyBefore=%s", leveragedTotalSupplyBefore);
@@ -175,7 +184,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemLeveragedToken(0, receiver);
-        // 6 ------------------------------------------------
+        // 7 ------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(owner), mintedLeveraged, "nothing redeemed");
 
         vm.prank(owner);
@@ -185,13 +194,15 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
 
         // check that we can't redeem more than minter has minted
         // TODO: check this for non-free redeems
+        vm.prank(owner);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0, "receiver has none");
         assertEq(IMinter(minter).leveragedTokenBalance(), mintedLeveraged + 2 * price);
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.RedeemLeveragedToken(owner, receiver, price, 1 ether);
         vm.prank(owner);
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
-        // 7 -----------------------------------------------------------------
+        // 8 -----------------------------------------------------------------
         assertEq(IMinter(minter).leveragedTokenBalance(), mintedLeveraged + 1 * price);
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 1 ether);
 
@@ -201,15 +212,15 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
         _freeRedeemLeveragedToken(price);
-        // 8 ---------------------------
+        // 9 ---------------------------
 
         // more than one redeem
         _freeRedeemLeveragedToken(2 * price);
-        // 9 --------------------------------
+        // 10 ------------------------------
 
         // check all-of function, when some
         _freeRedeemLeveragedToken(type(uint256).max);
-        // 10 --------------------------------------
+        // 11 --------------------------------------
     }
 
     //---------------------------------------------------------------------------------------------
@@ -370,10 +381,20 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         IMinter(minter).redeemLeveragedToken(0, receiver, 0);
         // 8 -----------------------------------------------
 
-        assertEq(IERC20(leveragedToken).balanceOf(sender), 6 * price, "sender has 6");
+        assertEq(IERC20(leveragedToken).allowance(sender, minter), 10 ether, "minter has no allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, minter, 10 ether, 1 * price)
+        );
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(1 * price, receiver, 0);
         // 9 -------------------------------------------------------
+
+        vm.prank(sender);
+        IERC20(leveragedToken).approve(minter, 20 * price);
+        assertEq(IERC20(leveragedToken).balanceOf(sender), 6 * price, "sender has 6");
+        vm.prank(sender);
+        IMinter(minter).redeemLeveragedToken(1 * price, receiver, 0);
+        // 10 -------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender has 5");
 
         // TODO: check all 4+ places where ReturnInsufficientAmount can be reverted
@@ -387,7 +408,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(6 * price, receiver, 6 ether);
-        // 10 -------------------------------------------------------
+        // 11 -------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender still has 5");
 
         vm.expectRevert(
@@ -400,12 +421,12 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         );
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(5 * price, receiver, 5 ether);
-        // 11 -------------------------------------------------------
+        // 12 -------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 5 * price, "sender still has 5");
 
         vm.prank(sender);
         IMinter(minter).redeemLeveragedToken(5 * price, receiver, 0);
-        // 12 -------------------------------------------------------
+        // 13 -------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(sender), 0, "sender has 0");
     }
 

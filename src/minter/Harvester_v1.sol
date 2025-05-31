@@ -69,7 +69,7 @@ contract Harvester_v1 is Initializable, UUPSUpgradeable, ReentrancyGuardTransien
         MINTER = minter_;
 
         address bountyToken = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
-        Token.ensureERC20Token(bountyToken);
+        Token.sanityCheckERC20Token(bountyToken);
         // slither-disable-next-line missing-zero-check
         BOUNTY_TOKEN = bountyToken;
 

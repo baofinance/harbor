@@ -17,9 +17,13 @@ import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+
+// different ERC20 mint/burn interfaces
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
+import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
+
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IReservePool} from "src/interfaces/IReservePool.sol";
 
@@ -105,36 +109,13 @@ contract Minter_v1 is
     IMinter
 {
     using SafeERC20 for IERC20;
-    // using ConfigIncentiveLib for ActionIncentive;
-    // using WordCodec for bytes32;
+
+    /// @notice raised when the signature for the pegged token's burn function is not known
+    error UnrecognisedBurnSignature(string signature);
 
     ///////////////
     // Constants //
     ///////////////
-
-    // /// @notice The precision at which incentive ratios are stored.
-    // /// @dev Fee & bonus ratios are stored as int32, which allows for -2 billion to 2 billion.
-    // /// With decimals = 9, this gives a max ratio of 2 (200%) with precision of 0.000000001 (0.0000001%),
-    // /// these ratios must be in the range [-1, 1] [-100%, 100%].
-    // /// This allows 8 of these to be stored in a slot.
-    // uint private constant _INCENTIVE_RATIO_DECIMALS = 9; // solhint-disable-line explicit-types
-
-    // /// @notice The precision at which collateral ratio bounds are stored.
-    // /// @dev Collateral ratio bounds are stored as uint32, which allows for a maximum value of ~4 billion.
-    // /// With decimals = 6, this gives a max ratio of 4,000 (400,000%) with precision of 0.000001 (0.0001%),
-    // /// e.g. 130.55% is easily catered for.
-    // /// This allows 8 of these to be stored in a slot. As there is one fewer bound, we only store 7. This, cunningly,
-    // /// leaves space for a count so that we can have "up to" 7 bounds and 8 fee/discount levels
-    // uint private constant _COLLATERAL_RATIO_DECIMALS = 6; // solhint-disable-line explicit-types
-
-    // /// @notice The maximum number of fee/discount value bands that can be stored
-    // /// @dev This is private because the public interface may differ, in particular to handle the piecewise valuation
-    // /// of pegged tokens, an extra boundary (and band) is added if not present around the depeg point
-    // uint private constant _MAX_BANDS = 8; // solhint-disable-line explicit-types
-    // /// @notice The maximum number of collateral ratio bounds for fee/discount variation that can be stored
-    // /// @dev This is private because the public interface may differ, in particular to handle the piecewise valuation
-    // /// of pegged tokens, an extra boundary (and band) is added if not present around the depeg point
-    // uint private constant _MAX_BOUNDS = _MAX_BANDS - 1; // solhint-disable-line explicit-types
 
     /// @notice The role that allows access to the zero fee versions of the functions.
     uint256 public constant ZERO_FEE_ROLE = _ROLE_0;
@@ -154,6 +135,15 @@ contract Minter_v1 is
     address public immutable PEGGED_TOKEN;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
+    // the type of burn signature for burning pegged tokens
+    enum BurnSignature {
+        Burn1Arg,
+        Burn2Arg,
+        BurnFrom
+    }
+    /// @notice The burn signature for the pegged token.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    BurnSignature private immutable _BURN_SIGNATURE;
 
     /////////////
     // Storage //
@@ -228,13 +218,25 @@ contract Minter_v1 is
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    // slither-disable-next-line missing-zero-check // ensureERC20Token is called
-    constructor(address collateralToken_, address peggedToken_, address leveragedToken_) {
+    // slither-disable-next-line missing-zero-check // sanityCheckERC20Token is called
+    constructor(
+        address collateralToken_,
+        address peggedToken_,
+        address leveragedToken_,
+        string memory peggedBurnSignature
+    ) {
         _disableInitializers();
 
-        Token.ensureERC20Token(collateralToken_);
-        Token.ensureERC20Token(peggedToken_);
-        Token.ensureERC20Token(leveragedToken_);
+        Token.sanityCheckERC20Token(collateralToken_);
+        Token.sanityCheckERC20Token(peggedToken_);
+        bytes4 burnSelector = bytes4(keccak256(bytes(peggedBurnSignature)));
+        if (burnSelector == bytes4(keccak256("burn(address,uint256)"))) _BURN_SIGNATURE = BurnSignature.Burn2Arg;
+        else if (burnSelector == bytes4(keccak256("burn(uint256)"))) _BURN_SIGNATURE = BurnSignature.Burn1Arg;
+        else if (burnSelector == bytes4(keccak256("burnFrom(address,uint256)")))
+            _BURN_SIGNATURE = BurnSignature.BurnFrom;
+        else revert UnrecognisedBurnSignature(peggedBurnSignature);
+
+        Token.sanityCheckERC20Token(leveragedToken_);
 
         WRAPPED_COLLATERAL_TOKEN = collateralToken_;
         PEGGED_TOKEN = peggedToken_;
@@ -1196,6 +1198,20 @@ contract Minter_v1 is
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(_msgSender(), address(this), wrappedCollateralIn);
     }
 
+    /// @notice burn pegged tokens in the way the like to burn
+    function _burnPeggedToken(uint256 amount) private {
+        if (_BURN_SIGNATURE == BurnSignature.Burn2Arg) {
+            IBurnable2Arg(PEGGED_TOKEN).burn(_msgSender(), amount);
+        } else if (_BURN_SIGNATURE == BurnSignature.BurnFrom) {
+            IBurnableFrom(PEGGED_TOKEN).burnFrom(_msgSender(), amount);
+        } else if (_BURN_SIGNATURE == BurnSignature.Burn1Arg) {
+            // get the tokens here first
+            IERC20(PEGGED_TOKEN).safeTransferFrom(_msgSender(), address(this), amount);
+            IBurnable(PEGGED_TOKEN).burn(amount);
+        } // no need to check for others because the constructor does this
+    }
+
+
     /// @notice Perform the transfers and event emissions for redeeming pegged tokens
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.
@@ -1206,18 +1222,10 @@ contract Minter_v1 is
     function _redeemPeggedToken(uint256 peggedIn, uint256 wrappedCollateralOut, address receiver) private {
         // tell the world
         emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut);
-        // burn the tokens from the sender
-        // if (burnInterfaceId == type(IBurnable).interfaceId) {
-        // get the tokens here first
-        IERC20(PEGGED_TOKEN).safeTransferFrom(_msgSender(), address(this), peggedIn);
-        IBurnable(PEGGED_TOKEN).burn(peggedIn);
-        // } else if (burnInterfaceId == type(IBurnable2Arg).interfaceId) {
-        //     IBurnable2Arg(PEGGED_TOKEN).burn(_msgSender(), peggedIn);
-        // } else if (burnInterfaceId == type(IBurnableFrom).interfaceId) {
-        //     IBurnableFrom(PEGGED_TOKEN).burnFrom(_msgSender(), peggedIn);
-        // } else {
-        //     revert UnsupportedBurnInterface(pegged_.burnInterfaceId);
-        // }
+
+        // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
+        _burnPeggedToken(peggedIn);
+
         // return the collateral
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
     }
@@ -1232,10 +1240,10 @@ contract Minter_v1 is
     function _swapPeggedForLeveraged(uint256 peggedIn, uint256 leveragedOut, address receiver) private {
         // tell the world
         emit SwapPeggedForLeveraged(_msgSender(), receiver, peggedIn, leveragedOut);
+
         // burn the tokens from the sender - get them first then burn them
-        IERC20(PEGGED_TOKEN).safeTransferFrom(_msgSender(), address(this), peggedIn);
-        // wake-disable-next-line reentrancy // all callers to this function have nonReentrant guard
-        IBurnable(PEGGED_TOKEN).burn(peggedIn);
+        _burnPeggedToken(peggedIn);
+
         // mint the tokens to the receiver
         // wake-disable-next-line reentrancy
         IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);

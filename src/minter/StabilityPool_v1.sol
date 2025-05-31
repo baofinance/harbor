@@ -218,10 +218,10 @@ contract StabilityPool_v1 is
         // slither-disable-next-line missing-zero-check
         MINTER = minter_;
         address asset = IMinter(minter_).PEGGED_TOKEN();
-        Token.ensureERC20Token(asset);
+        Token.sanityCheckERC20Token(asset);
         // slither-disable-next-line missing-zero-check
         ASSET_TOKEN = asset;
-        Token.ensureERC20Token(liquidationToken_);
+        Token.sanityCheckERC20Token(liquidationToken_);
         if (liquidationToken_ == IMinter(minter_).WRAPPED_COLLATERAL_TOKEN()) {
             _liquidationTokenIsCollateral = true;
         } else if (liquidationToken_ == IMinter(minter_).LEVERAGED_TOKEN()) {
@@ -388,7 +388,10 @@ contract StabilityPool_v1 is
         amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
-    function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRoles(REWARDER_ROLE) {
+    function accumulateReward(
+        address rewardToken,
+        uint256 rewardAmount
+    ) external virtual onlyRoles(REWARDER_ROLE + REBALANCER_ROLE) {
         _accumulateReward(rewardToken, rewardAmount);
     }
 

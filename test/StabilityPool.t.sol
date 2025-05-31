@@ -45,11 +45,11 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
-        IERC20(Deployed.BaoUSD).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
         user2 = vm.createWallet("user2").addr;
         vm.prank(user2);
-        IERC20(Deployed.BaoUSD).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
     }
 
     function test_init(address sp, address liquidateTo) internal view {
@@ -124,7 +124,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         setUp_collateral(20 ether, 0 ether);
         deal(peggedToken, user1, 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price, "user1 has");
-        vm.expectRevert("SafeMath: subtraction underflow"); // should be amount exceeds balance, but hey-ho
+        vm.expectRevert(); // should be amount exceeds balance, but hey-ho BaoUSD
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
         // --------------------------------------------------------

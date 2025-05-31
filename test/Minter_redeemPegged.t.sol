@@ -14,6 +14,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import {Deployed} from "@bao/Deployed.sol";
+import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
@@ -36,7 +37,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         uint256 ownerPeggedDecrease;
         if (peggedIn == type(uint256).max) {
-            ownerPeggedDecrease = IERC20(Deployed.BaoUSD).balanceOf(owner);
+            ownerPeggedDecrease = IERC20(peggedToken).balanceOf(owner);
         } else {
             ownerPeggedDecrease = peggedIn;
         }
@@ -45,7 +46,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
             ownerPeggedDecrease = minterPeggedBefore;
 
         uint256 receiverCollateralIncrease = (ownerPeggedDecrease * 1 ether) / price;
-        uint256 ownerPeggedBefore = IERC20(Deployed.BaoUSD).balanceOf(owner);
+        uint256 ownerPeggedBefore = IERC20(peggedToken).balanceOf(owner);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
         uint256 minterCollateralBefore = IMinter(minter).collateralTokenBalance();
         uint256 minterWstETHBefore = IERC20(Deployed.wstETH).balanceOf(minter);
@@ -81,13 +82,22 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IERC20(Deployed.wstETH).balanceOf(minter), minterWstETHBefore - receiverCollateralIncrease);
 
         assertEq(IMinter(minter).peggedTokenBalance(), minterPeggedBefore - ownerPeggedDecrease);
-        assertEq(
-            IERC20(Deployed.BaoUSD).balanceOf(owner),
-            ownerPeggedBefore - ownerPeggedDecrease,
-            "pegged not burned"
-        );
+        assertEq(IERC20(peggedToken).balanceOf(owner), ownerPeggedBefore - ownerPeggedDecrease, "pegged not burned");
 
         assertGe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio >= before");
+    }
+
+    function _mintPegged(address receiver, uint256 amount) internal {
+        // deal(address(peggedToken), owner, mintedBaoUSD);
+        if (Token.hasNonMutatingParameterlessFunction(peggedToken, "operator")) {
+            // deal(address(peggedToken), owner, mintedBaoUSD);
+            vm.prank(IBaoUSD(peggedToken).operator());
+            IMintable(peggedToken).mint(receiver, amount);
+        } else {
+            // if the pegged token does not have an operator, we mint it directly
+            vm.prank(owner);
+            IMintable(peggedToken).mint(receiver, amount);
+        }
     }
 
     function test_freeRedeemPegged() public {
@@ -102,41 +112,42 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // zero input, when none
         assertEq(IERC20(Deployed.wstETH).balanceOf(owner), 0);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemPeggedToken(0, receiver);
         // 2 ----------------------------------------------------------
 
         // some input, when none
-        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemPeggedToken(price, receiver);
         // 3 ----------------------------------------------------------------
 
         // all input, when none
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemPeggedToken(type(uint256).max, receiver);
         // 4 --------------------------------------------------------------------------
 
-        uint256 BaoUSDTotalSupplyBefore = IERC20(Deployed.BaoUSD).totalSupply();
-        uint256 BaoUSDBalanceOfOwnerBefore = IERC20(Deployed.BaoUSD).balanceOf(owner);
+        uint256 BaoUSDTotalSupplyBefore = IERC20(peggedToken).totalSupply();
+        uint256 BaoUSDBalanceOfOwnerBefore = IERC20(peggedToken).balanceOf(owner);
 
         uint256 mintedBaoUSD = 10 * price;
-        // deal(address(Deployed.BaoUSD), owner, mintedBaoUSD);
-        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
-        IMintable(Deployed.BaoUSD).mint(owner, mintedBaoUSD);
+
+        // deal(address(peggedToken), owner, mintedBaoUSD);
+        _mintPegged(owner, mintedBaoUSD);
+
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-        assertEq(BaoUSDTotalSupplyBefore + mintedBaoUSD, IERC20(Deployed.BaoUSD).totalSupply());
-        assertEq(BaoUSDBalanceOfOwnerBefore + mintedBaoUSD, IERC20(Deployed.BaoUSD).balanceOf(owner));
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(owner), mintedBaoUSD);
+        assertEq(BaoUSDTotalSupplyBefore + mintedBaoUSD, IERC20(peggedToken).totalSupply());
+        assertEq(BaoUSDBalanceOfOwnerBefore + mintedBaoUSD, IERC20(peggedToken).balanceOf(owner));
+        assertEq(IERC20(peggedToken).balanceOf(owner), mintedBaoUSD);
 
         // approve of minter burning receiver's pegged
         vm.prank(owner);
-        IERC20(Deployed.BaoUSD).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
 
         // zero input, when some
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemPeggedToken(0, receiver);
         // 5 -----------------------------------------------------------
@@ -144,7 +155,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IBaoOwnable(minter).owner(), owner);
 
         // check that we can't redeem more than minter has minted, i.e 0
-        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeRedeemPeggedToken(price, receiver);
         // 6 ----------------------------------------------------------------
@@ -154,11 +165,11 @@ contract TestMinterRedeemPegged is TestMinterMint {
         vm.prank(owner);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
 
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(owner), mintedBaoUSD);
+        assertEq(IERC20(peggedToken).balanceOf(owner), mintedBaoUSD);
         vm.prank(owner);
         IMinter(minter).freeMintPeggedToken(1 ether, owner);
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(owner), mintedBaoUSD + price);
+        assertEq(IERC20(peggedToken).balanceOf(owner), mintedBaoUSD + price);
         assertEq(
             IMinter(minter).collateralTokenBalance(),
             IERC20(Deployed.wstETH).balanceOf(minter),
@@ -167,7 +178,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // check that we can't redeem more than minter has minted
         // TODO: check this for non-free redeems
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         assertEq(IMinter(minter).peggedTokenBalance(), price);
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.RedeemPeggedToken(owner, receiver, price, 1 ether);
@@ -208,7 +219,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
     function _freeSwapPeggedForLeveraged(uint256 peggedIn) private {
         uint256 ownerPeggedDecrease;
         if (peggedIn == type(uint256).max) {
-            ownerPeggedDecrease = IERC20(Deployed.BaoUSD).balanceOf(owner);
+            ownerPeggedDecrease = IERC20(peggedToken).balanceOf(owner);
         } else {
             ownerPeggedDecrease = peggedIn;
         }
@@ -217,7 +228,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
             ownerPeggedDecrease = minterPeggedBefore;
 
         uint256 receiverLeveragedIncrease = ownerPeggedDecrease;
-        uint256 ownerPeggedBefore = IERC20(Deployed.BaoUSD).balanceOf(owner);
+        uint256 ownerPeggedBefore = IERC20(peggedToken).balanceOf(owner);
         uint256 receiverCollateralBefore = IERC20(leveragedToken).balanceOf(receiver);
         uint256 minterCollateralBefore = IMinter(minter).collateralTokenBalance();
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
@@ -236,11 +247,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IMinter(minter).collateralTokenBalance(), minterCollateralBefore);
 
         assertEq(IMinter(minter).peggedTokenBalance(), minterPeggedBefore - ownerPeggedDecrease);
-        assertEq(
-            IERC20(Deployed.BaoUSD).balanceOf(owner),
-            ownerPeggedBefore - ownerPeggedDecrease,
-            "pegged not burned"
-        );
+        assertEq(IERC20(peggedToken).balanceOf(owner), ownerPeggedBefore - ownerPeggedDecrease, "pegged not burned");
 
         assertGe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio >= before");
     }
@@ -257,41 +264,41 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // zero input, when none
         assertEq(IERC20(Deployed.wstETH).balanceOf(owner), 0);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeSwapPeggedForLeveraged(0, receiver);
         // 2 ----------------------------------------------------------
 
         // some input, when none
-        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeSwapPeggedForLeveraged(price, receiver);
         // 3 ----------------------------------------------------------------
 
         // all input, when none
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeSwapPeggedForLeveraged(type(uint256).max, receiver);
         // 4 --------------------------------------------------------------------------
 
-        uint256 BaoUSDTotalSupplyBefore = IERC20(Deployed.BaoUSD).totalSupply();
-        uint256 BaoUSDBalanceOfOwnerBefore = IERC20(Deployed.BaoUSD).balanceOf(owner);
+        uint256 BaoUSDTotalSupplyBefore = IERC20(peggedToken).totalSupply();
+        uint256 BaoUSDBalanceOfOwnerBefore = IERC20(peggedToken).balanceOf(owner);
 
         uint256 mintedBaoUSD = 10 * price;
-        // deal(address(Deployed.BaoUSD), owner, mintedBaoUSD);
-        vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
-        IMintable(Deployed.BaoUSD).mint(owner, mintedBaoUSD);
+        // deal(address(peggedToken), owner, mintedBaoUSD);
+        _mintPegged(owner, mintedBaoUSD);
         //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-        assertEq(BaoUSDTotalSupplyBefore + mintedBaoUSD, IERC20(Deployed.BaoUSD).totalSupply());
-        assertEq(BaoUSDBalanceOfOwnerBefore + mintedBaoUSD, IERC20(Deployed.BaoUSD).balanceOf(owner));
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(owner), mintedBaoUSD);
+
+        assertEq(BaoUSDTotalSupplyBefore + mintedBaoUSD, IERC20(peggedToken).totalSupply());
+        assertEq(BaoUSDBalanceOfOwnerBefore + mintedBaoUSD, IERC20(peggedToken).balanceOf(owner));
+        assertEq(IERC20(peggedToken).balanceOf(owner), mintedBaoUSD);
 
         // approve of minter burning receiver's pegged
         vm.prank(owner);
-        IERC20(Deployed.BaoUSD).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
 
         // zero input, when some
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeSwapPeggedForLeveraged(0, receiver);
         // 5 -----------------------------------------------------------
@@ -299,7 +306,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IBaoOwnable(minter).owner(), owner);
 
         // check that we can't swap more than minter has minted, i.e 0
-        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(owner);
         IMinter(minter).freeSwapPeggedForLeveraged(price, receiver);
         // 6 ----------------------------------------------------------------
@@ -309,13 +316,13 @@ contract TestMinterRedeemPegged is TestMinterMint {
         vm.prank(owner);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
 
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(owner), mintedBaoUSD);
+        assertEq(IERC20(peggedToken).balanceOf(owner), mintedBaoUSD);
         vm.prank(owner);
         IMinter(minter).freeMintPeggedToken(1 ether, owner);
         //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(owner), mintedBaoUSD + price);
+        assertEq(IERC20(peggedToken).balanceOf(owner), mintedBaoUSD + price);
 
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         assertEq(IMinter(minter).peggedTokenBalance(), price);
         vm.expectEmit(minter);
         emit IMinter.SwapPeggedForLeveraged(owner, receiver, price, price);
@@ -352,19 +359,19 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         uint256 senderPeggedDecrease;
         if (peggedIn == type(uint256).max) {
-            senderPeggedDecrease = IERC20(Deployed.BaoUSD).balanceOf(sender);
+            senderPeggedDecrease = IERC20(peggedToken).balanceOf(sender);
         } else {
             senderPeggedDecrease = peggedIn;
         }
 
-        deal(address(Deployed.BaoUSD), sender, senderPeggedDecrease);
+        deal(address(peggedToken), sender, senderPeggedDecrease);
         vm.prank(sender);
-        IERC20(Deployed.BaoUSD).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
 
         uint256 feeReceiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
-        uint256 senderPeggedBefore = IERC20(Deployed.BaoUSD).balanceOf(sender);
+        uint256 senderPeggedBefore = IERC20(peggedToken).balanceOf(sender);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
-        uint256 totalPeggedBefore = IERC20(Deployed.BaoUSD).totalSupply();
+        uint256 totalPeggedBefore = IERC20(peggedToken).totalSupply();
         uint256 minterCollateralBalanceBefore = IMinter(minter).collateralTokenBalance();
         uint256 minterPeggedBalanceBefore = IMinter(minter).peggedTokenBalance();
         uint256 minterCollateralBefore = IERC20(Deployed.wstETH).balanceOf(minter);
@@ -396,8 +403,8 @@ contract TestMinterRedeemPegged is TestMinterMint {
             feeReceiverCollateralBefore + redeemPeggedFee,
             "fee transferred"
         );
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), senderPeggedBefore - senderPeggedDecrease, "token sent");
-        assertEq(IERC20(Deployed.BaoUSD).totalSupply(), totalPeggedBefore - senderPeggedDecrease, "token burned");
+        assertEq(IERC20(peggedToken).balanceOf(sender), senderPeggedBefore - senderPeggedDecrease, "token sent");
+        assertEq(IERC20(peggedToken).totalSupply(), totalPeggedBefore - senderPeggedDecrease, "token burned");
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(receiver),
             receiverCollateralBefore + receiverCollateralIncrease,
@@ -428,15 +435,15 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // zero input, when none
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 0);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        assertEq(IERC20(peggedToken).balanceOf(sender), 0);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(0, receiver, 0);
         // 1 --------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // all input, when none
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(type(uint256).max, receiver, 0);
         // 2 ----------------------------------------------------------------------
@@ -444,7 +451,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // some input, when no leveraged Tokens
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
         // 3 -------------------------------------------------------------
@@ -459,7 +466,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // all input, when none
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(type(uint256).max, receiver, 0);
         // 5 ------------------------------------------------------------------
@@ -467,10 +474,10 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // get tokens to redeem
         setUp_collateral(1 ether, 0, sender);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 1 * price, "sender has 1");
+        assertEq(IERC20(peggedToken).balanceOf(sender), 1 * price, "sender has 1");
 
         // redeem no allowance
-        assertEq(IERC20(Deployed.BaoUSD).allowance(sender, minter), 0);
+        assertEq(IERC20(peggedToken).allowance(sender, minter), 0);
         vm.expectRevert /*"ERC20: transfer amount exceeds allowance"*/();
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
@@ -478,7 +485,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // zero input, when some
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.BaoUSD));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(0, receiver, 0);
         // 7 --------------------------------------------
@@ -488,13 +495,13 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // mint some then redeem it:
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "CR is 1");
         // setUp_collateral(0, 100 ether, owner); // make the collateral ratio nice
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 1 * price, "sender still has 1");
+        assertEq(IERC20(peggedToken).balanceOf(sender), 1 * price, "sender still has 1");
         setUp_collateral(2 ether, 0, sender);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 3 * price, "sender has 3");
+        assertEq(IERC20(peggedToken).balanceOf(sender), 3 * price, "sender has 3");
         assertEq(IMinter(minter).collateralRatio(), 1 ether, "CR is still 1");
         // get allowance
         vm.prank(sender);
-        IERC20(Deployed.BaoUSD).approve(minter, 3 * price);
+        IERC20(peggedToken).approve(minter, 3 * price);
 
         assertEq(IMinter(minter).collateralTokenBalance(), 4 ether, "collaterals should be 3");
         assertEq(
@@ -543,17 +550,17 @@ contract TestMinterRedeemPegged is TestMinterMint {
         uint256 collateral = 3 ether;
         uint256 pegged = (collateral * price) / 1 ether;
 
-        deal(address(Deployed.BaoUSD), sender, pegged * 2);
+        deal(address(peggedToken), sender, pegged * 2);
         vm.prank(sender);
 
-        IERC20(Deployed.BaoUSD).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
         deal(address(Deployed.wstETH), sender, collateral * 10);
 
         uint256 redeemPeggedFee = (collateral * uint256(ultimate(config.redeemPeggedIncentiveConfig.incentiveRatios))) /
             1 ether;
         uint256 expectedCollateralOut = collateral - redeemPeggedFee;
 
-        uint256 senderPeggedBefore = IERC20(Deployed.BaoUSD).balanceOf(sender);
+        uint256 senderPeggedBefore = IERC20(peggedToken).balanceOf(sender);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just within
@@ -562,9 +569,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // 3 ------------------------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore + expectedCollateralOut);
 
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), senderPeggedBefore - pegged);
+        assertEq(IERC20(peggedToken).balanceOf(sender), senderPeggedBefore - pegged);
 
-        senderPeggedBefore = IERC20(Deployed.BaoUSD).balanceOf(sender);
+        senderPeggedBefore = IERC20(peggedToken).balanceOf(sender);
         receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just over
@@ -580,7 +587,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).redeemPeggedToken(pegged, receiver, expectedCollateralOut + 1);
         // 4 ------------------------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), senderPeggedBefore);
+        assertEq(IERC20(peggedToken).balanceOf(sender), senderPeggedBefore);
 
         // mint from all of balance
         redeemPeggedFee =
@@ -591,7 +598,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         _redeemPeggedToken(type(uint256).max);
         // 5 --------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore + expectedCollateralOut);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 0, "transferred it all");
+        assertEq(IERC20(peggedToken).balanceOf(sender), 0, "transferred it all");
     }
 
     function test_redeemPeggedDepegged() public {
@@ -614,17 +621,17 @@ contract TestMinterRedeemPegged is TestMinterMint {
         uint256 collateral = 3 ether;
         uint256 pegged = (collateral * price) / 1 ether;
 
-        deal(address(Deployed.BaoUSD), sender, pegged * 2);
+        deal(address(peggedToken), sender, pegged * 2);
         vm.prank(sender);
 
-        IERC20(Deployed.BaoUSD).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
         deal(address(Deployed.wstETH), sender, collateral * 10);
 
         uint256 redeemPeggedFee = (collateral * uint256(ultimate(config.redeemPeggedIncentiveConfig.incentiveRatios))) /
             1 ether;
         uint256 expectedCollateralOut = collateral - redeemPeggedFee;
 
-        uint256 senderPeggedBefore = IERC20(Deployed.BaoUSD).balanceOf(sender);
+        uint256 senderPeggedBefore = IERC20(peggedToken).balanceOf(sender);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just within
@@ -633,9 +640,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // 3 ------------------------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore + expectedCollateralOut);
 
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), senderPeggedBefore - pegged);
+        assertEq(IERC20(peggedToken).balanceOf(sender), senderPeggedBefore - pegged);
 
-        senderPeggedBefore = IERC20(Deployed.BaoUSD).balanceOf(sender);
+        senderPeggedBefore = IERC20(peggedToken).balanceOf(sender);
         receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
 
         // just over
@@ -651,7 +658,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).redeemPeggedToken(pegged, receiver, expectedCollateralOut + 1);
         // 4 ------------------------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), senderPeggedBefore);
+        assertEq(IERC20(peggedToken).balanceOf(sender), senderPeggedBefore);
 
         // mint from all of balance
         redeemPeggedFee =
@@ -662,7 +669,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         _redeemPeggedToken(type(uint256).max);
         // 5 --------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), receiverCollateralBefore + expectedCollateralOut);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(sender), 0, "transferred it all");
+        assertEq(IERC20(peggedToken).balanceOf(sender), 0, "transferred it all");
 */
     }
 }

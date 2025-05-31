@@ -93,15 +93,15 @@ contract StabilityPoolManager_v1 is
 
         // slither-disable-next-line missing-zero-check
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
-        Token.ensureERC20Token(PEGGED_TOKEN);
+        Token.sanityCheckERC20Token(PEGGED_TOKEN);
 
         // slither-disable-next-line missing-zero-check
         WRAPPED_COLLATERAL_TOKEN = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
-        Token.ensureERC20Token(WRAPPED_COLLATERAL_TOKEN);
+        Token.sanityCheckERC20Token(WRAPPED_COLLATERAL_TOKEN);
 
         // slither-disable-next-line missing-zero-check
         LEVERAGED_TOKEN = IMinter(minter_).LEVERAGED_TOKEN();
-        Token.ensureERC20Token(LEVERAGED_TOKEN);
+        Token.sanityCheckERC20Token(LEVERAGED_TOKEN);
 
         Token.ensureNonZeroAddress(treasury_);
         // slither-disable-next-line missing-zero-check
@@ -194,7 +194,7 @@ contract StabilityPoolManager_v1 is
     /// @notice Updates the rebalance collateral ratio
     /// @param newRatio The new rebalance collateral ratio
     function setRebalanceCollateralRatio(uint256 newRatio) external onlyOwner {
-        if (newRatio < 1 ether) revert InvalidCollateralRatio(newRatio);
+        if (newRatio < 1 ether) revert InvalidRebalanceCollateralRatio(newRatio);
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         $.rebalanceCollateralRatio = newRatio;
 
@@ -203,6 +203,9 @@ contract StabilityPoolManager_v1 is
 
     /// @inheritdoc IStabilityPoolManager
     function setRebalanceBountyRatio(uint256 rebalanceRatio_) external onlyOwner {
+        if (rebalanceRatio_ > 1 ether) {
+            revert InvalidRebalanceBountyRatio(rebalanceRatio_);
+        }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         $.rebalanceBountyRatio = rebalanceRatio_;
 
@@ -211,6 +214,9 @@ contract StabilityPoolManager_v1 is
 
     /// @inheritdoc IStabilityPoolManager
     function setHarvestBountyRatio(uint256 harvestRatio_) external onlyOwner {
+        if (harvestRatio_ > 1 ether) {
+            revert InvalidHarvestBountyRatio(harvestRatio_);
+        }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         $.harvestRatio = harvestRatio_;
 
@@ -239,10 +245,9 @@ contract StabilityPoolManager_v1 is
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         uint256 rebalanceCollateralRatio_ = $.rebalanceCollateralRatio;
         {
-            // check we are in the right collateral ratio band
-
             uint256 collateralRatio = IMinter(MINTER).collateralRatio();
-            if (collateralRatio > rebalanceCollateralRatio_) {
+            if (collateralRatio >= rebalanceCollateralRatio_) {
+                // it's an lower bound for non-rebalance mode
                 revert CollateralRatioTooHigh(collateralRatio, rebalanceCollateralRatio_);
             }
         }
@@ -260,12 +265,37 @@ contract StabilityPoolManager_v1 is
             rebalanceCollateralRatio_
         );
 
-        // rescale to the pool holdings - TODO: round up, just to be sure we are out of rebalance
-        peggedForCollateral = (peggedForCollateral * poolHoldingCollateral) / totalPoolHolding;
-        peggedForLeveraged = (peggedForLeveraged * poolHoldingLeveraged) / totalPoolHolding;
+        // rescale to the pool holdings
+        if (peggedForCollateral == 0) {
+            peggedForLeveraged = totalPoolHolding;
+        } else if (peggedForLeveraged == 0) {
+            peggedForCollateral = totalPoolHolding;
+        } else {
+            // round up, just to be sure we are out of rebalance
+            peggedForCollateral = Math.mulDiv(
+                peggedForCollateral,
+                poolHoldingCollateral,
+                totalPoolHolding,
+                Math.Rounding.Ceil
+            );
+            peggedForLeveraged = Math.mulDiv(
+                peggedForLeveraged,
+                poolHoldingLeveraged,
+                totalPoolHolding,
+                Math.Rounding.Ceil
+            );
+        }
 
+        // can't liquidate more than the pools hold
+        if (peggedForCollateral > poolHoldingCollateral) {
+            peggedForCollateral = poolHoldingCollateral;
+        }
+        if (peggedForLeveraged > poolHoldingLeveraged) {
+            peggedForLeveraged = poolHoldingLeveraged;
+        }
         peggedLiquidated = peggedForCollateral + peggedForLeveraged;
 
+        // make sure we're going to liquidate at least the minimum
         if (peggedLiquidated < minPeggedLiquidated) {
             revert InsufficientLiquidation(PEGGED_TOKEN, peggedLiquidated, minPeggedLiquidated);
         }
@@ -278,31 +308,42 @@ contract StabilityPoolManager_v1 is
 
         uint256 rebalanceBountyRatio_ = $.rebalanceBountyRatio;
 
+        // allow the minter to burn my pegged tokens I've just swept up
+        IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedLiquidated);
+
         // collateral return pool
-        ITokenHolder(STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
-        uint256 wrappedCollateralReturned = IMinter(MINTER).freeRedeemPeggedToken(peggedForCollateral, address(this));
+        uint256 wrappedCollateralReturned = 0;
+        if (peggedForCollateral > 0) {
+            ITokenHolder(STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
+            wrappedCollateralReturned = IMinter(MINTER).freeRedeemPeggedToken(peggedForCollateral, address(this));
 
-        // extract the bounty
-        uint256 collateralBounty = (wrappedCollateralReturned * 1 ether) / rebalanceBountyRatio_;
-        wrappedCollateralReturned -= collateralBounty;
+            // extract the bounty
+            uint256 collateralBounty = (wrappedCollateralReturned * rebalanceBountyRatio_) / 1 ether;
+            wrappedCollateralReturned -= collateralBounty;
 
-        // transfer the amounts and update the stability pool accounts
-        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, collateralBounty);
-        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
-        IStabilityPool(STABILITY_POOL_COLLATERAL).accumulateReward(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralReturned);
+            // transfer the amounts and update the stability pool accounts
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, collateralBounty);
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
+            IStabilityPool(STABILITY_POOL_COLLATERAL).accumulateReward(
+                WRAPPED_COLLATERAL_TOKEN,
+                wrappedCollateralReturned
+            );
+        }
 
         // leveraged return
-        ITokenHolder(STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
-        uint256 leveragedReturned = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, address(this));
+        uint256 leveragedReturned = 0;
+        if (peggedForLeveraged > 0) {
+            ITokenHolder(STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
+            leveragedReturned = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, address(this));
 
-        // extract the bounty
-        uint256 leveragedBounty = (leveragedReturned * 1 ether) / rebalanceBountyRatio_;
-        leveragedReturned -= leveragedBounty;
+            // extract the bounty
+            uint256 leveragedBounty = (leveragedReturned * rebalanceBountyRatio_) / 1 ether;
+            leveragedReturned -= leveragedBounty;
 
-        IERC20(LEVERAGED_TOKEN).safeTransfer(bountyReceiver, leveragedBounty);
-        IERC20(LEVERAGED_TOKEN).safeTransfer(STABILITY_POOL_LEVERAGED, leveragedReturned);
-        IStabilityPool(STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, leveragedReturned);
-
+            IERC20(LEVERAGED_TOKEN).safeTransfer(bountyReceiver, leveragedBounty);
+            IERC20(LEVERAGED_TOKEN).safeTransfer(STABILITY_POOL_LEVERAGED, leveragedReturned);
+            IStabilityPool(STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, leveragedReturned);
+        }
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
     }
 

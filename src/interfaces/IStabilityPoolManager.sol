@@ -24,8 +24,14 @@ interface IStabilityPoolManager {
     //////////////////////////////////////////////////////////////*/
     error InvalidStabilityPool(address pool);
     error InsufficientBounty(address token, uint256 given, uint256 minExpected);
+    // @dev Thrown when there are no harvestable tokens
     error NoHarvestable();
-    error InvalidCollateralRatio(uint256 ratio);
+    /// @dev Thrown when the harvest bounty ratio is > 1
+    error InvalidHarvestBountyRatio(uint256 ratio);
+    /// @dev Thrown when the rebalance bounty ratio is > 1
+    error InvalidRebalanceBountyRatio(uint256 ratio);
+    /// @dev Thrown when the rebalance collateral ratio is invalid
+    error InvalidRebalanceCollateralRatio(uint256 ratio);
 
     /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
     error CollateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);

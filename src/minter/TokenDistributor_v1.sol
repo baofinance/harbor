@@ -162,7 +162,7 @@ contract TokenDistributor_v1 is
     /// @inheritdoc ITokenDistributor
     function addToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
-        Token.ensureERC20Token(token);
+        Token.sanityCheckERC20Token(token);
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.tokens.add(token); // only adds if one is not already there
     }

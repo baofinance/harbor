@@ -197,7 +197,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         assertEq(liquidated, price, "should have liquidated 2");
     }
 
-    function test_liquidate() public {
+    function test_liquidateCollateral() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         // 130% = 13/10
         setUp_collateral(9 ether, 3 ether); // cr=12/9 = 133%
@@ -218,7 +218,12 @@ contract TestLiquidate is TestStabilityPool2SetUp {
 
         uint256 liquidated;
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.InsufficientLiquidation.selector, 1 * price, 1 * price + 1)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.InsufficientLiquidation.selector,
+                peggedToken,
+                1 * price,
+                1 * price + 1
+            )
         );
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 1 * price + 1);
         // (1) --------------------------------------------------------------------------------------------------
@@ -226,7 +231,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // liquidate it
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (2) --------------------------------------------------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
+        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130");
         assertEq(liquidated, 1 * price, "wrong amount of pegged 1");
         assertEq(
             poolPegged - IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
@@ -246,7 +251,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (3) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130 still");
+        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
 
         // move the CR up a bit, liquidate it, with no effect
         setUp_collateral(0 ether, 1 ether); // cr=14/10 = 140%
@@ -277,18 +282,24 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         uint256 poolLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged); // 0
         assertEq(IMinter(minter).collateralRatio(), uint256(14 ether) / 11, "start CR"); // 127%
 
+        uint256 expected = 461538461538461538462; // taken from a previous run
         uint256 liquidated;
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.InsufficientLiquidation.selector, 1 * price, 1 * price + 1)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.InsufficientLiquidation.selector,
+                peggedToken,
+                expected,
+                expected + 1
+            )
         );
-        liquidated = IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 1 * price + 1);
+        liquidated = IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, expected + 1);
         // (1) --------------------------------------------------------------------------------------------------
 
         // liquidate it 0.23 * price vs 1 * price for liquidate to collateral
         liquidated = IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
         // (2) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130");
-        assertEq(liquidated, 461538461538461538462, "wrong amount of pegged");
+        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130");
+        assertEq(liquidated, expected, "wrong amount of pegged");
         assertEq(
             poolPegged - IERC20(peggedToken).balanceOf(stabilityPoolLeveraged),
             liquidated,
@@ -304,27 +315,24 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             liquidated, // TODO: why is this exactly the same as the liquidated pegged?
             "wrong amount of leveraged"
         );
+        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
 
         // collateral ratio has gone to stability, liquidate it, with no effect
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, 1.3 ether, 1.3 ether)
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
         // (3) --------------------------------------------------------
-        assertEq(IMinter(minter).collateralRatio(), uint256(13 ether) / 10, "collateral ratio should be 130 still");
+        assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");
 
         // move the CR up a bit, liquidate it, with no effect
         setUp_collateral(0 ether, 2 ether);
         uint256 beforeCR = IMinter(minter).collateralRatio();
-        assertGt(beforeCR, uint256(13 ether) / 10);
+        assertGt(beforeCR, 1.3 ether);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IStabilityPoolManager.CollateralRatioTooHigh.selector,
-                IMinter(minter).collateralRatio(),
-                13 ether / 10
-            )
+            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, beforeCR, 1.3 ether)
         );
-        IStabilityPoolManager(stabilityPoolLeveraged).rebalance(bountyReceiver, 1 ether);
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 1 ether);
         // (4) --------------------------------------------------------
         assertEq(IMinter(minter).collateralRatio(), beforeCR, "collateral ratio should still be 140");
     }

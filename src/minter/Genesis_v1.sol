@@ -188,10 +188,10 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         // get the collateral back - minus the fees
         // we redeem the pegged first because that potentially reduces the fee for redeeming the leveraged
         // wake-disable-next-line reentrancy // we have nonReentrant on this function
-        IERC20(PEGGED_TOKEN).forceApprove(MINTER, peggedAmount);
+        IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedAmount);
         // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
         collateralOut += IMinter(MINTER).redeemPeggedToken(peggedAmount, receiver, 0);
-        IERC20(LEVERAGED_TOKEN).forceApprove(MINTER, leveragedAmount);
+        IERC20(LEVERAGED_TOKEN).safeIncreaseAllowance(MINTER, leveragedAmount);
         collateralOut += IMinter(MINTER).redeemLeveragedToken(leveragedAmount, receiver, 0);
 
         if (collateralOut < minCollateralOut) {
@@ -240,6 +240,10 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
             // count out the caller's share
             peggedAmount = (share * totalPeggedAmount) / totalShares;
             leveragedAmount = (share * totalLeveragedAmount) / totalShares;
+        } else {
+            // if there are no shares, then the caller gets nothing
+            peggedAmount = 0;
+            leveragedAmount = 0;
         }
     }
 
@@ -262,7 +266,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         // into this contract.
         uint256 halfCollateral = totalCollateral / 2;
         // wake-disable-next-line reentrancy // nonReentrant on this function
-        IERC20(WRAPPED_COLLATERAL_TOKEN).forceApprove(MINTER, totalCollateral);
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeIncreaseAllowance(MINTER, totalCollateral);
         // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
         $.totalPeggedAtGenesisEnd = IMinter(MINTER).freeMintPeggedToken(halfCollateral, address(this));
         $.totalLeveragedAtGenesisEnd = IMinter(MINTER).freeMintLeveragedToken(

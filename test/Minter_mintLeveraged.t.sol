@@ -160,7 +160,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             "collateral ratio = 1 for the first mint: 0/0, a special case = 1"
         );
         assertEq(IBaoOwnable(minter).owner(), owner);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         // 6 ---------------------------
         assertEq(
@@ -181,7 +181,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         IMinter(minter).freeMintPeggedToken(1 ether, owner);
         assertGt(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio > 1");
         assertEq(IBaoOwnable(minter).owner(), owner);
-        assertEq(IERC20(Deployed.BaoUSD).balanceOf(receiver), 0);
+        assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         // 7 ---------------------------
         assertApproxEqAbs(
