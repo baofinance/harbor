@@ -1211,7 +1211,6 @@ contract Minter_v1 is
         } // no need to check for others because the constructor does this
     }
 
-
     /// @notice Perform the transfers and event emissions for redeeming pegged tokens
     /// Fees and discounts transfers and event emissions are not handled here.
     /// @dev no checks for zeros values are performed.

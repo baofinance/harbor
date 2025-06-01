@@ -10,7 +10,7 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
+import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
@@ -22,6 +22,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 /// @notice Manages stability pools for rebalancing and harvesting operations
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
+// solhint-disable-next-line contract-name-camelcase
 contract StabilityPoolManager_v1 is
     Initializable,
     UUPSUpgradeable,
@@ -53,10 +54,10 @@ contract StabilityPoolManager_v1 is
     address public immutable TREASURY;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address private immutable STABILITY_POOL_COLLATERAL;
+    address private immutable _STABILITY_POOL_COLLATERAL;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address private immutable STABILITY_POOL_LEVERAGED;
+    address private immutable _STABILITY_POOL_LEVERAGED;
 
     // Share-with-proxy Storage
     // ------------------------
@@ -109,9 +110,9 @@ contract StabilityPoolManager_v1 is
 
         // Validate and store the stability pools
         Token.ensureContract(stabilityPoolCollateral);
-        STABILITY_POOL_COLLATERAL = stabilityPoolCollateral;
+        _STABILITY_POOL_COLLATERAL = stabilityPoolCollateral;
         Token.ensureContract(stabilityPoolLeveraged);
-        STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
+        _STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
     }
 
     /// @notice Initialize the contract with starting configuration
@@ -146,13 +147,13 @@ contract StabilityPoolManager_v1 is
     /// @inheritdoc IStabilityPoolManager
     function stabilityPools() external view returns (address[] memory pools) {
         pools = new address[](2);
-        pools[0] = STABILITY_POOL_COLLATERAL;
-        pools[1] = STABILITY_POOL_LEVERAGED;
+        pools[0] = _STABILITY_POOL_COLLATERAL;
+        pools[1] = _STABILITY_POOL_LEVERAGED;
     }
 
     /// @inheritdoc IStabilityPoolManager
     function hasStabilityPool(address stabilityPool) external view returns (bool) {
-        return (STABILITY_POOL_COLLATERAL == stabilityPool) || STABILITY_POOL_LEVERAGED == stabilityPool;
+        return (_STABILITY_POOL_COLLATERAL == stabilityPool) || _STABILITY_POOL_LEVERAGED == stabilityPool;
     }
 
     /// @inheritdoc IStabilityPoolManager
@@ -237,8 +238,8 @@ contract StabilityPoolManager_v1 is
         view
         returns (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged)
     {
-        poolHoldingCollateral = IERC20(PEGGED_TOKEN).balanceOf(STABILITY_POOL_COLLATERAL);
-        poolHoldingLeveraged = IERC20(PEGGED_TOKEN).balanceOf(STABILITY_POOL_LEVERAGED);
+        poolHoldingCollateral = IERC20(PEGGED_TOKEN).balanceOf(_STABILITY_POOL_COLLATERAL);
+        poolHoldingLeveraged = IERC20(PEGGED_TOKEN).balanceOf(_STABILITY_POOL_LEVERAGED);
         totalPoolHolding = poolHoldingCollateral + poolHoldingLeveraged;
     }
 
@@ -314,7 +315,7 @@ contract StabilityPoolManager_v1 is
         // collateral return pool
         uint256 wrappedCollateralReturned = 0;
         if (peggedForCollateral > 0) {
-            ITokenHolder(STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
+            ITokenHolder(_STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
             wrappedCollateralReturned = IMinter(MINTER).freeRedeemPeggedToken(peggedForCollateral, address(this));
 
             // extract the bounty
@@ -323,8 +324,8 @@ contract StabilityPoolManager_v1 is
 
             // transfer the amounts and update the stability pool accounts
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, collateralBounty);
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
-            IStabilityPool(STABILITY_POOL_COLLATERAL).accumulateReward(
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(_STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
+            IStabilityPool(_STABILITY_POOL_COLLATERAL).accumulateReward(
                 WRAPPED_COLLATERAL_TOKEN,
                 wrappedCollateralReturned
             );
@@ -333,7 +334,7 @@ contract StabilityPoolManager_v1 is
         // leveraged return
         uint256 leveragedReturned = 0;
         if (peggedForLeveraged > 0) {
-            ITokenHolder(STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
+            ITokenHolder(_STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
             leveragedReturned = IMinter(MINTER).freeSwapPeggedForLeveraged(peggedForLeveraged, address(this));
 
             // extract the bounty
@@ -341,8 +342,8 @@ contract StabilityPoolManager_v1 is
             leveragedReturned -= leveragedBounty;
 
             IERC20(LEVERAGED_TOKEN).safeTransfer(bountyReceiver, leveragedBounty);
-            IERC20(LEVERAGED_TOKEN).safeTransfer(STABILITY_POOL_LEVERAGED, leveragedReturned);
-            IStabilityPool(STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, leveragedReturned);
+            IERC20(LEVERAGED_TOKEN).safeTransfer(_STABILITY_POOL_LEVERAGED, leveragedReturned);
+            IStabilityPool(_STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, leveragedReturned);
         }
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
     }
@@ -394,13 +395,13 @@ contract StabilityPoolManager_v1 is
             actuallyHarvested += _harvestToPool(
                 harvestableAmount,
                 totalPoolHolding,
-                STABILITY_POOL_COLLATERAL,
+                _STABILITY_POOL_COLLATERAL,
                 poolHoldingCollateral
             );
             actuallyHarvested += _harvestToPool(
                 harvestableAmount,
                 totalPoolHolding,
-                STABILITY_POOL_LEVERAGED,
+                _STABILITY_POOL_LEVERAGED,
                 poolHoldingLeveraged
             );
         } else {

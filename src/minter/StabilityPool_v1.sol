@@ -4,10 +4,8 @@ pragma solidity 0.8.28;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {DecrementalFloatingPoint} from "src/common/math/DecrementalFloatingPoint.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
@@ -241,10 +239,12 @@ contract StabilityPool_v1 is
      * Public View Functions *
      *************************/
 
+    // solhint-disable-next-line func-name-mixedcase
     function REWARD_MANAGER_ROLE() external pure returns (uint256) {
         return LinearMultipleRewardDistributor._REWARD_MANAGER_ROLE;
     }
 
+    // solhint-disable-next-line func-name-mixedcase
     function REWARD_PERIOD_LENGTH() external view returns (uint40) {
         return LinearMultipleRewardDistributor._PERIOD_LENGTH;
     }

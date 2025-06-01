@@ -32,15 +32,19 @@ interface IGenesis is ITokenHolder {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice returns the minter contract
+    // solhint-disable-next-line func-name-mixedcase
     function MINTER() external view returns (address);
 
     /// @notice returns the collateral token used by the minter
+    // solhint-disable-next-line func-name-mixedcase
     function WRAPPED_COLLATERAL_TOKEN() external view returns (address token);
 
     /// @notice returns the pegged token used by the minter
+    // solhint-disable-next-line func-name-mixedcase
     function PEGGED_TOKEN() external view returns (address token);
 
     /// @notice returns the leveraged token used by the minter
+    // solhint-disable-next-line func-name-mixedcase
     function LEVERAGED_TOKEN() external view returns (address token);
 
     /// @notice returns the amount of collateral deposited by `depositor`
