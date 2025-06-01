@@ -83,14 +83,14 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
         IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
         IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
-        console2.log(
-            "peggedToken.balanceOf stabilityPoolCollateral=",
-            IERC20(peggedToken).balanceOf(stabilityPoolCollateral)
-        );
-        console2.log(
-            "peggedToken.balanceOf stabilityPoolLeveraged=",
-            IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)
-        );
+        // console2.log(
+        //     "peggedToken.balanceOf stabilityPoolCollateral=",
+        //     IERC20(peggedToken).balanceOf(stabilityPoolCollateral)
+        // );
+        // console2.log(
+        //     "peggedToken.balanceOf stabilityPoolLeveraged=",
+        //     IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)
+        // );
 
         bountyReceiver = vm.createWallet("bountyReceiver").addr;
         treasury = vm.createWallet("treasury").addr;

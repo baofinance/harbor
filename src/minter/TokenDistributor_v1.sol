@@ -98,6 +98,7 @@ contract TokenDistributor_v1 is
     function initialize(address owner_, string memory name_) public initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
+        __ReentrancyGuardTransient_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         $.name = name_;
     }

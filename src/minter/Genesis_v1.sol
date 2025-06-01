@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -31,7 +32,15 @@ import {IGenesis} from "src/interfaces/IGenesis.sol";
 /// @dev uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOwnable, TokenHolder, IGenesis {
+contract Genesis_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    ContextUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
+    BaoOwnable,
+    TokenHolder,
+    IGenesis
+{
     using SafeERC20 for IERC20;
 
     /*//////////////////////////////////////////////////////////////
@@ -96,9 +105,13 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address minter_) {
         Token.ensureContract(minter_);
+        // slither-disable-next-line missing-zero-check
         MINTER = minter_;
+        // slither-disable-next-line missing-zero-check
         WRAPPED_COLLATERAL_TOKEN = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        // slither-disable-next-line missing-zero-check
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
+        // slither-disable-next-line missing-zero-check
         LEVERAGED_TOKEN = IMinter(minter_).LEVERAGED_TOKEN();
 
         _disableInitializers();

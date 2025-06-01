@@ -172,7 +172,6 @@ contract Minter_v1 is
         // we keep track of pegged tokens as they can be minted through other rmeans
         uint256 peggedTokenBalance; //                  256
         // we keep track of underlying collateal tokens as they are the collateral, not the wrapped collateral tokens
-        // TODO: merge harvestBountyRatio with underlyingCollateral into 1 slot?
         uint256 underlyingCollateral; //                256
         //                                             slot
         // @custom:security non-reentrant
@@ -184,8 +183,6 @@ contract Minter_v1 is
         address priceOracle; //                         160
         //                                              slot
         uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
-        //                                              slot
-        uint256 harvestBountyRatio;
         //                                             slot*2
         ConfigIncentiveLib.ActionIncentive mintPeggedIncentiveConfig;
         //                                             slot*2
@@ -228,19 +225,22 @@ contract Minter_v1 is
         _disableInitializers();
 
         Token.sanityCheckERC20Token(collateralToken_);
+        // slither-disable-next-line missing-zero-check
+        WRAPPED_COLLATERAL_TOKEN = collateralToken_;
+        Token.sanityCheckERC20Token(leveragedToken_);
+        // slither-disable-next-line missing-zero-check
+        LEVERAGED_TOKEN = leveragedToken_;
         Token.sanityCheckERC20Token(peggedToken_);
+        // slither-disable-next-line missing-zero-check
+        PEGGED_TOKEN = peggedToken_;
+
+        // get the type of burn model used by the pegged token
         bytes4 burnSelector = bytes4(keccak256(bytes(peggedBurnSignature)));
         if (burnSelector == bytes4(keccak256("burn(address,uint256)"))) _BURN_SIGNATURE = BurnSignature.Burn2Arg;
         else if (burnSelector == bytes4(keccak256("burn(uint256)"))) _BURN_SIGNATURE = BurnSignature.Burn1Arg;
         else if (burnSelector == bytes4(keccak256("burnFrom(address,uint256)")))
             _BURN_SIGNATURE = BurnSignature.BurnFrom;
         else revert UnrecognisedBurnSignature(peggedBurnSignature);
-
-        Token.sanityCheckERC20Token(leveragedToken_);
-
-        WRAPPED_COLLATERAL_TOKEN = collateralToken_;
-        PEGGED_TOKEN = peggedToken_;
-        LEVERAGED_TOKEN = leveragedToken_;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -1854,21 +1854,9 @@ contract Minter_v1 is
     }
 
     /// @notice Returns a modified collateral ratio.
-    /// The real collateral ratio (collateral value / pegged value) behaves badly in three ways:
-    /// 1) when the number of pegged tokens drops to 0, collateral ratio becomes infinite
-    /// 2) when nothing has been minted it is undefined then snaps to 1 when either token is minted
-    /// 3) it floors at 1 because below 1, the value of a pegged token is it's proportional share of the collteral.
-    // TODO:
-    /// we solve all three issues by adding 1 to the collateral value and 1 to the pegged token value.
-    /// This gives a very good approximation to the real collateral ratio above 1 and a useful value below 1.
-    /// Its useful because it allows us to create different incentive ratios when the system depegs.
-    /// The collateral ratio when only leveraged tokens have been minted is then just the collateral value.
-    /// The value of a leveraged token is then the same as the value of a collaterla token.
-    /// Unfortunately the value truncates too much returning a lower than real collateral value.
-    /// The solution adopted is to scale the 1 added to the collateral value by the collateral price. This gives a
-    /// better result when the system is pegged.
+    /// The real collateral ratio (collateral value / pegged value) floors at 1
+    /// We want to be able to have a similar value that doesn't recognise a de-peg and assumes the pegged token has value 1
     /// @dev this is a modified theoretical collateral ratio
-    // TODO: determine if the collateralRatio external function should call this or floor it at 1
     function _collateralRatio(
         uint256 collateralTokenBalance_,
         uint256 collateralPrice,

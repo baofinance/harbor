@@ -110,8 +110,10 @@ contract StabilityPoolManager_v1 is
 
         // Validate and store the stability pools
         Token.ensureContract(stabilityPoolCollateral);
+        // slither-disable-next-line missing-zero-check
         _STABILITY_POOL_COLLATERAL = stabilityPoolCollateral;
         Token.ensureContract(stabilityPoolLeveraged);
+        // slither-disable-next-line missing-zero-check
         _STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
     }
 
@@ -258,6 +260,7 @@ contract StabilityPoolManager_v1 is
         // sum up the relative sizes of the stabilility pools - this is the pegged token holdings
         // note that these holdings are depleted by the liquidation process
         (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
+        // slither-disable-next-line incorrect-equality
         if (totalPoolHolding == 0) {
             revert NoTokensToLiquidate(PEGGED_TOKEN);
         }

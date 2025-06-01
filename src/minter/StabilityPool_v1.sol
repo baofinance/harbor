@@ -395,16 +395,19 @@ contract StabilityPool_v1 is
         _accumulateReward(rewardToken, rewardAmount);
     }
 
-    function liquidate(uint256 liquidatedAmount) external onlyRoles(REBALANCER_ROLE) returns (uint256 returnedAmount) {
+    // slither-disable-next-line reentrancy-events,reentrancy-benign
+    function liquidate(
+        uint256 liquidatedAmount
+    ) external onlyRoles(REBALANCER_ROLE) nonReentrant returns (uint256 returnedAmount) {
         if (_liquidationTokenIsCollateral) {
             returnedAmount = IMinter(MINTER).freeRedeemPeggedToken(liquidatedAmount, address(this));
         } else {
             returnedAmount = IMinter(MINTER).freeSwapPeggedForLeveraged(liquidatedAmount, address(this));
         }
+        emit Liquidated(ASSET_TOKEN, liquidatedAmount, LIQUIDATION_TOKEN, returnedAmount);
         _accumulateReward(LIQUIDATION_TOKEN, returnedAmount);
         _checkpoint(address(0));
         _notifyLoss(liquidatedAmount);
-        emit Liquidated(ASSET_TOKEN, liquidatedAmount, LIQUIDATION_TOKEN, returnedAmount);
     }
 
     /// @inheritdoc IStabilityPool
@@ -590,7 +593,11 @@ contract StabilityPool_v1 is
     /// @param sender The address of owner_ to withdraw from.
     /// @param amount The amount of token to withdraw.
     /// @param receiver The address of token receiver.
-    function _withdraw(address sender, uint256 amount, address receiver) internal returns (uint256 amountWithdrawn) {
+    function _withdraw(
+        address sender,
+        uint256 amount,
+        address receiver
+    ) internal nonReentrant returns (uint256 amountWithdrawn) {
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         _checkpoint(sender);
