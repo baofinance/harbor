@@ -28,42 +28,11 @@ import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
+import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 
 import "test/clog.sol";
-
-contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
-    address stabilityPoolLeveraged;
-
-    function setUp() public virtual override(TestStabilityPoolSetUp) {
-        super.setUp();
-
-        deal(address(peggedToken), user1, 1000 ether);
-        deal(address(peggedToken), user2, 2000 ether);
-
-        stabilityPoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken)), // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
-        );
-        IBaoOwnable(stabilityPoolLeveraged).transferOwnership(owner);
-
-        vm.prank(user1);
-        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-        vm.prank(user2);
-        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(stabilityPoolCollateral, zeroFeeRole);
-        vm.prank(stabilityPoolCollateral);
-        IERC20(peggedToken).approve(minter, type(uint256).max);
-
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(stabilityPoolLeveraged, zeroFeeRole);
-        vm.prank(stabilityPoolLeveraged);
-        IERC20(peggedToken).approve(minter, type(uint256).max);
-    }
-}
 
 contract TestLiquidate is TestStabilityPool2SetUp {
     address stabilityPoolManagerCollateral;

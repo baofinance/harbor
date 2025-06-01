@@ -12,6 +12,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
@@ -33,8 +36,8 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     string liquidateFile;
     int256 NaN = type(int256).max;
     uint256 uNaN = type(uint256).max;
-    address stabilityPoolManager10;
-    address stabilityPoolManager01;
+    address stabilityPoolManagerCollateral;
+    address stabilityPoolManagerLeveraged;
     address bountyReceiver;
     address treasury;
 
@@ -78,34 +81,57 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             sa("Collateral Ratio", "Leverage Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
         );
 
+        IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        console2.log(
+            "peggedToken.balanceOf stabilityPoolCollateral=",
+            IERC20(peggedToken).balanceOf(stabilityPoolCollateral)
+        );
+        console2.log(
+            "peggedToken.balanceOf stabilityPoolLeveraged=",
+            IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)
+        );
+
         bountyReceiver = vm.createWallet("bountyReceiver").addr;
         treasury = vm.createWallet("treasury").addr;
 
-        IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
-        IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
-
-        address stabilityPoolEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
+        address stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 
         address stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
+            address(new StabilityPool_v1(minter, leveragedToken)),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 
         // set up the stability pool managers
-        stabilityPoolManager10 = UnsafeUpgrades.deployUUPSProxy(
+        stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
             address(
                 new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
         );
+        IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceThreshold(1.3 ether);
 
-        stabilityPoolManager01 = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPoolManager_v1(minter, treasury, stabilityPoolEmpty, stabilityPoolLeveraged)),
+        stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
+            address(
+                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)
+            ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
         );
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceThreshold(1.3 ether);
+
+        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
+        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
+
+        vm.startPrank(owner);
+        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
+        IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);
+
+        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
+        IBaoRoles(minter).grantRoles(stabilityPoolManagerLeveraged, zeroFeeRole);
+        vm.stopPrank();
 
         liquidateFile = openFile(
             string.concat("liquidate", context()),
@@ -262,23 +288,44 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             )
         );
 
-        uint256 afterLiquidate;
+        uint256 beforeLiquidate = IMinter(minter).collateralRatio();
+        uint256 afterLiquidateCollateral;
         uint256 afterLiquidateLeveraged;
-        if (currentCollateralRatio < 13 ether / 10) {
-            uint256 snap = vm.snapshotState();
-            if (IStabilityPoolManager(stabilityPoolManager01).rebalanceable())
-                IStabilityPoolManager(stabilityPoolManager01).rebalance(bountyReceiver, 0);
-            afterLiquidate = IMinter(minter).collateralRatio();
-            vm.revertToState(snap);
-            if (IStabilityPoolManager(stabilityPoolManager01).rebalanceable())
-                IStabilityPoolManager(stabilityPoolManager01).rebalance(bountyReceiver, 0);
-            afterLiquidateLeveraged = IMinter(minter).collateralRatio();
-            vm.revertToState(snap);
+
+        uint256 snap = vm.snapshotState();
+        if (IStabilityPoolManager(stabilityPoolManagerCollateral).rebalanceable()) {
+            // console2.log("liquidate to collateral");
+            // uint256 liquidated =
+            IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
+            afterLiquidateCollateral = IMinter(minter).collateralRatio();
+            // assertGt(liquidated, 0, "liquidation must liquidate some pegged (collateral)");
+            // assertGt(
+            //     afterLiquidateCollateral,
+            //     beforeLiquidate,
+            //     "collateral ratio must go up after liquidation (collateral)"
+            // );
         } else {
-            afterLiquidate = IMinter(minter).collateralRatio();
-            afterLiquidateLeveraged = afterLiquidate;
+            afterLiquidateCollateral = beforeLiquidate;
         }
-        writeLine(liquidateFile, ua(currentCollateralRatio, afterLiquidate, afterLiquidateLeveraged));
+        vm.revertToState(snap);
+
+        if (IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalanceable()) {
+            // console2.log("liquidate to leveraged");
+            // uint256 liquidated =
+            IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
+            afterLiquidateLeveraged = IMinter(minter).collateralRatio();
+            // assertGt(liquidated, 0, "liquidation must liquidate some pegged (leveraged)");
+            // assertGt(
+            //     afterLiquidateLeveraged,
+            //     beforeLiquidate,
+            //     "collateral ratio must go up after liquidation (leveraged)"
+            // );
+        } else {
+            afterLiquidateLeveraged = beforeLiquidate;
+        }
+        vm.revertToState(snap);
+
+        writeLine(liquidateFile, ua(currentCollateralRatio, afterLiquidateCollateral, afterLiquidateLeveraged));
     }
 }
 

@@ -12,6 +12,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
@@ -31,6 +32,9 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
             address(new StabilityPool_v1(minter, leveragedToken)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
+
+        IBaoOwnable(stabilityPoolLeveraged).transferOwnership(owner);
+
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(user2);
