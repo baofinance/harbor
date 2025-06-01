@@ -66,7 +66,7 @@ contract StabilityPoolManager_v1 is
         uint256 rebalanceBountyRatio;
         uint256 rebalanceBountyToken;
         /// @notice The collateral ratio at which rebalancing should occur
-        uint256 rebalanceCollateralRatio;
+        uint256 rebalanceThreshold;
         /// @notice Percentage-based bounty for harvesting (as a ratio of the harvested amount)
         uint256 harvestRatio;
     }
@@ -160,13 +160,18 @@ contract StabilityPoolManager_v1 is
         return IMinter(MINTER).harvestable();
     }
 
-    /// @inheritdoc IStabilityPoolManager
-    function rebalanceable() external view returns (bool) {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-
+    function _rebalanceable(
+        uint256 collateralRatio,
+        uint256 rebalanceThreshold_
+    ) private pure returns (bool rebalanceable_) {
         // Check if collateral ratio is below the rebalance threshold
-        uint256 currentCR = IMinter(MINTER).collateralRatio();
-        return currentCR < $.rebalanceCollateralRatio;
+        rebalanceable_ = collateralRatio < rebalanceThreshold_;
+    }
+
+    /// @inheritdoc IStabilityPoolManager
+    function rebalanceable() external view returns (bool rebalanceable_) {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        rebalanceable_ = _rebalanceable(IMinter(MINTER).collateralRatio(), $.rebalanceThreshold);
     }
 
     /// @inheritdoc IStabilityPoolManager
@@ -182,23 +187,23 @@ contract StabilityPoolManager_v1 is
 
     /// @notice Returns the collateral ratio at which rebalancing should occur
     /// @return The rebalance collateral ratio
-    function rebalanceCollateralRatio() external view returns (uint256) {
+    function rebalanceThreshold() external view returns (uint256) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        return $.rebalanceCollateralRatio;
+        return $.rebalanceThreshold;
     }
 
     /*************************
      * Admin Functions *
      *************************/
 
-    /// @notice Updates the rebalance collateral ratio
-    /// @param newRatio The new rebalance collateral ratio
-    function setRebalanceCollateralRatio(uint256 newRatio) external onlyOwner {
-        if (newRatio < 1 ether) revert InvalidRebalanceCollateralRatio(newRatio);
+    /// @notice Updates the rebalance threshold collateral ratio
+    /// @param newRatio The new rebalance threshold
+    function setRebalanceThreshold(uint256 newRatio) external onlyOwner {
+        if (newRatio < 1 ether) revert InvalidRebalanceThreshold(newRatio);
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.rebalanceCollateralRatio = newRatio;
+        $.rebalanceThreshold = newRatio;
 
-        emit RebalanceCollateralRatioUpdated(newRatio);
+        emit RebalanceThresholdUpdated(newRatio);
     }
 
     /// @inheritdoc IStabilityPoolManager
@@ -243,13 +248,10 @@ contract StabilityPoolManager_v1 is
         uint256 minPeggedLiquidated
     ) external nonReentrant returns (uint256 peggedLiquidated) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 rebalanceCollateralRatio_ = $.rebalanceCollateralRatio;
-        {
-            uint256 collateralRatio = IMinter(MINTER).collateralRatio();
-            if (collateralRatio >= rebalanceCollateralRatio_) {
-                // it's an lower bound for non-rebalance mode
-                revert CollateralRatioTooHigh(collateralRatio, rebalanceCollateralRatio_);
-            }
+        uint256 rebalanceThreshold_ = $.rebalanceThreshold;
+        if (!_rebalanceable(IMinter(MINTER).collateralRatio(), rebalanceThreshold_)) {
+            // it's an lower bound for non-rebalance mode
+            revert CollateralRatioNotBelowRebalanceThreshold(IMinter(MINTER).collateralRatio(), rebalanceThreshold_);
         }
 
         // sum up the relative sizes of the stabilility pools - this is the pegged token holdings
@@ -260,10 +262,8 @@ contract StabilityPoolManager_v1 is
         }
 
         // get the amount to liquidate (double(ish) the anmount)
-        uint256 peggedForCollateral = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
-        uint256 peggedForLeveraged = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(
-            rebalanceCollateralRatio_
-        );
+        uint256 peggedForCollateral = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceThreshold_);
+        uint256 peggedForLeveraged = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(rebalanceThreshold_);
 
         // rescale to the pool holdings
         if (peggedForCollateral == 0) {

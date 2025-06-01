@@ -10,7 +10,7 @@ interface IStabilityPoolManager {
     event HarvestBountyUpdated(uint256 harvestBountyRatio);
     // event LiquidationPerformed(address indexed stabilityPool, uint256 amount);
     // event HarvestPerformed(uint256 harvestedAmount, uint256 bounty);
-    event RebalanceCollateralRatioUpdated(uint256 collateralRatio);
+    event RebalanceThresholdUpdated(uint256 collateralRatio);
 
     /// @notice Emitted when liquidation happens.
     /// @param liquidated The amount of asset liquidated.
@@ -31,10 +31,10 @@ interface IStabilityPoolManager {
     /// @dev Thrown when the rebalance bounty ratio is > 1
     error InvalidRebalanceBountyRatio(uint256 ratio);
     /// @dev Thrown when the rebalance collateral ratio is invalid
-    error InvalidRebalanceCollateralRatio(uint256 ratio);
+    error InvalidRebalanceThreshold(uint256 ratio);
 
     /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
-    error CollateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
+    error CollateralRatioNotBelowRebalanceThreshold(uint256 currentCollateralRatio, uint256 rebalanceThreshold);
 
     /// @dev Thrown when the amount requested to be liquidated isn't met
     error NoTokensToLiquidate(address token);
@@ -54,7 +54,7 @@ interface IStabilityPoolManager {
     function rebalanceable() external view returns (bool);
     function harvestBountyRatio() external view returns (uint256 harvestRatio);
     function rebalanceBountyRatio() external view returns (uint256 rebalanceRatio);
-    function rebalanceCollateralRatio() external view returns (uint256);
+    function rebalanceThreshold() external view returns (uint256);
 
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
@@ -68,5 +68,5 @@ interface IStabilityPoolManager {
     //////////////////////////////////////////////////////////////*/
     function setRebalanceBountyRatio(uint256 rebalanceRatio) external;
     function setHarvestBountyRatio(uint256 harvestRatio) external;
-    function setRebalanceCollateralRatio(uint256 newRatio) external;
+    function setRebalanceThreshold(uint256 newRatio) external;
 }

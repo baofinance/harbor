@@ -103,7 +103,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
-        IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceCollateralRatio(1.3 ether);
+        IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceThreshold(1.3 ether);
         IBaoOwnable(stabilityPoolManagerCollateral).transferOwnership(owner);
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
@@ -112,7 +112,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
-        IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceCollateralRatio(1.3 ether);
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceThreshold(1.3 ether);
         IBaoOwnable(stabilityPoolManagerLeveraged).transferOwnership(owner);
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
@@ -183,7 +183,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
 
         // not in rebalance mode
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, startCR, 130 ether / 100)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.CollateralRatioNotBelowRebalanceThreshold.selector,
+                startCR,
+                130 ether / 100
+            )
         );
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (5) ------------------------------------------------------------------------------------------
@@ -247,7 +251,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
 
         // collateral ratio has gone to stability, liquidate it, with no effect
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, 13 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.CollateralRatioNotBelowRebalanceThreshold.selector,
+                13 ether / 10,
+                13 ether / 10
+            )
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (3) --------------------------------------------------------
@@ -256,7 +264,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         // move the CR up a bit, liquidate it, with no effect
         setUp_collateral(0 ether, 1 ether); // cr=14/10 = 140%
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, 14 ether / 10, 13 ether / 10)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.CollateralRatioNotBelowRebalanceThreshold.selector,
+                14 ether / 10,
+                13 ether / 10
+            )
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 1 ether);
         // (4) --------------------------------------------------------
@@ -319,7 +331,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
 
         // collateral ratio has gone to stability, liquidate it, with no effect
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, 1.3 ether, 1.3 ether)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.CollateralRatioNotBelowRebalanceThreshold.selector,
+                1.3 ether,
+                1.3 ether
+            )
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
         // (3) --------------------------------------------------------
@@ -330,7 +346,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         uint256 beforeCR = IMinter(minter).collateralRatio();
         assertGt(beforeCR, 1.3 ether);
         vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager.CollateralRatioTooHigh.selector, beforeCR, 1.3 ether)
+            abi.encodeWithSelector(
+                IStabilityPoolManager.CollateralRatioNotBelowRebalanceThreshold.selector,
+                beforeCR,
+                1.3 ether
+            )
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 1 ether);
         // (4) --------------------------------------------------------
