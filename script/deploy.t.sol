@@ -22,7 +22,9 @@ contract TestDeployed is Test, DeployState {
 
     function setUp_fork() internal /*string network*/ {
         network = "local"; // TODO: read from env
-        setStateFile(network);
+        string memory chain = "mainnet";
+        string memory script = "deploy-minter";
+        setStateFile(network, chain, script);
         vm.createSelectFork(vm.rpcUrl(network));
     }
 }
@@ -32,8 +34,8 @@ contract TestDeployedLeveragedToken is TestLeveragedToken, TestDeployed {
         setUp_fork();
         owner = addr("owner");
         minter = addr("minter");
-        name = "BaoMinter BaoUSD-wstETH";
-        symbol = "BaoUSD-wstETH";
+        name = "Bao Zhenglong steamed stETH-BaoUSD";
+        symbol = "steamedstETH-BaoUSD";
     }
 
     function setUpContract() internal override {
@@ -49,7 +51,7 @@ contract TestDeployedFeeDistributor is TestTokenDistributor, TestDeployed {
     }
 
     function setUpContract() internal override {
-        name = "FeeDistributor";
+        name = "Fee Receiver";
         tokenDistributor = addr("feeReceiver");
     }
 }

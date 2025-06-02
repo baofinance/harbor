@@ -28,7 +28,7 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
-// import {IBaoUSD} from "test/IBaoUSD.sol";
+import {IBaoUSD} from "test/IBaoUSD.sol";
 import {MockERC20, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
@@ -52,10 +52,24 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     address feeReceiver;
     address owner;
-    bytes32 ownerRole = 0;
+    address zeroFee;
+
     uint256 zeroFeeRole;
     uint256 minterRole;
     uint256 requesterRole;
+
+    function _mintPegged(address receiver, uint256 amount) internal {
+        // deal(address(peggedToken), zeroFee, mintedBaoUSD);
+        if (Token.hasNonMutatingParameterlessFunction(peggedToken, "operator")) {
+            // deal(address(peggedToken), zeroFee, mintedBaoUSD);
+            vm.prank(IBaoUSD(peggedToken).operator());
+            IMintable(peggedToken).mint(receiver, amount);
+        } else {
+            // if the pegged token does not have an operator, we mint it directly
+            vm.prank(owner);
+            IMintable(peggedToken).mint(receiver, amount);
+        }
+    }
 
     function _percentToEther(uint amount) internal pure returns (uint256) {
         return (amount * 1 ether) / 100;
@@ -234,7 +248,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         IMinter(minter).updateFeeReceiver(feeReceiver);
         IMinter(minter).updateReservePool(reservePool);
         IMinter(minter).updateConfig(config);
-        IBaoRoles(minter).grantRoles(owner, IMinter(minter).ZERO_FEE_ROLE());
+        IBaoRoles(minter).grantRoles(zeroFee, IMinter(minter).ZERO_FEE_ROLE());
 
         IBaoOwnable(minter).transferOwnership(owner);
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
@@ -268,6 +282,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp() public virtual {
         setUpFork();
+        zeroFee = vm.createWallet("zeroFee").addr;
         deal(address(Deployed.wstETH), address(this), 20 ether);
         setUpConfig();
         setUpContract();
@@ -277,7 +292,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         uint256 collateralForPegged,
         uint256 collateralForLeveraged
     ) internal returns (uint256 peggedTokens, uint256 leveragedTokens) {
-        return setUp_collateral(collateralForPegged, collateralForLeveraged, owner);
+        return setUp_collateral(collateralForPegged, collateralForLeveraged, zeroFee);
     }
 
     function setUp_collateral(
@@ -288,18 +303,17 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         // put some collateral into the minter to bootstrap it
         // get collateral & allowance
         uint256 totalAmount = collateralForPegged + collateralForLeveraged;
-        deal(address(Deployed.wstETH), owner, totalAmount + 10 ether);
+        deal(address(Deployed.wstETH), zeroFee, totalAmount + 10 ether);
 
-        vm.prank(owner);
+        vm.startPrank(zeroFee);
         IERC20(Deployed.wstETH).approve(minter, totalAmount);
         if (collateralForPegged > 0) {
-            vm.prank(owner);
             peggedTokens = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
         }
         if (collateralForLeveraged > 0) {
-            vm.prank(owner);
             leveragedTokens = IMinter(minter).freeMintLeveragedToken(collateralForLeveraged, recipient);
         }
+        vm.stopPrank();
     }
 }
 
@@ -357,7 +371,6 @@ contract TestMinterInit is TestMinterSetUp {
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
         // let this contract mint and burn pegged
-        IBaoRoles(proxy).grantRoles(address(this), zeroFeeRole);
         IBaoOwnable(proxy).transferOwnership(owner);
 
         // mint some

@@ -63,8 +63,8 @@ contract TestMinterMintMechanics is TestMinterMint {
         vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
-        deal(wrappedCollateralToken, owner, 10 ether);
-        vm.prank(owner);
+        deal(wrappedCollateralToken, zeroFee, 10 ether);
+        vm.prank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 10 ether);
 
         // how much can I get for 2 eth
@@ -72,7 +72,7 @@ contract TestMinterMintMechanics is TestMinterMint {
         uint256 leveragedFor1a = IMinter(minter).leveragedTokensForCollateral(1 ether);
 
         uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
-        vm.prank(owner);
+        vm.prank(zeroFee);
         uint256 actualMinted1a = IMinter(minter).freeMintLeveragedToken(1 ether, receiver);
         assertEq(leveragedPrice, IMinter(minter).leveragedTokenPrice(), "leveraged price doesn't change");
 

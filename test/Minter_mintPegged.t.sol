@@ -34,13 +34,13 @@ contract TestMinterMintPegged is TestMinterMint {
 
         uint256 ownerCollateralDecrease;
         if (collateralIn == type(uint256).max) {
-            ownerCollateralDecrease = IERC20(Deployed.wstETH).balanceOf(owner);
+            ownerCollateralDecrease = IERC20(Deployed.wstETH).balanceOf(zeroFee);
         } else {
             ownerCollateralDecrease = collateralIn;
         }
         uint256 receiverBaoUSDIncrease = (price * ownerCollateralDecrease) / 1 ether;
 
-        uint256 ownerCollateralBefore = IERC20(Deployed.wstETH).balanceOf(owner);
+        uint256 ownerCollateralBefore = IERC20(Deployed.wstETH).balanceOf(zeroFee);
         uint256 receiverCollateralBefore = IERC20(Deployed.wstETH).balanceOf(receiver);
         uint256 receiverBaoUSDBefore = IERC20(peggedToken).balanceOf(receiver);
         uint256 minterCollateralBefore = IMinter(minter).collateralTokenBalance();
@@ -55,8 +55,8 @@ contract TestMinterMintPegged is TestMinterMint {
         );
 
         vm.expectEmit(true, true, false, true, minter);
-        emit IMinter.MintPeggedToken(owner, receiver, ownerCollateralDecrease, receiverBaoUSDIncrease);
-        vm.prank(owner);
+        emit IMinter.MintPeggedToken(zeroFee, receiver, ownerCollateralDecrease, receiverBaoUSDIncrease);
+        vm.prank(zeroFee);
         uint256 minted = IMinter(minter).freeMintPeggedToken(collateralIn, receiver);
         //               ------------------------------------------------------------------------
         assertEq(
@@ -66,7 +66,7 @@ contract TestMinterMintPegged is TestMinterMint {
         );
         assertEq(minted, receiverBaoUSDIncrease, "unexpected amount minted compared to price");
         assertEq(
-            IERC20(Deployed.wstETH).balanceOf(owner),
+            IERC20(Deployed.wstETH).balanceOf(zeroFee),
             ownerCollateralBefore - ownerCollateralDecrease,
             "collateral not paid"
         );
@@ -95,32 +95,32 @@ contract TestMinterMintPegged is TestMinterMint {
         //-------------------------------------------------------------
 
         // zero input, when none
-        assertEq(IERC20(Deployed.wstETH).balanceOf(owner), 0);
+        assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
-        vm.prank(owner);
+        vm.prank(zeroFee);
         IMinter(minter).freeMintPeggedToken(0, receiver);
         //-------------------------------------------------------
 
         // some input, when none
         vm.expectRevert("ERC20: transfer amount exceeds balance");
-        vm.prank(owner);
+        vm.prank(zeroFee);
         IMinter(minter).freeMintPeggedToken(1 ether, receiver);
         //-------------------------------------------------------------
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
-        vm.prank(owner);
+        vm.prank(zeroFee);
         IMinter(minter).freeMintPeggedToken(type(uint256).max, receiver);
         //-----------------------------------------------------------------------
 
         // get collateral & allowance
-        deal(address(Deployed.wstETH), owner, 10 ether);
-        vm.prank(owner);
+        deal(address(Deployed.wstETH), zeroFee, 10 ether);
+        vm.prank(zeroFee);
         IERC20(Deployed.wstETH).approve(minter, 10 ether);
 
         // zero input, when some
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
-        vm.prank(owner);
+        vm.prank(zeroFee);
         IMinter(minter).freeMintPeggedToken(0, receiver);
         //-----------------------------------------------------------
 
