@@ -56,7 +56,7 @@ contract Test_GenesisBase is TestMinterSetUp {
             ua(1 ether),
             ia(1 ether / 100, 1 ether / 100)
         );
-        config = IMinter.Config(130 ether / 100, percent1, percent1, percent1, percent1);
+        config = IMinter.Config(percent1, percent1, percent1, percent1);
 
         vm.prank(owner);
         IMinter(minter).updateConfig(config);

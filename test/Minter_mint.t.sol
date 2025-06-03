@@ -54,7 +54,6 @@ contract TestMinterMintMechanics is TestMinterMint {
     function test_freeLeveragedMechanics() public {
         // single band, no disallow (just depegged)
         setUp_config(
-            130,
             ic(ua(100), ia(100, 50)),
             ic(ua(100), ia(40, 80)),
             ic(ua(100), ia(35, 70)),
@@ -103,7 +102,6 @@ contract TestMinterMintMechanics is TestMinterMint {
 
     function test_mintLeveraged1Band() public {
         setUp_config(
-            130,
             ic(ua(100), ia(100, 50)),
             ic(ua(100), ia(40, 80)),
             ic(ua(100), ia(35, 70)),
@@ -118,7 +116,6 @@ contract TestMinterMintMechanics is TestMinterMint {
 
     function test_mintLeveraged1Band2Mints() public {
         setUp_config(
-            130,
             ic(ua(100), ia(100, 50)),
             ic(ua(100), ia(40, 80)),
             ic(ua(100), ia(35, 70)),
@@ -139,7 +136,6 @@ contract TestMinterMintMechanics is TestMinterMint {
     function test_mintLeveraged2Band() public {
         // collateral ratio already at 4/3 = 1.33
         setUp_config(
-            130,
             ic(ua(100), ia(100, 50)),
             ic(ua(100), ia(40, 80)),
             ic(ua(100, 140), ia(35, 70, 100)), // <--
@@ -157,7 +153,6 @@ contract TestMinterMintMechanics is TestMinterMint {
     function test_mintLeveraged2BandSameLevel() public {
         // collateral ratio already at 4/3 = 1.33
         setUp_config(
-            130,
             ic(ua(100), ia(100, 50)),
             ic(ua(100), ia(40, 80)),
             ic(ua(100, 140), ia(35, 70, 70)), // <--

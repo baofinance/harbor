@@ -22,7 +22,7 @@ library Config_v1 {
     /// @return out the storage efficient config
     // slither-disable-next-line cyclomatic-complexity as this code is simple in what it tries to do, it's just that there are a few checks
     function checkAndCopyBands(
-        string memory name,
+        string calldata name,
         IMinter.IncentiveConfig calldata config_,
         bool disallowNotDiscount
     ) external pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
@@ -173,20 +173,44 @@ library Config_v1 {
     ) external pure returns (IMinter.IncentiveConfig memory out) {
         uint iOut = 0; // solhint-disable-line explicit-types
         uint outBands = ConfigIncentiveLib._collateralRatioBandCount(config_); // solhint-disable-line explicit-types
-        out.collateralRatioBandUpperBounds = new uint256[](outBands - 1);
+        uint outBounds = outBands - 1;
+        out.collateralRatioBandUpperBounds = new uint256[](outBounds);
         out.incentiveRatios = new int256[](outBands);
         // solhint-disable-next-line explicit-types
-        for (uint i = 0; i < ConfigIncentiveLib._collateralRatioBandCount(config_) - 1; i++) {
+        for (uint i = 0; i < outBounds; i++) {
             uint256 ub = ConfigIncentiveLib._collateralRatioUpperBounds(config_, i);
             if (ub == 1 ether - 1) ub = 1 ether;
             out.collateralRatioBandUpperBounds[iOut] = ub;
             out.incentiveRatios[iOut] = ConfigIncentiveLib._incentiveRatio(config_, i);
             iOut++;
         }
-        out.incentiveRatios[iOut] = ConfigIncentiveLib._incentiveRatio(
-            config_,
-            ConfigIncentiveLib._collateralRatioBandCount(config_) - 1
-        );
+        out.incentiveRatios[iOut] = ConfigIncentiveLib._incentiveRatio(config_, outBounds);
+        return out;
+    }
+
+    function defaultActionIncentive() external pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
+        // default config is a single band with no fees
+        // we need the mandatory depeg boundary at 1 ether
+
+        ConfigIncentiveLib._setIncentiveRatio(out, 0, 0); // in depeg
+        ConfigIncentiveLib._setCollateralRatioUpperBounds(out, 0, 1 ether); // depeg boundary
+        ConfigIncentiveLib._setIncentiveRatio(out, 1, 0); // pegged
+        ConfigIncentiveLib._setCollateralRatioBandCount(out, 2); // two bands: de-pegged and pegged
+
+        return out;
+    }
+
+    function defaultIncentiveConfig() external pure returns (IMinter.IncentiveConfig memory out) {
+        // default config is a single band with no fees
+        // we need the mandatory depeg boundary at 1 ether
+
+        out.collateralRatioBandUpperBounds = new uint256[](1);
+        out.incentiveRatios = new int256[](2);
+
+        out.incentiveRatios[0] = 0; // in depeg
+        out.collateralRatioBandUpperBounds[0] = 1 ether; // depeg boundary
+        out.incentiveRatios[1] = 0; // pegged
+
         return out;
     }
 }

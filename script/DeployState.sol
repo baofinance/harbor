@@ -18,6 +18,6 @@ abstract contract DeployState is Test {
     function addr(string memory name) internal view returns (address addr_) {
         addr_ = vm.parseJsonAddress(vm.readFile(filename), string.concat(".", name, ".address")); // jq style path
         vm.assertNotEq(addr_, address(0), string.concat("zero address for ", name));
-        console2.log("addr(%s)->%s", name, addr_);
+        console2.log("addr(%s) -> %s", name, addr_);
     }
 }

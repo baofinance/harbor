@@ -40,6 +40,7 @@ import "test/clog.sol";
 contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     address minter;
     IMinter.Config config;
+    bool isConfigSet = false;
     int constant disallow = 10000;
 
     address peggedToken;
@@ -59,9 +60,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     uint256 requesterRole;
 
     function _mintPegged(address receiver, uint256 amount) internal {
-        // deal(address(peggedToken), zeroFee, mintedBaoUSD);
         if (Token.hasNonMutatingParameterlessFunction(peggedToken, "operator")) {
-            // deal(address(peggedToken), zeroFee, mintedBaoUSD);
             vm.prank(IBaoUSD(peggedToken).operator());
             IMintable(peggedToken).mint(receiver, amount);
         } else {
@@ -98,13 +97,12 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     }
 
     function setUp_config_free() internal {
-        setUp_config(130, ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)));
+        setUp_config(ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)));
         writeConfig(config, "free");
     }
 
     function setUp_config_flat() internal {
         setUp_config(
-            130,
             ic(ua(100), ia(50, 50)),
             ic(ua(100), ia(80, 80)),
             ic(ua(100), ia(70, 70)),
@@ -115,7 +113,6 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp_config_basicWithDisallow() internal {
         setUp_config(
-            130,
             ic(ua(131), ia(disallow, 50)),
             ic(ua(100), ia(80, 80)),
             ic(ua(100), ia(70, 70)),
@@ -126,7 +123,6 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp_config_likely() internal {
         setUp_config(
-            130,
             ic(ua(130, 140), ia(disallow, 100, 50)), // mint pegged
             ic(ua(100, 105, 115, 150), ia(-75, -75, -25, 60, 80)), // redeem pegged
             ic(ua(100, 110, 120, 145), ia(-50, -50, 0, 20, 70)), // mint leveraged
@@ -137,7 +133,6 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp_config_likelyNoDisallow() internal {
         setUp_config(
-            130,
             ic(ua(100, 140), ia(100, 100, 50)), // mint pegged
             ic(ua(100, 105, 115, 150), ia(-75, -75, -25, 60, 80)), // redeem pegged
             ic(ua(100, 110, 120, 145), ia(-50, -50, 0, 20, 70)), // mint leveraged
@@ -147,17 +142,16 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     }
 
     function setUp_config(
-        uint rebalance,
         IMinter.IncentiveConfig memory mintPegged,
         IMinter.IncentiveConfig memory redeemPegged,
         IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemLeveraged
     ) public {
-        config.rebalanceCollateralRatioUpperBound = _percentToEther(rebalance);
         config.mintPeggedIncentiveConfig = mintPegged;
         config.mintLeveragedIncentiveConfig = mintLeveraged;
         config.redeemPeggedIncentiveConfig = redeemPegged;
         config.redeemLeveragedIncentiveConfig = redeemLeveraged;
+        isConfigSet = true;
     }
 
     function _assertEqIncentiveConfig(
@@ -188,11 +182,6 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     }
 
     function _assertEqConfig(IMinter.Config memory actual, IMinter.Config memory expected) internal pure {
-        assertEq(
-            actual.rebalanceCollateralRatioUpperBound,
-            expected.rebalanceCollateralRatioUpperBound,
-            "rebalanceCollateralRatioUpperBound differ"
-        );
         _assertEqIncentiveConfig(actual.mintPeggedIncentiveConfig, expected.mintPeggedIncentiveConfig, "mint pegged");
         _assertEqIncentiveConfig(
             actual.mintLeveragedIncentiveConfig,
@@ -212,7 +201,6 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     }
     function setUpConfig() internal virtual {
         setUp_config(
-            130,
             ic(ua(131, 140), ia(disallow, 100, 50)),
             ic(ua(100, 110, 120, 140), ia(-50, -50, 0, 60, 80)),
             ic(ua(100, 110, 120, 140), ia(-50, -50, 0, 20, 70)),
@@ -243,15 +231,14 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)), // "Minter_v1.sol",
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
+        zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
         IMinter(minter).updatePriceOracle(priceOracle);
         IMinter(minter).updateFeeReceiver(feeReceiver);
         IMinter(minter).updateReservePool(reservePool);
-        IMinter(minter).updateConfig(config);
-        IBaoRoles(minter).grantRoles(zeroFee, IMinter(minter).ZERO_FEE_ROLE());
+        if (isConfigSet) IMinter(minter).updateConfig(config);
 
         IBaoOwnable(minter).transferOwnership(owner);
-        zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
     }
 
     function setUpFork() internal virtual {
@@ -276,13 +263,17 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         vm.prank(owner);
         IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
         requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
+
         vm.prank(owner);
         ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
+        zeroFee = vm.createWallet("zeroFee").addr;
+
+        vm.prank(owner);
+        IBaoRoles(minter).grantRoles(zeroFee, zeroFeeRole);
     }
 
     function setUp() public virtual {
         setUpFork();
-        zeroFee = vm.createWallet("zeroFee").addr;
         deal(address(Deployed.wstETH), address(this), 20 ether);
         setUpConfig();
         setUpContract();
@@ -303,10 +294,15 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         // put some collateral into the minter to bootstrap it
         // get collateral & allowance
         uint256 totalAmount = collateralForPegged + collateralForLeveraged;
-        deal(address(Deployed.wstETH), zeroFee, totalAmount + 10 ether);
+        deal(wrappedCollateralToken, zeroFee, totalAmount + 10 ether);
+        assertGe(IERC20(wrappedCollateralToken).balanceOf(zeroFee), totalAmount + 10 ether, "zeroFee has collateral");
 
+        assertTrue(
+            IBaoRoles(minter).hasAnyRole(zeroFee, IMinter(minter).ZERO_FEE_ROLE()),
+            "zeroFee should have zero fee role"
+        );
         vm.startPrank(zeroFee);
-        IERC20(Deployed.wstETH).approve(minter, totalAmount);
+        IERC20(wrappedCollateralToken).approve(minter, totalAmount);
         if (collateralForPegged > 0) {
             peggedTokens = IMinter(minter).freeMintPeggedToken(collateralForPegged, recipient);
         }
@@ -320,6 +316,8 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 contract TestMinterInit is TestMinterSetUp {
     using SafeERC20 for IERC20;
     address impl;
+
+    function setUpConfig() internal virtual override {}
 
     function setUp() public override {
         super.setUp();
@@ -473,9 +471,8 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         Minter_v1(minter).initialize(address(this));
 
+        setUp_config_free();
         _assertEqConfig(IMinter(minter).config(), config);
-
-        // TODO: add configuration check - also add it to the setup config function
 
         // also add checks for leveraged price, etc - all the view functions
 
@@ -489,6 +486,8 @@ contract TestMinterInit is TestMinterSetUp {
 }
 
 contract TestMinterBasics is TestMinterSetUp {
+    using SafeERC20 for IERC20;
+
     address user;
 
     function setUp() public virtual override(TestMinterSetUp) {
@@ -503,16 +502,16 @@ contract TestMinterBasics is TestMinterSetUp {
     }
 
     function _checkConfig(
-        uint rebalance,
         IMinter.IncentiveConfig memory mintPegged,
         IMinter.IncentiveConfig memory redeemPegged,
         IMinter.IncentiveConfig memory mintLeveraged,
         IMinter.IncentiveConfig memory redeemLeveraged,
         bytes memory revertSelector
     ) private {
-        setUp_config(rebalance, mintPegged, redeemPegged, mintLeveraged, redeemLeveraged);
-        vm.prank(owner);
+        setUp_config(mintPegged, redeemPegged, mintLeveraged, redeemLeveraged);
+
         if (revertSelector.length != 0) vm.expectRevert(revertSelector);
+        vm.prank(owner);
         IMinter(minter).updateConfig(config);
         IMinter.Config memory readConfig = IMinter(minter).config();
         _assertEqConfig(readConfig, config);
@@ -569,7 +568,6 @@ contract TestMinterBasics is TestMinterSetUp {
     function test_depegBoundary() public {
         // simple config that has a fee and a discount
         _checkConfig(
-            130,
             ic(ua(100), ia(150, 50)), // mint pegged 50 basis points = 0.5 %
             ic(ua(100), ia(-100, -100)), // redeem pegged
             ic(ua(100), ia(-50, -50)), // mint leveraged
@@ -643,7 +641,6 @@ contract TestMinterBasics is TestMinterSetUp {
     function test_connections() public {
         // simple config that has a fee and a discount
         _checkConfig(
-            130,
             ic(ua(100), ia(50, 50)), // mint pegged 50 basis points = 0.5 %
             ic(ua(100), ia(-100, -100)), // redeem pegged
             ic(ua(100), ia(-50, -50)), // mint leveraged
@@ -800,7 +797,6 @@ contract TestMinterBasics is TestMinterSetUp {
         _assertEqConfig(readConfig, config); // check the default setup
         // do a null update to make sure the update config function works
         _checkConfig(
-            130,
             ic(ua(131, 140), ia(disallow, 100, 50)),
             ic(ua(100, 110, 120, 140), ia(-50, -50, 0, 20, 70)),
             ic(ua(100, 110, 120, 140), ia(-50, -50, 0, 60, 80)),
@@ -811,7 +807,6 @@ contract TestMinterBasics is TestMinterSetUp {
 
         // depeg already added
         _checkConfig(
-            130,
             ic(ua(100, 131, 140), ia(200, 150, 100, 50)),
             ic(ua(100, 140), ia(0, 20, 70)),
             ic(ua(100), ia(60, 80)),
@@ -821,7 +816,6 @@ contract TestMinterBasics is TestMinterSetUp {
         ); //2
 
         _checkConfig(
-            130,
             ic(ua(131, 140), ia(disallow, 100, 50)),
             ic(ua(100, 110, 120, 140), ia(-50, -50, 0, 20, 70)),
             // max bands

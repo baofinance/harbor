@@ -38,8 +38,6 @@ interface IMinter {
         int256[] incentiveRatios;
     }
     struct Config {
-        // points at which specific activity commences
-        uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
         // bonus/fees
         IncentiveConfig mintPeggedIncentiveConfig;
         IncentiveConfig redeemPeggedIncentiveConfig;

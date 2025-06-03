@@ -25,7 +25,6 @@
       5000000000000000
     ]
   },
-  "rebalanceCollateralRatioUpperBound": 1300000000000000000,
   "redeemLeveragedIncentiveConfig": {
     "collateralRatioBandUpperBounds": [
       1100000000000000000,

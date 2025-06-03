@@ -181,8 +181,6 @@ contract Minter_v1 is
         address feeReceiver; //                         160
         //                                             slot
         address priceOracle; //                         160
-        //                                              slot
-        uint256 rebalanceCollateralRatioUpperBound; // the upper collateral ratio at which rebalancing begins
         //                                             slot*2
         ConfigIncentiveLib.ActionIncentive mintPeggedIncentiveConfig;
         //                                             slot*2
@@ -210,6 +208,14 @@ contract Minter_v1 is
         __ReentrancyGuardTransient_init();
         MinterStorage storage $ = _getMinterStorage();
         $.peggedTokenBalance = 0;
+        $.underlyingCollateral = 0;
+
+        // initialise the config to something that works
+        ConfigIncentiveLib.ActionIncentive memory zeroFee = Config_v1.defaultActionIncentive();
+        $.mintPeggedIncentiveConfig = zeroFee;
+        $.redeemPeggedIncentiveConfig = zeroFee;
+        $.mintLeveragedIncentiveConfig = zeroFee;
+        $.redeemLeveragedIncentiveConfig = zeroFee;
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -299,7 +305,6 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function config() public view returns (Config memory config_) {
         MinterStorage storage $ = _getMinterStorage();
-        config_.rebalanceCollateralRatioUpperBound = $.rebalanceCollateralRatioUpperBound;
         config_.mintPeggedIncentiveConfig = Config_v1.copyBandsBack($.mintPeggedIncentiveConfig);
         config_.redeemPeggedIncentiveConfig = Config_v1.copyBandsBack($.redeemPeggedIncentiveConfig);
         config_.mintLeveragedIncentiveConfig = Config_v1.copyBandsBack($.mintLeveragedIncentiveConfig);
@@ -702,9 +707,6 @@ contract Minter_v1 is
         emit UpdateConfig(config_); // the code below may alter the config so emit it soon
 
         MinterStorage storage $ = _getMinterStorage();
-
-        // action config
-        $.rebalanceCollateralRatioUpperBound = config_.rebalanceCollateralRatioUpperBound;
 
         // incentive config
         $.mintPeggedIncentiveConfig = Config_v1.checkAndCopyBands(
@@ -1881,8 +1883,6 @@ contract Minter_v1 is
     /// @notice Returns the safe price for the collateral token.
     /// @dev Checks safe price non-zero.
     function _fetchMid(address priceOracle_) private view returns (OracleData memory) {
-        // TODO: remove the slither disable
-        // slither-disable-next-line unused-return
         (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(priceOracle_)
             .latestAnswer();
         return OracleData((minPrice + maxPrice) / 2, (minRate + maxRate) / 2); // TODO: this should be rounded

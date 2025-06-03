@@ -9,6 +9,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 // import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {DeployState} from "./DeployState.sol";
 
 import {TestLeveragedToken} from "test/LeveragedToken.t.sol";
@@ -75,25 +76,24 @@ contract TestDeployedMinter is TestMinterBasics, TestDeployed {
         owner = addr("owner");
         peggedToken = addr("peggedToken");
         leveragedToken = addr("leveragedToken");
-        wrappedCollateralToken = addr("collateralToken");
+        wrappedCollateralToken = addr("wrappedCollateralToken");
         priceOracle = addr("priceOracle");
         feeReceiver = addr("feeReceiver");
         reservePool = addr("reservePool");
     }
 
     function setUpConfig() internal override {
-        config = readConfig(network);
+        config = readConfig("free");
     }
 
     function setUpContract() internal override {
         minter = addr("minter");
+        zeroFee = addr("developer");
 
-        postDeployMultisigTransactions();
-    }
-
-    function postDeployMultisigTransactions() internal {
-        // vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
-        // IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
+        // TODO: this is a hack to for BaoUSD
+        address operator = IBaoUSD(Deployed.BaoUSD).operator();
+        vm.prank(operator);
+        IBaoUSD(Deployed.BaoUSD).addMinter(minter);
     }
 }
 

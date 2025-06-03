@@ -12,7 +12,6 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 abstract contract ConfigFile is Test {
     function readConfig(string memory style) internal view returns (IMinter.Config memory config) {
         string memory json = vm.readFile(_filename(style));
-        config.rebalanceCollateralRatioUpperBound = stdJson.readUint(json, ".rebalanceCollateralRatioUpperBound");
 
         config.mintPeggedIncentiveConfig = _readIncentiveConfig(json, "mintPeggedIncentiveConfig");
         config.mintLeveragedIncentiveConfig = _readIncentiveConfig(json, "mintLeveragedIncentiveConfig");
@@ -22,7 +21,6 @@ abstract contract ConfigFile is Test {
 
     function writeConfig(IMinter.Config memory config, string memory style) internal {
         // serialise the thresholds
-        vm.serializeUint("config", "rebalanceCollateralRatioUpperBound", config.rebalanceCollateralRatioUpperBound);
 
         string memory json = _addIncentiveConfig(config.mintPeggedIncentiveConfig, "mintPeggedIncentiveConfig");
         json = _addIncentiveConfig(config.mintLeveragedIncentiveConfig, "mintLeveragedIncentiveConfig");
