@@ -173,7 +173,7 @@ library Config_v1 {
     ) external pure returns (IMinter.IncentiveConfig memory out) {
         uint iOut = 0; // solhint-disable-line explicit-types
         uint outBands = ConfigIncentiveLib._collateralRatioBandCount(config_); // solhint-disable-line explicit-types
-        uint outBounds = outBands - 1;
+        uint outBounds = outBands - 1; // solhint-disable-line explicit-types
         out.collateralRatioBandUpperBounds = new uint256[](outBounds);
         out.incentiveRatios = new int256[](outBands);
         // solhint-disable-next-line explicit-types
