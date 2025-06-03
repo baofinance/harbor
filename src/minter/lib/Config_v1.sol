@@ -199,18 +199,4 @@ library Config_v1 {
 
         return out;
     }
-
-    function defaultIncentiveConfig() external pure returns (IMinter.IncentiveConfig memory out) {
-        // default config is a single band with no fees
-        // we need the mandatory depeg boundary at 1 ether
-
-        out.collateralRatioBandUpperBounds = new uint256[](1);
-        out.incentiveRatios = new int256[](2);
-
-        out.incentiveRatios[0] = 0; // in depeg
-        out.collateralRatioBandUpperBounds[0] = 1 ether; // depeg boundary
-        out.incentiveRatios[1] = 0; // pegged
-
-        return out;
-    }
 }
