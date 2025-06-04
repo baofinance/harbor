@@ -8,6 +8,7 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
@@ -22,7 +23,7 @@ import {IGenesis} from "src/interfaces/IGenesis.sol";
 /// @author rootminus0x1 based on Aladdin's FX system
 /// @notice Provides a mechanism for bootstrapping a 'minter' with initial collateral
 /// The sequence is:
-/// 1. users `deposit` collateral tokens, their share being recorded
+/// 1. users `deposit` collateral tokens, their share being recorded by them holding a Genesis token
 /// 2. at some point the admin for this contract mints the pegged and leveraged tokens.
 /// 3. once minting has occurred, the users can either
 ///     - withdraw the collateral they deposited for a fee
@@ -59,6 +60,10 @@ contract Genesis_v1 is
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
+
+    address public immutable STABILITY_POOL_COLLATERAL;
+
+    address public immutable STABILITY_POOL_LEVERAGED;
 
     // Share-with-proxy Storage
     // ------------------------
@@ -172,45 +177,27 @@ contract Genesis_v1 is
     }
 
     /// @inheritdoc IGenesis
-    function withdraw(
-        address receiver,
-        uint256 minCollateralOut
-    ) external nonReentrant returns (uint256 collateralOut) {
-        Token.ensureNonZeroAddress(receiver);
-        GenesisStorage storage $ = _getGenesisStorage();
-        if (!$.genesisEnded) {
-            revert GenesisIsNotEnded();
-        }
-        address caller = _msgSender();
-        // stop this early if the caller is asking for a higher min than is available
-        uint256 share_ = $.shares[caller];
-        if (share_ == 0) {
+    function withdraw(uint256 amount, address receiver) external nonReentrant returns (uint256 collateralOut) {
+        if (amount == 0) {
             revert Token.ZeroInputBalance(WRAPPED_COLLATERAL_TOKEN);
         }
-        if (share_ < minCollateralOut) {
-            revert InsufficientCollateral(WRAPPED_COLLATERAL_TOKEN);
+        Token.ensureNonZeroAddress(receiver);
+        GenesisStorage storage $ = _getGenesisStorage();
+        if ($.genesisEnded) {
+            revert GenesisIsEnded();
         }
+        address caller = _msgSender();
+        uint256 callerShares = $.shares[caller];
 
-        (uint256 peggedAmount, uint256 leveragedAmount) = _mintable(
-            share_,
-            $.totalSharesAtGenesisEnd,
-            $.totalPeggedAtGenesisEnd,
-            $.totalLeveragedAtGenesisEnd
-        );
+        // cap the amount to the shares actually held
+        amount = (amount > callerShares) ? callerShares : amount;
 
-        // get the collateral back - minus the fees
-        // we redeem the pegged first because that potentially reduces the fee for redeeming the leveraged
-        // wake-disable-next-line reentrancy // we have nonReentrant on this function
-        IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedAmount);
-        // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
-        collateralOut += IMinter(MINTER).redeemPeggedToken(peggedAmount, receiver, 0);
-        IERC20(LEVERAGED_TOKEN).safeIncreaseAllowance(MINTER, leveragedAmount);
-        collateralOut += IMinter(MINTER).redeemLeveragedToken(leveragedAmount, receiver, 0);
+        // remove the amount from the share
+        $.shares[caller] = callerShares - amount;
 
-        if (collateralOut < minCollateralOut) {
-            revert InsufficientCollateral(WRAPPED_COLLATERAL_TOKEN);
-        }
-        $.shares[caller] = 0;
+        // transfer the amount out
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, amount);
+        collateralOut = amount;
     }
 
     /// @inheritdoc IGenesis
@@ -251,8 +238,8 @@ contract Genesis_v1 is
     ) private pure returns (uint256 peggedAmount, uint256 leveragedAmount) {
         if (totalShares > 0) {
             // count out the caller's share
-            peggedAmount = (share * totalPeggedAmount) / totalShares;
-            leveragedAmount = (share * totalLeveragedAmount) / totalShares;
+            peggedAmount = Math.mulDiv(share, totalPeggedAmount, totalShares);
+            leveragedAmount = Math.mulDiv(share, totalLeveragedAmount, totalShares);
         } else {
             // if there are no shares, then the caller gets nothing
             peggedAmount = 0;

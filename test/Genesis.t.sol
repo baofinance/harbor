@@ -119,8 +119,6 @@ contract Test_GenesisBase is TestMinterSetUp {
     }
 
     function test_depositWithdraw() public {
-        vm.skip(true); // TODO: skip this test pending a decision to remove the withdrae function
-        // ERC20Mock(wrappedCollateralToken).mint(address(this), 1 ether);
         deal(wrappedCollateralToken, address(this), 10 ether);
 
         assertEq(IGenesis(genesis).balanceOf(user1), 0, "user1 has no genesis tokens");

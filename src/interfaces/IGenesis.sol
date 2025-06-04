@@ -3,7 +3,6 @@
 pragma solidity ^0.8.26;
 
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
-// TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
 /// @title IGenesis
 interface IGenesis is ITokenHolder {
@@ -66,11 +65,11 @@ interface IGenesis is ITokenHolder {
     /// @param receiver The address of pool share receiver.
     function deposit(uint256 collateralIn, address receiver) external;
 
-    /// @notice Withdraw some collateral from this contract, for a fee, after genesis has ended.
+    /// @notice Withdraw some collateral already deposited in this contract before genesis has ended.
+    /// @param amount The amount of collateral token being withdrawn to receiver. If the share is less then all of the share is transferred
     /// @param receiver The address of collateral token receiver.
-    /// @param minCollateralOut The minimum amount of collateral token should receive.
     /// @return collateralOut The amount of collateral token received.
-    function withdraw(address receiver, uint256 minCollateralOut) external returns (uint256 collateralOut);
+    function withdraw(uint256 amount, address receiver) external returns (uint256 collateralOut);
 
     /// @notice Withdraw pegged and leveraged tokens from this contract.
     /// @param receiver The address of token receiver.
