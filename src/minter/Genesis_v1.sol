@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -12,8 +13,8 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
-import {IGenesis} from "@interfaces/IGenesis.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {IGenesis} from "src/interfaces/IGenesis.sol";
 
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder
 
@@ -31,25 +32,38 @@ import {IGenesis} from "@interfaces/IGenesis.sol";
 /// @dev uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOwnable, TokenHolder, IGenesis {
+contract Genesis_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    ContextUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
+    BaoOwnable,
+    TokenHolder,
+    IGenesis
+{
     using SafeERC20 for IERC20;
 
     /*//////////////////////////////////////////////////////////////
                                 DATA
     //////////////////////////////////////////////////////////////*/
 
+    // Immutable variables
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable MINTER;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable PEGGED_TOKEN;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable WRAPPED_COLLATERAL_TOKEN;
+
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable LEVERAGED_TOKEN;
+
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.Genesis
     struct GenesisStorage {
-        /// @notice The address of minter contract.
-        address minter;
-        /// @notice The address of collateral token.
-        address collateralToken;
-        /// @notice The address of peggedToken token.
-        address peggedToken;
-        /// @notice The address of leveragedToken token.
-        address leveragedToken;
         /// @notice Mapping from user address to pool shares.
         mapping(address => uint256) shares;
         /// @notice The total amount of pool shares at the time the genesis ends.
@@ -62,7 +76,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         bool genesisEnded;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.Genesis")) - 1)) & ~bytes32(uint256(0xff));
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.Genesis")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _GENESIS_STORAGE = 0x0664bd1ecb0513904298180c56323018f000c9153e463401931cf3813b7eb300;
 
     /// @notice Returns the storage for this contract
@@ -78,25 +92,28 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
     //////////////////////////////////////////////////////////////*/
 
     /// @notice In UUPS proxies construction is performed by a function
-    function initialize(address owner_, address minter_) external initializer {
+    function initialize(address owner_) external initializer {
         // initialise all the state variables
         _initializeOwner(owner_);
         __Context_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
-
-        GenesisStorage storage $ = _getGenesisStorage();
-        // balance tokens
-        $.collateralToken = IMinter(minter_).collateralToken();
-        $.peggedToken = IMinter(minter_).peggedToken();
-        $.leveragedToken = IMinter(minter_).leveragedToken();
-        $.minter = minter_;
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address minter_) {
+        Token.ensureContract(minter_);
+        // slither-disable-next-line missing-zero-check
+        MINTER = minter_;
+        // slither-disable-next-line missing-zero-check
+        WRAPPED_COLLATERAL_TOKEN = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        // slither-disable-next-line missing-zero-check
+        PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
+        // slither-disable-next-line missing-zero-check
+        LEVERAGED_TOKEN = IMinter(minter_).LEVERAGED_TOKEN();
+
         _disableInitializers();
     }
 
@@ -135,23 +152,6 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         ended = $.genesisEnded;
     }
 
-    /// @inheritdoc IGenesis
-    function collateralToken() external view returns (address token) {
-        GenesisStorage storage $ = _getGenesisStorage();
-        token = $.collateralToken;
-    }
-
-    /// @inheritdoc IGenesis
-    function peggedToken() external view returns (address token) {
-        GenesisStorage storage $ = _getGenesisStorage();
-        token = $.peggedToken;
-    }
-
-    /// @inheritdoc IGenesis
-    function leveragedToken() external view returns (address token) {
-        GenesisStorage storage $ = _getGenesisStorage();
-        token = $.leveragedToken;
-    }
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -163,11 +163,10 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         if ($.genesisEnded) {
             revert GenesisIsEnded();
         }
-        address collateralToken_ = $.collateralToken;
         address caller = _msgSender();
-        collateralIn = Token.allOf(caller, collateralToken_, collateralIn);
+        collateralIn = Token.allOf(caller, WRAPPED_COLLATERAL_TOKEN, collateralIn);
 
-        IERC20(collateralToken_).safeTransferFrom(caller, address(this), collateralIn);
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(caller, address(this), collateralIn);
 
         $.shares[receiver] += collateralIn;
     }
@@ -186,13 +185,11 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         // stop this early if the caller is asking for a higher min than is available
         uint256 share_ = $.shares[caller];
         if (share_ == 0) {
-            revert Token.ZeroInputBalance($.collateralToken);
+            revert Token.ZeroInputBalance(WRAPPED_COLLATERAL_TOKEN);
         }
         if (share_ < minCollateralOut) {
-            revert InsufficientCollateral($.collateralToken);
+            revert InsufficientCollateral(WRAPPED_COLLATERAL_TOKEN);
         }
-        address peggedToken_ = $.peggedToken;
-        address leveragedToken_ = $.leveragedToken;
 
         (uint256 peggedAmount, uint256 leveragedAmount) = _mintable(
             share_,
@@ -201,17 +198,17 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
             $.totalLeveragedAtGenesisEnd
         );
 
-        address minter_ = $.minter;
         // get the collateral back - minus the fees
         // we redeem the pegged first because that potentially reduces the fee for redeeming the leveraged
-        // wake-disable-next-line reentrancy // minter is trusted
-        IERC20(peggedToken_).forceApprove(minter_, peggedAmount);
-        collateralOut += IMinter(minter_).redeemPeggedToken(peggedAmount, receiver, 0);
-        IERC20(leveragedToken_).forceApprove(minter_, leveragedAmount);
-        collateralOut += IMinter(minter_).redeemLeveragedToken(leveragedAmount, receiver, 0);
+        // wake-disable-next-line reentrancy // we have nonReentrant on this function
+        IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedAmount);
+        // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
+        collateralOut += IMinter(MINTER).redeemPeggedToken(peggedAmount, receiver, 0);
+        IERC20(LEVERAGED_TOKEN).safeIncreaseAllowance(MINTER, leveragedAmount);
+        collateralOut += IMinter(MINTER).redeemLeveragedToken(leveragedAmount, receiver, 0);
 
         if (collateralOut < minCollateralOut) {
-            revert InsufficientCollateral($.collateralToken);
+            revert InsufficientCollateral(WRAPPED_COLLATERAL_TOKEN);
         }
         $.shares[caller] = 0;
     }
@@ -226,7 +223,7 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         address caller = _msgSender();
         uint256 share_ = $.shares[caller];
         if (share_ == 0) {
-            revert Token.ZeroInputBalance($.collateralToken);
+            revert Token.ZeroInputBalance(WRAPPED_COLLATERAL_TOKEN);
         }
         (uint256 peggedAmount, uint256 leveragedAmount) = _mintable(
             share_,
@@ -236,8 +233,8 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
         );
 
         // give the caller their share of the created tokens
-        IERC20($.peggedToken).safeTransfer(receiver, peggedAmount);
-        IERC20($.leveragedToken).safeTransfer(receiver, leveragedAmount);
+        IERC20(PEGGED_TOKEN).safeTransfer(receiver, peggedAmount);
+        IERC20(LEVERAGED_TOKEN).safeTransfer(receiver, leveragedAmount);
 
         $.shares[caller] = 0;
     }
@@ -256,6 +253,10 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
             // count out the caller's share
             peggedAmount = (share * totalPeggedAmount) / totalShares;
             leveragedAmount = (share * totalLeveragedAmount) / totalShares;
+        } else {
+            // if there are no shares, then the caller gets nothing
+            peggedAmount = 0;
+            leveragedAmount = 0;
         }
     }
 
@@ -270,19 +271,18 @@ contract Genesis_v1 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOw
             revert GenesisIsEnded();
         }
         // record the total shares now so all further share calculations are based on this number
-        address collateralToken_ = $.collateralToken;
-        uint256 totalCollateral = IERC20($.collateralToken).balanceOf(address(this));
+        uint256 totalCollateral = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
         $.totalSharesAtGenesisEnd = totalCollateral;
 
         // mint the pegged and leveraged, using all (yes, including any /2 truncation) the collateral
         // there is a potential to offer a bonus to depositors here by transferring collateral manually
         // into this contract.
         uint256 halfCollateral = totalCollateral / 2;
-        address minter_ = $.minter;
-        // wake-disable-next-line reentrancy // minter is trusted
-        IERC20(collateralToken_).forceApprove(minter_, totalCollateral);
-        $.totalPeggedAtGenesisEnd = IMinter(minter_).freeMintPeggedToken(halfCollateral, address(this));
-        $.totalLeveragedAtGenesisEnd = IMinter(minter_).freeMintLeveragedToken(
+        // wake-disable-next-line reentrancy // nonReentrant on this function
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeIncreaseAllowance(MINTER, totalCollateral);
+        // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
+        $.totalPeggedAtGenesisEnd = IMinter(MINTER).freeMintPeggedToken(halfCollateral, address(this));
+        $.totalLeveragedAtGenesisEnd = IMinter(MINTER).freeMintLeveragedToken(
             totalCollateral - halfCollateral,
             address(this)
         );

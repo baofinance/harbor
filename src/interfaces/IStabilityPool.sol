@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.26;
 
-interface IRebalancePool {
+interface IStabilityPool {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -25,10 +25,6 @@ interface IRebalancePool {
     /// @param amount The amount of token to withdraw.
     event Withdraw(address indexed owner, address indexed reciever, uint256 amount);
 
-    /// @notice Emitted when liquidation happens.
-    /// @param liquidated The amount of asset liquidated.
-    event Liquidate(uint256 liquidated);
-
     /// @notice Emitted when a reward token is gained.
     /// @param rewardToken address of the reward token
     /// @param rewardAmount The amount of token gained.
@@ -38,6 +34,13 @@ interface IRebalancePool {
     /// @param oldWrapper The address of previous reward wrapper.
     /// @param newWrapper The address of current reward wrapper.
     event UpdateWrapper(address indexed oldWrapper, address indexed newWrapper);
+
+    event Liquidated(
+        address liquidatedToken,
+        uint256 liquidatedAmount,
+        address liquidatedToToken,
+        uint256 liquidatedToAmount
+    );
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -61,30 +64,42 @@ interface IRebalancePool {
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
 
-    /// @dev Thrown when a liquidation is attempted but the collateral ratio is not sufficiently low
-    error collateralRatioTooHigh(uint256 currentCollateralRatio, uint256 rebalanceCollateralRatio);
-
-    /// @dev Thrown when the amount requested to be liquidated isn't met
-    error NotEnoughTokensToLiquidate(uint256 peggedTokensToLiquidate, uint256 minLiquidated);
-
-    // @dev Thrown when initiaising with an invalid liquidation token
+    /// @dev Thrown when the liquidation token given is not a valid one
+    /// either wrapped collateral or leveraged tokens
     error InvalidLiquidationToken(address token);
 
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
-    function minter() external view returns (address);
+    /// @notice The role used for notifying rebalancing.
+    function REBALANCER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the liquidatable collateral ratio.
-    function liquidatableCollateralRatio() external view returns (uint256);
+    /// @notice The role used for notifying rewards (including when rebalancing).
+    function REWARDER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The role for ve balance sharing.
+    function VE_SHARING_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The role for ve balance sharing.
+    function WITHDRAW_FROM_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The role used to manage rewards.
+    function REWARD_MANAGER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The length of reward period in seconds.
+    /// @dev If the value is zero, the reward will be distributed immediately.
+    /// @dev It is either zero or at least 1 day (which is 86400).
+    function REWARD_PERIOD_LENGTH() external view returns (uint40); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
+    function MINTER() external view returns (address); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
-    function liquidationToken() external view returns (address);
+    function LIQUIDATION_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of underlying token of this contract.
-    function assetToken() external view returns (address);
+    function ASSET_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the total amount of asset deposited to this contract.
     function totalAssetSupply() external view returns (uint256);
@@ -119,10 +134,11 @@ interface IRebalancePool {
     /// @notice Withdraw asset from this contract.
     function withdraw(uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
 
-    /// @notice Liquidate asset. Calling into the minter to
-    /// @param minPeggedAmount The minimum amount of asset to liquidate.
-    /// @return liquidated The amount of asset liquidated.
-    function liquidate(uint256 minPeggedAmount) external returns (uint256 liquidated);
+    /// @notice Account for an increase in rewards
+    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+
+    /// @notice perform a liquidation of the amount
+    function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
 
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS

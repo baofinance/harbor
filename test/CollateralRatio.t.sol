@@ -10,19 +10,19 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
-import {TestRebalancePool2SetUp} from "test/Liquidate.t.sol";
 import {Array} from "test/Array.sol";
 
 import "test/clog.sol";
 
-contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
+contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
     uint256 startPrice;
     uint256 currentPrice;
     uint256 currentCollateralRatio;
@@ -30,17 +30,17 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        startPrice = MockPriceOracle(priceOracle).latestAnswer();
+        (startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 10 ether, address(this));
-        deal(address(collateralToken), address(this), 1000 ether);
-        IERC20(collateralToken).approve(minter, type(uint256).max);
+        deal(address(wrappedCollateralToken), address(this), 1000 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         IERC20(leveragedToken).approve(minter, type(uint256).max);
-        IERC20(peggedToken).approve(rebalancePool, type(uint256).max);
-        IERC20(peggedToken).approve(rebalancePoolLeveraged, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
-        assertEq(0, IERC20(collateralToken).balanceOf(reservePool), "reserve pool should be empty");
+        assertEq(0, IERC20(wrappedCollateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
 
     function pegged() internal view returns (bool) {
@@ -55,6 +55,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         uint256 feeReceiverCollateral;
         uint256 reservePoolCollateral;
         uint256 minterCollateral;
+        uint256 minterUnderlyingCollateral;
         uint256 minterPegged;
         uint256 thisCollateral;
         uint256 thisPegged;
@@ -64,18 +65,44 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         int256 feeReceiverCollateral;
         int256 reservePoolCollateral;
         int256 minterCollateral;
+        int256 minterUnderlyingCollateral;
         int256 minterPegged;
         int256 thisCollateral;
         int256 thisPegged;
         int256 thisLeveraged;
     }
 
+    function logDeltaHoldings(DeltaHoldings memory holdings) internal pure {
+        console2.log("DeltaHoldings:");
+        console2.log("   feeReceiverCollateral=%s", holdings.feeReceiverCollateral);
+        console2.log("   reservePoolCollateral=%s", holdings.reservePoolCollateral);
+        console2.log("   minterCollateral=%s", holdings.minterCollateral);
+        console2.log("   minterUnderlyingCollateral=%s", holdings.minterUnderlyingCollateral);
+        console2.log("   minterPegged=%s", holdings.minterPegged);
+        console2.log("   thisCollateral=%s", holdings.thisCollateral);
+        console2.log("   thisPegged=%s", holdings.thisPegged);
+        console2.log("   thisLeveraged=%s", holdings.thisLeveraged);
+    }
+
+    function logHoldings(string memory name, Holdings memory holdings) internal pure {
+        console2.log("Holdings %s:", name);
+        console2.log("   feeReceiverCollateral=%s", holdings.feeReceiverCollateral);
+        console2.log("   reservePoolCollateral=%s", holdings.reservePoolCollateral);
+        console2.log("   minterCollateral=%s", holdings.minterCollateral);
+        console2.log("   minterUnderlyingCollateral=%s", holdings.minterUnderlyingCollateral);
+        console2.log("   minterPegged=%s", holdings.minterPegged);
+        console2.log("   thisCollateral=%s", holdings.thisCollateral);
+        console2.log("   thisPegged=%s", holdings.thisPegged);
+        console2.log("   thisLeveraged=%s", holdings.thisLeveraged);
+    }
+
     function readHoldings() internal view returns (Holdings memory holdings) {
-        holdings.feeReceiverCollateral = IERC20(collateralToken).balanceOf(feeReceiver);
-        holdings.reservePoolCollateral = IERC20(collateralToken).balanceOf(reservePool);
-        holdings.minterCollateral = IERC20(collateralToken).balanceOf(minter);
+        holdings.feeReceiverCollateral = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+        holdings.reservePoolCollateral = IERC20(wrappedCollateralToken).balanceOf(reservePool);
+        holdings.minterCollateral = IERC20(wrappedCollateralToken).balanceOf(minter);
+        holdings.minterUnderlyingCollateral = IMinter(minter).collateralTokenBalance();
         holdings.minterPegged = IMinter(minter).peggedTokenBalance();
-        holdings.thisCollateral = IERC20(collateralToken).balanceOf(address(this));
+        holdings.thisCollateral = IERC20(wrappedCollateralToken).balanceOf(address(this));
         holdings.thisPegged = IERC20(peggedToken).balanceOf(address(this));
         holdings.thisLeveraged = IERC20(leveragedToken).balanceOf(address(this));
     }
@@ -86,6 +113,9 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         DeltaHoldings memory cambios,
         string memory context
     ) internal pure {
+        // logHoldings("before", antes);
+        // logHoldings("after", postres);
+        // logDeltaHoldings(cambios);
         assertEq(
             postres.feeReceiverCollateral,
             uint256(int256(antes.feeReceiverCollateral) + cambios.feeReceiverCollateral),
@@ -99,7 +129,12 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         assertEq(
             postres.minterCollateral,
             uint256(int256(antes.minterCollateral) + cambios.minterCollateral),
-            string.concat(context, ":", "minterCollateral")
+            string.concat(context, ":", "minterWrappedCollateral")
+        );
+        assertEq(
+            postres.minterCollateral,
+            uint256(int256(antes.minterUnderlyingCollateral) + cambios.minterUnderlyingCollateral),
+            string.concat(context, ":", "minterUnderlyingCollateral")
         );
         assertEq(
             postres.minterPegged,
@@ -124,6 +159,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
     }
 
     struct Data {
+        int256 incentiveRatio;
         uint256 peggedMinted;
         uint256 peggedRedeemed;
         uint256 leveragedMinted;
@@ -131,8 +167,9 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         uint256 collateralUsed;
         uint256 collateralReturned;
         uint256 fee;
-        uint256 reserveCollateralUsed;
+        uint256 discount;
         uint256 price;
+        uint256 rate;
     }
 
     function doOneCollateralRatio() internal virtual {
@@ -152,7 +189,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
         ) {
             currentPrice = (startPrice * currentCollateralRatio) / startCollateralRatio;
 
-            MockPriceOracle(priceOracle).setLatestAnswer(currentPrice);
+            MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);
             assertEq(currentCollateralRatio, IMinter(minter).collateralRatio(), "crs must match");
 
             doOneCollateralRatio();
@@ -161,8 +198,7 @@ contract TestCollateralRatioRangeSetUp is TestRebalancePool2SetUp {
     }
 }
 
-// TODO: do the dry run v real run comparsison with and without reserve pool
-// TODO: do a free comparison v fee'd comparison when fees are set to 0
+// TODO: do a free comparison v fee'd comparison when fees are set to 0 and reserve pool is empty
 
 contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeSetUp {
     function setUp() public virtual override {
@@ -186,12 +222,10 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         uint256 snap;
 
         // mint pegged
-        int256 incentive;
-        (incentive, data.collateralUsed, data.peggedMinted, data.fee, data.reserveCollateralUsed, data.price) = IMinter(
-            minter
-        ).mintPeggedTokenDryRun(1 ether);
+        (data.incentiveRatio, data.fee, data.collateralUsed, data.peggedMinted, , ) = IMinter(minter)
+            .mintPeggedTokenDryRun(1 ether);
 
-        if (incentive < 1 ether) {
+        if (data.incentiveRatio < 1 ether) {
             // minting pegged is allowed
             snap = vm.snapshotState();
             beforeHolding = readHoldings();
@@ -200,6 +234,7 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
             deltas = DeltaHoldings(
                 int256(data.fee),
                 int256(0),
+                int256(data.collateralUsed) - int256(data.fee),
                 int256(data.collateralUsed) - int256(data.fee),
                 int256(data.peggedMinted),
                 -int256(data.collateralUsed),
@@ -215,7 +250,8 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         }
 
         // redeem pegged
-        (, data.peggedRedeemed, data.collateralReturned, data.fee, data.reserveCollateralUsed, data.price) = IMinter(
+        data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        (, data.fee, data.discount, data.peggedRedeemed, data.collateralReturned, data.price, data.rate) = IMinter(
             minter
         ).redeemPeggedTokenDryRun(1000 ether);
         snap = vm.snapshotState();
@@ -224,8 +260,9 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         afterHolding = readHoldings();
         deltas = DeltaHoldings(
             int256(data.fee),
-            -int256(data.reserveCollateralUsed),
-            -int256(data.collateralReturned) + int256(data.reserveCollateralUsed) - int256(data.fee),
+            -int256(data.discount),
+            -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
+            -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
             -int256(data.peggedRedeemed),
             int256(data.collateralReturned),
             -int256(data.peggedRedeemed),
@@ -237,44 +274,53 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
         // leveraged operations don't work for depegged
 
         // mint leveraged
+        data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         if (currentCollateralRatio > 1 ether) {
-            (, data.collateralUsed, data.leveragedMinted, data.fee, data.reserveCollateralUsed, ) = IMinter(minter)
+            (, data.fee, data.discount, data.collateralUsed, data.leveragedMinted, , ) = IMinter(minter)
                 .mintLeveragedTokenDryRun(1 ether);
 
             snap = vm.snapshotState();
             beforeHolding = readHoldings();
             IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
             afterHolding = readHoldings();
+            // logHoldings("before mint leveraged", beforeHolding);
+            // logHoldings("after mint leveraged", afterHolding);
             deltas = DeltaHoldings(
+                //int256 feeReceiverCollateral;
                 int256(data.fee),
-                -int256(data.reserveCollateralUsed),
-                int256(data.collateralUsed) + int256(data.reserveCollateralUsed) - int256(data.fee),
+                // int256 reservePoolCollateral;
+                -int256(data.discount),
+                // int256 minterCollateral;
+                int256(data.collateralUsed - data.fee + data.discount),
+                // int256 minterUnderlyingCollateral;
+                int256(data.collateralUsed - data.fee + data.discount),
+                // int256 minterPegged;
                 int256(0),
+                // int256 thisCollateral;
                 -int256(data.collateralUsed),
+                // int256 thisPegged;
                 int256(0),
+                // int256 thisLeveraged;
                 int256(data.leveragedMinted)
             );
+            // logDeltaHoldings(deltas);
             compareHoldings(beforeHolding, afterHolding, deltas, "mintLeveraged");
             vm.revertToState(snap);
 
             // redeem leveraged
-            (
-                incentive,
-                data.levergedRedeemed,
-                data.collateralReturned,
-                data.fee,
-                data.reserveCollateralUsed,
-
-            ) = IMinter(minter).redeemLeveragedTokenDryRun(1000 ether);
-            if (incentive < 1 ether) {
+            data = Data(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            (data.incentiveRatio, data.fee, data.levergedRedeemed, data.collateralReturned, , ) = IMinter(minter)
+                .redeemLeveragedTokenDryRun(1000 ether);
+            if (data.incentiveRatio < 1 ether) {
                 snap = vm.snapshotState();
                 beforeHolding = readHoldings();
                 IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
                 afterHolding = readHoldings();
                 deltas = DeltaHoldings(
                     int256(data.fee),
-                    -int256(data.reserveCollateralUsed),
-                    -int256(data.collateralReturned) + int256(data.reserveCollateralUsed) - int256(data.fee),
+                    -int256(data.discount),
+                    -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
+                    -int256(data.collateralReturned) + int256(data.discount) - int256(data.fee),
                     -int256(0),
                     int256(data.collateralReturned),
                     int256(0),
@@ -291,7 +337,14 @@ contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeS
 contract TestCollateralRatioRangeTransfersWithReserve is TestCollateralRatioRangeTransfersNoReserve {
     function setUp() public override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1000 ether);
+        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
+    }
+}
+
+contract TestCollateralRatioRangeTransfersWithPartialReserve is TestCollateralRatioRangeTransfersNoReserve {
+    function setUp() public override {
+        super.setUp();
+        deal(address(wrappedCollateralToken), reservePool, 1e15);
     }
 }
 
@@ -424,13 +477,16 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         for (uint a = 0; a <= uint(type(Action).max); a++) {
             snap = vm.snapshotState();
             largeChanges = doOne(Action(a), repeats, largeChanges);
+            // console2.log("in one go:");
+            // logDeltaHoldings(largeChanges);
             vm.revertToState(snap);
             snap = vm.snapshotState();
             for (uint i = 0; i < repeats; i++) {
                 smallChanges = doOne(Action(a), 1, smallChanges);
+                // console2.log("%s th iteration", i + 1);
+                // logDeltaHoldings(smallChanges);
             }
-            // TODO: see if we can get this tollerance down a bit
-            compareDeltaHoldings(largeChanges, smallChanges, 40, toString(Action(a)));
+            compareDeltaHoldings(largeChanges, smallChanges, 36, toString(Action(a)));
             vm.revertToState(snap);
         }
     }
@@ -439,6 +495,13 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
 contract TestCollateralRatioRangeIntegralWithReserve is TestCollateralRatioRangeIntegralNoReserve {
     function setUp() public virtual override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1000 ether);
+        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
+    }
+}
+
+contract TestCollateralRatioRangeIntegralWithPartialReserve is TestCollateralRatioRangeIntegralNoReserve {
+    function setUp() public virtual override {
+        super.setUp();
+        deal(address(wrappedCollateralToken), reservePool, 1e15);
     }
 }

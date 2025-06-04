@@ -13,7 +13,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
-import {ILeveragedToken} from "@interfaces/ILeveragedToken.sol";
+import {ILeveragedToken} from "src/interfaces/ILeveragedToken.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
@@ -86,6 +86,7 @@ contract LeveragedToken_v1 is
 
     /// @inheritdoc IBurnableFrom
     function burnFrom(address from, uint256 amount) public override onlyRoles(MINTER_ROLE) {
+        _spendAllowance(from, _msgSender(), amount);
         _burn(from, amount);
     }
 }

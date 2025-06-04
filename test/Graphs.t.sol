@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+
 //import { Test } from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -10,11 +12,18 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMinter} from "@interfaces/IMinter.sol";
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
+import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
+import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
+
 import {Deployed} from "@bao/Deployed.sol";
-import {IPriceOracle} from "src/price/IPriceOracle.sol";
-import {MockPriceOracle} from "test/MockPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestCollateralRatioRangeSetUp} from "test/CollateralRatio.t.sol";
@@ -27,6 +36,10 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     string liquidateFile;
     int256 NaN = type(int256).max;
     uint256 uNaN = type(uint256).max;
+    address stabilityPoolManagerCollateral;
+    address stabilityPoolManagerLeveraged;
+    address bountyReceiver;
+    address treasury;
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -38,7 +51,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
     function setUp() public override {
         super.setUp();
-        deal(address(collateralToken), reservePool, 1000 ether);
+        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
 
         feesFile = openFile(
             string.concat("fees", context()),
@@ -65,11 +78,61 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
         invariantFile = openFile(
             string.concat("invariant", context()),
-            sa("Collateral Ratio", "Leveraged Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
+            sa("Collateral Ratio", "Leverage Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
         );
 
-        IRebalancePool(rebalancePool).deposit(4 * startPrice, address(this), 0);
-        IRebalancePool(rebalancePoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
+        // console2.log(
+        //     "peggedToken.balanceOf stabilityPoolCollateral=",
+        //     IERC20(peggedToken).balanceOf(stabilityPoolCollateral)
+        // );
+        // console2.log(
+        //     "peggedToken.balanceOf stabilityPoolLeveraged=",
+        //     IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)
+        // );
+
+        bountyReceiver = vm.createWallet("bountyReceiver").addr;
+        treasury = vm.createWallet("treasury").addr;
+
+        address stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)),
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
+        );
+
+        address stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(minter, leveragedToken)),
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
+        );
+
+        // set up the stability pool managers
+        stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
+            address(
+                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
+            ),
+            abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
+        );
+        IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceThreshold(1.3 ether);
+
+        stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
+            address(
+                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)
+            ),
+            abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
+        );
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceThreshold(1.3 ether);
+
+        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
+        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
+
+        vm.startPrank(owner);
+        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
+        IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);
+
+        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
+        IBaoRoles(minter).grantRoles(stabilityPoolManagerLeveraged, zeroFeeRole);
+        vm.stopPrank();
+
         liquidateFile = openFile(
             string.concat("liquidate", context()),
             sa("antes CR", "liquidate to collateral", "liquidate to leveraged")
@@ -80,6 +143,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         vm.closeFile(feesFile);
         vm.closeFile(fees1File);
         vm.closeFile(invariantFile);
+        vm.closeFile(liquidateFile);
     }
 
     function openFile(string memory name, string[] memory header) private returns (string memory file) {
@@ -116,13 +180,14 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     {
         mintPeggedIncentive = IMinter(minter).mintPeggedTokenIncentiveRatio();
         redeemPeggedIncentive = IMinter(minter).redeemPeggedTokenIncentiveRatio();
-        if (leveraged()) {
-            mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
-            redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
-        } else {
-            mintLeveragedIncentive = NaN;
-            redeemLeveragedIncentive = NaN;
-        }
+
+        // if (leveraged()) {
+        mintLeveragedIncentive = IMinter(minter).mintLeveragedTokenIncentiveRatio();
+        redeemLeveragedIncentive = IMinter(minter).redeemLeveragedTokenIncentiveRatio();
+        // } else {
+        //     mintLeveragedIncentive = NaN;
+        //     redeemLeveragedIncentive = NaN;
+        // }
     }
 
     function getDryRunIncentives(
@@ -139,13 +204,41 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
     {
         // collect the data and check against actuals
         (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(multiplier * 1 ether);
-        (redeemPeggedIncentive, , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
-        if (pegged()) {
-            (mintLeveragedIncentive, , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether);
-            (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether);
-        } else {
-            mintLeveragedIncentive = NaN;
-            redeemLeveragedIncentive = NaN;
+        (redeemPeggedIncentive, , , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
+
+        try IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether) returns (
+            int256 mintLeveraged,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        ) {
+            mintLeveragedIncentive = mintLeveraged;
+        } catch (bytes memory reason) {
+            require(
+                keccak256(reason) == keccak256(abi.encodeWithSelector(IMinter.ActionPaused.selector)),
+                "unexpected error"
+            );
+            mintLeveragedIncentive = 0;
+        }
+
+        try IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether) returns (
+            int256 redeemLeveraged,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        ) {
+            redeemLeveragedIncentive = redeemLeveraged;
+        } catch (bytes memory reason) {
+            require(
+                keccak256(reason) == keccak256(abi.encodeWithSelector(IMinter.ActionPaused.selector)),
+                "unexpected error"
+            );
+            redeemLeveragedIncentive = 0;
         }
     }
 
@@ -195,21 +288,44 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             )
         );
 
-        uint256 afterLiquidate;
+        uint256 beforeLiquidate = IMinter(minter).collateralRatio();
+        uint256 afterLiquidateCollateral;
         uint256 afterLiquidateLeveraged;
-        if (currentCollateralRatio < 13 ether / 10) {
-            uint256 snap = vm.snapshotState();
-            IRebalancePool(rebalancePool).liquidate(0);
-            afterLiquidate = IMinter(minter).collateralRatio();
-            vm.revertToState(snap);
-            IRebalancePool(rebalancePoolLeveraged).liquidate(0);
-            afterLiquidateLeveraged = IMinter(minter).collateralRatio();
-            vm.revertToState(snap);
+
+        uint256 snap = vm.snapshotState();
+        if (IStabilityPoolManager(stabilityPoolManagerCollateral).rebalanceable()) {
+            // console2.log("liquidate to collateral");
+            // uint256 liquidated =
+            IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
+            afterLiquidateCollateral = IMinter(minter).collateralRatio();
+            // assertGt(liquidated, 0, "liquidation must liquidate some pegged (collateral)");
+            // assertGt(
+            //     afterLiquidateCollateral,
+            //     beforeLiquidate,
+            //     "collateral ratio must go up after liquidation (collateral)"
+            // );
         } else {
-            afterLiquidate = IMinter(minter).collateralRatio();
-            afterLiquidateLeveraged = afterLiquidate;
+            afterLiquidateCollateral = beforeLiquidate;
         }
-        writeLine(liquidateFile, ua(currentCollateralRatio, afterLiquidate, afterLiquidateLeveraged));
+        vm.revertToState(snap);
+
+        if (IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalanceable()) {
+            // console2.log("liquidate to leveraged");
+            // uint256 liquidated =
+            IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
+            afterLiquidateLeveraged = IMinter(minter).collateralRatio();
+            // assertGt(liquidated, 0, "liquidation must liquidate some pegged (leveraged)");
+            // assertGt(
+            //     afterLiquidateLeveraged,
+            //     beforeLiquidate,
+            //     "collateral ratio must go up after liquidation (leveraged)"
+            // );
+        } else {
+            afterLiquidateLeveraged = beforeLiquidate;
+        }
+        vm.revertToState(snap);
+
+        writeLine(liquidateFile, ua(currentCollateralRatio, afterLiquidateCollateral, afterLiquidateLeveraged));
     }
 }
 

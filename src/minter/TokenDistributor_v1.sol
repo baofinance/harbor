@@ -13,7 +13,7 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
-import {ITokenDistributor} from "@interfaces/ITokenDistributor.sol";
+import {ITokenDistributor} from "src/interfaces/ITokenDistributor.sol";
 
 /// @notice Distributes tokens to addresses.
 /// @author rootminus0x1
@@ -81,7 +81,7 @@ contract TokenDistributor_v1 is
     }
 
     /// @notice The storage hash for the shared-with-proxy storage
-    /// @dev keccak256(abi.encode(uint256(keccak256("bao.storage.TokenDistributor")) - 1)) & ~bytes32(uint256(0xff));
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.TokenDistributor")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _TOKEN_DISTRIBUTOR_STORAGE =
         0xd0775fa9e06b22c4332c4ba2f31eb3c883151d167c94d1d0a605e68bca1dbb00;
 
@@ -98,6 +98,7 @@ contract TokenDistributor_v1 is
     function initialize(address owner_, string memory name_) public initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
+        __ReentrancyGuardTransient_init();
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         $.name = name_;
     }
@@ -162,7 +163,7 @@ contract TokenDistributor_v1 is
     /// @inheritdoc ITokenDistributor
     function addToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
-        Token.ensureERC20Token(token);
+        Token.sanityCheckERC20Token(token);
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.tokens.add(token); // only adds if one is not already there
     }

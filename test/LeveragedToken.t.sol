@@ -22,7 +22,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {ILeveragedToken} from "@interfaces/ILeveragedToken.sol";
+import {ILeveragedToken} from "src/interfaces/ILeveragedToken.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
@@ -144,47 +144,80 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         assertEq(IERC20(leveragedToken).totalSupply(), 0, "nothing minted yet");
         vm.expectRevert(Unauthorized_selector);
         IBurnableFrom(leveragedToken).burnFrom(address(this), 1 ether);
+        //------------------------------------------------------------
+
+        // burn when none allowed
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, minter, 0, 2 ether));
+        vm.prank(minter);
+        IBurnableFrom(leveragedToken).burnFrom(address(this), 2 ether);
+        //------------------------------------------------------------
 
         // burn when none
-        vm.startPrank(minter);
+        IERC20(leveragedToken).approve(minter, 2 ether);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 0, 2 ether)
         );
+        vm.prank(minter);
         IBurnableFrom(leveragedToken).burnFrom(address(this), 2 ether);
+        //------------------------------------------------------------
+
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter, 0, 2 ether));
+        vm.prank(minter);
         IBurnable(leveragedToken).burn(2 ether);
+        //------------------------------------------------------------
 
         // mint
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(address(0), address(this), 2 ether);
+        vm.prank(minter);
         IMintable(leveragedToken).mint(address(this), 2 ether);
+        //------------------------------------------------------------
         assertEq(IERC20(leveragedToken).totalSupply(), 2 ether, "2 ether minted");
         assertEq(IERC20(leveragedToken).balanceOf(address(this)), 2 ether, "should have 2 ether");
+
+        vm.prank(minter);
         IMintable(leveragedToken).mint(minter, 2 ether);
+        //------------------------------------------------------------
         assertEq(IERC20(leveragedToken).totalSupply(), 4 ether, "4 ether minted");
         assertEq(IERC20(leveragedToken).balanceOf(minter), 2 ether, "should have 2 ether");
 
+        // burn more than allowed
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, minter, 2 ether, 3 ether)
+        );
+        vm.prank(minter);
+        IBurnableFrom(leveragedToken).burnFrom(address(this), 3 ether);
+        //------------------------------------------------------------
+
         // burn too much
+        IERC20(leveragedToken).approve(minter, 3 ether);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 2 ether, 3 ether)
         );
+        vm.prank(minter);
         IBurnableFrom(leveragedToken).burnFrom(address(this), 3 ether);
+        //------------------------------------------------------------
+
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, minter, 2 ether, 3 ether)
         );
+        vm.prank(minter);
         IBurnable(leveragedToken).burn(3 ether);
+        //------------------------------------------------------------
 
         // burn when some.
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(address(this), address(0), 1 ether);
+        vm.prank(minter);
         IBurnableFrom(leveragedToken).burnFrom(address(this), 1 ether);
+        //------------------------------------------------------------
         assertEq(IERC20(leveragedToken).totalSupply(), 3 ether, "3 ether left now");
         assertEq(IERC20(leveragedToken).balanceOf(address(this)), 1 ether, "should now have 1");
+        vm.prank(minter);
         IBurnable(leveragedToken).burn(1 ether);
+        //------------------------------------------------------------
         assertEq(IERC20(leveragedToken).totalSupply(), 2 ether, "2 ether left now");
         assertEq(IERC20(leveragedToken).balanceOf(minter), 1 ether, "should now have 1");
-
-        vm.stopPrank();
     }
 
     function test_transfer() public {
@@ -223,7 +256,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         vm.prank(user1);
         vm.expectEmit(true, true, false, true);
         emit IERC20.Approval(user1, address(this), 1 ether);
-        IERC20(leveragedToken).forceApprove(address(this), 1 ether);
+        IERC20(leveragedToken).approve(address(this), 1 ether);
         assertEq(IERC20(leveragedToken).allowance(user1, address(this)), 1 ether, "should have allowance");
 
         // try when no no balance

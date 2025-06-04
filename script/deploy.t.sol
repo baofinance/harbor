@@ -9,6 +9,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 // import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {DeployState} from "./DeployState.sol";
 
 import {TestLeveragedToken} from "test/LeveragedToken.t.sol";
@@ -22,7 +23,9 @@ contract TestDeployed is Test, DeployState {
 
     function setUp_fork() internal /*string network*/ {
         network = "local"; // TODO: read from env
-        setStateFile(network);
+        string memory chain = "mainnet";
+        string memory script = "deploy-minter";
+        setStateFile(network, chain, script);
         vm.createSelectFork(vm.rpcUrl(network));
     }
 }
@@ -32,8 +35,8 @@ contract TestDeployedLeveragedToken is TestLeveragedToken, TestDeployed {
         setUp_fork();
         owner = addr("owner");
         minter = addr("minter");
-        name = "BaoMinter BaoUSD-wstETH";
-        symbol = "BaoUSD-wstETH";
+        name = "Bao Zhenglong steamed stETH-BaoUSD";
+        symbol = "steamedstETH-BaoUSD";
     }
 
     function setUpContract() internal override {
@@ -49,7 +52,7 @@ contract TestDeployedFeeDistributor is TestTokenDistributor, TestDeployed {
     }
 
     function setUpContract() internal override {
-        name = "FeeDistributor";
+        name = "Fee Receiver";
         tokenDistributor = addr("feeReceiver");
     }
 }
@@ -73,32 +76,31 @@ contract TestDeployedMinter is TestMinterBasics, TestDeployed {
         owner = addr("owner");
         peggedToken = addr("peggedToken");
         leveragedToken = addr("leveragedToken");
-        collateralToken = addr("collateralToken");
+        wrappedCollateralToken = addr("wrappedCollateralToken");
         priceOracle = addr("priceOracle");
         feeReceiver = addr("feeReceiver");
         reservePool = addr("reservePool");
     }
 
     function setUpConfig() internal override {
-        config = readConfig(network);
+        config = readConfig("free");
     }
 
     function setUpContract() internal override {
         minter = addr("minter");
+        zeroFee = addr("developer");
 
-        postDeployMultisigTransactions();
-    }
-
-    function postDeployMultisigTransactions() internal {
-        // vm.prank(IBaoUSD(Deployed.BaoUSD).operator());
-        // IBaoUSD(Deployed.BaoUSD).addMinter(addr("minter"));
+        // TODO: this is a hack to for BaoUSD
+        address operator = IBaoUSD(Deployed.BaoUSD).operator();
+        vm.prank(operator);
+        IBaoUSD(Deployed.BaoUSD).addMinter(minter);
     }
 }
 
 /*
 contract TestDeploySetUp is TestMinterSetUp, TestDeployed {
-    address rebalancePoolCollateral;
-    address rebalancePoolLeveraged;
+    address stabilityPoolCollateral;
+    address stabilityPoolLeveraged;
 
     address genesis;
 
@@ -114,8 +116,8 @@ contract TestDeploySetUp is TestMinterSetUp, TestDeployed {
         collateralToken = addr("collateralToken");
         reservePool = addr("reservePool");
         minter = addr("minter");
-        rebalancePoolCollateral = addr("rebalancePoolCollateral");
-        rebalancePoolLeveraged = addr("rebalancePoolLeveraged");
+        stabilityPoolCollateral = addr("stabilityPoolCollateral");
+        stabilityPoolLeveraged = addr("stabilityPoolLeveraged");
         genesis = addr("genesis");
 
         uint256 minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
@@ -149,17 +151,17 @@ contract TestDeploy is TestDeploySetUp {
         assertTrue(IBaoRoles(leveragedToken).hasAllRoles(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()));
     }
 
-    function _test_rebalanceConnections(address rp, address liquidateTo) private view {
-        assertEq(IRebalancePool(rp).minter(), minter);
-        assertEq(IRebalancePool(rp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
-        assertEq(IRebalancePool(rp).liquidationToken(), liquidateTo);
-        assertEq(IRebalancePool(rp).assetToken(), peggedToken);
-        assertEq(IRebalancePool(rp).totalAssetSupply(), 0);
+    function _test_stabilityConnections(address sp, address liquidateTo) private view {
+        assertEq(IStabilityPool(sp).minter(), minter);
+        assertEq(IStabilityPool(sp).liquidatableCollateralRatio(), IMinter(minter).rebalanceCollateralRatio());
+        assertEq(IStabilityPool(sp).liquidationToken(), liquidateTo);
+        assertEq(IStabilityPool(sp).assetToken(), peggedToken);
+        assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
     }
 
-    function test_rebalancePool() public view {
-        _test_rebalanceConnections(rebalancePoolLeveraged, leveragedToken);
-        _test_rebalanceConnections(rebalancePoolCollateral, collateralToken);
+    function test_stabilityPool() public view {
+        _test_stabilityConnections(stabilityPoolLeveraged, leveragedToken);
+        _test_stabilityConnections(stabilityPoolCollateral, collateralToken);
     }
 
     function test_genesis() public {
@@ -178,5 +180,4 @@ contract TestDeploy is TestDeploySetUp {
         IGenesis(genesis).claimable(address(this));
     }
 }
-
 */

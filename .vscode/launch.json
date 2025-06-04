@@ -1,45 +1,24 @@
 {
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug anvil.py directly",
+      "name": "Python Debugger: verbose",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/lib/bao-base/bin/anvil.py",
-      "args": ["steal", "--erc20", "wsteth", "--to", "me", "--amount", "1"],
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "Python: bao-base bin poetry anvil steal",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "poetry",
-      "args": [
-        "run",
-        "--directory",
-        "${workspaceFolder}/lib/bao-base/bin",
-        "${workspaceFolder}/lib/bao-base/bin/anvil.py",
-        "steal",
-        "--erc20",
-        "wsteth",
-        "--to",
-        "me",
-        "--amount",
-        "1"
-      ],
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "Debug anvil with Poetry ecosystem",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/lib/bao-base/bin/anvil.py",
-      "args": ["steal", "--erc20", "wsteth", "--to", "me", "--amount", "1"],
+      "program": "${file}",
       "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/lib/bao-base/bin"
-      },
-      "preLaunchTask": "prepare-poetry-env"
+      "args": "--rpc-url local --config MinterV1 -vvvv"
+    }
+    {
+      "name": "Python Debugger: info",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": "--rpc-url local --config MinterV1 -vv"
     }
   ]
 }

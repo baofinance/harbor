@@ -1,62 +1,67 @@
-[compiler.solc]
-exclude_paths = ["node_modules", "lib", "src_deployed"]
+[lsp]
+compilation_delay = 0.1
 
+[compiler.solc.optimizer]
+# enabled=false # unset = let the compiler decide
+runs = 1
+
+[compiler.solc]
+# Exclude paths define locations of Solidity files that should not be compiled unless imported from another non-excluded file.
+exclude_paths = ["node_modules", "venv", "lib", "fx", "src_deployed"]
+# include paths are for import resolution
+include_paths = []
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-  "@solady/=lib/solady/src/",
-  "@bao/=lib/bao-base/src/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
+  "dummy/=/lib/dummy",
+  "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
+  "@solady/=lib/solady/src/",
+  "@bao/=lib/bao-base/src/",
   "@interfaces/=src/interfaces/",
   "src/=src/",
-  "test/=test/"
+  "test/=test/",
 ]
 
-[compiler.solc.optimizer]
-# enabled=false (unset - let the compiler decide)
-runs = 1
-
-[lsp]
-compilation_delay = 0.1
 
 [lsp.code_lens]
 enable = true
 
 [lsp.detectors]
-enable = false
+enable = true
 
 [detectors]
-ignore_paths = ["test"]
-exclude_paths = ["node_modules", "lib", "script"]
-only = []
-# exclude = []
-#exclude = [
-#  "abi-encode-with-signature",
-#  "axelar-proxy-contract-id",
-#  "balance-relied-on",
-#  "calldata-tuple-reencoding-head-overflow-bug",
-#  "call-options-not-called",
-#  "empty-byte-array-copy-bug",
-#  "msg-value-nonpayable-function",
-#  "unchecked-return-value",
-#]
+# ignore_paths = ["test"]
+# exclude_paths = ["node_modules", "lib", "script"]
+# only = []
+exclude = [
+  #  "abi-encode-with-signature",
+  #  "axelar-proxy-contract-id",
+  #  "balance-relied-on",
+  #  "calldata-tuple-reencoding-head-overflow-bug",
+  #  "call-options-not-called",
+  #  "empty-byte-array-copy-bug",
+  #  "msg-value-nonpayable-function",
+  #  "unused-contract",
+  #  "unchecked-return-value"
+]
 
 [printers]
-only = []
-# exclude = [
-#   "control-flow-graph",
-#   "imports-graph",
-#   "inheritance-graph",
-#   "inheritance-tree",
-#   "lsp-control-flow-graph",
-#   "lsp-inheritance-graph",
-#   "lsp-linearized-inheritance-graph",
-#   "lsp-selectors",
-#   "modifiers",
-#   "state-changes",
-#   "storage-layout",
-#   "tokens",
-# ]
+# only = []
+exclude = [
+  #   "control-flow-graph",
+  #   "imports-graph",
+  #   "inheritance-graph",
+  #   "inheritance-tree",
+  #   "lsp-control-flow-graph",
+  #   "lsp-inheritance-graph",
+  #   "lsp-linearized-inheritance-graph",
+  #   "lsp-selectors",
+  #   "modifiers",
+  #   "state-changes",
+  #   "storage-layout",
+  #   "tokens",
+]

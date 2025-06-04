@@ -1,0 +1,38 @@
+{
+  "mintLeveragedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1000000000000000000
+    ],
+    "incentiveRatios": [
+      0,
+      0
+    ]
+  },
+  "mintPeggedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1000000000000000000
+    ],
+    "incentiveRatios": [
+      0,
+      0
+    ]
+  },
+  "redeemLeveragedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1000000000000000000
+    ],
+    "incentiveRatios": [
+      0,
+      0
+    ]
+  },
+  "redeemPeggedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1000000000000000000
+    ],
+    "incentiveRatios": [
+      0,
+      0
+    ]
+  }
+}

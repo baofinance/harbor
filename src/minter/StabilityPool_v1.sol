@@ -4,18 +4,19 @@ pragma solidity 0.8.28;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {DecrementalFloatingPoint} from "src/common/math/DecrementalFloatingPoint.sol";
-import {IMultipleRewardAccumulator} from "@interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
-// import { LinearMultipleRewardDistributor } from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
+import {LinearMultipleRewardDistributor} from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
 
-import {IRebalancePool} from "@interfaces/IRebalancePool.sol";
-import {IMinter} from "@interfaces/IMinter.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
+import {Token} from "@bao/Token.sol";
+import {TokenHolder} from "@bao/TokenHolder.sol";
+
 // import { IVotingEscrow } from "src/interfaces/IVotingEscrow.sol";
 // import { IVotingEscrowHelper } from "src/interfaces/IVotingEscrowHelper.sol";
 // import { ICurveTokenMinter } from "src/interfaces/ICurveTokenMinter.sol";
@@ -23,7 +24,7 @@ import {IMinter} from "@interfaces/IMinter.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
-/// @title RebalancePool
+/// @title StabilityPool
 /// @notice To add boost for FXN, we maintain a time-weighted boost ratio for each user.
 ///   boost[u][i] = min(balance[u][i], 0.4 * balance[u][i] + ve[u][i] * totalSupply[i] / veTotal[i] * 0.6)
 ///   ratio[u][x -> y] = sum(boost[u][i] / balance[u][i] * (t[i] - t[i - 1])) / (t[y] - t[x])
@@ -36,12 +37,12 @@ import {IMinter} from "@interfaces/IMinter.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract RebalancePool_v1 is
+contract StabilityPool_v1 is
     Initializable,
     UUPSUpgradeable,
-    ReentrancyGuardTransientUpgradeable,
     MultipleRewardCompoundingAccumulator,
-    IRebalancePool
+    TokenHolder,
+    IStabilityPool
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
@@ -50,16 +51,16 @@ contract RebalancePool_v1 is
      * Constants *
      *************/
 
-    /// @notice The role for liquidator.
-    uint256 public constant LIQUIDATOR_ROLE = _ROLE_1; // start at _ROLE_1 as Linear MultipleRewardDistributor uses _ROLE_0
+    /// @inheritdoc IStabilityPool
+    uint256 public constant REBALANCER_ROLE = _ROLE_1; // start at _ROLE_1 as Linear MultipleRewardDistributor uses _ROLE_0
 
-    /// @notice The role for any reward sender, including the liquidator
+    /// @inheritdoc IStabilityPool
     uint256 public constant REWARDER_ROLE = _ROLE_2;
 
-    /// @notice The role for ve balance sharing.
+    /// @inheritdoc IStabilityPool
     uint256 public constant VE_SHARING_ROLE = _ROLE_3;
 
-    /// @notice The role for ve balance sharing.
+    /// @inheritdoc IStabilityPool
     uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
 
     /// @notice The address of FXN token.
@@ -74,6 +75,19 @@ contract RebalancePool_v1 is
     /// @notice The address of FXN token minter.
     // address public immutable minter;
 
+    // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
+    // to change them the contract must be upgraded
+    /// @notice The minter contract this rebalance pool operates for
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable MINTER;
+    /// @inheritdoc IStabilityPool
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable LIQUIDATION_TOKEN;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bool private immutable _liquidationTokenIsCollateral; // solhint-disable-line immutable-vars-naming
+    /// @inheritdoc IStabilityPool
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable ASSET_TOKEN;
     /***********
      * Structs *
      ***********/
@@ -114,21 +128,15 @@ contract RebalancePool_v1 is
 
     // Share-with-proxy Storage
     // ------------------------
-    /// @custom:storage-location erc7201:bao.storage.RebalancePool
-    struct RebalancePoolStorage {
+    /// @custom:storage-location erc7201:bao.storage.StabilityPool
+    struct StabilityPoolStorage {
         /// @notice The address of Voting Escrow FXN.
         // address ve;
         /// @notice The address of VotingEscrowHelper contract.
         // address veHelper; TODO: add back in (here and elsewhere) when we know how to integrate it
         /// @notice The gauge struct.
         // Gauge gauge;
-        /// @notice The minter contract this rebalance pool operates for
-        address minter;
-        /// @inheritdoc IRebalancePool
-        address liquidationToken;
-        bool liquidationTokenIsCollateral;
-        /// @inheritdoc IRebalancePool
-        address assetToken;
+
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalSupply;
         /// @dev Mapping account address to TokenBalance struct. Accesses via assetBalanceOf
@@ -148,18 +156,18 @@ contract RebalancePool_v1 is
         mapping(address => mapping(uint256 => uint256)) voteOwnerHistoryBalances;
         /// @notice Mapping from owner address to staker address to the vote sharing status.
         mapping(address => mapping(address => bool)) isStakerAllowed;
-        /// @inheritdoc IRebalancePool
+        /// @inheritdoc IStabilityPool
         mapping(address => address) getStakerVoteOwner;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("bao.storage.RebalancePool")) - 1)) & ~bytes32(uint256(0xff));
-    bytes32 private constant _REBALANCEPOOL_STORAGE =
-        0x45788b9b76e33b92143d170ad6d8d6c40c3d574d34daa7020827daf770a8d900;
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
+    bytes32 private constant _STABILITYPOOL_STORAGE =
+        0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
 
-    function _getRebalancePoolStorage() private pure returns (RebalancePoolStorage storage $) {
+    function _getStabilityPoolStorage() private pure returns (StabilityPoolStorage storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := _REBALANCEPOOL_STORAGE
+            $.slot := _STABILITYPOOL_STORAGE
         }
     }
 
@@ -168,9 +176,7 @@ contract RebalancePool_v1 is
      ***************/
 
     function initialize(
-        address owner_,
-        address minter_,
-        address liquidationToken_
+        address owner_
     )
         external
         // address gauge,
@@ -183,26 +189,14 @@ contract RebalancePool_v1 is
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
-        __MultipleRewardCompoundingAccumulator_init(1 weeks); // from MultipleRewardCompoundingAccumulator
+        // __MultipleRewardCompoundingAccumulator_init(); // from MultipleRewardCompoundingAccumulator
 
         // TODO: pass in a reward manager - whatever that is
         // super._grantRole(REWARD_MANAGER_ROLE, _msgSender());
 
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // assets are placed in a gauge and rewards are accumulated
         //$.gauge.gauge = gauge;
-
-        if (liquidationToken_ == IMinter(minter_).collateralToken()) {
-            $.liquidationTokenIsCollateral = true;
-        } else if (liquidationToken_ == IMinter(minter_).leveragedToken()) {
-            $.liquidationTokenIsCollateral = false;
-        } else {
-            revert InvalidLiquidationToken(liquidationToken_);
-        }
-
-        $.minter = minter_;
-        $.assetToken = IMinter(minter_).peggedToken();
-        $.liquidationToken = liquidationToken_;
 
         // TODO: what purpose does the wrapper give.
         // I'm guessing that this contract wraps because it keeps a track of shares
@@ -216,8 +210,24 @@ contract RebalancePool_v1 is
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address minter_, address liquidationToken_) MultipleRewardCompoundingAccumulator(1 weeks) {
         _disableInitializers();
+        Token.ensureContract(minter_);
+        // slither-disable-next-line missing-zero-check
+        MINTER = minter_;
+        address asset = IMinter(minter_).PEGGED_TOKEN();
+        Token.sanityCheckERC20Token(asset);
+        // slither-disable-next-line missing-zero-check
+        ASSET_TOKEN = asset;
+        Token.sanityCheckERC20Token(liquidationToken_);
+        if (liquidationToken_ == IMinter(minter_).WRAPPED_COLLATERAL_TOKEN()) {
+            _liquidationTokenIsCollateral = true;
+        } else if (liquidationToken_ == IMinter(minter_).LEVERAGED_TOKEN()) {
+            _liquidationTokenIsCollateral = false;
+        } else {
+            revert InvalidLiquidationToken(liquidationToken_);
+        }
+        LIQUIDATION_TOKEN = liquidationToken_;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -229,72 +239,58 @@ contract RebalancePool_v1 is
      * Public View Functions *
      *************************/
 
-    /// @inheritdoc IRebalancePool
-    function minter() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.minter;
+    // solhint-disable-next-line func-name-mixedcase
+    function REWARD_MANAGER_ROLE() external pure returns (uint256) {
+        return LinearMultipleRewardDistributor._REWARD_MANAGER_ROLE;
     }
 
-    /// @inheritdoc IRebalancePool
-    function liquidatableCollateralRatio() public view returns (uint256) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return IMinter($.minter).rebalanceCollateralRatio();
+    // solhint-disable-next-line func-name-mixedcase
+    function REWARD_PERIOD_LENGTH() external view returns (uint40) {
+        return LinearMultipleRewardDistributor._PERIOD_LENGTH;
     }
 
-    /// @inheritdoc IRebalancePool
-    function liquidationToken() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.liquidationToken;
-    }
-
-    /// @inheritdoc IRebalancePool
-    function assetToken() external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        return $.assetToken;
-    }
-
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function totalAssetSupply() external view returns (uint256) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.totalSupply.amount;
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     // solhint-disable-next-line explicit-types
     function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory record = $.totalSupplyHistory[index];
         atDay = record.updatedAt;
         amount = record.amount;
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function assetBalanceOf(address account) public view override returns (uint256) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[account];
         return _getCompoundedBalance(balance.amount, balance.product, $.totalSupply.product);
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function getBoostRatio(address account) public view returns (uint256) {
         return _getBoostRatio(account);
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function getStakerVoteOwner(address account) external view returns (address) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.getStakerVoteOwner[account];
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function lastAssetLossError() external view returns (uint256) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.lastAssetLossError;
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimable(address account, address token) public view virtual override returns (uint256) {
-        // RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        // StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // if (token == fxn) {
         //     // TODO: move this into
         //     UserRewardSnapshot memory _userSnapshot = userRewardSnapshot(account, token);
@@ -311,7 +307,7 @@ contract RebalancePool_v1 is
      * Public Mutator Functions *
      ****************************/
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function deposit(
         uint256 amount,
         address receiver,
@@ -321,17 +317,16 @@ contract RebalancePool_v1 is
         if (hasAnyRole(receiver, VE_SHARING_ROLE)) revert ErrorVoteOwnerCannotStake();
 
         address sender = _msgSender();
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         // transfer asset token to this contract
-        address assetToken_ = $.assetToken;
         if (amount == type(uint256).max) {
-            amount = IERC20(assetToken_).balanceOf(sender);
+            amount = IERC20(ASSET_TOKEN).balanceOf(sender);
         }
 
         // we ensure that we don't deposit more tokens than the minter we are paired with has
-        uint256 minterMinted = IMinter($.minter).peggedTokenBalance();
-        uint256 thisBalance = IERC20(assetToken_).balanceOf(address(this));
+        uint256 minterMinted = IMinter(MINTER).peggedTokenBalance();
+        uint256 thisBalance = IERC20(ASSET_TOKEN).balanceOf(address(this));
         if (amount > minterMinted - thisBalance) {
             amount = minterMinted - thisBalance;
         }
@@ -340,7 +335,7 @@ contract RebalancePool_v1 is
         if (amount < minAmount) revert DepositAmountLessThanMinimum(amount, minAmount);
         depositedAmount = amount;
 
-        IERC20(assetToken_).safeTransferFrom(sender, address(this), amount);
+        IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), amount);
 
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         _checkpoint(receiver);
@@ -377,14 +372,14 @@ contract RebalancePool_v1 is
         emit UserDepositChange(receiver, balance.amount, 0);
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function withdraw(uint256 amount, address receiver) external virtual override returns (uint256 amountWithdrawn) {
         // TODO: not allowed to withdraw as fToken in fxUSD.
         // what should we do for BaoUSD?
         amountWithdrawn = _withdraw(_msgSender(), amount, receiver);
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function withdrawFrom(
         address owner_,
         uint256 amount,
@@ -393,59 +388,32 @@ contract RebalancePool_v1 is
         amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
-    /// @inheritdoc IRebalancePool
-    // slither-disable-next-line reentrancy-no-eth
-    function liquidate(uint256 minLiquidated) external virtual override nonReentrant returns (uint256 liquidated) {
-        // can only liquidate if the collateral ratio is below a certain value
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
-        address minter_ = $.minter;
-
-        // check we are in the right collateral ratio band
-        uint256 rebalanceCollateralRatio_ = IMinter(minter_).rebalanceCollateralRatio();
-        if (IMinter(minter_).collateralRatio() >= rebalanceCollateralRatio_) {
-            revert collateralRatioTooHigh(IMinter(minter_).collateralRatio(), rebalanceCollateralRatio_);
-        }
-
-        address liquidationToken_ = $.liquidationToken;
-        bool liquidationTokenIsCollateral = $.liquidationTokenIsCollateral;
-
-        // depending on the token, determine the amount that needs to be liquidated
-        if (liquidationTokenIsCollateral) {
-            liquidated = IMinter(minter_).redeemPeggedForCollateralRatio(rebalanceCollateralRatio_);
-        } else {
-            liquidated = IMinter(minter_).swapPeggedForLeveragedForCollateralRatio(rebalanceCollateralRatio_);
-        }
-        _checkpoint(address(0));
-        liquidated = Math.min(liquidated, $.totalSupply.amount);
-
-        if (liquidated == 0 || liquidated < minLiquidated) {
-            revert NotEnoughTokensToLiquidate(liquidated, minLiquidated);
-        }
-
-        uint256 returnAmount;
-        if (liquidationTokenIsCollateral) {
-            returnAmount = IMinter(minter_).freeRedeemPeggedToken(liquidated, address(this));
-        } else {
-            returnAmount = IMinter(minter_).freeSwapPeggedForLeveraged(liquidated, address(this));
-        }
-
-        emit Liquidate(liquidated);
-
-        _accumulateReward(liquidationToken_, returnAmount);
-
-        // notify loss
-        _notifyLoss(liquidated);
+    function accumulateReward(
+        address rewardToken,
+        uint256 rewardAmount
+    ) external virtual onlyRoles(REWARDER_ROLE + REBALANCER_ROLE) {
+        _accumulateReward(rewardToken, rewardAmount);
     }
 
-    // TODO: consider keeping this function for random rewards given, e.g. harvests
-    // function accumulateReward(address rewardToken, uint256 rewardAmount) external virtual onlyRole(REWARDER_ROLE) {
-    //     _accumulateReward(rewardToken, rewardAmount);
-    // }
+    // slither-disable-next-line reentrancy-events,reentrancy-benign
+    function liquidate(
+        uint256 liquidatedAmount
+    ) external onlyRoles(REBALANCER_ROLE) nonReentrant returns (uint256 returnedAmount) {
+        if (_liquidationTokenIsCollateral) {
+            returnedAmount = IMinter(MINTER).freeRedeemPeggedToken(liquidatedAmount, address(this));
+        } else {
+            returnedAmount = IMinter(MINTER).freeSwapPeggedForLeveraged(liquidatedAmount, address(this));
+        }
+        emit Liquidated(ASSET_TOKEN, liquidatedAmount, LIQUIDATION_TOKEN, returnedAmount);
+        _accumulateReward(LIQUIDATION_TOKEN, returnedAmount);
+        _checkpoint(address(0));
+        _notifyLoss(liquidatedAmount);
+    }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
         address owner_ = _msgSender();
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         if (staker == owner_) {
             revert ErrorSelfSharingIsNotAllowed();
@@ -469,10 +437,10 @@ contract RebalancePool_v1 is
         }
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function acceptSharedVote(address newOwner) external override {
         address staker = _msgSender();
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         if (!$.isStakerAllowed[newOwner][staker]) {
             revert ErrorVoteShareNotAllowed();
         }
@@ -498,10 +466,10 @@ contract RebalancePool_v1 is
         emit AcceptSharedVote(staker, address(0), newOwner);
     }
 
-    /// @inheritdoc IRebalancePool
+    /// @inheritdoc IStabilityPool
     function rejectSharedVote() external override {
         address staker = _msgSender();
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         address owner_ = $.getStakerVoteOwner[staker];
         if (owner_ == address(0)) revert ErrorNoAcceptedSharedVote();
 
@@ -515,7 +483,7 @@ contract RebalancePool_v1 is
     /// @notice Update the address of reward wrapper.
     /// @param newWrapper The new address of reward wrapper.
     function updateWrapper(address newWrapper) external onlyOwner {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         if (IFxTokenWrapper(newWrapper).src() != collateralToken) {
             revert ErrorWrapperSrcMismatch();
         }
@@ -538,7 +506,7 @@ contract RebalancePool_v1 is
     // @inheritdoc BaoAccessControl
     // TODO: implement this:
     // function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
-    //     RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+    //     StabilityPoolStorage storage $ = _getStabilityPoolStorage();
     //     if (role == VE_SHARING_ROLE && $.balances[account].amount > 0) {
     //         revert ErrorVoteOwnerCannotStake();
     //     }
@@ -548,7 +516,7 @@ contract RebalancePool_v1 is
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _checkpoint(address account) internal virtual override {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // fetch FXN from gauge every 24h
         // Gauge memory _gauge = $.gauge;
         // if (_gauge.gauge != address(0) && block.timestamp > uint256(_gauge.claimedAt) + 1 days) {
@@ -579,7 +547,7 @@ contract RebalancePool_v1 is
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _updateSnapshot(address account, address token) internal virtual override {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         UserRewardSnapshot memory snapshot = userRewardSnapshot(account, token);
         uint48 epochExponent = $.totalSupply.product.epochAndExponent();
 
@@ -605,7 +573,7 @@ contract RebalancePool_v1 is
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _getTotalPoolShare() internal view virtual override returns (uint112 currentProd, uint256 totalShare) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalSupply;
         currentProd = supply.product;
         totalShare = supply.amount;
@@ -615,7 +583,7 @@ contract RebalancePool_v1 is
     function _getUserPoolShare(
         address account
     ) internal view virtual override returns (uint112 previousProd, uint256 share) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[account];
         previousProd = balance.product;
         share = balance.amount;
@@ -625,9 +593,13 @@ contract RebalancePool_v1 is
     /// @param sender The address of owner_ to withdraw from.
     /// @param amount The amount of token to withdraw.
     /// @param receiver The address of token receiver.
-    function _withdraw(address sender, uint256 amount, address receiver) internal returns (uint256 amountWithdrawn) {
+    function _withdraw(
+        address sender,
+        uint256 amount,
+        address receiver
+    ) internal nonReentrant returns (uint256 amountWithdrawn) {
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         _checkpoint(sender);
 
         TokenBalance memory supply = $.totalSupply;
@@ -661,7 +633,7 @@ contract RebalancePool_v1 is
         // TODO: this is done in _checkpoint so why are we doing it again here?
         _updateBoostCheckpoint(sender, owner_, balance, ownerBalance, supply);
 
-        IERC20($.assetToken).safeTransfer(receiver, amount);
+        IERC20(ASSET_TOKEN).safeTransfer(receiver, amount);
         amountWithdrawn = amount;
 
         emit Withdraw(sender, receiver, amount);
@@ -672,7 +644,7 @@ contract RebalancePool_v1 is
     /// @param owner_ The address of vote owner.
     /// @param staker The address of staker to revoke.
     function _revokeVoteSharing(address owner_, address staker) internal {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // @note after checkpoint, the epoch of `balances[staker]` and `voteOwnerBalances[oldOwner]`
         // are on the latest epoch, we can safely to do add or subtract.
         _checkpoint(staker);
@@ -698,7 +670,7 @@ contract RebalancePool_v1 is
         address owner_,
         TokenBalance memory supply
     ) internal virtual returns (TokenBalance memory balance) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // update `voteOwnerBalances[owner_]` to latest epoch and record history value
         if (owner_ == address(0)) return balance;
         balance = $.voteOwnerBalances[owner_];
@@ -734,7 +706,7 @@ contract RebalancePool_v1 is
         address account,
         TokenBalance memory supply
     ) internal virtual returns (TokenBalance memory balance) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         balance = $.balances[account];
         uint104 newBalance = uint104(_getCompoundedBalance(balance.amount, balance.product, supply.product));
         if (newBalance != balance.amount) {
@@ -759,7 +731,7 @@ contract RebalancePool_v1 is
         TokenBalance memory ownerBalance,
         TokenBalance memory supply
     ) internal {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         if (owner_ == address(0)) {
             ownerBalance = balance;
             owner_ = account;
@@ -782,7 +754,7 @@ contract RebalancePool_v1 is
     /// @dev Internal function to reduce asset loss due to liquidation.
     /// @param loss The amount of asset used by liquidation.
     function _notifyLoss(uint256 loss) internal {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalSupply;
 
         uint256 assetLossPerUnitStaked;
@@ -813,7 +785,7 @@ contract RebalancePool_v1 is
     /// @dev Internal function to record the historical total supply.
     /// @param supply The new total supply to record.
     function _recordTotalSupply(TokenBalance memory supply) internal {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         unchecked {
             uint256 totalSupplyHistoryLast = $.totalSupplyHistory.length - 1;
             // slither-disable-next-line incorrect-equality
@@ -885,7 +857,7 @@ contract RebalancePool_v1 is
     ///
     /// @param account The address of the account to query.
     function _getBoostRatio(address account) internal view returns (uint256 boostRatio) {
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[account];
         // no deposit before
         if (balance.amount == 0) return 0;
@@ -934,7 +906,7 @@ contract RebalancePool_v1 is
         // The largest `index` may not be the correct one if there are multiple deposit/withdraw/liquidation
         // in the same block. However, we only care about the boost ratio after timestamp `t`,
         // it is tolerable to use the largest `index`.
-        RebalancePoolStorage storage $ = _getRebalancePoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         unchecked {
             uint256 endIndex = $.totalSupplyHistory.length - 1;
             while (startIndex < endIndex) {
@@ -994,6 +966,21 @@ contract RebalancePool_v1 is
         unchecked {
             // slither-disable-next-line divide-before-multiply as we actually want to truncate to get an integer number of weeks
             return ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks;
+        }
+    }
+
+    // Rebalancing support
+    // -------------------------------------------------------
+    /// @notice function used to control access to the sweep function for extracting harvestable amounts
+    function _checkSweeper() internal view override(TokenHolder) {
+        _checkOwnerOrRoles(REBALANCER_ROLE);
+    }
+
+    function sweep(address token, uint256 amount, address receiver) public override onlySweeper {
+        TokenHolder.sweep(token, amount, receiver);
+        if (token == ASSET_TOKEN) {
+            _checkpoint(address(0));
+            _notifyLoss(amount);
         }
     }
 }
