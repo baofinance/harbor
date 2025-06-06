@@ -36,13 +36,16 @@
     "sizes": "./lib/bao-base/run regression-of sizes",
     "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
     "lint:bash": "./lib/bao-base/run lint-bash --lint script",
-    "wtf": "grep -rn NaN results/*.csv | awk -F: '!a[$1]++'"
+    "wtf": "grep -rn NaN results/*.csv | awk -F: '!a[$1]++'",
+    "mermaid": "mmdc"
   },
   "prettier": "./lib/bao-base/prettier.config.js",
   "dependencies": {
+    "@mermaid-js/mermaid-cli": "^11.4.2",
     "@openzeppelin/upgrades-core": "^1.42.2",
     "prettier": "^3.2.5",
     "prettier-plugin-solidity": "^1.3.1",
+    "puppeteer": "^24.10.0",
     "solhint": "^5.0.3"
   },
   "packageManager": "yarn@4.5.0"
