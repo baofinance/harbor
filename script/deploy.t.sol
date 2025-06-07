@@ -120,7 +120,7 @@ contract TestDeploySetUp is TestMinterSetUp, TestDeployed {
         stabilityPoolLeveraged = addr("stabilityPoolLeveraged");
         genesis = addr("genesis");
 
-        uint256 minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
+        uint256 minterRole = MintableBurnableERC20_v1(leveragedToken).MINTER_ROLE();
         vm.prank(owner);
         OwnableRoles(leveragedToken).grantRoles(minter, minterRole);
     }

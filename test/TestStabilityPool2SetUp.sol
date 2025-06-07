@@ -15,12 +15,12 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
-import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
 
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
     address stabilityPoolLeveraged;
+    address gaugeLeveraged;
 
     function setUp() public virtual override(TestStabilityPoolSetUp) {
         super.setUp();
@@ -29,7 +29,17 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
         deal(address(peggedToken), user2, 2000 ether);
 
         stabilityPoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken)), // "StabilityPool_v1.sol",
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    leveragedToken,
+                    steamToken,
+                    gaugeLeveraged,
+                    steamTokenMinter,
+                    veBao,
+                    veHelper
+                )
+            ), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 

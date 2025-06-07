@@ -16,7 +16,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
-import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
+import {MintableBurnableERC20_v1} from "src/minter/MintableBurnableERC20_v1.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -55,13 +55,33 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);
 
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken)),
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    wrappedCollateralToken,
+                    steamToken,
+                    gaugeCollateral,
+                    steamTokenMinter,
+                    veBao,
+                    veHelper
+                )
+            ),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
 
         stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken)),
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    leveragedToken,
+                    steamToken,
+                    gaugeLeveraged,
+                    steamTokenMinter,
+                    veBao,
+                    veHelper
+                )
+            ),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);

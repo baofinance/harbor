@@ -59,6 +59,12 @@ contract StabilityPoolManager_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address private immutable _STABILITY_POOL_LEVERAGED;
 
+    // /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    // address private immutable _GAUGE;
+
+    // /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    // address private immutable _STEAM_TOKEN;
+
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPoolManager
@@ -115,6 +121,11 @@ contract StabilityPoolManager_v1 is
         Token.ensureContract(stabilityPoolLeveraged);
         // slither-disable-next-line missing-zero-check
         _STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
+
+        // // Validate and store the gauge
+        // Token.ensureContract(gauge);
+        // // slither-disable-next-line missing-zero-check
+        // _GAUGE = gauge;
     }
 
     /// @notice Initialize the contract with starting configuration
@@ -359,8 +370,8 @@ contract StabilityPoolManager_v1 is
     ) private returns (uint256 harvestedAmount) {
         harvestedAmount = 0;
         if (poolHolding > 0) {
-            // in the math we get truncation errors, but all that means is that dust is collected in the next harvest
-            harvestedAmount = (harvestableAmount * poolHolding) / totalHolding;
+            // in the math we get truncation errors, but all that means is that dust is collected for the next harvest
+            harvestedAmount = Math.mulDiv(harvestableAmount, poolHolding, totalHolding);
             ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestedAmount, pool);
             IStabilityPool(pool).accumulateReward(WRAPPED_COLLATERAL_TOKEN, harvestedAmount);
         }
@@ -379,7 +390,7 @@ contract StabilityPoolManager_v1 is
 
         // Calculate bounty
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 bountyAmount = (harvestableAmount * $.harvestRatio) / 1 ether;
+        uint256 bountyAmount = Math.mulDiv(harvestableAmount, $.harvestRatio, 1 ether);
         if (bountyAmount < minBounty) {
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
@@ -415,4 +426,35 @@ contract StabilityPoolManager_v1 is
         emit Harvested(actuallyHarvested); //, bountyAmount);
         return actuallyHarvested;
     }
+
+    // function claimGaugeRewards(
+    //     address bountyReceiver
+    // )
+    //     external
+    //     // TODO: add a min?
+    //     nonReentrant
+    // {
+    //     // @note We allow donating FXN to this contract, the incentive should only consider minted FXN.
+    //     uint256 _balance = IERC20(STEAM).balanceOf(address(this));
+    //     ICurveTokenMinter(TOKEN_MINTER).mint(gauge);
+    //     uint256 _minted = IERC20(FXN).balanceOf(address(this)) - _balance;
+    //     uint256 _incentive = (_minted * incentiveRatio) / PRECISION;
+    //     _balance += _minted;
+
+    //     if (_incentive > 0) {
+    //         IERC20(FXN).safeTransfer(_receiver, _incentive);
+    //         _balance -= _incentive;
+    //     }
+
+    //     if (_balance > 0) {
+    //         uint256 _ratio = _computeSplitterRatio();
+    //         uint256 _splitterFXN = (_balance * _ratio) / PRECISION;
+    //         // deposit rewards to rebalance pool splitter
+    //         IERC20(FXN).safeTransfer(splitter, _splitterFXN);
+    //         // transfer extra FXN to reserve pool
+    //         IERC20(FXN).safeTransfer(reservePool, _balance - _splitterFXN);
+    //         // split rewards
+    //         IFxRebalancePoolSplitter(splitter).split(FXN);
+    //     }
+    // }
 }
