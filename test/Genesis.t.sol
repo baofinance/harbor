@@ -20,7 +20,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {Minter_v1} from "src/minter/Minter_v1.sol";
-import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
+import {MintableBurnableERC20_v1} from "src/minter/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
 import {IGenesis} from "src/interfaces/IGenesis.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";

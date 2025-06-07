@@ -17,7 +17,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 
 import {Minter_v1} from "src/minter/Minter_v1.sol";
-import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
+import {MintableBurnableERC20_v1} from "src/minter/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -211,11 +211,11 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp_leveragedToken() internal virtual {
         leveragedToken = UnsafeUpgrades.deployUUPSProxy(
-            address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
+            address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
+            abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
         );
         IBaoOwnable(leveragedToken).transferOwnership(owner);
-        minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
+        minterRole = MintableBurnableERC20_v1(leveragedToken).MINTER_ROLE();
     }
 
     function setUp_reservePool() internal virtual {

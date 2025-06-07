@@ -21,8 +21,9 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
-import {ILeveragedToken} from "src/interfaces/ILeveragedToken.sol";
+import {MintableBurnableERC20_v1} from "src/minter/MintableBurnableERC20_v1.sol";
+import {IMintableRole} from "src/interfaces/IMintableRole.sol";
+import {IBurnableRole} from "src/interfaces/IBurnableRole.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
@@ -51,15 +52,15 @@ contract TestLeveragedTokensSetUp is Test {
     }
 
     function setUp_impl() internal {
-        leveragedImpl = address(new LeveragedToken_v1());
+        leveragedImpl = address(new MintableBurnableERC20_v1());
     }
 
     function setUp_proxy() internal {
         leveragedToken = address(
-            LeveragedToken_v1(
+            MintableBurnableERC20_v1(
                 UnsafeUpgrades.deployUUPSProxy(
-                    leveragedImpl, //"LeveragedToken_v1.sol",
-                    abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
+                    leveragedImpl, //"MintableBurnableERC20_v1.sol",
+                    abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol))
                 )
             )
         );
@@ -70,9 +71,10 @@ contract TestLeveragedTokensSetUp is Test {
         setUp_impl();
         setUp_proxy();
 
-        uint256 minterRole = ILeveragedToken(leveragedToken).MINTER_ROLE();
+        uint256 minterRole = IMintableRole(leveragedToken).MINTER_ROLE();
         vm.expectEmit();
         emit IBaoRoles.RolesUpdated(minter, minterRole);
+        IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
         IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
         IBaoOwnable(leveragedToken).transferOwnership(owner);
     }
@@ -110,7 +112,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        LeveragedToken_v1(leveragedToken).initialize(address(this), name, symbol);
+        MintableBurnableERC20_v1(leveragedToken).initialize(address(this), name, symbol);
 
         // check the data has been set up correctly
         assertEq(IERC20Metadata(leveragedToken).name(), name, "wrong name");
@@ -123,7 +125,12 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
 
         // minter role
         assertTrue(
-            IBaoRoles(leveragedToken).hasAnyRole(minter, ILeveragedToken(leveragedToken).MINTER_ROLE()),
+            IBaoRoles(leveragedToken).hasAnyRole(minter, IMintableRole(leveragedToken).MINTER_ROLE()),
+            "minter should be minter"
+        );
+        // minter role
+        assertTrue(
+            IBaoRoles(leveragedToken).hasAnyRole(minter, IBurnableRole(leveragedToken).BURNER_ROLE()),
             "minter should be minter"
         );
     }
@@ -338,15 +345,15 @@ contract Test_LeveragedToken_badDeploy is Test {
         address owner = vm.createWallet("owner").addr;
 
         UnsafeUpgrades.deployUUPSProxy(
-            address(new LeveragedToken_v1()), //"LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner, name, symbol))
+            address(new MintableBurnableERC20_v1()), //"MintableBurnableERC20_v1.sol",
+            abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol))
         );
 
-        // address lt = address(new LeveragedToken_v1());
+        // address lt = address(new MintableBurnableERC20_v1());
         // vm.expectRevert(IBaoOwnable.NewOwnerIsZeroAddress.selector);
         // UnsafeUpgrades.deployUUPSProxy(
-        //     lt, //"LeveragedToken_v1.sol",
-        //     abi.encodeCall(LeveragedToken_v1.initialize, (address(0), name, symbol))
+        //     lt, //"MintableBurnableERC20_v1.sol",
+        //     abi.encodeCall(MintableBurnableERC20_v1.initialize, (address(0), name, symbol))
         // );
     }
 }
