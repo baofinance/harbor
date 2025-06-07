@@ -138,7 +138,7 @@ interface IStabilityPool {
     function accumulateReward(address rewardToken, uint256 rewardAmount) external;
 
     /// @notice perform a liquidation of the amount
-    function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
+    // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
 
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS

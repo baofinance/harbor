@@ -63,11 +63,11 @@ contract StabilityPool_v1 is
     /// @inheritdoc IStabilityPool
     uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
 
-    /// @notice The address of FXN token.
-    // address public immutable fxn;
+    /// @notice The address of reward token.
+    // address public immutable STEAM;
 
-    /// @notice The address of Voting Escrow FXN.
-    // address public immutable ve;
+    /// @notice The address of Voting Escrow veBAO.
+    // address public immutable VE_BAO;
 
     /// @notice The address of VotingEscrowHelper contract.
     // address public immutable veHelper;
@@ -395,20 +395,21 @@ contract StabilityPool_v1 is
         _accumulateReward(rewardToken, rewardAmount);
     }
 
-    // slither-disable-next-line reentrancy-events,reentrancy-benign
-    function liquidate(
-        uint256 liquidatedAmount
-    ) external onlyRoles(REBALANCER_ROLE) nonReentrant returns (uint256 returnedAmount) {
-        if (_liquidationTokenIsCollateral) {
-            returnedAmount = IMinter(MINTER).freeRedeemPeggedToken(liquidatedAmount, address(this));
-        } else {
-            returnedAmount = IMinter(MINTER).freeSwapPeggedForLeveraged(liquidatedAmount, address(this));
-        }
-        emit Liquidated(ASSET_TOKEN, liquidatedAmount, LIQUIDATION_TOKEN, returnedAmount);
-        _accumulateReward(LIQUIDATION_TOKEN, returnedAmount);
-        _checkpoint(address(0));
-        _notifyLoss(liquidatedAmount);
-    }
+    // liqudation is performed by the stability pool manager
+    // // slither-disable-next-line reentrancy-events,reentrancy-benign
+    // function liquidate(
+    //     uint256 liquidatedAmount
+    // ) external onlyRoles(REBALANCER_ROLE) nonReentrant returns (uint256 returnedAmount) {
+    //     if (_liquidationTokenIsCollateral) {
+    //         returnedAmount = IMinter(MINTER).freeRedeemPeggedToken(liquidatedAmount, address(this));
+    //     } else {
+    //         returnedAmount = IMinter(MINTER).freeSwapPeggedForLeveraged(liquidatedAmount, address(this));
+    //     }
+    //     emit Liquidated(ASSET_TOKEN, liquidatedAmount, LIQUIDATION_TOKEN, returnedAmount);
+    //     _accumulateReward(LIQUIDATION_TOKEN, returnedAmount);
+    //     _checkpoint(address(0));
+    //     _notifyLoss(liquidatedAmount);
+    // }
 
     /// @inheritdoc IStabilityPool
     function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
