@@ -8,8 +8,9 @@ build_info = true
 
 auto_detect_remappings = false # remappings seem to cause problems
 optimizer = true
-optimizer_runs = 200           # 500 builds & tests but 200 deploys
-# via_ir = true # now causes a stack overflow that doesn't happen without this
+# optimizer_runs = 200           # 500 builds & tests but 200 deploys
+
+via_ir = true # makes the compiler run 7 times slower
 # deny_warnings = true # enable to stop compilations if there are warnings
 
 gas_reports_ignore = [
