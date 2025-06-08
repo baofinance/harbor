@@ -576,7 +576,7 @@ contract StabilityPool_v1 is
         address sender,
         uint256 amount,
         address receiver
-    ) internal nonReentrant returns (uint256 amountWithdrawn) {
+    ) private nonReentrant returns (uint256 amountWithdrawn) {
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         _checkpoint(sender);
@@ -623,7 +623,7 @@ contract StabilityPool_v1 is
     /// @dev Internal function to revoke vote sharing.
     /// @param owner_ The address of vote owner.
     /// @param staker The address of staker to revoke.
-    function _revokeVoteSharing(address owner_, address staker) internal {
+    function _revokeVoteSharing(address owner_, address staker) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // @note after checkpoint, the epoch of `balances[staker]` and `voteOwnerBalances[oldOwner]`
         // are on the latest epoch, we can safely to do add or subtract.
@@ -649,7 +649,7 @@ contract StabilityPool_v1 is
     function _updateVoteOwnerBalance(
         address owner_,
         TokenBalance memory supply
-    ) internal virtual returns (TokenBalance memory balance) {
+    ) private returns (TokenBalance memory balance) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // update `voteOwnerBalances[owner_]` to latest epoch and record history value
         if (owner_ == address(0)) return balance;
@@ -685,7 +685,7 @@ contract StabilityPool_v1 is
     function _updateUserBalance(
         address account,
         TokenBalance memory supply
-    ) internal virtual returns (TokenBalance memory balance) {
+    ) private returns (TokenBalance memory balance) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         balance = $.balances[account];
         uint104 newBalance = uint104(_getCompoundedBalance(balance.amount, balance.product, supply.product));
@@ -710,7 +710,7 @@ contract StabilityPool_v1 is
         TokenBalance memory balance,
         TokenBalance memory ownerBalance,
         TokenBalance memory supply
-    ) internal {
+    ) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         if (owner_ == address(0)) {
             ownerBalance = balance;
@@ -733,7 +733,7 @@ contract StabilityPool_v1 is
 
     /// @dev Internal function to reduce asset loss due to liquidation.
     /// @param loss The amount of asset used by liquidation.
-    function _notifyLoss(uint256 loss) internal {
+    function _notifyLoss(uint256 loss) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalSupply;
 
@@ -764,7 +764,7 @@ contract StabilityPool_v1 is
 
     /// @dev Internal function to record the historical total supply.
     /// @param supply The new total supply to record.
-    function _recordTotalSupply(TokenBalance memory supply) internal {
+    function _recordTotalSupply(TokenBalance memory supply) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         unchecked {
             uint256 totalSupplyHistoryLast = $.totalSupplyHistory.length - 1;
@@ -787,7 +787,7 @@ contract StabilityPool_v1 is
         uint256 initialBalance,
         uint112 initialProduct,
         uint112 currentProduct
-    ) internal pure returns (uint256 compoundedBalance) {
+    ) private pure returns (uint256 compoundedBalance) {
         // no balance before, return 0
         // slither-disable-next-line incorrect-equality
         if (initialBalance == 0) {
@@ -836,7 +836,7 @@ contract StabilityPool_v1 is
     /// @dev Internal function to get boost ratio for the given account.
     ///
     /// @param account The address of the account to query.
-    function _getBoostRatio(address account) internal view returns (uint256 boostRatio) {
+    function _getBoostRatio(address account) private view returns (uint256 boostRatio) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[account];
         // no deposit before
@@ -881,7 +881,7 @@ contract StabilityPool_v1 is
         uint256 veSupply,
         uint256 startIndex,
         uint256 t
-    ) internal view returns (uint256, uint256) {
+    ) private view returns (uint256, uint256) {
         // Binary search to find largest `index` that totalSupplyHistory[index].updatedAt <= t.
         // The largest `index` may not be the correct one if there are multiple deposit/withdraw/liquidation
         // in the same block. However, we only care about the boost ratio after timestamp `t`,
@@ -911,7 +911,7 @@ contract StabilityPool_v1 is
         uint256 supply,
         uint256 veBalance,
         uint256 veSupply
-    ) internal pure returns (uint256) {
+    ) private pure returns (uint256) {
         unchecked {
             // slither-disable-next-line incorrect-equality timestamp
             if (balance == 0) return 4 ether / 10;
@@ -936,7 +936,7 @@ contract StabilityPool_v1 is
 
     /// @dev Internal function to compute the smallest week aligned timestamp after given timestamp.
     /// @param timestamp The given timestamp.
-    function _getWeekTs(uint256 timestamp) internal pure returns (uint256) {
+    function _getWeekTs(uint256 timestamp) private pure returns (uint256) {
         unchecked {
             // slither-disable-next-line divide-before-multiply as we actually want to truncate to get an integer number of weeks
             return ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks;
@@ -950,8 +950,8 @@ contract StabilityPool_v1 is
         _checkOwnerOrRoles(REBALANCER_ROLE);
     }
 
-    function sweep(address token, uint256 amount, address receiver) public override onlySweeper {
-        TokenHolder.sweep(token, amount, receiver);
+    function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
+        super._sweep(token, amount, receiver);
         if (token == ASSET_TOKEN) {
             _checkpoint(address(0));
             _notifyLoss(amount);

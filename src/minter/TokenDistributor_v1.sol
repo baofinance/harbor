@@ -295,9 +295,9 @@ contract TokenDistributor_v1 is
     }
 
     /// @inheritdoc TokenHolder
-    function sweep(address token, uint256 amount, address receiver) public override {
+    function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         if ($.tokens.contains(token)) revert TokenStillInUse(token);
-        super.sweep(token, amount, receiver);
+        super._sweep(token, amount, receiver);
     }
 }
