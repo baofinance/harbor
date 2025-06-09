@@ -12,7 +12,7 @@ import {Deployed} from "@bao/Deployed.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {DeployState} from "./DeployState.sol";
 
-import {TestLeveragedToken} from "test/LeveragedToken.t.sol";
+import {TestLeveragedToken} from "lib/bao-base/test/MintableBurnableERC20.t.sol";
 import {TestReservePool} from "test/ReservePool.t.sol";
 import {TestTokenDistributor} from "test/TokenDistributor.t.sol";
 import {TestMinterBasics} from "test/Minter_base.t.sol";

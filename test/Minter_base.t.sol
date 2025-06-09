@@ -17,7 +17,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 
 import {Minter_v1} from "src/minter/Minter_v1.sol";
-import {MintableBurnableERC20_v1} from "src/minter/MintableBurnableERC20_v1.sol";
+import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
