@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -31,8 +31,6 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
-
-import "test/clog.sol";
 
 contract TestLiquidate is TestStabilityPool2SetUp {
     address stabilityPoolManagerCollateral;

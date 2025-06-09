@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -72,10 +72,13 @@ contract TestLeveragedTokensSetUp is Test {
         setUp_proxy();
 
         uint256 minterRole = IMintableRole(leveragedToken).MINTER_ROLE();
+        uint256 burnerRole = IBurnableRole(leveragedToken).BURNER_ROLE();
         vm.expectEmit();
         emit IBaoRoles.RolesUpdated(minter, minterRole);
         IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
-        IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
+        vm.expectEmit();
+        emit IBaoRoles.RolesUpdated(minter, minterRole + burnerRole);
+        IBaoRoles(leveragedToken).grantRoles(minter, burnerRole);
         IBaoOwnable(leveragedToken).transferOwnership(owner);
     }
 
@@ -131,7 +134,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         // minter role
         assertTrue(
             IBaoRoles(leveragedToken).hasAnyRole(minter, IBurnableRole(leveragedToken).BURNER_ROLE()),
-            "minter should be minter"
+            "minter should be burner"
         );
     }
 

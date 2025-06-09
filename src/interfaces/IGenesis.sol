@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 // TODO: add ERC165 supports Interface, e.g. ITokenHolder

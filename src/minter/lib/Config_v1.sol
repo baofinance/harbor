@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {ConfigIncentiveLib} from "src/minter/lib/ConfigIncentiveLib.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";

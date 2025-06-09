@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -214,17 +214,24 @@ contract StabilityPool_v1 is
         }
         LIQUIDATION_TOKEN = liquidationToken_;
 
-        Token.sanityCheckERC20Token(steamToken);
+        // gauge can be zero, but
+        if (gauge == address(0)) {
+            if (steamTokenMinter != address(0) || steamTokenMinter != address(0)) {
+                revert IncompleteGaugeSetUp();
+            }
+        } else {
+            Token.ensureContract(gauge);
+            Token.sanityCheckERC20Token(steamToken);
+            Token.ensureContract(steamTokenMinter);
+        }
         STEAM = steamToken;
-        Token.ensureContract(gauge);
         GAUGE = gauge;
-        Token.ensureContract(steamTokenMinter);
         STEAM_MINTER = steamTokenMinter;
 
         Token.sanityCheckERC20Token(ve);
         VE_BAO = ve;
         Token.ensureContract(veHelper);
-        veHelper = veHelper;
+        VE_HELPER = veHelper;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -493,12 +500,11 @@ contract StabilityPool_v1 is
     // }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
-    function _checkpoint(address account) internal virtual override {
+    function _checkpoint(address account) internal virtual override(MultipleRewardCompoundingAccumulator) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // fetch STEAM from gauge every 24h
-        // constructor ensures gauge is non-zero
         uint64 now_ = uint64(block.timestamp);
-        if (now_ > ($.gaugeClaimedAt + 1 days)) {
+        if (GAUGE != address(0) && now_ > ($.gaugeClaimedAt + 1 days)) {
             $.gaugeClaimedAt = now_;
             // mint and calculate how much
             uint256 _balance = IERC20(STEAM).balanceOf(address(this));
@@ -510,11 +516,10 @@ contract StabilityPool_v1 is
 
         address owner_ = $.getStakerVoteOwner[account];
         if (account != address(0)) {
-            // console.log("veHelper=%s", veHelper);
             IVotingEscrowHelper(VE_HELPER).checkpoint(owner_ == address(0) ? account : owner_);
         }
 
-        MultipleRewardCompoundingAccumulator._checkpoint(account);
+        super._checkpoint(account);
 
         if (account != address(0)) {
             TokenBalance memory supply = $.totalSupply;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
 
@@ -19,8 +19,6 @@ import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
-
-import "test/clog.sol";
 
 contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
     uint256 startPrice;

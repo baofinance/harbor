@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 interface IStabilityPool {
     /*//////////////////////////////////////////////////////////////
@@ -51,6 +51,8 @@ interface IStabilityPool {
 
     /// @dev Thrown then the dst token mismatched.
     error ErrorWrapperDstMismatch();
+
+    error IncompleteGaugeSetUp();
 
     /// @dev Thrown when the deposited amount is zero.
     error DepositZeroAmount();

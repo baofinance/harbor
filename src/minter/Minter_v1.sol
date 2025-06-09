@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // coding standards by https://www.rareskills.io/post/solidity-style-guide
 // and https://docs.soliditylang.org/en/latest/style-guide.html
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";

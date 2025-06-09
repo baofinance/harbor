@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -26,8 +26,9 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
-import "test/clog.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
+import {MockERC20} from "test/mock/MockERC20.sol";
+import {MockVeHelper} from "test/mock/MockVeHelper.sol";
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address stabilityPoolCollateral;
@@ -42,6 +43,13 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
+
+        // we need all three of steamToken, steamTokenMinter, and gauge set up
+        // steamToken = address(new MockERC20("Mock STEAM", "STEAM"));
+
+        // TODO: is veBao even used if we don't have a gauge?
+        veBao = 0x8Bf70DFE40F07a5ab715F7e888478d9D3680a2B6;
+        veHelper = address(new MockVeHelper());
 
         stabilityPoolCollateral = UnsafeUpgrades.deployUUPSProxy(
             address(

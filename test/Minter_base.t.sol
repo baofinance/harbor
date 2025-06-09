@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -35,8 +35,6 @@ import {Array} from "test/Array.sol";
 
 import {ConfigFile} from "test/Config.sol";
 
-import "test/clog.sol";
-
 contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     address minter;
     IMinter.Config config;
@@ -57,6 +55,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     uint256 zeroFeeRole;
     uint256 minterRole;
+    uint256 burnerRole;
     uint256 requesterRole;
 
     function _mintPegged(address receiver, uint256 amount) internal {
@@ -216,6 +215,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         );
         IBaoOwnable(leveragedToken).transferOwnership(owner);
         minterRole = MintableBurnableERC20_v1(leveragedToken).MINTER_ROLE();
+        burnerRole = MintableBurnableERC20_v1(leveragedToken).BURNER_ROLE();
     }
 
     function setUp_reservePool() internal virtual {
@@ -262,6 +262,8 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
         vm.prank(owner);
         IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
+        vm.prank(owner);
+        IBaoRoles(leveragedToken).grantRoles(minter, burnerRole);
         requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
 
         vm.prank(owner);
