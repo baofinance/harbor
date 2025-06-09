@@ -224,13 +224,18 @@ contract StabilityPool_v1 is
             Token.sanityCheckERC20Token(steamToken);
             Token.ensureContract(steamTokenMinter);
         }
+        // slither-disable-next-line missing-zero-check steamToken can be 0, if gauge is 0
         STEAM = steamToken;
+        // slither-disable-next-line missing-zero-check gauge can be 0
         GAUGE = gauge;
+        // slither-disable-next-line missing-zero-check steamTokenMinter can be 0, if gauge is 0
         STEAM_MINTER = steamTokenMinter;
 
         Token.sanityCheckERC20Token(ve);
+        // slither-disable-next-line missing-zero-check ^ it's done above
         VE_BAO = ve;
         Token.ensureContract(veHelper);
+        // slither-disable-next-line missing-zero-check ^ it's done above
         VE_HELPER = veHelper;
     }
 
@@ -310,11 +315,12 @@ contract StabilityPool_v1 is
      ****************************/
 
     /// @inheritdoc IStabilityPool
+    // slither-disable-next-line reentrancy-events,reentrancy-no-eth
     function deposit(
         uint256 amount,
         address receiver,
         uint256 minAmount
-    ) external override returns (uint256 depositedAmount) {
+    ) external override nonReentrant returns (uint256 depositedAmount) {
         // TODO: check if we need this:
         if (hasAnyRole(receiver, VE_SHARING_ROLE)) revert ErrorVoteOwnerCannotStake();
 
@@ -373,7 +379,10 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function withdraw(uint256 amount, address receiver) external virtual override returns (uint256 amountWithdrawn) {
+    function withdraw(
+        uint256 amount,
+        address receiver
+    ) external virtual override nonReentrant returns (uint256 amountWithdrawn) {
         // TODO: not allowed to withdraw as fToken in fxUSD.
         // what should we do for BaoUSD?
         amountWithdrawn = _withdraw(_msgSender(), amount, receiver);
@@ -384,7 +393,7 @@ contract StabilityPool_v1 is
         address owner_,
         uint256 amount,
         address receiver
-    ) external override onlyRoles(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
+    ) external override nonReentrant onlyRoles(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
         amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
@@ -396,7 +405,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
+    function toggleVoteSharing(address staker) external override nonReentrant onlyRoles(VE_SHARING_ROLE) {
         address owner_ = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -423,7 +432,8 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function acceptSharedVote(address newOwner) external override {
+    // slither-disable-next-line reentrancy-events,reentrancy-no-eth
+    function acceptSharedVote(address newOwner) external override nonReentrant {
         address staker = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         if (!$.isStakerAllowed[newOwner][staker]) {
@@ -452,7 +462,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function rejectSharedVote() external override {
+    function rejectSharedVote() external override nonReentrant {
         address staker = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         address owner_ = $.getStakerVoteOwner[staker];
@@ -500,6 +510,7 @@ contract StabilityPool_v1 is
     // }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
+    // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth only ever called from nonReentrant functions
     function _checkpoint(address account) internal virtual override(MultipleRewardCompoundingAccumulator) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // fetch STEAM from gauge every 24h
@@ -577,11 +588,8 @@ contract StabilityPool_v1 is
     /// @param sender The address of owner_ to withdraw from.
     /// @param amount The amount of token to withdraw.
     /// @param receiver The address of token receiver.
-    function _withdraw(
-        address sender,
-        uint256 amount,
-        address receiver
-    ) private nonReentrant returns (uint256 amountWithdrawn) {
+    // slither-disable-next-line reentrancy-no-eth only ever called from nonReentrant functions
+    function _withdraw(address sender, uint256 amount, address receiver) private returns (uint256 amountWithdrawn) {
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         _checkpoint(sender);
@@ -628,6 +636,7 @@ contract StabilityPool_v1 is
     /// @dev Internal function to revoke vote sharing.
     /// @param owner_ The address of vote owner.
     /// @param staker The address of staker to revoke.
+    // slither-disable-next-line reentrancy-no-eth should only ever called from nonReentrant functions
     function _revokeVoteSharing(address owner_, address staker) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // @note after checkpoint, the epoch of `balances[staker]` and `voteOwnerBalances[oldOwner]`
@@ -841,6 +850,7 @@ contract StabilityPool_v1 is
     /// @dev Internal function to get boost ratio for the given account.
     ///
     /// @param account The address of the account to query.
+    // slither-disable-next-line reentrancy-events,calls-loop only ever called from nonReentrant functions, only calls VE_HELPER which is trusted
     function _getBoostRatio(address account) private view returns (uint256 boostRatio) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[account];
@@ -918,17 +928,16 @@ contract StabilityPool_v1 is
         uint256 veSupply
     ) private pure returns (uint256) {
         unchecked {
-            // slither-disable-next-line incorrect-equality timestamp
-            if (balance == 0) return 4 ether / 10;
+            // slither-disable-next-line incorrect-equality
+            if (balance == 0) return 0.4 ether;
 
             // Compute boost ratio with Curve's rule: min(balance, balance * 0.4 + 0.6 * veBalance * supply / veSupply) / balance
-            // slither-disable-next-line divide-before-multiply
-            uint256 boostedBalance = (ownerBalance * 4) / 10;
+            uint256 boostedBalance = ownerBalance * 4;
             if (veSupply > 0) {
-                boostedBalance += (((veBalance * supply) / veSupply) * 6) / 10;
+                boostedBalance += (veBalance * supply * 6) / veSupply;
             }
-            // slither-disable-next-line divide-before-multiply
-            boostedBalance = (boostedBalance * balance) / ownerBalance;
+
+            boostedBalance = (boostedBalance * balance) / (ownerBalance * 10);
 
             if (boostedBalance > balance) {
                 boostedBalance = balance;
@@ -955,6 +964,7 @@ contract StabilityPool_v1 is
         _checkOwnerOrRoles(REBALANCER_ROLE);
     }
 
+    // slither-disable-next-line reentrancy-no-eth should only ever called from nonReentrant functions
     function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
         super._sweep(token, amount, receiver);
         if (token == ASSET_TOKEN) {
