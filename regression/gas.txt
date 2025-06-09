@@ -242,7 +242,7 @@ src/minter/StabilityPool_v1.sol:StabilityPool_v1
 ├───────────────────┼──────────┼────────┤
 │ assetBalanceOf    │     5627 │   5627 │
 ├───────────────────┼──────────┼────────┤
-│ deposit           │   161854 │ 161854 │
+│ deposit           │   162299 │ 162299 │
 ├───────────────────┼──────────┼────────┤
 │ grantRoles        │    26429 │  26429 │
 ├───────────────────┼──────────┼────────┤
@@ -256,7 +256,7 @@ src/minter/StabilityPool_v1.sol:StabilityPool_v1
 ├───────────────────┼──────────┼────────┤
 │ transferOwnership │    12116 │  12116 │
 ├───────────────────┼──────────┼────────┤
-│ withdraw          │    91759 │  91926 │
+│ withdraw          │    91742 │  91888 │
 ╘═══════════════════╧══════════╧════════╛
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
