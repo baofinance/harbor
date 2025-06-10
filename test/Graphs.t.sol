@@ -96,32 +96,12 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         treasury = vm.createWallet("treasury").addr;
 
         address stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPool_v1(
-                    minter,
-                    wrappedCollateralToken,
-                    steamToken,
-                    gaugeCollateral,
-                    steamTokenMinter,
-                    veBao,
-                    veHelper
-                )
-            ),
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 
         address stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPool_v1(
-                    minter,
-                    leveragedToken,
-                    steamToken,
-                    gaugeLeveraged,
-                    steamTokenMinter,
-                    veBao,
-                    veHelper
-                )
-            ),
+            address(new StabilityPool_v1(minter, leveragedToken)),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 

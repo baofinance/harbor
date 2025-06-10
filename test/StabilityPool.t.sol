@@ -28,15 +28,10 @@ import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
 import {MockERC20} from "test/mock/MockERC20.sol";
-import {MockVeHelper} from "test/mock/MockVeHelper.sol";
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address stabilityPoolCollateral;
     address gaugeCollateral;
-    address steamToken;
-    address steamTokenMinter;
-    address veBao;
-    address veHelper;
 
     address user1;
     address user2;
@@ -44,25 +39,8 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
-        // we need all three of steamToken, steamTokenMinter, and gauge set up
-        // steamToken = address(new MockERC20("Mock STEAM", "STEAM"));
-
-        // TODO: is veBao even used if we don't have a gauge?
-        veBao = 0x8Bf70DFE40F07a5ab715F7e888478d9D3680a2B6;
-        veHelper = address(new MockVeHelper());
-
         stabilityPoolCollateral = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPool_v1(
-                    minter,
-                    wrappedCollateralToken,
-                    steamToken,
-                    gaugeCollateral,
-                    steamTokenMinter,
-                    veBao,
-                    veHelper
-                )
-            ), // "StabilityPool_v1.sol",
+            address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolCollateral).transferOwnership(owner);
@@ -97,23 +75,11 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(
-            new StabilityPool_v1(
-                minter,
-                wrappedCollateralToken,
-                steamToken,
-                gaugeCollateral,
-                steamTokenMinter,
-                veBao,
-                veHelper
-            )
-        );
+        address(new StabilityPool_v1(minter, wrappedCollateralToken));
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address sp = address(
-            new StabilityPool_v1(minter, liquidateTo, steamToken, gaugeCollateral, steamTokenMinter, veBao, veHelper)
-        );
+        address sp = address(new StabilityPool_v1(minter, liquidateTo));
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
@@ -140,7 +106,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initEventsBad() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
-        new StabilityPool_v1(minter, peggedToken, steamToken, gaugeCollateral, steamTokenMinter, veBao, veHelper);
+        new StabilityPool_v1(minter, peggedToken);
     }
 }
 

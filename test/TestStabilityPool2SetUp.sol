@@ -29,17 +29,7 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
         deal(address(peggedToken), user2, 2000 ether);
 
         stabilityPoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPool_v1(
-                    minter,
-                    leveragedToken,
-                    steamToken,
-                    gaugeLeveraged,
-                    steamTokenMinter,
-                    veBao,
-                    veHelper
-                )
-            ), // "StabilityPool_v1.sol",
+            address(new StabilityPool_v1(minter, leveragedToken)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
 

@@ -17,22 +17,18 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
-import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
-import {IVotingEscrowHelper} from "src/interfaces/IVotingEscrowHelper.sol";
-import {ICurveTokenMinter} from "src/interfaces/ICurveTokenMinter.sol";
-
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
 /// @title StabilityPool
-/// @notice To add boost for FXN, we maintain a time-weighted boost ratio for each user.
-///   boost[u][i] = min(balance[u][i], 0.4 * balance[u][i] + ve[u][i] * totalSupply[i] / veTotal[i] * 0.6)
-///   ratio[u][x -> y] = sum(boost[u][i] / balance[u][i] * (t[i] - t[i - 1])) / (t[y] - t[x])
+/// @notice This contract hold asset minted as pegged tokens by the Minter contract.
+/// Depositing pegged assets here results in:
+/// * wrapped collateral being deposited here automatically from the minter when wrapped collateral's value increases
+/// * this contract can be deposited in a gauge that returns STEAM tokens as an additional reward
+/// In the event of a rebalance, which occurs automatically, when the collateral ration held by the Minter contract
+/// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
+/// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
 ///
-///   1. supply[w] is the total amount of token staked at the beginning of week `w`.
-///   2. veSupply[w] is the total ve supply at the beginning of week `w`.
-///   3. ve[u][w] is the ve balance for user `u` at the beginning of week `w`.
-///   4. balance[u][w] is the amount of token staked for user `u` at the beginning of week `w`.
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
@@ -63,20 +59,17 @@ contract StabilityPool_v1 is
     /// @inheritdoc IStabilityPool
     uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
 
-    /// @notice The address of reward token.
-    address public immutable STEAM;
+    /// @notice The address of FXN token.
+    // address public immutable fxn;
 
-    /// @notice The address of Voting Escrow veBAO.
-    address public immutable VE_BAO;
+    /// @notice The address of Voting Escrow FXN.
+    // address public immutable ve;
 
     /// @notice The address of VotingEscrowHelper contract.
-    address public immutable VE_HELPER;
+    // address public immutable veHelper;
 
-    /// @notice The address of the gauge assets are deposited in.
-    address public immutable GAUGE;
-
-    /// @notice The address of STEAM token minter.
-    address public immutable STEAM_MINTER;
+    /// @notice The address of FXN token minter.
+    // address public immutable minter;
 
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
@@ -124,8 +117,6 @@ contract StabilityPool_v1 is
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
     struct StabilityPoolStorage {
-        /// @notice The last timestamp the gauge was claimed.
-        uint64 gaugeClaimedAt;
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalSupply;
         /// @dev Mapping account address to TokenBalance struct. Accesses via assetBalanceOf
@@ -187,15 +178,7 @@ contract StabilityPool_v1 is
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        address minter_,
-        address liquidationToken_,
-        address steamToken,
-        address gauge,
-        address steamTokenMinter,
-        address ve,
-        address veHelper
-    ) MultipleRewardCompoundingAccumulator(1 weeks) {
+    constructor(address minter_, address liquidationToken_) MultipleRewardCompoundingAccumulator(1 weeks) {
         _disableInitializers();
         Token.ensureContract(minter_);
         // slither-disable-next-line missing-zero-check
@@ -213,30 +196,6 @@ contract StabilityPool_v1 is
             revert InvalidLiquidationToken(liquidationToken_);
         }
         LIQUIDATION_TOKEN = liquidationToken_;
-
-        // gauge can be zero, but
-        if (gauge == address(0)) {
-            if (steamTokenMinter != address(0) || steamTokenMinter != address(0)) {
-                revert IncompleteGaugeSetUp();
-            }
-        } else {
-            Token.ensureContract(gauge);
-            Token.sanityCheckERC20Token(steamToken);
-            Token.ensureContract(steamTokenMinter);
-        }
-        // slither-disable-next-line missing-zero-check steamToken can be 0, if gauge is 0
-        STEAM = steamToken;
-        // slither-disable-next-line missing-zero-check gauge can be 0
-        GAUGE = gauge;
-        // slither-disable-next-line missing-zero-check steamTokenMinter can be 0, if gauge is 0
-        STEAM_MINTER = steamTokenMinter;
-
-        Token.sanityCheckERC20Token(ve);
-        // slither-disable-next-line missing-zero-check ^ it's done above
-        VE_BAO = ve;
-        Token.ensureContract(veHelper);
-        // slither-disable-next-line missing-zero-check ^ it's done above
-        VE_HELPER = veHelper;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -299,15 +258,17 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimable(address account, address token) public view virtual override returns (uint256) {
-        if (token == STEAM) {
-            UserRewardSnapshot memory _userSnapshot = userRewardSnapshot(account, token);
-            uint256 fullEarned = _claimable(account, token) - _userSnapshot.rewards.pending;
-            uint256 ratio = getBoostRatio(account);
-            uint256 boostEarned = (fullEarned * ratio) / 1 ether;
-            return _userSnapshot.rewards.pending + boostEarned;
-        } else {
-            return _claimable(account, token);
-        }
+        // StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        // if (token == fxn) {
+        //     // TODO: move this into
+        //     UserRewardSnapshot memory _userSnapshot = userRewardSnapshot(account, token);
+        //     uint256 fullEarned = _claimable(account, token) - _userSnapshot.rewards.pending;
+        //     uint256 ratio = getBoostRatio(account);
+        //     uint256 boostEarned = (fullEarned * ratio) / 1 ether;
+        //     return _userSnapshot.rewards.pending + boostEarned;
+        // } else {
+        return _claimable(account, token);
+        // }
     }
 
     /****************************
@@ -315,12 +276,11 @@ contract StabilityPool_v1 is
      ****************************/
 
     /// @inheritdoc IStabilityPool
-    // slither-disable-next-line reentrancy-events,reentrancy-no-eth
     function deposit(
         uint256 amount,
         address receiver,
         uint256 minAmount
-    ) external override nonReentrant returns (uint256 depositedAmount) {
+    ) external override returns (uint256 depositedAmount) {
         // TODO: check if we need this:
         if (hasAnyRole(receiver, VE_SHARING_ROLE)) revert ErrorVoteOwnerCannotStake();
 
@@ -379,10 +339,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function withdraw(
-        uint256 amount,
-        address receiver
-    ) external virtual override nonReentrant returns (uint256 amountWithdrawn) {
+    function withdraw(uint256 amount, address receiver) external virtual override returns (uint256 amountWithdrawn) {
         // TODO: not allowed to withdraw as fToken in fxUSD.
         // what should we do for BaoUSD?
         amountWithdrawn = _withdraw(_msgSender(), amount, receiver);
@@ -393,7 +350,7 @@ contract StabilityPool_v1 is
         address owner_,
         uint256 amount,
         address receiver
-    ) external override nonReentrant onlyRoles(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
+    ) external override onlyRoles(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
         amountWithdrawn = _withdraw(owner_, amount, receiver);
     }
 
@@ -405,7 +362,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function toggleVoteSharing(address staker) external override nonReentrant onlyRoles(VE_SHARING_ROLE) {
+    function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
         address owner_ = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -432,8 +389,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    // slither-disable-next-line reentrancy-events,reentrancy-no-eth
-    function acceptSharedVote(address newOwner) external override nonReentrant {
+    function acceptSharedVote(address newOwner) external override {
         address staker = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         if (!$.isStakerAllowed[newOwner][staker]) {
@@ -462,7 +418,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function rejectSharedVote() external override nonReentrant {
+    function rejectSharedVote() external override {
         address staker = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         address owner_ = $.getStakerVoteOwner[staker];
@@ -510,25 +466,23 @@ contract StabilityPool_v1 is
     // }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
-    // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth only ever called from nonReentrant functions
-    function _checkpoint(address account) internal virtual override(MultipleRewardCompoundingAccumulator) {
+    function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // fetch STEAM from gauge every 24h
-        uint64 now_ = uint64(block.timestamp);
-        if (GAUGE != address(0) && now_ > ($.gaugeClaimedAt + 1 days)) {
-            $.gaugeClaimedAt = now_;
-            // mint and calculate how much
-            uint256 _balance = IERC20(STEAM).balanceOf(address(this));
-            ICurveTokenMinter(STEAM_MINTER).mint(GAUGE);
-            uint256 _minted = IERC20(STEAM).balanceOf(address(this)) - _balance;
-            // update our records
-            _notifyReward(STEAM, _minted);
-        }
+        // fetch FXN from gauge every 24h
+        // Gauge memory _gauge = $.gauge;
+        // if (_gauge.gauge != address(0) && block.timestamp > uint256(_gauge.claimedAt) + 1 days) {
+        //     console.log("gauge=%s", _gauge.gauge);
+        //     uint256 _balance = IERC20(fxn).balanceOf(address(this));
+        //     ICurveTokenMinter(minter).mint(_gauge.gauge);
+        //     uint256 _minted = IERC20(fxn).balanceOf(address(this)) - _balance;
+        //     $.gauge.claimedAt = uint64(block.timestamp);
+        //     _notifyReward(fxn, _minted);
+        // }
 
         address owner_ = $.getStakerVoteOwner[account];
-        if (account != address(0)) {
-            IVotingEscrowHelper(VE_HELPER).checkpoint(owner_ == address(0) ? account : owner_);
-        }
+        // if (account != address(0)) {
+        //     IVotingEscrowHelper(VE_HELPER).checkpoint(owner_ == address(0) ? account : owner_);
+        // }
 
         super._checkpoint(account);
 
@@ -546,21 +500,21 @@ contract StabilityPool_v1 is
         UserRewardSnapshot memory snapshot = userRewardSnapshot(account, token);
         uint48 epochExponent = $.totalSupply.product.epochAndExponent();
 
-        if (token == STEAM) {
-            uint256 fullEarned = _claimable(account, token) - snapshot.rewards.pending;
-            // save gas when on earned
-            if (fullEarned > 0) {
-                uint256 ratio = _getBoostRatio(account);
-                uint256 boostEarned = (fullEarned * ratio) / 1 ether;
-                snapshot.rewards.pending += uint128(boostEarned);
-                if (fullEarned > boostEarned) {
-                    // redistribute unboosted rewards.
-                    _notifyReward(STEAM, fullEarned - boostEarned);
-                }
-            }
-        } else {
-            snapshot.rewards.pending = uint128(_claimable(account, token));
-        }
+        // if (token == fxn) {
+        //     uint256 fullEarned = _claimable(account, token) - snapshot.rewards.pending;
+        //     // save gas when on earned
+        //     if (fullEarned > 0) {
+        //         uint256 ratio = _getBoostRatio(account);
+        //         uint256 boostEarned = (fullEarned * ratio) / 1 ether;
+        //         snapshot.rewards.pending += uint128(boostEarned);
+        //         if (fullEarned > boostEarned) {
+        //             // redistribute unboosted rewards.
+        //             _notifyReward(fxn, fullEarned - boostEarned);
+        //         }
+        //     }
+        // } else {
+        snapshot.rewards.pending = uint128(_claimable(account, token));
+        // }
         snapshot.checkpoint = epochToExponentToRewardSnapshot(token, epochExponent);
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
         _setUserRewardSnapshot(account, token, snapshot);
@@ -588,7 +542,6 @@ contract StabilityPool_v1 is
     /// @param sender The address of owner_ to withdraw from.
     /// @param amount The amount of token to withdraw.
     /// @param receiver The address of token receiver.
-    // slither-disable-next-line reentrancy-no-eth only ever called from nonReentrant functions
     function _withdraw(address sender, uint256 amount, address receiver) private returns (uint256 amountWithdrawn) {
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -636,7 +589,7 @@ contract StabilityPool_v1 is
     /// @dev Internal function to revoke vote sharing.
     /// @param owner_ The address of vote owner.
     /// @param staker The address of staker to revoke.
-    // slither-disable-next-line reentrancy-no-eth should only ever called from nonReentrant functions
+
     function _revokeVoteSharing(address owner_, address staker) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         // @note after checkpoint, the epoch of `balances[staker]` and `voteOwnerBalances[oldOwner]`
@@ -738,9 +691,9 @@ contract StabilityPool_v1 is
         uint256 ratio = _computeBoostRatio(
             ownerBalance.amount,
             balance.amount,
-            supply.amount,
-            IVotingEscrow(VE_BAO).balanceOf(owner_),
-            IVotingEscrow(VE_BAO).totalSupply()
+            supply.amount
+            // IVotingEscrow($.ve).balanceOf(owner_),
+            // IVotingEscrow($.ve).totalSupply()
         );
         $.boostCheckpoint[account] = BoostCheckpoint(uint64(ratio), uint64($.totalSupplyHistory.length - 1));
     }
@@ -850,7 +803,7 @@ contract StabilityPool_v1 is
     /// @dev Internal function to get boost ratio for the given account.
     ///
     /// @param account The address of the account to query.
-    // slither-disable-next-line reentrancy-events,calls-loop only ever called from nonReentrant functions, only calls VE_HELPER which is trusted
+
     function _getBoostRatio(address account) private view returns (uint256 boostRatio) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[account];
@@ -864,7 +817,7 @@ contract StabilityPool_v1 is
         }
 
         address owner_ = $.getStakerVoteOwner[account];
-        address veHolder = owner_ == address(0) ? account : owner_;
+        // address veHolder = owner_ == address(0) ? account : owner_;
 
         uint256 nextIndex = boostCheckpoint.historyIndex;
         uint256 currentRatio = boostCheckpoint.boostRatio;
@@ -877,9 +830,9 @@ contract StabilityPool_v1 is
             boostRatio += currentRatio * (nowTs - prevTs);
             // slither-disable-next-line incorrect-equality
             if (nowTs == block.timestamp) break;
-            uint256 veBalance = IVotingEscrowHelper(VE_HELPER).balanceOf(veHolder, nowTs);
-            uint256 veSupply = IVotingEscrowHelper(VE_HELPER).totalSupply(nowTs);
-            (currentRatio, nextIndex) = _boostRatioAt(owner_, balance, veBalance, veSupply, nextIndex, nowTs);
+            // uint256 veBalance = IVotingEscrowHelper($.veHelper).balanceOf(veHolder, nowTs);
+            // uint256 veSupply = IVotingEscrowHelper($.veHelper).totalSupply(nowTs);
+            (currentRatio, nextIndex) = _boostRatioAt(owner_, balance, /* veBalance, veSupply, */ nextIndex, nowTs);
             prevTs = nowTs;
             nowTs += 1 weeks;
         }
@@ -892,8 +845,8 @@ contract StabilityPool_v1 is
     function _boostRatioAt(
         address owner_,
         TokenBalance memory balance,
-        uint256 veBalance,
-        uint256 veSupply,
+        // uint256 veBalance,
+        // uint256 veSupply,
         uint256 startIndex,
         uint256 t
     ) private view returns (uint256, uint256) {
@@ -916,28 +869,35 @@ contract StabilityPool_v1 is
         uint256 realBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product);
         uint256 ownerBalance = owner_ != address(0) ? $.voteOwnerHistoryBalances[owner_][t] : realBalance;
 
-        return (_computeBoostRatio(ownerBalance, realBalance, supply.amount, veBalance, veSupply), startIndex);
+        return (_computeBoostRatio(ownerBalance, realBalance, supply.amount /*, veBalance, veSupply*/), startIndex);
     }
 
     /// @dev Internal function to compute boost ratio with given parameters.
     function _computeBoostRatio(
         uint256 ownerBalance,
         uint256 balance,
-        uint256 supply,
-        uint256 veBalance,
-        uint256 veSupply
-    ) private pure returns (uint256) {
+        uint256 /*supply*/
+    )
+        private
+        pure
+        returns (
+            // uint256 veBalance,
+            // uint256 veSupply
+            uint256
+        )
+    {
         unchecked {
             // slither-disable-next-line incorrect-equality
             if (balance == 0) return 0.4 ether;
 
             // Compute boost ratio with Curve's rule: min(balance, balance * 0.4 + 0.6 * veBalance * supply / veSupply) / balance
-            uint256 boostedBalance = ownerBalance * 4;
-            if (veSupply > 0) {
-                boostedBalance += (veBalance * supply * 6) / veSupply;
-            }
-
-            boostedBalance = (boostedBalance * balance) / (ownerBalance * 10);
+            // slither-disable-next-line divide-before-multiply
+            uint256 boostedBalance = (ownerBalance * 4) / 10;
+            // if (veSupply > 0) {
+            //     boostedBalance += (((veBalance * supply) / veSupply) * 6) / 10;
+            // }
+            // slither-disable-next-line divide-before-multiply
+            boostedBalance = (boostedBalance * balance) / ownerBalance;
 
             if (boostedBalance > balance) {
                 boostedBalance = balance;
