@@ -250,7 +250,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         priceOracle = address(new MockWrappedPriceOracle());
 
         setUp_leveragedToken();
-        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD"));
+        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
         peggedTokenBurnSig = "burn(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
 
@@ -417,7 +417,7 @@ contract TestMinterInit is TestMinterSetUp {
         );
 
         {
-            MockERC20 token = new MockERC20("burn", "2arg");
+            MockERC20 token = new MockERC20("burn", "2arg", 18);
             minter = UnsafeUpgrades.deployUUPSProxy(
                 address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
                 abi.encodeCall(Minter_v1.initialize, (owner))
@@ -425,14 +425,14 @@ contract TestMinterInit is TestMinterSetUp {
         }
 
         {
-            MockERC20Burn1Arg token = new MockERC20Burn1Arg("burn", "1arg");
+            MockERC20Burn1Arg token = new MockERC20Burn1Arg("burn", "1arg", 18);
             minter = UnsafeUpgrades.deployUUPSProxy(
                 address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
                 abi.encodeCall(Minter_v1.initialize, (owner))
             );
         }
         {
-            MockERC20BurnFrom token = new MockERC20BurnFrom("burn", "from");
+            MockERC20BurnFrom token = new MockERC20BurnFrom("burn", "from", 18);
             minter = UnsafeUpgrades.deployUUPSProxy(
                 address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
                 abi.encodeCall(Minter_v1.initialize, (owner))

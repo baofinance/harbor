@@ -10,10 +10,13 @@ import {Vm} from "forge-std/Vm.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
+import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
@@ -22,6 +25,7 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
@@ -31,27 +35,47 @@ import {MockERC20} from "test/mock/MockERC20.sol";
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address stabilityPoolCollateral;
-    address gaugeCollateral;
+    address stabilityERC20Collateral;
 
     address user1;
     address user2;
 
+    function _setupStabilityPool() internal returns (address stabilityPool, address stabilityERC20) {
+        stabilityERC20 = address(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new MintableBurnableERC20_v1()),
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Stability ERC20 Collateral", "SCToken"))
+            )
+        );
+
+        stabilityPool = UnsafeUpgrades.deployUUPSProxy(
+            address(new StabilityPool_v1(stabilityERC20, minter, wrappedCollateralToken, 1 weeks)), // "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
+        );
+        IBaoRoles(stabilityERC20).grantRoles(
+            stabilityPool,
+            IMintableRole(stabilityERC20).MINTER_ROLE() + IBurnableRole(stabilityERC20).BURNER_ROLE()
+        );
+
+        IBaoOwnable(stabilityERC20).transferOwnership(owner);
+        IBaoOwnable(stabilityPool).transferOwnership(owner);
+    }
+
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
-        stabilityPoolCollateral = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken)), // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
-        );
-        IBaoOwnable(stabilityPoolCollateral).transferOwnership(owner);
+        (stabilityPoolCollateral, stabilityERC20Collateral) = _setupStabilityPool();
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        // we don't do allowance for stability pool so we can test it's needed below
 
         user2 = vm.createWallet("user2").addr;
         vm.prank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.prank(user2);
+        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
     }
 
     function test_init(address sp, address liquidateTo) internal view {
@@ -75,11 +99,11 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v1(minter, wrappedCollateralToken));
+        address(new StabilityPool_v1(stabilityERC20Collateral, minter, wrappedCollateralToken, 1 weeks));
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address sp = address(new StabilityPool_v1(minter, liquidateTo));
+        address sp = address(new StabilityPool_v1(stabilityERC20Collateral, minter, liquidateTo, 1 weeks));
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
@@ -106,7 +130,10 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initEventsBad() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
-        new StabilityPool_v1(minter, peggedToken);
+        new StabilityPool_v1(stabilityERC20Collateral, minter, peggedToken, 1 weeks);
+
+        vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1 days - 1));
+        new StabilityPool_v1(stabilityERC20Collateral, minter, peggedToken, 1 days - 1);
     }
 }
 
@@ -129,15 +156,16 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.expectRevert(); // should be amount exceeds balance, but hey-ho BaoUSD
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
-        // --------------------------------------------------------
+        // 1 deposit -----------------------------------------------------------
 
         // $2 deposit
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
         vm.prank(user1);
         uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(2 * price, receiver, 0);
-        // 1 deposit --------------------------------------------------------------------
+        // 2 deposit ------------------------------------------------------------------------------
         assertEq(deposited, 2 * price, "returned value");
+        assertEq(IERC20(stabilityERC20Collateral).balanceOf(receiver), 2 * price);
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 2 * price);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 2 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 8 * price);
@@ -154,30 +182,52 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // $5 second deposit
         vm.prank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(5 * price, receiver, 0);
-        // 2 deposit ------------------------------------------------------------
+        // 3 deposit ------------------------------------------------------------
         assertEq(deposited, 5 * price, "returned value 5");
+        assertEq(IERC20(stabilityERC20Collateral).balanceOf(receiver), 7 * price);
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 7 * price);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 7 * price);
 
+        // withdraw without stability pool allowance
+        vm.prank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector,
+                stabilityPoolCollateral,
+                0,
+                3 * price
+            )
+        );
+        IStabilityPool(stabilityPoolCollateral).withdraw(3 * price, receiver);
+        // 2 withdraw -----------------------------------------------------------------
+
         // withdraw some
         vm.prank(user1);
+        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(4 * price, receiver);
-        // 2 withdraw -----------------------------------------------------------------
+        // 3 withdraw ---------------------------------------------------------------------------
         assertEq(withdrawn, 4 * price, "withdraw 4");
+        assertEq(IERC20(stabilityERC20Collateral).balanceOf(receiver), 3 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 3 * price);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 3 * price);
 
         // withdraw rest
         vm.prank(user1);
         withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, receiver);
-        // 3 withdraw -----------------------------------------------------------------
+        // 4 withdraw ---------------------------------------------------------------------------
         assertEq(withdrawn, 3 * price, "withdraw 3 (-1)");
+        assertEq(IERC20(stabilityERC20Collateral).balanceOf(receiver), 0);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 0);
 
         // deposit -1
         vm.prank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, receiver, 0);
-        // 3 deposit --------------------------------------------------------------------
+        // 4 deposit ------------------------------------------------------------------------------
         assertEq(deposited, 10 * price, "returned value 10");
+        assertEq(IERC20(stabilityERC20Collateral).balanceOf(receiver), 10 * price);
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 10 * price);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0);
 
@@ -189,14 +239,14 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         deal(address(peggedToken), user1, 20 * price);
         vm.prank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
-        // 4 deposit -------------------------------------------------------------
+        // 5 deposit -----------------------------------------------------------------------
         assertEq(deposited, 11 * price, "returned value 11, not 20");
 
         // minter has none left, so zero deposit
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.DepositZeroAmount.selector));
         vm.prank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(9 * price, receiver, 0);
-        // 5 deposit -------------------------------------------------------------
+        // 6 deposit ----------------------------------------------------------------------
 
         // check min deposit amount
         setUp_collateral(1 ether, 0 ether); // add more minter
@@ -205,8 +255,8 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
             abi.encodeWithSelector(IStabilityPool.DepositAmountLessThanMinimum.selector, 1 * price, 2 * price)
         );
         vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(3 * price, receiver, 2 * price);
-        // 6 deposit --------------------------------------------------------
+        IStabilityPool(stabilityPoolCollateral).deposit(1 * price, receiver, 2 * price);
+        // 7 deposit ------------------------------------------------------------------
     }
 
     function test_depositWithdraw1() public {

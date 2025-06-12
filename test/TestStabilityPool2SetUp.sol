@@ -10,9 +10,13 @@ import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
+import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 
@@ -20,7 +24,7 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
     address stabilityPoolLeveraged;
-    address gaugeLeveraged;
+    address stabilityERC20Leveraged;
 
     function setUp() public virtual override(TestStabilityPoolSetUp) {
         super.setUp();
@@ -28,12 +32,7 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
         deal(address(peggedToken), user1, 1000 ether);
         deal(address(peggedToken), user2, 2000 ether);
 
-        stabilityPoolLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken)), // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
-        );
-
-        IBaoOwnable(stabilityPoolLeveraged).transferOwnership(owner);
+        (stabilityPoolLeveraged, stabilityERC20Leveraged) = _setupStabilityPool();
 
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);

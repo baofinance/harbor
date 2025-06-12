@@ -7,15 +7,17 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {DecrementalFloatingPoint} from "src/common/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {MultipleRewardCompoundingAccumulator} from "src/common/rewards/accumulator/MultipleRewardCompoundingAccumulator.sol";
-import {LinearMultipleRewardDistributor} from "src/common/rewards/distributor/LinearMultipleRewardDistributor.sol";
+import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
+import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
+import {IMintable} from "@bao/interfaces/IMintable.sol";
+import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -29,6 +31,12 @@ import {TokenHolder} from "@bao/TokenHolder.sol";
 /// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
 /// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
 ///
+/// This contract also uses an ERC20 token that represents ownership of the assets deposited here.
+/// We could have added ERC20 functionality into this contract but we use a separate contract to
+/// * keep separation of concerns - asset stability vs asset ownership
+/// * ensure a reliable ERC20 implementation by utilising Openzeppelin's implemenation
+/// * avoid constraining future upgrades to this contract (which is large as it is)
+
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
@@ -48,7 +56,10 @@ contract StabilityPool_v1 is
      *************/
 
     /// @inheritdoc IStabilityPool
-    uint256 public constant REBALANCER_ROLE = _ROLE_1; // start at _ROLE_1 as Linear MultipleRewardDistributor uses _ROLE_0
+    uint256 public constant REWARD_MANAGER_ROLE = _ROLE_0;
+
+    /// @inheritdoc IStabilityPool
+    uint256 public constant REBALANCER_ROLE = _ROLE_1;
 
     /// @inheritdoc IStabilityPool
     uint256 public constant REWARDER_ROLE = _ROLE_2;
@@ -59,31 +70,27 @@ contract StabilityPool_v1 is
     /// @inheritdoc IStabilityPool
     uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
 
-    /// @notice The address of FXN token.
-    // address public immutable fxn;
-
-    /// @notice The address of Voting Escrow FXN.
-    // address public immutable ve;
-
-    /// @notice The address of VotingEscrowHelper contract.
-    // address public immutable veHelper;
-
-    /// @notice The address of FXN token minter.
-    // address public immutable minter;
-
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
+
+    /// @notice The length of reward period in seconds.
+    uint40 public immutable REWARD_PERIOD_LENGTH;
+
+    /// @notice The address of token token used to represent ownership.
+    address public immutable STABILITY_POOL_TOKEN;
+
     /// @notice The minter contract this rebalance pool operates for
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable MINTER;
+
     /// @inheritdoc IStabilityPool
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LIQUIDATION_TOKEN;
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bool private immutable _liquidationTokenIsCollateral; // solhint-disable-line immutable-vars-naming
+
     /// @inheritdoc IStabilityPool
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable ASSET_TOKEN;
+
     /***********
      * Structs *
      ***********/
@@ -159,16 +166,8 @@ contract StabilityPool_v1 is
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
-        // __MultipleRewardCompoundingAccumulator_init(); // from MultipleRewardCompoundingAccumulator
-
-        // TODO: pass in a reward manager - whatever that is
-        // super._grantRole(REWARD_MANAGER_ROLE, _msgSender());
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // TODO: what purpose does the wrapper give.
-        // I'm guessing that this contract wraps because it keeps a track of shares
-        // wrapper = address(this);
 
         $.totalSupply.product = DecrementalFloatingPoint.encode(0, 0, uint64(1 ether));
         $.totalSupply.updatedAt = uint40(block.timestamp);
@@ -178,7 +177,12 @@ contract StabilityPool_v1 is
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address minter_, address liquidationToken_) MultipleRewardCompoundingAccumulator(1 weeks) {
+    constructor(
+        address ownershipToken,
+        address minter_,
+        address liquidationToken_,
+        uint40 periodLength
+    ) MultipleRewardCompoundingAccumulator(REWARD_MANAGER_ROLE, periodLength) {
         _disableInitializers();
         Token.ensureContract(minter_);
         // slither-disable-next-line missing-zero-check
@@ -188,14 +192,19 @@ contract StabilityPool_v1 is
         // slither-disable-next-line missing-zero-check
         ASSET_TOKEN = asset;
         Token.sanityCheckERC20Token(liquidationToken_);
-        if (liquidationToken_ == IMinter(minter_).WRAPPED_COLLATERAL_TOKEN()) {
-            _liquidationTokenIsCollateral = true;
-        } else if (liquidationToken_ == IMinter(minter_).LEVERAGED_TOKEN()) {
-            _liquidationTokenIsCollateral = false;
-        } else {
+        if (
+            liquidationToken_ != IMinter(minter_).WRAPPED_COLLATERAL_TOKEN() &&
+            liquidationToken_ != IMinter(minter_).LEVERAGED_TOKEN()
+        ) {
             revert InvalidLiquidationToken(liquidationToken_);
         }
         LIQUIDATION_TOKEN = liquidationToken_;
+
+        Token.sanityCheckERC20Token(ownershipToken);
+        // slither-disable-next-line missing-zero-check ^^^ it's there
+        STABILITY_POOL_TOKEN = ownershipToken;
+
+        REWARD_PERIOD_LENGTH = periodLength;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -206,16 +215,6 @@ contract StabilityPool_v1 is
     /*************************
      * Public View Functions *
      *************************/
-
-    // solhint-disable-next-line func-name-mixedcase
-    function REWARD_MANAGER_ROLE() external pure returns (uint256) {
-        return LinearMultipleRewardDistributor._REWARD_MANAGER_ROLE;
-    }
-
-    // solhint-disable-next-line func-name-mixedcase
-    function REWARD_PERIOD_LENGTH() external view returns (uint40) {
-        return LinearMultipleRewardDistributor._PERIOD_LENGTH;
-    }
 
     /// @inheritdoc IStabilityPool
     function totalAssetSupply() external view returns (uint256) {
@@ -294,6 +293,7 @@ contract StabilityPool_v1 is
 
         // we ensure that we don't deposit more tokens than the minter we are paired with has
         uint256 minterMinted = IMinter(MINTER).peggedTokenBalance();
+        // TODO: assetBalanceOf does the same as below (and may be cheaper)
         uint256 thisBalance = IERC20(ASSET_TOKEN).balanceOf(address(this));
         if (amount > minterMinted - thisBalance) {
             amount = minterMinted - thisBalance;
@@ -304,6 +304,8 @@ contract StabilityPool_v1 is
         depositedAmount = amount;
 
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), amount);
+        // mint the ownership token to receiver
+        IMintable(STABILITY_POOL_TOKEN).mint(receiver, amount);
 
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         _checkpoint(receiver);
@@ -468,21 +470,8 @@ contract StabilityPool_v1 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // fetch FXN from gauge every 24h
-        // Gauge memory _gauge = $.gauge;
-        // if (_gauge.gauge != address(0) && block.timestamp > uint256(_gauge.claimedAt) + 1 days) {
-        //     console.log("gauge=%s", _gauge.gauge);
-        //     uint256 _balance = IERC20(fxn).balanceOf(address(this));
-        //     ICurveTokenMinter(minter).mint(_gauge.gauge);
-        //     uint256 _minted = IERC20(fxn).balanceOf(address(this)) - _balance;
-        //     $.gauge.claimedAt = uint64(block.timestamp);
-        //     _notifyReward(fxn, _minted);
-        // }
 
         address owner_ = $.getStakerVoteOwner[account];
-        // if (account != address(0)) {
-        //     IVotingEscrowHelper(VE_HELPER).checkpoint(owner_ == address(0) ? account : owner_);
-        // }
 
         super._checkpoint(account);
 
@@ -580,6 +569,7 @@ contract StabilityPool_v1 is
         _updateBoostCheckpoint(sender, owner_, balance, ownerBalance, supply);
 
         IERC20(ASSET_TOKEN).safeTransfer(receiver, amount);
+        IBurnableFrom(STABILITY_POOL_TOKEN).burnFrom(sender, amount);
         amountWithdrawn = amount;
 
         emit Withdraw(sender, receiver, amount);

@@ -8,8 +8,21 @@ import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
-contract MockERC20 is ERC20, IMintable, IBurnable2Arg {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
+// MockERC20Base is a base contract for creating mock ERC20 tokens with a specified number of decimals.
+abstract contract MockERC20Base is ERC20 {
+    uint8 private _decimals;
+
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) ERC20(name_, symbol_) {
+        _decimals = decimals_;
+    }
+
+    function decimals() public view virtual override returns (uint8) {
+        return _decimals;
+    }
+}
+
+contract MockERC20 is MockERC20Base, IMintable, IBurnable2Arg {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) MockERC20Base(name_, symbol_, decimals_) {}
 
     function mint(address account, uint256 amount) external {
         _mint(account, amount);
@@ -25,8 +38,8 @@ contract MockERC20 is ERC20, IMintable, IBurnable2Arg {
     }
 }
 
-contract MockERC20Burn1Arg is ERC20, IMintable, IBurnable {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
+contract MockERC20Burn1Arg is MockERC20Base, IMintable, IBurnable {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) MockERC20Base(name_, symbol_, decimals_) {}
 
     function mint(address account, uint256 amount) external {
         _mint(account, amount);
@@ -41,8 +54,8 @@ contract MockERC20Burn1Arg is ERC20, IMintable, IBurnable {
     }
 }
 
-contract MockERC20BurnFrom is ERC20, IMintable, IBurnableFrom {
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
+contract MockERC20BurnFrom is MockERC20Base, IMintable, IBurnableFrom {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) MockERC20Base(name_, symbol_, decimals_) {}
 
     function mint(address account, uint256 amount) external {
         _mint(account, amount);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {WordCodec} from "src/common/WordCodec.sol";
+import {WordCodec} from "src/util/WordCodec.sol";
 
 /// @title ConfigIncentiveLib
 /// @notice Low-level data structure operations for ActionIncentive

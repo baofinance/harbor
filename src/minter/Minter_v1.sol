@@ -27,8 +27,8 @@ import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IReservePool} from "src/interfaces/IReservePool.sol";
 
-import {ConfigIncentiveLib} from "src/minter/lib/ConfigIncentiveLib.sol";
-import {Config_v1} from "src/minter/lib/Config_v1.sol";
+import {ConfigIncentiveLib} from "src/minter/library/ConfigIncentiveLib.sol";
+import {Config_v1} from "src/minter/library/Config_v1.sol";
 
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system

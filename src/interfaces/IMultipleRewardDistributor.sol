@@ -67,10 +67,14 @@ interface IMultipleRewardDistributor {
     function distributors(address token) external view returns (address);
 
     /// @notice Return the list of active reward tokens.
-    function getActiveRewardTokens() external view returns (address[] memory);
+    function activeRewardTokens() external view returns (address[] memory);
 
     /// @notice Return the list of historical reward tokens.
-    function getHistoricalRewardTokens() external view returns (address[] memory);
+    function historicalRewardTokens() external view returns (address[] memory);
+
+    function rewardData(
+        address token
+    ) external view returns (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued);
 
     /// @notice Return the amount of pending distributed rewards in current period.
     ///

@@ -196,7 +196,10 @@ abstract contract MultipleRewardCompoundingAccumulator is
     // function __MultipleRewardCompoundingAccumulator_init_unchained() internal onlyInitializing {}
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(uint40 periodLength) LinearMultipleRewardDistributor(periodLength) {
+    constructor(
+        uint256 rewardManagerRole,
+        uint40 periodLength
+    ) LinearMultipleRewardDistributor(rewardManagerRole, periodLength) {
         // stop the implementation being initialized to any version
         // https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
         _disableInitializers();
@@ -327,13 +330,13 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
         if (account != address(0)) {
             // checkpoint active reward tokens
-            address[] memory rewardTokens = getActiveRewardTokens();
+            address[] memory rewardTokens = activeRewardTokens();
             for (uint256 i = 0; i < rewardTokens.length; i++) {
                 _updateSnapshot(account, rewardTokens[i]);
             }
 
             // checkpoint historical reward tokens
-            rewardTokens = getHistoricalRewardTokens();
+            rewardTokens = historicalRewardTokens();
             for (uint256 i = 0; i < rewardTokens.length; i++) {
                 _updateSnapshot(account, rewardTokens[i]);
             }
@@ -368,7 +371,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         }
         if (receiver == address(0)) receiver = account;
 
-        address[] memory activeRewardTokens = getActiveRewardTokens();
+        address[] memory activeRewardTokens = activeRewardTokens();
         for (uint256 i = 0; i < activeRewardTokens.length; i++) {
             _claimSingle(account, activeRewardTokens[i], receiver);
         }
