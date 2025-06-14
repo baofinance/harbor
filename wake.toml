@@ -2,12 +2,12 @@
 compilation_delay = 0.1
 
 [compiler.solc.optimizer]
-# enabled=false # unset = let the compiler decide
-runs = 1
+enabled = false # unset = let the compiler decide
+# runs = 200
 
 [compiler.solc]
 # Exclude paths define locations of Solidity files that should not be compiled unless imported from another non-excluded file.
-exclude_paths = ["node_modules", "venv", "lib", "src_deployed"]
+exclude_paths = ["node_modules", "venv", "lib", "fx"]
 # include paths are for import resolution
 include_paths = []
 remappings = [
@@ -21,7 +21,6 @@ remappings = [
   "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
   "@solady/=lib/solady/src/",
   "@bao/=lib/bao-base/src/",
-
   "src/=src/",
   "test/=test/",
 ]

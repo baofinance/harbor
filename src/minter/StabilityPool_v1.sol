@@ -55,8 +55,9 @@ contract StabilityPool_v1 is
      * Constants *
      *************/
 
-    /// @inheritdoc IStabilityPool
-    uint256 public constant REWARD_MANAGER_ROLE = _ROLE_0;
+    /// The role used for reward manager in super contracts
+    /// @dev we define it here in the most derived contract to avoid clashes
+    uint256 private constant _REWARD_MANAGER_ROLE = _ROLE_0;
 
     /// @inheritdoc IStabilityPool
     uint256 public constant REBALANCER_ROLE = _ROLE_1;
@@ -72,9 +73,6 @@ contract StabilityPool_v1 is
 
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
-
-    /// @notice The length of reward period in seconds.
-    uint40 public immutable REWARD_PERIOD_LENGTH;
 
     /// @notice The address of token token used to represent ownership.
     address public immutable STABILITY_POOL_TOKEN;
@@ -182,7 +180,7 @@ contract StabilityPool_v1 is
         address minter_,
         address liquidationToken_,
         uint40 periodLength
-    ) MultipleRewardCompoundingAccumulator(REWARD_MANAGER_ROLE, periodLength) {
+    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, periodLength) {
         _disableInitializers();
         Token.ensureContract(minter_);
         // slither-disable-next-line missing-zero-check
@@ -203,8 +201,6 @@ contract StabilityPool_v1 is
         Token.sanityCheckERC20Token(ownershipToken);
         // slither-disable-next-line missing-zero-check ^^^ it's there
         STABILITY_POOL_TOKEN = ownershipToken;
-
-        REWARD_PERIOD_LENGTH = periodLength;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -486,7 +482,7 @@ contract StabilityPool_v1 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _updateSnapshot(address account, address token) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        UserRewardSnapshot memory snapshot = userRewardSnapshot(account, token);
+        UserRewardSnapshot memory snapshot = _userRewardSnapshot(account, token);
         uint48 epochExponent = $.totalSupply.product.epochAndExponent();
 
         // if (token == fxn) {
@@ -504,7 +500,7 @@ contract StabilityPool_v1 is
         // } else {
         snapshot.rewards.pending = uint128(_claimable(account, token));
         // }
-        snapshot.checkpoint = epochToExponentToRewardSnapshot(token, epochExponent);
+        snapshot.checkpoint = _epochToExponentToRewardSnapshot(token, epochExponent);
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
         _setUserRewardSnapshot(account, token, snapshot);
     }

@@ -16,7 +16,25 @@ import {LinearReward} from "./LinearReward.sol";
 // solhint-disable no-empty-blocks
 // solhint-disable not-rely-on-time
 
-// AccessControl,
+/// @title Linear Multiple Reward Distributor
+/// @dev A base contract for distributing multiple reward tokens linearly over time.
+///
+/// This contract manages the registration, tracking, and linear distribution of
+/// multiple reward tokens. It maintains a list of active and historical reward tokens,
+/// associates distributors with specific tokens, and calculates distribution rates
+/// over defined time periods.
+///
+/// Key features:
+/// - Register and unregister reward tokens
+/// - Assign distributors for each reward token
+/// - Configure linear reward distribution with customizable period lengths
+/// - Track pending and distributed rewards
+/// - Manage active and historical reward tokens
+///
+/// The contract uses a role-based access control system to manage distributors
+/// and supports immediate or time-based reward distribution depending on the
+/// configured period length.
+
 abstract contract LinearMultipleRewardDistributor is
     Initializable,
     ContextUpgradeable,
@@ -34,13 +52,13 @@ abstract contract LinearMultipleRewardDistributor is
 
     /// @notice The role used to manage rewards.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint256 private immutable _REWARD_MANAGER_ROLE;
+    uint256 public immutable REWARD_MANAGER_ROLE;
 
     /// @notice The length of reward period in seconds.
     /// @dev If the value is zero, the reward will be distributed immediately.
     /// @dev It is either zero or at least 1 day (which is 86400).
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint40 private immutable _REWARD_PERIOD_LENGTH;
+    uint40 public immutable REWARD_PERIOD_LENGTH;
 
     /*************
      * Variables *
@@ -52,7 +70,7 @@ abstract contract LinearMultipleRewardDistributor is
         /// @notice Mapping from reward token address to linear distribution reward data.
         mapping(address => LinearReward.RewardData) rewardData;
         /// @dev The list of active reward tokens.
-        // TODO: consider re-implementing these as standard arrays as they are small in size - see
+        // TODO: use upgradeable versions
         EnumerableSet.AddressSet activeRewardTokens;
         /// @dev The list of historical reward tokens.
         EnumerableSet.AddressSet historicalRewardTokens;
@@ -80,11 +98,11 @@ abstract contract LinearMultipleRewardDistributor is
     /// @dev abstract classes should not define role numbers, so pass them in
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(uint256 rewardManagerRole, uint40 periodLength_) {
-        _REWARD_MANAGER_ROLE = rewardManagerRole;
+        REWARD_MANAGER_ROLE = rewardManagerRole;
 
         if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days))
             revert InvalidPeriodLength(periodLength_);
-        _REWARD_PERIOD_LENGTH = periodLength_;
+        REWARD_PERIOD_LENGTH = periodLength_;
     }
 
     /*************************
@@ -157,7 +175,7 @@ abstract contract LinearMultipleRewardDistributor is
     ///
     /// @param token The address of reward token.
     /// @param distributor The address of reward distributor.
-    function registerRewardToken(address token, address distributor) external onlyRoles(_REWARD_MANAGER_ROLE) {
+    function registerRewardToken(address token, address distributor) external onlyRoles(REWARD_MANAGER_ROLE) {
         if (distributor == address(0)) revert RewardDistributorIsZero();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
@@ -176,7 +194,7 @@ abstract contract LinearMultipleRewardDistributor is
     ///
     /// @param token The address of reward token.
     /// @param newDistributor The address of new reward distributor.
-    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(_REWARD_MANAGER_ROLE) {
+    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(REWARD_MANAGER_ROLE) {
         if (newDistributor == address(0)) revert RewardDistributorIsZero();
 
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
@@ -191,14 +209,14 @@ abstract contract LinearMultipleRewardDistributor is
     /// @notice Unregister an existing reward token.
     ///
     /// @param token The address of reward token.
-    function unregisterRewardToken(address token) external onlyRoles(_REWARD_MANAGER_ROLE) {
+    function unregisterRewardToken(address token) external onlyRoles(REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
 
         LinearReward.RewardData memory _data = $.rewardData[token];
         unchecked {
             (uint256 _distributable, uint256 _undistributed) = _data.pending();
-            if (_data.queued < _REWARD_PERIOD_LENGTH) _data.queued = 0; // ignore round error
+            if (_data.queued < REWARD_PERIOD_LENGTH) _data.queued = 0; // ignore round error
             if (_data.queued + _distributable + _undistributed > 0) revert RewardDistributionNotFinished();
         }
 
@@ -222,11 +240,11 @@ abstract contract LinearMultipleRewardDistributor is
     function _notifyReward(address token, uint256 amount) internal {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if (_REWARD_PERIOD_LENGTH == 0) {
+        if (REWARD_PERIOD_LENGTH == 0) {
             _accumulateReward(token, amount);
         } else {
             LinearReward.RewardData memory data = $.rewardData[token];
-            data.increase(_REWARD_PERIOD_LENGTH, amount);
+            data.increase(REWARD_PERIOD_LENGTH, amount);
             $.rewardData[token] = data;
         }
     }
@@ -235,7 +253,9 @@ abstract contract LinearMultipleRewardDistributor is
     function _distributePendingReward() internal {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if (_REWARD_PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) return;
+        // If the reward period length is zero, we distribute rewards immediately.
+        // If there are no active reward tokens, we do nothing.
+        if (REWARD_PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) return;
 
         address[] memory activeRewardTokens_ = $.activeRewardTokens.values();
         for (uint256 i = 0; i < activeRewardTokens_.length; i++) {
@@ -256,7 +276,7 @@ abstract contract LinearMultipleRewardDistributor is
     }
 
     /// @dev Internal function to accumulate distributed rewards.
-    ///
+    /// @dev derived contracts should implement this
     /// @param token The address of token.
     /// @param amount The amount of rewards to accumulate.
     function _accumulateReward(address token, uint256 amount) internal virtual;

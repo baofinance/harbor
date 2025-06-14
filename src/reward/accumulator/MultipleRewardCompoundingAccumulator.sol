@@ -8,8 +8,10 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
-import {DecrementalFloatingPoint} from "../../math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor} from "../distributor/LinearMultipleRewardDistributor.sol";
+import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
+import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
+
+import {console2} from "forge-std/console2.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -17,6 +19,23 @@ import {LinearMultipleRewardDistributor} from "../distributor/LinearMultipleRewa
 /// @notice `MultipleRewardCompoundingAccumulator` is a reward accumulator for reward distribution in a staking pool.
 /// In the staking pool, the total stakes will decrease unexpectedly and the user stakes will also decrease proportionally.
 /// The contract will distribute rewards in proportion to a staker’s share of total stakes with only O(1) complexity.
+///
+/// This accumulator handles complex staking scenarios where both user stakes and total
+/// stakes can decrease unexpectedly. It efficiently tracks user rewards based on their
+/// proportional share of the total pool, even as these values change over time.
+///
+/// The mathematical model uses a system of checkpoints and floating-point calculations
+/// to handle stake reductions, reward distributions, and precision concerns. It introduces
+/// epochs to handle cases where total supply reduces to zero and uses exponents to
+/// manage precision loss in calculations.
+///
+/// Key features:
+/// - O(1) complexity for reward calculations regardless of time elapsed
+/// - Support for multiple reward tokens
+/// - Handles stake decreases correctly without requiring per-user operations
+/// - Precision-preserving calculations using floating-point representation
+/// - Customizable reward receivers
+/// - Support for claiming historical rewards
 ///
 /// Assume that there are n events e[1], e[2], ..., and e[n]. The types of events are user stake,
 /// user unstake, total stakes decrease and reward distribution.
@@ -72,12 +91,28 @@ import {LinearMultipleRewardDistributor} from "../distributor/LinearMultipleRewa
 /// Notice that total stakes decrease event will possible make s[i] be zero. We introduce epoch to handle this problem.
 /// When the total supply reduces to zero, we start a new epoch.
 ///
-/// Another problem is precision loss in solidity, the p[i] will eventually become a very small nonzero value. To solve
+/// Another problem is precision loss in solidity, the p[i] will eventually become a very small non-zero value. To solve
 /// the problem, we treat p[i] as m[i] * 10^{-18 - 9 * e[i]}, where m[i] is the magnitude and e[i] is the exponent.
 /// When the value of m[i] is smaller than 10^9, we will multiply m[i] by 1e9 and then increase e[i] by one.
+
+// e[i]: The i-th event in the system (can be stake, unstake, total stakes decrease, or reward distribution)
+// s[i]: Total pool stakes after event i (corresponds to the contract's internal tracking of total stakes)
+// u[i]: User's personal stakes after event i (tracked per user)
+// d[i]: Amount of total stake decrease in event i
+// r[i]: Amount of rewards distributed in event i
+// These variables directly map to contract data structures:
+
+// Math Notation	Code Implementation
+// s[i]	Tracked via the product value in _getTotalPoolShare()
+// u[i]	Tracked via user checkpoint data in userRewardSnapshot
+// d[i]	Used in calculations when total stakes decrease
+// r[i]	Amount added to reward accumulators
+// The mathematical model describes how these values interact during different events to maintain accurate reward distribution despite fluctuating stake amounts.
+
 ///
 /// @dev The method comes from liquity's StabilityPool, the paper is in
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
+
 abstract contract MultipleRewardCompoundingAccumulator is
     ReentrancyGuardTransientUpgradeable,
     LinearMultipleRewardDistributor,
@@ -130,31 +165,27 @@ abstract contract MultipleRewardCompoundingAccumulator is
         /// - The outer mapping records the ((epoch, exponent) => acc) mappings, for different tokens.
         ///
         /// @dev The integral is defined as 1e18 * ∫(rate(t) * prod(t) / totalPoolShare(t) dt).
-        mapping(address => mapping(uint48 => RewardSnapshot)) epochToExponentToRewardSnapshot;
+        mapping(address => mapping(uint256 => RewardSnapshot)) epochToExponentToRewardSnapshot;
         /// @notice Mapping from user address to reward token address to user reward snapshot.
         ///
         /// @dev The integral is the value of `rewardSnapshot[token].integral` when the snapshot is taken.
         mapping(address => mapping(address => UserRewardSnapshot)) userRewardSnapshot;
     }
 
-    function epochToExponentToRewardSnapshot(
+    function _epochToExponentToRewardSnapshot(
         address token,
-        uint48 epochExponent
-    ) public view returns (RewardSnapshot memory) {
+        uint256 epochExponent
+    ) internal view returns (RewardSnapshot memory snap) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        return $.epochToExponentToRewardSnapshot[token][epochExponent];
+        snap = $.epochToExponentToRewardSnapshot[token][epochExponent];
     }
 
-    /*
-    function setEpochToExponentToRewardSnapshot(address token, uint48 epochExponent, RewardSnapshot memory rewardSnapshot) internal {
+    function _userRewardSnapshot(
+        address account,
+        address token
+    ) internal view returns (UserRewardSnapshot memory userRewardSnapshot_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        $.epochToExponentToRewardSnapshot[token][epochExponent] = rewardSnapshot;
-    }
-    */
-
-    function userRewardSnapshot(address account, address token) public view returns (UserRewardSnapshot memory) {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        return $.userRewardSnapshot[account][token];
+        userRewardSnapshot_ = $.userRewardSnapshot[account][token];
     }
 
     function _setUserRewardSnapshot(
@@ -196,14 +227,11 @@ abstract contract MultipleRewardCompoundingAccumulator is
     // function __MultipleRewardCompoundingAccumulator_init_unchained() internal onlyInitializing {}
 
     /// @custom:oz-upgrades-unsafe-allow constructor
+    /// @dev we don't disable initializers here, because this contract is abstract - the deriving contract should do that.
     constructor(
         uint256 rewardManagerRole,
         uint40 periodLength
-    ) LinearMultipleRewardDistributor(rewardManagerRole, periodLength) {
-        // stop the implementation being initialized to any version
-        // https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
-        _disableInitializers();
-    }
+    ) LinearMultipleRewardDistributor(rewardManagerRole, periodLength) {}
 
     /*************************
      * Public View Functions *
@@ -322,16 +350,17 @@ abstract contract MultipleRewardCompoundingAccumulator is
     }
 
     /// @dev Internal function to update the global and user snapshot.
-    ///
-    /// @param account The address of user to update. Use zero address
-    ///        if you only want to update global snapshot.
+    /// @param account The address of user to update.
+    /// Use zero address if you only want to update global snapshot.
     function _checkpoint(address account) internal virtual {
+        console2.log("checkpointing address: ", account);
         _distributePendingReward();
 
         if (account != address(0)) {
             // checkpoint active reward tokens
             address[] memory rewardTokens = activeRewardTokens();
             for (uint256 i = 0; i < rewardTokens.length; i++) {
+                console2.log("updating snapshot for token", rewardTokens[i], "for account", account);
                 _updateSnapshot(account, rewardTokens[i]);
             }
 
@@ -354,8 +383,10 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint48 epochExponent = currentProd.epochAndExponent();
 
         snapshot.rewards.pending = uint128(_claimable(account, token));
-        snapshot.checkpoint = $.epochToExponentToRewardSnapshot[token][epochExponent];
+        snapshot.checkpoint = $.epochToExponentToRewardSnapshot[token][epochExponent]; // <-- does this need to be updated
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
+
+        console2.log("snapshot.checkpoint.timestamp=%s", snapshot.checkpoint.timestamp);
         $.userRewardSnapshot[account][token] = snapshot;
     }
 
@@ -401,6 +432,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
     /// @inheritdoc LinearMultipleRewardDistributor
     function _accumulateReward(address token, uint256 amount) internal virtual override {
+        console2.log("_accumulateReward for token", token, "amount", amount);
         // slither-disable-next-line incorrect-equality
         if (amount == 0) return;
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
@@ -416,6 +448,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint256 magnitude = currentProd.magnitude();
 
         RewardSnapshot memory snapshot = $.epochToExponentToRewardSnapshot[token][epochExponent];
+        console2.log("setting snapshot for token", token);
+        console2.log("epochExponent", epochExponent, "magnitude", magnitude);
+        console2.log("to: ", block.timestamp);
         snapshot.timestamp = uint64(block.timestamp);
         // @note usually `amount <= 10^6 * 10^18` and `magnitude <= 10^18`,
         // so the value of `amount * _REWARD_PRECISION` won't exceed type(uint192).max.

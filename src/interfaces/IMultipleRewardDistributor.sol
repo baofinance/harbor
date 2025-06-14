@@ -61,6 +61,14 @@ interface IMultipleRewardDistributor {
      * Public View Functions *
      *************************/
 
+    /// @notice The role used to manage rewards.
+    function REWARD_MANAGER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+
+    /// @notice The length of reward period in seconds.
+    /// @dev If the value is zero, the reward will be distributed immediately.
+    /// @dev It is either zero or at least 1 day (which is 86400).
+    function REWARD_PERIOD_LENGTH() external view returns (uint40); // solhint-disable-line func-name-mixedcase
+
     /// @notice Return the address of reward distributor.
     ///
     /// @param token The address of reward token.
