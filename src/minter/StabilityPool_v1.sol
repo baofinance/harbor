@@ -481,9 +481,10 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _updateSnapshot(address account, address token) internal virtual override {
+        // TODO: this should call into super._updateSnapshot();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         UserRewardSnapshot memory snapshot = _userRewardSnapshot(account, token);
-        uint48 epochExponent = $.totalSupply.product.epochAndExponent();
+        uint48 epochExponent = $.totalSupply.product.epochAndExponent(); // <-- this bit seems to be duplicated?
 
         // if (token == fxn) {
         //     uint256 fullEarned = _claimable(account, token) - snapshot.rewards.pending;
@@ -500,7 +501,7 @@ contract StabilityPool_v1 is
         // } else {
         snapshot.rewards.pending = uint128(_claimable(account, token));
         // }
-        snapshot.checkpoint = _epochToExponentToRewardSnapshot(token, epochExponent);
+        snapshot.checkpoint.integral = _tokenToEpochExponentToIntegral(token, epochExponent);
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
         _setUserRewardSnapshot(account, token, snapshot);
     }

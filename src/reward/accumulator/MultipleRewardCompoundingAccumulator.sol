@@ -165,19 +165,19 @@ abstract contract MultipleRewardCompoundingAccumulator is
         /// - The outer mapping records the ((epoch, exponent) => acc) mappings, for different tokens.
         ///
         /// @dev The integral is defined as 1e18 * ∫(rate(t) * prod(t) / totalPoolShare(t) dt).
-        mapping(address => mapping(uint256 => RewardSnapshot)) epochToExponentToRewardSnapshot;
+        mapping(address => mapping(uint256 => uint192)) tokenToEpochExponentToIntegral;
         /// @notice Mapping from user address to reward token address to user reward snapshot.
         ///
         /// @dev The integral is the value of `rewardSnapshot[token].integral` when the snapshot is taken.
         mapping(address => mapping(address => UserRewardSnapshot)) userRewardSnapshot;
     }
 
-    function _epochToExponentToRewardSnapshot(
+    function _tokenToEpochExponentToIntegral(
         address token,
         uint256 epochExponent
-    ) internal view returns (RewardSnapshot memory snap) {
+    ) internal view returns (uint192 globalIntegral) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        snap = $.epochToExponentToRewardSnapshot[token][epochExponent];
+        globalIntegral = $.tokenToEpochExponentToIntegral[token][epochExponent];
     }
 
     function _userRewardSnapshot(
@@ -338,9 +338,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
         // Grab the sum 'S' from the epoch at which the stake was made. The gain may span up to one scale change.
         // If it does, the second portion of the gain is scaled by 1e9.
         // If the gain spans no scale change, the second portion will be 0.
-        uint256 firstPortion = $.epochToExponentToRewardSnapshot[token][epochExponent].integral -
+        uint256 firstPortion = $.tokenToEpochExponentToIntegral[token][epochExponent] -
             userSnapshot.checkpoint.integral;
-        uint256 secondPortion = $.epochToExponentToRewardSnapshot[token][epochExponent + 1].integral /
+        uint256 secondPortion = $.tokenToEpochExponentToIntegral[token][epochExponent + 1] /
             uint256(DecrementalFloatingPoint.HALF_PRECISION);
 
         return
@@ -353,14 +353,12 @@ abstract contract MultipleRewardCompoundingAccumulator is
     /// @param account The address of user to update.
     /// Use zero address if you only want to update global snapshot.
     function _checkpoint(address account) internal virtual {
-        console2.log("checkpointing address: ", account);
         _distributePendingReward();
 
         if (account != address(0)) {
             // checkpoint active reward tokens
             address[] memory rewardTokens = activeRewardTokens();
             for (uint256 i = 0; i < rewardTokens.length; i++) {
-                console2.log("updating snapshot for token", rewardTokens[i], "for account", account);
                 _updateSnapshot(account, rewardTokens[i]);
             }
 
@@ -383,10 +381,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint48 epochExponent = currentProd.epochAndExponent();
 
         snapshot.rewards.pending = uint128(_claimable(account, token));
-        snapshot.checkpoint = $.epochToExponentToRewardSnapshot[token][epochExponent]; // <-- does this need to be updated
+        snapshot.checkpoint.integral = $.tokenToEpochExponentToIntegral[token][epochExponent]; // <-- does this need to be updated
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
 
-        console2.log("snapshot.checkpoint.timestamp=%s", snapshot.checkpoint.timestamp);
         $.userRewardSnapshot[account][token] = snapshot;
     }
 
@@ -432,7 +429,6 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
     /// @inheritdoc LinearMultipleRewardDistributor
     function _accumulateReward(address token, uint256 amount) internal virtual override {
-        console2.log("_accumulateReward for token", token, "amount", amount);
         // slither-disable-next-line incorrect-equality
         if (amount == 0) return;
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
@@ -447,16 +443,12 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint48 epochExponent = currentProd.epochAndExponent();
         uint256 magnitude = currentProd.magnitude();
 
-        RewardSnapshot memory snapshot = $.epochToExponentToRewardSnapshot[token][epochExponent];
-        console2.log("setting snapshot for token", token);
-        console2.log("epochExponent", epochExponent, "magnitude", magnitude);
-        console2.log("to: ", block.timestamp);
-        snapshot.timestamp = uint64(block.timestamp);
+        uint192 integral = $.tokenToEpochExponentToIntegral[token][epochExponent];
         // @note usually `amount <= 10^6 * 10^18` and `magnitude <= 10^18`,
         // so the value of `amount * _REWARD_PRECISION` won't exceed type(uint192).max.
         // For the other parts, we rely on the overflow check provided by solc 0.8.
-        snapshot.integral += (uint192((amount * _REWARD_PRECISION) / totalShare) * uint192(magnitude));
-        $.epochToExponentToRewardSnapshot[token][epochExponent] = snapshot;
+        integral += (uint192((amount * _REWARD_PRECISION) / totalShare) * uint192(magnitude));
+        $.tokenToEpochExponentToIntegral[token][epochExponent] = integral;
     }
 
     /// @dev Internal function to get the total pool shares.

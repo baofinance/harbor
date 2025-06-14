@@ -66,11 +66,11 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
     }
 
     // expose some internal functions for testing
-    function epochToExponentToRewardSnapshot(
+    function tokenToEpochExponentToIntegral(
         address token,
         uint48 epochExponent
-    ) public view returns (RewardSnapshot memory snap) {
-        snap = _epochToExponentToRewardSnapshot(token, epochExponent);
+    ) public view returns (uint192 globalIntegral) {
+        globalIntegral = _tokenToEpochExponentToIntegral(token, epochExponent);
     }
 
     /// @notice Get the user reward snapshot for a specific account and token.

@@ -171,7 +171,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             t.userPoolShare = 456 ether;
 
             uint256[3] memory timestamp;
-            MultipleRewardCompoundingAccumulator.RewardSnapshot memory snapshot;
+            uint192 globalSnapshot;
 
             (MockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 t.rewardCount,
@@ -197,17 +197,12 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             accumulator.checkpoint(address(0));
 
             for (uint256 j = 0; j < t.rewardCount; j++) {
-                snapshot = accumulator.epochToExponentToRewardSnapshot(tokenAddresses[j], 0);
+                globalSnapshot = accumulator.tokenToEpochExponentToIntegral(tokenAddresses[j], 0);
                 uint256 depositAmount = t.baseRewardAmount * (j + 1);
                 uint256 rate = depositAmount / t.periodLength;
 
-                assertEq(
-                    snapshot.timestamp,
-                    timestamp[0] + t.periodLength,
-                    "Snapshot timestamp mismatch - global checkpoint"
-                );
                 assertApproxEqRel(
-                    snapshot.integral,
+                    globalSnapshot,
                     (rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare,
                     0.0001e18, // Allow 0.01% error
                     string.concat("Global integral mismatch for token ", vm.toString(j))
@@ -217,21 +212,15 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             // Test user checkpoint
             timestamp[1] = block.timestamp;
             vm.warp(timestamp[1] + t.periodLength);
-            console2.log("block.timestamp=", block.timestamp);
             accumulator.checkpoint(deployer);
 
             for (uint256 j = 0; j < t.rewardCount; j++) {
-                snapshot = accumulator.epochToExponentToRewardSnapshot(tokenAddresses[j], 0);
+                globalSnapshot = accumulator.tokenToEpochExponentToIntegral(tokenAddresses[j], 0);
                 uint256 depositAmount = t.baseRewardAmount * (j + 1);
                 uint256 rate = depositAmount / t.periodLength;
 
-                assertEq(
-                    snapshot.timestamp,
-                    timestamp[1] + t.periodLength,
-                    "Snapshot timestamp mismatch - user checkpoint"
-                );
                 assertApproxEqRel(
-                    snapshot.integral,
+                    globalSnapshot,
                     (rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare,
                     0.0001e18, // Allow 0.01% error
                     string.concat("User integral mismatch for token ", vm.toString(j))
@@ -242,7 +231,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                     .userRewardSnapshot(deployer, tokenAddresses[j]);
 
                 assertEq(userTimestamp, timestamp[1] + t.periodLength);
-                assertEq(userIntegral, snapshot.integral);
+                assertEq(userIntegral, globalSnapshot);
                 assertApproxEqRel(
                     userPending,
                     (depositAmount * t.userPoolShare) / t.totalPoolShare,
@@ -263,13 +252,12 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             accumulator.checkpoint(deployer);
 
             for (uint256 j = 0; j < t.rewardCount; j++) {
-                snapshot = accumulator.epochToExponentToRewardSnapshot(tokenAddresses[j], 0);
+                globalSnapshot = accumulator.tokenToEpochExponentToIntegral(tokenAddresses[j], 0);
                 uint256 depositAmount = t.baseRewardAmount * (j + 1);
                 uint256 rate = depositAmount / t.periodLength;
 
-                assertEq(snapshot.timestamp, timestamp[2] + t.periodLength);
                 assertApproxEqRel(
-                    snapshot.integral,
+                    globalSnapshot,
                     ((rate * t.periodLength * 1 ether * 1 ether) / t.totalPoolShare) * 2,
                     0.001e18, // Allow 0.1% error for accumulated calculations
                     string.concat("Global integral mismatch #2 for token ", vm.toString(j))
@@ -282,7 +270,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 assertEq(userTimestamp, timestamp[2] + t.periodLength);
                 assertEq(
                     userIntegral,
-                    snapshot.integral,
+                    globalSnapshot,
                     string.concat("User integral mismatch #2 for token ", vm.toString(j))
                 );
                 assertApproxEqRel(
@@ -1043,7 +1031,7 @@ describe("MultipleRewardCompoundingAccumulator.spec", async () => {
           await accumulator.checkpoint(ZeroAddress);
 
           for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.epochToExponentToRewardSnapshot(await tokens[i].getAddress(), 0);
+            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
             const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
             const rate = depositedAmount / toBigInt(periodLength);
             expect(snapshot.integral).to.closeTo(
@@ -1060,7 +1048,7 @@ describe("MultipleRewardCompoundingAccumulator.spec", async () => {
           await accumulator.checkpoint(deployer.address);
 
           for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.epochToExponentToRewardSnapshot(await tokens[i].getAddress(), 0);
+            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
             const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
             const rate = depositedAmount / toBigInt(periodLength);
             expect(snapshot.integral).to.closeTo(
@@ -1088,7 +1076,7 @@ describe("MultipleRewardCompoundingAccumulator.spec", async () => {
           await accumulator.checkpoint(deployer.address);
 
           for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.epochToExponentToRewardSnapshot(await tokens[i].getAddress(), 0);
+            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
             const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
             const rate = depositedAmount / toBigInt(periodLength);
             expect(snapshot.integral).to.closeTo(

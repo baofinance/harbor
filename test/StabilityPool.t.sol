@@ -266,6 +266,4 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
     function test_depositWithdraw2() private {
         _depositWithdraw(user2);
     }
-
-    // TODO: check stake owners
 }
