@@ -96,16 +96,6 @@ contract StabilityPool_v1 is
         uint40 updatedAt;
     }
 
-    /// @dev The boost checkpoint struct. The compiler will pack this into single `uint256`.
-    /// Each epoch `t` starts at timestamp `t * 86400 * 7` (inclusive) and ends at `(t + 1) * 86400 * 7` (not inclusive).
-    ///
-    /// @param boostRatio The boost ratio of current epoch.
-    /// @param historyIndex The index of supply in totalSupplyHistory at checkpoint.
-    struct BoostCheckpoint {
-        uint64 boostRatio;
-        uint64 historyIndex;
-    }
-
     /*************
      * Variables *
      *************/
@@ -125,16 +115,6 @@ contract StabilityPool_v1 is
         // address wrapper;
         /// @notice Error trackers for the error correction in the loss calculation.
         uint256 lastAssetLossError;
-        /// @notice Mapping from account address to index in `totalSupplyHistory`.
-        mapping(address => BoostCheckpoint) boostCheckpoint;
-        /// @notice Mapping from vote owner address to current balance sum of accepted stakers.
-        mapping(address => TokenBalance) voteOwnerBalances;
-        /// @notice Mapping from vote owner address to week timestamp to historical balance sum of accepted stakers.
-        mapping(address => mapping(uint256 => uint256)) voteOwnerHistoryBalances;
-        /// @notice Mapping from owner address to staker address to the vote sharing status.
-        mapping(address => mapping(address => bool)) isStakerAllowed;
-        /// @inheritdoc IStabilityPool
-        mapping(address => address) getStakerVoteOwner;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -222,17 +202,6 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function getBoostRatio(address account) public view returns (uint256) {
-        return _getBoostRatio(account);
-    }
-
-    /// @inheritdoc IStabilityPool
-    function getStakerVoteOwner(address account) external view returns (address) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        return $.getStakerVoteOwner[account];
-    }
-
-    /// @inheritdoc IStabilityPool
     function lastAssetLossError() external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.lastAssetLossError;
@@ -240,17 +209,7 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimable(address account, address token) public view virtual override returns (uint256) {
-        // StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // if (token == fxn) {
-        //     // TODO: move this into
-        //     UserRewardSnapshot memory _userSnapshot = userRewardSnapshot(account, token);
-        //     uint256 fullEarned = _claimable(account, token) - _userSnapshot.rewards.pending;
-        //     uint256 ratio = getBoostRatio(account);
-        //     uint256 boostEarned = (fullEarned * ratio) / 1 ether;
-        //     return _userSnapshot.rewards.pending + boostEarned;
-        // } else {
         return _claimable(account, token);
-        // }
     }
 
     /****************************
@@ -291,17 +250,9 @@ contract StabilityPool_v1 is
         // It should never exceed `type(uint104).max`.
         TokenBalance memory supply = $.totalSupply;
         TokenBalance memory balance = $.balances[receiver];
-        TokenBalance memory ownerBalance = TokenBalance(0, 0, 0);
         supply.amount += uint104(amount);
         supply.updatedAt = uint40(block.timestamp);
         balance.amount += uint104(amount);
-
-        // @note after checkpoint, the voteOwnerBalances are correct.
-        address owner_ = $.getStakerVoteOwner[receiver];
-        if (owner_ != address(0)) {
-            ownerBalance = $.voteOwnerBalances[owner_];
-            ownerBalance.amount += uint104(amount);
-        }
 
         // TODO: check this:
         // this is already updated in `_checkpoint(receiver)`.
@@ -310,9 +261,6 @@ contract StabilityPool_v1 is
 
         _recordTotalSupply(supply);
         $.balances[receiver] = balance;
-
-        // update boost checkpoint at last
-        _updateBoostCheckpoint(receiver, owner_, balance, ownerBalance, supply);
 
         emit Deposit(sender, receiver, amount);
         emit UserDepositChange(receiver, balance.amount, 0);
@@ -325,83 +273,12 @@ contract StabilityPool_v1 is
         amountWithdrawn = _withdraw(_msgSender(), amount, receiver);
     }
 
-    /// @inheritdoc IStabilityPool
-    function withdrawFrom(
-        address owner_,
-        uint256 amount,
-        address receiver
-    ) external override onlyRoles(WITHDRAW_FROM_ROLE) returns (uint256 amountWithdrawn) {
-        amountWithdrawn = _withdraw(owner_, amount, receiver);
-    }
-
     function accumulateReward(
         address rewardToken,
         uint256 rewardAmount
     ) external virtual onlyRoles(REWARDER_ROLE + REBALANCER_ROLE) {
         _accumulateReward(rewardToken, rewardAmount);
     }
-
-    /// @inheritdoc IStabilityPool
-    function acceptSharedVote(address newOwner) external override {
-        address staker = _msgSender();
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (!$.isStakerAllowed[newOwner][staker]) {
-            revert ErrorVoteShareNotAllowed();
-        }
-
-        address oldOwner = $.getStakerVoteOwner[staker];
-        if (oldOwner == newOwner) revert ErrorRepeatAcceptSharedVote();
-        if (oldOwner != address(0)) {
-            _revokeVoteSharing(oldOwner, staker);
-        } else {
-            // @note after checkpoint, the epoch of `balances[staker]` and `voteOwnerBalances[oldOwner]`
-            // are on the latest epoch, we can safely to do add or subtract.
-            _checkpoint(staker);
-        }
-        $.getStakerVoteOwner[staker] = newOwner;
-
-        // update boost ratio for staker.
-        TokenBalance memory balance = $.balances[staker];
-        TokenBalance memory supply = $.totalSupply;
-        TokenBalance memory ownerBalance = _updateVoteOwnerBalance(newOwner, supply);
-        ownerBalance.amount += balance.amount;
-        _updateBoostCheckpoint(staker, newOwner, balance, ownerBalance, supply);
-
-        emit AcceptSharedVote(staker, address(0), newOwner);
-    }
-
-    /// @inheritdoc IStabilityPool
-    function rejectSharedVote() external override {
-        address staker = _msgSender();
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        address owner_ = $.getStakerVoteOwner[staker];
-        if (owner_ == address(0)) revert ErrorNoAcceptedSharedVote();
-
-        _revokeVoteSharing(owner_, staker);
-    }
-
-    /************************
-     * Restricted Functions *
-     ************************/
-    /*
-    /// @notice Update the address of reward wrapper.
-    /// @param newWrapper The new address of reward wrapper.
-    function updateWrapper(address newWrapper) external onlyOwner {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (IFxTokenWrapper(newWrapper).src() != collateralToken) {
-            revert ErrorWrapperSrcMismatch();
-        }
-
-        address oldWrapper = wrapper;
-        if (oldWrapper != address(this) && IFxTokenWrapper(oldWrapper).dst() != IFxTokenWrapper(newWrapper).dst()) {
-            revert ErrorWrapperDstMismatch();
-        }
-
-        wrapper = newWrapper;
-
-        emit UpdateWrapper(oldWrapper, newWrapper);
-    }
-    */
 
     /**********************
      * Internal Functions *
@@ -422,15 +299,10 @@ contract StabilityPool_v1 is
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        address owner_ = $.getStakerVoteOwner[account];
-
         super._checkpoint(account);
 
         if (account != address(0)) {
-            TokenBalance memory supply = $.totalSupply;
-            TokenBalance memory balance = _updateUserBalance(account, supply);
-            TokenBalance memory ownerBalance = _updateVoteOwnerBalance(owner_, supply);
-            _updateBoostCheckpoint(account, owner_, balance, ownerBalance, supply);
+            _updateUserBalance(account, $.totalSupply);
         }
     }
 
@@ -441,21 +313,7 @@ contract StabilityPool_v1 is
         UserRewardSnapshot memory snapshot = _userRewardSnapshot(account, token);
         uint48 epochExponent = $.totalSupply.product.epochAndExponent(); // <-- this bit seems to be duplicated?
 
-        // if (token == fxn) {
-        //     uint256 fullEarned = _claimable(account, token) - snapshot.rewards.pending;
-        //     // save gas when on earned
-        //     if (fullEarned > 0) {
-        //         uint256 ratio = _getBoostRatio(account);
-        //         uint256 boostEarned = (fullEarned * ratio) / 1 ether;
-        //         snapshot.rewards.pending += uint128(boostEarned);
-        //         if (fullEarned > boostEarned) {
-        //             // redistribute unboosted rewards.
-        //             _notifyReward(fxn, fullEarned - boostEarned);
-        //         }
-        //     }
-        // } else {
         snapshot.rewards.pending = uint128(_claimable(account, token));
-        // }
         snapshot.checkpoint.integral = _tokenToEpochExponentToIntegral(token, epochExponent);
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
         _setUserRewardSnapshot(account, token, snapshot);
@@ -490,7 +348,7 @@ contract StabilityPool_v1 is
 
         TokenBalance memory supply = $.totalSupply;
         TokenBalance memory balance = $.balances[sender];
-        TokenBalance memory ownerBalance = TokenBalance(0, 0, 0);
+
         if (amount == type(uint256).max) amount = balance.amount;
         if (amount > balance.amount) revert WithdrawAmountExceedsBalance(amount, balance.amount);
         if (amount == 0) revert WithdrawZeroAmount();
@@ -501,13 +359,6 @@ contract StabilityPool_v1 is
             balance.amount -= uint104(amount);
         }
 
-        // @note after checkpoint, the voteOwnerBalances are correct.
-        address owner_ = $.getStakerVoteOwner[sender];
-        if (owner_ != address(0)) {
-            ownerBalance = $.voteOwnerBalances[owner_];
-            ownerBalance.amount -= uint104(amount);
-        }
-
         // TODO: check this
         // this is already updated in `_checkpoint(sender)`.
         // balance.updatedAt = uint40(block.timestamp);
@@ -516,74 +367,11 @@ contract StabilityPool_v1 is
         _recordTotalSupply(supply);
         $.balances[sender] = balance;
 
-        // update boost checkpoint at last
-        // TODO: this is done in _checkpoint so why are we doing it again here?
-        _updateBoostCheckpoint(sender, owner_, balance, ownerBalance, supply);
-
         IERC20(ASSET_TOKEN).safeTransfer(receiver, amount);
         amountWithdrawn = amount;
 
         emit Withdraw(sender, receiver, amount);
         emit UserDepositChange(sender, balance.amount, 0);
-    }
-
-    /// @dev Internal function to revoke vote sharing.
-    /// @param owner_ The address of vote owner.
-    /// @param staker The address of staker to revoke.
-
-    function _revokeVoteSharing(address owner_, address staker) private {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // @note after checkpoint, the epoch of `balances[staker]` and `voteOwnerBalances[oldOwner]`
-        // are on the latest epoch, we can safely to do add or subtract.
-        _checkpoint(staker);
-        TokenBalance memory balance = $.balances[staker];
-        TokenBalance memory ownerBalance = $.voteOwnerBalances[owner_];
-        // no uncheck here, just in case
-        ownerBalance.amount -= balance.amount;
-
-        $.voteOwnerBalances[owner_] = ownerBalance;
-        $.getStakerVoteOwner[staker] = address(0);
-
-        // @note it is ok to pass a random `ownerBalance` to this function
-        _updateBoostCheckpoint(staker, address(0), balance, ownerBalance, $.totalSupply);
-
-        emit AcceptSharedVote(staker, owner_, address(0));
-    }
-
-    /// @dev Internal function to update the balance of vote owner.
-    /// @param owner_ The address of vote owner.
-    /// @param supply The latest total supply struct.
-    /// @return balance The updated token balance for vote owner.
-    function _updateVoteOwnerBalance(
-        address owner_,
-        TokenBalance memory supply
-    ) private returns (TokenBalance memory balance) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // update `voteOwnerBalances[owner_]` to latest epoch and record history value
-        if (owner_ == address(0)) return balance;
-        balance = $.voteOwnerBalances[owner_];
-        // it happens the owner has no update before
-        if (balance.updatedAt == 0) balance.updatedAt = uint40(block.timestamp);
-
-        uint256 prevWeekTs = _getWeekTs(balance.updatedAt);
-        balance.amount = uint104(_getCompoundedBalance(balance.amount, balance.product, supply.product));
-        balance.product = supply.product;
-        balance.updatedAt = uint40(block.timestamp);
-
-        // @note since it will be updated in `updateBoostCheckpoint`, we don't need to update it now.
-        // voteOwnerBalances[owner_] = balance;
-
-        // @note Normally, `prevWeekTs` equals to `nextWeekTs` so we will only sstore 1 time in most of the time.
-        //
-        // When `prevWeekTs < nextWeekTs`, there are some extreme situation that liquidation happens between
-        // `ownerBalance.updatedAt` and `prevWeekTs`, also some time between `prevWeekTs` and `block.timestamp`.
-        // Then we cannot calculate the amount at `prevWeekTs` correctly. Since the situation rarely happens,
-        // it is ok to use `ownerBalance.amount` only.
-        uint256 nextWeekTs = _getWeekTs(block.timestamp);
-        while (prevWeekTs < nextWeekTs) {
-            $.voteOwnerHistoryBalances[owner_][prevWeekTs] = balance.amount;
-            prevWeekTs += 1 weeks;
-        }
     }
 
     /// @dev Internal function to update the balance of user.
@@ -606,37 +394,6 @@ contract StabilityPool_v1 is
         balance.product = supply.product;
         balance.updatedAt = uint40(block.timestamp);
         $.balances[account] = balance;
-    }
-
-    /// @dev Internal function update boost checkpoint for the user.
-    /// @param account The address of user to update.
-    /// @param balance The latest balance struct of the user.
-    /// @param supply The latest total supply struct.
-    function _updateBoostCheckpoint(
-        address account,
-        address owner_,
-        TokenBalance memory balance,
-        TokenBalance memory ownerBalance,
-        TokenBalance memory supply
-    ) private {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (owner_ == address(0)) {
-            ownerBalance = balance;
-            owner_ = account;
-        } else {
-            $.voteOwnerBalances[owner_] = ownerBalance;
-            uint256 nextWeekTs = _getWeekTs(block.timestamp);
-            $.voteOwnerHistoryBalances[owner_][nextWeekTs] = ownerBalance.amount;
-        }
-
-        uint256 ratio = _computeBoostRatio(
-            ownerBalance.amount,
-            balance.amount,
-            supply.amount
-            // IVotingEscrow($.ve).balanceOf(owner_),
-            // IVotingEscrow($.ve).totalSupply()
-        );
-        $.boostCheckpoint[account] = BoostCheckpoint(uint64(ratio), uint64($.totalSupplyHistory.length - 1));
     }
 
     /// @dev Internal function to reduce asset loss due to liquidation.
@@ -739,123 +496,6 @@ contract StabilityPool_v1 is
         }
 
         return compoundedBalance;
-    }
-
-    /// @dev Internal function to get boost ratio for the given account.
-    ///
-    /// @param account The address of the account to query.
-
-    function _getBoostRatio(address account) private view returns (uint256 boostRatio) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.balances[account];
-        // no deposit before
-        if (balance.amount == 0) return 0;
-
-        BoostCheckpoint memory boostCheckpoint = $.boostCheckpoint[account];
-        // slither-disable-next-line incorrect-equality as we're checking for a shortcut case of this code running in the same block updatedAt was changed
-        if (uint256(balance.updatedAt) == block.timestamp) {
-            return boostCheckpoint.boostRatio;
-        }
-
-        address owner_ = $.getStakerVoteOwner[account];
-        // address veHolder = owner_ == address(0) ? account : owner_;
-
-        uint256 nextIndex = boostCheckpoint.historyIndex;
-        uint256 currentRatio = boostCheckpoint.boostRatio;
-        uint256 prevTs = balance.updatedAt;
-        // compute the time weighted boost from balance.updatedAt to now.
-        uint256 nowTs = _getWeekTs(prevTs);
-        for (uint256 i = 0; i < 256; ++i) {
-            // it is more than 4 years, should be enough
-            if (nowTs > block.timestamp) nowTs = block.timestamp;
-            boostRatio += currentRatio * (nowTs - prevTs);
-            // slither-disable-next-line incorrect-equality
-            if (nowTs == block.timestamp) break;
-            // uint256 veBalance = IVotingEscrowHelper($.veHelper).balanceOf(veHolder, nowTs);
-            // uint256 veSupply = IVotingEscrowHelper($.veHelper).totalSupply(nowTs);
-            (currentRatio, nextIndex) = _boostRatioAt(owner_, balance, /* veBalance, veSupply, */ nextIndex, nowTs);
-            prevTs = nowTs;
-            nowTs += 1 weeks;
-        }
-        boostRatio /= uint256(block.timestamp - balance.updatedAt);
-    }
-
-    /// @dev Internal function to get boost ratio at specific time point.
-    ///
-    /// Caller should make sure `t` is always a multiple of 1 weeks.
-    function _boostRatioAt(
-        address owner_,
-        TokenBalance memory balance,
-        // uint256 veBalance,
-        // uint256 veSupply,
-        uint256 startIndex,
-        uint256 t
-    ) private view returns (uint256, uint256) {
-        // Binary search to find largest `index` that totalSupplyHistory[index].updatedAt <= t.
-        // The largest `index` may not be the correct one if there are multiple deposit/withdraw/liquidation
-        // in the same block. However, we only care about the boost ratio after timestamp `t`,
-        // it is tolerable to use the largest `index`.
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        unchecked {
-            uint256 endIndex = $.totalSupplyHistory.length - 1;
-            while (startIndex < endIndex) {
-                uint256 mid = (startIndex + endIndex + 1) >> 1;
-                if ($.totalSupplyHistory[mid].updatedAt <= t) startIndex = mid;
-                else endIndex = mid - 1;
-            }
-        }
-
-        // Find the actual balance base on the supply.
-        TokenBalance memory supply = $.totalSupplyHistory[startIndex];
-        uint256 realBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product);
-        uint256 ownerBalance = owner_ != address(0) ? $.voteOwnerHistoryBalances[owner_][t] : realBalance;
-
-        return (_computeBoostRatio(ownerBalance, realBalance, supply.amount /*, veBalance, veSupply*/), startIndex);
-    }
-
-    /// @dev Internal function to compute boost ratio with given parameters.
-    function _computeBoostRatio(
-        uint256 ownerBalance,
-        uint256 balance,
-        uint256 /*supply*/
-    )
-        private
-        pure
-        returns (
-            // uint256 veBalance,
-            // uint256 veSupply
-            uint256
-        )
-    {
-        unchecked {
-            // slither-disable-next-line incorrect-equality
-            if (balance == 0) return 0.4 ether;
-
-            // Compute boost ratio with Curve's rule: min(balance, balance * 0.4 + 0.6 * veBalance * supply / veSupply) / balance
-            // slither-disable-next-line divide-before-multiply
-            uint256 boostedBalance = (ownerBalance * 4) / 10;
-            // if (veSupply > 0) {
-            //     boostedBalance += (((veBalance * supply) / veSupply) * 6) / 10;
-            // }
-            // slither-disable-next-line divide-before-multiply
-            boostedBalance = (boostedBalance * balance) / ownerBalance;
-
-            if (boostedBalance > balance) {
-                boostedBalance = balance;
-            }
-
-            // slither-disable-next-line divide-before-multiply
-            return (boostedBalance * 1 ether) / balance;
-        }
-    }
-
-    /// @dev Internal function to compute the smallest week aligned timestamp after given timestamp.
-    /// @param timestamp The given timestamp.
-    function _getWeekTs(uint256 timestamp) private pure returns (uint256) {
-        unchecked {
-            // slither-disable-next-line divide-before-multiply as we actually want to truncate to get an integer number of weeks
-            return ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks;
-        }
     }
 
     // Rebalancing support

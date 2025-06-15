@@ -101,7 +101,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), 0);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2), 0);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), 0);
-        assertEq(IStabilityPool(stabilityPoolCollateral).getStakerVoteOwner(user1), address(0));
     }
 
     function testDeposit() public {
@@ -183,33 +182,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         assertEq(withdrawn, DEPOSIT_AMOUNT);
         assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), 0);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), 0);
-    }
-
-    function testWithdrawFromByAuthorized() public {
-        // Setup: User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Authorized withdrawer withdraws from user1
-        vm.prank(withdrawer);
-        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdrawFrom(user1, DEPOSIT_AMOUNT / 2, user2);
-
-        // Check withdrawal results
-        assertEq(withdrawn, DEPOSIT_AMOUNT / 2);
-        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), DEPOSIT_AMOUNT / 2);
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT / 2);
-        assertEq(IERC20(peggedToken).balanceOf(user2), INITIAL_BALANCE + DEPOSIT_AMOUNT / 2);
-    }
-
-    function testWithdrawFromFailsByUnauthorized() public {
-        // Setup: User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Unauthorized user tries to withdraw from user1
-        vm.prank(user2);
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPool(stabilityPoolCollateral).withdrawFrom(user1, DEPOSIT_AMOUNT / 2, user2);
     }
 
     function testRewardDistribution() public {
@@ -405,8 +377,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // Pre-check claimable amount
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken));
-        console2.log("user1 claimable=", claimable);
+        // uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken));
 
         // User1 sets reward receiver to user3
         vm.prank(user1);
@@ -415,13 +386,11 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         // User1 claims rewards which should go to user3
         vm.prank(user1);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        assertEq(IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken)), 0);
 
         // Check user3 received the rewards
         uint256 user3Balance = IERC20(rewardToken).balanceOf(user3);
         uint256 user1Balance = IERC20(rewardToken).balanceOf(user1);
-
-        console2.log("User3 balance after claim:", user3Balance);
-        console2.log("User1 balance after claim:", user1Balance);
 
         // Assert that rewards were transferred correctly
         assertEq(user3Balance, REWARD_AMOUNT, "User3 should have received rewards");

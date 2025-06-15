@@ -30,11 +30,6 @@ interface IStabilityPool {
     /// @param rewardAmount The amount of token gained.
     event RewardReceived(address rewardToken, uint256 rewardAmount);
 
-    /// @notice Emitted when the address of reward wrapper is updated.
-    /// @param oldWrapper The address of previous reward wrapper.
-    /// @param newWrapper The address of current reward wrapper.
-    event UpdateWrapper(address indexed oldWrapper, address indexed newWrapper);
-
     event Liquidated(
         address liquidatedToken,
         uint256 liquidatedAmount,
@@ -45,14 +40,6 @@ interface IStabilityPool {
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
-
-    /// @dev Thrown then the src token mismatched.
-    error ErrorWrapperSrcMismatch();
-
-    /// @dev Thrown then the dst token mismatched.
-    error ErrorWrapperDstMismatch();
-
-    error IncompleteGaugeSetUp();
 
     /// @dev Thrown when the deposited amount is zero.
     error DepositZeroAmount();
@@ -106,10 +93,6 @@ interface IStabilityPool {
     /// @param account The address of user to query.
     function assetBalanceOf(address account) external view returns (uint256);
 
-    /// @notice Return the current boost ratio for some specific user.
-    /// @param account The address of user to query, multiplied by 1e18.
-    function getBoostRatio(address account) external view returns (uint256);
-
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);
 
@@ -128,9 +111,6 @@ interface IStabilityPool {
     /// @notice Withdraw asset from this contract.
     function withdraw(uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
 
-    /// @notice Account for an increase in rewards
-    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
-
     /// @notice perform a liquidation of the amount
     // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
 
@@ -138,78 +118,8 @@ interface IStabilityPool {
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice send reward tokens to the pool stakers
+    /// @notice Account for an increase in rewards
     /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
     /// Other reward tokens can also be added using this function
-    // function accumulateReward(address rewardToken, uint256 rewardAmount) external;
-
-    /*//////////////////////////////////////////////////////////////
-    ----------------------------------------------------------------
-    ----------------------- SHAREABLE part -------------------------
-    ----------------------------------------------------------------
-    //////////////////////////////////////////////////////////////*/
-
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Emitted when one user share votes to another user.
-    /// @param owner The address of votes owner.
-    /// @param staker The address of staker to share votes.
-    event ShareVote(address indexed owner, address indexed staker);
-
-    /// @notice Emitted when the owner cancel sharing to some staker.
-    /// @param owner The address of votes owner.
-    /// @param staker The address of staker to cancel votes share.
-    event CancelShareVote(address indexed owner, address indexed staker);
-
-    /// @notice Emitted when staker accept the vote sharing.
-    /// @param staker The address of the staker.
-    /// @param oldOwner The address of the previous vote sharing owner.
-    /// @param newOwner The address of the current vote sharing owner.
-    event AcceptSharedVote(address indexed staker, address indexed oldOwner, address indexed newOwner);
-
-    /*//////////////////////////////////////////////////////////////
-                                 ERRORS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @dev Thrown when caller shares votes to self.
-    error ErrorSelfSharingIsNotAllowed();
-
-    /// @dev Thrown when a staker with shared votes try to share its votes to others.
-    error ErrorCascadedSharingIsNotAllowed();
-
-    /// @dev Thrown when staker try to accept non-allowed vote sharing.
-    error ErrorVoteShareNotAllowed();
-
-    /// @dev Thrown when staker try to reject a non-existed vote sharing.
-    error ErrorNoAcceptedSharedVote();
-
-    /// @dev Thrown when the staker has ability to share ve balance.
-    error ErrorVoteOwnerCannotStake();
-
-    /// @dev Thrown when staker try to accept twice.
-    error ErrorRepeatAcceptSharedVote();
-
-    /*//////////////////////////////////////////////////////////////
-                         PUBLIC READ FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Return the owner of votes of some staker.
-    /// @param account The address of user to query.
-    function getStakerVoteOwner(address account) external view returns (address);
-
-    /*//////////////////////////////////////////////////////////////
-                      PROTECTED UPDATE FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Withdraw asset from this contract on behalf of someone
-    function withdrawFrom(address owner, uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
-
-    /// @notice Staker accepts the vote sharing.
-    /// @param newOwner The address of the owner of the votes.
-    function acceptSharedVote(address newOwner) external;
-
-    /// @notice Staker reject the current vote sharing.
-    function rejectSharedVote() external;
+    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
 }

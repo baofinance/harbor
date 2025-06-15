@@ -197,6 +197,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
             address(rewardToken1)
         );
 
+        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user2Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        uint256 user3Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
+
         // User2 withdraws half their deposit
         vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2);
@@ -205,14 +209,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         vm.warp(block.timestamp + 1 hours);
 
         // Verify balances after withdrawal
-        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 user2Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
-        uint256 user3Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
-
-        console2.log("User1 balance:", user1Balance);
-        console2.log("User2 balance:", user2Balance);
-        console2.log("User3 balance:", user3Balance);
-        console2.log("Total balance:", user1Balance + user2Balance + user3Balance);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), user1Balance);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2), user2Balance - DEPOSIT_AMOUNT / 2);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), user3Balance);
 
         // Distribute more rewards - should be split proportionally to current deposits
         _distributeRewards(address(rewardToken1), rewardAmount);
@@ -241,13 +240,6 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
             user3,
             address(rewardToken1)
         );
-
-        console2.log("User1 expected:", expectedUser1);
-        console2.log("User1 actual:", actualUser1);
-        console2.log("User2 expected:", expectedUser2);
-        console2.log("User2 actual:", actualUser2);
-        console2.log("User3 expected:", expectedUser3);
-        console2.log("User3 actual:", actualUser3);
 
         // Assert that each user gets their correct proportional share
         assertApproxEqRel(actualUser1, expectedUser1, 0.01e18);
