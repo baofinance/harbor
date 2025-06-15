@@ -55,7 +55,7 @@ contract StabilityPool_v1 is
 
     /// The role used for reward manager in super contracts
     /// @dev we define it here in the most derived contract to avoid clashes
-    uint256 private constant _REWARD_MANAGER_ROLE = _ROLE_0;
+    uint256 public constant REWARD_MANAGER_ROLE = _ROLE_0;
 
     /// @inheritdoc IStabilityPool
     uint256 public constant REBALANCER_ROLE = _ROLE_1;
@@ -151,7 +151,7 @@ contract StabilityPool_v1 is
         address minter_,
         address liquidationToken_,
         uint40 periodLength
-    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, periodLength) {
+    ) MultipleRewardCompoundingAccumulator(REWARD_MANAGER_ROLE, periodLength) {
         _disableInitializers();
         Token.ensureContract(minter_);
         // slither-disable-next-line missing-zero-check

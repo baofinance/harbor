@@ -44,7 +44,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             address(new StabilityPool_v1(minter, liquidationToken, 1 weeks)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
-        IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
+        IBaoRoles(stabilityPool).grantRoles(owner, IStabilityPool(stabilityPool).REWARD_MANAGER_ROLE());
         vm.prank(owner);
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken, stabilityPool);
 

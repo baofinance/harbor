@@ -56,7 +56,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
         uint256 withdrawFromRole = IStabilityPool(stabilityPoolCollateral).WITHDRAW_FROM_ROLE();
-        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
+        uint256 rewardManagerRole = IStabilityPool(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);

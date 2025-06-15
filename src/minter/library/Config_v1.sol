@@ -39,6 +39,7 @@ library Config_v1 {
         }
         out = ConfigIncentiveLib.ActionIncentive(0, 0);
         uint256 prevUpperBound = 0;
+        // slither-disable-next-line uninitialized-local // this variable is initialised in the loop when i=0
         int256 prevIncentiveRatio;
         uint iOut = 0; // solhint-disable-line explicit-types
         // solhint-disable-next-line explicit-types

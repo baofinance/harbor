@@ -62,7 +62,7 @@ interface IStabilityPool {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The role used for setting up reward tokens.
-    // function REWARD_MANAGER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+    function REWARD_MANAGER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice The role used for notifying rebalancing.
     function REBALANCER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase

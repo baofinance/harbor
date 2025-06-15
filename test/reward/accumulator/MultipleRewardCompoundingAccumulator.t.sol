@@ -47,7 +47,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         accumulator.initialize(address(this));
 
         // Grant manager role
-        accumulator.grantRoles(manager, IMultipleRewardDistributor(accumulator).REWARD_MANAGER_ROLE());
+        accumulator.grantRoles(manager, accumulator.REWARD_MANAGER_ROLE());
 
         tokenAddresses = new address[](rewardCount);
         // Deploy tokens

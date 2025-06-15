@@ -76,11 +76,6 @@ abstract contract LinearMultipleRewardDistributor is
         EnumerableSet.AddressSet historicalRewardTokens;
     }
 
-    // solhint-disable-next-line func-name-mixedcase
-    function REWARD_MANAGER_ROLE() external view returns (uint256) {
-        return _REWARD_MANAGER_ROLE;
-    }
-
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE =
         0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
@@ -129,6 +124,7 @@ abstract contract LinearMultipleRewardDistributor is
     }
 
     /// @inheritdoc IMultipleRewardDistributor
+    // slither-disable-next-line shadowing-local // this isn't shadowing, it's implementing an interface
     function activeRewardTokens() public view override returns (address[] memory rewardTokens) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         rewardTokens = $.activeRewardTokens.values();
