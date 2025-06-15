@@ -9,16 +9,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
-import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -65,9 +62,6 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IStabilityPool
     uint256 public constant REWARDER_ROLE = _ROLE_2;
-
-    /// @inheritdoc IStabilityPool
-    uint256 public constant VE_SHARING_ROLE = _ROLE_3;
 
     /// @inheritdoc IStabilityPool
     uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
@@ -269,9 +263,6 @@ contract StabilityPool_v1 is
         address receiver,
         uint256 minAmount
     ) external override returns (uint256 depositedAmount) {
-        // TODO: check if we need this:
-        if (hasAnyRole(receiver, VE_SHARING_ROLE)) revert ErrorVoteOwnerCannotStake();
-
         address sender = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -348,33 +339,6 @@ contract StabilityPool_v1 is
         uint256 rewardAmount
     ) external virtual onlyRoles(REWARDER_ROLE + REBALANCER_ROLE) {
         _accumulateReward(rewardToken, rewardAmount);
-    }
-
-    /// @inheritdoc IStabilityPool
-    function toggleVoteSharing(address staker) external override onlyRoles(VE_SHARING_ROLE) {
-        address owner_ = _msgSender();
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        if (staker == owner_) {
-            revert ErrorSelfSharingIsNotAllowed();
-        }
-        if ($.getStakerVoteOwner[owner_] != address(0)) {
-            revert ErrorCascadedSharingIsNotAllowed();
-        }
-
-        if ($.isStakerAllowed[owner_][staker]) {
-            $.isStakerAllowed[owner_][staker] = false;
-
-            emit CancelShareVote(owner_, staker);
-        } else {
-            $.isStakerAllowed[owner_][staker] = true;
-
-            emit ShareVote(owner_, staker);
-        }
-
-        if ($.getStakerVoteOwner[staker] == owner_) {
-            _revokeVoteSharing(owner_, staker);
-        }
     }
 
     /// @inheritdoc IStabilityPool

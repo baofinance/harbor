@@ -11,8 +11,6 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 // solhint-disable not-rely-on-time
 
 /// @title MultipleRewardCompoundingAccumulator

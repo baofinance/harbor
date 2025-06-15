@@ -26,7 +26,6 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 /// @dev Based on the testing approach from rebalance-pool
 contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
     address user3;
-    address voteOwner;
     address rewarder;
     address rebalancer;
     address withdrawer;
@@ -44,7 +43,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Create additional users and roles
         user3 = vm.createWallet("user3").addr;
-        voteOwner = vm.createWallet("voteOwner").addr;
         rewarder = vm.createWallet("rewarder").addr;
         rebalancer = vm.createWallet("rebalancer").addr;
         withdrawer = vm.createWallet("withdrawer").addr;
@@ -57,14 +55,12 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         // Set up roles
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
-        uint256 veSharingRole = IStabilityPool(stabilityPoolCollateral).VE_SHARING_ROLE();
         uint256 withdrawFromRole = IStabilityPool(stabilityPoolCollateral).WITHDRAW_FROM_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(voteOwner, veSharingRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(withdrawer, withdrawFromRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
 
@@ -246,52 +242,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
             REWARD_AMOUNT / 2,
             0.01e18
         );
-    }
-
-    // function testVoteSharingToggle() public {
-    //     // Vote owner toggles vote sharing for a staker
-    //     vm.prank(voteOwner);
-    //     IStabilityPool(stabilityPoolCollateral).toggleVoteSharing(user1);
-
-    //     // User1 accepts shared vote
-    //     vm.prank(user1);
-    //     IStabilityPool(stabilityPoolCollateral).acceptSharedVote(voteOwner);
-
-    //     // Check vote sharing relationship
-    //     assertEq(IStabilityPool(stabilityPoolCollateral).getStakerVoteOwner(user1), voteOwner);
-
-    //     // Vote owner cancels vote sharing
-    //     vm.prank(voteOwner);
-    //     IStabilityPool(stabilityPoolCollateral).toggleVoteSharing(user1);
-
-    //     // User1 rejects shared vote
-    //     vm.prank(user1);
-    //     IStabilityPool(stabilityPoolCollateral).rejectSharedVote();
-
-    //     // Check relationship is canceled
-    //     assertEq(IStabilityPool(stabilityPoolCollateral).getStakerVoteOwner(user1), address(0));
-    // }
-
-    function testVoteSharingWithDeposits() public {
-        // Setup: User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Vote owner toggles vote sharing for user1
-        vm.prank(voteOwner);
-        IStabilityPool(stabilityPoolCollateral).toggleVoteSharing(user1);
-
-        // User1 accepts shared vote
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).acceptSharedVote(voteOwner);
-
-        // User1 deposits more, should increase vote owner's balance too
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Check boost ratio has been updated
-        uint256 boostRatio = IStabilityPool(stabilityPoolCollateral).getBoostRatio(user1);
-        assertGt(boostRatio, 0);
     }
 
     function testSweepByRebalancer() public {

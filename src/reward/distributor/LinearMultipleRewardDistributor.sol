@@ -76,6 +76,7 @@ abstract contract LinearMultipleRewardDistributor is
         EnumerableSet.AddressSet historicalRewardTokens;
     }
 
+    // solhint-disable-next-line func-name-mixedcase
     function REWARD_MANAGER_ROLE() external view returns (uint256) {
         return _REWARD_MANAGER_ROLE;
     }

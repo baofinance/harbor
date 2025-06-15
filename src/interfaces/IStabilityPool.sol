@@ -84,9 +84,6 @@ interface IStabilityPool {
     function REWARDER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice The role for ve balance sharing.
-    function VE_SHARING_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
-
-    /// @notice The role for ve balance sharing.
     function WITHDRAW_FROM_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
@@ -208,10 +205,6 @@ interface IStabilityPool {
 
     /// @notice Withdraw asset from this contract on behalf of someone
     function withdrawFrom(address owner, uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
-
-    /// @notice Owner changes the vote sharing state for some user.
-    /// @param staker The address of user to change.
-    function toggleVoteSharing(address staker) external;
 
     /// @notice Staker accepts the vote sharing.
     /// @param newOwner The address of the owner of the votes.
