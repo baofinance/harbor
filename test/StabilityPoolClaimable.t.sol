@@ -11,6 +11,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {MockERC20} from "test/mock/MockERC20.sol";
@@ -33,8 +34,6 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         user3 = vm.createWallet("user3").addr;
         vm.prank(user3);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        vm.prank(user3);
-        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
 
         // Create roles
         rewarder = vm.createWallet("rewarder").addr;
@@ -43,15 +42,25 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
 
+        // Create reward tokens
+        rewardToken1 = new MockERC20("Reward Token 1", "RWD1", 18);
+        rewardToken2 = new MockERC20("Reward Token 2", "RWD2", 18);
+
         // Grant roles
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
-        vm.stopPrank();
 
-        // Create reward tokens
-        rewardToken1 = new MockERC20("Reward Token 1", "RWD1", 18);
-        rewardToken2 = new MockERC20("Reward Token 2", "RWD2", 18);
+        // register reward tokens
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
+            address(rewardToken1),
+            stabilityPoolCollateral
+        );
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
+            address(rewardToken2),
+            stabilityPoolCollateral
+        );
+        vm.stopPrank();
 
         // Initialize reward tokens with some balance for the rewarder
         rewardToken1.mint(rewarder, INITIAL_REWARD_AMOUNT);
@@ -129,10 +138,8 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         _distributeRewards(address(rewardToken1), rewardAmount);
 
         // User2 withdraws half their deposit
-        vm.startPrank(user2);
-        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2);
-        vm.stopPrank();
 
         // Distribute more rewards - should be split proportionally to current deposits
         _distributeRewards(address(rewardToken1), rewardAmount);
@@ -191,10 +198,8 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         );
 
         // User2 withdraws half their deposit
-        vm.startPrank(user2);
-        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2);
-        vm.stopPrank();
 
         // Advance time once more before second distribution
         vm.warp(block.timestamp + 1 hours);
@@ -445,10 +450,8 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         _distributeRewards(address(rewardToken1), 300 ether);
 
         // User 1 withdraws half
-        vm.startPrank(user1);
-        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1);
-        vm.stopPrank();
 
         // Skip ahead in time
         vm.warp(block.timestamp + 3 days);

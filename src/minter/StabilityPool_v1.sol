@@ -75,9 +75,6 @@ contract StabilityPool_v1 is
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
 
-    /// @notice The address of token token used to represent ownership.
-    address public immutable STABILITY_POOL_TOKEN;
-
     /// @notice The minter contract this rebalance pool operates for
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable MINTER;
@@ -177,7 +174,6 @@ contract StabilityPool_v1 is
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
-        address ownershipToken,
         address minter_,
         address liquidationToken_,
         uint40 periodLength
@@ -198,10 +194,6 @@ contract StabilityPool_v1 is
             revert InvalidLiquidationToken(liquidationToken_);
         }
         LIQUIDATION_TOKEN = liquidationToken_;
-
-        Token.sanityCheckERC20Token(ownershipToken);
-        // slither-disable-next-line missing-zero-check ^^^ it's there
-        STABILITY_POOL_TOKEN = ownershipToken;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -301,8 +293,6 @@ contract StabilityPool_v1 is
         depositedAmount = amount;
 
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), amount);
-        // mint the ownership token to receiver
-        IMintable(STABILITY_POOL_TOKEN).mint(receiver, amount);
 
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         _checkpoint(receiver);
@@ -567,7 +557,6 @@ contract StabilityPool_v1 is
         _updateBoostCheckpoint(sender, owner_, balance, ownerBalance, supply);
 
         IERC20(ASSET_TOKEN).safeTransfer(receiver, amount);
-        IBurnableFrom(STABILITY_POOL_TOKEN).burnFrom(sender, amount);
         amountWithdrawn = amount;
 
         emit Withdraw(sender, receiver, amount);

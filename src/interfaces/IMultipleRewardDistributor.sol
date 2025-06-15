@@ -45,6 +45,9 @@ interface IMultipleRewardDistributor {
     /// @dev Thrown when the address of reward distributor is `address(0)`.
     error RewardDistributorIsZero();
 
+    /// @dev Thrown when the address of reward token is `address(0)`.
+    error RewardTokenIsZero();
+
     /// @dev Thrown when caller is not reward distributor.
     error NotRewardDistributor();
 
@@ -98,10 +101,17 @@ interface IMultipleRewardDistributor {
      * Public Mutator Functions *
      ****************************/
 
+    /// @notice Register a new reward token.
+    /// @dev Make sure no fee on transfer token is added as reward token.
+    /// @param token The address of reward token.
+    /// @param distributor The address of reward distributor.
     function registerRewardToken(address token, address distributor) external;
 
+    /// @notice Unregister an existing reward token.
+    /// @param token The address of reward token.
+    function unregisterRewardToken(address token) external;
+
     /// @notice Deposit new rewards to this contract.
-    ///
     /// @param token The address of reward token.
     /// @param amount The amount of new rewards.
     function depositReward(address token, uint256 amount) external;

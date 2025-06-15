@@ -67,6 +67,11 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IBaoRoles(stabilityPoolCollateral).grantRoles(voteOwner, veSharingRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(withdrawer, withdrawFromRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
+
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
+            address(rewardToken),
+            stabilityPoolCollateral
+        );
         vm.stopPrank();
 
         // Mint initial tokens
@@ -79,24 +84,17 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         deal(peggedToken, user3, INITIAL_BALANCE);
 
         // Approve tokens
-        vm.startPrank(user1);
+        vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
-        vm.stopPrank();
 
-        vm.startPrank(user2);
+        vm.prank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
-        vm.stopPrank();
 
-        vm.startPrank(user3);
+        vm.prank(user3);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
-        vm.stopPrank();
 
-        vm.startPrank(rewarder);
+        vm.prank(rewarder);
         rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
-        vm.stopPrank();
 
         setUp_collateral(1000 ether, 1000 ether);
     }
@@ -120,7 +118,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         assertEq(deposited, DEPOSIT_AMOUNT);
         assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), DEPOSIT_AMOUNT);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT);
-        assertEq(IERC20(stabilityERC20Collateral).balanceOf(user1), DEPOSIT_AMOUNT);
     }
 
     function testDepositWithMin() public {
@@ -174,7 +171,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         assertEq(withdrawn, DEPOSIT_AMOUNT / 2);
         assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), DEPOSIT_AMOUNT / 2);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT / 2);
-        assertEq(IERC20(stabilityERC20Collateral).balanceOf(user1), DEPOSIT_AMOUNT / 2);
     }
 
     function testWithdrawAll() public {
@@ -191,7 +187,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         assertEq(withdrawn, DEPOSIT_AMOUNT);
         assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), 0);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), 0);
-        assertEq(IERC20(stabilityERC20Collateral).balanceOf(user1), 0);
     }
 
     function testWithdrawFromByAuthorized() public {
@@ -415,6 +410,12 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         vm.prank(rewarder);
         rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
 
+        address[] memory activeTokensBefore = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
+        assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
+        vm.prank(owner);
+        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(address(rewardToken));
+        assertFalse(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
+
         // This call should fail as the token isn't registered yet
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
         vm.prank(rewarder);
@@ -422,12 +423,15 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Now register the token properly with the REWARD_MANAGER_ROLE
         vm.prank(rewardManager);
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken), rewarder);
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
+            address(rewardToken),
+            stabilityPoolCollateral
+        );
+        assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
 
         // Verify token is registered
         address[] memory activeTokens = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
-        assertEq(activeTokens.length, 1);
-        assertEq(activeTokens[0], address(rewardToken));
+        assertEq(activeTokens.length, activeTokensBefore.length);
 
         // Now we should be able to accumulate rewards
         vm.startPrank(rewarder);
@@ -443,10 +447,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         // User1 deposits
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Register the reward token first
-        vm.prank(rewardManager);
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken), rewarder);
 
         // Distribute rewards
         vm.startPrank(rewarder);

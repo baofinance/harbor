@@ -24,7 +24,6 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
     address stabilityPoolLeveraged;
-    address stabilityERC20Leveraged;
 
     function setUp() public virtual override(TestStabilityPoolSetUp) {
         super.setUp();
@@ -32,7 +31,7 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
         deal(address(peggedToken), user1, 1000 ether);
         deal(address(peggedToken), user2, 2000 ether);
 
-        (stabilityPoolLeveraged, stabilityERC20Leveraged) = _setupStabilityPool();
+        stabilityPoolLeveraged = _setupStabilityPool(leveragedToken);
 
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);

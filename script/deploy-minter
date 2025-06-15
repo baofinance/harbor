@@ -212,11 +212,15 @@ deploy_contract StabilityPool_v1Collateral "src/minter/StabilityPool_v1.sol:Stab
   --constructor-args minter wrappedCollateralToken
 upgrade_proxy stabilityPoolCollateral StabilityPool_v1Collateral "initialize(address)" owner
 
+send_transaction stabilityPoolCollateral "registerRewardToken(address, address)" wrappedCollateralToken stabilityPoolCollateral
+
 # stabilityPoolSteamed
 # --------------------
 deploy_contract StabilityPool_v1Steamed "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
   --constructor-args minter leveragedToken
 upgrade_proxy stabilityPoolSteamed StabilityPool_v1Steamed "initialize(address)" owner
+
+send_transaction stabilityPoolSteamed "registerRewardToken(address, address)" steamedToken stabilityPoolSteamed
 
 # StabilityPoolManager
 # --------------------

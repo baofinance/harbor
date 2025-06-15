@@ -160,6 +160,14 @@ contract LinearMultipleRewardDistributorTest is Test {
         distributor.registerRewardToken(address(token0), ZERO_ADDRESS);
     }
 
+    function test_registerRewardToken_RevertWhenTokenIsZero() public {
+        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardTokenIsZero.selector));
+        distributor.registerRewardToken(ZERO_ADDRESS, holder0);
+    }
+
     function test_registerRewardToken_RevertWhenDuplicated() public {
         MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 

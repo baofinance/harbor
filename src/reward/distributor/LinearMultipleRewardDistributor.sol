@@ -180,12 +180,9 @@ abstract contract LinearMultipleRewardDistributor is
      * Restricted Functions *
      ************************/
 
-    /// @notice Register a new reward token.
-    /// @dev Make sure no fee on transfer token is added as reward token.
-    ///
-    /// @param token The address of reward token.
-    /// @param distributor The address of reward distributor.
-    function registerRewardToken(address token, address distributor) external onlyRoles(_REWARD_MANAGER_ROLE) {
+    /// @inheritdoc IMultipleRewardDistributor
+    function registerRewardToken(address token, address distributor) external onlyOwnerOrRoles(_REWARD_MANAGER_ROLE) {
+        if (token == address(0)) revert RewardTokenIsZero();
         if (distributor == address(0)) revert RewardDistributorIsZero();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
@@ -204,7 +201,10 @@ abstract contract LinearMultipleRewardDistributor is
     ///
     /// @param token The address of reward token.
     /// @param newDistributor The address of new reward distributor.
-    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(_REWARD_MANAGER_ROLE) {
+    function updateRewardDistributor(
+        address token,
+        address newDistributor
+    ) external onlyOwnerOrRoles(_REWARD_MANAGER_ROLE) {
         if (newDistributor == address(0)) revert RewardDistributorIsZero();
 
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
@@ -215,11 +215,8 @@ abstract contract LinearMultipleRewardDistributor is
 
         emit UpdateRewardDistributor(token, oldDistributor, newDistributor);
     }
-
-    /// @notice Unregister an existing reward token.
-    ///
-    /// @param token The address of reward token.
-    function unregisterRewardToken(address token) external onlyRoles(_REWARD_MANAGER_ROLE) {
+    /// @inheritdoc IMultipleRewardDistributor
+    function unregisterRewardToken(address token) external onlyOwnerOrRoles(_REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
 
