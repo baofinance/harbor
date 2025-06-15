@@ -429,6 +429,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
     /// @inheritdoc LinearMultipleRewardDistributor
     function _accumulateReward(address token, uint256 amount) internal virtual override {
+        if (!isActiveRewardToken(token)) {
+            revert NotActiveRewardToken();
+        }
         // slither-disable-next-line incorrect-equality
         if (amount == 0) return;
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();

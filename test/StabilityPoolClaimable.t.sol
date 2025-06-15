@@ -162,6 +162,94 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         );
     }
 
+    function testClaimableAfterWithdrawWithTimeAdvance() public {
+        // Initial deposit for all users
+        _depositForUsers();
+
+        // Advance time to ensure distinct timestamps
+        vm.warp(block.timestamp + 1 hours);
+
+        // Distribute some rewards
+        uint256 rewardAmount = 300 ether;
+        _distributeRewards(address(rewardToken1), rewardAmount);
+
+        // Advance time again
+        vm.warp(block.timestamp + 1 hours);
+
+        // Record initial claimable amounts before withdrawal
+        uint256 initialUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            address(rewardToken1)
+        );
+        uint256 initialUser2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user2,
+            address(rewardToken1)
+        );
+        uint256 initialUser3 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user3,
+            address(rewardToken1)
+        );
+
+        // User2 withdraws half their deposit
+        vm.startPrank(user2);
+        IERC20(stabilityERC20Collateral).approve(stabilityPoolCollateral, type(uint256).max);
+        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2);
+        vm.stopPrank();
+
+        // Advance time once more before second distribution
+        vm.warp(block.timestamp + 1 hours);
+
+        // Verify balances after withdrawal
+        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user2Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        uint256 user3Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
+
+        console2.log("User1 balance:", user1Balance);
+        console2.log("User2 balance:", user2Balance);
+        console2.log("User3 balance:", user3Balance);
+        console2.log("Total balance:", user1Balance + user2Balance + user3Balance);
+
+        // Distribute more rewards - should be split proportionally to current deposits
+        _distributeRewards(address(rewardToken1), rewardAmount);
+
+        // After the second distribution, check each user's rewards:
+        // First reward distribution: Each user gets 1/3 (equal shares)
+        // Second reward distribution after user2's partial withdrawal:
+        // - Total pool is now 25 ETH (10 + 5 + 10)
+        // - User1: 10/25 = 40% of the pool = 40% of 300 ETH = 120 ETH
+        // - User2: 5/25 = 20% of the pool = 20% of 300 ETH = 60 ETH
+        // - User3: 10/25 = 40% of the pool = 40% of 300 ETH = 120 ETH
+        uint256 expectedUser1 = initialUser1 + (rewardAmount * 40) / 100;
+        uint256 expectedUser2 = initialUser2 + (rewardAmount * 20) / 100;
+        uint256 expectedUser3 = initialUser3 + (rewardAmount * 40) / 100;
+
+        // Get actual rewards for logging and comparison
+        uint256 actualUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1,
+            address(rewardToken1)
+        );
+        uint256 actualUser2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user2,
+            address(rewardToken1)
+        );
+        uint256 actualUser3 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user3,
+            address(rewardToken1)
+        );
+
+        console2.log("User1 expected:", expectedUser1);
+        console2.log("User1 actual:", actualUser1);
+        console2.log("User2 expected:", expectedUser2);
+        console2.log("User2 actual:", actualUser2);
+        console2.log("User3 expected:", expectedUser3);
+        console2.log("User3 actual:", actualUser3);
+
+        // Assert that each user gets their correct proportional share
+        assertApproxEqRel(actualUser1, expectedUser1, 0.01e18);
+        assertApproxEqRel(actualUser2, expectedUser2, 0.01e18);
+        assertApproxEqRel(actualUser3, expectedUser3, 0.01e18);
+    }
+
     function testClaimableAfterSweep() public {
         // Initial deposit for all users
         _depositForUsers();

@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 import "forge-std/Test.sol";
 import "test/mock/MockERC20.sol";
@@ -15,8 +16,6 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     address deployer;
     address manager;
     address receiver;
-
-    uint256 rewardManagerRole = 1;
 
     // Test parameters to loop through
     // TODO: make these fuzz possibilities (for all tests!)
@@ -44,11 +43,11 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         uint40 periodLength
     ) internal returns (MockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) {
         // Deploy accumulator
-        accumulator = new MockMultipleRewardCompoundingAccumulator(rewardManagerRole, periodLength);
+        accumulator = new MockMultipleRewardCompoundingAccumulator(periodLength);
         accumulator.initialize(address(this));
 
         // Grant manager role
-        accumulator.grantRoles(manager, rewardManagerRole);
+        accumulator.grantRoles(manager, IMultipleRewardDistributor(accumulator).REWARD_MANAGER_ROLE());
 
         tokenAddresses = new address[](rewardCount);
         // Deploy tokens

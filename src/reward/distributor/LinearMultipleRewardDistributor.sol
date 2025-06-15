@@ -52,7 +52,7 @@ abstract contract LinearMultipleRewardDistributor is
 
     /// @notice The role used to manage rewards.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint256 public immutable REWARD_MANAGER_ROLE;
+    uint256 private immutable _REWARD_MANAGER_ROLE;
 
     /// @notice The length of reward period in seconds.
     /// @dev If the value is zero, the reward will be distributed immediately.
@@ -74,6 +74,10 @@ abstract contract LinearMultipleRewardDistributor is
         EnumerableSet.AddressSet activeRewardTokens;
         /// @dev The list of historical reward tokens.
         EnumerableSet.AddressSet historicalRewardTokens;
+    }
+
+    function REWARD_MANAGER_ROLE() external view returns (uint256) {
+        return _REWARD_MANAGER_ROLE;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff))'
@@ -98,7 +102,7 @@ abstract contract LinearMultipleRewardDistributor is
     /// @dev abstract classes should not define role numbers, so pass them in
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(uint256 rewardManagerRole, uint40 periodLength_) {
-        REWARD_MANAGER_ROLE = rewardManagerRole;
+        _REWARD_MANAGER_ROLE = rewardManagerRole;
 
         if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days))
             revert InvalidPeriodLength(periodLength_);
@@ -127,6 +131,12 @@ abstract contract LinearMultipleRewardDistributor is
     function activeRewardTokens() public view override returns (address[] memory rewardTokens) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         rewardTokens = $.activeRewardTokens.values();
+    }
+
+    /// @inheritdoc IMultipleRewardDistributor
+    function isActiveRewardToken(address token) public view returns (bool isActive) {
+        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
+        isActive = $.activeRewardTokens.contains(token);
     }
 
     /// @inheritdoc IMultipleRewardDistributor
@@ -175,7 +185,7 @@ abstract contract LinearMultipleRewardDistributor is
     ///
     /// @param token The address of reward token.
     /// @param distributor The address of reward distributor.
-    function registerRewardToken(address token, address distributor) external onlyRoles(REWARD_MANAGER_ROLE) {
+    function registerRewardToken(address token, address distributor) external onlyRoles(_REWARD_MANAGER_ROLE) {
         if (distributor == address(0)) revert RewardDistributorIsZero();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
@@ -194,7 +204,7 @@ abstract contract LinearMultipleRewardDistributor is
     ///
     /// @param token The address of reward token.
     /// @param newDistributor The address of new reward distributor.
-    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(REWARD_MANAGER_ROLE) {
+    function updateRewardDistributor(address token, address newDistributor) external onlyRoles(_REWARD_MANAGER_ROLE) {
         if (newDistributor == address(0)) revert RewardDistributorIsZero();
 
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
@@ -209,7 +219,7 @@ abstract contract LinearMultipleRewardDistributor is
     /// @notice Unregister an existing reward token.
     ///
     /// @param token The address of reward token.
-    function unregisterRewardToken(address token) external onlyRoles(REWARD_MANAGER_ROLE) {
+    function unregisterRewardToken(address token) external onlyRoles(_REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
 

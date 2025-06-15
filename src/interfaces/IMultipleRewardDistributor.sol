@@ -77,6 +77,9 @@ interface IMultipleRewardDistributor {
     /// @notice Return the list of active reward tokens.
     function activeRewardTokens() external view returns (address[] memory);
 
+    /// @notice Check if a reward token is active.
+    function isActiveRewardToken(address token) external view returns (bool isActive);
+
     /// @notice Return the list of historical reward tokens.
     function historicalRewardTokens() external view returns (address[] memory);
 
@@ -94,6 +97,8 @@ interface IMultipleRewardDistributor {
     /****************************
      * Public Mutator Functions *
      ****************************/
+
+    function registerRewardToken(address token, address distributor) external;
 
     /// @notice Deposit new rewards to this contract.
     ///
