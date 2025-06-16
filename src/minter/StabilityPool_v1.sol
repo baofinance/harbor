@@ -6,6 +6,10 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ERC20PermitUpgradeable} from "@bao/ERC20PermitUpgradeable.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
@@ -41,9 +45,13 @@ import {TokenHolder} from "@bao/TokenHolder.sol";
 contract StabilityPool_v1 is
     Initializable,
     UUPSUpgradeable,
+    ERC20PermitUpgradeable,
     MultipleRewardCompoundingAccumulator,
     TokenHolder,
-    IStabilityPool
+    IStabilityPool,
+    IERC20,
+    IERC20Metadata,
+    IERC20Errors
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
@@ -105,7 +113,7 @@ contract StabilityPool_v1 is
     struct StabilityPoolStorage {
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalSupply;
-        /// @dev Mapping account address to TokenBalance struct. Accesses via assetBalanceOf
+        /// @dev Mapping account address to TokenBalance struct. Accessed via balanceOf
         mapping(address => TokenBalance) balances;
         /// @notice Mapping from index to history totalSupply.
         /// If there are multiple updates at the same timestamp, only the last one will be recorded.
@@ -114,6 +122,12 @@ contract StabilityPool_v1 is
         // address wrapper;
         /// @notice Error trackers for the error correction in the loss calculation.
         uint256 lastAssetLossError;
+        //
+        /// @dev Allowances mapping for ERC20 compatibility
+        mapping(address => mapping(address => uint256)) allowances;
+        /// @dev ERC20 token metadata
+        string name;
+        string symbol;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -131,16 +145,20 @@ contract StabilityPool_v1 is
      * Constructor *
      ***************/
 
-    function initialize(address owner_) external initializer {
+    function initialize(address owner_, string memory name_, string memory symbol_) external initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
+        __ERC20Permit_init(name_);
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         $.totalSupply.product = DecrementalFloatingPoint.encode(0, 0, uint64(1 ether));
         $.totalSupply.updatedAt = uint40(block.timestamp);
         $.totalSupplyHistory.push($.totalSupply);
+
+        $.name = name_;
+        $.symbol = symbol_;
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -178,8 +196,38 @@ contract StabilityPool_v1 is
      * Public View Functions *
      *************************/
 
-    /// @inheritdoc IStabilityPool
-    function totalAssetSupply() external view returns (uint256) {
+    /// @notice Implements ERC20 allowance
+    function allowance(address owner, address spender) public view override returns (uint256) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        return $.allowances[owner][spender];
+    }
+
+    /// @dev Returns the name of the token.
+    function name() external view returns (string memory name_) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        name_ = $.name;
+    }
+
+    /// @dev Returns the symbol of the token.
+    function symbol() external view returns (string memory symbol_) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        symbol_ = $.symbol;
+    }
+
+    /// @dev Returns the decimals places of the token.
+    function decimals() external pure returns (uint8 decimals_) {
+        decimals_ = 18;
+    }
+
+    /// @inheritdoc IERC20
+    function balanceOf(address account) public view override returns (uint256) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.balances[account];
+        return _getCompoundedBalance(balance.amount, balance.product, $.totalSupply.product);
+    }
+
+    /// @inheritdoc IERC20
+    function totalSupply() external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.totalSupply.amount;
     }
@@ -191,13 +239,6 @@ contract StabilityPool_v1 is
         TokenBalance memory record = $.totalSupplyHistory[index];
         atDay = record.updatedAt;
         amount = record.amount;
-    }
-
-    /// @inheritdoc IStabilityPool
-    function assetBalanceOf(address account) public view override returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.balances[account];
-        return _getCompoundedBalance(balance.amount, balance.product, $.totalSupply.product);
     }
 
     /// @inheritdoc IStabilityPool
@@ -215,54 +256,121 @@ contract StabilityPool_v1 is
      * Public Mutator Functions *
      ****************************/
 
+    /// @notice Implements ERC20 approve
+
+    function _approve(address owner, address spender, uint256 value /*, bool emitEvent*/) internal override {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        if (owner == address(0)) {
+            revert ERC20InvalidApprover(address(0));
+        }
+        if (spender == address(0)) {
+            revert ERC20InvalidSpender(address(0));
+        }
+        $.allowances[owner][spender] = value;
+        // if (emitEvent) {
+        emit Approval(owner, spender, value);
+        // }
+    }
+
+    function approve(address spender, uint256 value) public virtual returns (bool) {
+        address owner = _msgSender();
+        _approve(owner, spender, value);
+        return true; // reverts if false
+    }
+
+    /// @notice Implements ERC20 transfer
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        if (to == address(0)) {
+            revert ERC20InvalidReceiver(address(0));
+        }
+        _transfer(msg.sender, to, amount);
+        return true;
+    }
+
+    /// @notice Implements ERC20 transferFrom
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        if (from == address(0)) {
+            revert ERC20InvalidSender(address(0));
+        }
+        if (to == address(0)) {
+            revert ERC20InvalidReceiver(address(0));
+        }
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+
+        uint256 currentAllowance = $.allowances[from][msg.sender];
+        if (currentAllowance != type(uint256).max) {
+            if (currentAllowance < amount) {
+                revert ERC20InsufficientAllowance(msg.sender, currentAllowance, amount);
+            }
+            unchecked {
+                $.allowances[from][msg.sender] = currentAllowance - amount;
+            }
+        }
+
+        _transfer(from, to, amount);
+        return true;
+    }
+
     /// @inheritdoc IStabilityPool
     function deposit(
         uint256 amount,
         address receiver,
         uint256 minAmount
     ) external override returns (uint256 depositedAmount) {
+        if (receiver == address(0)) {
+            revert ERC20InvalidReceiver(address(0));
+        }
         address sender = _msgSender();
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        // transfer asset token to this contract
-        if (amount == type(uint256).max) {
-            amount = IERC20(ASSET_TOKEN).balanceOf(sender);
-        }
+        if (amount == type(uint256).max) amount = IERC20(ASSET_TOKEN).balanceOf(sender);
 
-        // we ensure that we don't deposit more tokens than the minter we are paired with has
-        uint256 minterMinted = IMinter(MINTER).peggedTokenBalance();
-        // TODO: assetBalanceOf does the same as below (and may be cheaper)
-        uint256 thisBalance = IERC20(ASSET_TOKEN).balanceOf(address(this));
-        if (amount > minterMinted - thisBalance) {
-            amount = minterMinted - thisBalance;
-        }
         // slither-disable-next-line incorrect-equality
         if (amount == 0) revert DepositZeroAmount();
         if (amount < minAmount) revert DepositAmountLessThanMinimum(amount, minAmount);
         depositedAmount = amount;
 
+        // tell the world
+        emit Deposit(sender, receiver, amount);
+        // Required for ERC20 compatibility - we're actually minting outselves
+        emit Transfer(address(0), receiver, amount);
+
+        // get the assets from the sender
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), amount);
 
-        // @note after checkpoint, the account balances are correct, we can `balances` safely.
         _checkpoint(receiver);
 
-        // It should never exceed `type(uint104).max`.
-        TokenBalance memory supply = $.totalSupply;
-        TokenBalance memory balance = $.balances[receiver];
-        supply.amount += uint104(amount);
-        supply.updatedAt = uint40(block.timestamp);
-        balance.amount += uint104(amount);
-
-        _recordTotalSupply(supply);
-        $.balances[receiver] = balance;
-
-        emit Deposit(sender, receiver, amount);
-        emit UserDepositChange(receiver, balance.amount, 0);
+        // do the deposit
+        _deposit(amount, receiver);
     }
 
     /// @inheritdoc IStabilityPool
-    function withdraw(uint256 amount, address receiver) external virtual override returns (uint256 amountWithdrawn) {
-        amountWithdrawn = _withdraw(_msgSender(), amount, receiver);
+    function withdraw(
+        uint256 amount,
+        address receiver,
+        uint256 minAmount
+    ) external virtual override returns (uint256 amountWithdrawn) {
+        if (receiver == address(0)) {
+            revert ERC20InvalidReceiver(address(0));
+        }
+        address sender = _msgSender();
+        _checkpoint(sender);
+
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.balances[sender];
+        if (amount == type(uint256).max) amount = balance.amount;
+        else if (amount > balance.amount) revert WithdrawAmountExceedsBalance(amount, balance.amount);
+
+        if (amount == 0) revert WithdrawZeroAmount();
+        if (amount < minAmount) revert WithdrawAmountLessThanMinimum(amount, minAmount);
+        amountWithdrawn = amount;
+
+        emit Withdraw(sender, receiver, amount);
+        // Required for ERC20 compatibility - we're actually burning ourselves
+        emit Transfer(sender, address(0), amount);
+
+        _withdraw(sender, amount, balance);
+
+        IERC20(ASSET_TOKEN).safeTransfer(receiver, amount);
     }
 
     function accumulateReward(
@@ -277,6 +385,7 @@ contract StabilityPool_v1 is
      **********************/
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
+    // TODO: this could be much more efficient, by passing back the total supply, and balance rather than updating it
     function _checkpoint(address account) internal virtual override {
         super._checkpoint(account);
 
@@ -328,41 +437,66 @@ contract StabilityPool_v1 is
         share = balance.amount;
     }
 
+    function _deposit(uint256 amount, address receiver) internal {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+
+        // update the global record
+        // It should never exceed `type(uint104).max`.
+        TokenBalance memory supply = $.totalSupply;
+        supply.amount += uint104(amount);
+        supply.updatedAt = uint40(block.timestamp);
+
+        _recordTotalSupply(supply);
+
+        // update the user record
+        TokenBalance memory balance = $.balances[receiver];
+        balance.amount += uint104(amount);
+        $.balances[receiver] = balance;
+
+        emit UserDepositChange(receiver, balance.amount, 0);
+    }
+
     /// @dev Internal function to withdraw assets from this contract.
     /// @param sender The address of owner_ to withdraw from.
     /// @param amount The amount of token to withdraw.
-    /// @param receiver The address of token receiver.
-    function _withdraw(address sender, uint256 amount, address receiver) private returns (uint256 amountWithdrawn) {
+    /// @param balance the balance before the withdraw
+    function _withdraw(address sender, uint256 amount, TokenBalance memory balance) private {
         // @note after checkpoint, the account balances are correct, we can `balances` safely.
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        _checkpoint(sender);
 
+        // update the global record
         TokenBalance memory supply = $.totalSupply;
-        TokenBalance memory balance = $.balances[sender];
-
-        if (amount == type(uint256).max) amount = balance.amount;
-        if (amount > balance.amount) revert WithdrawAmountExceedsBalance(amount, balance.amount);
-        if (amount == 0) revert WithdrawZeroAmount();
-
         unchecked {
             supply.amount -= uint104(amount);
             supply.updatedAt = uint40(block.timestamp);
+        }
+        _recordTotalSupply(supply);
+
+        // update the user record
+        unchecked {
             balance.amount -= uint104(amount);
         }
-
-        // TODO: check this
-        // this is already updated in `_checkpoint(sender)`.
-        // balance.updatedAt = uint40(block.timestamp);
-        // ownerBalance.updatedAt = uint40(block.timestamp);
-
-        _recordTotalSupply(supply);
         $.balances[sender] = balance;
 
-        IERC20(ASSET_TOKEN).safeTransfer(receiver, amount);
-        amountWithdrawn = amount;
-
-        emit Withdraw(sender, receiver, amount);
         emit UserDepositChange(sender, balance.amount, 0);
+    }
+
+    function _transfer(address from, address to, uint256 amount) internal {
+        _checkpoint(from);
+
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.balances[from];
+        if (amount == type(uint256).max) amount = balance.amount;
+        else if (amount > balance.amount) revert IERC20Errors.ERC20InsufficientBalance(from, balance.amount, amount);
+
+        if (amount == 0) revert WithdrawZeroAmount();
+
+        emit Transfer(from, to, amount);
+
+        _withdraw(from, amount, balance);
+
+        _checkpoint(to);
+        _deposit(amount, to);
     }
 
     /// @dev Internal function to reduce asset loss due to liquidation.

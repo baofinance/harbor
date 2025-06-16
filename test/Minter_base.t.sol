@@ -44,6 +44,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     address peggedToken;
     string peggedTokenBurnSig;
     address wrappedCollateralToken;
+    address collateralToken;
 
     address leveragedToken;
     address reservePool;
@@ -253,6 +254,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
         peggedTokenBurnSig = "burn(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
+        collateralToken = Deployed.stETH;
 
         setUp_reservePool();
     }

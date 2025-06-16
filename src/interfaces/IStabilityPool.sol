@@ -50,6 +50,9 @@ interface IStabilityPool {
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawZeroAmount();
 
+    /// @dev Thrown when the deposited amount is less than the minimum.
+    error WithdrawAmountLessThanMinimum(uint256 amount, uint256 minAmount);
+
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
 
@@ -82,16 +85,9 @@ interface IStabilityPool {
     /// @notice Return the address of underlying token of this contract.
     function ASSET_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the total amount of asset deposited to this contract.
-    function totalAssetSupply() external view returns (uint256);
-
     /// @notice Return the hiostorical total asset deposited to this contract.
     // solhint-disable-next-line explicit-types
     function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
-
-    /// @notice Return the amount of deposited asset for some specific user.
-    /// @param account The address of user to query.
-    function assetBalanceOf(address account) external view returns (uint256);
 
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);
@@ -109,7 +105,7 @@ interface IStabilityPool {
     function deposit(uint256 amount, address receiver, uint256 minAmount) external returns (uint256 amountDeposited);
 
     /// @notice Withdraw asset from this contract.
-    function withdraw(uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
+    function withdraw(uint256 amount, address receiver, uint256 minAmount) external returns (uint256 amountWithdrawn);
 
     /// @notice perform a liquidation of the amount
     // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);

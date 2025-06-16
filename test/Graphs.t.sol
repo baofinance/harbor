@@ -97,12 +97,12 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
 
         address stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPool_v1(minter, wrappedCollateralToken, 1 weeks)),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, "empty", "barrel"))
         );
 
         address stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPool_v1(minter, leveragedToken, 1 weeks)),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, "empty", "barrel"))
         );
 
         // set up the stability pool managers

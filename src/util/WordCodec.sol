@@ -41,10 +41,6 @@ library WordCodec {
         }
     }
 
-    function decodeUint32(bytes32 word, uint256 offset) internal pure returns (uint256 result) {
-        result = decodeUint(word, offset, 32);
-    }
-
     /// @dev Inserts a signed integer shifted by an offset into a 256 bit word, replacing the old value. Returns
     /// the new word.
     ///
@@ -75,41 +71,6 @@ library WordCodec {
             assembly {
                 result := or(mul(gt(value, maxInt), not(mask)), value)
             }
-        }
-    }
-
-    /// @dev Decodes and returns a boolean shifted by an offset from a 256 bit word.
-    function decodeBool(bytes32 word, uint256 offset) internal pure returns (bool result) {
-        // Equivalent to:
-        // result = (uint256(word >> offset) & 1) == 1;
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            result := and(shr(offset, word), 1)
-        }
-    }
-
-    /// @dev Inserts a boolean value shifted by an offset into a 256 bit word, replacing the old value. Returns the new
-    /// word.
-    function encodeBool(bytes32 word, bool value, uint256 offset) internal pure returns (bytes32 result) {
-        // Equivalent to:
-        // bytes32 clearedWord = bytes32(uint256(word) & ~(1 << offset));
-        // bytes32 referenceInsertBool = clearedWord | bytes32(uint256(value ? 1 : 0) << offset);
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            // slither-disable-next-line incorrect-shift
-            let clearedWord := and(word, not(shl(offset, 1)))
-            result := or(clearedWord, shl(offset, value))
-        }
-    }
-
-    function clearWordAtPosition(
-        bytes32 word,
-        uint256 offset,
-        uint256 bitLength
-    ) internal pure returns (bytes32 clearedWord) {
-        unchecked {
-            uint256 mask = (1 << bitLength) - 1;
-            clearedWord = bytes32(uint256(word) & ~(mask << offset));
         }
     }
 }

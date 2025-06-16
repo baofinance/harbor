@@ -183,7 +183,7 @@ abstract contract LinearMultipleRewardDistributor is
         if (distributor == address(0)) revert RewardDistributorIsZero();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if ($.activeRewardTokens.add(token)) revert DuplicatedRewardToken();
+        if (!$.activeRewardTokens.add(token)) revert DuplicatedRewardToken(); // if value was not added then it already exists
         $.distributors[token] = distributor;
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.remove(token); // wake-disable-line unchecked-return-value
