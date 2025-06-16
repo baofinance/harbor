@@ -6,20 +6,19 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ERC20PermitUpgradeable} from "@bao/ERC20PermitUpgradeable.sol";
-import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+
+import {ERC20PermitUpgradeable} from "@bao/ERC20PermitUpgradeable.sol";
+import {Token} from "@bao/Token.sol";
+import {TokenHolder} from "@bao/TokenHolder.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {Token} from "@bao/Token.sol";
-import {TokenHolder} from "@bao/TokenHolder.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -197,9 +196,9 @@ contract StabilityPool_v1 is
      *************************/
 
     /// @notice Implements ERC20 allowance
-    function allowance(address owner, address spender) public view override returns (uint256) {
+    function allowance(address owner_, address spender) public view override returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        return $.allowances[owner][spender];
+        return $.allowances[owner_][spender];
     }
 
     /// @dev Returns the name of the token.
@@ -258,23 +257,23 @@ contract StabilityPool_v1 is
 
     /// @notice Implements ERC20 approve
 
-    function _approve(address owner, address spender, uint256 value /*, bool emitEvent*/) internal override {
+    function _approve(address owner_, address spender, uint256 value /*, bool emitEvent*/) internal override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (owner == address(0)) {
+        if (owner_ == address(0)) {
             revert ERC20InvalidApprover(address(0));
         }
         if (spender == address(0)) {
             revert ERC20InvalidSpender(address(0));
         }
-        $.allowances[owner][spender] = value;
+        $.allowances[owner_][spender] = value;
         // if (emitEvent) {
-        emit Approval(owner, spender, value);
+        emit Approval(owner_, spender, value);
         // }
     }
 
     function approve(address spender, uint256 value) public virtual returns (bool) {
-        address owner = _msgSender();
-        _approve(owner, spender, value);
+        address owner_ = _msgSender();
+        _approve(owner_, spender, value);
         return true; // reverts if false
     }
 
