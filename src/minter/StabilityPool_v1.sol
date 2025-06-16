@@ -29,12 +29,11 @@ import {TokenHolder} from "@bao/TokenHolder.sol";
 /// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
 /// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
 ///
-/// This contract also uses an ERC20 token that represents ownership of the assets deposited here.
-/// We could have added ERC20 functionality into this contract but we use a separate contract to
-/// * keep separation of concerns - asset stability vs asset ownership
-/// * ensure a reliable ERC20 implementation by utilising Openzeppelin's implemenation
-/// * avoid constraining future upgrades to this contract (which is large as it is)
-
+/// This contract also implements ERC20 so that it can:
+/// * be deposited in a gauge for further rewards
+/// * represent ownership of the assets deposited here in a wallet.
+/// it is beyond the scope of this contract to manage and coordinate gauge interactions - this is for the UI
+///
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
@@ -254,11 +253,6 @@ contract StabilityPool_v1 is
         supply.updatedAt = uint40(block.timestamp);
         balance.amount += uint104(amount);
 
-        // TODO: check this:
-        // this is already updated in `_checkpoint(receiver)`.
-        // balance.updatedAt = uint40(block.timestamp);
-        // ownerBalance.updatedAt = uint40(block.timestamp);
-
         _recordTotalSupply(supply);
         $.balances[receiver] = balance;
 
@@ -268,8 +262,6 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IStabilityPool
     function withdraw(uint256 amount, address receiver) external virtual override returns (uint256 amountWithdrawn) {
-        // TODO: not allowed to withdraw as fToken in fxUSD.
-        // what should we do for BaoUSD?
         amountWithdrawn = _withdraw(_msgSender(), amount, receiver);
     }
 
@@ -284,25 +276,24 @@ contract StabilityPool_v1 is
      * Internal Functions *
      **********************/
 
-    // @inheritdoc BaoAccessControl
-    // TODO: implement this:
-    // function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
-    //     StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-    //     if (role == VE_SHARING_ROLE && $.balances[account].amount > 0) {
-    //         revert ErrorVoteOwnerCannotStake();
-    //     }
-
-    //     return super._grantRole(role, account);
-    // }
-
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _checkpoint(address account) internal virtual override {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
         super._checkpoint(account);
 
         if (account != address(0)) {
-            _updateUserBalance(account, $.totalSupply);
+            StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+            TokenBalance memory supply = $.totalSupply;
+            TokenBalance memory balance = $.balances[account];
+            uint104 newBalance = uint104(_getCompoundedBalance(balance.amount, balance.product, supply.product));
+            if (newBalance != balance.amount) {
+                // no unchecked here, just in case
+                emit UserDepositChange(account, newBalance, balance.amount - newBalance);
+            }
+
+            balance.amount = newBalance;
+            balance.product = supply.product;
+            balance.updatedAt = uint40(block.timestamp);
+            $.balances[account] = balance;
         }
     }
 
@@ -372,28 +363,6 @@ contract StabilityPool_v1 is
 
         emit Withdraw(sender, receiver, amount);
         emit UserDepositChange(sender, balance.amount, 0);
-    }
-
-    /// @dev Internal function to update the balance of user.
-    /// @param account The address of user to update.
-    /// @param supply The latest total supply struct.
-    /// @return balance The updated token balance for the user.
-    function _updateUserBalance(
-        address account,
-        TokenBalance memory supply
-    ) private returns (TokenBalance memory balance) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        balance = $.balances[account];
-        uint104 newBalance = uint104(_getCompoundedBalance(balance.amount, balance.product, supply.product));
-        if (newBalance != balance.amount) {
-            // no unchecked here, just in case
-            emit UserDepositChange(account, newBalance, balance.amount - newBalance);
-        }
-
-        balance.amount = newBalance;
-        balance.product = supply.product;
-        balance.updatedAt = uint40(block.timestamp);
-        $.balances[account] = balance;
     }
 
     /// @dev Internal function to reduce asset loss due to liquidation.

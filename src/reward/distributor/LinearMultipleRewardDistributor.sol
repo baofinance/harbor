@@ -183,13 +183,10 @@ abstract contract LinearMultipleRewardDistributor is
         if (distributor == address(0)) revert RewardDistributorIsZero();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if ($.activeRewardTokens.contains(token)) revert DuplicatedRewardToken();
-
-        // slither-disable-next-line unused-return we don't care if the the token was already in the set
-        $.activeRewardTokens.add(token);
+        if ($.activeRewardTokens.add(token)) revert DuplicatedRewardToken();
         $.distributors[token] = distributor;
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
-        $.historicalRewardTokens.remove(token);
+        $.historicalRewardTokens.remove(token); // wake-disable-line unchecked-return-value
 
         emit RegisterRewardToken(token, distributor);
     }
@@ -215,7 +212,8 @@ abstract contract LinearMultipleRewardDistributor is
     /// @inheritdoc IMultipleRewardDistributor
     function unregisterRewardToken(address token) external onlyOwnerOrRoles(_REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
+
+        if (!$.activeRewardTokens.remove(token)) revert NotActiveRewardToken();
 
         LinearReward.RewardData memory _data = $.rewardData[token];
         unchecked {
@@ -224,12 +222,9 @@ abstract contract LinearMultipleRewardDistributor is
             if (_data.queued + _distributable + _undistributed > 0) revert RewardDistributionNotFinished();
         }
 
-        // slither-disable-next-line unused-return we don't care if the the token was already in the set
-        $.activeRewardTokens.remove(token);
         $.distributors[token] = address(0);
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
-        $.historicalRewardTokens.add(token);
-
+        $.historicalRewardTokens.add(token); // wake-disable-line unchecked-return-value
         emit UnregisterRewardToken(token);
     }
 

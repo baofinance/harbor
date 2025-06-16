@@ -302,7 +302,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         if (receiver == address(0)) receiver = sender;
 
         for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(sender, tokens[i], receiver);
+            _claimSingle(sender, tokens[i], receiver); // wake-disable-line unchecked-return-value
         }
     }
 
@@ -315,7 +315,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         if (receiver == address(0)) receiver = account;
 
         for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver);
+            _claimSingle(account, tokens[i], receiver); // wake-disable-line unchecked-return-value
         }
     }
 
@@ -379,7 +379,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint48 epochExponent = currentProd.epochAndExponent();
 
         snapshot.rewards.pending = uint128(_claimable(account, token));
-        snapshot.checkpoint.integral = $.tokenToEpochExponentToIntegral[token][epochExponent]; // <-- does this need to be updated
+        snapshot.checkpoint.integral = $.tokenToEpochExponentToIntegral[token][epochExponent];
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
 
         $.userRewardSnapshot[account][token] = snapshot;
@@ -399,7 +399,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
         address[] memory activeRewardTokens = activeRewardTokens();
         for (uint256 i = 0; i < activeRewardTokens.length; i++) {
-            _claimSingle(account, activeRewardTokens[i], receiver);
+            _claimSingle(account, activeRewardTokens[i], receiver); // wake-disable-line unchecked-return-value
         }
     }
 

@@ -165,14 +165,14 @@ contract TokenDistributor_v1 is
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         Token.sanityCheckERC20Token(token);
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
-        $.tokens.add(token); // only adds if one is not already there
+        $.tokens.add(token); // wake-disable-line unchecked-return-value //only adds if one is not already there
     }
 
     /// @inheritdoc ITokenDistributor
     function removeToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         // slither-disable-next-line unused-return
-        $.tokens.remove(token);
+        $.tokens.remove(token); // wake-disable-line unchecked-return-value //only removes if one is there
     }
 
     /// @inheritdoc ITokenDistributor
