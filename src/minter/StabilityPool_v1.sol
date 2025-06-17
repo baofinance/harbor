@@ -20,6 +20,8 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -153,7 +155,7 @@ contract StabilityPool_v1 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         $.totalSupply.product = DecrementalFloatingPoint.encode(0, 0, uint64(1 ether));
-        $.totalSupply.updatedAt = uint40(block.timestamp);
+        $.totalSupply.updatedAt = uint40(block.timestamp) - 1; // set to 1 second ago so this is sure to be the start of history
         $.totalSupplyHistory.push($.totalSupply);
 
         $.name = name_;
@@ -235,9 +237,14 @@ contract StabilityPool_v1 is
     // solhint-disable-next-line explicit-types
     function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory record = $.totalSupplyHistory[index];
-        atDay = record.updatedAt;
-        amount = record.amount;
+        if (index >= $.totalSupplyHistory.length) {
+            atDay = 0;
+            amount = 0;
+        } else {
+            TokenBalance memory record = $.totalSupplyHistory[index];
+            atDay = record.updatedAt;
+            amount = record.amount;
+        }
     }
 
     /// @inheritdoc IStabilityPool
@@ -533,16 +540,15 @@ contract StabilityPool_v1 is
     /// @param supply The new total supply to record.
     function _recordTotalSupply(TokenBalance memory supply) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        unchecked {
-            uint256 totalSupplyHistoryLast = $.totalSupplyHistory.length - 1;
-            // slither-disable-next-line incorrect-equality
-            if ($.totalSupplyHistory[totalSupplyHistoryLast].updatedAt == supply.updatedAt) {
-                $.totalSupplyHistory[totalSupplyHistoryLast] = supply;
-            } else {
-                $.totalSupplyHistory.push(supply);
-            }
-            $.totalSupply = supply;
+        uint256 totalSupplyHistoryLast = $.totalSupplyHistory.length - 1;
+
+        // slither-disable-next-line incorrect-equality
+        if ($.totalSupplyHistory[totalSupplyHistoryLast].updatedAt == supply.updatedAt) {
+            $.totalSupplyHistory[totalSupplyHistoryLast] = supply;
+        } else {
+            $.totalSupplyHistory.push(supply);
         }
+        $.totalSupply = supply;
     }
 
     /// @dev Internal function to compute the amount of asset deposited after several liquidation.

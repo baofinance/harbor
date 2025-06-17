@@ -426,35 +426,4 @@ contract StabilityPoolManager_v1 is
         emit Harvested(actuallyHarvested); //, bountyAmount);
         return actuallyHarvested;
     }
-
-    // function claimGaugeRewards(
-    //     address bountyReceiver
-    // )
-    //     external
-    //     // TODO: add a min?
-    //     nonReentrant
-    // {
-    //     // @note We allow donating FXN to this contract, the incentive should only consider minted FXN.
-    //     uint256 _balance = IERC20(STEAM).balanceOf(address(this));
-    //     ICurveTokenMinter(TOKEN_MINTER).mint(gauge);
-    //     uint256 _minted = IERC20(FXN).balanceOf(address(this)) - _balance;
-    //     uint256 _incentive = (_minted * incentiveRatio) / PRECISION;
-    //     _balance += _minted;
-
-    //     if (_incentive > 0) {
-    //         IERC20(FXN).safeTransfer(_receiver, _incentive);
-    //         _balance -= _incentive;
-    //     }
-
-    //     if (_balance > 0) {
-    //         uint256 _ratio = _computeSplitterRatio();
-    //         uint256 _splitterFXN = (_balance * _ratio) / PRECISION;
-    //         // deposit rewards to rebalance pool splitter
-    //         IERC20(FXN).safeTransfer(splitter, _splitterFXN);
-    //         // transfer extra FXN to reserve pool
-    //         IERC20(FXN).safeTransfer(reservePool, _balance - _splitterFXN);
-    //         // split rewards
-    //         IFxRebalancePoolSplitter(splitter).split(FXN);
-    //     }
-    // }
 }
