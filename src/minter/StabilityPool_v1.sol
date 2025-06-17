@@ -262,18 +262,13 @@ contract StabilityPool_v1 is
 
     /// @notice Implements ERC20 approve
 
-    function _approve(address owner_, address spender, uint256 value /*, bool emitEvent*/) internal override {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (owner_ == address(0)) {
-            revert ERC20InvalidApprover(address(0));
-        }
+    function _approve(address owner_, address spender, uint256 value) internal override(ERC20PermitUpgradeable) {
         if (spender == address(0)) {
             revert ERC20InvalidSpender(address(0));
         }
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         $.allowances[owner_][spender] = value;
-        // if (emitEvent) {
         emit Approval(owner_, spender, value);
-        // }
     }
 
     function approve(address spender, uint256 value) public virtual returns (bool) {
@@ -518,15 +513,15 @@ contract StabilityPool_v1 is
             supply.amount = 0;
         } else {
             uint256 lossNumerator = loss * 1 ether - $.lastAssetLossError;
-            // Add 1 to make error in quotient positive. We want "slightly too much" LUSD loss,
+            // Add 1 to make error in quotient positive. We want "slightly too much" loss,
             // which ensures the error in any given compoundedAssetDeposit favors the Stability Pool.
             assetLossPerUnitStaked = (lossNumerator / uint256(supply.amount)) + 1;
             $.lastAssetLossError = assetLossPerUnitStaked * uint256(supply.amount) - lossNumerator;
             supply.amount -= uint104(loss);
         }
 
-        // The newProductFactor is the factor by which to change all deposits, due to the depletion of RebalancePool assets in the liquidation.
-        // We make the product factor 0 if there was a pool-emptying. Otherwise, it is (1 - LUSDLossPerUnitStaked)
+        // The newProductFactor is the factor by which to change all deposits, due to the depletion of StabilityPool assets in the liquidation.
+        // We make the product factor 0 if there was a pool-emptying. Otherwise, it is (1 - assetLossPerUnitStaked)
         uint256 newProductFactor = 1 ether - assetLossPerUnitStaked;
         supply.product = supply.product.mul(uint64(newProductFactor));
         supply.updatedAt = uint40(block.timestamp);
