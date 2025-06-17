@@ -20,8 +20,6 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
