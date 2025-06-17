@@ -55,7 +55,9 @@ library ConfigIncentiveLib {
         result = (config_.slot0.decodeUint(index * 32, 32) * 10 ** (18 - COLLATERAL_RATIO_DECIMALS));
         // an upper bound of 1 ether actually means an upper bound just below 1 ether because that's where it becomes depegged
         // we treat 1 ether specially, as we can't specify 1 ether -1 so we just subtract 1 here
-        if (result == 1 ether) result = 1 ether - 1;
+        if (result == 1 ether) {
+            result = 1 ether - 1;
+        }
     }
 
     /// @notice Returns a collateral ratio lower bound at the given index`

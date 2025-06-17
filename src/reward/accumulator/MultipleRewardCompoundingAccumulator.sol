@@ -299,8 +299,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
         _checkpoint(sender);
 
         address receiver = $.rewardReceiver[sender];
-        if (receiver == address(0)) receiver = sender;
-
+        if (receiver == address(0)) {
+            receiver = sender;
+        }
         for (uint256 i = 0; i < tokens.length; i++) {
             _claimSingle(sender, tokens[i], receiver); // wake-disable-line unchecked-return-value
         }
@@ -312,8 +313,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
         address receiver = $.rewardReceiver[account];
-        if (receiver == address(0)) receiver = account;
-
+        if (receiver == address(0)) {
+            receiver = account;
+        }
         for (uint256 i = 0; i < tokens.length; i++) {
             _claimSingle(account, tokens[i], receiver); // wake-disable-line unchecked-return-value
         }
@@ -328,8 +330,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
         UserRewardSnapshot memory userSnapshot = $.userRewardSnapshot[account][token];
         (uint112 previousProd, uint256 shares) = _getUserPoolShare(account);
-        if (shares == 0) return userSnapshot.rewards.pending;
-
+        if (shares == 0) {
+            return userSnapshot.rewards.pending;
+        }
         uint48 epochExponent = previousProd.epochAndExponent();
         uint64 magnitude = previousProd.magnitude();
 
@@ -395,8 +398,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
         if (receiverStored != address(0) && receiver == address(0)) {
             receiver = receiverStored;
         }
-        if (receiver == address(0)) receiver = account;
-
+        if (receiver == address(0)) {
+            receiver = account;
+        }
         address[] memory activeRewardTokens = activeRewardTokens();
         for (uint256 i = 0; i < activeRewardTokens.length; i++) {
             _claimSingle(account, activeRewardTokens[i], receiver); // wake-disable-line unchecked-return-value
@@ -431,7 +435,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
             revert NotActiveRewardToken();
         }
         // slither-disable-next-line incorrect-equality
-        if (amount == 0) return;
+        if (amount == 0) {
+            return;
+        }
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
         (uint112 currentProd, uint256 totalShare) = _getTotalPoolShare();

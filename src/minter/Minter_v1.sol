@@ -242,11 +242,15 @@ contract Minter_v1 is
 
         // get the type of burn model used by the pegged token
         bytes4 burnSelector = bytes4(keccak256(bytes(peggedBurnSignature)));
-        if (burnSelector == bytes4(keccak256("burn(address,uint256)"))) _BURN_SIGNATURE = BurnSignature.Burn2Arg;
-        else if (burnSelector == bytes4(keccak256("burn(uint256)"))) _BURN_SIGNATURE = BurnSignature.Burn1Arg;
-        else if (burnSelector == bytes4(keccak256("burnFrom(address,uint256)")))
+        if (burnSelector == bytes4(keccak256("burn(address,uint256)"))) {
+            _BURN_SIGNATURE = BurnSignature.Burn2Arg;
+        } else if (burnSelector == bytes4(keccak256("burn(uint256)"))) {
+            _BURN_SIGNATURE = BurnSignature.Burn1Arg;
+        } else if (burnSelector == bytes4(keccak256("burnFrom(address,uint256)"))) {
             _BURN_SIGNATURE = BurnSignature.BurnFrom;
-        else revert UnrecognisedBurnSignature(peggedBurnSignature);
+        } else {
+            revert UnrecognisedBurnSignature(peggedBurnSignature);
+        }
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -365,7 +369,9 @@ contract Minter_v1 is
             // we have collateral and it's worth something
             // ratio = (1 ether * 1 ether) / (1 ether - (peggedValue$ / (collateralValue$ / 1 ether)));
             ratio = (1 ether * 1 ether) / (1 ether - ((peggedValue$ * 1 ether) / collateralValue$));
-            if (ratio > 100 ether) ratio = 100 ether;
+            if (ratio > 100 ether) {
+                ratio = 100 ether;
+            }
         }
     }
 
@@ -775,7 +781,9 @@ contract Minter_v1 is
         );
 
         // slither-disable-next-line incorrect-equality
-        if (underlyingCollateralIn == 0) revert MintZeroAmount(PEGGED_TOKEN);
+        if (underlyingCollateralIn == 0) {
+            revert MintZeroAmount(PEGGED_TOKEN);
+        }
 
         // check the amounts involved
         // slither-disable-next-line incorrect-equality        if (peggedOut == 0) revert MintZeroAmount(PEGGED_TOKEN);
@@ -861,7 +869,9 @@ contract Minter_v1 is
                 address(this),
                 requestedBonus
             );
-            if (actualBonus != requestedBonus) revert RequestedBonusNotGiven(requestedBonus, actualBonus);
+            if (actualBonus != requestedBonus) {
+                revert RequestedBonusNotGiven(requestedBonus, actualBonus);
+            }
             underlyingCollateral_ += underlyingDiscount$ / 1 ether;
         }
 
@@ -913,7 +923,9 @@ contract Minter_v1 is
                 address(this),
                 requestedBonus
             );
-            if (actualBonus != requestedBonus) revert RequestedBonusNotGiven(requestedBonus, actualBonus);
+            if (actualBonus != requestedBonus) {
+                revert RequestedBonusNotGiven(requestedBonus, actualBonus);
+            }
             // for minting leveraged, the discount collateral is held by the minter
             underlyingCollateral_ += underlyingDiscount;
         }
@@ -1328,8 +1340,9 @@ contract Minter_v1 is
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 fee, uint256 peggedMinted, uint256 maxCollateralIn) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        if (peggedTokenBalance_ == 0) revert ActionPaused();
-
+        if (peggedTokenBalance_ == 0) {
+            revert ActionPaused();
+        }
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
@@ -1408,8 +1421,9 @@ contract Minter_v1 is
         uint256 reserveWrappedCapacity$
     ) private pure returns (uint256 fee$, uint256 discount$, uint256 peggedRedeemed, uint256 collateralReturned$) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        if (peggedTokenBalance_ == 0) revert ActionPaused();
-
+        if (peggedTokenBalance_ == 0) {
+            revert ActionPaused();
+        }
         uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, true); // solhint-disable-line explicit-types
         // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
@@ -1520,7 +1534,9 @@ contract Minter_v1 is
     ) private pure returns (uint256 fee, uint256 discount, uint256 leveragedMinted) {
         // we cannot calculate our collateral ratio scale when there are no pegged tokens as it's infinite i.e. (/0)
         // slither-disable-next-line incorrect-equality
-        if (balanceOf.pegged == 0) revert ActionPaused();
+        if (balanceOf.pegged == 0) {
+            revert ActionPaused();
+        }
         fee = 0;
         discount = 0;
         leveragedMinted = 0;
@@ -1531,8 +1547,11 @@ contract Minter_v1 is
                 price
             );
             // leveraged tokens have no value (we haven't quite depegged, though)
-            if (collateralValue$ <= peggedValue$) return (fee, discount, leveragedMinted);
+            if (collateralValue$ <= peggedValue$) {
+                return (fee, discount, leveragedMinted);
+            }
         }
+
         // simulate minting leveaged tokens from current collateral ratio upwards,
         // applying the incentive at the correct ratio as we go.
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
@@ -1632,8 +1651,9 @@ contract Minter_v1 is
         uint256 leveragedTokenBalance_
     ) private pure returns (uint256 fee, uint256 leveragedRedeemed, uint256 collateralOut) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        if (peggedTokenBalance_ == 0 || _isDepegged(underlyingCollateral_, price, peggedTokenBalance_))
+        if (peggedTokenBalance_ == 0 || _isDepegged(underlyingCollateral_, price, peggedTokenBalance_)) {
             revert ActionPaused();
+        }
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         // and we an do this once, here, and not in the loop below, because redeeming leveraged tokens, will never cause a re-peg.
 
@@ -1647,7 +1667,9 @@ contract Minter_v1 is
                 price
             );
             // leveraged tokens have no value (we haven't quite depegged, though)
-            if (collateralValue$ <= peggedValue$) return (fee, leveragedRedeemed, collateralOut);
+            if (collateralValue$ <= peggedValue$) {
+                return (fee, leveragedRedeemed, collateralOut);
+            }
         }
 
         uint256 underlyingCollateralIn = _underlyingCollateralForLeveragedTokens(
@@ -1724,9 +1746,13 @@ contract Minter_v1 is
         for (band = 0; band < ConfigIncentiveLib._collateralRatioBandCount(config_) - 1; band++) {
             uint256 bandUpperBound = ConfigIncentiveLib._collateralRatioUpperBounds(config_, band);
             if (atLower) {
-                if (collateralRatio_ < bandUpperBound) break;
+                if (collateralRatio_ < bandUpperBound) {
+                    break;
+                }
             } else {
-                if (collateralRatio_ <= bandUpperBound) break;
+                if (collateralRatio_ <= bandUpperBound) {
+                    break;
+                }
             }
         }
     }
@@ -1826,7 +1852,9 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 collateral) {
-        if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) return 0;
+        if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+            return 0;
+        }
         if (leveragedTokenBalance_ == 0) {
             collateral = forLeveraged * collateralPrice;
         } else {

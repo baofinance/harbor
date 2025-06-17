@@ -100,8 +100,9 @@ abstract contract LinearMultipleRewardDistributor is
     constructor(uint256 rewardManagerRole, uint40 periodLength_) {
         _REWARD_MANAGER_ROLE = rewardManagerRole;
 
-        if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days))
+        if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days)) {
             revert InvalidPeriodLength(periodLength_);
+        }
         REWARD_PERIOD_LENGTH = periodLength_;
     }
 
@@ -159,9 +160,12 @@ abstract contract LinearMultipleRewardDistributor is
         address _distributor = _msgSender();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
-        if ($.distributors[token] != _distributor) revert NotRewardDistributor();
-
+        if (!$.activeRewardTokens.contains(token)) {
+            revert NotActiveRewardToken();
+        }
+        if ($.distributors[token] != _distributor) {
+            revert NotRewardDistributor();
+        }
         if (amount > 0) {
             IERC20(token).safeTransferFrom(_distributor, address(this), amount);
         }
@@ -179,11 +183,17 @@ abstract contract LinearMultipleRewardDistributor is
 
     /// @inheritdoc IMultipleRewardDistributor
     function registerRewardToken(address token, address distributor) external onlyOwnerOrRoles(_REWARD_MANAGER_ROLE) {
-        if (token == address(0)) revert RewardTokenIsZero();
-        if (distributor == address(0)) revert RewardDistributorIsZero();
+        if (token == address(0)) {
+            revert RewardTokenIsZero();
+        }
+        if (distributor == address(0)) {
+            revert RewardDistributorIsZero();
+        }
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if (!$.activeRewardTokens.add(token)) revert DuplicatedRewardToken(); // if value was not added then it already exists
+        if (!$.activeRewardTokens.add(token)) {
+            revert DuplicatedRewardToken(); // if value was not added then it already exists
+        }
         $.distributors[token] = distributor;
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.remove(token); // wake-disable-line unchecked-return-value
@@ -199,11 +209,13 @@ abstract contract LinearMultipleRewardDistributor is
         address token,
         address newDistributor
     ) external onlyOwnerOrRoles(_REWARD_MANAGER_ROLE) {
-        if (newDistributor == address(0)) revert RewardDistributorIsZero();
-
+        if (newDistributor == address(0)) {
+            revert RewardDistributorIsZero();
+        }
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        if (!$.activeRewardTokens.contains(token)) revert NotActiveRewardToken();
-
+        if (!$.activeRewardTokens.contains(token)) {
+            revert NotActiveRewardToken();
+        }
         address oldDistributor = $.distributors[token];
         $.distributors[token] = newDistributor;
 
@@ -213,13 +225,18 @@ abstract contract LinearMultipleRewardDistributor is
     function unregisterRewardToken(address token) external onlyOwnerOrRoles(_REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if (!$.activeRewardTokens.remove(token)) revert NotActiveRewardToken();
-
+        if (!$.activeRewardTokens.remove(token)) {
+            revert NotActiveRewardToken();
+        }
         LinearReward.RewardData memory _data = $.rewardData[token];
         unchecked {
             (uint256 _distributable, uint256 _undistributed) = _data.pending();
-            if (_data.queued < REWARD_PERIOD_LENGTH) _data.queued = 0; // ignore round error
-            if (_data.queued + _distributable + _undistributed > 0) revert RewardDistributionNotFinished();
+            if (_data.queued < REWARD_PERIOD_LENGTH) {
+                _data.queued = 0; // ignore round error
+            }
+            if (_data.queued + _distributable + _undistributed > 0) {
+                revert RewardDistributionNotFinished();
+            }
         }
 
         $.distributors[token] = address(0);
@@ -254,8 +271,9 @@ abstract contract LinearMultipleRewardDistributor is
 
         // If the reward period length is zero, we distribute rewards immediately.
         // If there are no active reward tokens, we do nothing.
-        if (REWARD_PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) return;
-
+        if (REWARD_PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) {
+            return;
+        }
         address[] memory activeRewardTokens_ = $.activeRewardTokens.values();
         for (uint256 i = 0; i < activeRewardTokens_.length; i++) {
             address token = activeRewardTokens_[i];

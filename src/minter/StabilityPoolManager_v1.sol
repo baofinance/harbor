@@ -213,7 +213,9 @@ contract StabilityPoolManager_v1 is
     /// @notice Updates the rebalance threshold collateral ratio
     /// @param newRatio The new rebalance threshold
     function setRebalanceThreshold(uint256 newRatio) external onlyOwner {
-        if (newRatio < 1 ether) revert InvalidRebalanceThreshold(newRatio);
+        if (newRatio < 1 ether) {
+            revert InvalidRebalanceThreshold(newRatio);
+        }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         $.rebalanceThreshold = newRatio;
 

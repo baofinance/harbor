@@ -70,14 +70,16 @@ library Config_v1 {
                 // fees are the same or decreasing with collateral ratio
                 // this is not necessary for mathematical reasons
                 // given the action reduces collateral ratio, decreasing a fee as collateral ratio decreases is a likely error
-                if (i == 0) prevIncentiveRatio = incentiveRatio;
-                else if (incentiveRatio > prevIncentiveRatio)
+                if (i == 0) {
+                    prevIncentiveRatio = incentiveRatio;
+                } else if (incentiveRatio > prevIncentiveRatio) {
                     revert IMinter.InvalidIncentiveRatioValue(
                         name,
                         i,
                         config_.incentiveRatios[i],
                         "must be decreasing"
                     );
+                }
             } else {
                 // it's a redeem pegged or mint leveraged
                 // check against interval (-1, 1) i.e. some discount; to zero; to some fees
@@ -93,14 +95,16 @@ library Config_v1 {
                 // this *is* necessary for mathematical reasons - given the reserve pool can be exhausted we must ensure that discounts applied
                 // are path independent - i.e. dollar-by-dollar actions results in the same total discount as a single action of the same total value.
                 // given the action increases collateral ratio, increasing a fee or decreasing a discount as collateral ratio increases is a likely error
-                if (i == 0) prevIncentiveRatio = incentiveRatio;
-                else if (incentiveRatio < prevIncentiveRatio)
+                if (i == 0) {
+                    prevIncentiveRatio = incentiveRatio;
+                } else if (incentiveRatio < prevIncentiveRatio) {
                     revert IMinter.InvalidIncentiveRatioValue(
                         name,
                         i,
                         config_.incentiveRatios[i],
                         "must be increasing"
                     );
+                }
             }
 
             // check collateral ratio upper bounds are strictly increasing and then copy
@@ -133,8 +137,9 @@ library Config_v1 {
                 // this makes the check against band == 0 the same as a check for depegged
                 // it also makes the math simpler: i.e. how, otherwise, do we manage multiple incentive ratios for the depegged situation?
                 // especially as the actual collateral ratio (not the one we calculate as _collateralRatio()) never goes below 1 ether
-                if (currentUpperBound != 1 ether && incentiveRatio != 1 ether)
+                if (currentUpperBound != 1 ether && incentiveRatio != 1 ether) {
                     revert IMinter.NoDepegBoundaryOrDisallow(name);
+                }
             } else {
                 // each subsequent must be strictly increasing at the storage precision
                 if (currentUpperBound <= prevUpperBound) {
@@ -180,7 +185,9 @@ library Config_v1 {
         // solhint-disable-next-line explicit-types
         for (uint i = 0; i < outBounds; i++) {
             uint256 ub = ConfigIncentiveLib._collateralRatioUpperBounds(config_, i);
-            if (ub == 1 ether - 1) ub = 1 ether;
+            if (ub == 1 ether - 1) {
+                ub = 1 ether;
+            }
             out.collateralRatioBandUpperBounds[iOut] = ub;
             out.incentiveRatios[iOut] = ConfigIncentiveLib._incentiveRatio(config_, i);
             iOut++;

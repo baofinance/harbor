@@ -321,11 +321,16 @@ contract StabilityPool_v1 is
         }
         address sender = _msgSender();
 
-        if (amount == type(uint256).max) amount = IERC20(ASSET_TOKEN).balanceOf(sender);
-
+        if (amount == type(uint256).max) {
+            amount = IERC20(ASSET_TOKEN).balanceOf(sender);
+        }
         // slither-disable-next-line incorrect-equality
-        if (amount == 0) revert DepositZeroAmount();
-        if (amount < minAmount) revert DepositAmountLessThanMinimum(amount, minAmount);
+        if (amount == 0) {
+            revert DepositZeroAmount();
+        }
+        if (amount < minAmount) {
+            revert DepositAmountLessThanMinimum(amount, minAmount);
+        }
         depositedAmount = amount;
 
         // tell the world
@@ -356,11 +361,18 @@ contract StabilityPool_v1 is
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[sender];
-        if (amount == type(uint256).max) amount = balance.amount;
-        else if (amount > balance.amount) revert WithdrawAmountExceedsBalance(amount, balance.amount);
+        if (amount == type(uint256).max) {
+            amount = balance.amount;
+        } else if (amount > balance.amount) {
+            revert WithdrawAmountExceedsBalance(amount, balance.amount);
+        }
 
-        if (amount == 0) revert WithdrawZeroAmount();
-        if (amount < minAmount) revert WithdrawAmountLessThanMinimum(amount, minAmount);
+        if (amount == 0) {
+            revert WithdrawZeroAmount();
+        }
+        if (amount < minAmount) {
+            revert WithdrawAmountLessThanMinimum(amount, minAmount);
+        }
         amountWithdrawn = amount;
 
         emit Withdraw(sender, receiver, amount);
@@ -485,11 +497,14 @@ contract StabilityPool_v1 is
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.balances[from];
-        if (amount == type(uint256).max) amount = balance.amount;
-        else if (amount > balance.amount) revert IERC20Errors.ERC20InsufficientBalance(from, balance.amount, amount);
-
-        if (amount == 0) revert WithdrawZeroAmount();
-
+        if (amount == type(uint256).max) {
+            amount = balance.amount;
+        } else if (amount > balance.amount) {
+            revert IERC20Errors.ERC20InsufficientBalance(from, balance.amount, amount);
+        }
+        if (amount == 0) {
+            revert WithdrawZeroAmount();
+        }
         emit Transfer(from, to, amount);
 
         _withdraw(from, amount, balance);
