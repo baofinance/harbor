@@ -994,4 +994,73 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
             "User should be able to deposit after zero-supply sweep"
         );
     }
+
+    function testBalanceOfAfterExponentChange() public {
+        // 1. Initial setup - user1 makes a significant deposit
+        uint256 depositAmount = 1000 ether;
+
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+
+        // Record initial balance
+        uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        assertEq(initialBalance, depositAmount, "Initial balance should match deposit");
+
+        // 2. Create a significant loss (99.9%) to trigger an exponent change
+        uint256 sweepAmount = (depositAmount * 999) / 1000;
+        vm.prank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, sweepAmount, rebalancer);
+
+        // 3. Check balance after exponent change - should trigger exponentDiff == 1 branch
+        uint256 balanceAfterExponentChange = IERC20(stabilityPoolCollateral).balanceOf(user1);
+
+        // Verify the expected relationship between initial and final balance
+        uint256 expectedRemainingBalance = depositAmount - sweepAmount;
+        assertEq(
+            balanceAfterExponentChange,
+            expectedRemainingBalance,
+            "Balance should reflect exactly the loss amount"
+        );
+
+        // Also verify the correct ratio (should be 0.1% remaining)
+        uint256 expectedRatio = 1000; // We expect a 1000:1 reduction
+        uint256 actualRatio = initialBalance / balanceAfterExponentChange;
+        assertEq(actualRatio, expectedRatio, "Balance reduction ratio should match sweep percentage");
+
+        // 4. Check balance again to ensure the calculation is stable
+        uint256 secondBalanceCheck = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        assertEq(secondBalanceCheck, balanceAfterExponentChange, "Balance should be stable across multiple checks");
+    }
+
+    function testDustBalanceRoundingToZero() public {
+        // 1. User makes a deposit
+        uint256 depositAmount = 1000 ether;
+        deal(peggedToken, user1, depositAmount * 2);
+
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+
+        // 2. Record initial balance
+        uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        assertEq(initialBalance, depositAmount, "Initial balance should match deposit");
+
+        // 3. Create a loss just large enough to trigger the dust threshold but not complete liquidation
+        // We want to leave a balance that's just under initialBalance / 1e9
+        uint256 dustThreshold = initialBalance / 1e9; // This is the threshold below which balances round to 0
+        uint256 sweepAmount = initialBalance - (dustThreshold / 2); // Just below the threshold
+
+        vm.prank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, sweepAmount, rebalancer);
+
+        // 4. Check balance - should be zero due to dust threshold rounding
+        uint256 balanceAfterSweep = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        assertEq(balanceAfterSweep, 0, "Balance should be rounded to zero due to dust threshold");
+
+        // 5. Verify we can still interact with the pool after dust rounding
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+
+        uint256 newBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        assertEq(newBalance, depositAmount, "Should be able to deposit after dust rounding");
+    }
 }
