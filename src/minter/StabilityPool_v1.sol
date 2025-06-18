@@ -513,34 +513,58 @@ contract StabilityPool_v1 is
         _deposit(amount, to);
     }
 
-    /// @dev Internal function to reduce asset loss due to liquidation.
-    /// @param loss The amount of asset used by liquidation.
+    /// @dev Internal function to reduce asset accounting.
+    /// @param loss The amount of asset lost.
+
     function _notifyLoss(uint256 loss) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalSupply;
-
+        if (supply.amount == 0) {
+            return;
+        }
+        // calculate the loss per unit. which, due to integer division, has errors
         uint256 assetLossPerUnitStaked;
+        // those errors are contained in an over-applied error which is essentially
+        // lossError ≈ supply.amount - (loss % supply.amount)
+        // this lossError (over application) is subtracted from any future call to this function
+        // the loss error does not affect the supply, only the user share of that and ensures that
+        // when it comes to making a claim, users get a fair allocation.
+
         // use >= here, in case someone send extra asset to this contract.
         if (loss >= supply.amount) {
-            // all assets are liquidated.
+            // Complete liquidation
             assetLossPerUnitStaked = 1 ether;
             $.lastAssetLossError = 0;
             supply.amount = 0;
         } else {
-            uint256 lossNumerator = loss * 1 ether - $.lastAssetLossError;
-            // Add 1 to make error in quotient positive. We want "slightly too much" loss,
-            // which ensures the error in any given compoundedAssetDeposit favors the Stability Pool.
-            assetLossPerUnitStaked = (lossNumerator / uint256(supply.amount)) + 1;
-            $.lastAssetLossError = assetLossPerUnitStaked * uint256(supply.amount) - lossNumerator;
+            uint256 lossInEther = loss * 1 ether;
+
+            // calculate the new loss error (over applied)
+            // Handle case where loss is less than the over-application error
+            if (lossInEther <= $.lastAssetLossError) {
+                // Consume the error by the loss amount
+                $.lastAssetLossError -= lossInEther;
+                assetLossPerUnitStaked = 0; // No loss per unit staked, as the error absorbs the loss
+            } else {
+                // Calculate adjusted loss after accounting for error
+                uint256 lossNumerator = lossInEther - $.lastAssetLossError;
+                // Use ceiling division (n-1)/d + 1 to round up if there's any remainder
+                // this is an optimised version of ceilDiv in that we know the denominator is > zero (see code above)
+                // This ensures the pool is not disadvantaged and only favours the pool when necessary.
+                assetLossPerUnitStaked = (lossNumerator - 1) / uint256(supply.amount) + 1;
+                // Store the over-application as the new error
+                $.lastAssetLossError = (assetLossPerUnitStaked * uint256(supply.amount)) - lossNumerator;
+            }
+            // Reduce supply by loss amount
             supply.amount -= uint104(loss);
         }
 
+        // Update product factor and total supply
         // The newProductFactor is the factor by which to change all deposits, due to the depletion of StabilityPool assets in the liquidation.
         // We make the product factor 0 if there was a pool-emptying. Otherwise, it is (1 - assetLossPerUnitStaked)
         uint256 newProductFactor = 1 ether - assetLossPerUnitStaked;
         supply.product = supply.product.mul(uint64(newProductFactor));
         supply.updatedAt = uint40(block.timestamp);
-
         _recordTotalSupply(supply);
     }
 
@@ -627,6 +651,8 @@ contract StabilityPool_v1 is
         if (token == ASSET_TOKEN) {
             _checkpoint(address(0));
             _notifyLoss(amount);
+            // we need to burn the appropriate amount of this contract to match the new token balance
+            emit Transfer(address(this), address(0), amount);
         }
     }
 }

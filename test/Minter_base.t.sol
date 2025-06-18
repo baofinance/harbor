@@ -550,20 +550,21 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
 
+        // make sure we have it all
+        deal(wrappedCollateralToken, address(this), 10 ether);
+        deal(peggedToken, address(this), 10 ether);
+        deal(leveragedToken, address(this), 10 ether);
+
         vm.expectRevert(IMinter.ActionPaused.selector);
-        vm.prank(owner);
         IMinter(minter).mintPeggedToken(1 ether, user, 0);
 
         vm.expectRevert(IMinter.ActionPaused.selector);
-        vm.prank(owner);
         IMinter(minter).mintLeveragedToken(1 ether, user, 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
-        vm.prank(owner);
         IMinter(minter).redeemPeggedToken(1 ether, user, 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        vm.prank(owner);
         IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
     }
 

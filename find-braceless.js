@@ -131,7 +131,7 @@ function findBracelessControls(filePath) {
         if (issues.length > 0) {
             console.log(`\n${chalk?.blue(filePath) || filePath}:`);
             issues.sort((a, b) => a.line - b.line).forEach(issue => {
-                console.log(`  Line ${issue.line}: ${chalk?.yellow(issue.message) || issue.message} (${issue.type})`);
+                console.log(`  ${filePath}:${issue.line}: ${chalk?.yellow(issue.message) || issue.message} (${issue.type})`);
             });
         }
 

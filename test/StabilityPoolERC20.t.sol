@@ -389,4 +389,16 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
         );
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(user4), TRANSFER_AMOUNT / 4);
     }
+
+    function testTransferFromToZeroAddress() public {
+        vm.prank(user1);
+        IERC20(stabilityPoolCollateral).approve(user2, DEPOSIT_AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidReceiver.selector, address(0)));
+        vm.prank(user2);
+        IERC20(stabilityPoolCollateral).transferFrom(user1, address(0), DEPOSIT_AMOUNT);
+
+        vm.prank(user2);
+        IERC20(stabilityPoolCollateral).transferFrom(user1, user2, DEPOSIT_AMOUNT);
+    }
 }
