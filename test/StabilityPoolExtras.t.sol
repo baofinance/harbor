@@ -9,12 +9,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC20PermitUpgradeable} from "@bao/ERC20PermitUpgradeable.sol";
 
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
+import {Token} from "@bao/Token.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
@@ -25,21 +25,6 @@ import {MockERC20} from "test/mock/MockERC20.sol";
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-
-// New version for testing upgrades
-contract StabilityPool_v2 is StabilityPool_v1 {
-    // Keep the same constructor signature
-    constructor(
-        address minter_,
-        address liquidationToken_,
-        uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, periodLength) {}
-
-    // Add a new function to verify the upgrade worked
-    function version() external pure returns (string memory) {
-        return "v2";
-    }
-}
 
 /// @title TestStabilityPoolExtra
 /// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool_v1 contract.
@@ -133,15 +118,15 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
 
         // Check the history
-        (uint40 atDay0, uint256 amount0) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(0);
+        (uint40 atDay0, uint256 amount0) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(0);
         assertEq(amount0, 0, "Initial history amount should be 0");
         assertEq(uint256(atDay0), initialTimestamp - 1, "Initial history timestamp should be 0");
 
-        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
+        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
         assertEq(amount1, DEPOSIT_AMOUNT, "First deposit amount should match");
         assertEq(uint256(atDay1), initialTimestamp, "First history timestamp should match deposit time");
 
-        (uint40 atDay2, uint256 amount2) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(2);
+        (uint40 atDay2, uint256 amount2) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(2);
         assertEq(amount2, DEPOSIT_AMOUNT * 2, "Second deposit amount should match");
         assertEq(uint256(atDay2), secondTimestamp, "Second history timestamp should match second deposit time");
     }
@@ -163,28 +148,6 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         assertGt(IStabilityPool(stabilityPoolCollateral).lastAssetLossError(), 0, "Loss error should be updated");
     }
 
-    // Test for _authorizeUpgrade function (coverage for function 192)
-    function testUpgrade() public {
-        // Only owner can upgrade
-        vm.prank(user1);
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
-
-        // Create the V2 implementation
-        StabilityPool_v2 implementationV2 = new StabilityPool_v2(minter, wrappedCollateralToken, 1 weeks);
-
-        // Perform the upgrade as the owner
-        vm.prank(owner);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(implementationV2), "");
-
-        // Verify the upgrade was successful by calling the new version function
-        assertEq(
-            StabilityPool_v2(stabilityPoolCollateral).version(),
-            "v2",
-            "Upgrade should succeed and new function should be available"
-        );
-    }
-
     // Test edge cases in _getCompoundedBalance
     function testGetCompoundedBalanceEdgeCases() public {
         // Test case: When initialBalance is 0
@@ -200,7 +163,11 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
 
         // Test user1's balance after complete liquidation (should be 0 due to different epochs)
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "Balance should be 0 after complete liquidation");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            0,
+            "Balance should be 0 after complete liquidation"
+        );
 
         // Make a tiny deposit and cause significant product change to test exponentDiff > 1
         vm.prank(user3);
@@ -213,14 +180,14 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
             IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user4, 0);
 
             // Liquidate 99.9% to force exponent changes
-            uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
+            uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
             vm.prank(rebalancer);
             ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, (totalSupply * 999) / 1000, rebalancer);
         }
 
         // Test that balance is 0 when compoundedBalance < initialBalance / 1e9
         assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user3),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3),
             0,
             "Tiny balance should be 0 after multiple liquidations"
         );
@@ -233,7 +200,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Verify initial balance before liquidation
-        uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 initialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         assertEq(initialBalance, DEPOSIT_AMOUNT, "Initial balance should match deposit amount");
 
         // Perform a full liquidation
@@ -241,8 +208,16 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT, rebalancer);
 
         // Check final balance is 0
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "Balance should be 0 after full liquidation");
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "Total supply should be 0 after full liquidation");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            0,
+            "Balance should be 0 after full liquidation"
+        );
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            0,
+            "Total supply should be 0 after full liquidation"
+        );
 
         // Check lastAssetLossError is reset to 0
         assertEq(IStabilityPool(stabilityPoolCollateral).lastAssetLossError(), 0, "Loss error should be reset to 0");
@@ -262,8 +237,16 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, (DEPOSIT_AMOUNT * 3) / 2, rebalancer);
 
         // Check final balance is 0
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "Balance should be 0 after excess liquidation");
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "Total supply should be 0 after excess liquidation");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            0,
+            "Balance should be 0 after excess liquidation"
+        );
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            0,
+            "Total supply should be 0 after excess liquidation"
+        );
     }
 
     // Test multiple deposits and withdrawals in the same timestamp
@@ -271,18 +254,18 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         // Store the current timestamp
         uint256 currentTimestamp = block.timestamp;
 
-        (uint40 atDay0, uint256 amount0) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(0);
+        (uint40 atDay0, uint256 amount0) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(0);
         assertEq(amount0, 0, "Initial history amount should be 0");
         assertLt(uint256(atDay0), currentTimestamp, "Initial history timestamp should be before now");
 
-        (uint40 atDay1a, uint256 amount1a) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
+        (uint40 atDay1a, uint256 amount1a) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
         assertEq(amount1a, 0, "no deposits yet");
         assertEq(uint256(atDay1a), 0, "History timestamp should be 0");
 
         // Make initial deposit
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-        (atDay1a, amount1a) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
+        (atDay1a, amount1a) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
         assertEq(amount1a, DEPOSIT_AMOUNT, "History should record first deposit");
         assertEq(uint256(atDay1a), currentTimestamp, "History timestamp should match block timestamp 1");
 
@@ -291,7 +274,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
 
         // Check total supply history has only one entry for this timestamp
-        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
+        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
         assertEq(amount1, DEPOSIT_AMOUNT * 2, "History should record combined deposits");
         assertEq(uint256(atDay1), currentTimestamp, "History timestamp should match block timestamp 2");
 
@@ -300,7 +283,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
 
         // Check history is updated correctly
-        (uint40 atDay2, uint256 amount2) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
+        (uint40 atDay2, uint256 amount2) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
         assertEq(amount2, (DEPOSIT_AMOUNT * 3) / 2, "History should update for same timestamp operations");
         assertEq(
             uint256(atDay2),
@@ -308,7 +291,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
             "History timestamp should remain the same for operations in same block"
         );
 
-        (uint40 atDay3, uint256 amount3) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(2);
+        (uint40 atDay3, uint256 amount3) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(2);
         assertEq(amount3, 0, "History should not create new entry for same timestamp operations");
         assertEq(uint256(atDay3), 0, "History timestamp should be 0");
     }
@@ -324,7 +307,11 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
 
         assertEq(withdrawn, DEPOSIT_AMOUNT, "Should withdraw entire balance");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "Balance should be 0 after max withdrawal");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            0,
+            "Balance should be 0 after max withdrawal"
+        );
     }
 
     // Test non-asset token sweep
@@ -384,7 +371,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         // Verify deposit amount
         assertEq(deposited, initialPeggedBalance, "Should deposit entire balance");
         assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
             initialPeggedBalance,
             "Balance should match deposit"
         );
@@ -393,7 +380,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
 
     // Test consecutive deposits at different timestamps
     function testConsecutiveDepositsAtDifferentTimestamps() public {
-        (uint40 atDay0, uint256 amount0) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(0);
+        (uint40 atDay0, uint256 amount0) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(0);
 
         assertEq(amount0, 0, "Initial history amount should be 0");
         assertEq(atDay0, block.timestamp - 1, "Initial history timestamp should be 0");
@@ -403,7 +390,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         // Make first deposit
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-        (uint40 atDay1a, uint256 amount1a) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
+        (uint40 atDay1a, uint256 amount1a) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
         assertEq(amount1a, DEPOSIT_AMOUNT, "Initial history amount should be 0");
         assertEq(atDay1a, block.timestamp, "Initial history timestamp should be 0");
 
@@ -414,8 +401,8 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT + 1, user1, 0);
 
         // Check history has entries at different timestamps
-        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
-        (uint40 atDay2, uint256 amount2) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(2);
+        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
+        (uint40 atDay2, uint256 amount2) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(2);
 
         assertEq(amount1, DEPOSIT_AMOUNT, "First history entry should match first deposit");
         assertEq(atDay1, atDay1a, "Initial history timestamp should be day1");
@@ -501,7 +488,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         vm.prank(user1);
-        vm.expectRevert(IStabilityPool.WithdrawZeroAmount.selector);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, stabilityPoolCollateral));
         IERC20(stabilityPoolCollateral).transfer(user2, 0);
     }
 
@@ -538,7 +525,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 5, user3, 0);
 
         // Check user1's balance after multiple exponent changes
-        uint256 user1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         assertLt(
             user1Balance,
             DEPOSIT_AMOUNT / 1000,
@@ -558,7 +545,11 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
 
         // Verify deposit
         assertEq(deposited, exactAmount, "Should deposit exact balance amount");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), exactAmount, "Balance should match deposit");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            exactAmount,
+            "Balance should match deposit"
+        );
         assertEq(IERC20(peggedToken).balanceOf(user1), 0, "Pegged token balance should be 0");
     }
 
@@ -574,13 +565,13 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
 
         // Check total balance is correct
         assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
             smallAmount * 5,
             "Balance should be sum of all deposits"
         );
 
         // Check history has only one entry per timestamp
-        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalSupplyHistory(1);
+        (uint40 atDay1, uint256 amount1) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
         assertEq(amount1, smallAmount * 5, "History should record combined deposits");
         assertEq(uint256(atDay1), block.timestamp, "History timestamp should match block timestamp");
     }
@@ -614,7 +605,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
-        uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 initialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
         // Sweep a tiny amount of asset tokens
         uint256 tinyAmount = 1;
@@ -622,7 +613,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, tinyAmount, rebalancer);
 
         // Verify the impact on user balance
-        uint256 finalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 finalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         assertLt(finalBalance, initialBalance, "Balance should decrease after sweep");
 
         // Check that lastAssetLossError was updated
@@ -643,8 +634,16 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT, rebalancer);
 
         // Verify all balances are zero
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "Total supply should be 0 after full sweep");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "User balance should be 0 after full sweep");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            0,
+            "Total supply should be 0 after full sweep"
+        );
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            0,
+            "User balance should be 0 after full sweep"
+        );
 
         // Check lastAssetLossError is reset to 0
         assertEq(
@@ -664,5 +663,126 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         assertFalse(success, "Approve from zero address should fail");
+    }
+
+    function testRateAppliedToTokenOperations() public {
+        // Initial setup
+        uint256 initialDeposit = 100 ether;
+
+        // Step 1: Initial deposits at 1:1 rate
+        // User1 deposit
+        deal(peggedToken, user1, initialDeposit);
+        vm.prank(user1);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(initialDeposit, user1, 0);
+
+        // Verify initial state
+        assertEq(IStabilityPool(stabilityPoolCollateral).rate(), 1 ether, "Initial rate should be 1:1");
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            initialDeposit,
+            "Token balance should match deposit"
+        );
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            initialDeposit,
+            "Asset balance should match deposit"
+        );
+
+        // Step 2: Create a loss to change the rate
+        uint256 lossAmount = initialDeposit / 2; // 50% loss
+        vm.prank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, lossAmount, rebalancer);
+
+        // Get new rate
+        uint256 newRate = IStabilityPool(stabilityPoolCollateral).rate();
+        assertEq(newRate, 0.5 ether, "Rate should be 0.5 after 50% loss");
+
+        // Step 3: Test deposit after rate change
+        uint256 secondDeposit = 30 ether;
+        deal(peggedToken, user2, secondDeposit);
+        vm.prank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.prank(user2);
+        uint256 tokensReceivedForDeposit = IStabilityPool(stabilityPoolCollateral).deposit(secondDeposit, user2, 0);
+
+        // Verify deposit applies rate correctly
+        uint256 expectedTokens = (secondDeposit * 1 ether) / newRate; // Asset to token conversion
+        assertEq(tokensReceivedForDeposit, expectedTokens, "Deposit should mint tokens at current rate");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), expectedTokens, "Token balance should reflect rate");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2),
+            secondDeposit,
+            "Asset balance should match deposit"
+        );
+
+        // Step 4: Test withdrawal after rate change
+        uint256 withdrawAmount = 20 ether; // assets
+        vm.prank(user1);
+        uint256 expectedBurnedTokens = IStabilityPool(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
+
+        // Verify withdrawal applies rate correctly
+        uint256 assetsReceivedForWithdraw = (expectedBurnedTokens * newRate) / 1 ether; // Asset to token conversion
+        assertEq(assetsReceivedForWithdraw, withdrawAmount, "Withdraw should return requested assets");
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            initialDeposit - expectedBurnedTokens,
+            "Token balance should be reduced by rate-adjusted amount"
+        );
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            initialDeposit / 2 - withdrawAmount,
+            "Asset balance should be reduced by withdraw amount"
+        );
+
+        // Step 5: Test token transfer after rate change
+        uint256 transferTokenAmount = 10 ether; // tokens (not assets)
+        vm.prank(user1);
+        IERC20(stabilityPoolCollateral).transfer(user3, transferTokenAmount);
+
+        // Verify transfer applies rate correctly
+        uint256 expectedAssetTransfer = (transferTokenAmount * newRate) / 1 ether; // Token to asset conversion
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3),
+            expectedAssetTransfer,
+            "Recipient should receive rate-adjusted assets"
+        );
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            initialDeposit / 2 - withdrawAmount - expectedAssetTransfer,
+            "Sender's asset balance should be reduced by rate-adjusted amount"
+        );
+
+        // Step 6: Additional sweep to verify rate update propagates
+        uint256 secondLossAmount = 10 ether;
+
+        uint256 totalAssetsBeforeSweep = initialDeposit / 2 - withdrawAmount + secondDeposit;
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            totalAssetsBeforeSweep,
+            "Total asset supply should match expected before second sweep"
+        );
+        uint256 currentRate = IStabilityPool(stabilityPoolCollateral).rate();
+        vm.prank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, secondLossAmount, rebalancer);
+
+        // Calculate updated rate
+
+        uint256 expectedFinalRate = (currentRate * (totalAssetsBeforeSweep - secondLossAmount)) /
+            totalAssetsBeforeSweep;
+        uint256 finalRate = IStabilityPool(stabilityPoolCollateral).rate();
+
+        assertApproxEqAbs(finalRate, expectedFinalRate, 10, "Rate should update after second sweep");
+
+        // Verify total balances still match
+        uint256 totalTokenSupply = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 totalAssetSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        assertApproxEqAbs(
+            (totalTokenSupply * finalRate) / 1 ether,
+            totalAssetSupply,
+            100, // Small allowance for rounding
+            "Total tokens converted to assets should equal total asset supply"
+        );
     }
 }

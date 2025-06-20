@@ -97,10 +97,10 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
     function testInitialState() public view {
         // Check initial state
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), 0);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user3), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), 0);
     }
 
     function testDeposit() public {
@@ -111,8 +111,8 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Check deposit results
         assertEq(deposited, DEPOSIT_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), DEPOSIT_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), DEPOSIT_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT);
     }
 
     function testDepositWithMin() public {
@@ -123,7 +123,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Check deposit results
         assertEq(deposited, DEPOSIT_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), DEPOSIT_AMOUNT);
     }
 
     function testDepositFailsWithMinTooHigh() public {
@@ -148,8 +148,8 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Check deposit results
         assertEq(deposited, INITIAL_BALANCE);
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), INITIAL_BALANCE);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), INITIAL_BALANCE);
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), INITIAL_BALANCE);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), INITIAL_BALANCE);
     }
 
     function testWithdraw() public {
@@ -164,8 +164,8 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Check withdrawal results
         assertEq(withdrawn, DEPOSIT_AMOUNT / 2);
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT / 2);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), DEPOSIT_AMOUNT / 2);
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), DEPOSIT_AMOUNT / 2);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT / 2);
     }
 
     function testWithdrawAll() public {
@@ -180,8 +180,8 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Check withdrawal results
         assertEq(withdrawn, DEPOSIT_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), 0);
     }
 
     function testRewardDistribution() public {
@@ -222,20 +222,24 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Record initial balance
-        uint256 initialBalance = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 initialBalance = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        assertEq(initialBalance, IERC20(stabilityPoolCollateral).totalSupply());
+        assertEq(IStabilityPool(stabilityPoolCollateral).rate(), 1 ether);
 
         // Rebalancer sweeps some assets
         vm.prank(rebalancer);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 4, rebalancer);
 
         // Check balances after sweep
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), initialBalance - DEPOSIT_AMOUNT / 4);
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), initialBalance - DEPOSIT_AMOUNT / 4);
         assertApproxEqRel(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
             DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 4,
-            0.01e18
+            0
         );
         assertEq(IERC20(peggedToken).balanceOf(rebalancer), DEPOSIT_AMOUNT / 4);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), initialBalance - DEPOSIT_AMOUNT / 4);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), initialBalance);
     }
 
     function testSweepFailsByUnauthorized() public {
@@ -275,10 +279,13 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Check final balances
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), DEPOSIT_AMOUNT / 2 + DEPOSIT_AMOUNT + DEPOSIT_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), DEPOSIT_AMOUNT + DEPOSIT_AMOUNT / 2);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), 0);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user3), DEPOSIT_AMOUNT);
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            DEPOSIT_AMOUNT / 2 + DEPOSIT_AMOUNT + DEPOSIT_AMOUNT
+        );
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT + DEPOSIT_AMOUNT / 2);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), DEPOSIT_AMOUNT);
     }
 
     function testRewardsAfterMultipleDeposits() public {

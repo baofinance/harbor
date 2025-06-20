@@ -197,9 +197,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
             address(rewardToken1)
         );
 
-        uint256 user1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user2Balance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 user3Balance = IERC20(stabilityPoolCollateral).balanceOf(user3);
+        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user2Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        uint256 user3Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
 
         // User2 withdraws half their deposit
         vm.prank(user2);
@@ -209,9 +209,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         vm.warp(block.timestamp + 1 hours);
 
         // Verify balances after withdrawal
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), user1Balance);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), user2Balance - DEPOSIT_AMOUNT / 2);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user3), user3Balance);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), user1Balance);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2), user2Balance - DEPOSIT_AMOUNT / 2);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), user3Balance);
 
         // Distribute more rewards - should be split proportionally to current deposits
         _distributeRewards(address(rewardToken1), rewardAmount);

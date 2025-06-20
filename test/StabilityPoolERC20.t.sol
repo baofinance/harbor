@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
@@ -68,15 +69,15 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
     // ---- ERC20 Basic Functionality Tests ----
 
     function testTransfer() public {
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user3InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
+        uint256 user1InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user3InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
 
         vm.prank(user1);
         bool success = IERC20(stabilityPoolCollateral).transfer(user3, TRANSFER_AMOUNT);
 
         assertTrue(success, "Transfer should succeed");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user3), user3InitialBalance + TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), user3InitialBalance + TRANSFER_AMOUNT);
     }
 
     function testTransferZeroAddress() public {
@@ -118,15 +119,15 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
         vm.prank(user1);
         IERC20(stabilityPoolCollateral).approve(user3, APPROVE_AMOUNT);
 
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user4InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user4);
+        uint256 user1InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user4InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4);
 
         vm.prank(user3);
         bool success = IERC20(stabilityPoolCollateral).transferFrom(user1, user4, TRANSFER_AMOUNT);
 
         assertTrue(success, "TransferFrom should succeed");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
         assertEq(IERC20(stabilityPoolCollateral).allowance(user1, user3), APPROVE_AMOUNT - TRANSFER_AMOUNT);
     }
 
@@ -134,15 +135,15 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
         vm.prank(user1);
         IERC20(stabilityPoolCollateral).approve(user3, type(uint256).max);
 
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user4InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user4);
+        uint256 user1InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user4InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4);
 
         vm.prank(user3);
         bool success = IERC20(stabilityPoolCollateral).transferFrom(user1, user4, TRANSFER_AMOUNT);
 
         assertTrue(success, "TransferFrom should succeed");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
         assertEq(
             IERC20(stabilityPoolCollateral).allowance(user1, user3),
             type(uint256).max,
@@ -319,14 +320,14 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
         vm.prank(user1);
         IERC20(stabilityPoolCollateral).approve(user3, APPROVE_AMOUNT);
 
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user4InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user4);
+        uint256 user1InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user4InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4);
 
         vm.prank(user3);
         IERC20(stabilityPoolCollateral).transferFrom(user1, user4, TRANSFER_AMOUNT);
 
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
         assertEq(IERC20(stabilityPoolCollateral).allowance(user1, user3), APPROVE_AMOUNT - TRANSFER_AMOUNT);
     }
 
@@ -352,14 +353,14 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
         assertEq(IERC20(stabilityPoolCollateral).allowance(user1, user3), value);
 
         // Now use transferFrom
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user4InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user4);
+        uint256 user1InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user4InitialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4);
 
         vm.prank(user3);
         IERC20(stabilityPoolCollateral).transferFrom(user1, user4, TRANSFER_AMOUNT);
 
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), user1InitialBalance - TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4), user4InitialBalance + TRANSFER_AMOUNT);
     }
 
     function testTransferBetweenMultipleUsers() public {
@@ -378,16 +379,16 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
         IERC20(stabilityPoolCollateral).transfer(user4, TRANSFER_AMOUNT / 4);
 
         // Check final balances
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
         assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user2),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2),
             DEPOSIT_AMOUNT + TRANSFER_AMOUNT - (TRANSFER_AMOUNT / 2)
         );
         assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user3),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3),
             DEPOSIT_AMOUNT + (TRANSFER_AMOUNT / 2) - (TRANSFER_AMOUNT / 4)
         );
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user4), TRANSFER_AMOUNT / 4);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4), TRANSFER_AMOUNT / 4);
     }
 
     function testTransferFromToZeroAddress() public {

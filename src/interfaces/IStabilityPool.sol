@@ -85,12 +85,22 @@ interface IStabilityPool {
     /// @notice Return the address of underlying token of this contract.
     function ASSET_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the hiostorical total asset deposited to this contract.
+    /// @notice Return the amount of assets currently attributed to 'account'.
+    function assetBalanceOf(address account) external view returns (uint256 amount);
+
+    /// @notice Return the total asset deposited to this contract.
     // solhint-disable-next-line explicit-types
-    function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
+    function totalAssetSupply() external view returns (uint256 amount);
+
+    /// @notice Return the historical total asset deposited to this contract.
+    // solhint-disable-next-line explicit-types
+    function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
 
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);
+
+    /// @notice Returns the rate at which the stability pool token is to the asset
+    function rate() external view returns (uint256);
 
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
@@ -98,14 +108,19 @@ interface IStabilityPool {
 
     /// @notice Deposit some asset to this contract.
     /// @dev Use `amount=uint256(-1)` if you want to deposit all asset held.
-    /// @param amount The amount of asset to deposit.
+    /// @param assetAmount The amount of asset to deposit.
     /// @param receiver The address of recipient for the deposited asset.
     /// @param minAmount The minimum amount to deposit
-    /// @return amountDeposited the amount actually deposited
-    function deposit(uint256 amount, address receiver, uint256 minAmount) external returns (uint256 amountDeposited);
+    /// @return sharesMinted the amount of shares sent to 'receiver'
+    function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesMinted);
 
     /// @notice Withdraw asset from this contract.
-    function withdraw(uint256 amount, address receiver, uint256 minAmount) external returns (uint256 amountWithdrawn);
+    /// @dev Use `amount=uint256(-1)` if you want to withdraw all asset held.
+    /// @param assetAmount The amount of asset to withdraw.
+    /// @param receiver The address of recipient for the withdrawn asset.
+    /// @param minAmount The minimum amount to withdraw
+    /// @return sharesBurned the amount of shares sent to 'receiver'
+    function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesBurned);
 
     /// @notice perform a liquidation of the amount
     // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);

@@ -8,6 +8,8 @@ import {console2 as console} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
@@ -36,6 +38,35 @@ import {MockERC20} from "test/mock/MockERC20.sol";
 
 import {console2} from "forge-std/console2.sol";
 
+// New version for testing upgrades
+contract StabilityPool_v2 is StabilityPool_v1 {
+    // Keep the same constructor signature
+    constructor(
+        address minter_,
+        address liquidationToken_,
+        uint40 periodLength
+    ) StabilityPool_v1(minter_, liquidationToken_, periodLength) {}
+
+    // Add a new function to verify the upgrade worked
+    function version() external pure returns (string memory) {
+        return "v2";
+    }
+}
+
+// used to expose internal functions
+contract MockStabilityPool is StabilityPool_v1 {
+    constructor(
+        address minter_,
+        address liquidationToken_,
+        uint40 periodLength
+    ) StabilityPool_v1(minter_, liquidationToken_, periodLength) {}
+
+    /// @notice Exposes the product value for testing purposes
+    function __totalSupply() external view returns (TokenBalance memory) {
+        return _getStabilityPoolStorage().totalAssetSupply;
+    }
+}
+
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address stabilityPoolCollateral;
     string nameCollateral;
@@ -52,8 +83,10 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         string memory collateral = IERC20Metadata(collateralToken).symbol();
         symbol = string.concat("pool-", pegged, "-", collateral, "-", liquidation);
         name = string.concat("Zhenglong stability ", symbol);
+        // use mock stability pool to expose internals for testing
+        // otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, liquidationToken, 1 weeks)), // "StabilityPool_v1.sol",
+            address(new MockStabilityPool(minter, liquidationToken, 1 weeks)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner, name, symbol))
         );
         IBaoRoles(stabilityPool).grantRoles(owner, IStabilityPool(stabilityPool).REWARD_MANAGER_ROLE());
@@ -94,6 +127,28 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
 
     function test_initOnly() public view {
         test_initOnly(stabilityPoolCollateral, wrappedCollateralToken, nameCollateral, symbolCollateral);
+    }
+
+    // Test for _authorizeUpgrade function (coverage for function 192)
+    function testUpgrade() public {
+        // Only owner can upgrade
+        vm.prank(user1);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
+
+        // Create the V2 implementation
+        StabilityPool_v2 implementationV2 = new StabilityPool_v2(minter, wrappedCollateralToken, 1 weeks);
+
+        // Perform the upgrade as the owner
+        vm.prank(owner);
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(implementationV2), "");
+
+        // Verify the upgrade was successful by calling the new version function
+        assertEq(
+            StabilityPool_v2(stabilityPoolCollateral).version(),
+            "v2",
+            "Upgrade should succeed and new function should be available"
+        );
     }
 }
 
@@ -168,7 +223,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // 2 deposit ------------------------------------------------------------------------------
         assertEq(deposited, 2 * price, "returned value");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 2 * price);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 2 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 2 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 8 * price);
 
         // $3 withdrawal
@@ -178,7 +233,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         );
         IStabilityPool(stabilityPoolCollateral).withdraw(3 * price, receiver, 0);
         // 1 withdraw ---------------------------------------------
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 2 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 2 * price);
 
         // $5 second deposit
         vm.prank(user1);
@@ -186,7 +241,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // 3 deposit ------------------------------------------------------------
         assertEq(deposited, 5 * price, "returned value 5");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 7 * price);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 7 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 7 * price);
 
         // withdraw some
         vm.prank(user1);
@@ -194,7 +249,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // 2 withdraw ---------------------------------------------------------------------------
         assertEq(withdrawn, 4 * price, "withdraw 4");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 3 * price);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 3 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 3 * price);
 
         // withdraw rest
         vm.prank(user1);
@@ -202,7 +257,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // 3 withdraw ---------------------------------------------------------------------------
         assertEq(withdrawn, 3 * price, "withdraw 3 (-1)");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 0);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 0);
 
         // deposit -1
         vm.prank(user1);
@@ -210,7 +265,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // 4 deposit ------------------------------------------------------------------------------
         assertEq(deposited, 10 * price, "returned value 10");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 10 * price);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 10 * price);
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0);
 
         // check min deposit amount

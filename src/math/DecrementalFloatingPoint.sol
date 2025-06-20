@@ -5,6 +5,12 @@ pragma solidity 0.8.30;
 // solhint-disable no-inline-assembly
 
 /// @title DecrementalFloatingPoint
+/// The term "decremental" indicates that this floating point implementation is specialized for values that
+/// typically decrease over time:
+/// * Loss-Focused Design: Optimized for the product factor which decreases with each loss event
+/// * Precision Preservation: Maintains accuracy even as values approach zero
+/// * Epoch Tracking: Records complete liquidation events via epoch increments
+/// * Efficient Representation: Packs multiple components into a compact uint64
 ///
 /// @dev The real number is `magnitude * 10^{-18 - 9 * exponent}`, where `magnitude` is in range `(0, 10^18]`.
 /// And the floating point is encoded as:
