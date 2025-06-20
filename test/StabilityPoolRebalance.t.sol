@@ -848,7 +848,6 @@ contract TestStabilityPoolRebalance is TestStabilityPoolSetUp {
         // 10. Test withdrawal after liquidation
         vm.prank(user3);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, owner, 0);
-        console2.log("User3 balance after withdrawal:", IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3));
         assertEq(
             IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
             DEPOSIT_AMOUNT * 2 - DEPOSIT_AMOUNT / 2,

@@ -236,15 +236,10 @@ contract StabilityPool_v1 is
         if (assetBalance == 0) {
             balanceOf_ = 0;
         } else {
-            // Get the current rate
+            // Get the current rate - can't be zero
             uint256 rate_ = _rate(product_);
-            // If rate is zero (complete loss), return zero
-            if (rate_ == 0) {
-                balanceOf_ = 0;
-            } else {
-                // Convert asset balance to token balance using inverse rate
-                balanceOf_ = (assetBalance * 1 ether) / rate_;
-            }
+            // Convert asset balance to token balance using inverse rate
+            balanceOf_ = (assetBalance * 1 ether) / rate_;
         }
     }
 
@@ -555,11 +550,7 @@ contract StabilityPool_v1 is
         // get the balance in assets
         uint256 assetAmount;
         TokenBalance memory balance = $.assetBalances[from];
-        if (tokenAmount == type(uint256).max) {
-            assetAmount = balance.amount;
-        } else {
-            assetAmount = _tokenToAsset(tokenAmount, rate_);
-        }
+        assetAmount = _tokenToAsset(tokenAmount, rate_);
         if (assetAmount > balance.amount) {
             revert IERC20Errors.ERC20InsufficientBalance(
                 from,
@@ -733,6 +724,8 @@ contract StabilityPool_v1 is
     /// @notice returns the rate given the product
     /// @dev as the result is calculated from:
     /// `magnitude * 10^{-18 - 9 * exponent}`, where `magnitude` is in range `(0, 10^18]`
+    /// rounds up and is guaranteed never to be 0
+    /// will be 1 ether initially and after any pool emptying
     function _rate(uint112 product_) internal pure returns (uint256 magnitude_) {
         magnitude_ = product_.magnitude();
         uint24 exponent_ = product_.exponent();
