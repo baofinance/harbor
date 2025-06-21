@@ -28,9 +28,6 @@ contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
     function setUp() public virtual override(TestStabilityPoolSetUp) {
         super.setUp();
 
-        deal(address(peggedToken), user1, 1000 ether);
-        deal(address(peggedToken), user2, 2000 ether);
-
         (stabilityPoolLeveraged, , ) = _setupStabilityPool(leveragedToken);
 
         vm.prank(user1);

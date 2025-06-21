@@ -56,8 +56,8 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
         stabilityPools[1] = stabilityPoolLeveraged;
 
         // Mint test tokens to users
-        deal(peggedToken, user3, 1000 ether);
-        deal(peggedToken, user4, 1000 ether);
+        deal(peggedToken, user3, 3000 ether);
+        deal(peggedToken, user4, 4000 ether);
 
         // Approve tokens for additional users
         vm.startPrank(user3);
