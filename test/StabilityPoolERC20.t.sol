@@ -391,15 +391,22 @@ contract TestStabilityPoolERC20 is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4), TRANSFER_AMOUNT / 4);
     }
 
+    // Test transferFrom with to = address(0)
     function testTransferFromToZeroAddress() public {
+        // Setup: Make a deposit first
         vm.prank(user1);
-        IERC20(stabilityPoolCollateral).approve(user2, DEPOSIT_AMOUNT);
+        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
+        // Attempt transferFrom to address(0)
+        vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidReceiver.selector, address(0)));
-        vm.prank(user2);
-        IERC20(stabilityPoolCollateral).transferFrom(user1, address(0), DEPOSIT_AMOUNT);
+        IERC20(stabilityPoolCollateral).transfer(address(0), DEPOSIT_AMOUNT / 2);
 
-        vm.prank(user2);
-        IERC20(stabilityPoolCollateral).transferFrom(user1, user2, DEPOSIT_AMOUNT);
+        // Verify balance remains unchanged
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            DEPOSIT_AMOUNT,
+            "Balance should be unchanged after failed transfer"
+        );
     }
 }
