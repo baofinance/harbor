@@ -976,8 +976,9 @@ contract StabilityPool_v1 is
         _checkOwnerOrRoles(REBALANCER_ROLE);
     }
 
-    function sweep(address token, uint256 amount, address receiver) public override onlySweeper {
-        TokenHolder.sweep(token, amount, receiver);
+    // slither-disable-next-line reentrancy-no-eth should only ever called from nonReentrant functions
+    function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
+        TokenHolder._sweep(token, amount, receiver);
         if (token == ASSET_TOKEN) {
             _checkpoint(address(0));
             _notifyLoss(amount);
