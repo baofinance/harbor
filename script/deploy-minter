@@ -86,7 +86,7 @@ record_from_network wrappedCollateralToken.address wsteth.address
 ###################################################################################################
 # deploy the stem for this deployer
 ###################################################################################################
-# make the owner the deployer so the deployer can change it
+# make the owner the deployer so the deployer can change it within 1 hour (else it goes there automatically)
 deploy_contract Stem_v1 "lib/bao-base/src/Stem_v1.sol:Stem_v1" "--constructor-args" deployer 3600
 
 ###################################################################################################
@@ -252,7 +252,7 @@ grantRoles genesis minter.ZERO_FEE_ROLE
 if [[ -n "${DEVELOPER_ROLES}" ]]; then
   record developer.address "${DEVELOPER}"
   for role in ${DEVELOPER_ROLES//,/ }; do
-    info "granting ${role} to developer ${DEVELOPER}."
+    log "granting ${role} to developer ${DEVELOPER}."
     grantRoles developer "${role}" || warn "failed to grant ${role} to developer ${DEVELOPER}, continuing anyway"
   done
 fi
