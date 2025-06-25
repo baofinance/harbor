@@ -29,6 +29,13 @@ interface ILiquidityGaugeV6 {
     function user_checkpoint(address addr) external returns (bool);
 }
 
+    // Mock Voting Escrow Boost that returns zero boost
+    contract MockVeBoost {
+        function adjusted_balance_of(address) external pure returns (uint256) {
+            return 0;
+        }
+    }
+
 contract LiquidityGaugeV6Test is Test {
     ILiquidityGaugeV6 public gauge;
     MockERC20 public lpToken;
@@ -40,6 +47,8 @@ contract LiquidityGaugeV6Test is Test {
 
     // CRV token address from the contract (mainnet)
     address constant CRV_ADDRESS = 0xD533a949740bb3306d119CC777fa900bA034cd52;
+    address constant VEBOOST_PROXY = 0x8E0c00ed546602fD9927DF742bbAbF726D5B0d16;
+    address constant VOTING_ESCROW = 0x5f3b5DfEb7B28CDbD7FAba78963EE202a494e2A2;
 
     function setUp() public {
         user1 = makeAddr("user1");
@@ -48,6 +57,20 @@ contract LiquidityGaugeV6Test is Test {
 
         // Deploy mock LP token
         lpToken = new MockERC20("Test LP Token", "TLP", 18);
+
+        // --- Mock VEBOOST_PROXY ---
+        MockVeBoost mockBoost = new MockVeBoost();
+        vm.etch(VEBOOST_PROXY, address(mockBoost).code);
+
+        // Provide placeholder bytecode so vm.mockCall works
+        vm.etch(VOTING_ESCROW, hex"00");
+
+        // Mock totalSupply() to return something > 0 so gauge logic proceeds
+        vm.mockCall(
+        VOTING_ESCROW,
+        abi.encodeWithSignature("totalSupply()"),
+        abi.encode(1e18) // simulate 1 voting escrow token in supply
+        );
 
         // We need to mock the CRV token for the constructor to work
         // Since it calls CRV.future_epoch_time_write() and CRV.rate()
