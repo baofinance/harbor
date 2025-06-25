@@ -30,6 +30,10 @@ interface IStabilityPool {
     /// @param rewardAmount The amount of token gained.
     event RewardReceived(address rewardToken, uint256 rewardAmount);
 
+    /// @notice Emitted when the gauge is updated.
+    /// @param newGauge address of the new gauge
+    event GaugeUpdated(address newGauge);
+
     event Liquidated(
         address liquidatedToken,
         uint256 liquidatedAmount,
@@ -60,47 +64,47 @@ interface IStabilityPool {
     /// either wrapped collateral or leveraged tokens
     error InvalidLiquidationToken(address token);
 
+    /// @dev Thrown when a receiver address is not valid
+    error InvalidReceiver(address receiver);
+
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice The role used for setting up reward tokens.
-    function REWARD_MANAGER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
-
     /// @notice The role used for notifying rebalancing.
-    function REBALANCER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+    function REBALANCER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
     /// @notice The role used for notifying rewards (including when rebalancing).
-    function REWARDER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+    function REWARDER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
-    /// @notice The role for ve balance sharing.
-    function WITHDRAW_FROM_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
-
-    /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
-    function MINTER() external view returns (address); // solhint-disable-line func-name-mixedcase
+    /// @notice Return the address of token used to collect some rewards from the gauge.
+    function STABILITY_POOL_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
-    function LIQUIDATION_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
+    function LIQUIDATION_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of underlying token of this contract.
-    function ASSET_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
+    function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the amount of assets currently attributed to 'account'.
-    function assetBalanceOf(address account) external view returns (uint256 amount);
+    /// @notice Return the address of voting escrow token used for boosting rewards.
+    function VE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the total asset deposited to this contract.
-    // solhint-disable-next-line explicit-types
+    /// @notice Return the total amount of asset deposited to this contract.
     function totalAssetSupply() external view returns (uint256 amount);
 
     /// @notice Return the historical total asset deposited to this contract.
     // solhint-disable-next-line explicit-types
     function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
 
+    /// @notice Return the amount of assets currently attributed to 'account'.
+    function assetBalanceOf(address account) external view returns (uint256 amount);
+
+    /// @notice Return the current boost ratio for some specific user.
+    /// @param account The address of user to query, multiplied by 1e18.
+    function getBoostRatio(address account) external view returns (uint256);
+
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);
-
-    /// @notice Returns the rate at which the stability pool token is to the asset
-    function rate() external view returns (uint256);
 
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
@@ -133,4 +137,6 @@ interface IStabilityPool {
     /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
     /// Other reward tokens can also be added using this function
     function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+
+    function updateGauge(address newGauge) external;
 }

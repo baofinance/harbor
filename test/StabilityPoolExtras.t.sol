@@ -59,7 +59,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         // Setup roles
         uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewardManagerRole = IStabilityPool(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
+        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
@@ -459,39 +459,6 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT * 2, user1, 0);
     }
 
-    // Additional test functions to add to TestStabilityPoolExtra
-
-    // Test for zero amount approval
-    function testApproveZeroAmount() public {
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        vm.prank(user1);
-        bool success = IERC20(stabilityPoolCollateral).approve(user2, 0);
-
-        assertTrue(success, "Zero approval should succeed");
-        assertEq(IERC20(stabilityPoolCollateral).allowance(user1, user2), 0, "Allowance should be zero");
-    }
-
-    // Test for invalid transfer sender
-    function testTransferFromZeroSender() public {
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidSender.selector, address(0)));
-
-        // This should revert, but we need to call it to test the branch
-        vm.prank(address(this));
-        IERC20(stabilityPoolCollateral).transferFrom(address(0), user1, 1);
-    }
-
-    // Test for transfer with zero amount
-    function testTransferZeroAmount() public {
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, stabilityPoolCollateral));
-        IERC20(stabilityPoolCollateral).transfer(user2, 0);
-    }
-
     // Test for extreme product change scenario in _getCompoundedBalance
     function testExtremeProductChangeScenario() public {
         // Initial deposit
@@ -576,29 +543,6 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         assertEq(uint256(atDay1), block.timestamp, "History timestamp should match block timestamp");
     }
 
-    // Test transferFrom with max approval unchanged
-    function testTransferFromMaxApprovalUnchanged() public {
-        // Setup initial deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Approve max value
-        vm.prank(user1);
-        IERC20(stabilityPoolCollateral).approve(user3, type(uint256).max);
-
-        // Do multiple transfers and verify max approval remains unchanged
-        for (uint i = 0; i < 3; i++) {
-            vm.prank(user3);
-            IERC20(stabilityPoolCollateral).transferFrom(user1, user4, DEPOSIT_AMOUNT / 10);
-
-            assertEq(
-                IERC20(stabilityPoolCollateral).allowance(user1, user3),
-                type(uint256).max,
-                "Max approval should not decrease"
-            );
-        }
-    }
-
     // Test sweep with very small asset amount
     function testSweepTinyAssetAmount() public {
         // Setup initial deposit
@@ -665,199 +609,8 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         assertFalse(success, "Approve from zero address should fail");
     }
 
-    function testRateAppliedToTokenOperations() public {
-        // Initial setup
-        uint256 initialDeposit = 100 ether;
-
-        // Step 1: Initial deposits at 1:1 rate
-        // User1 deposit
-        deal(peggedToken, user1, initialDeposit);
-        vm.prank(user1);
-        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(initialDeposit, user1, 0);
-
-        // Verify initial state
-        assertEq(IStabilityPool(stabilityPoolCollateral).rate(), 1 ether, "Initial rate should be 1:1");
-        assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
-            initialDeposit,
-            "Token balance should match deposit"
-        );
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            initialDeposit,
-            "Asset balance should match deposit"
-        );
-
-        // Step 2: Create a loss to change the rate
-        uint256 lossAmount = initialDeposit / 2; // 50% loss
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, lossAmount, rebalancer);
-
-        // Get new rate
-        uint256 newRate = IStabilityPool(stabilityPoolCollateral).rate();
-        assertEq(newRate, 0.5 ether, "Rate should be 0.5 after 50% loss");
-
-        // Step 3: Test deposit after rate change
-        uint256 secondDeposit = 30 ether;
-        deal(peggedToken, user2, secondDeposit);
-        vm.prank(user2);
-        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        vm.prank(user2);
-        uint256 tokensReceivedForDeposit = IStabilityPool(stabilityPoolCollateral).deposit(secondDeposit, user2, 0);
-
-        // Verify deposit applies rate correctly
-        uint256 expectedTokens = (secondDeposit * 1 ether) / newRate; // Asset to token conversion
-        assertEq(tokensReceivedForDeposit, expectedTokens, "Deposit should mint tokens at current rate");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), expectedTokens, "Token balance should reflect rate");
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2),
-            secondDeposit,
-            "Asset balance should match deposit"
-        );
-
-        // Step 4: Test withdrawal after rate change
-        uint256 withdrawAmount = 20 ether; // assets
-        vm.prank(user1);
-        uint256 expectedBurnedTokens = IStabilityPool(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
-
-        // Verify withdrawal applies rate correctly
-        uint256 assetsReceivedForWithdraw = (expectedBurnedTokens * newRate) / 1 ether; // Asset to token conversion
-        assertEq(assetsReceivedForWithdraw, withdrawAmount, "Withdraw should return requested assets");
-        assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
-            initialDeposit - expectedBurnedTokens,
-            "Token balance should be reduced by rate-adjusted amount"
-        );
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            initialDeposit / 2 - withdrawAmount,
-            "Asset balance should be reduced by withdraw amount"
-        );
-
-        // Step 5: Test token transfer after rate change
-        uint256 transferTokenAmount = 10 ether; // tokens (not assets)
-        vm.prank(user1);
-        IERC20(stabilityPoolCollateral).transfer(user3, transferTokenAmount);
-
-        // Verify transfer applies rate correctly
-        uint256 expectedAssetTransfer = (transferTokenAmount * newRate) / 1 ether; // Token to asset conversion
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3),
-            expectedAssetTransfer,
-            "Recipient should receive rate-adjusted assets"
-        );
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            initialDeposit / 2 - withdrawAmount - expectedAssetTransfer,
-            "Sender's asset balance should be reduced by rate-adjusted amount"
-        );
-
-        // Step 6: Additional sweep to verify rate update propagates
-        uint256 secondLossAmount = 10 ether;
-
-        uint256 totalAssetsBeforeSweep = initialDeposit / 2 - withdrawAmount + secondDeposit;
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
-            totalAssetsBeforeSweep,
-            "Total asset supply should match expected before second sweep"
-        );
-        uint256 currentRate = IStabilityPool(stabilityPoolCollateral).rate();
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, secondLossAmount, rebalancer);
-
-        // Calculate updated rate
-
-        uint256 expectedFinalRate = (currentRate * (totalAssetsBeforeSweep - secondLossAmount)) /
-            totalAssetsBeforeSweep;
-        uint256 finalRate = IStabilityPool(stabilityPoolCollateral).rate();
-
-        assertApproxEqAbs(finalRate, expectedFinalRate, 10, "Rate should update after second sweep");
-
-        // Verify total balances still match
-        uint256 totalTokenSupply = IERC20(stabilityPoolCollateral).totalSupply();
-        uint256 totalAssetSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
-        assertApproxEqAbs(
-            (totalTokenSupply * finalRate) / 1 ether,
-            totalAssetSupply,
-            100, // Small allowance for rounding
-            "Total tokens converted to assets should equal total asset supply"
-        );
-    }
-
-    /// @notice Test balanceOf with zero asset balance
-    function testBalanceOfWithZeroAssetBalance() public view {
-        // Check balance of an account that never deposited
-        uint256 balance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        assertEq(balance, 0, "Balance should be zero for account with no deposits");
-    }
-
-    /// @notice Test balanceOf with zero rate (complete liquidation)
-    function testBalanceOfWithPoolEmptying() public {
-        // First, make a deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
-
-        // Sweep all assets to create a zero rate
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, 100 ether, rebalancer);
-
-        // Check rate is zero
-        uint256 rate = IStabilityPool(stabilityPoolCollateral).rate();
-        assertEq(rate, 1 ether, "Rate should be zero after complete liquidation");
-
-        // Check balanceOf returns zero
-        uint256 balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        assertEq(balance, 0, "Balance should be zero when rate is zero");
-
-        // Deposit again to confirm fresh start
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(50 ether, user2, 0);
-
-        // Confirm new deposit starts with 1:1 ratio
-        uint256 tokenBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        assertEq(tokenBalance, 50 ether, "New deposit should have 1:1 token ratio");
-    }
-
-    /// @notice Test transfer with type(uint256).max amount
-    function testTransferWithMaxAmount() public {
-        // First, make a deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
-
-        // Transfer using type(uint256).max
-        vm.prank(user1);
-        bool success = IERC20(stabilityPoolCollateral).transfer(user2, type(uint256).max);
-
-        assertTrue(success, "Transfer with max amount should succeed");
-
-        // Verify balances
-        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 user2Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
-
-        assertEq(user1Balance, 0, "User1 balance should be 0 after max transfer");
-        assertEq(user2Balance, 100 ether, "User2 balance should equal the transferred amount");
-    }
-
-    /// @notice Test transfer that would result in zero asset amount
-    function testTransferZeroAssetAmount() public {
-        // First, make a deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
-
-        // Create a loss to reduce the rate
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, 99 ether, rebalancer);
-
-        // Try to transfer a tiny amount that would result in 0 asset amount due to rounding
-        vm.prank(user1);
-        vm.expectRevert("WithdrawZeroAmount()");
-        IERC20(stabilityPoolCollateral).transfer(user2, 1);
-    }
-
     /// @notice Test complete loss scenario with multiple users
-    function testCompleteLoopScenario() public {
+    function testCompleteLossScenario() public {
         // Set up: User1 and User3 deposit
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
@@ -870,9 +623,9 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, 150 ether, rebalancer);
 
         // Verify all balances are zero
-        uint256 user1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user3Balance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user3Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
+        uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
 
         assertEq(user1Balance, 0, "User1 balance should be 0 after complete loss");
         assertEq(user3Balance, 0, "User3 balance should be 0 after complete loss");
@@ -882,11 +635,8 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         vm.prank(user4);
         IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user4, 0);
 
-        // Verify new rate and balances
-        uint256 rate = IStabilityPool(stabilityPoolCollateral).rate();
-        assertEq(rate, 1 ether, "Rate should be reset to 1 ether after new epoch");
-
-        uint256 user4Balance = IERC20(stabilityPoolCollateral).balanceOf(user4);
+        // Verify new balances
+        uint256 user4Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user4);
         assertEq(user4Balance, 200 ether, "User4 balance should match deposit");
     }
 }

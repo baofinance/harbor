@@ -60,7 +60,7 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         // Setup roles
         uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewardManagerRole = IStabilityPool(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
+        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
@@ -184,92 +184,6 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         );
     }
 
-    // Test transfer with type(uint256).max amount to trigger that branch
-    function testTransferMaxAmount() public {
-        // Setup: Make a deposit first
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Transfer using type(uint256).max
-        vm.prank(user1);
-        bool success = IERC20(stabilityPoolCollateral).transfer(user2, type(uint256).max);
-
-        assertTrue(success, "Transfer with max amount should succeed");
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            0,
-            "User1 balance should be 0 after max transfer"
-        );
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2),
-            DEPOSIT_AMOUNT,
-            "User2 balance should equal the transferred amount"
-        );
-    }
-
-    // Test transferFrom with insufficient allowance
-    function testTransferFromInsufficientAllowance() public {
-        // Setup: Make a deposit first
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Approve less than the transfer amount
-        vm.prank(user1);
-        IERC20(stabilityPoolCollateral).approve(user2, DEPOSIT_AMOUNT / 2);
-
-        // Try to transfer more than the approved amount
-        vm.prank(user2);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientAllowance.selector,
-                user2,
-                DEPOSIT_AMOUNT / 2,
-                DEPOSIT_AMOUNT
-            )
-        );
-        IERC20(stabilityPoolCollateral).transferFrom(user1, user3, DEPOSIT_AMOUNT);
-
-        // Check balances remain unchanged
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            DEPOSIT_AMOUNT,
-            "User1 balance should be unchanged"
-        );
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), 0, "User3 balance should be 0");
-    }
-
-    // Test transferFrom with exactly the right allowance
-    function testTransferFromExactAllowance() public {
-        // Setup: Make a deposit first
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Approve exactly the transfer amount
-        vm.prank(user1);
-        IERC20(stabilityPoolCollateral).approve(user2, DEPOSIT_AMOUNT);
-
-        // Transfer the approved amount
-        vm.prank(user2);
-        bool success = IERC20(stabilityPoolCollateral).transferFrom(user1, user3, DEPOSIT_AMOUNT);
-
-        assertTrue(success, "Transfer with exact allowance should succeed");
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            0,
-            "User1 balance should be 0 after transfer"
-        );
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3),
-            DEPOSIT_AMOUNT,
-            "User3 balance should equal the transferred amount"
-        );
-        assertEq(
-            IERC20(stabilityPoolCollateral).allowance(user1, user2),
-            0,
-            "Allowance should be 0 after exact transfer"
-        );
-    }
-
     // Test totalSupplyHistory with invalid index
     function testTotalSupplyHistoryInvalidIndex() public view {
         // Get total supply history with invalid index
@@ -293,119 +207,18 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
 
-        vm.prank(user1);
-        IERC20(stabilityPoolCollateral).transfer(user2, DEPOSIT_AMOUNT / 4);
-
         // Check final balances
         assertEq(
             IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            DEPOSIT_AMOUNT + DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 2 - DEPOSIT_AMOUNT / 4,
+            DEPOSIT_AMOUNT + DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 2,
             "User1 balance should reflect all operations"
         );
-
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2),
-            DEPOSIT_AMOUNT / 4,
-            "User2 balance should match received transfer"
-        );
-    }
-
-    // Test invalid approve to zero address
-    function testApproveToZeroAddress() public {
-        vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidSpender.selector, address(0)));
-        IERC20(stabilityPoolCollateral).approve(address(0), DEPOSIT_AMOUNT);
-    }
-
-    // Test transferFrom with max value allowance doesn't decrease
-    function testTransferFromWithMaxAllowance() public {
-        // Setup: Make a deposit first
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Approve max value
-        vm.prank(user1);
-        IERC20(stabilityPoolCollateral).approve(user2, type(uint256).max);
-
-        // Transfer some tokens
-        vm.prank(user2);
-        IERC20(stabilityPoolCollateral).transferFrom(user1, user3, DEPOSIT_AMOUNT / 2);
-
-        // Allowance should still be max
-        assertEq(
-            IERC20(stabilityPoolCollateral).allowance(user1, user2),
-            type(uint256).max,
-            "Allowance should remain at max value"
-        );
-
-        // Do another transfer to verify it still works
-        vm.prank(user2);
-        IERC20(stabilityPoolCollateral).transferFrom(user1, user3, DEPOSIT_AMOUNT / 2);
-
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            0,
-            "User1 balance should be 0 after transfers"
-        );
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3),
-            DEPOSIT_AMOUNT,
-            "User3 balance should equal full transferred amount"
-        );
-    }
-
-    // Test the ERC20 metadata functions
-    function testERC20Metadata() public view {
-        string memory name = IERC20Metadata(stabilityPoolCollateral).name();
-        string memory symbol = IERC20Metadata(stabilityPoolCollateral).symbol();
-        uint8 decimals = IERC20Metadata(stabilityPoolCollateral).decimals();
-
-        assertEq(name, "Zhenglong stability pool-BAOUSD-stETH-wstETH", "Name should match initialization");
-        assertEq(symbol, "pool-BAOUSD-stETH-wstETH", "Symbol should match initialization");
-        assertEq(decimals, 18, "Decimals should be 18");
-    }
-
-    // Test self-transfer doesn't change state
-    function testSelfTransfer() public {
-        // Setup: Make a deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Transfer to self
-        vm.prank(user1);
-        bool success = IERC20(stabilityPoolCollateral).transfer(user1, DEPOSIT_AMOUNT / 2);
-
-        assertTrue(success, "Self-transfer should succeed");
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            DEPOSIT_AMOUNT,
-            "Balance should be unchanged after self-transfer"
-        );
-    }
-
-    // Test transfer fails for insufficient balance
-    function testTransferInsufficientBalance() public {
-        // Setup: Make a small deposit
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Try to transfer more than balance
-        vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientBalance.selector,
-                user1,
-                DEPOSIT_AMOUNT,
-                DEPOSIT_AMOUNT * 2
-            )
-        );
-        IERC20(stabilityPoolCollateral).transfer(user2, DEPOSIT_AMOUNT * 2);
     }
 
     // Test contract initialization with invalid parameters
     function testReinitializeContract() public {
         // Try to initialize again (contract is already initialized)
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        StabilityPool_v1(stabilityPoolCollateral).initialize(owner, "StabilityPool", "SP-BAO");
+        StabilityPool_v1(stabilityPoolCollateral).initialize(owner);
     }
 }

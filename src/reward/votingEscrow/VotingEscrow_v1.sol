@@ -1,0 +1,837 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
+
+import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
+
+/// @title VotingEscrow
+/// @author rootminus0x1
+///         Modified from Aladdinn (https://github.com/AladdinDAO/aladdin-v3-contracts/blob/main/contracts/voting-escrow/VotingEscrow.vy)
+///         Which was modified from Curve (https://github.com/curvefi/curve-dao-contracts/blob/master/contracts/VotingEscrow.vy)
+///         Added in functions from https://github.com/AladdinDAO/aladdin-v3-contracts/blob/main/contracts/voting-escrow/VotingEscrowHelper.sol
+///         Made UUPS upgradeable with named storage
+/// @notice Implements a system where governance tokens can be locked for a time period
+///         in exchange for voting power (veToken).
+/// @dev Voting power decays linearly with time. The maximum lock time is 4 years.
+///
+/// This is a faithful Solidity port of Curve's VotingEscrow Vyper contract.
+/// Storage Pattern: Using ERC7201 namespaced storage slots to ensure that upgrades don't corrupt storage. This is more secure than the old storage gap approach.
+/// Ownership Integration: Integrates with BAO's custom ownership model by inheriting from BaoOwnable, which provides a one-time ownership transfer pattern.
+/// Upgradeability: Implements UUPS pattern using OpenZeppelin's contracts, with the _authorizeUpgrade function restricted to the BAO owner.
+/// Code Differences:
+/// Maintaining Solidity conventions while preserving Vyper logic
+/// Replaced Vyper's nested array access with mapping[address][uint256] pattern
+/// Using SafeCast for type conversion safety
+/// Added additional view functions to improve useability
+/// Compatible Interfaces:
+/// Maintains exact function signatures from the Vyper original
+/// Includes Aragon-compatible functions for DAO integration
+/// Binary Search:
+/// Implements the same binary search algorithm for finding checkpoint epochs
+/// Uses 128 iterations to match Vyper implementation
+/// Potential Issues:
+/// Gas costs will be slightly higher than the Vyper original due to Solidity's storage access patterns
+/// The Vyper original has extremely tightly packed storage which is harder to reproduce in Solidity
+/// The checkpoint function is still gas-intensive due to the historical lookups
+// slither-disable-start timestamp
+// solhint-disable-next-line contract-name-camelcase
+contract VotingEscrow_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    ContextUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
+    BaoOwnableRoles,
+    ITokenHolder,
+    TokenHolder,
+    IVotingEscrow
+{
+    using SafeERC20 for IERC20;
+    using SafeCast for uint256;
+    using SafeCast for int256;
+    using SafeCast for int128;
+
+    uint256 internal constant _ALLOWED_SMART_CONTRACT_ROLE = _ROLE_0;
+
+    // solhint-disable-next-line func-name-mixedcase
+    function ALLOWED_SMART_CONTRACT_ROLE() external pure returns (uint256 role) {
+        role = _ALLOWED_SMART_CONTRACT_ROLE;
+    }
+
+    /***************************************************************************
+     * Namespace Storage - ERC7201-based storage pattern for upgradeability
+     **************************************************************************/
+
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.VotingEscrow")) - 1)) & ~bytes32(uint256(0xff))'
+    bytes32 private constant _VOTING_ESCROW_STORAGE =
+        0x8d4cdbcdf88ffd0d1c59297e12b94ebee7ae214c1a483d97ad100b0876812b00;
+
+    struct VotingEscrowStorage {
+        // Voting power tracking
+        uint256 epoch;
+        // Point structure for historical lookups
+        mapping(uint256 => Point) pointHistory; // epoch -> point
+        mapping(address => mapping(uint256 => Point)) userPointHistory; // user -> Point[user_epoch]
+        mapping(address => uint256) userPointEpoch; // user -> epoch
+        mapping(uint256 => int128) slopeChanges; // time -> slope change
+        // contract security
+        mapping(address => bool) isAllowedContract;
+        // Token-related variables
+        address token;
+        uint256 supply;
+        mapping(address => LockedBalance) locked;
+        // Aragon compatibility
+        string name;
+        string symbol;
+        string version;
+        uint8 decimals;
+        bool transfersEnabled;
+        // For smart wallet checker
+        address smartWalletChecker;
+        address futureSmartWalletChecker;
+    }
+
+    function _getStorage() private pure returns (VotingEscrowStorage storage $) {
+        bytes32 position = _VOTING_ESCROW_STORAGE;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            $.slot := position
+        }
+    }
+
+    /***************************************************************************
+     * Constants
+     **************************************************************************/
+
+    uint256 internal constant _MAXTIME = 4 * 365 days; // 4 years
+    int128 internal constant _MAXTIME_I128 = 4 * 365 days; // 4 years
+
+    /***************************************************************************
+     * Struct Definitions
+     **************************************************************************/
+
+    /**
+     * @notice Records a locked token balance and when it expires
+     */
+    struct LockedBalance {
+        int128 amount; // Amount of token locked
+        uint256 end; // When the lock expires
+    }
+
+    /***************************************************************************
+     * Initialization
+     **************************************************************************/
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * @notice Initializes the contract with required parameters
+     * @param tokenAddr Address of the ERC20 token that will be locked
+     * @param _name Token name for Aragon compatibility
+     * @param _symbol Token symbol for Aragon compatibility
+     * @param _version Contract version for Aragon compatibility
+     */
+    function initialize(
+        address owner_,
+        address tokenAddr,
+        string memory _name,
+        string memory _symbol,
+        string memory _version
+    ) external initializer {
+        _initializeOwner(owner_);
+        __UUPSUpgradeable_init();
+        __Context_init();
+        __ReentrancyGuardTransient_init();
+
+        VotingEscrowStorage storage $ = _getStorage();
+        $.token = tokenAddr;
+        $.pointHistory[0].blk = block.number;
+        $.pointHistory[0].ts = block.timestamp;
+        $.transfersEnabled = true;
+
+        uint8 _decimals = IERC20Metadata(tokenAddr).decimals();
+
+        $.name = _name;
+        $.symbol = _symbol;
+        $.version = _version;
+        $.decimals = _decimals;
+    }
+
+    /***************************************************************************
+     * protected mutator functions
+     **************************************************************************/
+
+    /**
+     * @notice Change smart wallet checker contract address
+     * @dev Only callable by owner
+     * @param addr New smart wallet checker address
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function commit_smart_wallet_checker(address addr) external onlyOwner {
+        VotingEscrowStorage storage $ = _getStorage();
+        $.futureSmartWalletChecker = addr;
+    }
+
+    /**
+     * @notice Apply pending smart wallet checker
+     * @dev Only callable by owner
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function apply_smart_wallet_checker() external onlyOwner {
+        VotingEscrowStorage storage $ = _getStorage();
+        $.smartWalletChecker = $.futureSmartWalletChecker;
+    }
+
+    /**
+     * @notice Required override for UUPS upgradeable pattern
+     * @dev Only callable by owner
+     * @param newImplementation Address of the new implementation
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
+
+    /***************************************************************************
+     * Internal Helpers
+     **************************************************************************/
+
+    modifier onlyAllowedContractOrEOA() {
+        // Check if the caller is an EOA or has the required role
+        // solhint-disable-next-line avoid-tx-origin
+        if (msg.sender != tx.origin && !hasAnyRole(msg.sender, _ALLOWED_SMART_CONTRACT_ROLE)) {
+            revert Unauthorized();
+        }
+        _;
+    }
+
+    /**
+     * @dev Find the most recent point that is earlier than or equal to the timestamp
+     * @param timestamp Timestamp to search for
+     * @param startEpoch Start of the search range
+     * @param endEpoch End of the search range
+     */
+    function _findPointEpoch(uint256 timestamp, uint256 startEpoch, uint256 endEpoch) internal view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+
+        // Binary search
+        uint256 min = startEpoch;
+        uint256 max = endEpoch;
+
+        // solhint-disable-next-line explicit-types
+        for (uint i = 0; i < 128; i++) {
+            // 128 is enough for 128-bit numbers
+            if (min >= max) {
+                break;
+            }
+            uint256 mid = (min + max + 1) / 2;
+            Point memory point = $.pointHistory[mid];
+            if (point.ts <= timestamp) {
+                min = mid;
+            } else {
+                max = mid - 1;
+            }
+        }
+
+        return min;
+    }
+
+    /**
+     * @dev Calculate voting power at a specific timestamp based on a point
+     * @param point The point to start calculation from
+     * @param timestamp The timestamp at which to calculate voting power
+     */
+    function _supplyAt(Point memory point, uint256 timestamp) internal view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+
+        Point memory lastPoint = point;
+        uint256 iTimestamp = (lastPoint.ts / 1 weeks) * 1 weeks;
+
+        // solhint-disable-next-line explicit-types
+        for (uint i = 0; i < 255; i++) {
+            iTimestamp += 1 weeks;
+            int128 dSlope = 0;
+
+            if (iTimestamp > timestamp) {
+                iTimestamp = timestamp;
+            } else {
+                dSlope = $.slopeChanges[iTimestamp];
+            }
+
+            lastPoint.bias -= lastPoint.slope * int128(int256(iTimestamp - lastPoint.ts));
+            if (iTimestamp == timestamp) {
+                break;
+            }
+            lastPoint.slope += dSlope;
+            lastPoint.ts = iTimestamp;
+        }
+
+        if (lastPoint.bias < 0) {
+            lastPoint.bias = 0;
+        }
+
+        return uint256(int256(lastPoint.bias));
+    }
+
+    struct Param {
+        Point u;
+        int128 dslope;
+    }
+
+    /**
+     * @dev Record global and per-user data checkpoints
+     * @param addr User address (0 for global checkpoint only)
+     * @param oldLocked Previous locked amount/end
+     * @param newLocked New locked amount/end
+     */
+    // slither-disable-next-line cyclomatic-complexity
+    function _checkpoint(address addr, LockedBalance memory oldLocked, LockedBalance memory newLocked) internal {
+        VotingEscrowStorage storage $ = _getStorage();
+
+        Param memory oldP;
+        Param memory newP;
+
+        oldP.u = Point(0, 0, 0, 0);
+        newP.u = Point(0, 0, 0, 0);
+        oldP.dslope = 0;
+        newP.dslope = 0;
+        uint256 epoch_ = $.epoch;
+
+        if (addr != address(0)) {
+            // Calculate slopes and biases for user points
+            if (oldLocked.end > block.timestamp && oldLocked.amount > 0) {
+                oldP.u.slope = oldLocked.amount / _MAXTIME_I128;
+                oldP.u.bias = oldP.u.slope * int128(int256(oldLocked.end - block.timestamp));
+            }
+
+            if (newLocked.end > block.timestamp && newLocked.amount > 0) {
+                newP.u.slope = newLocked.amount / _MAXTIME_I128;
+                newP.u.bias = newP.u.slope * int128(int256(newLocked.end - block.timestamp));
+            }
+
+            // Handle slope changes at lock expiry
+            oldP.dslope = $.slopeChanges[oldLocked.end];
+            if (newLocked.end != 0) {
+                if (newLocked.end == oldLocked.end) {
+                    newP.dslope = oldP.dslope;
+                } else {
+                    newP.dslope = $.slopeChanges[newLocked.end];
+                }
+            }
+        }
+
+        // Record checkpoint
+        Point memory lastPoint = Point(0, 0, block.timestamp, block.number);
+        if (epoch_ > 0) {
+            lastPoint = $.pointHistory[epoch_];
+        }
+
+        uint256 lastCheckpoint = lastPoint.ts;
+
+        // Initialize reference for extrapolation
+        Point memory initialLastPoint = Point({
+            bias: lastPoint.bias,
+            slope: lastPoint.slope,
+            ts: lastPoint.ts,
+            blk: lastPoint.blk
+        });
+
+        uint256 blockSlope = 0;
+        if (block.timestamp > lastPoint.ts) {
+            blockSlope = ((block.number - lastPoint.blk) * 1 ether) / (block.timestamp - lastPoint.ts);
+        }
+
+        // Go over weeks to fill history and calculate what the current point is
+        uint256 iTimestamo = (lastCheckpoint / 1 weeks) * 1 weeks;
+        // solhint-disable-next-line explicit-types
+        for (uint i = 0; i < 255; i++) {
+            iTimestamo += 1 weeks;
+            int128 dslope = 0;
+
+            if (iTimestamo > block.timestamp) {
+                iTimestamo = block.timestamp;
+            } else {
+                dslope = $.slopeChanges[iTimestamo];
+            }
+
+            lastPoint.bias -= lastPoint.slope * int128(int256(iTimestamo - lastCheckpoint));
+            lastPoint.slope += dslope;
+
+            // Handle underflow
+            if (lastPoint.bias < 0) {
+                lastPoint.bias = 0;
+            }
+            if (lastPoint.slope < 0) {
+                lastPoint.slope = 0;
+            }
+
+            lastCheckpoint = iTimestamo;
+            lastPoint.ts = iTimestamo;
+            lastPoint.blk = initialLastPoint.blk + (blockSlope * (iTimestamo - initialLastPoint.ts)) / 1 ether;
+
+            epoch_ += 1;
+            if (iTimestamo == block.timestamp) {
+                lastPoint.blk = block.number;
+                break;
+            } else {
+                $.pointHistory[epoch_] = lastPoint;
+            }
+        }
+
+        $.epoch = epoch_;
+
+        // Now handle per-user history
+        if (addr != address(0)) {
+            // Update user point
+            lastPoint.slope += (newP.u.slope - oldP.u.slope);
+            lastPoint.bias += (newP.u.bias - oldP.u.bias);
+
+            if (lastPoint.slope < 0) {
+                lastPoint.slope = 0;
+            }
+            if (lastPoint.bias < 0) {
+                lastPoint.bias = 0;
+            }
+        }
+
+        // Record the final point
+        $.pointHistory[epoch_] = lastPoint;
+
+        if (addr != address(0)) {
+            // Schedule slope changes
+            if (oldLocked.end > block.timestamp) {
+                oldP.dslope += oldP.u.slope;
+                if (newLocked.end == oldLocked.end) {
+                    oldP.dslope -= newP.u.slope;
+                }
+                $.slopeChanges[oldLocked.end] = oldP.dslope;
+            }
+
+            if (newLocked.end > block.timestamp) {
+                if (newLocked.end > oldLocked.end) {
+                    newP.dslope -= newP.u.slope;
+                    $.slopeChanges[newLocked.end] = newP.dslope;
+                }
+            }
+
+            // Update user epoch and history
+            uint256 userEpoch = $.userPointEpoch[addr] + 1;
+            $.userPointEpoch[addr] = userEpoch;
+
+            newP.u.ts = block.timestamp;
+            newP.u.blk = block.number;
+            $.userPointHistory[addr][userEpoch] = newP.u;
+        }
+    }
+
+    /***************************************************************************
+     * Core Functions
+     **************************************************************************/
+
+    /**
+     * @notice Deposit and lock tokens for a user
+     * @param addr User address
+     * @param value Amount to deposit
+     * @param unlockTime Time when tokens unlock, 0 if unchanged
+     * @param lockedBalance Previous locked balance
+     * @param type_ Type of deposit (1: create lock, 2: increase amount, 3: extend time)
+     */
+    function _depositFor(
+        address sender,
+        address addr,
+        uint256 value,
+        uint256 unlockTime,
+        LockedBalance memory lockedBalance,
+        int128 type_
+    ) internal {
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 supplyBefore = $.supply;
+        $.supply = supplyBefore + value;
+
+        LockedBalance memory oldLocked = lockedBalance;
+
+        // Adding to existing lock, or if a lock is expired - creating a new one
+        lockedBalance.amount += value.toInt256().toInt128();
+        if (unlockTime != 0) {
+            lockedBalance.end = unlockTime;
+        }
+        $.locked[addr] = lockedBalance;
+
+        // Checkpoint
+        _checkpoint(addr, oldLocked, lockedBalance);
+
+        if (value != 0) {
+            IERC20($.token).safeTransferFrom(sender, address(this), value);
+        }
+
+        emit IVotingEscrow.Deposit(addr, value, lockedBalance.end, type_, block.timestamp);
+        emit IVotingEscrow.Supply(supplyBefore, supplyBefore + value);
+    }
+
+    /**
+     * @notice Record global data to checkpoint
+     */
+    function checkpoint() external {
+        LockedBalance memory emptyLock = LockedBalance(0, 0);
+        _checkpoint(address(0), emptyLock, emptyLock);
+    }
+
+    /**
+     * @notice Deposit `value` tokens for `addr` and add to the lock
+     * @dev Anyone (even a smart contract) can deposit for someone else, but
+     *      cannot extend their locktime and deposit for a brand new user
+     * @param addr User's wallet address
+     * @param value Amount to add to user's lock
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function deposit_for(address addr, uint256 value) external nonReentrant {
+        VotingEscrowStorage storage $ = _getStorage();
+        LockedBalance memory locked_ = $.locked[addr];
+
+        if (value <= 0) {
+            revert ValueNotPositive(value);
+        }
+        if (locked_.amount <= 0) {
+            revert NothingIsLocked();
+        }
+        if (locked_.end <= block.timestamp) {
+            revert LockExpired(block.timestamp, locked_.end);
+        }
+
+        _depositFor(_msgSender(), addr, value, 0, locked_, 0);
+    }
+
+    /**
+     * @notice Deposit `value` tokens for `msg.sender` and lock until `unlockTime`
+     * @param value Amount to deposit
+     * @param unlockTime Epoch time when tokens unlock, rounded down to whole weeks
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function create_lock(uint256 value, uint256 unlockTime) external nonReentrant onlyAllowedContractOrEOA {
+        VotingEscrowStorage storage $ = _getStorage();
+
+        unlockTime = (unlockTime / 1 weeks) * 1 weeks; // Locktime is rounded down to weeks
+        LockedBalance memory locked_ = $.locked[msg.sender];
+
+        if (value <= 0) {
+            revert ValueNotPositive(value);
+        }
+        if (locked_.amount > 0) {
+            revert AlreadyLockedAmount(locked_.amount, locked_.end);
+        }
+        if (unlockTime <= block.timestamp) {
+            revert LockExpired(block.timestamp, unlockTime);
+        }
+        if (unlockTime > block.timestamp + _MAXTIME) {
+            revert ExceededMaxLockTime(unlockTime, block.timestamp + _MAXTIME);
+        }
+
+        _depositFor(_msgSender(), _msgSender(), value, unlockTime, locked_, 1);
+    }
+
+    /**
+     * @notice Deposit additional `value` tokens for `msg.sender`
+     *         without modifying the unlock time
+     * @param value Amount of tokens to deposit
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function increase_amount(uint256 value) external nonReentrant onlyAllowedContractOrEOA {
+        VotingEscrowStorage storage $ = _getStorage();
+
+        LockedBalance memory locked_ = $.locked[msg.sender];
+
+        if (locked_.amount <= 0) {
+            revert NothingIsLocked();
+        }
+        if (locked_.end <= block.timestamp) {
+            revert LockExpired(block.timestamp, locked_.end);
+        }
+        _depositFor(_msgSender(), _msgSender(), value, 0, locked_, 2);
+    }
+
+    /**
+     * @notice Extend the unlock time for `msg.sender` to `unlockTime`
+     * @param unlockTime New epoch time for unlocking
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function increase_unlock_time(uint256 unlockTime) external nonReentrant onlyAllowedContractOrEOA {
+        VotingEscrowStorage storage $ = _getStorage();
+
+        unlockTime = (unlockTime / 1 weeks) * 1 weeks; // Locktime is rounded down to weeks
+        LockedBalance memory locked_ = $.locked[msg.sender];
+
+        if (locked_.end <= block.timestamp) {
+            revert LockExpired(block.timestamp, locked_.end);
+        }
+        if (locked_.amount <= 0) {
+            revert NothingIsLocked();
+        }
+        if (unlockTime <= locked_.end) {
+            revert LockCanOnlyIncrease(unlockTime, locked_.end);
+        }
+        if (unlockTime > block.timestamp + _MAXTIME) {
+            revert ExceededMaxLockTime(unlockTime, block.timestamp + _MAXTIME);
+        }
+
+        _depositFor(_msgSender(), _msgSender(), 0, unlockTime, locked_, 3);
+    }
+
+    /**
+     * @notice Withdraw all tokens for `msg.sender`
+     * @dev Only possible if the lock has expired
+     */
+    function withdraw() external nonReentrant {
+        VotingEscrowStorage storage $ = _getStorage();
+        LockedBalance memory locked_ = $.locked[msg.sender];
+
+        if (block.timestamp < locked_.end) {
+            revert LockNotExpired(block.timestamp, locked_.end);
+        }
+        uint256 value = uint256(int256(locked_.amount));
+
+        LockedBalance memory oldLocked = locked_;
+        locked_.end = 0;
+        locked_.amount = 0;
+        $.locked[msg.sender] = locked_;
+
+        uint256 supplyBefore = $.supply;
+        $.supply = supplyBefore - value;
+
+        // oldLocked can have either expired <= timestamp or zero end
+        // locked_ has only 0 end
+        // Both can have >= 0 amount
+        _checkpoint(msg.sender, oldLocked, locked_);
+
+        IERC20($.token).safeTransfer(msg.sender, value);
+
+        emit IVotingEscrow.Withdraw(msg.sender, value, block.timestamp);
+        emit IVotingEscrow.Supply(supplyBefore, supplyBefore - value);
+    }
+
+    /***************************************************************************
+     * Public View Functions - Voting Power
+     **************************************************************************/
+
+    function token() external view returns (address) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.token;
+    }
+
+    function supply() external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.supply;
+    }
+
+    /**
+     * @notice Read the current locked balance of `addr`
+     * @param addr Address to query
+     * @return The locked balance
+     */
+    function locked(address addr) external view returns (LockedBalance memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.locked[addr];
+    }
+
+    function epoch() external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.epoch;
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function point_history(uint256 epoch_) external view returns (Point memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.pointHistory[epoch_];
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function user_point_history(address addr, uint256 epoch_) external view returns (Point memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointHistory[addr][epoch_];
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function user_point_history__ts(address addr, uint256 epoch_) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointHistory[addr][epoch_].ts;
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function user_point_epoch(address addr) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointEpoch[addr];
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function slope_changes(uint256 week) external view returns (int128) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.slopeChanges[week];
+    }
+
+    /**
+     * @notice Calculate voting power for a specific timestamp
+     * @param addr User address
+     * @param ts Timestamp to query
+     * @return User voting power
+     */
+    function _balanceOfAt(address addr, uint256 ts) internal view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 userEpoch = $.userPointEpoch[addr];
+
+        if (userEpoch == 0) {
+            return 0;
+        } else {
+            Point memory lastPoint = $.userPointHistory[addr][userEpoch];
+            // Now handle the case when block.timestamp is earlier than user history
+            if (ts < lastPoint.ts) {
+                // Find the most recent user point before ts
+                userEpoch = _findPointEpoch(ts, 1, userEpoch);
+                lastPoint = $.userPointHistory[addr][userEpoch];
+            }
+
+            lastPoint.bias -= lastPoint.slope * int128(int256(ts - lastPoint.ts));
+            if (lastPoint.bias < 0) {
+                lastPoint.bias = 0;
+            }
+
+            return uint256(int256(lastPoint.bias));
+        }
+    }
+
+    /**
+     * @notice Get the timestamp for checkpoint `epoch` for `addr`
+     * @param addr User wallet address
+     * @param epoch_ User epoch number
+     * @return Epoch time of the checkpoint
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function user_point_historyTs(address addr, uint256 epoch_) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointHistory[addr][epoch_].ts;
+    }
+
+    /**
+     * @notice Get timestamp when `addr`'s lock finishes
+     * @param addr User wallet
+     * @return Epoch time of the lock end
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function locked__end(address addr) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.locked[addr].end;
+    }
+
+    /**
+     * @notice Calculate total voting power at specific timestamp
+     * @param t Timestamp to query
+     * @return Total voting power
+     */
+    function totalSupplyAt(uint256 t) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 _epoch = $.epoch;
+        uint256 targetEpoch = _findPointEpoch(t, 0, _epoch);
+
+        Point memory point = $.pointHistory[targetEpoch];
+        uint256 dt = 0;
+
+        if (targetEpoch < _epoch) {
+            Point memory pointNext = $.pointHistory[targetEpoch + 1];
+            if (point.blk != pointNext.blk) {
+                dt = ((t - point.ts) * (pointNext.blk - point.blk)) / (pointNext.ts - point.ts);
+            }
+        } else if (point.blk != block.number && point.ts != block.timestamp) {
+            dt = ((t - point.ts) * (block.number - point.blk)) / (block.timestamp - point.ts);
+        }
+
+        // Now dt contains info on how far are we beyond point
+        return _supplyAt(point, t);
+    }
+
+    /**
+     * @notice Calculate total voting power
+     * @dev Adheres to the ERC20 `totalSupply` interface for Aragon compatibility
+     * @return Total voting power
+     */
+    function totalSupply() external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        Point memory lastPoint = $.pointHistory[$.epoch];
+        return _supplyAt(lastPoint, block.timestamp);
+    }
+
+    /**
+     * @notice Calculate total voting power at timestamp
+     * @param t Time to calculate total voting power at
+     * @return Total voting power
+     */
+    function totalSupply(uint256 t) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        Point memory lastPoint = $.pointHistory[$.epoch];
+        return _supplyAt(lastPoint, t);
+    }
+
+    /**
+     * @notice Get the current voting power for `addr`
+     * @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
+     * @param addr User wallet address
+     * @return User voting power
+     */
+    function balanceOf(address addr) external view returns (uint256) {
+        return _balanceOfAt(addr, block.timestamp);
+    }
+
+    /**
+     * @notice Get the voting power for `addr` at timestamp `t`
+     * @param addr User wallet address
+     * @param t Timestamp to query
+     * @return User voting power
+     */
+    function balanceOf(address addr, uint256 t) external view returns (uint256) {
+        return _balanceOfAt(addr, t);
+    }
+
+    /**
+     * @notice Get the most recently recorded rate of voting power decrease for `addr`
+     * @param addr Address of the user
+     * @return Value of the slope
+     */
+    function getLastUserSlope(address addr) external view returns (int128) {
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 uEpoch = $.userPointEpoch[addr];
+        return $.userPointHistory[addr][uEpoch].slope;
+    }
+
+    /***************************************************************************
+     * Public View Functions - Token Info for  Aragon compatibility
+     **************************************************************************/
+
+    function name() external view returns (string memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.name;
+    }
+
+    function symbol() external view returns (string memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.symbol;
+    }
+
+    function version() external view returns (string memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.version;
+    }
+
+    function decimals() external view returns (uint8) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.decimals;
+    }
+}
+
+// slither-disable-end timestamp

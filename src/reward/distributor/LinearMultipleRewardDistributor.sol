@@ -58,7 +58,7 @@ abstract contract LinearMultipleRewardDistributor is
     /// @dev If the value is zero, the reward will be distributed immediately.
     /// @dev It is either zero or at least 1 day (which is 86400).
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint40 public immutable REWARD_PERIOD_LENGTH;
+    uint40 private immutable _REWARD_PERIOD_LENGTH;
 
     /*************
      * Variables *
@@ -103,12 +103,22 @@ abstract contract LinearMultipleRewardDistributor is
         if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days)) {
             revert InvalidPeriodLength(periodLength_);
         }
-        REWARD_PERIOD_LENGTH = periodLength_;
+        _REWARD_PERIOD_LENGTH = periodLength_;
     }
 
     /*************************
      * Public View Functions *
      *************************/
+
+    // solhint-disable-next-line func-name-mixedcase
+    function REWARD_MANAGER_ROLE() external view returns (uint256) {
+        return _REWARD_MANAGER_ROLE;
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function REWARD_PERIOD_LENGTH() external view returns (uint40) {
+        return _REWARD_PERIOD_LENGTH;
+    }
 
     /// @inheritdoc IMultipleRewardDistributor
     function rewardData(
@@ -231,7 +241,7 @@ abstract contract LinearMultipleRewardDistributor is
         LinearReward.RewardData memory _data = $.rewardData[token];
         unchecked {
             (uint256 _distributable, uint256 _undistributed) = _data.pending();
-            if (_data.queued < REWARD_PERIOD_LENGTH) {
+            if (_data.queued < _REWARD_PERIOD_LENGTH) {
                 _data.queued = 0; // ignore round error
             }
             if (_data.queued + _distributable + _undistributed > 0) {
@@ -256,11 +266,11 @@ abstract contract LinearMultipleRewardDistributor is
     function _notifyReward(address token, uint256 amount) internal {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
-        if (REWARD_PERIOD_LENGTH == 0) {
+        if (_REWARD_PERIOD_LENGTH == 0) {
             _accumulateReward(token, amount);
         } else {
             LinearReward.RewardData memory data = $.rewardData[token];
-            data.increase(REWARD_PERIOD_LENGTH, amount);
+            data.increase(_REWARD_PERIOD_LENGTH, amount);
             $.rewardData[token] = data;
         }
     }
@@ -271,7 +281,7 @@ abstract contract LinearMultipleRewardDistributor is
 
         // If the reward period length is zero, we distribute rewards immediately.
         // If there are no active reward tokens, we do nothing.
-        if (REWARD_PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) {
+        if (_REWARD_PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) {
             return;
         }
         address[] memory activeRewardTokens_ = $.activeRewardTokens.values();

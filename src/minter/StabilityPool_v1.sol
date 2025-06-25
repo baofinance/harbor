@@ -6,19 +6,20 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
-import {ERC20PermitUpgradeable} from "@bao/ERC20PermitUpgradeable.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
+import {IMintable} from "@bao/interfaces/IMintable.sol";
+import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
+//import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -32,11 +33,18 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 /// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
 /// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
 ///
-/// This contract also implements ERC20 so that it can:
+/// This contract also mints an ERC20 that can:
 /// * be deposited in a gauge for further rewards
 /// * represent ownership of the assets deposited here in a wallet.
-/// it is beyond the scope of this contract to manage and coordinate gauge interactions - this is for the UI
 ///
+/// To add boost for FXN, we maintain a time-weighted boost ratio for each user.
+///   boost[u][i] = min(balance[u][i], 0.4 * balance[u][i] + ve[u][i] * totalSupply[i] / veTotal[i] * 0.6)
+///   ratio[u][x -> y] = sum(boost[u][i] / balance[u][i] * (t[i] - t[i - 1])) / (t[y] - t[x])
+///
+///   1. supply[w] is the total amount of token staked at the beginning of week `w`.
+///   2. veSupply[w] is the total ve supply at the beginning of week `w`.
+///   3. ve[u][w] is the ve balance for user `u` at the beginning of week `w`.
+///   4. balance[u][w] is the amount of token staked for user `u` at the beginning of week `w`.
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
@@ -44,13 +52,9 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 contract StabilityPool_v1 is
     Initializable,
     UUPSUpgradeable,
-    ERC20PermitUpgradeable,
     MultipleRewardCompoundingAccumulator,
     TokenHolder,
-    IStabilityPool,
-    IERC20,
-    IERC20Metadata,
-    IERC20Errors
+    IStabilityPool
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint112;
@@ -61,23 +65,18 @@ contract StabilityPool_v1 is
 
     /// The role used for reward manager in super contracts
     /// @dev we define it here in the most derived contract to avoid clashes
-    uint256 public constant REWARD_MANAGER_ROLE = _ROLE_0;
+    uint256 private constant _REWARD_MANAGER_ROLE = _ROLE_0;
 
-    /// @inheritdoc IStabilityPool
     uint256 public constant REBALANCER_ROLE = _ROLE_1;
 
-    /// @inheritdoc IStabilityPool
     uint256 public constant REWARDER_ROLE = _ROLE_2;
-
-    /// @inheritdoc IStabilityPool
-    uint256 public constant WITHDRAW_FROM_ROLE = _ROLE_4;
 
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
 
-    /// @notice The minter contract this rebalance pool operates for
+    /// @inheritdoc IStabilityPool
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable MINTER;
+    address public immutable ASSET_TOKEN;
 
     /// @inheritdoc IStabilityPool
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -85,7 +84,10 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IStabilityPool
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable ASSET_TOKEN;
+    address public immutable STABILITY_POOL_TOKEN;
+
+    /// @inheritdoc IStabilityPool
+    address public immutable VE_TOKEN;
 
     /***********
      * Structs *
@@ -102,6 +104,16 @@ contract StabilityPool_v1 is
         uint40 updatedAt;
     }
 
+    /// @dev The boost checkpoint struct. The compiler will pack this into single `uint256`.
+    /// Each epoch `t` starts at timestamp `t * 86400 * 7` (inclusive) and ends at `(t + 1) * 86400 * 7` (not inclusive).
+    ///
+    /// @param boostRatio The boost ratio of current epoch.
+    /// @param historyIndex The index of supply in totalSupplyHistory at checkpoint.
+    struct BoostCheckpoint {
+        uint64 boostRatio;
+        uint64 historyIndex;
+    }
+
     /*************
      * Variables *
      *************/
@@ -110,30 +122,29 @@ contract StabilityPool_v1 is
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
     struct StabilityPoolStorage {
+        /// @notice The gauge that this token received some of it's rewards from.
+        /// @dev as such this contract will inform the gauge of all deposits, withdrawals and losses
+        address gauge;
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
         /// @dev Mapping account address to TokenBalance struct. Accessed via assetBalanceOf
         mapping(address => TokenBalance) assetBalances;
         /// @notice Mapping from index to history totalSupply.
         /// If there are multiple updates at the same timestamp, only the last one will be recorded.
-        TokenBalance[] totalAssetSupplyHistory;
+        mapping(uint256 => TokenBalance) totalAssetSupplyHistory;
+        uint256 totalAssetSupplyHistoryLength; // number of total supply history records
         /// @notice The address of token wrapper for liquidated base token;
         // address wrapper;
         /// @notice Error trackers for the error correction in the loss calculation.
         uint256 lastAssetLossError;
-        //
-        /// @dev Allowances mapping for ERC20 compatibility
-        // we don't track anything else for ERC20: totalSupply and balanceOf are based on the the asset values
-        // with a 'rate' applied, the rate itself being detived from totalAssetSupply.product.
-        // This ensures economic consistency between the two even though
-        // 1) the values will exibit truncation and rounding errors and so the sum of all balanceOf will not be precisely
-        //    equal to totalSupply.
-        // 2) there are no Transfer events logging tokens being burned from individual depositors
-        mapping(address => mapping(address => uint256)) tokenAllowances;
-        /// @dev ERC20 token metadata
-        string tokenName;
-        string tokenSymbol;
+        /// @notice Mapping from account address to index in `totalSupplyHistory`.
+        mapping(address => BoostCheckpoint) boostCheckpoint;
+        /// @notice Mapping from vote owner address to current balance sum of accepted stakers.
+        mapping(address => TokenBalance) voteOwnerBalances;
+        /// @notice Mapping from vote owner address to week timestamp to historical balance sum of accepted stakers.
+        mapping(address => mapping(uint256 => uint256)) voteOwnerHistoryBalances;
     }
+
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _STABILITYPOOL_STORAGE =
         0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
@@ -150,20 +161,21 @@ contract StabilityPool_v1 is
      * Constructor *
      ***************/
 
-    function initialize(address owner_, string memory name_, string memory symbol_) external initializer {
+    function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
-        __ERC20Permit_init(name_);
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        $.totalAssetSupply.product = DecrementalFloatingPoint.encode(0, 0, uint64(1 ether));
-        $.totalAssetSupply.updatedAt = uint40(block.timestamp) - 1; // set to 1 second ago so this is sure to be the start of history
-        $.totalAssetSupplyHistory.push($.totalAssetSupply);
-
-        $.tokenName = name_;
-        $.tokenSymbol = symbol_;
+        TokenBalance memory initialSupply = TokenBalance({
+            product: DecrementalFloatingPoint.encode(0, 0, uint64(1 ether)),
+            amount: 0,
+            updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
+        });
+        $.totalAssetSupply = initialSupply;
+        $.totalAssetSupplyHistory[0] = initialSupply;
+        $.totalAssetSupplyHistoryLength = 1;
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -172,12 +184,11 @@ contract StabilityPool_v1 is
     constructor(
         address minter_,
         address liquidationToken_,
+        address stabilityPoolToken_,
+        address veToken_,
         uint40 periodLength
-    ) MultipleRewardCompoundingAccumulator(REWARD_MANAGER_ROLE, periodLength) {
+    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, periodLength) {
         _disableInitializers();
-        Token.ensureContract(minter_);
-        // slither-disable-next-line missing-zero-check
-        MINTER = minter_;
         address asset = IMinter(minter_).PEGGED_TOKEN();
         Token.sanityCheckERC20Token(asset);
         // slither-disable-next-line missing-zero-check
@@ -190,6 +201,14 @@ contract StabilityPool_v1 is
             revert InvalidLiquidationToken(liquidationToken_);
         }
         LIQUIDATION_TOKEN = liquidationToken_;
+
+        Token.sanityCheckERC20Token(stabilityPoolToken_);
+        // slither-disable-next-line missing-zero-check
+        STABILITY_POOL_TOKEN = stabilityPoolToken_;
+
+        Token.sanityCheckERC20Token(stabilityPoolToken_);
+        // slither-disable-next-line missing-zero-check
+        VE_TOKEN = veToken_;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -201,62 +220,6 @@ contract StabilityPool_v1 is
      * Public View Functions *
      *************************/
 
-    /// @notice Implements ERC20 allowance
-    function allowance(address owner_, address spender) public view override returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        return $.tokenAllowances[owner_][spender];
-    }
-
-    /// @dev Returns the name of the token.
-    function name() external view returns (string memory name_) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        name_ = $.tokenName;
-    }
-
-    /// @dev Returns the symbol of the token.
-    function symbol() external view returns (string memory symbol_) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        symbol_ = $.tokenSymbol;
-    }
-
-    /// @dev Returns the decimals places of the token.
-    function decimals() external pure returns (uint8 decimals_) {
-        decimals_ = 18;
-    }
-
-    /// @inheritdoc IERC20
-    function balanceOf(address account) external view returns (uint256 balanceOf_) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // Get the asset balance
-        TokenBalance memory balance = $.assetBalances[account];
-        uint112 product_ = $.totalAssetSupply.product;
-        uint256 assetBalance = _getCompoundedBalance(balance.amount, balance.product, product_);
-
-        // No assets means no tokens
-        if (assetBalance == 0) {
-            balanceOf_ = 0;
-        } else {
-            // Get the current rate - can't be zero
-            uint256 rate_ = _rate(product_);
-            // Convert asset balance to token balance using inverse rate
-            balanceOf_ = (assetBalance * 1 ether) / rate_;
-        }
-    }
-
-    /// @inheritdoc IERC20
-    function totalSupply() external view returns (uint256 totalSupply_) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory supply = $.totalAssetSupply;
-        totalSupply_ = _assetToToken(supply.amount, _rate(supply.product));
-    }
-
-    /// @inheritdoc IStabilityPool
-    function assetBalanceOf(address account) external view override returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.assetBalances[account];
-        return _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
-    }
-
     /// @inheritdoc IStabilityPool
     function totalAssetSupply() external view returns (uint256 totalSupply_) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -267,14 +230,21 @@ contract StabilityPool_v1 is
     // solhint-disable-next-line explicit-types
     function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (index >= $.totalAssetSupplyHistory.length) {
-            atDay = 0;
-            amount = 0;
-        } else {
-            TokenBalance memory record = $.totalAssetSupplyHistory[index];
-            atDay = record.updatedAt;
-            amount = record.amount;
-        }
+        TokenBalance memory record = $.totalAssetSupplyHistory[index];
+        atDay = record.updatedAt;
+        amount = record.amount;
+    }
+
+    /// @inheritdoc IStabilityPool
+    function assetBalanceOf(address account) external view returns (uint256 amount) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.assetBalances[account];
+        amount = _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
+    }
+
+    /// @inheritdoc IStabilityPool
+    function getBoostRatio(address account) public view returns (uint256) {
+        return _getBoostRatio(account);
     }
 
     /// @inheritdoc IStabilityPool
@@ -285,30 +255,21 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimable(address account, address token) public view virtual override returns (uint256) {
+        // StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        // if (token == fxn) {
+        //     UserRewardSnapshot memory _userSnapshot = userRewardSnapshot(account, token);
+        //     uint256 fullEarned = _claimable(account, token) - _userSnapshot.rewards.pending;
+        //     uint256 ratio = getBoostRatio(account);
+        //     uint256 boostEarned = (fullEarned * ratio) / 1 ether;
+        //     return _userSnapshot.rewards.pending + boostEarned;
+        // } else {
         return _claimable(account, token);
     }
 
     /****************************
      * Public Mutator Functions *
      ****************************/
-
-    /// @notice Implements ERC20 approve
-
-    function _approve(address owner_, address spender, uint256 value) internal override(ERC20PermitUpgradeable) {
-        if (spender == address(0)) {
-            revert ERC20InvalidSpender(address(0));
-        }
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        $.tokenAllowances[owner_][spender] = value;
-        emit Approval(owner_, spender, value);
-    }
-
-    function approve(address spender, uint256 value) public virtual returns (bool) {
-        address owner_ = _msgSender();
-        _approve(owner_, spender, value);
-        return true; // reverts if false
-    }
-
+    /*
     /// @notice Implements ERC20 transfer
     function transfer(address to, uint256 amount) public override returns (bool) {
         if (to == address(0)) {
@@ -345,44 +306,54 @@ contract StabilityPool_v1 is
         _transfer(from, to, amount);
         return true;
     }
+    */
 
     /// @inheritdoc IStabilityPool
+    // slither-disable-next-line reentrancy-benign,reentrancy-no-eth
     function deposit(
         uint256 assetAmount,
         address receiver,
         uint256 minAmount
-    ) external override returns (uint256 sharesMinted) {
+    ) external override nonReentrant returns (uint256 assetsDeposited) {
         if (receiver == address(0)) {
-            revert ERC20InvalidReceiver(address(0));
+            revert InvalidReceiver(address(0));
         }
         address sender = _msgSender();
 
-        if (assetAmount == type(uint256).max) {
-            assetAmount = IERC20(ASSET_TOKEN).balanceOf(sender);
-        }
-        // slither-disable-next-line incorrect-equality
-        if (assetAmount == 0) {
-            revert DepositZeroAmount();
-        }
-        if (assetAmount < minAmount) {
-            revert DepositAmountLessThanMinimum(assetAmount, minAmount);
+        assetsDeposited = Token.allOf(sender, ASSET_TOKEN, assetAmount);
+        if (assetsDeposited < minAmount) {
+            revert DepositAmountLessThanMinimum(assetsDeposited, minAmount);
         }
 
         // tell the world
-        emit Deposit(sender, receiver, assetAmount);
+        emit Deposit(sender, receiver, assetsDeposited);
         // Required for ERC20 compatibility - we're actually minting ourselves
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        sharesMinted = _assetToToken(assetAmount, _rate($.totalAssetSupply.product));
-        emit Transfer(address(0), receiver, sharesMinted);
-
         // get the assets from the sender
-        IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetAmount);
+        IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetsDeposited);
+        // send their representative to the gauge, if one
 
+        _depositInGauge($.gauge, assetsDeposited);
         _checkpoint(receiver);
 
         // do the deposit
-        _deposit(assetAmount, receiver);
+        // update the global record
+        // It should never exceed `type(uint104).max`.
+        TokenBalance memory supply = $.totalAssetSupply;
+        supply.amount += uint104(assetsDeposited);
+        supply.updatedAt = uint40(block.timestamp);
+
+        _recordTotalSupply(supply);
+
+        // update the user record
+        TokenBalance memory balance = $.assetBalances[receiver];
+        balance.amount += uint104(assetsDeposited);
+        $.assetBalances[receiver] = balance;
+        emit UserDepositChange(receiver, balance.amount, 0);
+
+        // update boost checkpoint at last
+        _updateBoostCheckpoint(receiver, balance, supply);
     }
 
     /// @inheritdoc IStabilityPool
@@ -390,43 +361,81 @@ contract StabilityPool_v1 is
         uint256 assetAmount,
         address receiver,
         uint256 minAmount
-    ) external virtual override returns (uint256 sharesBurned) {
+    ) external virtual override returns (uint256 assetsWithdrawn) {
         if (receiver == address(0)) {
-            revert ERC20InvalidReceiver(address(0));
+            revert InvalidReceiver(address(0));
         }
+
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+
         address sender = _msgSender();
         _checkpoint(sender);
 
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.assetBalances[sender];
-        if (assetAmount == type(uint256).max) {
-            assetAmount = balance.amount;
-        } else if (assetAmount > balance.amount) {
-            revert WithdrawAmountExceedsBalance(assetAmount, balance.amount);
+        assetsWithdrawn = Token.allOf(sender, address(this), assetAmount);
+        if (assetsWithdrawn < minAmount) {
+            revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
+        emit Withdraw(sender, receiver, assetsWithdrawn);
 
-        if (assetAmount == 0) {
-            revert WithdrawZeroAmount();
+        // update the global record
+        TokenBalance memory supply = $.totalAssetSupply;
+        unchecked {
+            supply.amount -= uint104(assetsWithdrawn);
+            supply.updatedAt = uint40(block.timestamp);
         }
-        if (assetAmount < minAmount) {
-            revert WithdrawAmountLessThanMinimum(assetAmount, minAmount);
+        _recordTotalSupply(supply);
+
+        // update the user record
+        unchecked {
+            balance.amount -= uint104(assetsWithdrawn);
         }
-        emit Withdraw(sender, receiver, assetAmount);
+        $.assetBalances[sender] = balance;
 
-        // Required for ERC20 compatibility - we're actually burning ourselves
-        sharesBurned = _assetToToken(assetAmount, _rate(balance.product));
-        emit Transfer(sender, address(0), sharesBurned);
+        // update boost checkpoint at last
+        // TODO: this is done in _checkpoint so why are we doing it again here?
+        _updateBoostCheckpoint(sender, balance, supply);
 
-        _withdraw(sender, assetAmount, balance);
+        emit UserDepositChange(sender, balance.amount, 0);
 
-        IERC20(ASSET_TOKEN).safeTransfer(receiver, assetAmount);
+        _withdrawFromGauge($.gauge, assetsWithdrawn);
+        IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
     }
+
+    function _depositInGauge(address gauge_, uint256 amount) internal {
+        if (gauge_ != address(0)) {
+            IMintable(STABILITY_POOL_TOKEN).mint(address(this), amount);
+            // TODO: deposit those tokens into the gauge
+        }
+    }
+
+    function _withdrawFromGauge(address gauge_, uint256 amount) internal {
+        if (gauge_ != address(0)) {
+            // TODO: withdraw those tokens from the gauge
+            IBurnable(STABILITY_POOL_TOKEN).burn(amount);
+        }
+    }
+
+    /// protected public functions
 
     function accumulateReward(
         address rewardToken,
         uint256 rewardAmount
     ) external virtual onlyRoles(REWARDER_ROLE + REBALANCER_ROLE) {
         _accumulateReward(rewardToken, rewardAmount);
+    }
+
+    /// @inheritdoc IStabilityPool
+    function updateGauge(address newGauge) external onlyOwner {
+        // TODO:
+        /// checks if gauge address is empty then set, mint and deposit.
+        /// If gauge address is not empty
+        /// Withdraw, burn, update address mint and deposit.
+        /// Revert if deposit fails.
+        if (true) {
+            revert DepositZeroAmount(); // for now
+        }
+        emit GaugeUpdated(newGauge);
     }
 
     /**********************
@@ -436,9 +445,24 @@ contract StabilityPool_v1 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     // TODO: this could be much more efficient, by passing back the total supply, and balance rather than updating it
     function _checkpoint(address account) internal virtual override {
+        // fetch FXN from gauge every 24h
+        // Gauge memory _gauge = $.gauge;
+        // if (_gauge.gauge != address(0) && block.timestamp > uint256(_gauge.claimedAt) + 1 days) {
+        //     console.log("gauge=%s", _gauge.gauge);
+        //     uint256 _balance = IERC20(fxn).balanceOf(address(this));
+        //     ICurveTokenMinter(minter).mint(_gauge.gauge);
+        //     uint256 _minted = IERC20(fxn).balanceOf(address(this)) - _balance;
+        //     $.gauge.claimedAt = uint64(block.timestamp);
+        //     _notifyReward(fxn, _minted);
+        // }
+
         super._checkpoint(account);
 
         if (account != address(0)) {
+            // checkpoint the voting escrow
+            // TODO: we need the helper for this checkpoint of a user address
+            // IVotingEscrow(_VE_TOKEN).checkpoint(account);
+
             StabilityPoolStorage storage $ = _getStabilityPoolStorage();
             TokenBalance memory supply = $.totalAssetSupply;
             TokenBalance memory balance = $.assetBalances[account];
@@ -447,7 +471,7 @@ contract StabilityPool_v1 is
                 // no unchecked here, just in case
                 emit UserDepositChange(account, newBalance, balance.amount - newBalance);
             }
-
+            _updateBoostCheckpoint(account, balance, supply);
             balance.amount = newBalance;
             balance.product = supply.product;
             balance.updatedAt = uint40(block.timestamp);
@@ -457,12 +481,27 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _updateSnapshot(address account, address token) internal virtual override {
-        // TODO: this should call into super._updateSnapshot();
+        // TODO: this should just call into super._updateSnapshot();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         UserRewardSnapshot memory snapshot = _userRewardSnapshot(account, token);
         uint48 epochExponent = $.totalAssetSupply.product.epochAndExponent(); // <-- this bit seems to be duplicated?
 
+        // if (token == fxn) {
+
+        //     uint256 fullEarned = _claimable(account, token) - snapshot.rewards.pending;
+        //     // save gas when on earned
+        //     if (fullEarned > 0) {
+        //         uint256 ratio = _getBoostRatio(account);
+        //         uint256 boostEarned = (fullEarned * ratio) / 1 ether;
+        //         snapshot.rewards.pending += uint128(boostEarned);
+        //         if (fullEarned > boostEarned) {
+        //             // redistribute unboosted rewards.
+        //             _notifyReward(fxn, fullEarned - boostEarned);
+        //         }
+        //     }
+        // } else {
         snapshot.rewards.pending = uint128(_claimable(account, token));
+        // }
         snapshot.checkpoint.integral = _tokenToEpochExponentToIntegral(token, epochExponent);
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
         _setUserRewardSnapshot(account, token, snapshot);
@@ -486,58 +525,24 @@ contract StabilityPool_v1 is
         share = balance.amount;
     }
 
-    function _deposit(uint256 amount, address receiver) internal {
+    /// @dev Internal function update boost checkpoint for the user.
+    /// @param account The address of user to update.
+    /// @param balance The latest balance struct of the user.
+    /// @param supply The latest total supply struct.
+    function _updateBoostCheckpoint(address account, TokenBalance memory balance, TokenBalance memory supply) internal {
+        uint256 ratio = _computeBoostRatio(
+            balance.amount,
+            supply.amount,
+            IVotingEscrow(VE_TOKEN).balanceOf(account),
+            IVotingEscrow(VE_TOKEN).totalSupply()
+        );
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // update the global record
-        // It should never exceed `type(uint104).max`.
-        TokenBalance memory supply = $.totalAssetSupply;
-        supply.amount += uint104(amount);
-        supply.updatedAt = uint40(block.timestamp);
-
-        _recordTotalSupply(supply);
-
-        // update the user record
-        TokenBalance memory balance = $.assetBalances[receiver];
-        balance.amount += uint104(amount);
-        $.assetBalances[receiver] = balance;
-
-        emit UserDepositChange(receiver, balance.amount, 0);
-    }
-
-    /// @dev Internal function to withdraw assets from this contract.
-    /// @param sender The address of owner_ to withdraw from.
-    /// @param amount The amount of token to withdraw.
-    /// @param balance the balance before the withdraw
-    function _withdraw(address sender, uint256 amount, TokenBalance memory balance) private {
-        // @note after checkpoint, the account balances are correct, we can `balances` safely.
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // update the global record
-        TokenBalance memory supply = $.totalAssetSupply;
         unchecked {
-            supply.amount -= uint104(amount);
-            supply.updatedAt = uint40(block.timestamp);
+            $.boostCheckpoint[account] = BoostCheckpoint(uint64(ratio), uint64($.totalAssetSupplyHistoryLength - 1));
         }
-        _recordTotalSupply(supply);
-
-        // update the user record
-        unchecked {
-            balance.amount -= uint104(amount);
-        }
-        $.assetBalances[sender] = balance;
-
-        emit UserDepositChange(sender, balance.amount, 0);
     }
 
-    function _assetToToken(uint256 assetAmount, uint256 rate_) private pure returns (uint256 tokenAmount) {
-        tokenAmount = (assetAmount * 1 ether) / rate_;
-    }
-
-    function _tokenToAsset(uint256 tokenAmount, uint256 rate_) private pure returns (uint256 assetAmount) {
-        assetAmount = (tokenAmount * rate_) / 1 ether;
-    }
-
+    /*
     function _transfer(address from, address to, uint256 tokenAmount) internal {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -569,6 +574,7 @@ contract StabilityPool_v1 is
         _checkpoint(to);
         _deposit(assetAmount, to);
     }
+    */
 
     /// @dev Internal function to reduce asset accounting.
     /// @param loss The amount of asset lost.
@@ -629,13 +635,15 @@ contract StabilityPool_v1 is
     /// @param supply The new total supply to record.
     function _recordTotalSupply(TokenBalance memory supply) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        uint256 totalSupplyHistoryLast = $.totalAssetSupplyHistory.length - 1;
+        uint256 totalSupplyHistoryLast = $.totalAssetSupplyHistoryLength - 1;
 
         // slither-disable-next-line incorrect-equality
         if ($.totalAssetSupplyHistory[totalSupplyHistoryLast].updatedAt == supply.updatedAt) {
             $.totalAssetSupplyHistory[totalSupplyHistoryLast] = supply;
         } else {
-            $.totalAssetSupplyHistory.push(supply);
+            totalSupplyHistoryLast++;
+            $.totalAssetSupplyHistoryLength = totalSupplyHistoryLast;
+            $.totalAssetSupplyHistory[totalSupplyHistoryLast] = supply;
         }
         $.totalAssetSupply = supply;
     }
@@ -702,19 +710,125 @@ contract StabilityPool_v1 is
         _checkOwnerOrRoles(REBALANCER_ROLE);
     }
 
-    // slither-disable-next-line reentrancy-no-eth should only ever called from nonReentrant functions
+    // slither-disable-next-line reentrancy-no-eth,reentrancy-benign should only ever called from nonReentrant functions
     function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
         super._sweep(token, amount, receiver);
         if (token == ASSET_TOKEN) {
             StabilityPoolStorage storage $ = _getStabilityPoolStorage();
             // we need to burn the appropriate amount of this contract to match the new token balance
-            emit Transfer(address(this), address(0), _assetToToken(amount, _rate($.totalAssetSupply.product)));
+            _withdrawFromGauge($.gauge, amount);
 
             _checkpoint(address(0));
 
             _notifyLoss(amount);
         }
     }
+
+    /// @dev Internal function to get boost ratio for the given account.
+    ///
+    /// @param account The address of the account to query.
+    function _getBoostRatio(address account) internal view returns (uint256 boostRatio) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.assetBalances[account];
+        // no deposit before
+        if (balance.amount == 0) return 0;
+
+        BoostCheckpoint memory boostCheckpoint = $.boostCheckpoint[account];
+        // slither-disable-next-line incorrect-equality as we're checking for a shortcut case of this code running in the same block updatedAt was changed
+        if (uint256(balance.updatedAt) == block.timestamp) {
+            return boostCheckpoint.boostRatio;
+        }
+
+        uint256 nextIndex = boostCheckpoint.historyIndex;
+        uint256 currentRatio = boostCheckpoint.boostRatio;
+        uint256 prevTs = balance.updatedAt;
+        // compute the time weighted boost from balance.updatedAt to now.
+        uint256 nowTs = _getWeekTs(prevTs);
+        for (uint256 i = 0; i < 256; ++i) {
+            // it is more than 4 years, should be enough
+            if (nowTs > block.timestamp) nowTs = block.timestamp;
+            boostRatio += currentRatio * (nowTs - prevTs);
+            // slither-disable-next-line incorrect-equality
+            if (nowTs == block.timestamp) break;
+            uint256 veBalance = IVotingEscrow(VE_TOKEN).balanceOf(account, nowTs);
+            uint256 veSupply = IVotingEscrow(VE_TOKEN).totalSupply(nowTs);
+            (currentRatio, nextIndex) = _boostRatioAt(account, balance, veBalance, veSupply, nextIndex, nowTs);
+            prevTs = nowTs;
+            nowTs += 1 weeks;
+        }
+        boostRatio /= uint256(block.timestamp - balance.updatedAt);
+    }
+
+    /// @dev Internal function to compute the smallest week aligned timestamp after given timestamp.
+    /// @param timestamp The given timestamp.
+    function _getWeekTs(uint256 timestamp) internal pure returns (uint256) {
+        unchecked {
+            return ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks; // use integer division to round down
+        }
+    }
+
+    /// @dev Internal function to get boost ratio at specific time point.
+    ///
+    /// Caller should make sure `t` is always a multiple of `WEEK`.
+    function _boostRatioAt(
+        address /*owner_*/,
+        TokenBalance memory balance,
+        uint256 veBalance,
+        uint256 veSupply,
+        uint256 startIndex,
+        uint256 t
+    ) internal view returns (uint256 boostRatio, uint256 index) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        // Binary search to find largest `index` that totalSupplyHistory[index].updateAt <= t.
+        // The largest `index` may not be the correct one if there are multiple deposit/withdraw/liquidation
+        // in the same block. However, we only care about the boost ratio after timestamp `t`,
+        // it is tolerable to use the largest `index`.
+        unchecked {
+            uint256 endIndex = $.totalAssetSupplyHistoryLength - 1;
+            while (startIndex < endIndex) {
+                uint256 mid = (startIndex + endIndex + 1) >> 1;
+                if ($.totalAssetSupplyHistory[mid].updatedAt <= t) {
+                    startIndex = mid;
+                } else {
+                    endIndex = mid - 1;
+                }
+            }
+        }
+
+        // Find the actual balance base on the supply.
+        TokenBalance memory supply = $.totalAssetSupplyHistory[startIndex];
+        uint256 balanceAmount = _getCompoundedBalance(balance.amount, balance.product, supply.product);
+
+        boostRatio = _computeBoostRatio(balanceAmount, supply.amount, veBalance, veSupply);
+        index = startIndex;
+    }
+
+    /// @dev Internal function to compute boost ratio with given parameters.
+    function _computeBoostRatio(
+        uint256 balance,
+        uint256 supply,
+        uint256 veBalance,
+        uint256 veSupply
+    ) internal pure returns (uint256) {
+        unchecked {
+            if (balance == 0) return (1 ether * 4) / 10;
+
+            // Compute boost ratio with Curve's rule: min(balance, balance * 0.4 + 0.6 * veBalance * supply / veSupply) / balance
+            uint256 boostedBalance = (balance * 4) / 10;
+            if (veSupply > 0) {
+                boostedBalance += (((veBalance * supply) / veSupply) * 6) / 10;
+            }
+            boostedBalance = (boostedBalance * balance) / balance;
+
+            if (boostedBalance > balance) {
+                boostedBalance = balance;
+            }
+
+            return (boostedBalance * 1 ether) / balance;
+        }
+    }
+
+    /*
 
     function rate() external view returns (uint256 rate_) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -740,6 +854,7 @@ contract StabilityPool_v1 is
             }
         }
     }
+    */
 }
 
 // slither-disable-end timestamp

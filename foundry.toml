@@ -5,10 +5,11 @@ libs = ["lib"]
 
 auto_detect_remappings = false # remappings seem to cause problems
 optimizer = true
-optimizer_runs = 700           # 500 builds & tests but 200 deploys
+
+optimizer_runs = 700 # 500 builds & tests but 200 deploys
 
 # via_ir = true        # makes the compiler run 7-10 times slower, is good at reducing code size or lower gas usage
-deny_warnings = true # enable to stop compilations if there are warnings
+deny_warnings = false # enable to stop compilations if there are warnings
 
 gas_reports_ignore = [
   "ERC20Mock",
@@ -26,22 +27,9 @@ fs_permissions = [
   { access = "read-write", path = "./log" },
 ]
 
-# fast building profile - used during the development cycle
-[profile.fast]
-out = "out-fast"
-libs = ["lib"]
-
-ast = false
-build_info = false
-
-via_ir = false        # makes the compiler run 7 times slower
-deny_warnings = false # enable to stop compilations if there are warnings
-
-optimizer = true
-optimizer_runs = 200 # 500 builds & tests but 200 deploys
-
-extra_output_files = []
-extra_output = []
+# slither building profile - removes vyper
+[profile.slither]
+skip = ["**/*.vy"]
 
 
 [etherscan]

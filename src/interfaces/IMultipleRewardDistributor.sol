@@ -69,6 +69,8 @@ interface IMultipleRewardDistributor {
     /// @dev It is either zero or at least 1 day (which is 86400).
     function REWARD_PERIOD_LENGTH() external view returns (uint40); // solhint-disable-line func-name-mixedcase
 
+    function REWARD_MANAGER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
+
     /// @notice Return the address of reward distributor.
     ///
     /// @param token The address of reward token.

@@ -3,46 +3,82 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
-/**
- * @title VotingEscrow
- * @author Modified from Curve (https://github.com/curvefi/curve-dao-contracts/blob/master/contracts/VotingEscrow.vy)
- * @notice Implements a system where governance tokens can be locked for a time period
- *         in exchange for voting power (veToken).
- * @dev Voting power decays linearly with time. The maximum lock time is 4 years.
- *      This is a faithful Solidity port of Curve's VotingEscrow Vyper contract.
- */
-contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
-    using SafeERC20 for IERC20;
-    using SafeCast for uint256;
-    using SafeCast for int256;
-    using SafeCast for int128;
+import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
+
+import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
+import {IVotingEscrowHelper} from "src/interfaces/IVotingEscrowHelper.sol";
+
+
+/// @title VotingEscrow
+/// @author rootminus0x1
+///         Modified from Aladdinn (https://github.com/AladdinDAO/aladdin-v3-contracts/blob/main/contracts/voting-escrow/VotingEscrow.vy)
+///         Which was modified from Curve (https://github.com/curvefi/curve-dao-contracts/blob/master/contracts/VotingEscrow.vy)
+///         Added in functions from https://github.com/AladdinDAO/aladdin-v3-contracts/blob/main/contracts/voting-escrow/VotingEscrowHelper.sol
+///         Made UUPS upgradeable with named storage
+/// @notice Implements a system where governance tokens can be locked for a time period
+///         in exchange for voting power (veToken).
+/// @dev Voting power decays linearly with time. The maximum lock time is 4 years.
+///
+/// This is a faithful Solidity port of Curve's VotingEscrow Vyper contract.
+/// Storage Pattern: Using ERC7201 namespaced storage slots to ensure that upgrades don't corrupt storage. This is more secure than the old storage gap approach.
+/// Ownership Integration: Integrates with BAO's custom ownership model by inheriting from BaoOwnable, which provides a one-time ownership transfer pattern.
+/// Upgradeability: Implements UUPS pattern using OpenZeppelin's contracts, with the _authorizeUpgrade function restricted to the BAO owner.
+/// Code Differences:
+/// Maintaining Solidity conventions while preserving Vyper logic
+/// Replaced Vyper's nested array access with mapping[address][uint256] pattern
+/// Using SafeCast for type conversion safety
+/// Added additional view functions to improve useability
+/// Compatible Interfaces:
+/// Maintains exact function signatures from the Vyper original
+/// Includes Aragon-compatible functions for DAO integration
+/// Binary Search:
+/// Implements the same binary search algorithm for finding checkpoint epochs
+/// Uses 128 iterations to match Vyper implementation
+/// Potential Issues:
+/// Gas costs will be slightly higher than the Vyper original due to Solidity's storage access patterns
+/// The Vyper original has extremely tightly packed storage which is harder to reproduce in Solidity
+/// The checkpoint function is still gas-intensive due to the historical lookups
+
+contract VotingEscrow_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    ContextUpgradeable,
+    ReentrancyGuardTransientUpgradeable,
+    BaoOwnable,
+    TokenHolder,
+    IVotingEscrow,
+    IVotingEscrowHelper
+{
 
     /***************************************************************************
      * Namespace Storage - ERC7201-based storage pattern for upgradeability
      **************************************************************************/
 
-    // keccak256("VotingEscrow.Storage") - 1
-    bytes32 private constant _VOTING_ESCROW_STORAGE_LOCATION =
-        0x8d8a99a3577e8a383fc91b0385c6deb89d9ebb840c5e898538462bd33ddb96a1;
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.VotingEscrow")) - 1)) & ~bytes32(uint256(0xff))'
+    bytes32 private constant _VOTING_ESCROW_STORAGE =
+        0x8d4cdbcdf88ffd0d1c59297e12b94ebee7ae214c1a483d97ad100b0876812b00;
 
     struct VotingEscrowStorage {
+        // Voting power tracking
+        uint256 epoch;
         // Point structure for historical lookups
         mapping(uint256 => Point) pointHistory; // epoch -> point
-        mapping(address => Point[1000000000]) userPointHistory; // user -> Point[user_epoch]
+        mapping(address => mapping(uint256 => Point)) userPointHistory; // user -> Point[user_epoch]
         mapping(address => uint256) userPointEpoch; // user -> epoch
         mapping(uint256 => int128) slopeChanges; // time -> slope change
         // Token-related variables
         address token;
         uint256 supply;
         mapping(address => LockedBalance) locked;
-        // Voting power tracking
-        uint256 epoch;
         // Aragon compatibility
         string name;
         string symbol;
@@ -55,36 +91,19 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
         address futureSmartWalletChecker;
     }
 
-    function _getStorage() private pure returns (VotingEscrowStorage storage s) {
-        bytes32 position = _VOTING_ESCROW_STORAGE_LOCATION;
+    function _getStorage() private pure returns (VotingEscrowStorage storage $) {
+        bytes32 position = _VOTING_ESCROW_STORAGE;
         assembly {
-            s.slot := position
+            $.slot := position
         }
     }
 
-    /***************************************************************************
-     * Constants
-     **************************************************************************/
-
-    uint256 internal constant WEEK = 7 * 86400; // all future times are rounded by week
-    uint256 internal constant MAXTIME = 4 * 365 * 86400; // 4 years
-    int128 internal constant MAXTIME_I128 = 4 * 365 * 86400; // 4 years
-    uint256 internal constant MULTIPLIER = 1e18;
+    // the address
+    address internal immutable _ve;
 
     /***************************************************************************
      * Struct Definitions
      **************************************************************************/
-
-    /**
-     * @notice Point structure records bias and slope at a given timestamp
-     * @dev Used for voting power calculation and historical tracking
-     */
-    struct Point {
-        int128 bias; // Voting power at time.ts
-        int128 slope; // Voting power rate of decay (dweight / dt)
-        uint256 ts; // Timestamp
-        uint256 blk; // Block
-    }
 
     /**
      * @notice Records a locked token balance and when it expires
@@ -93,18 +112,6 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
         int128 amount; // Amount of token locked
         uint256 end; // When the lock expires
     }
-
-    /***************************************************************************
-     * Events
-     **************************************************************************/
-
-    event CommitOwnership(address admin);
-    event ApplyOwnership(address admin);
-
-    event Deposit(address indexed provider, uint256 value, uint256 indexed locktime, int128 type_, uint256 ts);
-
-    event Withdraw(address indexed provider, uint256 value, uint256 ts);
-    event Supply(uint256 prevSupply, uint256 supply);
 
     /***************************************************************************
      * Initialization
@@ -123,32 +130,35 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param _version Contract version for Aragon compatibility
      */
     function initialize(
+        address owner_,
         address tokenAddr,
         string memory _name,
         string memory _symbol,
         string memory _version
     ) external initializer {
+        _initializeOwner(owner_);
         __UUPSUpgradeable_init();
-        _initializeOwner(msg.sender);
+        __Context_init();
+        __ReentrancyGuardTransient_init();
 
-        VotingEscrowStorage storage s = _getStorage();
-        s.token = tokenAddr;
-        s.pointHistory[0].blk = block.number;
-        s.pointHistory[0].ts = block.timestamp;
-        s.controller = msg.sender;
-        s.transfersEnabled = true;
+        VotingEscrowStorage storage $ = _getStorage();
+        $.token = tokenAddr;
+        $.pointHistory[0].blk = block.number;
+        $.pointHistory[0].ts = block.timestamp;
+        $.controller = owner_;
+        $.transfersEnabled = true;
 
         uint8 _decimals = IERC20Metadata(tokenAddr).decimals();
         require(_decimals <= 255, "Decimals exceeds uint8");
 
-        s.name = _name;
-        s.symbol = _symbol;
-        s.version = _version;
-        s.decimals = _decimals;
+        $.name = _name;
+        $.symbol = _symbol;
+        $.version = _version;
+        $.decimals = _decimals;
     }
 
     /***************************************************************************
-     * Admin Functions
+     * protected mutator functions
      **************************************************************************/
 
     /**
@@ -156,18 +166,18 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @dev Only callable by owner
      * @param addr New smart wallet checker address
      */
-    function commitSmartWalletChecker(address addr) external onlyOwner {
-        VotingEscrowStorage storage s = _getStorage();
-        s.futureSmartWalletChecker = addr;
+    function commit_smart_wallet_checker(address addr) external onlyOwner {
+        VotingEscrowStorage storage $ = _getStorage();
+        $.futureSmartWalletChecker = addr;
     }
 
     /**
      * @notice Apply pending smart wallet checker
      * @dev Only callable by owner
      */
-    function applySmartWalletChecker() external onlyOwner {
-        VotingEscrowStorage storage s = _getStorage();
-        s.smartWalletChecker = s.futureSmartWalletChecker;
+    function apply_smart_wallet_checker() external onlyOwner {
+        VotingEscrowStorage storage $ = _getStorage();
+        $.smartWalletChecker = $.futureSmartWalletChecker;
     }
 
     /**
@@ -175,7 +185,7 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @dev Only callable by owner
      * @param newImplementation Address of the new implementation
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /***************************************************************************
      * Internal Helpers
@@ -185,10 +195,10 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @dev Check if the call is from a whitelisted smart contract, revert if not
      * @param addr Address to check
      */
-    function _assertNotContract(address addr) internal view {
+    function _assertNotContract(address addr) internal {
         if (addr != tx.origin) {
-            VotingEscrowStorage storage s = _getStorage();
-            address checker = s.smartWalletChecker;
+            VotingEscrowStorage storage $ = _getStorage();
+            address checker = $.smartWalletChecker;
             if (checker != address(0)) {
                 if (ISmartWalletChecker(checker).check(addr)) {
                     return;
@@ -205,7 +215,7 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param endEpoch End of the search range
      */
     function _findPointEpoch(uint256 timestamp, uint256 startEpoch, uint256 endEpoch) internal view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
+        VotingEscrowStorage storage $ = _getStorage();
 
         // Binary search
         uint256 min = startEpoch;
@@ -217,7 +227,7 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
                 break;
             }
             uint256 mid = (min + max + 1) / 2;
-            Point memory point = s.pointHistory[mid];
+            Point memory point = $.pointHistory[mid];
             if (point.ts <= timestamp) {
                 min = mid;
             } else {
@@ -234,19 +244,19 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param timestamp The timestamp at which to calculate voting power
      */
     function _supplyAt(Point memory point, uint256 timestamp) internal view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
+        VotingEscrowStorage storage $ = _getStorage();
 
         Point memory lastPoint = point;
-        uint256 t_i = (lastPoint.ts / WEEK) * WEEK;
+        uint256 t_i = (lastPoint.ts / 1 weeks) * 1 weeks;
 
         for (uint i = 0; i < 255; i++) {
-            t_i += WEEK;
+            t_i += 1 weeks;
             int128 dSlope = 0;
 
             if (t_i > timestamp) {
                 t_i = timestamp;
             } else {
-                dSlope = s.slopeChanges[t_i];
+                dSlope = $.slopeChanges[t_i];
             }
 
             lastPoint.bias -= lastPoint.slope * int128(int256(t_i - lastPoint.ts));
@@ -271,13 +281,13 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param newLocked New locked amount/end
      */
     function _checkpoint(address addr, LockedBalance memory oldLocked, LockedBalance memory newLocked) internal {
-        VotingEscrowStorage storage s = _getStorage();
+        VotingEscrowStorage storage $ = _getStorage();
 
         Point memory uOld = Point(0, 0, 0, 0);
         Point memory uNew = Point(0, 0, 0, 0);
         int128 oldDslope = 0;
         int128 newDslope = 0;
-        uint256 _epoch = s.epoch;
+        uint256 _epoch = $.epoch;
 
         if (addr != address(0)) {
             // Calculate slopes and biases for user points
@@ -292,12 +302,12 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
             }
 
             // Handle slope changes at lock expiry
-            oldDslope = s.slopeChanges[oldLocked.end];
+            oldDslope = $.slopeChanges[oldLocked.end];
             if (newLocked.end != 0) {
                 if (newLocked.end == oldLocked.end) {
                     newDslope = oldDslope;
                 } else {
-                    newDslope = s.slopeChanges[newLocked.end];
+                    newDslope = $.slopeChanges[newLocked.end];
                 }
             }
         }
@@ -305,7 +315,7 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
         // Record checkpoint
         Point memory lastPoint = Point(0, 0, block.timestamp, block.number);
         if (_epoch > 0) {
-            lastPoint = s.pointHistory[_epoch];
+            lastPoint = $.pointHistory[_epoch];
         }
 
         uint256 lastCheckpoint = lastPoint.ts;
@@ -320,19 +330,19 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
 
         uint256 blockSlope = 0;
         if (block.timestamp > lastPoint.ts) {
-            blockSlope = (MULTIPLIER * (block.number - lastPoint.blk)) / (block.timestamp - lastPoint.ts);
+            blockSlope = ((block.number - lastPoint.blk) * 1 ether) / (block.timestamp - lastPoint.ts);
         }
 
         // Go over weeks to fill history and calculate what the current point is
-        uint256 t_i = (lastCheckpoint / WEEK) * WEEK;
+        uint256 t_i = (lastCheckpoint / 1 weeks) * 1 weeks;
         for (uint i = 0; i < 255; i++) {
-            t_i += WEEK;
+            t_i += 1 weeks;
             int128 dslope = 0;
 
             if (t_i > block.timestamp) {
                 t_i = block.timestamp;
             } else {
-                dslope = s.slopeChanges[t_i];
+                dslope = $.slopeChanges[t_i];
             }
 
             lastPoint.bias -= lastPoint.slope * int128(int256(t_i - lastCheckpoint));
@@ -348,18 +358,18 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
 
             lastCheckpoint = t_i;
             lastPoint.ts = t_i;
-            lastPoint.blk = initialLastPoint.blk + (blockSlope * (t_i - initialLastPoint.ts)) / MULTIPLIER;
+            lastPoint.blk = initialLastPoint.blk + (blockSlope * (t_i - initialLastPoint.ts)) / 1 ether;
 
             _epoch += 1;
             if (t_i == block.timestamp) {
                 lastPoint.blk = block.number;
                 break;
             } else {
-                s.pointHistory[_epoch] = lastPoint;
+                $.pointHistory[_epoch] = lastPoint;
             }
         }
 
-        s.epoch = _epoch;
+        $.epoch = _epoch;
 
         // Now handle per-user history
         if (addr != address(0)) {
@@ -376,7 +386,7 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
         }
 
         // Record the final point
-        s.pointHistory[_epoch] = lastPoint;
+        $.pointHistory[_epoch] = lastPoint;
 
         if (addr != address(0)) {
             // Schedule slope changes
@@ -385,23 +395,23 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
                 if (newLocked.end == oldLocked.end) {
                     oldDslope -= uNew.slope;
                 }
-                s.slopeChanges[oldLocked.end] = oldDslope;
+                $.slopeChanges[oldLocked.end] = oldDslope;
             }
 
             if (newLocked.end > block.timestamp) {
                 if (newLocked.end > oldLocked.end) {
                     newDslope -= uNew.slope;
-                    s.slopeChanges[newLocked.end] = newDslope;
+                    $.slopeChanges[newLocked.end] = newDslope;
                 }
             }
 
             // Update user epoch and history
-            uint256 userEpoch = s.userPointEpoch[addr] + 1;
-            s.userPointEpoch[addr] = userEpoch;
+            uint256 userEpoch = $.userPointEpoch[addr] + 1;
+            $.userPointEpoch[addr] = userEpoch;
 
             uNew.ts = block.timestamp;
             uNew.blk = block.number;
-            s.userPointHistory[addr][userEpoch] = uNew;
+            $.userPointHistory[addr][userEpoch] = uNew;
         }
     }
 
@@ -418,41 +428,42 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param type_ Type of deposit (1: create lock, 2: increase amount, 3: extend time)
      */
     function _depositFor(
+        address sender,
         address addr,
         uint256 value,
         uint256 unlockTime,
         LockedBalance memory lockedBalance,
         int128 type_
     ) internal {
-        VotingEscrowStorage storage s = _getStorage();
-        uint256 supplyBefore = s.supply;
-        s.supply = supplyBefore + value;
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 supplyBefore = $.supply;
+        $.supply = supplyBefore + value;
 
         LockedBalance memory oldLocked = lockedBalance;
 
         // Adding to existing lock, or if a lock is expired - creating a new one
-        lockedBalance.amount += value.toInt128();
+        lockedBalance.amount += value.toInt256().toInt128();
         if (unlockTime != 0) {
             lockedBalance.end = unlockTime;
         }
-        s.locked[addr] = lockedBalance;
+        $.locked[addr] = lockedBalance;
 
         // Checkpoint
         _checkpoint(addr, oldLocked, lockedBalance);
 
         if (value != 0) {
-            IERC20(s.token).safeTransferFrom(msg.sender, address(this), value);
+            IERC20($.token).safeTransferFrom(sender, address(this), value);
         }
 
-        emit Deposit(addr, value, lockedBalance.end, type_, block.timestamp);
-        emit Supply(supplyBefore, supplyBefore + value);
+        emit IVotingEscrow.Deposit(addr, value, lockedBalance.end, type_, block.timestamp);
+        emit IVotingEscrow.Supply(supplyBefore, supplyBefore + value);
     }
 
     /**
      * @notice Record global data to checkpoint
      */
     function checkpoint() external {
-        VotingEscrowStorage storage s = _getStorage();
+        VotingEscrowStorage storage $ = _getStorage();
         LockedBalance memory emptyLock = LockedBalance(0, 0);
         _checkpoint(address(0), emptyLock, emptyLock);
     }
@@ -464,15 +475,15 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param addr User's wallet address
      * @param value Amount to add to user's lock
      */
-    function depositFor(address addr, uint256 value) external {
-        VotingEscrowStorage storage s = _getStorage();
-        LockedBalance memory locked_ = s.locked[addr];
+    function deposit_for(address addr, uint256 value) external nonReentrant {
+        VotingEscrowStorage storage $ = _getStorage();
+        LockedBalance memory locked_ = $.locked[addr];
 
         require(value > 0, "Value must be positive");
         require(locked_.amount > 0, "No existing lock found");
         require(locked_.end > block.timestamp, "Cannot add to expired lock");
 
-        _depositFor(addr, value, 0, locked_, 0);
+        _depositFor(_msgSender(), addr, value, 0, locked_, 0);
     }
 
     /**
@@ -480,19 +491,19 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param value Amount to deposit
      * @param unlockTime Epoch time when tokens unlock, rounded down to whole weeks
      */
-    function createLock(uint256 value, uint256 unlockTime) external {
-        VotingEscrowStorage storage s = _getStorage();
+    function create_lock(uint256 value, uint256 unlockTime) external nonReentrant {
+        VotingEscrowStorage storage $ = _getStorage();
         _assertNotContract(msg.sender);
 
-        unlockTime = (unlockTime / WEEK) * WEEK; // Locktime is rounded down to weeks
-        LockedBalance memory locked_ = s.locked[msg.sender];
+        unlockTime = (unlockTime / 1 weeks) * 1 weeks; // Locktime is rounded down to weeks
+        LockedBalance memory locked_ = $.locked[msg.sender];
 
         require(value > 0, "Value must be positive");
         require(locked_.amount == 0, "Withdraw old tokens first");
         require(unlockTime > block.timestamp, "Can only lock until future time");
         require(unlockTime <= block.timestamp + MAXTIME, "Voting lock can be 4 years max");
 
-        _depositFor(msg.sender, value, unlockTime, locked_, 1);
+        _depositFor(_msgSender(), _msgSender(), value, unlockTime, locked_, 1);
     }
 
     /**
@@ -500,45 +511,45 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      *         without modifying the unlock time
      * @param value Amount of tokens to deposit
      */
-    function increaseAmount(uint256 value) external {
-        VotingEscrowStorage storage s = _getStorage();
+    function increase_amount(uint256 value) external nonReentrant {
+        VotingEscrowStorage storage $ = _getStorage();
         _assertNotContract(msg.sender);
 
-        LockedBalance memory locked_ = s.locked[msg.sender];
+        LockedBalance memory locked_ = $.locked[msg.sender];
 
         require(value > 0, "Value must be positive");
         require(locked_.amount > 0, "No existing lock found");
         require(locked_.end > block.timestamp, "Cannot add to expired lock");
 
-        _depositFor(msg.sender, value, 0, locked_, 2);
+        _depositFor(_msgSender(), _msgSender(), value, 0, locked_, 2);
     }
 
     /**
      * @notice Extend the unlock time for `msg.sender` to `unlockTime`
      * @param unlockTime New epoch time for unlocking
      */
-    function increaseUnlockTime(uint256 unlockTime) external {
-        VotingEscrowStorage storage s = _getStorage();
+    function increase_unlock_time(uint256 unlockTime) external nonReentrant {
+        VotingEscrowStorage storage $ = _getStorage();
         _assertNotContract(msg.sender);
 
-        unlockTime = (unlockTime / WEEK) * WEEK; // Locktime is rounded down to weeks
-        LockedBalance memory locked_ = s.locked[msg.sender];
+        unlockTime = (unlockTime / 1 weeks) * 1 weeks; // Locktime is rounded down to weeks
+        LockedBalance memory locked_ = $.locked[msg.sender];
 
         require(locked_.end > block.timestamp, "Lock expired");
         require(locked_.amount > 0, "Nothing is locked");
         require(unlockTime > locked_.end, "Can only increase lock duration");
         require(unlockTime <= block.timestamp + MAXTIME, "Voting lock can be 4 years max");
 
-        _depositFor(msg.sender, 0, unlockTime, locked_, 3);
+        _depositFor(_msgSender(), _msgSender(), 0, unlockTime, locked_, 3);
     }
 
     /**
      * @notice Withdraw all tokens for `msg.sender`
      * @dev Only possible if the lock has expired
      */
-    function withdraw() external {
-        VotingEscrowStorage storage s = _getStorage();
-        LockedBalance memory locked_ = s.locked[msg.sender];
+    function withdraw() external nonReentrant {
+        VotingEscrowStorage storage $ = _getStorage();
+        LockedBalance memory locked_ = $.locked[msg.sender];
 
         require(block.timestamp >= locked_.end, "The lock has not expired");
         uint256 value = uint256(int256(locked_.amount));
@@ -546,25 +557,75 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
         LockedBalance memory oldLocked = locked_;
         locked_.end = 0;
         locked_.amount = 0;
-        s.locked[msg.sender] = locked_;
+        $.locked[msg.sender] = locked_;
 
-        uint256 supplyBefore = s.supply;
-        s.supply = supplyBefore - value;
+        uint256 supplyBefore = $.supply;
+        $.supply = supplyBefore - value;
 
         // oldLocked can have either expired <= timestamp or zero end
         // locked_ has only 0 end
         // Both can have >= 0 amount
         _checkpoint(msg.sender, oldLocked, locked_);
 
-        IERC20(s.token).safeTransfer(msg.sender, value);
+        IERC20($.token).safeTransfer(msg.sender, value);
 
-        emit Withdraw(msg.sender, value, block.timestamp);
-        emit Supply(supplyBefore, supplyBefore - value);
+        emit IVotingEscrow.Withdraw(msg.sender, value, block.timestamp);
+        emit IVotingEscrow.Supply(supplyBefore, supplyBefore - value);
     }
 
     /***************************************************************************
-     * View Functions - Voting Power
+     * Public View Functions - Voting Power
      **************************************************************************/
+
+    function token() external view returns (address) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.token;
+    }
+
+    function supply() external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.supply;
+    }
+
+    /**
+     * @notice Read the current locked balance of `addr`
+     * @param addr Address to query
+     * @return The locked balance
+     */
+    function locked(address addr) external view returns (LockedBalance memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.locked[addr];
+    }
+
+    function epoch() external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.epoch;
+    }
+
+    function point_history(uint256 epoch_) external view returns (Point memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.pointHistory[epoch_];
+    }
+
+    function user_point_history(address addr, uint256 epoch_) external view returns (Point memory) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointHistory[addr][epoch_];
+    }
+
+    function user_point_history__ts(address addr, uint256 epoch_) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointHistory[addr][epoch_].ts;
+    }
+
+    function user_point_epoch(address addr) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointEpoch[addr];
+    }
+
+    function slope_changes(uint256 week) external view returns (int128) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.slopeChanges[week];
+    }
 
     /**
      * @notice Calculate voting power for a specific timestamp
@@ -573,18 +634,18 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @return User voting power
      */
     function _balanceOfAt(address addr, uint256 ts) internal view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
-        uint256 userEpoch = s.userPointEpoch[addr];
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 userEpoch = $.userPointEpoch[addr];
 
         if (userEpoch == 0) {
             return 0;
         } else {
-            Point memory lastPoint = s.userPointHistory[addr][userEpoch];
+            Point memory lastPoint = $.userPointHistory[addr][userEpoch];
             // Now handle the case when block.timestamp is earlier than user history
             if (ts < lastPoint.ts) {
                 // Find the most recent user point before ts
                 userEpoch = _findPointEpoch(ts, 1, userEpoch);
-                lastPoint = s.userPointHistory[addr][userEpoch];
+                lastPoint = $.userPointHistory[addr][userEpoch];
             }
 
             lastPoint.bias -= lastPoint.slope * int128(int256(ts - lastPoint.ts));
@@ -602,9 +663,9 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param epoch User epoch number
      * @return Epoch time of the checkpoint
      */
-    function userPointHistoryTs(address addr, uint256 epoch) external view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.userPointHistory[addr][epoch].ts;
+    function user_point_historyTs(address addr, uint256 epoch) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.userPointHistory[addr][epoch].ts;
     }
 
     /**
@@ -612,9 +673,9 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param addr User wallet
      * @return Epoch time of the lock end
      */
-    function lockedEnd(address addr) external view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.locked[addr].end;
+    function locked__end(address addr) external view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.locked[addr].end;
     }
 
     /**
@@ -623,15 +684,15 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @return Total voting power
      */
     function totalSupplyAt(uint256 t) external view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
-        uint256 _epoch = s.epoch;
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 _epoch = $.epoch;
         uint256 targetEpoch = _findPointEpoch(t, 0, _epoch);
 
-        Point memory point = s.pointHistory[targetEpoch];
+        Point memory point = $.pointHistory[targetEpoch];
         uint256 dt = 0;
 
         if (targetEpoch < _epoch) {
-            Point memory pointNext = s.pointHistory[targetEpoch + 1];
+            Point memory pointNext = $.pointHistory[targetEpoch + 1];
             if (point.blk != pointNext.blk) {
                 dt = ((t - point.ts) * (pointNext.blk - point.blk)) / (pointNext.ts - point.ts);
             }
@@ -649,8 +710,8 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @return Total voting power
      */
     function totalSupply() external view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
-        Point memory lastPoint = s.pointHistory[s.epoch];
+        VotingEscrowStorage storage $ = _getStorage();
+        Point memory lastPoint = $.pointHistory[$.epoch];
         return _supplyAt(lastPoint, block.timestamp);
     }
 
@@ -660,8 +721,8 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @return Total voting power
      */
     function totalSupply(uint256 t) external view returns (uint256) {
-        VotingEscrowStorage storage s = _getStorage();
-        Point memory lastPoint = s.pointHistory[s.epoch];
+        VotingEscrowStorage storage $ = _getStorage();
+        Point memory lastPoint = $.pointHistory[$.epoch];
         return _supplyAt(lastPoint, t);
     }
 
@@ -691,48 +752,33 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @return Value of the slope
      */
     function getLastUserSlope(address addr) external view returns (int128) {
-        VotingEscrowStorage storage s = _getStorage();
-        uint256 uEpoch = s.userPointEpoch[addr];
-        return s.userPointHistory[addr][uEpoch].slope;
-    }
-
-    /**
-     * @notice Read the current locked balance of `addr`
-     * @param addr Address to query
-     * @return The locked balance
-     */
-    function locked(address addr) external view returns (LockedBalance memory) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.locked[addr];
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 uEpoch = $.userPointEpoch[addr];
+        return $.userPointHistory[addr][uEpoch].slope;
     }
 
     /***************************************************************************
-     * View Functions - Token Info (Aragon compatibility)
+     * Public View Functions - Token Info for  Aragon compatibility
      **************************************************************************/
 
-    function token() external view returns (address) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.token;
-    }
-
     function name() external view returns (string memory) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.name;
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.name;
     }
 
     function symbol() external view returns (string memory) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.symbol;
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.symbol;
     }
 
     function version() external view returns (string memory) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.version;
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.version;
     }
 
     function decimals() external view returns (uint8) {
-        VotingEscrowStorage storage s = _getStorage();
-        return s.decimals;
+        VotingEscrowStorage storage $ = _getStorage();
+        return $.decimals;
     }
 
     /***************************************************************************
@@ -745,22 +791,8 @@ contract VotingEscrow is Initializable, UUPSUpgradeable, BaoOwnable {
      * @param _newController New controller address
      */
     function changeController(address _newController) external {
-        VotingEscrowStorage storage s = _getStorage();
-        require(msg.sender == s.controller, "Only controller can change controller");
-        s.controller = _newController;
+        VotingEscrowStorage storage $ = _getStorage();
+        require(_msgSender() == $.controller, "Only controller can change controller");
+        $.controller = _newController;
     }
-}
-
-/**
- * @notice Interface for checking if an address is a smart contract wallet
- */
-interface ISmartWalletChecker {
-    function check(address addr) external returns (bool);
-}
-
-/**
- * @notice Interface for ERC20 metadata functions
- */
-interface IERC20Metadata {
-    function decimals() external view returns (uint8);
 }

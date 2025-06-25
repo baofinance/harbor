@@ -5,15 +5,36 @@ pragma solidity ^0.8.0;
 // solhint-disable func-name-mixedcase, var-name-mixedcase, func-param-name-mixedcase
 
 interface IVotingEscrow {
+    error LockNotExpired(uint256 currentTime, uint256 unlockTime);
+    error LockExpired(uint256 currentTime, uint256 unlockTime);
+    error NothingIsLocked();
+    error LockCanOnlyIncrease(uint256 proposedUnlockTime, uint256 currentUnlockTime);
+    error ExceededMaxLockTime(uint256 proposedLockTime, uint256 maxLockTime);
+    error ValueNotPositive(uint256 value);
+    error AlreadyLockedAmount(int128 value, uint256 unlockTime);
+    error SmartContractNotAllowed(address contractAddress);
+
+    /***************************************************************************
+     * Events
+     **************************************************************************/
+
+    event Deposit(address indexed provider, uint256 value, uint256 indexed locktime, int128 type_, uint256 ts);
+
+    event Withdraw(address indexed provider, uint256 value, uint256 ts);
+    event Supply(uint256 prevSupply, uint256 supply);
+
     /***********
      * Structs *
      ***********/
-
+    /**
+     * @notice Point structure records bias and slope at a given timestamp
+     * @dev Used for voting power calculation and historical tracking
+     */
     struct Point {
-        int128 bias;
-        int128 slope;
-        uint256 ts;
-        uint256 blk;
+        int128 bias; // Voting power at time.ts
+        int128 slope; // Voting power rate of decay (dweight / dt)
+        uint256 ts; // Timestamp
+        uint256 blk; // Block
     }
 
     /*************************
@@ -46,11 +67,15 @@ interface IVotingEscrow {
     /// @return Total voting power
     function totalSupply() external view returns (uint256);
 
+    function totalSupply(uint256 t) external view returns (uint256);
+
     /// @notice Get the current voting power for `msg.sender`
     /// @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
     /// @param addr User wallet address
     /// @return User voting power
     function balanceOf(address addr) external view returns (uint256);
+
+    function balanceOf(address addr, uint256 t) external view returns (uint256);
 
     /// @notice time -> signed slope change
     function slope_changes(uint256 week) external view returns (int128);

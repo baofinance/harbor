@@ -28,7 +28,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
     address user3;
     address rewarder;
     address rebalancer;
-    address withdrawer;
     address rewardManager;
     MockERC20 rewardToken;
     MockERC20 liquidationToken;
@@ -45,7 +44,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         user3 = vm.createWallet("user3").addr;
         rewarder = vm.createWallet("rewarder").addr;
         rebalancer = vm.createWallet("rebalancer").addr;
-        withdrawer = vm.createWallet("withdrawer").addr;
         rewardManager = vm.createWallet("rewardManager").addr;
 
         // Create reward and liquidation tokens
@@ -55,13 +53,11 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         // Set up roles
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
-        uint256 withdrawFromRole = IStabilityPool(stabilityPoolCollateral).WITHDRAW_FROM_ROLE();
-        uint256 rewardManagerRole = IStabilityPool(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
+        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(withdrawer, withdrawFromRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
 
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
@@ -224,7 +220,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         // Record initial balance
         uint256 initialBalance = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
         assertEq(initialBalance, IERC20(stabilityPoolCollateral).totalSupply());
-        assertEq(IStabilityPool(stabilityPoolCollateral).rate(), 1 ether);
 
         // Rebalancer sweeps some assets
         vm.prank(rebalancer);

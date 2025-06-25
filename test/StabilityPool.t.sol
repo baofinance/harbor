@@ -44,8 +44,10 @@ contract StabilityPool_v2 is StabilityPool_v1 {
     constructor(
         address minter_,
         address liquidationToken_,
+        address stabilityPoolToken_,
+        address veToken_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veToken_, periodLength) {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
@@ -58,8 +60,10 @@ contract MockStabilityPool is StabilityPool_v1 {
     constructor(
         address minter_,
         address liquidationToken_,
+        address stabilityPoolToken_,
+        address veToken_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veToken_, periodLength) {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
@@ -69,27 +73,31 @@ contract MockStabilityPool is StabilityPool_v1 {
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address stabilityPoolCollateral;
-    string nameCollateral;
-    string symbolCollateral;
+    address veToken = 0x8Bf70DFE40F07a5ab715F7e888478d9D3680a2B6; // BaoUSD Voting Escrow TODO: put this constant somewhere
 
     address user1;
     address user2;
 
-    function _setupStabilityPool(
-        address liquidationToken
-    ) internal returns (address stabilityPool, string memory name, string memory symbol) {
-        string memory pegged = IERC20Metadata(peggedToken).symbol();
+    function _setupStabilityPool(address liquidationToken) internal returns (address stabilityPool) {
         string memory liquidation = IERC20Metadata(liquidationToken).symbol();
-        string memory collateral = IERC20Metadata(collateralToken).symbol();
-        symbol = string.concat("pool-", pegged, "-", collateral, "-", liquidation);
-        name = string.concat("Zhenglong stability ", symbol);
+
+        address stabilityPoolToken = address(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
+                abi.encodeCall(
+                    MintableBurnableERC20_v1.initialize,
+                    (owner, "StabilityPool Token", string.concat("lpBaoUSDLwstETHx", liquidation))
+                )
+            )
+        );
+
         // use mock stability pool to expose internals for testing
         // otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, liquidationToken, 1 weeks)), // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, name, symbol))
+            address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, veToken, 1 weeks)), // "StabilityPool_v1.sol",
+            abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
-        IBaoRoles(stabilityPool).grantRoles(owner, IStabilityPool(stabilityPool).REWARD_MANAGER_ROLE());
+        IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
         vm.prank(owner);
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken, stabilityPool);
 
@@ -99,7 +107,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
-        (stabilityPoolCollateral, nameCollateral, symbolCollateral) = _setupStabilityPool(wrappedCollateralToken);
+        stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
@@ -110,15 +118,12 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
     }
 
-    function test_initOnly(address sp, address liquidateTo, string memory name, string memory symbol) internal view {
+    function test_initOnly(address sp, address liquidateTo) internal view {
         assertEq(StabilityPool_v1(sp).owner(), owner);
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
-        assertEq(IStabilityPool(sp).MINTER(), minter);
+        assertEq(IStabilityPool(sp).STABILITY_POOL_TOKEN(), liquidateTo);
         assertEq(IERC20(sp).totalSupply(), 0);
-        assertEq(IERC20Metadata(sp).name(), name);
-        assertEq(IERC20Metadata(sp).symbol(), symbol);
-        assertEq(IERC20Metadata(sp).decimals(), 18);
     }
 }
 
@@ -126,7 +131,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
     using SafeERC20 for IERC20;
 
     function test_initOnly() public view {
-        test_initOnly(stabilityPoolCollateral, wrappedCollateralToken, nameCollateral, symbolCollateral);
+        test_initOnly(stabilityPoolCollateral, wrappedCollateralToken);
     }
 
     // Test for _authorizeUpgrade function (coverage for function 192)
@@ -136,8 +141,21 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
 
+        address stabilityPoolToken = address(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
+            )
+        );
+
         // Create the V2 implementation
-        StabilityPool_v2 implementationV2 = new StabilityPool_v2(minter, wrappedCollateralToken, 1 weeks);
+        StabilityPool_v2 implementationV2 = new StabilityPool_v2(
+            minter,
+            wrappedCollateralToken,
+            stabilityPoolToken,
+            veToken,
+            1 weeks
+        );
 
         // Perform the upgrade as the owner
         vm.prank(owner);
@@ -153,14 +171,26 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
 }
 
 contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
+    address stabilityPoolToken;
+
+    function setUp() public virtual override(TestStabilityPoolSetUp) {
+        super.setUp();
+        stabilityPoolToken = address(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
+            )
+        );
+    }
+
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v1(minter, wrappedCollateralToken, 1 weeks));
+        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, veToken, 1 weeks));
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address sp = address(new StabilityPool_v1(minter, liquidateTo, 1 weeks));
+        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, veToken, 1 weeks));
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
@@ -170,11 +200,11 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, "name", "symbol"))
+            abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
         IBaoOwnable(spProxy).transferOwnership(owner);
 
-        test_initOnly(spProxy, liquidateTo, "name", "symbol");
+        test_initOnly(spProxy, liquidateTo);
     }
 
     function test_initEventsCollateral() public {
@@ -187,10 +217,10 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initEventsBad() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
-        new StabilityPool_v1(minter, peggedToken, 1 weeks);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veToken, 1 weeks);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1 days - 1));
-        new StabilityPool_v1(minter, peggedToken, 1 days - 1);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veToken, 1 days - 1);
     }
 }
 

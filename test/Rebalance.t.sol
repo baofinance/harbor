@@ -52,15 +52,22 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         vm.prank(user);
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);
 
+        address stabilityPoolToken = address(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
+            )
+        );
+
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken, 1 weeks)),
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, "empty", "barrel"))
+            address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, veToken, 1 weeks)),
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
 
         stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken, 1 weeks)),
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, "empty", "barrel"))
+            address(new StabilityPool_v1(minter, leveragedToken, stabilityPoolToken, veToken, 1 weeks)),
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);
 
