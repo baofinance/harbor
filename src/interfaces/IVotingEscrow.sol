@@ -67,7 +67,9 @@ interface IVotingEscrow {
     /// @return Total voting power
     function totalSupply() external view returns (uint256);
 
-    function totalSupply(uint256 t) external view returns (uint256);
+    function totalSupply(uint256 ts) external view returns (uint256);
+
+    function totalSupplyAt(uint256 block) external view returns (uint256);
 
     /// @notice Get the current voting power for `msg.sender`
     /// @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
@@ -75,7 +77,9 @@ interface IVotingEscrow {
     /// @return User voting power
     function balanceOf(address addr) external view returns (uint256);
 
-    function balanceOf(address addr, uint256 t) external view returns (uint256);
+    function balanceOf(address addr, uint256 ts) external view returns (uint256);
+
+    function balanceOfAt(address addr, uint256 _block) external view returns (uint256);
 
     /// @notice time -> signed slope change
     function slope_changes(uint256 week) external view returns (int128);

@@ -208,6 +208,7 @@ contract VotingEscrow_v1 is
 
     modifier onlyAllowedContractOrEOA() {
         // Check if the caller is an EOA or has the required role
+        // wake-disable-next-line tx-origin
         // solhint-disable-next-line avoid-tx-origin
         if (msg.sender != tx.origin && !hasAnyRole(msg.sender, _ALLOWED_SMART_CONTRACT_ROLE)) {
             revert Unauthorized();
@@ -352,19 +353,19 @@ contract VotingEscrow_v1 is
         }
 
         // Go over weeks to fill history and calculate what the current point is
-        uint256 iTimestamo = (lastCheckpoint / 1 weeks) * 1 weeks;
+        uint256 iTimestamp = (lastCheckpoint / 1 weeks) * 1 weeks;
         // solhint-disable-next-line explicit-types
         for (uint i = 0; i < 255; i++) {
-            iTimestamo += 1 weeks;
+            iTimestamp += 1 weeks;
             int128 dslope = 0;
 
-            if (iTimestamo > block.timestamp) {
-                iTimestamo = block.timestamp;
+            if (iTimestamp > block.timestamp) {
+                iTimestamp = block.timestamp;
             } else {
-                dslope = $.slopeChanges[iTimestamo];
+                dslope = $.slopeChanges[iTimestamp];
             }
 
-            lastPoint.bias -= lastPoint.slope * int128(int256(iTimestamo - lastCheckpoint));
+            lastPoint.bias -= lastPoint.slope * int128(int256(iTimestamp - lastCheckpoint));
             lastPoint.slope += dslope;
 
             // Handle underflow
@@ -375,12 +376,12 @@ contract VotingEscrow_v1 is
                 lastPoint.slope = 0;
             }
 
-            lastCheckpoint = iTimestamo;
-            lastPoint.ts = iTimestamo;
-            lastPoint.blk = initialLastPoint.blk + (blockSlope * (iTimestamo - initialLastPoint.ts)) / 1 ether;
+            lastCheckpoint = iTimestamp;
+            lastPoint.ts = iTimestamp;
+            lastPoint.blk = initialLastPoint.blk + (blockSlope * (iTimestamp - initialLastPoint.ts)) / 1 ether;
 
             epoch_ += 1;
-            if (iTimestamo == block.timestamp) {
+            if (iTimestamp == block.timestamp) {
                 lastPoint.blk = block.number;
                 break;
             } else {
@@ -683,7 +684,7 @@ contract VotingEscrow_v1 is
      * @param ts Timestamp to query
      * @return User voting power
      */
-    function _balanceOfAt(address addr, uint256 ts) internal view returns (uint256) {
+    function _balanceOf(address addr, uint256 ts) internal view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
         uint256 userEpoch = $.userPointEpoch[addr];
 
@@ -705,6 +706,36 @@ contract VotingEscrow_v1 is
 
             return uint256(int256(lastPoint.bias));
         }
+    }
+
+    /**
+     * @notice Binary search to estimate timestamp for block number
+     * @param _block Block to find
+     * @param max_epoch Don't go beyond this epoch
+     * @return Approximate timestamp for block
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function find_block_epoch(uint256 _block, uint256 max_epoch) internal view returns (uint256) {
+        VotingEscrowStorage storage $ = _getStorage();
+
+        // Binary search
+        uint256 _min = 0;
+        uint256 _max = max_epoch;
+
+        // solhint-disable-next-line explicit-types
+        for (uint i = 0; i < 128; i++) {
+            // Will be always enough for 128-bit numbers
+            if (_min >= _max) {
+                break;
+            }
+            uint256 _mid = (_min + _max + 1) / 2;
+            if ($.pointHistory[_mid].blk <= _block) {
+                _min = _mid;
+            } else {
+                _max = _mid - 1;
+            }
+        }
+        return _min;
     }
 
     /**
@@ -731,32 +762,6 @@ contract VotingEscrow_v1 is
     }
 
     /**
-     * @notice Calculate total voting power at specific timestamp
-     * @param t Timestamp to query
-     * @return Total voting power
-     */
-    function totalSupplyAt(uint256 t) external view returns (uint256) {
-        VotingEscrowStorage storage $ = _getStorage();
-        uint256 _epoch = $.epoch;
-        uint256 targetEpoch = _findPointEpoch(t, 0, _epoch);
-
-        Point memory point = $.pointHistory[targetEpoch];
-        uint256 dt = 0;
-
-        if (targetEpoch < _epoch) {
-            Point memory pointNext = $.pointHistory[targetEpoch + 1];
-            if (point.blk != pointNext.blk) {
-                dt = ((t - point.ts) * (pointNext.blk - point.blk)) / (pointNext.ts - point.ts);
-            }
-        } else if (point.blk != block.number && point.ts != block.timestamp) {
-            dt = ((t - point.ts) * (block.number - point.blk)) / (block.timestamp - point.ts);
-        }
-
-        // Now dt contains info on how far are we beyond point
-        return _supplyAt(point, t);
-    }
-
-    /**
      * @notice Calculate total voting power
      * @dev Adheres to the ERC20 `totalSupply` interface for Aragon compatibility
      * @return Total voting power
@@ -778,6 +783,63 @@ contract VotingEscrow_v1 is
         return _supplyAt(lastPoint, t);
     }
 
+    // /**
+    //  * @notice Calculate total voting power at specific timestamp
+    //  * @param t Timestamp to query
+    //  * @return Total voting power
+    //  */
+    // function totalSupplyAt(uint256 t) external view returns (uint256) {
+    //     VotingEscrowStorage storage $ = _getStorage();
+    //     uint256 _epoch = $.epoch;
+    //     uint256 targetEpoch = _findPointEpoch(t, 0, _epoch);
+
+    //     Point memory point = $.pointHistory[targetEpoch];
+    //     uint256 dt = 0;
+
+    //     if (targetEpoch < _epoch) {
+    //         Point memory pointNext = $.pointHistory[targetEpoch + 1];
+    //         if (point.blk != pointNext.blk) {
+    //             dt = ((t - point.ts) * (pointNext.blk - point.blk)) / (pointNext.ts - point.ts);
+    //         }
+    //     } else if (point.blk != block.number && point.ts != block.timestamp) {
+    //         dt = ((t - point.ts) * (block.number - point.blk)) / (block.timestamp - point.ts);
+    //     }
+
+    //     // Now dt contains info on how far are we beyond point
+    //     return _supplyAt(point, t);
+    // }
+
+    /**
+     * @notice Calculate total voting power at some point in the past
+     * @param _block Block to calculate the total voting power at
+     * @return Total voting power at `_block`
+     */
+    function totalSupplyAt(uint256 _block) external view returns (uint256) {
+        if (_block > block.number) {
+            revert("Block is in the future");
+        }
+
+        VotingEscrowStorage storage $ = _getStorage();
+        uint256 _epoch = $.epoch;
+        uint256 target_epoch = find_block_epoch(_block, _epoch);
+
+        Point memory point = $.pointHistory[target_epoch];
+        uint256 dt = 0;
+        if (target_epoch < _epoch) {
+            Point memory point_next = $.pointHistory[target_epoch + 1];
+            if (point.blk != point_next.blk) {
+                dt = ((_block - point.blk) * (point_next.ts - point.ts)) / (point_next.blk - point.blk);
+            }
+        } else {
+            if (point.blk != block.number) {
+                dt = ((_block - point.blk) * (block.timestamp - point.ts)) / (block.number - point.blk);
+            }
+        }
+        // Now dt contains info on how far are we beyond point
+
+        return _supplyAt(point, point.ts + dt);
+    }
+
     /**
      * @notice Get the current voting power for `addr`
      * @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
@@ -785,7 +847,7 @@ contract VotingEscrow_v1 is
      * @return User voting power
      */
     function balanceOf(address addr) external view returns (uint256) {
-        return _balanceOfAt(addr, block.timestamp);
+        return _balanceOf(addr, block.timestamp);
     }
 
     /**
@@ -795,7 +857,69 @@ contract VotingEscrow_v1 is
      * @return User voting power
      */
     function balanceOf(address addr, uint256 t) external view returns (uint256) {
-        return _balanceOfAt(addr, t);
+        return _balanceOf(addr, t);
+    }
+
+    /**
+     * @notice Measure voting power of `addr` at block height `_block`
+     * @dev Adheres to MiniMe `balanceOfAt` interface: https://github.com/Giveth/minime
+     * @param addr User's wallet address
+     * @param _block Block to calculate the voting power at
+     * @return Voting power
+     */
+    function balanceOfAt(address addr, uint256 _block) external view returns (uint256) {
+        // Copying and pasting totalSupply code because Vyper cannot pass by
+        // reference yet
+        if (_block > block.number) {
+            revert("Block is in the future");
+        }
+
+        VotingEscrowStorage storage $ = _getStorage();
+
+        // Binary search
+        uint256 _min = 0;
+        uint256 _max = $.userPointEpoch[addr];
+
+        // solhint-disable-next-line explicit-types
+        for (uint i = 0; i < 128; i++) {
+            // Will be always enough for 128-bit numbers
+            if (_min >= _max) {
+                break;
+            }
+            uint256 _mid = (_min + _max + 1) / 2;
+            if ($.userPointHistory[addr][_mid].blk <= _block) {
+                _min = _mid;
+            } else {
+                _max = _mid - 1;
+            }
+        }
+
+        Point memory upoint = $.userPointHistory[addr][_min];
+
+        uint256 max_epoch = $.epoch;
+        uint256 _epoch = find_block_epoch(_block, max_epoch);
+        Point memory point_0 = $.pointHistory[_epoch];
+        uint256 d_block = 0;
+        uint256 d_t = 0;
+        if (_epoch < max_epoch) {
+            Point memory point_1 = $.pointHistory[_epoch + 1];
+            d_block = point_1.blk - point_0.blk;
+            d_t = point_1.ts - point_0.ts;
+        } else {
+            d_block = block.number - point_0.blk;
+            d_t = block.timestamp - point_0.ts;
+        }
+        uint256 block_time = point_0.ts;
+        if (d_block != 0) {
+            block_time += (d_t * (_block - point_0.blk)) / d_block;
+        }
+
+        upoint.bias -= upoint.slope * int128(int256(block_time - upoint.ts));
+        if (upoint.bias >= 0) {
+            return uint256(int256(upoint.bias));
+        } else {
+            return 0;
+        }
     }
 
     /**
