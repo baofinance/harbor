@@ -32,7 +32,7 @@ contract LiquidityGaugeV6Test is Test {
     address constant VEBOOST_PROXY = 0x8E0c00ed546602fD9927DF742bbAbF726D5B0d16;
     address constant VOTING_ESCROW = 0x5f3b5DfEb7B28CDbD7FAba78963EE202a494e2A2;
 
-    function setUp() public {
+    function setUp() public virtual {
         user1 = makeAddr("user1");
         user2 = makeAddr("user2");
         manager = makeAddr("manager");
@@ -108,7 +108,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // Approve the gauge to spend LP tokens
         vm.prank(user1);
-        lpToken.approve(address(gauge), depositAmount);
+        lpToken.approve(gauge, depositAmount);
 
         // Check initial balances
         assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), 0, "User1 should have 0 gauge tokens initially");
@@ -126,7 +126,7 @@ contract LiquidityGaugeV6Test is Test {
         );
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), depositAmount, "Total supply should equal deposited amount");
         assertEq(lpToken.balanceOf(user1), 900 ether, "User1 should have remaining LP tokens");
-        assertEq(lpToken.balanceOf(address(gauge)), depositAmount, "Gauge should hold deposited LP tokens");
+        assertEq(lpToken.balanceOf(gauge), depositAmount, "Gauge should hold deposited LP tokens");
     }
 
     function test_DepositForRecipient() public {
@@ -134,7 +134,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // Approve the gauge to spend LP tokens
         vm.prank(user1);
-        lpToken.approve(address(gauge), depositAmount);
+        lpToken.approve(gauge, depositAmount);
 
         // Deposit LP tokens for user2
         vm.prank(user1);
@@ -149,7 +149,7 @@ contract LiquidityGaugeV6Test is Test {
         );
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), depositAmount, "Total supply should equal deposited amount");
         assertEq(lpToken.balanceOf(user1), 950 ether, "User1 should have remaining LP tokens");
-        assertEq(lpToken.balanceOf(address(gauge)), depositAmount, "Gauge should hold deposited LP tokens");
+        assertEq(lpToken.balanceOf(gauge), depositAmount, "Gauge should hold deposited LP tokens");
     }
 
     function test_Withdraw() public {
@@ -158,7 +158,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // First deposit
         vm.startPrank(user1);
-        lpToken.approve(address(gauge), depositAmount);
+        lpToken.approve(gauge, depositAmount);
         ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // Check state before withdrawal
@@ -177,7 +177,7 @@ contract LiquidityGaugeV6Test is Test {
         );
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), remainingGaugeBalance, "Total supply should be reduced");
         assertEq(lpToken.balanceOf(user1), 800 ether + withdrawAmount, "User1 should have withdrawn LP tokens");
-        assertEq(lpToken.balanceOf(address(gauge)), remainingGaugeBalance, "Gauge should hold remaining LP tokens");
+        assertEq(lpToken.balanceOf(gauge), remainingGaugeBalance, "Gauge should hold remaining LP tokens");
     }
 
     function test_MultipleUsersDeposit() public {
@@ -186,13 +186,13 @@ contract LiquidityGaugeV6Test is Test {
 
         // User1 deposits
         vm.prank(user1);
-        lpToken.approve(address(gauge), deposit1);
+        lpToken.approve(gauge, deposit1);
         vm.prank(user1);
         ILiquidityGaugeV6(gauge).deposit(deposit1);
 
         // User2 deposits
         vm.prank(user2);
-        lpToken.approve(address(gauge), deposit2);
+        lpToken.approve(gauge, deposit2);
         vm.prank(user2);
         ILiquidityGaugeV6(gauge).deposit(deposit2);
 
@@ -200,7 +200,7 @@ contract LiquidityGaugeV6Test is Test {
         assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), deposit1, "User1 should have correct balance");
         assertEq(ILiquidityGaugeV6(gauge).balanceOf(user2), deposit2, "User2 should have correct balance");
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), deposit1 + deposit2, "Total supply should be sum of deposits");
-        assertEq(lpToken.balanceOf(address(gauge)), deposit1 + deposit2, "Gauge should hold all LP tokens");
+        assertEq(lpToken.balanceOf(gauge), deposit1 + deposit2, "Gauge should hold all LP tokens");
     }
 
     function test_UserCheckpoint() public {
@@ -215,7 +215,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // Deposit tokens
         vm.prank(user1);
-        lpToken.approve(address(gauge), depositAmount);
+        lpToken.approve(gauge, depositAmount);
         vm.prank(user1);
         ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
@@ -240,7 +240,7 @@ contract LiquidityGaugeV6Test is Test {
         uint256 withdrawAmount = 100 ether; // More than deposited
 
         vm.startPrank(user1);
-        lpToken.approve(address(gauge), depositAmount);
+        lpToken.approve(gauge, depositAmount);
         ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // This should fail
@@ -258,5 +258,571 @@ contract LiquidityGaugeV6Test is Test {
         );
         vm.prank(user1);
         ILiquidityGaugeV6(gauge).deposit(depositAmount);
+    }
+}
+
+contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
+    MockERC20 public steamToken;
+    address public distributor;
+
+    uint256 constant REWARD_DURATION = 1 weeks;
+
+    address constant GAUGE_CONTROLLER = 0x2F50D538606Fa9EDD2B11E2446BEb18C9D5846bB;
+
+    function setUp() public override {
+        // Call parent setup
+        super.setUp();
+
+        // Mock GAUGE_CONTROLLER
+        vm.etch(GAUGE_CONTROLLER, hex"00");
+
+        // Mock checkpoint_gauge - this can be a no-op
+        vm.mockCall(
+            GAUGE_CONTROLLER,
+            abi.encodeWithSignature("checkpoint_gauge(address)"),
+            abi.encode() // empty return
+        );
+
+        // Mock gauge_relative_weight - return a reasonable weight like 1e18 (100%)
+        vm.mockCall(
+            GAUGE_CONTROLLER,
+            abi.encodeWithSignature("gauge_relative_weight(address,uint256)"),
+            abi.encode(1e18) // 100% weight
+        );
+
+        // Create STEAM token for rewards
+        steamToken = new MockERC20("STEAM Token", "STEAM", 18);
+
+        // Create distributor address
+        distributor = makeAddr("distributor");
+
+        // Mint STEAM tokens to distributor for reward distribution
+        steamToken.mint(distributor, 10000 ether);
+    }
+
+    function test_AddRewardToken() public {
+        // Only manager can add reward tokens
+        vm.prank(manager);
+        ILiquidityGaugeV6(gauge).add_reward(address(steamToken), distributor);
+
+        // Check reward was added
+        assertEq(ILiquidityGaugeV6(gauge).reward_count(), 1, "Should have 1 reward token");
+    }
+
+    function test_RevertWhen_NonManagerAddsReward() public {
+        // Non-manager should not be able to add rewards
+        vm.expectRevert();
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).add_reward(address(steamToken), distributor);
+    }
+
+    function test_DepositRewardTokens() public {
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup: Add reward token
+        vm.prank(manager);
+        ILiquidityGaugeV6(gauge).add_reward(address(steamToken), distributor);
+
+        // Distributor deposits reward tokens
+        vm.startPrank(distributor);
+        steamToken.approve(gauge, rewardAmount);
+        ILiquidityGaugeV6(gauge).deposit_reward_token(address(steamToken), rewardAmount);
+        vm.stopPrank();
+
+        // Check tokens were transferred to gauge
+        assertEq(steamToken.balanceOf(gauge), rewardAmount, "Gauge should have reward tokens");
+        assertEq(steamToken.balanceOf(distributor), 9000 ether, "Distributor balance should be reduced");
+    }
+
+    function test_RevertWhen_NonDistributorDepositsRewards() public {
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup: Add reward token
+        vm.prank(manager);
+        ILiquidityGaugeV6(gauge).add_reward(address(steamToken), distributor);
+
+        // Mint tokens to user1 to attempt unauthorized deposit
+        steamToken.mint(user1, rewardAmount);
+
+        // Non-distributor should not be able to deposit rewards
+        vm.startPrank(user1);
+        steamToken.approve(gauge, rewardAmount);
+        vm.expectRevert();
+        ILiquidityGaugeV6(gauge).deposit_reward_token(address(steamToken), rewardAmount);
+        vm.stopPrank();
+    }
+
+    function test_SingleUserDepositAndClaimRewards() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User1 deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Fast forward time to accrue rewards
+        vm.warp(block.timestamp + REWARD_DURATION / 2); // Half way through reward period
+
+        // Check claimable rewards
+        uint256 claimable = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        assertGt(claimable, 0, "User should have claimable rewards");
+
+        // Claim rewards
+        uint256 initialBalance = steamToken.balanceOf(user1);
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).claim_rewards();
+
+        uint256 finalBalance = steamToken.balanceOf(user1);
+        assertGt(finalBalance, initialBalance, "User should receive STEAM tokens");
+        assertEq(finalBalance - initialBalance, claimable, "Should receive exact claimable amount");
+    }
+
+    function test_WorkingBalanceReducesAfterWithdrawal() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+        uint256 withdrawAmount = 50 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        uint256 workingBalanceBefore = ILiquidityGaugeV6(gauge).working_balances(user1);
+
+        // Withdraw half the LP tokens
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).withdraw(withdrawAmount, false);
+
+        uint256 workingBalanceAfter = ILiquidityGaugeV6(gauge).working_balances(user1);
+
+        // Working balance should be reduced proportionally
+        assertApproxEqRel(workingBalanceAfter, workingBalanceBefore / 2, 0.01e18, "Working balance should be halved");
+        assertLt(workingBalanceAfter, workingBalanceBefore, "Working balance should decrease after withdrawal");
+    }
+
+    function test_ProportionalRewardsMultipleUsers() public {
+        uint256 rewardAmount = 1000 ether;
+        _setupRewards(rewardAmount);
+
+        // User1: 25 ether, User2: 75 ether (3:1 ratio)
+        vm.startPrank(user1);
+        lpToken.approve(gauge, 25 ether);
+        ILiquidityGaugeV6(gauge).deposit(25 ether);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        lpToken.approve(gauge, 75 ether);
+        ILiquidityGaugeV6(gauge).deposit(75 ether);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + REWARD_DURATION);
+
+        uint256 user1Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        uint256 user2Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user2, address(steamToken));
+
+        console.log("User1 rewards (25 LP):", user1Rewards);
+        console.log("User2 rewards (75 LP):", user2Rewards);
+        console.log("Total rewards:", user1Rewards + user2Rewards);
+
+        // User2 should earn ~3x more than User1
+        assertApproxEqRel(user2Rewards, user1Rewards * 3, 0.1e18, "User2 should earn ~3x more");
+
+        // Total should be close to reward amount
+        assertApproxEqRel(
+            user1Rewards + user2Rewards,
+            rewardAmount,
+            0.01e18,
+            "Total rewards should equal reward amount"
+        );
+    }
+
+    function test_WithdrawDoesNotLoseRewards() public {
+        uint256 rewardAmount = 1000 ether;
+        _setupRewards(rewardAmount);
+
+        vm.startPrank(user1);
+        lpToken.approve(gauge, 100 ether);
+        ILiquidityGaugeV6(gauge).deposit(100 ether);
+        vm.stopPrank();
+
+        // Accrue rewards
+        vm.warp(block.timestamp + REWARD_DURATION / 2);
+        uint256 rewardsBeforeWithdraw = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        // Withdraw without claiming
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).withdraw(50 ether, false);
+
+        uint256 rewardsAfterWithdraw = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        // Rewards should not decrease from withdrawal
+        assertGe(rewardsAfterWithdraw, rewardsBeforeWithdraw, "Withdrawal should not reduce claimable rewards");
+
+        // Should be able to claim the rewards
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).claim_rewards();
+
+        uint256 steamBalance = steamToken.balanceOf(user1);
+        assertGe(steamBalance, rewardsBeforeWithdraw, "Should receive at least pre-withdrawal rewards");
+    }
+
+    function test_RewardRateReflectsBalanceWithMultipleUsers() public {
+        uint256 user1Amount = 100 ether;
+        uint256 user2Amount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+        uint256 withdrawAmount = 75 ether; // User1 withdraws most tokens
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // Both users deposit equal amounts
+        vm.startPrank(user1);
+        lpToken.approve(gauge, user1Amount);
+        ILiquidityGaugeV6(gauge).deposit(user1Amount);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        lpToken.approve(gauge, user2Amount);
+        ILiquidityGaugeV6(gauge).deposit(user2Amount);
+        vm.stopPrank();
+
+        // Fast forward and check rewards (equal stakes)
+        vm.warp(block.timestamp + REWARD_DURATION / 10);
+        uint256 user1RewardsBefore = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        uint256 user2RewardsBefore = ILiquidityGaugeV6(gauge).claimable_reward(user2, address(steamToken));
+
+        console.log("User1 rewards before withdrawal:", user1RewardsBefore);
+        console.log("User2 rewards before withdrawal:", user2RewardsBefore);
+
+        // User1 withdraws most of their stake
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).withdraw(withdrawAmount, false);
+
+        // Check working balances after withdrawal
+        uint256 user1WorkingBalance = ILiquidityGaugeV6(gauge).working_balances(user1);
+        uint256 user2WorkingBalance = ILiquidityGaugeV6(gauge).working_balances(user2);
+
+        console.log("User1 working balance after withdrawal:", user1WorkingBalance);
+        console.log("User2 working balance (unchanged):", user2WorkingBalance);
+
+        // Fast forward the same period
+        vm.warp(block.timestamp + REWARD_DURATION / 10);
+
+        uint256 user1RewardsAfter = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        uint256 user2RewardsAfter = ILiquidityGaugeV6(gauge).claimable_reward(user2, address(steamToken));
+
+        uint256 user1NewRewards = user1RewardsAfter - user1RewardsBefore;
+        uint256 user2NewRewards = user2RewardsAfter - user2RewardsBefore;
+
+        console.log("User1 new rewards (reduced stake):", user1NewRewards);
+        console.log("User2 new rewards (full stake):", user2NewRewards);
+        console.log("Ratio (user2/user1):", (user2NewRewards * 100) / user1NewRewards);
+
+        // User2 should now earn significantly more than User1
+        assertGt(
+            user2NewRewards,
+            user1NewRewards,
+            "User2 should earn more rewards than User1 after User1's withdrawal"
+        );
+
+        // The ratio should reflect the working balance difference
+        uint256 expectedRatio = (user2WorkingBalance * 100) / user1WorkingBalance;
+        uint256 actualRatio = (user2NewRewards * 100) / user1NewRewards;
+
+        console.log("Expected ratio based on working balances:", expectedRatio);
+        console.log("Actual reward ratio:", actualRatio);
+
+        // Allow some tolerance for the ratio comparison
+        assertApproxEqRel(
+            actualRatio,
+            expectedRatio,
+            0.2e18,
+            "Reward ratio should roughly match working balance ratio"
+        );
+    }
+
+    function test_MultipleUsersProportionalRewards() public {
+        uint256 user1Amount = 100 ether;
+        uint256 user2Amount = 300 ether; // 3x more
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // Both users deposit
+        vm.startPrank(user1);
+        lpToken.approve(gauge, user1Amount);
+        ILiquidityGaugeV6(gauge).deposit(user1Amount);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        lpToken.approve(gauge, user2Amount);
+        ILiquidityGaugeV6(gauge).deposit(user2Amount);
+        vm.stopPrank();
+
+        // Fast forward
+        vm.warp(block.timestamp + REWARD_DURATION / 4);
+
+        uint256 user1Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        uint256 user2Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user2, address(steamToken));
+
+        console.log("User1 rewards (100 LP):", user1Rewards);
+        console.log("User2 rewards (300 LP):", user2Rewards);
+        console.log("Ratio:", (user2Rewards * 100) / user1Rewards);
+
+        // User2 should earn approximately 3x more (allowing for rounding)
+        assertApproxEqRel(user2Rewards, user1Rewards * 3, 0.05e18, "User2 should earn ~3x more rewards");
+        assertGt(user2Rewards, user1Rewards * 2, "User2 should earn at least 2x more");
+    }
+
+    function test_RewardsStopAfterPeriodEnd() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Go to end of reward period
+        vm.warp(block.timestamp + REWARD_DURATION);
+        uint256 rewardsAtEnd = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        // Go well past reward period
+        vm.warp(block.timestamp + REWARD_DURATION);
+        uint256 rewardsAfterEnd = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        assertEq(rewardsAfterEnd, rewardsAtEnd, "Rewards should not increase after period ends");
+        assertApproxEqRel(rewardsAtEnd, rewardAmount, 0.01e18, "Should be able to claim most of reward pool");
+    }
+
+    function test_WithdrawAndRewardAccrual() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Accrue some rewards
+        vm.warp(block.timestamp + REWARD_DURATION / 4);
+        uint256 rewardsBefore = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        // Withdraw some tokens but don't claim rewards
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).withdraw(50 ether, false);
+
+        // Check that previous rewards are still claimable
+        uint256 rewardsAfterWithdraw = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        assertGe(rewardsAfterWithdraw, rewardsBefore, "Previous rewards should still be claimable");
+
+        // User should be able to claim their accumulated rewards
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).claim_rewards();
+
+        uint256 steamBalance = steamToken.balanceOf(user1);
+        assertGe(steamBalance, rewardsBefore, "Should receive at least the pre-withdrawal rewards");
+    }
+
+    function test_WithdrawWithoutClaimingRewards() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+        uint256 withdrawAmount = 30 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Fast forward to accrue rewards
+        vm.warp(block.timestamp + REWARD_DURATION / 4);
+
+        uint256 claimableBefore = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        uint256 steamBalanceBefore = steamToken.balanceOf(user1);
+
+        // Withdraw without claiming rewards (using low-level call until interface is updated)
+        vm.prank(user1);
+        (bool success, ) = gauge.call(abi.encodeWithSignature("withdraw(uint256,bool)", withdrawAmount, false));
+        require(success, "Withdraw without claiming should succeed");
+
+        // Check that rewards weren't claimed during withdrawal
+        assertEq(steamToken.balanceOf(user1), steamBalanceBefore, "STEAM balance should not change");
+
+        // But claimable rewards should still be available
+        uint256 claimableAfter = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        assertGe(claimableAfter, claimableBefore, "Claimable rewards should not decrease");
+    }
+
+    function test_WithdrawAndClaimRewards() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+        uint256 withdrawAmount = 30 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Fast forward to accrue rewards
+        vm.warp(block.timestamp + REWARD_DURATION / 4);
+
+        uint256 claimableBefore = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        uint256 steamBalanceBefore = steamToken.balanceOf(user1);
+
+        // Withdraw and claim rewards (using low-level call until interface is updated)
+        vm.prank(user1);
+        (bool success, ) = gauge.call(abi.encodeWithSignature("withdraw(uint256,bool)", withdrawAmount, true));
+        require(success, "Withdraw with claiming should succeed");
+
+        // Check that rewards were claimed during withdrawal
+        uint256 steamBalanceAfter = steamToken.balanceOf(user1);
+        assertEq(steamBalanceAfter, steamBalanceBefore + claimableBefore, "Should receive STEAM rewards");
+
+        // Claimable rewards should be reset
+        uint256 claimableAfter = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        assertLt(claimableAfter, claimableBefore, "Claimable rewards should decrease after claiming");
+    }
+
+    function test_WithdrawImmediatelyAfterDeposit() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+        uint256 withdrawAmount = 50 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+
+        // Try to withdraw immediately without any time passing
+        ILiquidityGaugeV6(gauge).withdraw(withdrawAmount, false);
+        vm.stopPrank();
+    }
+
+    function test_ClaimRewardsToCustomReceiver() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+        address customReceiver = makeAddr("customReceiver");
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Fast forward time
+        vm.warp(block.timestamp + REWARD_DURATION / 2);
+
+        // Claim rewards to custom receiver
+        uint256 claimable = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        vm.prank(user1);
+        ILiquidityGaugeV6(gauge).claim_rewards(user1, customReceiver);
+
+        // Check custom receiver got the tokens
+        assertEq(steamToken.balanceOf(customReceiver), claimable, "Custom receiver should get rewards");
+        assertEq(steamToken.balanceOf(user1), 0, "User1 should not receive tokens");
+    }
+
+    function test_RewardsAccrueCorrectlyOverTime() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Check rewards at different time intervals
+        uint256[] memory timePoints = new uint256[](5);
+        uint256[] memory rewards = new uint256[](5);
+
+        for (uint256 i = 0; i < 5; i++) {
+            vm.warp(block.timestamp + REWARD_DURATION / 5);
+            timePoints[i] = block.timestamp;
+            rewards[i] = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+        }
+
+        // Rewards should increase over time
+        for (uint256 i = 1; i < 5; i++) {
+            assertGt(rewards[i], rewards[i - 1], "Rewards should increase over time");
+        }
+
+        // At the end of reward period, user should be able to claim most of the reward
+        // (accounting for the fact that user is the only depositor)
+        assertApproxEqRel(rewards[4], rewardAmount, 0.01e18, "Should be able to claim most rewards");
+    }
+
+    function test_NoRewardsAfterPeriodFinish() public {
+        uint256 lpAmount = 100 ether;
+        uint256 rewardAmount = 1000 ether;
+
+        // Setup rewards
+        _setupRewards(rewardAmount);
+
+        // User deposits LP tokens
+        vm.startPrank(user1);
+        lpToken.approve(gauge, lpAmount);
+        ILiquidityGaugeV6(gauge).deposit(lpAmount);
+        vm.stopPrank();
+
+        // Fast forward to end of reward period
+        vm.warp(block.timestamp + REWARD_DURATION);
+        uint256 claimableAtEnd = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        // Fast forward well past reward period
+        vm.warp(block.timestamp + REWARD_DURATION);
+        uint256 claimableAfter = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
+
+        // Claimable amount should not increase after reward period ends
+        assertEq(claimableAfter, claimableAtEnd, "No additional rewards after period finish");
+    }
+
+    // Helper function to setup reward system
+    function _setupRewards(uint256 rewardAmount) internal {
+        // Add reward token
+        vm.prank(manager);
+        ILiquidityGaugeV6(gauge).add_reward(address(steamToken), distributor);
+
+        // Deposit reward tokens
+        vm.startPrank(distributor);
+        steamToken.approve(gauge, rewardAmount);
+        ILiquidityGaugeV6(gauge).deposit_reward_token(address(steamToken), rewardAmount);
+        vm.stopPrank();
     }
 }
