@@ -21,7 +21,24 @@ abstract contract MockERC20Base is ERC20 {
     }
 }
 
-contract MockERC20 is MockERC20Base, IMintable, IBurnable2Arg {
+contract MockERC20 is MockERC20Base, IMintable, IBurnable, IBurnableFrom {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) MockERC20Base(name_, symbol_, decimals_) {}
+
+    function mint(address account, uint256 amount) external {
+        _mint(account, amount);
+    }
+
+    function burn(uint256 amount) external {
+        _burn(_msgSender(), amount);
+    }
+
+    function burnFrom(address account, uint256 amount) external {
+        _spendAllowance(account, _msgSender(), amount);
+        _burn(account, amount);
+    }
+}
+
+contract MockERC20Burn2Arg is MockERC20Base, IMintable, IBurnable2Arg {
     constructor(string memory name_, string memory symbol_, uint8 decimals_) MockERC20Base(name_, symbol_, decimals_) {}
 
     function mint(address account, uint256 amount) external {

@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+
 import {Test} from "forge-std/Test.sol";
+import {stdError} from "forge-std/StdError.sol";
 import {console2 as console} from "forge-std/console2.sol";
+
 import {MockERC20} from "test/mock/MockERC20.sol";
 
 interface ILiquidityGaugeV6 {
@@ -29,12 +33,12 @@ interface ILiquidityGaugeV6 {
     function user_checkpoint(address addr) external returns (bool);
 }
 
-    // Mock Voting Escrow Boost that returns zero boost
-    contract MockVeBoost {
-        function adjusted_balance_of(address) external pure returns (uint256) {
-            return 0;
-        }
+// Mock Voting Escrow Boost that returns zero boost
+contract MockVeBoost {
+    function adjusted_balance_of(address) external pure returns (uint256) {
+        return 0;
     }
+}
 
 contract LiquidityGaugeV6Test is Test {
     ILiquidityGaugeV6 public gauge;
@@ -67,9 +71,9 @@ contract LiquidityGaugeV6Test is Test {
 
         // Mock totalSupply() to return something > 0 so gauge logic proceeds
         vm.mockCall(
-        VOTING_ESCROW,
-        abi.encodeWithSignature("totalSupply()"),
-        abi.encode(1e18) // simulate 1 voting escrow token in supply
+            VOTING_ESCROW,
+            abi.encodeWithSignature("totalSupply()"),
+            abi.encode(1e18) // simulate 1 voting escrow token in supply
         );
 
         // We need to mock the CRV token for the constructor to work
@@ -264,7 +268,7 @@ contract LiquidityGaugeV6Test is Test {
         gauge.deposit(depositAmount);
 
         // This should fail
-        vm.expectRevert("Insufficient balance");
+        vm.expectRevert(); // the contract does a depositAmount - withdrawAmount which results in a data-less revert
         gauge.withdraw(withdrawAmount);
         vm.stopPrank();
     }
@@ -273,7 +277,9 @@ contract LiquidityGaugeV6Test is Test {
         uint256 depositAmount = 100 ether;
 
         // Try to deposit without approval - should fail
-        vm.expectRevert("ERC20: transfer amount exceeds allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, gauge, 0, depositAmount)
+        );
         vm.prank(user1);
         gauge.deposit(depositAmount);
     }

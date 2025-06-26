@@ -29,7 +29,7 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
-import {MockERC20, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
+import {MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
 
@@ -251,7 +251,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         priceOracle = address(new MockWrappedPriceOracle());
 
         setUp_leveragedToken();
-        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
+        peggedToken = address(new MockERC20Burn2Arg("BaoUSD", "BAOUSD", 18));
         peggedTokenBurnSig = "burn(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
         collateralToken = Deployed.stETH;
@@ -419,7 +419,7 @@ contract TestMinterInit is TestMinterSetUp {
         );
 
         {
-            MockERC20 token = new MockERC20("burn", "2arg", 18);
+            MockERC20Burn2Arg token = new MockERC20Burn2Arg("burn", "2arg", 18);
             minter = UnsafeUpgrades.deployUUPSProxy(
                 address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
                 abi.encodeCall(Minter_v1.initialize, (owner))
