@@ -3,35 +3,13 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
+import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
+
 import {Test} from "forge-std/Test.sol";
 import {stdError} from "forge-std/StdError.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 import {MockERC20} from "test/mock/MockERC20.sol";
-
-interface ILiquidityGaugeV6 {
-    // ERC20 functions
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-
-    // Gauge specific functions
-    function lp_token() external view returns (address);
-    function factory() external view returns (address);
-    function manager() external view returns (address);
-    function is_killed() external view returns (bool);
-    function reward_count() external view returns (uint256);
-    function working_supply() external view returns (uint256);
-    function working_balances(address user) external view returns (uint256);
-    function period() external view returns (int128);
-
-    // Actions
-    function deposit(uint256 value) external;
-    function deposit(uint256 value, address recipient) external;
-    function withdraw(uint256 value) external;
-    function user_checkpoint(address addr) external returns (bool);
-}
 
 // Mock Voting Escrow Boost that returns zero boost
 contract MockVeBoost {
@@ -41,7 +19,7 @@ contract MockVeBoost {
 }
 
 contract LiquidityGaugeV6Test is Test {
-    ILiquidityGaugeV6 public gauge;
+    address public gauge;
     MockERC20 public lpToken;
     MockERC20 public crvToken;
 
@@ -98,21 +76,7 @@ contract LiquidityGaugeV6Test is Test {
         // Deploy the gauge contract
         // We need to set tx.origin for the manager
         vm /*  */.prank(manager, manager);
-        gauge = ILiquidityGaugeV6(deployCode("LiquidityGaugeV6.vy", abi.encode(address(lpToken))));
-        // Read the compiled Vyper bytecode and deploy manually
-        // string memory vyperArtifact = vm.readFile("out/LiquidityGaugeV6.vy/LiquidityGaugeV6.json");
-        // bytes memory bytecode = vm.parseJsonBytes(vyperArtifact, ".bytecode.object");
-        // // Deploy the gauge contract
-        // vm.prank(manager, manager);
-        // // Encode constructor arguments
-        // bytes memory constructorArgs = abi.encode(address(lpToken));
-        // bytes memory deploymentBytecode = abi.encodePacked(bytecode, constructorArgs);
-        // address gaugeAddress;
-        // assembly {
-        //     gaugeAddress := create(0, add(deploymentBytecode, 0x20), mload(deploymentBytecode))
-        // }
-        // require(gaugeAddress != address(0), "Gauge deployment failed");
-        // gauge = ILiquidityGaugeV6(gaugeAddress);
+        gauge = deployCode("LiquidityGaugeV6.vy", abi.encode(address(lpToken)));
 
         // Mint some LP tokens to users for testing
         lpToken.mint(user1, 1000 ether);
@@ -121,13 +85,13 @@ contract LiquidityGaugeV6Test is Test {
 
     function test_Deployment() public view {
         // Test basic deployment parameters
-        assertEq(gauge.lp_token(), address(lpToken), "LP token should be set correctly");
-        assertEq(gauge.factory(), manager, "Factory should be msg.sender");
-        assertEq(gauge.manager(), manager, "Manager should be tx.origin");
-        assertFalse(gauge.is_killed(), "Gauge should not be killed initially");
-        assertEq(gauge.reward_count(), 0, "Should have no rewards initially");
-        assertEq(gauge.totalSupply(), 0, "Total supply should be 0 initially");
-        assertEq(gauge.working_supply(), 0, "Working supply should be 0 initially");
+        assertEq(ILiquidityGaugeV6(gauge).lp_token(), address(lpToken), "LP token should be set correctly");
+        assertEq(ILiquidityGaugeV6(gauge).factory(), manager, "Factory should be msg.sender");
+        assertEq(ILiquidityGaugeV6(gauge).manager(), manager, "Manager should be tx.origin");
+        assertFalse(ILiquidityGaugeV6(gauge).is_killed(), "Gauge should not be killed initially");
+        assertEq(ILiquidityGaugeV6(gauge).reward_count(), 0, "Should have no rewards initially");
+        assertEq(ILiquidityGaugeV6(gauge).totalSupply(), 0, "Total supply should be 0 initially");
+        assertEq(ILiquidityGaugeV6(gauge).working_supply(), 0, "Working supply should be 0 initially");
     }
 
     function test_TokenMetadata() public view {
@@ -135,8 +99,8 @@ contract LiquidityGaugeV6Test is Test {
         string memory expectedName = "Curve.fi TLP Gauge Deposit";
         string memory expectedSymbol = "TLP-gauge";
 
-        assertEq(gauge.name(), expectedName, "Name should match expected format");
-        assertEq(gauge.symbol(), expectedSymbol, "Symbol should match expected format");
+        assertEq(ILiquidityGaugeV6(gauge).name(), expectedName, "Name should match expected format");
+        assertEq(ILiquidityGaugeV6(gauge).symbol(), expectedSymbol, "Symbol should match expected format");
     }
 
     function test_Deposit() public {
@@ -147,16 +111,20 @@ contract LiquidityGaugeV6Test is Test {
         lpToken.approve(address(gauge), depositAmount);
 
         // Check initial balances
-        assertEq(gauge.balanceOf(user1), 0, "User1 should have 0 gauge tokens initially");
-        assertEq(gauge.totalSupply(), 0, "Total supply should be 0 initially");
+        assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), 0, "User1 should have 0 gauge tokens initially");
+        assertEq(ILiquidityGaugeV6(gauge).totalSupply(), 0, "Total supply should be 0 initially");
 
         // Deposit LP tokens
         vm.prank(user1);
-        gauge.deposit(depositAmount);
+        ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // Check balances after deposit
-        assertEq(gauge.balanceOf(user1), depositAmount, "User1 should have deposited amount of gauge tokens");
-        assertEq(gauge.totalSupply(), depositAmount, "Total supply should equal deposited amount");
+        assertEq(
+            ILiquidityGaugeV6(gauge).balanceOf(user1),
+            depositAmount,
+            "User1 should have deposited amount of gauge tokens"
+        );
+        assertEq(ILiquidityGaugeV6(gauge).totalSupply(), depositAmount, "Total supply should equal deposited amount");
         assertEq(lpToken.balanceOf(user1), 900 ether, "User1 should have remaining LP tokens");
         assertEq(lpToken.balanceOf(address(gauge)), depositAmount, "Gauge should hold deposited LP tokens");
     }
@@ -170,12 +138,16 @@ contract LiquidityGaugeV6Test is Test {
 
         // Deposit LP tokens for user2
         vm.prank(user1);
-        gauge.deposit(depositAmount, user2);
+        ILiquidityGaugeV6(gauge).deposit(depositAmount, user2);
 
         // Check balances after deposit
-        assertEq(gauge.balanceOf(user1), 0, "User1 should have 0 gauge tokens");
-        assertEq(gauge.balanceOf(user2), depositAmount, "User2 should have deposited amount of gauge tokens");
-        assertEq(gauge.totalSupply(), depositAmount, "Total supply should equal deposited amount");
+        assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), 0, "User1 should have 0 gauge tokens");
+        assertEq(
+            ILiquidityGaugeV6(gauge).balanceOf(user2),
+            depositAmount,
+            "User2 should have deposited amount of gauge tokens"
+        );
+        assertEq(ILiquidityGaugeV6(gauge).totalSupply(), depositAmount, "Total supply should equal deposited amount");
         assertEq(lpToken.balanceOf(user1), 950 ether, "User1 should have remaining LP tokens");
         assertEq(lpToken.balanceOf(address(gauge)), depositAmount, "Gauge should hold deposited LP tokens");
     }
@@ -187,19 +159,23 @@ contract LiquidityGaugeV6Test is Test {
         // First deposit
         vm.startPrank(user1);
         lpToken.approve(address(gauge), depositAmount);
-        gauge.deposit(depositAmount);
+        ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // Check state before withdrawal
-        assertEq(gauge.balanceOf(user1), depositAmount, "User1 should have deposited amount");
+        assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), depositAmount, "User1 should have deposited amount");
 
         // Withdraw some tokens
-        gauge.withdraw(withdrawAmount);
+        ILiquidityGaugeV6(gauge).withdraw(withdrawAmount);
         vm.stopPrank();
 
         // Check balances after withdrawal
         uint256 remainingGaugeBalance = depositAmount - withdrawAmount;
-        assertEq(gauge.balanceOf(user1), remainingGaugeBalance, "User1 should have remaining gauge tokens");
-        assertEq(gauge.totalSupply(), remainingGaugeBalance, "Total supply should be reduced");
+        assertEq(
+            ILiquidityGaugeV6(gauge).balanceOf(user1),
+            remainingGaugeBalance,
+            "User1 should have remaining gauge tokens"
+        );
+        assertEq(ILiquidityGaugeV6(gauge).totalSupply(), remainingGaugeBalance, "Total supply should be reduced");
         assertEq(lpToken.balanceOf(user1), 800 ether + withdrawAmount, "User1 should have withdrawn LP tokens");
         assertEq(lpToken.balanceOf(address(gauge)), remainingGaugeBalance, "Gauge should hold remaining LP tokens");
     }
@@ -212,25 +188,25 @@ contract LiquidityGaugeV6Test is Test {
         vm.prank(user1);
         lpToken.approve(address(gauge), deposit1);
         vm.prank(user1);
-        gauge.deposit(deposit1);
+        ILiquidityGaugeV6(gauge).deposit(deposit1);
 
         // User2 deposits
         vm.prank(user2);
         lpToken.approve(address(gauge), deposit2);
         vm.prank(user2);
-        gauge.deposit(deposit2);
+        ILiquidityGaugeV6(gauge).deposit(deposit2);
 
         // Check individual balances
-        assertEq(gauge.balanceOf(user1), deposit1, "User1 should have correct balance");
-        assertEq(gauge.balanceOf(user2), deposit2, "User2 should have correct balance");
-        assertEq(gauge.totalSupply(), deposit1 + deposit2, "Total supply should be sum of deposits");
+        assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), deposit1, "User1 should have correct balance");
+        assertEq(ILiquidityGaugeV6(gauge).balanceOf(user2), deposit2, "User2 should have correct balance");
+        assertEq(ILiquidityGaugeV6(gauge).totalSupply(), deposit1 + deposit2, "Total supply should be sum of deposits");
         assertEq(lpToken.balanceOf(address(gauge)), deposit1 + deposit2, "Gauge should hold all LP tokens");
     }
 
     function test_UserCheckpoint() public {
         // Test user checkpoint functionality
         vm.prank(user1);
-        bool success = gauge.user_checkpoint(user1);
+        bool success = ILiquidityGaugeV6(gauge).user_checkpoint(user1);
         assertTrue(success, "User checkpoint should succeed");
     }
 
@@ -241,11 +217,11 @@ contract LiquidityGaugeV6Test is Test {
         vm.prank(user1);
         lpToken.approve(address(gauge), depositAmount);
         vm.prank(user1);
-        gauge.deposit(depositAmount);
+        ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // Check working balances (should be related to boost calculations)
-        uint256 workingBalance = gauge.working_balances(user1);
-        uint256 workingSupply = gauge.working_supply();
+        uint256 workingBalance = ILiquidityGaugeV6(gauge).working_balances(user1);
+        uint256 workingSupply = ILiquidityGaugeV6(gauge).working_supply();
 
         // Working balance should be non-zero after deposit
         assertGt(workingBalance, 0, "Working balance should be greater than 0");
@@ -255,7 +231,7 @@ contract LiquidityGaugeV6Test is Test {
 
     function test_Period() public view {
         // Test that period tracking works
-        int128 currentPeriod = gauge.period();
+        int128 currentPeriod = ILiquidityGaugeV6(gauge).period();
         assertGe(currentPeriod, 0, "Period should be non-negative");
     }
 
@@ -265,11 +241,11 @@ contract LiquidityGaugeV6Test is Test {
 
         vm.startPrank(user1);
         lpToken.approve(address(gauge), depositAmount);
-        gauge.deposit(depositAmount);
+        ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // This should fail
         vm.expectRevert(); // the contract does a depositAmount - withdrawAmount which results in a data-less revert
-        gauge.withdraw(withdrawAmount);
+        ILiquidityGaugeV6(gauge).withdraw(withdrawAmount);
         vm.stopPrank();
     }
 
@@ -281,6 +257,6 @@ contract LiquidityGaugeV6Test is Test {
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, gauge, 0, depositAmount)
         );
         vm.prank(user1);
-        gauge.deposit(depositAmount);
+        ILiquidityGaugeV6(gauge).deposit(depositAmount);
     }
 }
