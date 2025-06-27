@@ -29,7 +29,7 @@ interface ILiquidityGaugeV6 {
     function deposit(uint256 value) external;
     function deposit(uint256 value, address recipient) external;
     function withdraw(uint256 value) external;
-    function withdraw(uint256 value, bool claim_rewards) external;
+    function withdraw(uint256 value, bool claimRewards) external;
     // solhint-disable-next-line func-name-mixedcase
     function user_checkpoint(address addr) external returns (bool);
 

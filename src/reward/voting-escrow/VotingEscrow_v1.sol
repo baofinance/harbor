@@ -766,19 +766,19 @@ contract VotingEscrow_v1 is
     /// @inheritdoc IVotingEscrow
     function totalSupplyAt(uint256 _block) external view returns (uint256) {
         if (_block > block.number) {
-            revert("Block is in the future");
+            revert BlockIsInTheFuture(_block);
         }
 
         VotingEscrowStorage storage $ = _getStorage();
         uint256 _epoch = $.epoch;
-        uint256 target_epoch = _findBlockEpoch(_block, _epoch);
+        uint256 targetEpoch = _findBlockEpoch(_block, _epoch);
 
-        Point memory point = $.pointHistory[target_epoch];
+        Point memory point = $.pointHistory[targetEpoch];
         uint256 dt = 0;
-        if (target_epoch < _epoch) {
-            Point memory point_next = $.pointHistory[target_epoch + 1];
-            if (point.blk != point_next.blk) {
-                dt = ((_block - point.blk) * (point_next.ts - point.ts)) / (point_next.blk - point.blk);
+        if (targetEpoch < _epoch) {
+            Point memory pointNext = $.pointHistory[targetEpoch + 1];
+            if (point.blk != pointNext.blk) {
+                dt = ((_block - point.blk) * (pointNext.ts - point.ts)) / (pointNext.blk - point.blk);
             }
         } else {
             if (point.blk != block.number) {
@@ -830,25 +830,25 @@ contract VotingEscrow_v1 is
 
         Point memory upoint = $.userPointHistory[addr][_min];
 
-        uint256 max_epoch = $.epoch;
-        uint256 _epoch = _findBlockEpoch(_block, max_epoch);
-        Point memory point_0 = $.pointHistory[_epoch];
-        uint256 d_block = 0;
-        uint256 d_t = 0;
-        if (_epoch < max_epoch) {
-            Point memory point_1 = $.pointHistory[_epoch + 1];
-            d_block = point_1.blk - point_0.blk;
-            d_t = point_1.ts - point_0.ts;
+        uint256 maxEpoch = $.epoch;
+        uint256 epoch_ = _findBlockEpoch(_block, maxEpoch);
+        Point memory point0 = $.pointHistory[epoch_];
+        uint256 dBlock = 0;
+        uint256 dT = 0;
+        if (epoch_ < maxEpoch) {
+            Point memory point1 = $.pointHistory[epoch_ + 1];
+            dBlock = point1.blk - point0.blk;
+            dT = point1.ts - point0.ts;
         } else {
-            d_block = block.number - point_0.blk;
-            d_t = block.timestamp - point_0.ts;
+            dBlock = block.number - point0.blk;
+            dT = block.timestamp - point0.ts;
         }
-        uint256 block_time = point_0.ts;
-        if (d_block != 0) {
-            block_time += (d_t * (_block - point_0.blk)) / d_block;
+        uint256 blockTime = point0.ts;
+        if (dBlock != 0) {
+            blockTime += (dT * (_block - point0.blk)) / dBlock;
         }
 
-        upoint.bias -= upoint.slope * int128(int256(block_time - upoint.ts));
+        upoint.bias -= upoint.slope * int128(int256(blockTime - upoint.ts));
         if (upoint.bias >= 0) {
             return uint256(int256(upoint.bias));
         } else {
@@ -881,7 +881,7 @@ contract VotingEscrow_v1 is
         return $.symbol;
     }
 
-    function version() external view returns (string memory) {
+    function version() external view virtual returns (string memory) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.version;
     }

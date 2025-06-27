@@ -6,13 +6,14 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
-import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {stdError} from "forge-std/StdError.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
 
@@ -40,6 +41,15 @@ contract MockVotingEscrow_v1 is VotingEscrow_v1 {
     }
 }
 
+// Mock upgraded contract for testing
+contract MockVotingEscrowUpgrade is VotingEscrow_v1 {
+    constructor(address token_) VotingEscrow_v1(token_) {}
+
+    function version() external pure override returns (string memory) {
+        return "2.0.0";
+    }
+}
+
 // specific to solidity implementation
 contract VotingEscrow_v1Test is VotingEscrowTestSetUp {
     constructor() VotingEscrowTestSetUp(false) {}
@@ -55,11 +65,25 @@ contract VotingEscrow_v1Test is VotingEscrowTestSetUp {
         IBaoOwnable(votingEscrow).transferOwnership(admin);
     }
 
-    // function testUpgradeToVotingEscrow_v1() public {
-    //     address votingEscrowV1 = address(new VotingEscrow_v1(governanceToken));
-    //     votingEscrow.upgradeToUnsafe(votingEscrowV1);
-    //     assertEq(address(votingEscrow), votingEscrowV1);
-    // }
+    // Test upgrade functionality - only available in Solidity version
+    function test_authorizeUpgrade_onlyOwner() public {
+        // Deploy a mock upgrade implementation
+        MockVotingEscrowUpgrade newImpl = new MockVotingEscrowUpgrade(address(governanceToken));
+
+        vm.prank(admin);
+        UUPSUpgradeable(votingEscrow).upgradeToAndCall(address(newImpl), "");
+
+        // Verify the upgrade worked by checking the version
+        assertEq(IVotingEscrow(votingEscrow).version(), "2.0.0");
+    }
+
+    function test_revertWhen_nonOwnerCallsUpgrade() public {
+        MockVotingEscrowUpgrade newImpl = new MockVotingEscrowUpgrade(address(governanceToken));
+
+        vm.expectRevert();
+        vm.prank(user1);
+        UUPSUpgradeable(votingEscrow).upgradeToAndCall(address(newImpl), "");
+    }
 
     function test_FindBlockEpoch() public {
         uint256 amount = 1000 ether;
@@ -84,5 +108,35 @@ contract VotingEscrow_v1Test is VotingEscrowTestSetUp {
         uint256 epochAfter = MockVotingEscrow_v1(votingEscrow).find_block_epoch(blockNumAfter, 100);
 
         assertTrue(epochAfter >= epochBefore, "Epoch found should be greater or equal");
+    }
+
+    // Test smart contract restriction branches (lines 169-171)
+    function test_smartContractWithoutRole() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(smartContract);
+        MockERC20(governanceToken).approve(votingEscrow, amount);
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(smartContract, user1); // tx.origin = smartContract
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+    }
+
+    function test_smartContractWithRole() public {
+        // Grant role to smart contract
+        vm.prank(admin);
+        IBaoRoles(votingEscrow).grantRoles(smartContract, 1); // SMART_CONTRACT_MANAGER_ROLE = 1
+
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(smartContract);
+        MockERC20(governanceToken).approve(votingEscrow, amount);
+
+        vm.prank(smartContract, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        assertGt(IVotingEscrow(votingEscrow).balanceOf(smartContract), 0);
     }
 }

@@ -271,6 +271,137 @@ contract VotingEscrowAbstract100Test is VotingEscrowTestSetUp {
         int128 expectedSlope = int128(uint128(amount / MAXTIME));
         assertEq(slopeChange, -expectedSlope, "Slope change should be negative of slope");
     }
+
+    // Test get_last_user_slope function (currently 0 coverage)
+    function test_getLastUserSlope() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        int128 slope = IVotingEscrow(votingEscrow).get_last_user_slope(user1);
+        assertGt(uint128(slope), 0, "Slope should be positive");
+    }
+
+    function test_getLastUserSlope_noLock() public view {
+        int128 slope = IVotingEscrow(votingEscrow).get_last_user_slope(user1);
+        assertEq(uint128(slope), 0, "Slope should be zero for user with no lock");
+    }
+
+    // Test _findPointEpoch function by triggering balanceOfAt with historical block
+    function test_balanceOfAt_triggersHistoricalSearch() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 2 * 365 days;
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        uint256 firstBlock = block.number;
+
+        // Move forward in time and create another checkpoint
+        vm.warp(block.timestamp + 30 days);
+        vm.roll(block.number + 1000);
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).increase_amount(100 ether);
+
+        // Query balance at historical block - this should trigger _findPointEpoch
+        uint256 historicalBalance = IVotingEscrow(votingEscrow).balanceOfAt(user1, firstBlock);
+        assertGt(historicalBalance, 0, "Historical balance should be positive");
+    }
+
+    // Test totalSupplyAt with future block (should revert)
+    function test_revertWhen_totalSupplyAtFutureBlock() public {
+        vyper
+            ? vm.expectRevert() // it is actually a raise "Block is in the future"
+            : vm.expectRevert(abi.encodeWithSelector(IVotingEscrow.BlockIsInTheFuture.selector, block.number + 1));
+        IVotingEscrow(votingEscrow).totalSupplyAt(block.number + 1);
+    }
+
+    function test_revertWhen_balanceOfAtFutureBlock() public {
+        vm.expectRevert();
+        IVotingEscrow(votingEscrow).balanceOfAt(user1, block.number + 1);
+    }
+
+    // Test negative bias conditions in _balanceOf (line 704-705)
+    function test_balanceOfAtPastExpiry() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 100 days;
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        // Move past expiry
+        vm.warp(unlockTime + 365 days);
+
+        uint256 balance = IVotingEscrow(votingEscrow).balanceOf(user1);
+        assertEq(balance, 0, "Balance should be 0 after expiry");
+    }
+
+    // Test checkpoint function coverage for different scenarios
+    function test_checkpoint_withExistingLocks() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        // Create multiple locks
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        vm.prank(user2, user2);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user2, user2);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime + 100 days);
+
+        // Move forward in time
+        vm.warp(block.timestamp + 50 days);
+
+        // Call checkpoint explicitly
+        IVotingEscrow(votingEscrow).checkpoint();
+
+        // Verify epoch increased
+        assertGt(IVotingEscrow(votingEscrow).epoch(), 0);
+    }
+
+    // Test slope changes and historical lookups
+    function test_totalSupplyAt_withComplexHistory() public {
+        uint256 amount = 1000 ether;
+
+        // Create lock at different times
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, block.timestamp + 365 days);
+
+        uint256 block1 = block.number;
+
+        vm.warp(block.timestamp + 30 days);
+        vm.roll(block.number + 100);
+
+        vm.prank(user2, user2);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user2, user2);
+        IVotingEscrow(votingEscrow).create_lock(amount, block.timestamp + 300 days);
+
+        uint256 block2 = block.number;
+
+        // Test totalSupplyAt different blocks
+        uint256 supply1 = IVotingEscrow(votingEscrow).totalSupplyAt(block1);
+        uint256 supply2 = IVotingEscrow(votingEscrow).totalSupplyAt(block2);
+
+        assertGt(supply1, 0, "Supply at block1 should be positive");
+        assertGt(supply2, supply1, "Supply at block2 should be greater");
+    }
 }
 
 contract VotingEscrowVyper100Test is VotingEscrowAbstract100Test {

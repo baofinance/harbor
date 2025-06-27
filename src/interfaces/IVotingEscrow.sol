@@ -56,6 +56,8 @@ interface IVotingEscrow {
     // solhint-disable-next-line func-name-mixedcase
     function SMART_CONTRACT_MANAGER_ROLE() external pure returns (uint256 role);
 
+    function version() external view returns (string memory);
+
     function token() external view returns (address);
 
     function epoch() external view returns (uint256);
