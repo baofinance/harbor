@@ -11,12 +11,17 @@ interface ILiquidityGaugeV6 {
     function balanceOf(address account) external view returns (uint256);
 
     // Gauge specific functions
+    // solhint-disable-next-line func-name-mixedcase
     function lp_token() external view returns (address);
     function factory() external view returns (address);
     function manager() external view returns (address);
+    // solhint-disable-next-line func-name-mixedcase
     function is_killed() external view returns (bool);
+    // solhint-disable-next-line func-name-mixedcase
     function reward_count() external view returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
     function working_supply() external view returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
     function working_balances(address user) external view returns (uint256);
     function period() external view returns (int128);
 
@@ -25,18 +30,28 @@ interface ILiquidityGaugeV6 {
     function deposit(uint256 value, address recipient) external;
     function withdraw(uint256 value) external;
     function withdraw(uint256 value, bool claim_rewards) external;
+    // solhint-disable-next-line func-name-mixedcase
     function user_checkpoint(address addr) external returns (bool);
 
     // Reward functions
-    function add_reward(address _reward_token, address _distributor) external;
-    function deposit_reward_token(address _reward_token, uint256 _amount) external;
-    function deposit_reward_token(address _reward_token, uint256 _amount, uint256 _epoch) external;
+    // solhint-disable-next-line func-name-mixedcase
+    function add_reward(address rewardToken, address distributor) external;
+    // solhint-disable-next-line func-name-mixedcase
+    function deposit_reward_token(address rewardToken, uint256 amount) external;
+    // solhint-disable-next-line func-name-mixedcase
+    function deposit_reward_token(address rewardToken, uint256 amount, uint256 epoch) external;
+    // solhint-disable-next-line func-name-mixedcase
     function claim_rewards() external;
-    function claim_rewards(address _addr) external;
-    function claim_rewards(address _addr, address _receiver) external;
-    function claimable_reward(address _user, address _reward_token) external view returns (uint256);
-    function claimed_reward(address _addr, address _token) external view returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
+    function claim_rewards(address addr) external;
+    // solhint-disable-next-line func-name-mixedcase
+    function claim_rewards(address addr, address receiver) external;
+    // solhint-disable-next-line func-name-mixedcase
+    function claimable_reward(address user, address rewardToken) external view returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
+    function claimed_reward(address addr, address token) external view returns (uint256);
 
     // Administrative functions
-    function set_reward_distributor(address _reward_token, address _distributor) external;
+    // solhint-disable-next-line func-name-mixedcase
+    function set_reward_distributor(address rewardToken, address distributor) external;
 }

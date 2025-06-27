@@ -105,20 +105,13 @@ contract VotingEscrow_v1 is
     int128 internal constant _MAXTIME_I128 = 4 * 365 days; // 4 years
 
     uint256 public constant SMART_CONTRACT_MANAGER_ROLE = _ROLE_0;
+
+    // we choose this names below as they are the most gas efficient and code efficient
+    // way of implementing the public interface
+    // solhint-disable-next-line immutable-vars-naming
     address public immutable token;
+    // solhint-disable-next-line immutable-vars-naming
     uint8 public immutable decimals;
-
-    /***************************************************************************
-     * Struct Definitions
-     **************************************************************************/
-
-    /**
-     * @notice Records a locked token balance and when it expires
-     */
-    struct LockedBalance {
-        int128 amount; // Amount of token locked
-        uint256 end; // When the lock expires
-    }
 
     /***************************************************************************
      * Initialization
@@ -618,69 +611,74 @@ contract VotingEscrow_v1 is
      * Public View Functions - Voting Power
      **************************************************************************/
 
+    // @inheritdoc IVotingEscrow
     function supply() external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.supply;
     }
 
-    /**
-     * @notice Read the current locked balance of `addr`
-     * @param addr Address to query
-     * @return The locked balance
-     */
-    function locked(address addr) external view returns (LockedBalance memory) {
+    /// @inheritdoc IVotingEscrow
+    function locked(address account) external view returns (LockedBalance memory) {
         VotingEscrowStorage storage $ = _getStorage();
-        return $.locked[addr];
+        return $.locked[account];
     }
 
+    /// @inheritdoc IVotingEscrow
     function admin() external view returns (address) {
         return owner();
     }
 
+    /// @inheritdoc IVotingEscrow
     function controller() external view returns (address) {
         return owner();
     }
 
+    /// @inheritdoc IVotingEscrow
     function transfersEnabled() external view returns (bool) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.transfersEnabled;
     }
 
+    /// @inheritdoc IVotingEscrow
     function epoch() external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.epoch;
     }
 
+    /// @inheritdoc IVotingEscrow
     // solhint-disable-next-line func-name-mixedcase
     function point_history(uint256 epoch_) external view returns (Point memory) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.pointHistory[epoch_];
     }
 
+    /// @inheritdoc IVotingEscrow
     // solhint-disable-next-line func-name-mixedcase
     function user_point_history(address addr, uint256 epoch_) external view returns (Point memory) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.userPointHistory[addr][epoch_];
     }
 
+    /// @inheritdoc IVotingEscrow
     // solhint-disable-next-line func-name-mixedcase
-    function user_point_history__ts(address addr, uint256 epoch_) external view returns (uint256) {
+    function user_point_history__ts(address account, uint256 epoch_) external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
-        return $.userPointHistory[addr][epoch_].ts;
+        return $.userPointHistory[account][epoch_].ts;
     }
-
+    /// @inheritdoc IVotingEscrow
     // solhint-disable-next-line func-name-mixedcase
-    function user_point_epoch(address addr) external view returns (uint256) {
+    function user_point_epoch(address account) external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
-        return $.userPointEpoch[addr];
+        return $.userPointEpoch[account];
     }
-
+    /// @inheritdoc IVotingEscrow
     // solhint-disable-next-line func-name-mixedcase
     function slope_changes(uint256 week) external view returns (int128) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.slopeChanges[week];
     }
-
+    /// @inheritdoc IVotingEscrow
+    // solhint-disable-next-line func-name-mixedcase
     function get_last_user_slope(address account) external view returns (int128) {
         VotingEscrowStorage storage $ = _getStorage();
         return $.userPointHistory[account][$.userPointEpoch[account]].slope;
@@ -688,23 +686,23 @@ contract VotingEscrow_v1 is
 
     /**
      * @notice Calculate voting power for a specific timestamp
-     * @param addr User address
+     * @param account User address
      * @param ts Timestamp to query
      * @return User voting power
      */
-    function _balanceOf(address addr, uint256 ts) internal view returns (uint256) {
+    function _balanceOf(address account, uint256 ts) internal view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
-        uint256 userEpoch = $.userPointEpoch[addr];
+        uint256 userEpoch = $.userPointEpoch[account];
 
         if (userEpoch == 0) {
             return 0;
         } else {
-            Point memory lastPoint = $.userPointHistory[addr][userEpoch];
+            Point memory lastPoint = $.userPointHistory[account][userEpoch];
             // Now handle the case when block.timestamp is earlier than user history
             if (ts < lastPoint.ts) {
                 // Find the most recent user point before ts
                 userEpoch = _findPointEpoch(ts, 1, userEpoch);
-                lastPoint = $.userPointHistory[addr][userEpoch];
+                lastPoint = $.userPointHistory[account][userEpoch];
             }
 
             lastPoint.bias -= lastPoint.slope * int128(int256(ts - lastPoint.ts));
@@ -719,16 +717,15 @@ contract VotingEscrow_v1 is
     /**
      * @notice Binary search to estimate timestamp for block number
      * @param _block Block to find
-     * @param max_epoch Don't go beyond this epoch
+     * @param maxEpoch Don't go beyond this epoch
      * @return Approximate timestamp for block
      */
-    // solhint-disable-next-line func-name-mixedcase
-    function _findBlockEpoch(uint256 _block, uint256 max_epoch) internal view returns (uint256) {
+    function _findBlockEpoch(uint256 _block, uint256 maxEpoch) internal view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
 
         // Binary search
         uint256 _min = 0;
-        uint256 _max = max_epoch;
+        uint256 _max = maxEpoch;
 
         // solhint-disable-next-line explicit-types
         for (uint i = 0; i < 128; i++) {
@@ -746,56 +743,27 @@ contract VotingEscrow_v1 is
         return _min;
     }
 
-    /**
-     * @notice Get the timestamp for checkpoint `epoch` for `addr`
-     * @param addr User wallet address
-     * @param epoch_ User epoch number
-     * @return Epoch time of the checkpoint
-     */
+    /// @inheritdoc IVotingEscrow
     // solhint-disable-next-line func-name-mixedcase
-    function user_point_historyTs(address addr, uint256 epoch_) external view returns (uint256) {
+    function locked__end(address account) external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
-        return $.userPointHistory[addr][epoch_].ts;
+        return $.locked[account].end;
     }
-
-    /**
-     * @notice Get timestamp when `addr`'s lock finishes
-     * @param addr User wallet
-     * @return Epoch time of the lock end
-     */
-    // solhint-disable-next-line func-name-mixedcase
-    function locked__end(address addr) external view returns (uint256) {
-        VotingEscrowStorage storage $ = _getStorage();
-        return $.locked[addr].end;
-    }
-
-    /**
-     * @notice Calculate total voting power
-     * @dev Adheres to the ERC20 `totalSupply` interface for Aragon compatibility
-     * @return Total voting power
-     */
+    /// @inheritdoc IVotingEscrow
     function totalSupply() external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
         Point memory lastPoint = $.pointHistory[$.epoch];
         return _totalSupply(lastPoint, block.timestamp);
     }
 
-    /**
-     * @notice Calculate total voting power at timestamp
-     * @param t Time to calculate total voting power at
-     * @return Total voting power
-     */
-    function totalSupply(uint256 t) external view returns (uint256) {
+    /// @inheritdoc IVotingEscrow
+    function totalSupply(uint256 ts) external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
         Point memory lastPoint = $.pointHistory[$.epoch];
-        return _totalSupply(lastPoint, t);
+        return _totalSupply(lastPoint, ts);
     }
 
-    /**
-     * @notice Calculate total voting power at some point in the past
-     * @param _block Block to calculate the total voting power at
-     * @return Total voting power at `_block`
-     */
+    /// @inheritdoc IVotingEscrow
     function totalSupplyAt(uint256 _block) external view returns (uint256) {
         if (_block > block.number) {
             revert("Block is in the future");
@@ -822,38 +790,22 @@ contract VotingEscrow_v1 is
         return _totalSupply(point, point.ts + dt);
     }
 
-    /**
-     * @notice Get the current voting power for `addr`
-     * @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
-     * @param addr User wallet address
-     * @return User voting power
-     */
-    function balanceOf(address addr) external view returns (uint256) {
-        return _balanceOf(addr, block.timestamp);
+    /// @inheritdoc IVotingEscrow
+    function balanceOf(address account) external view returns (uint256) {
+        return _balanceOf(account, block.timestamp);
     }
 
-    /**
-     * @notice Get the voting power for `addr` at timestamp `t`
-     * @param addr User wallet address
-     * @param t Timestamp to query
-     * @return User voting power
-     */
-    function balanceOf(address addr, uint256 t) external view returns (uint256) {
-        return _balanceOf(addr, t);
+    /// @inheritdoc IVotingEscrow
+    function balanceOf(address addr, uint256 ts) external view returns (uint256) {
+        return _balanceOf(addr, ts);
     }
 
-    /**
-     * @notice Measure voting power of `addr` at block height `_block`
-     * @dev Adheres to MiniMe `balanceOfAt` interface: https://github.com/Giveth/minime
-     * @param addr User's wallet address
-     * @param _block Block to calculate the voting power at
-     * @return Voting power
-     */
+    /// @inheritdoc IVotingEscrow
     function balanceOfAt(address addr, uint256 _block) external view returns (uint256) {
         // Copying and pasting totalSupply code because Vyper cannot pass by
         // reference yet
         if (_block > block.number) {
-            revert("Block is in the future");
+            revert BlockIsInTheFuture(_block);
         }
 
         VotingEscrowStorage storage $ = _getStorage();

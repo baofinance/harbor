@@ -13,6 +13,7 @@ interface IVotingEscrow {
     error ValueNotPositive(uint256 value);
     error AlreadyLockedAmount(int128 value, uint256 unlockTime);
     error SmartContractNotAllowed(address contractAddress);
+    error BlockIsInTheFuture(uint256 blockNumber);
 
     /***************************************************************************
      * Events
@@ -40,6 +41,14 @@ interface IVotingEscrow {
         uint256 blk; // Block
     }
 
+    /**
+     * @notice Records a locked token balance and when it expires
+     */
+    struct LockedBalance {
+        int128 amount; // Amount of token locked
+        uint256 end; // When the lock expires
+    }
+
     /*************************
      * Public View Functions *
      *************************/
@@ -61,15 +70,21 @@ interface IVotingEscrow {
 
     function user_point_epoch(address account) external view returns (uint256);
 
-    function user_point_history(address account, uint256 epoch_) external view returns (Point memory);
-
     function get_last_user_slope(address account) external view returns (int128);
+
+    /// @notice Get the timestamp for checkpoint `epoch` for `account`
+    /// @param account User wallet address
+    /// @param epoch_ User epoch number
+    /// @return Point structure of the checkpoint
+    function user_point_history(address account, uint256 epoch_) external view returns (Point memory);
 
     /// @notice Get the timestamp for checkpoint `epoch` for `account`
     /// @param account User wallet address
     /// @param epoch_ User epoch number
     /// @return Epoch time of the checkpoint
     function user_point_history__ts(address account, uint256 epoch_) external view returns (uint256);
+
+    function locked(address account) external view returns (LockedBalance memory);
 
     /// @notice Get timestamp when `account`'s lock finishes
     /// @param account User wallet
@@ -81,19 +96,38 @@ interface IVotingEscrow {
     /// @return Total voting power
     function totalSupply() external view returns (uint256);
 
+    /// @notice Calculate total voting power at timestamp
+    /// @param ts Time to calculate total voting power at
+    /// @return Total voting power
     function totalSupply(uint256 ts) external view returns (uint256);
 
+    /// @notice Calculate total voting power at some point in the past
+    /// @param block Block to calculate the total voting power at
+    /// @return Total voting power at `block`
     function totalSupplyAt(uint256 block) external view returns (uint256);
 
-    /// @notice Get the current voting power for `msg.sender`
+    /// @notice Get the current voting power for `account`
     /// @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
     /// @param account User wallet address
     /// @return User voting power
     function balanceOf(address account) external view returns (uint256);
 
+    /**
+     * @notice Get the voting power for `account` at timestamp `t`
+     * @param account User wallet address
+     * @param ts Timestamp to query
+     * @return User voting power
+     */
     function balanceOf(address account, uint256 ts) external view returns (uint256);
 
-    function balanceOfAt(address account, uint256 _block) external view returns (uint256);
+    /**
+     * @notice Measure voting power of `account` at block height `block`
+     * @dev Adheres to MiniMe `balanceOfAt` interface: https://github.com/Giveth/minime
+     * @param account User's wallet address
+     * @param block Block to calculate the voting power at
+     * @return Voting power
+     */
+    function balanceOfAt(address account, uint256 block) external view returns (uint256);
 
     /// @notice time -> signed slope change
     function slope_changes(uint256 week) external view returns (int128);
