@@ -20,7 +20,7 @@ import {MockERC20} from "test/mock/MockERC20.sol";
 
 contract VotingEscrowTestSetUp is Test {
     address public votingEscrow;
-    MockERC20 public governanceToken;
+    address public governanceToken;
 
     address public admin;
     address public user1;
@@ -53,7 +53,7 @@ contract VotingEscrowTestSetUp is Test {
         smartContract = makeAddr("smartContract");
 
         // Deploy governance token
-        governanceToken = new MockERC20("Governance Token", "GOV", 18);
+        governanceToken = address(new MockERC20("Governance Token", "STEAM", 18));
 
         // Deploy VotingEscrow contract using Vyper
         // Need to deploy from admin and then initialize
@@ -61,21 +61,21 @@ contract VotingEscrowTestSetUp is Test {
             votingEscrow = deployCode("VotingEscrow.vy");
             // Initialize the contract
             vm.prank(admin, admin); // Set both msg.sender and tx.origin to admin
-            _initialize(admin, address(governanceToken), "Voting Escrow GOV", "veGOV", "1.0.0");
+            _initialize(admin, governanceToken, "Voting Escrow STEAM", "veSTEAM", "1.0.0");
         } else {
             votingEscrow = UnsafeUpgrades.deployUUPSProxy(
-                address(new VotingEscrow_v1(address(governanceToken))),
+                address(new VotingEscrow_v1(governanceToken)),
                 // "Zhenglong Voting Escrow", "veSTEAM", "1"
-                abi.encodeCall(VotingEscrow_v1.initialize, (admin, "Voting Escrow GOV", "veGOV", "1.0.0"))
+                abi.encodeCall(VotingEscrow_v1.initialize, (admin, "Voting Escrow STEAM", "veSTEAM", "1.0.0"))
             );
             IBaoOwnable(votingEscrow).transferOwnership(admin);
         }
 
         // Mint tokens to users for testing
-        governanceToken.mint(user1, 10000 ether);
-        governanceToken.mint(user2, 10000 ether);
-        governanceToken.mint(user3, 10000 ether);
-        governanceToken.mint(smartContract, 10000 ether);
+        MockERC20(governanceToken).mint(user1, 10000 ether);
+        MockERC20(governanceToken).mint(user2, 10000 ether);
+        MockERC20(governanceToken).mint(user3, 10000 ether);
+        MockERC20(governanceToken).mint(smartContract, 10000 ether);
     }
 
     /***************************************************************************
@@ -206,14 +206,14 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
     function test_Deployment() public view {
         // Check initial state
-        assertEq(_token(), address(governanceToken), "Token should be set correctly");
+        assertEq(_token(), governanceToken, "Token should be set correctly");
         assertEq(_admin(), admin, "Admin should be set correctly");
         assertEq(_supply(), 0, "Initial supply should be 0");
         assertEq(_epoch(), 0, "Initial epoch should be 0");
 
         // Check Aragon compatibility fields
-        assertEq(_name(), "Voting Escrow GOV", "Name should match");
-        assertEq(_symbol(), "veGOV", "Symbol should match");
+        assertEq(_name(), "Voting Escrow STEAM", "Name should match");
+        assertEq(_symbol(), "veSTEAM", "Symbol should match");
         assertEq(_version(), "1.0.0", "Version should match");
         assertEq(_decimals(), 18, "Decimals should match token");
         assertTrue(_transfersEnabled(), "Transfers should be enabled");
@@ -236,7 +236,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 unlockTime = block.timestamp + 365 days;
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -257,7 +257,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
             "Voting power should be proportional to lock duration"
         );
         assertEq(_supply(), amount, "Total supply should increase");
-        assertEq(governanceToken.balanceOf(votingEscrow), amount, "Tokens should be transferred to contract");
+        assertEq(IERC20(governanceToken).balanceOf(votingEscrow), amount, "Tokens should be transferred to contract");
 
         // Check locked balance
         assertGt(_lockedEnd(user1), 0, "Lock end should be set");
@@ -269,7 +269,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 unlockTime = block.timestamp + 365 days + 3 days; // Add 3 days extra
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -291,7 +291,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 unlockTime = block.timestamp + 365 days;
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount * 2);
+        IERC20(governanceToken).approve(votingEscrow, amount * 2);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -314,7 +314,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 unlockTime = block.timestamp - 1;
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vyper
             ? vm.expectRevert("Can only lock until time in the future")
@@ -332,7 +332,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 unlockTime = block.timestamp + MAXTIME + WEEK;
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vyper
             ? vm.expectRevert("Voting lock can be 4 years max")
@@ -353,7 +353,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 expectedUnlockTime = (unlockTime / WEEK) * WEEK;
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.expectEmit();
         emit IVotingEscrow.Deposit(user1, amount, expectedUnlockTime, CREATE_LOCK_TYPE, block.timestamp);
@@ -376,7 +376,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create initial lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, initialAmount + increaseAmount);
+        IERC20(governanceToken).approve(votingEscrow, initialAmount + increaseAmount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(initialAmount, unlockTime);
@@ -392,7 +392,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         assertGt(finalVotingPower, initialVotingPower, "Voting power should increase");
         assertEq(_supply(), initialAmount + increaseAmount, "Total supply should increase");
         assertEq(
-            governanceToken.balanceOf(votingEscrow),
+            IERC20(governanceToken).balanceOf(votingEscrow),
             initialAmount + increaseAmount,
             "Contract should hold more tokens"
         );
@@ -402,7 +402,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 amount = 500 ether;
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user1, user1);
@@ -415,7 +415,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount * 2);
+        IERC20(governanceToken).approve(votingEscrow, amount * 2);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -447,7 +447,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create initial lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, initialUnlockTime);
@@ -471,7 +471,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -499,7 +499,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -528,7 +528,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User1 creates lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, initialAmount);
+        IERC20(governanceToken).approve(votingEscrow, initialAmount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(initialAmount, unlockTime);
@@ -537,7 +537,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User2 deposits for user1 (deposit_for doesn't have smart contract restriction)
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, depositAmount);
+        IERC20(governanceToken).approve(votingEscrow, depositAmount);
 
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).deposit_for(user1, depositAmount);
@@ -546,7 +546,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         assertGt(finalVotingPower, initialVotingPower, "Voting power should increase");
         assertEq(
-            governanceToken.balanceOf(votingEscrow),
+            IERC20(governanceToken).balanceOf(votingEscrow),
             initialAmount + depositAmount,
             "Contract should hold more tokens"
         );
@@ -556,7 +556,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 amount = 500 ether;
 
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user2, user2);
@@ -569,7 +569,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -578,7 +578,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         vm.warp(unlockTime + 1);
 
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vyper
             ? vm.expectRevert("Cannot add to expired lock. Withdraw")
@@ -603,7 +603,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -611,14 +611,14 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         // Fast forward past unlock time
         vm.warp(unlockTime + 1);
 
-        uint256 initialBalance = governanceToken.balanceOf(user1);
+        uint256 initialBalance = IERC20(governanceToken).balanceOf(user1);
         uint256 initialSupply = _supply();
 
         // Withdraw
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).withdraw();
 
-        assertEq(governanceToken.balanceOf(user1), initialBalance + amount, "User should receive tokens back");
+        assertEq(IERC20(governanceToken).balanceOf(user1), initialBalance + amount, "User should receive tokens back");
         assertEq(_supply(), initialSupply - amount, "Total supply should decrease");
         assertEq(IVotingEscrow(votingEscrow).balanceOf(user1), 0, "Voting power should be 0");
         assertEq(_lockedAmount(user1), 0, "Lock amount should be 0");
@@ -631,7 +631,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -655,7 +655,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -683,7 +683,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -721,7 +721,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -760,14 +760,14 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User1 creates lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount1);
+        IERC20(governanceToken).approve(votingEscrow, amount1);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount1, unlockTime);
 
         // User2 creates lock with double amount
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount2);
+        IERC20(governanceToken).approve(votingEscrow, amount2);
 
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).create_lock(amount2, unlockTime);
@@ -788,14 +788,14 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User1 creates short lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, shortLock);
 
         // User2 creates long lock
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).create_lock(amount, longLock);
@@ -824,7 +824,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 unlockTime = block.timestamp + 365 days;
 
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -850,7 +850,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -875,7 +875,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -900,7 +900,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -925,7 +925,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -954,7 +954,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -976,7 +976,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -1000,7 +1000,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -1016,7 +1016,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -1034,7 +1034,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -1061,7 +1061,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Should succeed with max time
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, maxUnlockTime);
@@ -1083,10 +1083,10 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         for (uint256 i = 0; i < testTimes.length; i++) {
             address user = address(uint160(0x1000 + i));
-            governanceToken.mint(user, amount);
+            MockERC20(governanceToken).mint(user, amount);
 
             vm.prank(user, user);
-            governanceToken.approve(votingEscrow, amount);
+            IERC20(governanceToken).approve(votingEscrow, amount);
 
             vm.prank(user, user);
             IVotingEscrow(votingEscrow).create_lock(amount, testTimes[i]);
@@ -1107,7 +1107,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount * 3);
+        IERC20(governanceToken).approve(votingEscrow, amount * 3);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -1137,13 +1137,13 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create two locks with different expiry times
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, shortLock);
 
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).create_lock(amount, longLock);
@@ -1186,14 +1186,14 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
     function test_DeploymentAndInitialization() public view {
         // Check initial state
-        assertEq(_token(), address(governanceToken), "Token should be set correctly");
+        assertEq(_token(), governanceToken, "Token should be set correctly");
         assertEq(_admin(), admin, "Admin should be set correctly");
         assertEq(_supply(), 0, "Initial supply should be 0");
         assertEq(_epoch(), 0, "Initial epoch should be 0");
 
         // Check Aragon compatibility fields
-        assertEq(_name(), "Voting Escrow GOV", "Name should match");
-        assertEq(_symbol(), "veGOV", "Symbol should match");
+        assertEq(_name(), "Voting Escrow STEAM", "Name should match");
+        assertEq(_symbol(), "veSTEAM", "Symbol should match");
         assertEq(_version(), "1.0.0", "Version should match");
         assertEq(_decimals(), 18, "Decimals should match token");
         assertTrue(_transfersEnabled(), "Transfers should be enabled");
@@ -1212,7 +1212,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
             ? vm.expectRevert("already initialized")
             : vm.expectRevert /*Initializable.InvalidInitialization.selector*/();
         vm.prank(admin, admin);
-        _initialize(admin, address(governanceToken), "Test", "TEST", "1.0.0");
+        _initialize(admin, governanceToken, "Test", "TEST", "1.0.0");
     }
 
     /***************************************************************************
@@ -1226,7 +1226,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Test successful creation
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         // Check events
         vm.expectEmit();
@@ -1250,7 +1250,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
             "Voting power calculation"
         );
         assertEq(_supply(), amount, "Total supply should increase");
-        assertEq(governanceToken.balanceOf(votingEscrow), amount, "Tokens transferred to contract");
+        assertEq(IERC20(governanceToken).balanceOf(votingEscrow), amount, "Tokens transferred to contract");
         assertEq(_lockedEnd(user1), expectedUnlockTime, "Lock end should be rounded to weeks");
         assertEq(uint256(int256(_lockedAmount(user1))), amount, "Lock amount should be set");
 
@@ -1284,7 +1284,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Past time
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vyper
             ? vm.expectRevert("Can only lock until time in the future")
             : vm.expectRevert(
@@ -1312,7 +1312,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Try to create second lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vyper
             ? vm.expectRevert("Withdraw old tokens first")
             : vm.expectRevert(
@@ -1338,7 +1338,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create initial lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, initialAmount + increaseAmount);
+        IERC20(governanceToken).approve(votingEscrow, initialAmount + increaseAmount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(initialAmount, unlockTime);
 
@@ -1364,7 +1364,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // No existing lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_amount(amount);
@@ -1404,7 +1404,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create initial lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, initialUnlockTime);
 
@@ -1438,7 +1438,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1490,7 +1490,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User1 creates lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, initialAmount);
+        IERC20(governanceToken).approve(votingEscrow, initialAmount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(initialAmount, unlockTime);
 
@@ -1498,7 +1498,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User2 deposits for user1 (no smart contract restriction on deposit_for)
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, depositAmount);
+        IERC20(governanceToken).approve(votingEscrow, depositAmount);
 
         vm.expectEmit();
         emit IVotingEscrow.Deposit(user1, depositAmount, _lockedEnd(user1), DEPOSIT_FOR_TYPE, block.timestamp);
@@ -1510,7 +1510,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         assertGt(finalVotingPower, initialVotingPower, "Voting power should increase");
         assertEq(
-            governanceToken.balanceOf(votingEscrow),
+            IERC20(governanceToken).balanceOf(votingEscrow),
             initialAmount + depositAmount,
             "Contract should hold more tokens"
         );
@@ -1522,7 +1522,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // No existing lock
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).deposit_for(user1, amount);
@@ -1530,7 +1530,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         // Create expired lock
         uint256 shortUnlockTime = block.timestamp + 100 days;
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, shortUnlockTime);
 
@@ -1561,7 +1561,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1581,7 +1581,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         // Fast forward past unlock time
         vm.warp(unlockTime + 1);
 
-        uint256 initialBalance = governanceToken.balanceOf(user1);
+        uint256 initialBalance = IERC20(governanceToken).balanceOf(user1);
         uint256 initialSupply = _supply();
 
         // Withdraw with events
@@ -1595,7 +1595,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         IVotingEscrow(votingEscrow).withdraw();
 
         // Verify state
-        assertEq(governanceToken.balanceOf(user1), initialBalance + amount, "User should receive tokens back");
+        assertEq(IERC20(governanceToken).balanceOf(user1), initialBalance + amount, "User should receive tokens back");
         assertEq(_supply(), initialSupply - amount, "Total supply should decrease");
         assertEq(IVotingEscrow(votingEscrow).balanceOf(user1), 0, "Voting power should be 0");
         assertEq(_lockedAmount(user1), 0, "Lock amount should be 0");
@@ -1615,7 +1615,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1659,11 +1659,10 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
     function test_BlockBasedHistoricalQueries() public {
         uint256 amount = 1000 ether;
         uint256 unlockTime = block.timestamp + 365 days;
-        console2.log("vyper=", vyper);
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1695,7 +1694,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User1 creates lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount1);
+        IERC20(governanceToken).approve(votingEscrow, amount1);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount1, unlockTime);
 
@@ -1704,7 +1703,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // User2 creates lock with double amount
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount2);
+        IERC20(governanceToken).approve(votingEscrow, amount2);
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).create_lock(amount2, unlockTime);
 
@@ -1741,7 +1740,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1770,7 +1769,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock to have data
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1795,10 +1794,10 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         for (uint256 i = 0; i < testTimes.length; i++) {
             address user = address(uint160(0x1000 + i));
-            governanceToken.mint(user, amount);
+            MockERC20(governanceToken).mint(user, amount);
 
             vm.prank(user, user);
-            governanceToken.approve(votingEscrow, amount);
+            IERC20(governanceToken).approve(votingEscrow, amount);
 
             vm.prank(user, user);
             IVotingEscrow(votingEscrow).create_lock(amount, testTimes[i]);
@@ -1814,7 +1813,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         // Test maximum lock time
         uint256 maxUnlockTime = block.timestamp + MAXTIME;
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, maxUnlockTime);
 
@@ -1827,7 +1826,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 excessiveTime = block.timestamp + MAXTIME + 2 * WEEK;
 
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vyper
             ? vm.expectRevert("Voting lock can be 4 years max")
@@ -1848,7 +1847,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         // Test maximum lock time
         uint256 maxUnlockTime = block.timestamp + MAXTIME;
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, maxUnlockTime);
 
@@ -1860,7 +1859,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 excessiveTime = block.timestamp + MAXTIME + 52 * WEEK; // Add a full year
 
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vyper
             ? vm.expectRevert("Voting lock can be 4 years max")
@@ -1881,7 +1880,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
 
         // Create lock and perform multiple operations
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount * 3);
+        IERC20(governanceToken).approve(votingEscrow, amount * 3);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1905,12 +1904,12 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         uint256 longLock = block.timestamp + 200 days;
 
         vm.prank(user2, user2);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).create_lock(amount, shortLock);
 
         vm.prank(user3, user3);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user3, user3);
         IVotingEscrow(votingEscrow).create_lock(amount, longLock);
 
@@ -2080,7 +2079,7 @@ contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
         _applySmartWalletChecker();
 
         // Mint tokens to contracts
-        governanceToken.mint(whitelistedContract, 10000 ether);
+        MockERC20(governanceToken).mint(whitelistedContract, 10000 ether);
     }
 
     function test_SmartContractRestriction() public {
@@ -2089,7 +2088,7 @@ contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
 
         // Smart contract should not be able to create lock without whitelist
         vm.prank(whitelistedContract, eoa); // tx.origin = whitelistedContract
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.expectRevert("Smart contract depositors not allowed");
         vm.prank(whitelistedContract, eoa);
@@ -2105,7 +2104,7 @@ contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
 
         // Now it should work
         vm.prank(whitelistedContract, eoa);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(whitelistedContract, eoa);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -2123,7 +2122,7 @@ contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
 
         // EOA should always work regardless of smart wallet checker
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
@@ -2137,7 +2136,7 @@ contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
 
         // Test all functions that have smart contract restrictions
         vm.prank(whitelistedContract, eoa);
-        governanceToken.approve(votingEscrow, amount * 3);
+        IERC20(governanceToken).approve(votingEscrow, amount * 3);
 
         // create_lock should fail
         vm.expectRevert("Smart contract depositors not allowed");
@@ -2146,7 +2145,7 @@ contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
 
         // First, let user1 create a lock so contract can test other functions
         vm.prank(user1, user1);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -2187,7 +2186,7 @@ contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
         _applySmartWalletChecker();
 
         vm.prank(whitelistedContract, eoa);
-        governanceToken.approve(votingEscrow, amount);
+        IERC20(governanceToken).approve(votingEscrow, amount);
 
         vm.expectRevert("Smart contract depositors not allowed");
         vm.prank(whitelistedContract, eoa); // Simulate smart contract call

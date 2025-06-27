@@ -7,7 +7,6 @@ import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {stdError} from "forge-std/StdError.sol";
-import {console2 as console} from "forge-std/console2.sol";
 
 import {MockERC20} from "test/mock/MockERC20.sol";
 
@@ -429,10 +428,6 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
         uint256 user1Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
         uint256 user2Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user2, address(steamToken));
 
-        console.log("User1 rewards (25 LP):", user1Rewards);
-        console.log("User2 rewards (75 LP):", user2Rewards);
-        console.log("Total rewards:", user1Rewards + user2Rewards);
-
         // User2 should earn ~3x more than User1
         assertApproxEqRel(user2Rewards, user1Rewards * 3, 0.1e18, "User2 should earn ~3x more");
 
@@ -500,9 +495,6 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
         uint256 user1RewardsBefore = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
         uint256 user2RewardsBefore = ILiquidityGaugeV6(gauge).claimable_reward(user2, address(steamToken));
 
-        console.log("User1 rewards before withdrawal:", user1RewardsBefore);
-        console.log("User2 rewards before withdrawal:", user2RewardsBefore);
-
         // User1 withdraws most of their stake
         vm.prank(user1);
         ILiquidityGaugeV6(gauge).withdraw(withdrawAmount, false);
@@ -510,9 +502,6 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
         // Check working balances after withdrawal
         uint256 user1WorkingBalance = ILiquidityGaugeV6(gauge).working_balances(user1);
         uint256 user2WorkingBalance = ILiquidityGaugeV6(gauge).working_balances(user2);
-
-        console.log("User1 working balance after withdrawal:", user1WorkingBalance);
-        console.log("User2 working balance (unchanged):", user2WorkingBalance);
 
         // Fast forward the same period
         vm.warp(block.timestamp + REWARD_DURATION / 10);
@@ -522,10 +511,6 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         uint256 user1NewRewards = user1RewardsAfter - user1RewardsBefore;
         uint256 user2NewRewards = user2RewardsAfter - user2RewardsBefore;
-
-        console.log("User1 new rewards (reduced stake):", user1NewRewards);
-        console.log("User2 new rewards (full stake):", user2NewRewards);
-        console.log("Ratio (user2/user1):", (user2NewRewards * 100) / user1NewRewards);
 
         // User2 should now earn significantly more than User1
         assertGt(
@@ -537,9 +522,6 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
         // The ratio should reflect the working balance difference
         uint256 expectedRatio = (user2WorkingBalance * 100) / user1WorkingBalance;
         uint256 actualRatio = (user2NewRewards * 100) / user1NewRewards;
-
-        console.log("Expected ratio based on working balances:", expectedRatio);
-        console.log("Actual reward ratio:", actualRatio);
 
         // Allow some tolerance for the ratio comparison
         assertApproxEqRel(
@@ -574,10 +556,6 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         uint256 user1Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user1, address(steamToken));
         uint256 user2Rewards = ILiquidityGaugeV6(gauge).claimable_reward(user2, address(steamToken));
-
-        console.log("User1 rewards (100 LP):", user1Rewards);
-        console.log("User2 rewards (300 LP):", user2Rewards);
-        console.log("Ratio:", (user2Rewards * 100) / user1Rewards);
 
         // User2 should earn approximately 3x more (allowing for rounding)
         assertApproxEqRel(user2Rewards, user1Rewards * 3, 0.05e18, "User2 should earn ~3x more rewards");

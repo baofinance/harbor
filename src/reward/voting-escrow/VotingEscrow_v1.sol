@@ -221,7 +221,7 @@ contract VotingEscrow_v1 is
      * @param point The point to start calculation from
      * @param timestamp The timestamp at which to calculate voting power
      */
-    function _supplyAt(Point memory point, uint256 timestamp) internal view returns (uint256) {
+    function _totalSupply(Point memory point, uint256 timestamp) internal view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
 
         Point memory lastPoint = Point(point.bias, point.slope, point.ts, point.blk);
@@ -723,7 +723,7 @@ contract VotingEscrow_v1 is
      * @return Approximate timestamp for block
      */
     // solhint-disable-next-line func-name-mixedcase
-    function find_block_epoch(uint256 _block, uint256 max_epoch) internal view returns (uint256) {
+    function _findBlockEpoch(uint256 _block, uint256 max_epoch) internal view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
 
         // Binary search
@@ -777,7 +777,7 @@ contract VotingEscrow_v1 is
     function totalSupply() external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
         Point memory lastPoint = $.pointHistory[$.epoch];
-        return _supplyAt(lastPoint, block.timestamp);
+        return _totalSupply(lastPoint, block.timestamp);
     }
 
     /**
@@ -788,7 +788,7 @@ contract VotingEscrow_v1 is
     function totalSupply(uint256 t) external view returns (uint256) {
         VotingEscrowStorage storage $ = _getStorage();
         Point memory lastPoint = $.pointHistory[$.epoch];
-        return _supplyAt(lastPoint, t);
+        return _totalSupply(lastPoint, t);
     }
 
     /**
@@ -803,7 +803,7 @@ contract VotingEscrow_v1 is
 
         VotingEscrowStorage storage $ = _getStorage();
         uint256 _epoch = $.epoch;
-        uint256 target_epoch = find_block_epoch(_block, _epoch);
+        uint256 target_epoch = _findBlockEpoch(_block, _epoch);
 
         Point memory point = $.pointHistory[target_epoch];
         uint256 dt = 0;
@@ -819,7 +819,7 @@ contract VotingEscrow_v1 is
         }
         // Now dt contains info on how far are we beyond point
 
-        return _supplyAt(point, point.ts + dt);
+        return _totalSupply(point, point.ts + dt);
     }
 
     /**
@@ -879,7 +879,7 @@ contract VotingEscrow_v1 is
         Point memory upoint = $.userPointHistory[addr][_min];
 
         uint256 max_epoch = $.epoch;
-        uint256 _epoch = find_block_epoch(_block, max_epoch);
+        uint256 _epoch = _findBlockEpoch(_block, max_epoch);
         Point memory point_0 = $.pointHistory[_epoch];
         uint256 d_block = 0;
         uint256 d_t = 0;
