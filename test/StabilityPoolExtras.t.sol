@@ -414,7 +414,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
     function testInvalidOperations() public {
         // Test zero amount deposit
         vm.prank(user1);
-        vm.expectRevert(IStabilityPool.DepositZeroAmount.selector);
+        vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, peggedToken));
         IStabilityPool(stabilityPoolCollateral).deposit(0, user1, 0);
 
         // Test deposit with minAmount > amount

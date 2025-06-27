@@ -107,7 +107,7 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
         // Attempt deposit with zero address as receiver
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidReceiver.selector, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, address(0)));
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, address(0), 0);
 
         // Verify no tokens were transferred
@@ -132,7 +132,7 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
         // Attempt withdraw with zero address as receiver
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidReceiver.selector, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, address(0)));
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, address(0), 0);
 
         // Verify balances remain unchanged

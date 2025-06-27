@@ -366,9 +366,11 @@ contract TestStabilityPoolRebalance is TestStabilityPoolSetUp {
 
         // Sweep a tiny amount (1 wei)
         uint256 totalSupplyBefore = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
-        vm.prank(rebalancer);
         vm.expectEmit(stabilityPoolCollateral);
-        emit IERC20.Transfer(stabilityPoolCollateral, address(0), sweepAmount);
+        emit ITokenHolder.Swept(peggedToken, sweepAmount, rebalancer);
+        vm.expectEmit(peggedToken);
+        emit IERC20.Transfer(stabilityPoolCollateral, rebalancer, sweepAmount);
+        vm.prank(rebalancer);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, sweepAmount, rebalancer);
         assertEq(
             IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),

@@ -19,6 +19,7 @@ import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/Multi
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 
 // solhint-disable not-rely-on-time
@@ -269,44 +270,6 @@ contract StabilityPool_v1 is
     /****************************
      * Public Mutator Functions *
      ****************************/
-    /*
-    /// @notice Implements ERC20 transfer
-    function transfer(address to, uint256 amount) public override returns (bool) {
-        if (to == address(0)) {
-            revert ERC20InvalidReceiver(address(0));
-        }
-        address sender = _msgSender();
-        amount = Token.allOf(sender, address(this), amount);
-        _transfer(sender, to, amount);
-        return true;
-    }
-
-    /// @notice Implements ERC20 transferFrom
-    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
-        if (from == address(0)) {
-            revert ERC20InvalidSender(address(0));
-        }
-        if (to == address(0)) {
-            revert ERC20InvalidReceiver(address(0));
-        }
-        amount = Token.allOf(from, address(this), amount);
-
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        uint256 currentAllowance = $.tokenAllowances[from][msg.sender];
-        if (currentAllowance != type(uint256).max) {
-            if (currentAllowance < amount) {
-                revert ERC20InsufficientAllowance(msg.sender, currentAllowance, amount);
-            }
-            unchecked {
-                $.tokenAllowances[from][msg.sender] = currentAllowance - amount;
-            }
-        }
-
-        _transfer(from, to, amount);
-        return true;
-    }
-    */
 
     /// @inheritdoc IStabilityPool
     // slither-disable-next-line reentrancy-benign,reentrancy-no-eth
@@ -372,7 +335,16 @@ contract StabilityPool_v1 is
         _checkpoint(sender);
 
         TokenBalance memory balance = $.assetBalances[sender];
-        assetsWithdrawn = Token.allOf(sender, address(this), assetAmount);
+        if (assetAmount == type(uint256).max) {
+            assetsWithdrawn = balance.amount;
+        } else if (assetAmount > balance.amount) {
+            revert WithdrawAmountExceedsBalance(assetAmount, balance.amount);
+        } else {
+            assetsWithdrawn = assetAmount;
+        }
+        if (assetsWithdrawn == 0) {
+            revert WithdrawZeroAmount();
+        }
         if (assetsWithdrawn < minAmount) {
             revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
@@ -405,13 +377,14 @@ contract StabilityPool_v1 is
     function _depositInGauge(address gauge_, uint256 amount) internal {
         if (gauge_ != address(0)) {
             IMintable(STABILITY_POOL_TOKEN).mint(address(this), amount);
-            // TODO: deposit those tokens into the gauge
+            //ILiquidityGaugeV6(gauge_).deposit(amount);
         }
     }
 
     function _withdrawFromGauge(address gauge_, uint256 amount) internal {
         if (gauge_ != address(0)) {
             // TODO: withdraw those tokens from the gauge
+            // ILiquidityGaugeV6(gauge_).withdraw(amount);
             IBurnable(STABILITY_POOL_TOKEN).burn(amount);
         }
     }
@@ -635,15 +608,14 @@ contract StabilityPool_v1 is
     /// @param supply The new total supply to record.
     function _recordTotalSupply(TokenBalance memory supply) private {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        uint256 totalSupplyHistoryLast = $.totalAssetSupplyHistoryLength - 1;
+        uint256 totalSupplyHistoryLength_ = $.totalAssetSupplyHistoryLength;
 
         // slither-disable-next-line incorrect-equality
-        if ($.totalAssetSupplyHistory[totalSupplyHistoryLast].updatedAt == supply.updatedAt) {
-            $.totalAssetSupplyHistory[totalSupplyHistoryLast] = supply;
+        if ($.totalAssetSupplyHistory[totalSupplyHistoryLength_ - 1].updatedAt == supply.updatedAt) {
+            $.totalAssetSupplyHistory[totalSupplyHistoryLength_ - 1] = supply;
         } else {
-            totalSupplyHistoryLast++;
-            $.totalAssetSupplyHistoryLength = totalSupplyHistoryLast;
-            $.totalAssetSupplyHistory[totalSupplyHistoryLast] = supply;
+            $.totalAssetSupplyHistory[totalSupplyHistoryLength_] = supply;
+            $.totalAssetSupplyHistoryLength = totalSupplyHistoryLength_ + 1;
         }
         $.totalAssetSupply = supply;
     }

@@ -29,7 +29,7 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
-import {MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
+import {MockERC20, MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
 
@@ -251,8 +251,8 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         priceOracle = address(new MockWrappedPriceOracle());
 
         setUp_leveragedToken();
-        peggedToken = address(new MockERC20Burn2Arg("BaoUSD", "BAOUSD", 18));
-        peggedTokenBurnSig = "burn(address,uint256)";
+        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
+        peggedTokenBurnSig = "burnFrom(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
         collateralToken = Deployed.stETH;
 

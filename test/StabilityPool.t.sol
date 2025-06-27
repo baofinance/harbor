@@ -21,14 +21,17 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 
+import {Token} from "@bao/Token.sol";
+
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
-import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+
+import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
@@ -45,9 +48,9 @@ contract StabilityPool_v2 is StabilityPool_v1 {
         address minter_,
         address liquidationToken_,
         address stabilityPoolToken_,
-        address veToken_,
+        address veSteam_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veToken_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veSteam_, periodLength) {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
@@ -61,9 +64,9 @@ contract MockStabilityPool is StabilityPool_v1 {
         address minter_,
         address liquidationToken_,
         address stabilityPoolToken_,
-        address veToken_,
+        address veSteam_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veToken_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veSteam_, periodLength) {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
@@ -71,10 +74,13 @@ contract MockStabilityPool is StabilityPool_v1 {
     }
 }
 
+// serves no other purpose than making the foundry traces more informative
+contract MockSTEAM is MintableBurnableERC20_v1 {}
+
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address stabilityPoolCollateral;
-    address veToken = 0x8Bf70DFE40F07a5ab715F7e888478d9D3680a2B6; // BaoUSD Voting Escrow TODO: put this constant somewhere
-
+    address steam;
+    address veSteam;
     address user1;
     address user2;
 
@@ -94,7 +100,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         // use mock stability pool to expose internals for testing
         // otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, veToken, 1 weeks)), // "StabilityPool_v1.sol",
+            address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, veSteam, 1 weeks)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
         IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
@@ -106,6 +112,17 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
+
+        steam = UnsafeUpgrades.deployUUPSProxy(
+            address(new MockSTEAM()),
+            abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Steam Token", "STEAM"))
+        );
+
+        veSteam = UnsafeUpgrades.deployUUPSProxy(
+            address(new VotingEscrow_v1(address(steam))),
+            abi.encodeCall(VotingEscrow_v1.initialize, (owner, "Zhenglong Voting Escrow", "veSTEAM", "1"))
+        );
+        IBaoOwnable(veSteam).transferOwnership(owner);
 
         stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
 
@@ -122,8 +139,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         assertEq(StabilityPool_v1(sp).owner(), owner);
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
-        assertEq(IStabilityPool(sp).STABILITY_POOL_TOKEN(), liquidateTo);
-        assertEq(IERC20(sp).totalSupply(), 0);
+        assertNotEq(IStabilityPool(sp).STABILITY_POOL_TOKEN(), address(0)); // make sure it has something
+        assertEq(IStabilityPool(sp).VE_TOKEN(), veSteam);
+        assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
     }
 }
 
@@ -153,7 +171,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
             minter,
             wrappedCollateralToken,
             stabilityPoolToken,
-            veToken,
+            veSteam,
             1 weeks
         );
 
@@ -186,11 +204,11 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, veToken, 1 weeks));
+        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, veSteam, 1 weeks));
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, veToken, 1 weeks));
+        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, veSteam, 1 weeks));
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
@@ -217,10 +235,10 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initEventsBad() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
-        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veToken, 1 weeks);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veSteam, 1 weeks);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1 days - 1));
-        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veToken, 1 days - 1);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veSteam, 1 days - 1);
     }
 }
 

@@ -219,7 +219,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Record initial balance
         uint256 initialBalance = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
-        assertEq(initialBalance, IERC20(stabilityPoolCollateral).totalSupply());
 
         // Rebalancer sweeps some assets
         vm.prank(rebalancer);
@@ -234,7 +233,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         );
         assertEq(IERC20(peggedToken).balanceOf(rebalancer), DEPOSIT_AMOUNT / 4);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), initialBalance - DEPOSIT_AMOUNT / 4);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), initialBalance);
     }
 
     function testSweepFailsByUnauthorized() public {
