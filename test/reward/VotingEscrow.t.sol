@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {stdError} from "forge-std/StdError.sol";
-import {console2 as console} from "forge-std/console2.sol";
+import {console2} from "forge-std/console2.sol";
+
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+
+import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
+import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
 
 import {MockERC20} from "test/mock/MockERC20.sol";
 
@@ -31,6 +39,12 @@ contract VotingEscrowTestSetUp is Test {
     int128 constant INCREASE_LOCK_AMOUNT = 2;
     int128 constant INCREASE_UNLOCK_TIME = 3;
 
+    bool public vyper;
+
+    constructor(bool vyper_) {
+        vyper = vyper_;
+    }
+
     function setUp() public virtual {
         admin = makeAddr("admin");
         user1 = makeAddr("user1");
@@ -43,11 +57,19 @@ contract VotingEscrowTestSetUp is Test {
 
         // Deploy VotingEscrow contract using Vyper
         // Need to deploy from admin and then initialize
-        votingEscrow = deployCode("VotingEscrow.vy");
-
-        // Initialize the contract
-        vm.prank(admin, admin); // Set both msg.sender and tx.origin to admin
-        _initialize(admin, address(governanceToken), "Voting Escrow GOV", "veGOV", "1.0.0");
+        if (vyper) {
+            votingEscrow = deployCode("VotingEscrow.vy");
+            // Initialize the contract
+            vm.prank(admin, admin); // Set both msg.sender and tx.origin to admin
+            _initialize(admin, address(governanceToken), "Voting Escrow GOV", "veGOV", "1.0.0");
+        } else {
+            votingEscrow = UnsafeUpgrades.deployUUPSProxy(
+                address(new VotingEscrow_v1(address(governanceToken))),
+                // "Zhenglong Voting Escrow", "veSTEAM", "1"
+                abi.encodeCall(VotingEscrow_v1.initialize, (admin, "Voting Escrow GOV", "veGOV", "1.0.0"))
+            );
+            IBaoOwnable(votingEscrow).transferOwnership(admin);
+        }
 
         // Mint tokens to users for testing
         governanceToken.mint(user1, 10000 ether);
@@ -175,7 +197,9 @@ contract VotingEscrowTestSetUp is Test {
     }
 }
 
-contract VotingEscrowTest is VotingEscrowTestSetUp {
+contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
+    constructor(bool vyper_) VotingEscrowTestSetUp(vyper_) {}
+
     /***************************************************************************
      * Deployment Tests
      **************************************************************************/
@@ -201,70 +225,6 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         assertEq(point.slope, 0, "Initial slope should be 0");
         assertGt(point.blk, 0, "Initial block should be set");
         assertGt(point.ts, 0, "Initial timestamp should be set");
-    }
-
-    /***************************************************************************
-     * Ownership Tests
-     **************************************************************************/
-
-    function test_CommitTransferOwnership() public {
-        address newAdmin = makeAddr("newAdmin");
-
-        vm.prank(admin, admin);
-        _commitTransferOwnership(newAdmin);
-
-        assertEq(_futureAdmin(), newAdmin, "Future admin should be set");
-    }
-
-    function test_RevertWhen_NonAdminCommitsOwnership() public {
-        address newAdmin = makeAddr("newAdmin");
-
-        vm.expectRevert();
-        vm.prank(user1, user1);
-        _commitTransferOwnership(newAdmin);
-    }
-
-    function test_ApplyTransferOwnership() public {
-        address newAdmin = makeAddr("newAdmin");
-
-        vm.prank(admin, admin);
-        _commitTransferOwnership(newAdmin);
-
-        vm.prank(admin, admin);
-        _applyTransferOwnership();
-
-        assertEq(_admin(), newAdmin, "Admin should be transferred");
-    }
-
-    function test_RevertWhen_ApplyWithoutCommit() public {
-        vm.expectRevert();
-        vm.prank(admin, admin);
-        _applyTransferOwnership();
-    }
-
-    /***************************************************************************
-     * Smart Wallet Checker Tests
-     **************************************************************************/
-
-    function test_CommitSmartWalletChecker() public {
-        address checker = makeAddr("checker");
-
-        vm.prank(admin, admin);
-        _commitSmartWalletChecker(checker);
-
-        assertEq(_futureSmartWalletChecker(), checker, "Future smart wallet checker should be set");
-    }
-
-    function test_ApplySmartWalletChecker() public {
-        address checker = makeAddr("checker");
-
-        vm.prank(admin, admin);
-        _commitSmartWalletChecker(checker);
-
-        vm.prank(admin, admin);
-        _applySmartWalletChecker();
-
-        assertEq(_smartWalletChecker(), checker, "Smart wallet checker should be applied");
     }
 
     /***************************************************************************
@@ -336,7 +296,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
-        vm.expectRevert("Withdraw old tokens first");
+        vyper
+            ? vm.expectRevert("Withdraw old tokens first")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.AlreadyLockedAmount.selector,
+                    amount,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
     }
@@ -348,7 +316,12 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectRevert("Can only lock until time in the future");
+        vyper
+            ? vm.expectRevert("Can only lock until time in the future")
+            : vm.expectRevert(
+                abi.encodeWithSelector(IVotingEscrow.LockExpired.selector, block.timestamp, block.timestamp - 1)
+            );
+
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
     }
@@ -361,7 +334,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectRevert("Voting lock can be 4 years max");
+        vyper
+            ? vm.expectRevert("Voting lock can be 4 years max")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.ExceededMaxLockTime.selector,
+                    (unlockTime / 1 weeks) * 1 weeks,
+                    block.timestamp + MAXTIME
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
     }
@@ -374,10 +355,10 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Deposit(user1, amount, expectedUnlockTime, CREATE_LOCK_TYPE, block.timestamp);
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Supply(0, amount);
 
         vm.prank(user1, user1);
@@ -423,7 +404,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectRevert("No existing lock found");
+        vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_amount(amount);
     }
@@ -442,7 +423,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // Fast forward past unlock time
         vm.warp(unlockTime + 1);
 
-        vm.expectRevert("Cannot add to expired lock. Withdraw");
+        vyper
+            ? vm.expectRevert("Cannot add to expired lock. Withdraw")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockExpired.selector,
+                    block.timestamp,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_amount(amount);
     }
@@ -490,7 +479,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // Fast forward past unlock time
         vm.warp(unlockTime + 1);
 
-        vm.expectRevert("Lock expired");
+        vyper
+            ? vm.expectRevert("Lock expired")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockExpired.selector,
+                    block.timestamp,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_unlock_time(block.timestamp + 365 days);
     }
@@ -507,7 +504,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
-        vm.expectRevert("Can only increase lock duration");
+        vyper
+            ? vm.expectRevert("Can only increase lock duration")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockCanOnlyIncrease.selector,
+                    (shorterTime / 1 weeks) * 1 weeks,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_unlock_time(shorterTime);
     }
@@ -553,7 +558,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user2, user2);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectRevert("No existing lock found");
+        vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).deposit_for(user1, amount);
     }
@@ -575,7 +580,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user2, user2);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectRevert("Cannot add to expired lock. Withdraw");
+        vyper
+            ? vm.expectRevert("Cannot add to expired lock. Withdraw")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockExpired.selector,
+                    block.timestamp,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).deposit_for(user1, amount);
     }
@@ -623,7 +636,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
-        vm.expectRevert("The lock didn't expire");
+        vyper
+            ? vm.expectRevert("The lock didn't expire")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockNotExpired.selector,
+                    block.timestamp,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).withdraw();
     }
@@ -642,10 +663,10 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // Fast forward past unlock time
         vm.warp(unlockTime + 1);
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Withdraw(user1, amount, block.timestamp);
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Supply(amount, 0);
 
         vm.prank(user1, user1);
@@ -1134,7 +1155,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).withdraw();
 
-        vm.expectRevert("The lock didn't expire");
+        vyper
+            ? vm.expectRevert("The lock didn't expire")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockNotExpired.selector,
+                    block.timestamp,
+                    (longLock / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).withdraw();
 
@@ -1179,59 +1208,11 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
     }
 
     function test_RevertWhen_DoubleInitialization() public {
-        vm.expectRevert("already initialized");
+        vyper
+            ? vm.expectRevert("already initialized")
+            : vm.expectRevert /*Initializable.InvalidInitialization.selector*/();
         vm.prank(admin, admin);
         _initialize(admin, address(governanceToken), "Test", "TEST", "1.0.0");
-    }
-
-    /***************************************************************************
-     * Ownership Management Tests
-     **************************************************************************/
-
-    function test_OwnershipTransferFlow() public {
-        address newAdmin = makeAddr("newAdmin");
-
-        // Step 1: Commit transfer
-        vm.prank(admin, admin);
-        _commitTransferOwnership(newAdmin);
-        assertEq(_futureAdmin(), newAdmin, "Future admin should be set");
-
-        // Step 2: Apply transfer
-        vm.prank(admin, admin);
-        _applyTransferOwnership();
-        assertEq(_admin(), newAdmin, "Admin should be transferred");
-
-        // Old admin cannot commit new transfers
-        vm.expectRevert();
-        vm.prank(admin, admin);
-        _commitTransferOwnership(makeAddr("another"));
-
-        // New admin can commit transfers
-        vm.prank(newAdmin, newAdmin);
-        _commitTransferOwnership(makeAddr("another"));
-    }
-
-    /***************************************************************************
-     * Smart Wallet Checker Tests
-     **************************************************************************/
-
-    function test_SmartWalletCheckerFlow() public {
-        address checker = makeAddr("checker");
-
-        // Commit and apply checker
-        vm.prank(admin, admin);
-        _commitSmartWalletChecker(checker);
-        assertEq(_futureSmartWalletChecker(), checker, "Future smart wallet checker should be set");
-
-        vm.prank(admin, admin);
-        _applySmartWalletChecker();
-        assertEq(_smartWalletChecker(), checker, "Smart wallet checker should be applied");
-    }
-
-    function test_RevertWhen_NonAdminCommitsSmartWalletChecker() public {
-        vm.expectRevert();
-        vm.prank(user1, user1);
-        _commitSmartWalletChecker(makeAddr("checker"));
     }
 
     /***************************************************************************
@@ -1248,10 +1229,11 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         governanceToken.approve(votingEscrow, amount);
 
         // Check events
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
+        emit IERC20.Transfer(user1, votingEscrow, amount);
+        vm.expectEmit();
         emit IVotingEscrow.Deposit(user1, amount, expectedUnlockTime, CREATE_LOCK_TYPE, block.timestamp);
-
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Supply(0, amount);
 
         vm.prank(user1, user1);
@@ -1303,12 +1285,24 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // Past time
         vm.prank(user1, user1);
         governanceToken.approve(votingEscrow, amount);
-        vm.expectRevert("Can only lock until time in the future");
+        vyper
+            ? vm.expectRevert("Can only lock until time in the future")
+            : vm.expectRevert(
+                abi.encodeWithSelector(IVotingEscrow.LockExpired.selector, block.timestamp, block.timestamp - 1)
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, block.timestamp - 1);
 
         // Exceeds max time
-        vm.expectRevert("Voting lock can be 4 years max");
+        vyper
+            ? vm.expectRevert("Voting lock can be 4 years max")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.ExceededMaxLockTime.selector,
+                    ((block.timestamp + MAXTIME + WEEK) / 1 weeks) * 1 weeks,
+                    block.timestamp + MAXTIME
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, block.timestamp + MAXTIME + WEEK);
 
@@ -1319,7 +1313,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // Try to create second lock
         vm.prank(user1, user1);
         governanceToken.approve(votingEscrow, amount);
-        vm.expectRevert("Withdraw old tokens first");
+        vyper
+            ? vm.expectRevert("Withdraw old tokens first")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.AlreadyLockedAmount.selector,
+                    amount,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
@@ -1344,7 +1346,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         uint256 initialSupply = _supply();
 
         // Increase amount
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Deposit(user1, increaseAmount, _lockedEnd(user1), INCREASE_LOCK_AMOUNT, block.timestamp);
 
         vm.prank(user1, user1);
@@ -1363,7 +1365,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // No existing lock
         vm.prank(user1, user1);
         governanceToken.approve(votingEscrow, amount);
-        vm.expectRevert("No existing lock found");
+        vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_amount(amount);
 
@@ -1375,13 +1377,21 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // Fast forward past expiry
         vm.warp(shortUnlockTime + 1);
 
-        vm.expectRevert("Cannot add to expired lock. Withdraw");
+        vyper
+            ? vm.expectRevert("Cannot add to expired lock. Withdraw")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockExpired.selector,
+                    block.timestamp,
+                    (shortUnlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_amount(amount);
 
         // Zero amount
         vm.warp(block.timestamp - shortUnlockTime); // Go back
-        vm.expectRevert();
+        vyper ? vm.expectRevert() : vm.expectRevert(abi.encodeWithSelector(IVotingEscrow.ValueNotPositive.selector, 0));
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_amount(0);
     }
@@ -1401,7 +1411,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         uint256 initialVotingPower = IVotingEscrow(votingEscrow).balanceOf(user1);
 
         // Increase unlock time
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Deposit(user1, 0, expectedNewUnlockTime, INCREASE_UNLOCK_TIME, block.timestamp);
 
         vm.prank(user1, user1);
@@ -1420,7 +1430,9 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // No existing lock - this should fail with "Lock expired" because _locked.end is 0
         // In Vyper, the first check is: assert _locked.end > block.timestamp, "Lock expired"
         // Since _locked.end is 0 (default) and block.timestamp > 0, this fails first
-        vm.expectRevert("Lock expired");
+        vyper
+            ? vm.expectRevert("Lock expired")
+            : vm.expectRevert(abi.encodeWithSelector(IVotingEscrow.LockExpired.selector, block.timestamp, 0));
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_unlock_time(unlockTime);
 
@@ -1431,18 +1443,42 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
         // Try to decrease time
-        vm.expectRevert("Can only increase lock duration");
+        vyper
+            ? vm.expectRevert("Can only increase lock duration")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockCanOnlyIncrease.selector,
+                    ((block.timestamp + 100 days) / 1 weeks) * 1 weeks,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_unlock_time(block.timestamp + 100 days);
 
         // Exceed max time
-        vm.expectRevert("Voting lock can be 4 years max");
+        vyper
+            ? vm.expectRevert("Voting lock can be 4 years max")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.ExceededMaxLockTime.selector,
+                    ((block.timestamp + MAXTIME + WEEK) / 1 weeks) * 1 weeks,
+                    block.timestamp + MAXTIME
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_unlock_time(block.timestamp + MAXTIME + WEEK);
 
         // Fast forward to expiry
         vm.warp(unlockTime + 1);
-        vm.expectRevert("Lock expired");
+        vyper
+            ? vm.expectRevert("Lock expired")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockExpired.selector,
+                    block.timestamp,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).increase_unlock_time(block.timestamp + 365 days);
     }
@@ -1464,7 +1500,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user2, user2);
         governanceToken.approve(votingEscrow, depositAmount);
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Deposit(user1, depositAmount, _lockedEnd(user1), DEPOSIT_FOR_TYPE, block.timestamp);
 
         vm.prank(user2, user2);
@@ -1487,7 +1523,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         // No existing lock
         vm.prank(user2, user2);
         governanceToken.approve(votingEscrow, amount);
-        vm.expectRevert("No existing lock found");
+        vyper ? vm.expectRevert("No existing lock found") : vm.expectRevert(IVotingEscrow.NothingIsLocked.selector);
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).deposit_for(user1, amount);
 
@@ -1500,7 +1536,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
 
         vm.warp(shortUnlockTime + 1);
 
-        vm.expectRevert("Cannot add to expired lock. Withdraw");
+        vyper
+            ? vm.expectRevert("Cannot add to expired lock. Withdraw")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockExpired.selector,
+                    block.timestamp,
+                    (shortUnlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).deposit_for(user1, amount);
 
@@ -1522,7 +1566,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
 
         // Try to withdraw before expiry
-        vm.expectRevert("The lock didn't expire");
+        vyper
+            ? vm.expectRevert("The lock didn't expire")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockNotExpired.selector,
+                    block.timestamp,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user1, user1);
         IVotingEscrow(votingEscrow).withdraw();
 
@@ -1533,10 +1585,10 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         uint256 initialSupply = _supply();
 
         // Withdraw with events
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Withdraw(user1, amount, block.timestamp);
 
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit();
         emit IVotingEscrow.Supply(amount, 0);
 
         vm.prank(user1, user1);
@@ -1607,6 +1659,7 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
     function test_BlockBasedHistoricalQueries() public {
         uint256 amount = 1000 ether;
         uint256 unlockTime = block.timestamp + 365 days;
+        console2.log("vyper=", vyper);
 
         // Create lock
         vm.prank(user1, user1);
@@ -1776,7 +1829,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user2, user2);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectRevert("Voting lock can be 4 years max");
+        vyper
+            ? vm.expectRevert("Voting lock can be 4 years max")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.ExceededMaxLockTime.selector,
+                    (excessiveTime / 1 weeks) * 1 weeks,
+                    maxUnlockTime
+                )
+            );
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).create_lock(amount, excessiveTime);
     }
@@ -1801,7 +1862,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user2, user2);
         governanceToken.approve(votingEscrow, amount);
 
-        vm.expectRevert("Voting lock can be 4 years max");
+        vyper
+            ? vm.expectRevert("Voting lock can be 4 years max")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.ExceededMaxLockTime.selector,
+                    (excessiveTime / 1 weeks) * 1 weeks,
+                    maxUnlockTime
+                )
+            );
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).create_lock(amount, excessiveTime);
     }
@@ -1850,7 +1919,15 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
         vm.prank(user2, user2);
         IVotingEscrow(votingEscrow).withdraw();
 
-        vm.expectRevert("The lock didn't expire");
+        vyper
+            ? vm.expectRevert("The lock didn't expire")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockNotExpired.selector,
+                    block.timestamp,
+                    (longLock / 1 weeks) * 1 weeks
+                )
+            );
         vm.prank(user3, user3);
         IVotingEscrow(votingEscrow).withdraw();
 
@@ -1864,15 +1941,127 @@ contract VotingEscrowTest is VotingEscrowTestSetUp {
     //////////////////////////////////////////////////////////////////////////////////////////////////////
 }
 
+contract VotingEscrowVyperTest is VotingEscrowAbstractTest {
+    constructor() VotingEscrowAbstractTest(true) {}
+
+    /***************************************************************************
+     * Ownership Transfer Tests - vyper only
+     **************************************************************************/
+
+    function test_CommitTransferOwnership() public {
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.prank(admin, admin);
+        _commitTransferOwnership(newAdmin);
+
+        assertEq(_futureAdmin(), newAdmin, "Future admin should be set");
+    }
+
+    function test_RevertWhen_NonAdminCommitsOwnership() public {
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.expectRevert();
+        vm.prank(user1, user1);
+        _commitTransferOwnership(newAdmin);
+    }
+
+    function test_ApplyTransferOwnership() public {
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.prank(admin, admin);
+        _commitTransferOwnership(newAdmin);
+
+        vm.prank(admin, admin);
+        _applyTransferOwnership();
+
+        assertEq(_admin(), newAdmin, "Admin should be transferred");
+    }
+
+    function test_RevertWhen_ApplyWithoutCommit() public {
+        vm.expectRevert();
+        vm.prank(admin, admin);
+        _applyTransferOwnership();
+    }
+
+    function test_OwnershipTransferFlow() public {
+        address newAdmin = makeAddr("newAdmin");
+
+        // Step 1: Commit transfer
+        vm.prank(admin, admin);
+        _commitTransferOwnership(newAdmin);
+        assertEq(_futureAdmin(), newAdmin, "Future admin should be set");
+
+        // Step 2: Apply transfer
+        vm.prank(admin, admin);
+        _applyTransferOwnership();
+        assertEq(_admin(), newAdmin, "Admin should be transferred");
+
+        // Old admin cannot commit new transfers
+        vm.expectRevert();
+        vm.prank(admin, admin);
+        _commitTransferOwnership(makeAddr("another"));
+
+        // New admin can commit transfers
+        vm.prank(newAdmin, newAdmin);
+        _commitTransferOwnership(makeAddr("another"));
+    }
+
+    /***************************************************************************
+     * Smart Wallet Checker Tests
+     **************************************************************************/
+
+    function test_CommitSmartWalletChecker() public {
+        address checker = makeAddr("checker");
+
+        vm.prank(admin, admin);
+        _commitSmartWalletChecker(checker);
+
+        assertEq(_futureSmartWalletChecker(), checker, "Future smart wallet checker should be set");
+    }
+
+    function test_ApplySmartWalletChecker() public {
+        address checker = makeAddr("checker");
+
+        vm.prank(admin, admin);
+        _commitSmartWalletChecker(checker);
+
+        vm.prank(admin, admin);
+        _applySmartWalletChecker();
+
+        assertEq(_smartWalletChecker(), checker, "Smart wallet checker should be applied");
+    }
+
+    function test_SmartWalletCheckerFlow() public {
+        address checker = makeAddr("checker");
+
+        // Commit and apply checker
+        vm.prank(admin, admin);
+        _commitSmartWalletChecker(checker);
+        assertEq(_futureSmartWalletChecker(), checker, "Future smart wallet checker should be set");
+
+        vm.prank(admin, admin);
+        _applySmartWalletChecker();
+        assertEq(_smartWalletChecker(), checker, "Smart wallet checker should be applied");
+    }
+
+    function test_RevertWhen_NonAdminCommitsSmartWalletChecker() public {
+        vm.expectRevert();
+        vm.prank(user1, user1);
+        _commitSmartWalletChecker(makeAddr("checker"));
+    }
+}
+
 /***************************************************************************
  * Smart Contract Restriction Tests
  **************************************************************************/
 
-contract VotingEscrowSmartContractTest is VotingEscrowTestSetUp {
+contract VotingEscrowSmartContractVyperTest is VotingEscrowTestSetUp {
     address public whitelistedContract;
     address public smartWalletChecker;
     // Create a real EOA for tx.origin
     address eoa;
+
+    constructor() VotingEscrowTestSetUp(true) {}
 
     function setUp() public override {
         super.setUp();

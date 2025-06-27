@@ -73,13 +73,9 @@ contract Test_GenesisBase is TestMinterSetUp {
     }
 
     function setUp_genesisProxy() internal {
-        genesis = address(
-            Genesis_v1(
-                UnsafeUpgrades.deployUUPSProxy(
-                    genesisImpl, //"Genesis_v1.sol",
-                    abi.encodeCall(Genesis_v1.initialize, owner)
-                )
-            )
+        genesis = UnsafeUpgrades.deployUUPSProxy(
+            genesisImpl, //"Genesis_v1.sol",
+            abi.encodeCall(Genesis_v1.initialize, owner)
         );
         IBaoOwnable(genesis).transferOwnership(owner);
 

@@ -29,6 +29,9 @@ interface IVotingEscrow {
     /**
      * @notice Point structure records bias and slope at a given timestamp
      * @dev Used for voting power calculation and historical tracking
+     * We cannot really do block numbers per se b/c slope is per time, not per block
+     * and per block could be fairly bad b/c Ethereum changes blocktimes.
+     * What we can do is to extrapolate ***At functions
      */
     struct Point {
         int128 bias; // Voting power at time.ts
@@ -41,9 +44,18 @@ interface IVotingEscrow {
      * Public View Functions *
      *************************/
 
+    // solhint-disable-next-line func-name-mixedcase
+    function SMART_CONTRACT_MANAGER_ROLE() external pure returns (uint256 role);
+
     function token() external view returns (address);
 
     function epoch() external view returns (uint256);
+
+    function transfersEnabled() external view returns (bool);
+
+    function admin() external view returns (address);
+
+    function controller() external view returns (address);
 
     function point_history(uint256 epoch_) external view returns (Point memory);
 
@@ -51,16 +63,18 @@ interface IVotingEscrow {
 
     function user_point_history(address account, uint256 epoch_) external view returns (Point memory);
 
-    /// @notice Get the timestamp for checkpoint `epoch` for `addr`
-    /// @param addr User wallet address
+    function get_last_user_slope(address account) external view returns (int128);
+
+    /// @notice Get the timestamp for checkpoint `epoch` for `account`
+    /// @param account User wallet address
     /// @param epoch_ User epoch number
     /// @return Epoch time of the checkpoint
-    function user_point_history__ts(address addr, uint256 epoch_) external view returns (uint256);
+    function user_point_history__ts(address account, uint256 epoch_) external view returns (uint256);
 
-    /// @notice Get timestamp when `addr`'s lock finishes
-    /// @param addr User wallet
+    /// @notice Get timestamp when `account`'s lock finishes
+    /// @param account User wallet
     /// @return Epoch time of the lock end
-    function locked__end(address addr) external view returns (uint256);
+    function locked__end(address account) external view returns (uint256);
 
     /// @notice Calculate total voting power
     /// @dev Adheres to the ERC20 `totalSupply` interface for Aragon compatibility
@@ -73,13 +87,13 @@ interface IVotingEscrow {
 
     /// @notice Get the current voting power for `msg.sender`
     /// @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
-    /// @param addr User wallet address
+    /// @param account User wallet address
     /// @return User voting power
-    function balanceOf(address addr) external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
 
-    function balanceOf(address addr, uint256 ts) external view returns (uint256);
+    function balanceOf(address account, uint256 ts) external view returns (uint256);
 
-    function balanceOfAt(address addr, uint256 _block) external view returns (uint256);
+    function balanceOfAt(address account, uint256 _block) external view returns (uint256);
 
     /// @notice time -> signed slope change
     function slope_changes(uint256 week) external view returns (int128);
@@ -88,12 +102,12 @@ interface IVotingEscrow {
      * Public Mutator Functions *
      ****************************/
 
-    /// @notice Deposit `value` tokens for `addr` and add to the lock
+    /// @notice Deposit `value` tokens for `account` and add to the lock
     /// @dev Anyone (even a smart contract) can deposit for someone else, but
     ///      cannot extend their locktime and deposit for a brand new user
-    /// @param addr User's wallet address
+    /// @param account User's wallet address
     /// @param value Amount to add to user's lock
-    function deposit_for(address addr, uint256 value) external;
+    function deposit_for(address account, uint256 value) external;
 
     /// @notice Deposit `value` tokens for `msg.sender` and lock until `unlock_time`
     /// @param value Amount to deposit
