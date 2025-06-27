@@ -856,17 +856,6 @@ contract VotingEscrow_v1 is
         }
     }
 
-    /**
-     * @notice Get the most recently recorded rate of voting power decrease for `addr`
-     * @param addr Address of the user
-     * @return Value of the slope
-     */
-    function getLastUserSlope(address addr) external view returns (int128) {
-        VotingEscrowStorage storage $ = _getStorage();
-        uint256 uEpoch = $.userPointEpoch[addr];
-        return $.userPointHistory[addr][uEpoch].slope;
-    }
-
     /***************************************************************************
      * Public View Functions - Token Info for  Aragon compatibility
      **************************************************************************/

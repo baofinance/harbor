@@ -72,6 +72,11 @@ interface IVotingEscrow {
 
     function user_point_epoch(address account) external view returns (uint256);
 
+    /**
+     * @notice Get the most recently recorded rate of voting power decrease for `account`
+     * @param account Address of the user
+     * @return Value of the slope
+     */
     function get_last_user_slope(address account) external view returns (int128);
 
     /// @notice Get the timestamp for checkpoint `epoch` for `account`
