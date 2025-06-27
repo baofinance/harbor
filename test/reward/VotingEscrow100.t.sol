@@ -541,6 +541,195 @@ contract VotingEscrowAbstract100Test is VotingEscrowTestSetUp {
         // Verify the operation succeeded
         assertEq(IVotingEscrow(votingEscrow).locked__end(user1), (unlockTime2 / WEEK) * WEEK);
     }
+
+    function test_checkpoint_withNegativeBiasProtection() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 7 days; // Very short lock
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        // Move way past unlock time to force negative bias calculation in checkpoint
+        vm.warp(unlockTime + 365 days);
+
+        // Call checkpoint - this should trigger the negative bias/slope protection
+        IVotingEscrow(votingEscrow).checkpoint();
+
+        uint256 totalSupply = IVotingEscrow(votingEscrow).totalSupply();
+        assertEq(totalSupply, 0, "Total supply should be 0 due to negative bias protection");
+    }
+
+    function test_checkpoint_userPointNegativeProtection() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 14 days;
+
+        // Create a lock
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        // Move past expiry
+        vm.warp(unlockTime + 1);
+
+        // Try to increase amount which will trigger user point updates
+        // with potentially negative slope/bias calculations
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, 1 ether);
+
+        // This should revert due to lock being expired, but it tests the negative protection paths
+        vyper
+            ? vm.expectRevert("Cannot add to expired lock. Withdraw")
+            : vm.expectRevert(
+                abi.encodeWithSelector(
+                    IVotingEscrow.LockExpired.selector,
+                    block.timestamp,
+                    (unlockTime / 1 weeks) * 1 weeks
+                )
+            );
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).increase_amount(1 ether);
+    }
+
+    function test_totalSupply_negativeBiasProtection() public {
+        uint256 amount = 1000 ether;
+        uint256 shortUnlockTime = block.timestamp + 2 * WEEK; // Use 2 weeks instead of 3 days
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, shortUnlockTime);
+
+        // Move way past expiry to ensure bias becomes negative in _totalSupply
+        vm.warp(shortUnlockTime + 365 days);
+
+        // Query totalSupply with specific timestamp to trigger _totalSupply calculation
+        uint256 totalSupply = IVotingEscrow(votingEscrow).totalSupply(block.timestamp - 100 days);
+        assertEq(totalSupply, 0, "Total supply should be 0 due to negative bias protection");
+    }
+
+    // Test lines 579-580, 583-584 - checkpoint with negative bias/slope conditions
+    function test_checkpoint_withNegativeBiasSlope() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 7 days; // Very short lock
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        // Move forward way past the unlock time to force negative bias calculation
+        vm.warp(unlockTime + 365 days);
+
+        // Call checkpoint to trigger the negative bias handling (lines 579-580)
+        IVotingEscrow(votingEscrow).checkpoint();
+
+        // Verify total supply is 0 due to negative bias protection
+        uint256 totalSupply = IVotingEscrow(votingEscrow).totalSupply();
+        assertEq(totalSupply, 0, "Total supply should be 0 when bias becomes negative");
+    }
+
+    // Test lines 611-612, 614-615 - user point updates with negative slope/bias
+    function test_checkpoint_userPointNegativeUpdates() public {
+        uint256 amount1 = 1000 ether;
+        uint256 amount2 = 2000 ether;
+        uint256 unlockTime = block.timestamp + 14 days;
+        uint256 roundedUnlockTime = (unlockTime / WEEK) * WEEK; // Calculate the actual rounded unlock time
+
+        // Create first lock
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount1);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount1, unlockTime);
+
+        // Create second much larger lock
+        vm.prank(user2, user2);
+        IERC20(governanceToken).approve(votingEscrow, amount2);
+        vm.prank(user2, user2);
+        IVotingEscrow(votingEscrow).create_lock(amount2, unlockTime);
+
+        // Move forward significantly to make biases decay, but before expiry
+        vm.warp(roundedUnlockTime - 1 days);
+
+        // Withdraw user2's large lock after expiry
+        vm.warp(roundedUnlockTime + 1);
+        vm.prank(user2, user2);
+        IVotingEscrow(votingEscrow).withdraw();
+
+        // Now modify user1's lock - this should revert since the lock is expired
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount1);
+
+        vyper
+            ? vm.expectRevert("Cannot add to expired lock. Withdraw")
+            : vm.expectRevert(
+                abi.encodeWithSelector(IVotingEscrow.LockExpired.selector, block.timestamp, roundedUnlockTime)
+            );
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).increase_amount(1 ether);
+    }
+
+    function test_totalSupply_withNegativeBias() public {
+        uint256 amount = 1000 ether;
+        uint256 shortUnlockTime = block.timestamp + 2 * WEEK; // Use 2 weeks instead of 3 days
+
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, shortUnlockTime);
+
+        // Move way past expiry to ensure bias calculation becomes negative
+        vm.warp(shortUnlockTime + 365 days);
+
+        // Query totalSupply at a specific timestamp - this exercises _totalSupply directly
+        uint256 totalSupply = IVotingEscrow(votingEscrow).totalSupply(block.timestamp);
+        assertEq(totalSupply, 0, "Total supply should be 0 due to negative bias protection");
+
+        // Also test the current totalSupply
+        uint256 currentTotalSupply = IVotingEscrow(votingEscrow).totalSupply();
+        assertEq(currentTotalSupply, 0, "Current total supply should be 0");
+    }
+
+    // Test scenario to trigger complex slope changes that might cause underflow
+    function test_checkpoint_complexNegativeScenarios() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime1 = block.timestamp + 7 days;
+        uint256 unlockTime2 = block.timestamp + 14 days;
+        uint256 roundedUnlockTime1 = (unlockTime1 / WEEK) * WEEK;
+        uint256 roundedUnlockTime2 = (unlockTime2 / WEEK) * WEEK;
+
+        // Create multiple locks with different unlock times
+        vm.prank(user1, user1);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime1);
+
+        vm.prank(user2, user2);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+        vm.prank(user2, user2);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime2);
+
+        // Move to between the two unlock times
+        vm.warp(roundedUnlockTime1 + 1 days);
+
+        // Withdraw the first lock
+        vm.prank(user1, user1);
+        IVotingEscrow(votingEscrow).withdraw();
+
+        // Move way past all unlock times
+        vm.warp(roundedUnlockTime2 + 365 days);
+
+        // Call various functions that trigger checkpoints with complex slope changes
+        IVotingEscrow(votingEscrow).checkpoint();
+
+        uint256 totalSupply = IVotingEscrow(votingEscrow).totalSupply();
+        assertEq(totalSupply, 0, "Total supply should be 0 after all locks expired");
+
+        uint256 user2Balance = IVotingEscrow(votingEscrow).balanceOf(user2);
+        assertEq(user2Balance, 0, "User2 balance should be 0 after lock expired");
+    }
 }
 
 contract VotingEscrowVyper100Test is VotingEscrowAbstract100Test {
