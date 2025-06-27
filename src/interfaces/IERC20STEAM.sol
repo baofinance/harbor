@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+/// @title IERC20STEAM
+/// @notice Interface for the ERC20STEAM inflationary token with mining parameters
+interface IERC20STEAM {
+    // ERC20
+    function name() external view returns (string memory);
+    function symbol() external view returns (string memory);
+    function decimals() external view returns (uint256);
+    function totalSupply() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function allowance(address owner, address spender) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
+
+    // Minting
+    function mint(address to, uint256 value) external returns (bool);
+    function burn(uint256 value) external returns (bool);
+
+    // Initialization & admin
+    function initialize(
+        uint256 init_supply,
+        uint256 init_rate,
+        uint256 rate_reduction_coefficient,
+        address admin,
+        string calldata name,
+        string calldata symbol
+    ) external;
+
+    function set_minter(address minter) external;
+    function set_admin(address newAdmin) external;
+    function set_name(string calldata name, string calldata symbol) external;
+
+    // Mining logic
+    function update_mining_parameters() external;
+    function start_epoch_time_write() external returns (uint256);
+    function future_epoch_time_write() external returns (uint256);
+    function available_supply() external view returns (uint256);
+    function mintable_in_timeframe(uint256 start, uint256 end) external view returns (uint256);
+
+    // View mining state
+    function mining_epoch() external view returns (int128);
+    function start_epoch_time() external view returns (uint256);
+    function rate() external view returns (uint256);
+    function INITIAL_RATE() external view returns (uint256);
+    function RATE_REDUCTION_COEFFICIENT() external view returns (uint256);
+    function minter() external view returns (address);
+    function admin() external view returns (address);
+
+    // Events
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    event UpdateMiningParameters(uint256 time, uint256 rate, uint256 supply);
+    event SetMinter(address minter);
+    event SetAdmin(address admin);
+}
