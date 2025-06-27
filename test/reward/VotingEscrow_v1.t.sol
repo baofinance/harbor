@@ -139,4 +139,103 @@ contract VotingEscrow_v1Test is VotingEscrowTestSetUp {
 
         assertGt(IVotingEscrow(votingEscrow).balanceOf(smartContract), 0);
     }
+
+    // Test smart contract with role to cover lines 174-176
+    function test_smartContract_withRole_differentTxOrigin() public {
+        // Grant role to smart contract
+        vm.prank(admin);
+        VotingEscrow_v1(votingEscrow).grantRoles(smartContract, 1); // SMART_CONTRACT_MANAGER_ROLE
+
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(smartContract);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+
+        // This should NOT revert because smartContract has the role
+        vm.prank(smartContract, user1); // msg.sender = smartContract, tx.origin = user1
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        assertGt(IVotingEscrow(votingEscrow).balanceOf(smartContract), 0);
+    }
+
+    // Test smart contract without role to cover the revert path
+    function test_smartContract_withoutRole_shouldRevert() public {
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(smartContract);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+
+        // This should revert because smartContract doesn't have the role and msg.sender != tx.origin
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(smartContract, user1); // msg.sender = smartContract, tx.origin = user1
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+    }
+
+    // Test role revocation functionality
+    function test_revokeRole_shouldPreventAccess() public {
+        // Grant role first
+        vm.prank(admin);
+        VotingEscrow_v1(votingEscrow).grantRoles(smartContract, 1);
+
+        // Verify it works
+        uint256 amount = 500 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(smartContract);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+
+        vm.prank(smartContract, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        // Now revoke the role
+        vm.prank(admin);
+        VotingEscrow_v1(votingEscrow).revokeRoles(smartContract, 1);
+
+        // Should now fail
+        vm.prank(smartContract);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(smartContract, user2);
+        IVotingEscrow(votingEscrow).increase_amount(100 ether);
+    }
+
+    // Test different role values
+    function test_differentRole_shouldNotWork() public {
+        // Grant wrong role (role 2 instead of role 1)
+        vm.prank(admin);
+        VotingEscrow_v1(votingEscrow).grantRoles(smartContract, 2);
+
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(smartContract);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+
+        // Should still revert because we need role 1 (SMART_CONTRACT_MANAGER_ROLE)
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(smartContract, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+    }
+
+    // Test multiple roles
+    function test_multipleRoles_correctRoleWorks() public {
+        // Grant multiple roles including the correct one
+        vm.prank(admin);
+        VotingEscrow_v1(votingEscrow).grantRoles(smartContract, 3); // roles 1 and 2
+
+        uint256 amount = 1000 ether;
+        uint256 unlockTime = block.timestamp + 365 days;
+
+        vm.prank(smartContract);
+        IERC20(governanceToken).approve(votingEscrow, amount);
+
+        // Should work because role 1 is included in the bitmask
+        vm.prank(smartContract, user1);
+        IVotingEscrow(votingEscrow).create_lock(amount, unlockTime);
+
+        assertGt(IVotingEscrow(votingEscrow).balanceOf(smartContract), 0);
+    }
 }

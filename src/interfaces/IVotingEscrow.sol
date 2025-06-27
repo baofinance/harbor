@@ -64,6 +64,8 @@ interface IVotingEscrow {
 
     function transfersEnabled() external view returns (bool);
 
+    function supply() external view returns (uint256);
+
     function admin() external view returns (address);
 
     function controller() external view returns (address);

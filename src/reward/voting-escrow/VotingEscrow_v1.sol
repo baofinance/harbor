@@ -200,46 +200,6 @@ contract VotingEscrow_v1 is
         _;
     }
 
-    /**
-     * @dev Find the most recent point that is earlier than or equal to the timestamp
-     * @param timestamp Timestamp to search for
-     * @param startEpoch Start of the search range
-     * @param endEpoch End of the search range
-     */
-    function _findPointEpoch(uint256 timestamp, uint256 startEpoch, uint256 endEpoch) internal view returns (uint256) {
-        VotingEscrowStorage storage $ = _getStorage();
-
-        // Binary search
-        uint256 min = startEpoch;
-        uint256 max = endEpoch;
-
-        // solhint-disable-next-line explicit-types
-        for (uint i = 0; i < 128; i++) {
-            // 128 is enough for 128-bit numbers
-            if (min >= max) {
-                break;
-            }
-            uint256 mid = (min + max + 1) / 2;
-            Point memory point = $.pointHistory[mid];
-            if (point.ts <= timestamp) {
-                min = mid;
-            } else {
-                max = mid - 1;
-            }
-        }
-
-        return min;
-    }
-
-    struct Param {
-        Point u;
-        int128 dslope;
-    }
-
-    /***************************************************************************
-     * Core Functions
-     **************************************************************************/
-
     /***************************************************************************
      * Public View Functions - Voting Power
      **************************************************************************/
@@ -518,6 +478,12 @@ contract VotingEscrow_v1 is
     /***************************************************************************
      * Internal Functions
      **************************************************************************/
+
+    // struct used to store multiple items to avoid stack overflow
+    struct Param {
+        Point u;
+        int128 dslope;
+    }
 
     /**
      * @dev Record global and per-user data to checkpoint
