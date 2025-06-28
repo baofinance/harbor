@@ -8,24 +8,27 @@ import {IERC20STEAM} from "src/interfaces/IERC20STEAM.sol";
 import {ISteamMinter} from "src/interfaces/ISteamMinter.sol";
 import {IGaugeController} from "src/interfaces/IGaugeController.sol";
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
-import {IVotingEscrowVy} from "src/interfaces/IVotingEscrowVy.sol";
+import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 interface ILiquidityGaugeV6Mock is ILiquidityGaugeV6 {
     function set_mock_fraction(address user, uint256 value) external;
 }
+
+error Unauthorized();
 
 contract SteamSystemTest is Test {
     IERC20STEAM public steam;
     ISteamMinter public minter;
     IGaugeController public controller;
     ILiquidityGaugeV6 public gauge;
-    IVotingEscrowVy public escrow;
+    VotingEscrow_v1 public escrow;
 
     address public multisig = 0x3dFc49e5112005179Da613BdE5973229082dAc35;
     address public user;
 
     uint256 public constant TOTAL_SUPPLY = 100_000_000 ether;
-    uint256 public constant INITIAL_RATE = 1_201_550_387_596_899;
+    uint256 public constant INITIAL_RATE = 159_529_984_450_000_000;
     uint256 public constant RATE_REDUCTION_COEFFICIENT = 1290000000;
 
     function setUp() public {
@@ -54,18 +57,23 @@ contract SteamSystemTest is Test {
         vm.prank(multisig);
         steam.set_minter(address(minter));
 
-        // 1. Deploy escrow
-        escrow = IVotingEscrowVy(vm.deployCode("VotingEscrow.vy"));
+        // Deploy the logic (implementation) contract
+        VotingEscrow_v1 logic = new VotingEscrow_v1(address(steam));
 
-        // 2. Call initialize manually
-        vm.prank(multisig);
-        escrow.initialize(
+        // Prepare the initialization calldata
+        bytes memory initData = abi.encodeWithSelector(
+            VotingEscrow_v1.initialize.selector,
             multisig,
-            address(steam),
             "Voting Escrow Steam",
             "veSTEAM",
             "1.0"
-        );      
+        );
+
+        // Deploy the proxy with the logic address and the initializer calldata
+        ERC1967Proxy proxy = new ERC1967Proxy(address(logic), initData);
+
+        // Cast the proxy address to VotingEscrow_v1 to interact with it
+        escrow = VotingEscrow_v1(address(proxy));
 
         // Deploy the Liquidity Gauge V6
         gauge = ILiquidityGaugeV6(
@@ -173,9 +181,9 @@ contract SteamSystemTest is Test {
 
         steam.approve(address(escrow), lockAmount);
 
-        // Expect revert with exact revert message
-        vm.expectRevert("Smart contract depositors not allowed");
+        // Expect revert with the actual error used in the contract
+        vm.expectRevert(Unauthorized.selector);
         escrow.create_lock(lockAmount, unlockTime);
-    }    
+    }
 
 }
