@@ -67,6 +67,10 @@ interface IStabilityPool {
     /// @dev Thrown when a receiver address is not valid
     error InvalidReceiver(address receiver);
 
+    /// @dev Thrown when a the voting escrow is being not ready
+    /// it must be set up and going before the stability pool is
+    error VotingEscrowNotReady();
+
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/

@@ -863,6 +863,73 @@ contract VotingEscrow_v1 is
         VotingEscrowStorage storage $ = _getStorage();
         return $.version;
     }
+
+    // /***************************************************************************
+    //  * Extra functions for Stability Pool use
+    //  * we have deliberately kept all of this separate in order to
+    //  * validate the approach
+    //  * There is clearly opportunities for considerable gas savings here:
+    //  * the
+    //  * but these can be done later
+    //  **************************************************************************/
+
+    /// @inheritdoc IVotingEscrow
+    // TODO: put this in a check
+    // Caller should make sure the `ve.point_history(startEpoch) <= timestamp`.
+    function findSupplyPoint(
+        uint256 timestamp,
+        uint256 startEpoch,
+        uint256 endEpoch
+    ) external view returns (uint256 epoch_, IVotingEscrow.Point memory point) {
+        VotingEscrowStorage storage $ = _getStorage();
+        unchecked {
+            while (startEpoch < endEpoch) {
+                uint256 mid = (startEpoch + endEpoch + 1) / 2;
+
+                IVotingEscrow.Point memory p = $.pointHistory[mid];
+                if (p.ts <= timestamp) {
+                    startEpoch = mid;
+                    point = p;
+                } else {
+                    endEpoch = mid - 1;
+                }
+            }
+        }
+        epoch_ = startEpoch;
+        // in case, the `p.ts <= timestamp` never hit in the binary search
+        if (point.ts == 0) {
+            point = $.pointHistory[epoch_];
+        }
+    }
+
+    /// @inheritdoc IVotingEscrow
+    // TODO: put this in a check?
+    // Caller should make sure the `ve.user_point_history(account, startEpoch) <= timestamp`.
+    function findUserPoint(
+        address account,
+        uint256 timestamp,
+        uint256 startEpoch,
+        uint256 endEpoch
+    ) external view returns (uint256 epoch_, Point memory point) {
+        VotingEscrowStorage storage $ = _getStorage();
+        unchecked {
+            while (startEpoch < endEpoch) {
+                uint256 mid = (startEpoch + endEpoch + 1) / 2;
+                IVotingEscrow.Point memory p = $.userPointHistory[account][mid];
+                if (p.ts <= timestamp) {
+                    startEpoch = mid;
+                    point = p;
+                } else {
+                    endEpoch = mid - 1;
+                }
+            }
+        }
+        epoch_ = startEpoch;
+        // in case, the `p.ts <= timestamp` never hit in the binary search
+        if (point.ts == 0) {
+            point = $.userPointHistory[account][epoch_];
+        }
+    }
 }
 
 // slither-disable-end timestamp

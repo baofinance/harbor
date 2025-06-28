@@ -18,7 +18,7 @@ import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/Multi
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
-//import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
+import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 
 // solhint-disable not-rely-on-time
@@ -89,6 +89,9 @@ contract StabilityPool_v1 is
     /// @inheritdoc IStabilityPool
     address public immutable VE_TOKEN;
 
+    /// @dev timestamp of the start point for the VE_TOKEN
+    uint256 private immutable VE_START;
+
     /***********
      * Structs *
      ***********/
@@ -112,6 +115,15 @@ contract StabilityPool_v1 is
     struct BoostCheckpoint {
         uint64 boostRatio;
         uint64 historyIndex;
+    }
+
+    /// @notice The ve balance/supply struct.
+    /// @dev Compiler will pack this into single `uint256`.
+    /// @param value The current ve balance/supply.
+    /// @param epoch The corresponding ve balance/supply history point epoch.
+    struct VeBalance {
+        uint128 value;
+        uint128 epoch;
     }
 
     /*************
@@ -143,6 +155,27 @@ contract StabilityPool_v1 is
         mapping(address => TokenBalance) voteOwnerBalances;
         /// @notice Mapping from vote owner address to week timestamp to historical balance sum of accepted stakers.
         mapping(address => mapping(uint256 => uint256)) voteOwnerHistoryBalances;
+        /// @dev Mapping from timestamp to corresponding ve supply struct.
+        //
+        // VE supply is the total ve balance
+        // TODO: change the uint meaning from timestamp to week number (i.e. timestamp / 1 weeks * 1 weeks)
+        mapping(uint256 => VeBalance) veSupply;
+        /// @dev Mapping from account address to timestamp to corresponding ve balance struct.
+        ///
+        /// Note that we only record the struct for the timestamp when `checkpoint(account)` is
+        /// invoked. This is used to saving gas, the reasons are below.
+        ///
+        /// There are two user types: EOA and contract account.  For normal EOA, the number
+        /// of history points usually are small and the call to `checkpoint(account)` is also
+        /// not frequently. For contract account, the number of history points usually are large
+        /// and the call to `checkpoint(account)` is very frequently.
+        ///
+        /// According to the implementation of `balanceOf(address account, uint256 timestamp)`.
+        /// For EOA, it is very likely to binary search for the correct epoch. And since the number
+        /// of history points is small, the number of contract call is also small. For contract
+        /// account, it is very likely to find the value in `_balances[account][week]`. Overall,
+        /// we will find the correct balance using only `O(1)` contract read.
+        mapping(address => mapping(uint256 => VeBalance)) veBalances;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -176,6 +209,18 @@ contract StabilityPool_v1 is
         $.totalAssetSupply = initialSupply;
         $.totalAssetSupplyHistory[0] = initialSupply;
         $.totalAssetSupplyHistoryLength = 1;
+
+        // VE set-up
+        // TODO: look at putting the below into the VotingEscrow behind Extra interface
+        uint256 epoch = IVotingEscrow(VE_TOKEN).epoch();
+        uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
+
+        (uint256 nowEpoch, IVotingEscrow.Point memory nowPoint) = IVotingEscrow(VE_TOKEN).findSupplyPoint(
+            week,
+            1,
+            epoch
+        );
+        $.veSupply[week] = VeBalance(uint128(_veSupplyAt(nowPoint, week)), uint128(nowEpoch));
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -206,9 +251,15 @@ contract StabilityPool_v1 is
         // slither-disable-next-line missing-zero-check
         STABILITY_POOL_TOKEN = stabilityPoolToken_;
 
+        // VE set-up
         Token.sanityCheckERC20Token(stabilityPoolToken_);
         // slither-disable-next-line missing-zero-check
         VE_TOKEN = veToken_;
+        VE_START = IVotingEscrow(VE_TOKEN).point_history(1).ts;
+        uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
+        if (week < VE_START) {
+            revert VotingEscrowNotReady();
+        }
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -432,8 +483,7 @@ contract StabilityPool_v1 is
 
         if (account != address(0)) {
             // checkpoint the voting escrow
-            // TODO: we need the helper for this checkpoint of a user address
-            // IVotingEscrow(_VE_TOKEN).checkpoint(account);
+            _checkpointVe(account);
 
             StabilityPoolStorage storage $ = _getStabilityPoolStorage();
             TokenBalance memory supply = $.totalAssetSupply;
@@ -513,40 +563,6 @@ contract StabilityPool_v1 is
             $.boostCheckpoint[account] = BoostCheckpoint(uint64(ratio), uint64($.totalAssetSupplyHistoryLength - 1));
         }
     }
-
-    /*
-    function _transfer(address from, address to, uint256 tokenAmount) internal {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // get the rate before creating events
-        // there is a phantom reduction of total assets here in order to track the system events properly
-        // so the rate may change in between
-        uint256 rate_ = _rate($.totalAssetSupply.product);
-        _checkpoint(from);
-
-        // get the balance in assets
-        uint256 assetAmount;
-        TokenBalance memory balance = $.assetBalances[from];
-        assetAmount = _tokenToAsset(tokenAmount, rate_);
-        if (assetAmount > balance.amount) {
-            revert IERC20Errors.ERC20InsufficientBalance(
-                from,
-                _assetToToken(balance.amount, rate_),
-                _assetToToken(assetAmount, rate_)
-            );
-        }
-        if (assetAmount == 0) {
-            revert WithdrawZeroAmount();
-        }
-        uint256 sharesTransferred = _assetToToken(assetAmount, rate_);
-        emit Transfer(from, to, sharesTransferred);
-
-        _withdraw(from, assetAmount, balance);
-
-        _checkpoint(to);
-        _deposit(assetAmount, to);
-    }
-    */
 
     /// @dev Internal function to reduce asset accounting.
     /// @param loss The amount of asset lost.
@@ -721,8 +737,8 @@ contract StabilityPool_v1 is
             boostRatio += currentRatio * (nowTs - prevTs);
             // slither-disable-next-line incorrect-equality
             if (nowTs == block.timestamp) break;
-            uint256 veBalance = IVotingEscrow(VE_TOKEN).balanceOf(account, nowTs);
-            uint256 veSupply = IVotingEscrow(VE_TOKEN).totalSupply(nowTs);
+            uint256 veBalance = _veBalanceOf(account, nowTs);
+            uint256 veSupply = _veTotalSupply(nowTs);
             (currentRatio, nextIndex) = _boostRatioAt(account, balance, veBalance, veSupply, nextIndex, nowTs);
             prevTs = nowTs;
             nowTs += 1 weeks;
@@ -799,33 +815,218 @@ contract StabilityPool_v1 is
         }
     }
 
-    /*
+    /////////////////////////////////////////////////////////////////////////////////////////////////
+    // internal functions to manage the VE_TOKEN checkpointing
+    /////////////////////////////////////////////////////////////////////////////////////////////////
 
-    function rate() external view returns (uint256 rate_) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        rate_ = _rate($.totalAssetSupply.product);
+    // /// @dev Internal function to find largest `epoch` belongs to `[startEpoch, endEpoch]` and
+    // /// `ve.point_history(epoch) <= timestamp`.
+    // ///
+    // /// Caller should make sure the `ve.point_history(startEpoch) <= timestamp`.
+    // ///
+    // /// @param timestamp The timestamp to search.
+    // /// @param startEpoch The number of start epoch, inclusive.
+    // /// @param endEpoch The number of end epoch, inclusive.
+    // /// @return epoch The largest `epoch` that `ve.point_history(epoch) <= timestamp`.
+    // /// @return point The value of `ve.point_history(epoch)`.
+    // function _binarySearchVeSupplyPoint(
+    //     uint256 timestamp,
+    //     uint256 startEpoch,
+    //     uint256 endEpoch
+    // ) internal view returns (uint256 epoch, IVotingEscrow.Point memory point) {
+    //     unchecked {
+    //         while (startEpoch < endEpoch) {
+    //             uint256 mid = (startEpoch + endEpoch + 1) / 2;
+    //             IVotingEscrow.Point memory p = IVotingEscrow(VE_TOKEN).point_history(mid);
+    //             if (p.ts <= timestamp) {
+    //                 startEpoch = mid;
+    //                 point = p;
+    //             } else {
+    //                 endEpoch = mid - 1;
+    //             }
+    //         }
+    //     }
+    //     epoch = startEpoch;
+    //     // in case, the `p.ts <= timestamp` never hit in the binary search
+    //     if (point.ts == 0) {
+    //         point = IVotingEscrow(VE_TOKEN).point_history(epoch);
+    //     }
+    // }
+
+    /// @dev Internal function to compute the ve supply. Caller should make sure `timestamp` is not less than `point.ts`.
+    /// @param point The point for ve.
+    /// @param timestamp The timestamp to compute.
+    function _veSupplyAt(IVotingEscrow.Point memory point, uint256 timestamp) internal view returns (uint256) {
+        int256 bias = point.bias;
+        int256 slope = point.slope;
+        uint256 last = point.ts;
+        uint256 ti = (last / 1 weeks) * 1 weeks;
+        while (true) {
+            ti += 1 weeks;
+            int128 dslope = 0;
+            if (ti > timestamp) ti = timestamp;
+            else {
+                dslope = IVotingEscrow(VE_TOKEN).slope_changes(ti);
+            }
+            bias -= slope * int256(ti - last);
+            if (ti == timestamp) break;
+            slope += dslope;
+            last = ti;
+        }
+        if (bias < 0) bias = 0; // the lock has expired, only happens when it is the last point
+
+        return uint256(int256(bias));
     }
 
-    /// @notice returns the rate given the product
-    /// @dev as the result is calculated from:
-    /// `magnitude * 10^{-18 - 9 * exponent}`, where `magnitude` is in range `(0, 10^18]`
-    /// rounds up and is guaranteed never to be 0
-    /// will be 1 ether initially and after any pool emptying
-    function _rate(uint112 product_) internal pure returns (uint256 magnitude_) {
-        magnitude_ = product_.magnitude();
-        uint24 exponent_ = product_.exponent();
+    /// @dev Internal function to checkpoint ve balance and supply at timestamp week.
+    /// @param account The address of user to checkpoint.
+    // slither-disable-next-line reentrancy-benign // all the callers are non-reentrant
+    function _checkpointVe(address account) internal {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
+        IVotingEscrow(VE_TOKEN).checkpoint();
 
-        // Handle the two cases that produce meaningful non-zero results
-        /// the most common case is when exponent is 0 so we do that first
-        if (exponent_ > 0) {
-            if (exponent_ == 1) {
-                magnitude_ = (magnitude_ - 1) / 1e9 + 1;
+        // checkpoint supply
+        VeBalance memory nowSupply = $.veSupply[week];
+        if (nowSupply.epoch == 0) {
+            VeBalance memory prevSupply = $.veSupply[week - 1 weeks];
+            uint256 epoch;
+            IVotingEscrow.Point memory point;
+            // TODO: this should be 1 call, only diff is start epoch
+            if (prevSupply.epoch == 0) {
+                (epoch, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(week, 1, IVotingEscrow(VE_TOKEN).epoch());
             } else {
-                magnitude_ = 1;
+                (epoch, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(
+                    week,
+                    prevSupply.epoch,
+                    IVotingEscrow(VE_TOKEN).epoch()
+                );
             }
+
+            nowSupply.value = uint128(_veSupplyAt(point, week));
+            nowSupply.epoch = uint128(epoch);
+            $.veSupply[week] = nowSupply;
+        }
+
+        // checkpoint balance for nonzero address
+        if (account == address(0)) return;
+        uint256 userPointEpoch = IVotingEscrow(VE_TOKEN).user_point_epoch(account);
+        if (userPointEpoch == 0) return;
+
+        VeBalance memory nowBalance = $.veBalances[account][week];
+        if (nowBalance.epoch == 0) {
+            VeBalance memory prevBalance = $.veBalances[account][week - 1 weeks];
+            uint256 epoch;
+            IVotingEscrow.Point memory point;
+            if (prevBalance.epoch == 0) {
+                (epoch, point) = IVotingEscrow(VE_TOKEN).findUserPoint(account, week, 1, userPointEpoch);
+            } else {
+                (epoch, point) = IVotingEscrow(VE_TOKEN).findUserPoint(
+                    account,
+                    week,
+                    prevBalance.epoch,
+                    userPointEpoch
+                );
+            }
+
+            // @note `week < point.ts` can happen if user create lock after week timestamp
+            if (week >= point.ts) {
+                nowBalance.value = uint128(_veBalanceAt(point, week));
+            }
+
+            nowBalance.epoch = uint128(epoch);
+            $.veBalances[account][week] = nowBalance;
         }
     }
-    */
+
+    function _veTotalSupply(uint256 timestamp) internal view returns (uint256) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+
+        uint256 week = (timestamp / 1 weeks) * 1 weeks;
+        VeBalance memory prevSupply = $.veSupply[week];
+        IVotingEscrow.Point memory point;
+        uint256 first;
+        uint256 last;
+        if (prevSupply.epoch > 0) {
+            if (week == timestamp) return prevSupply.value;
+            VeBalance memory nextSupply = $.veSupply[week + 1 weeks];
+            uint256 nextEpoch = nextSupply.epoch;
+            if (nextEpoch == 0) nextEpoch = IVotingEscrow(VE_TOKEN).epoch();
+            (, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(timestamp, prevSupply.epoch, nextEpoch);
+        } else {
+            (, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(timestamp, 1, IVotingEscrow(VE_TOKEN).epoch());
+        }
+
+        return _veSupplyAt(point, timestamp);
+    }
+
+    function _veBalanceOf(address account, uint256 timestamp) internal view returns (uint256) {
+        // check whether the user has no locks
+        uint256 epoch = IVotingEscrow(VE_TOKEN).user_point_epoch(account);
+        if (epoch == 0) return 0;
+        IVotingEscrow.Point memory point = IVotingEscrow(VE_TOKEN).user_point_history(account, 1);
+        if (timestamp < point.ts) return 0;
+
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        uint256 week = (timestamp / 1 weeks) * 1 weeks;
+        VeBalance memory prevBalance = $.veBalances[account][week];
+        if (prevBalance.epoch > 0) {
+            if (week == timestamp) return prevBalance.value;
+            VeBalance memory nextBalance = $.veBalances[account][week + 1 weeks];
+            uint256 nextEpoch = nextBalance.epoch;
+            if (nextEpoch == 0) nextEpoch = epoch;
+            (, point) = IVotingEscrow(VE_TOKEN).findUserPoint(account, timestamp, prevBalance.epoch, nextEpoch);
+        } else {
+            (, point) = IVotingEscrow(VE_TOKEN).findUserPoint(account, timestamp, 1, epoch);
+        }
+        return _veBalanceAt(point, timestamp);
+    }
+
+    // /// @dev Internal function to find largest `epoch` belongs to `[startEpoch, endEpoch]` and
+    // /// `ve.user_point_history(account, epoch) <= timestamp`.
+    // ///
+    // /// Caller should make sure the `ve.user_point_history(account, startEpoch) <= timestamp`.
+    // ///
+    // /// @param account The address of user to search.
+    // /// @param timestamp The timestamp to search.
+    // /// @param startEpoch The number of start epoch, inclusive.
+    // /// @param endEpoch The number of end epoch, inclusive.
+    // /// @return epoch The largest `epoch` that `ve.user_point_history(account, epoch) <= timestamp`.
+    // /// @return point The value of `ve.user_point_history(account, epoch)`.
+    // function _binarySearchVeBalancePoint(
+    //     address account,
+    //     uint256 timestamp,
+    //     uint256 startEpoch,
+    //     uint256 endEpoch
+    // ) internal view returns (uint256 epoch, IVotingEscrow.Point memory point) {
+    //     unchecked {
+    //         while (startEpoch < endEpoch) {
+    //             uint256 mid = (startEpoch + endEpoch + 1) / 2;
+    //             IVotingEscrow.Point memory p = IVotingEscrow(VE_TOKEN).user_point_history(account, mid);
+    //             if (p.ts <= timestamp) {
+    //                 startEpoch = mid;
+    //                 point = p;
+    //             } else {
+    //                 endEpoch = mid - 1;
+    //             }
+    //         }
+    //     }
+    //     epoch = startEpoch;
+    //     // in case, the `p.ts <= timestamp` never hit in the binary search
+    //     if (point.ts == 0) {
+    //         point = IVotingEscrow(VE_TOKEN).user_point_history(account, epoch);
+    //     }
+    // }
+
+    /// @dev Internal function to compute the ve balance. Caller should make sure `timestamp` is not less than `point.ts`.
+    /// @param point The point for ve.
+    /// @param timestamp The timestamp to compute.
+    function _veBalanceAt(IVotingEscrow.Point memory point, uint256 timestamp) internal pure returns (uint256) {
+        int256 bias = point.bias - point.slope * int256(timestamp - point.ts);
+        if (bias < 0) bias = 0; // the lock has expired, only happens when it is the last point
+
+        return uint256(bias);
+    }
 }
 
 // slither-disable-end timestamp
