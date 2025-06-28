@@ -3,6 +3,7 @@ src = "src"
 out = "out"
 libs = ["lib"]
 vyper_version = "0.3.10"
+vyper = { optimize = "gas" }
 
 auto_detect_remappings = false # remappings seem to cause problems
 optimizer = true
