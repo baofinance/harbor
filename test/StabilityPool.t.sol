@@ -97,8 +97,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             )
         );
 
-        // use mock stability pool to expose internals for testing
-        // otherwise it's identical to StabilityPool_v1
+        // we need to let the veSteam bed down for a week (at least till we cross the next block / 7 * 7 boundary)
+        vm.warp(block.timestamp + 1 weeks);
+        // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, veSteam, 1 weeks)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner))

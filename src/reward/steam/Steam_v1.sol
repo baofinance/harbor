@@ -10,14 +10,12 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {PermittableERC20_v1} from "@bao/PermittableERC20_v1.sol";
+import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 
 import {ISTEAM} from "src/interfaces/ISTEAM.sol";
-import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {IBurnable} from "@bao/interfaces/IBurnable.sol";
-import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
+
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
-import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 
 /// @title Steam (ERC20STEAM)
 /// @author rootminus0x1 based on Curve Finance
@@ -31,7 +29,7 @@ import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 /// This contract is an almost-identical fork of Curve's contract
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, ISTEAM {
+contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM, IMintableRole {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
     using SafeCast for int256;
@@ -39,15 +37,11 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, I
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
-    error AdminOnly();
-    error MinterOnly();
-    error ZeroAddress();
-    error MinterAlreadySet();
+
     error TooSoon();
     error StartAfterEnd();
     error TooFarInFuture();
     error ExceedsAllowableMintAmount();
-    error ZeroOrNonZeroAllowanceRequired();
 
     /*//////////////////////////////////////////////////////////////
                             CONSTANTS
@@ -59,6 +53,9 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, I
     uint256 private constant RATE_REDUCTION_TIME = YEAR;
     uint256 private constant RATE_DENOMINATOR = 10 ** 18;
     uint256 private constant INFLATION_DELAY = 86400;
+
+    address public immutable minter;
+    uint256 public constant MINTER_ROLE = _ROLE_0;
 
     /*//////////////////////////////////////////////////////////////
                           STORAGE NAMESPACES
@@ -73,8 +70,6 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, I
         uint256 rate;
         uint256 start_epoch_supply;
         // STEAM specific state
-        address minter;
-        address admin;
         uint256 INITIAL_RATE;
         uint256 RATE_REDUCTION_COEFFICIENT;
     }
@@ -95,36 +90,32 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, I
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address minter_) {
+        minter = minter_;
         _disableInitializers();
     }
 
     /// @notice Initialize the Steam contract
+    /// @param owner Admin address
     /// @param _init_supply Initial token supply
     /// @param _init_rate Initial emission rate
     /// @param _rate_reduction_coefficient Rate reduction coefficient
-    /// @param _admin Admin address
     /// @param _name Token full name
     /// @param _symbol Token symbol
     function initialize(
+        address owner,
         uint256 _init_supply,
         uint256 _init_rate,
         uint256 _rate_reduction_coefficient,
-        address _admin,
         string calldata _name,
         string calldata _symbol
     ) external initializer {
         SteamStorage storage $ = _getSteamStorage();
 
-        if ($.admin != address(0)) {
-            revert AlreadyInitialized();
-        }
-
-        // Initialize MintableBurnableERC20_v1
-        super.initialize(_admin, _name, _symbol);
+        // Initialize PermittableERC20_v1
+        PermittableERC20_v1.initialize(owner, _name, _symbol);
 
         // Initialize STEAM-specific state
-        $.admin = _admin;
         $.INITIAL_RATE = _init_rate;
         $.RATE_REDUCTION_COEFFICIENT = _rate_reduction_coefficient;
         $.start_epoch_time = block.timestamp;
@@ -133,7 +124,13 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, I
         $.start_epoch_supply = _init_supply;
 
         // Mint initial supply to admin
-        _mint(_admin, _init_supply);
+        _mint(owner, _init_supply);
+    }
+
+    // @dev remove protections. if you have a balance of them you can burn them
+    function burn(uint256 value) external returns (bool) {
+        super._burn(_msgSender(), value);
+        return true;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -278,112 +275,28 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, I
     /*//////////////////////////////////////////////////////////////
                             ADMIN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-    // /// @notice Set the minter address
-    // /// @dev Only callable once, when minter has not yet been set
-    // /// @param _minter Address of the minter
-    // function set_minter(address _minter) external {
-    //     SteamStorage storage $ = _getSteamStorage();
 
-    //     if (msg.sender != $.admin) {
-    //         revert AdminOnly();
-    //     }
+    /// @notice Override the mint function to enforce STEAM-specific logic
+    /// @param to The account that will receive the created tokens
+    /// @param value The amount that will be created
+    /// @return success Boolean indicating success
+    function mint(address to, uint256 value) external onlyRoles(MINTER_ROLE) returns (bool) {
+        SteamStorage storage $ = _getSteamStorage();
 
-    //     if ($.minter != address(0)) {
-    //         revert MinterAlreadySet();
-    //     }
+        if (block.timestamp >= $.start_epoch_time + RATE_REDUCTION_TIME) {
+            _update_mining_parameters();
+        }
 
-    //     $.minter = _minter;
+        uint256 totalSupply_ = totalSupply() + value;
+        if (totalSupply_ > _available_supply()) {
+            revert ExceedsAllowableMintAmount();
+        }
 
-    //     // Set up minter role in the MintableBurnableERC20_v1
-    //     _grantRoles(_minter, MINTER_ROLE);
+        // Use parent mint
+        super._mint(to, value);
 
-    //     emit SetMinter(_minter);
-    // }
-
-    // /// @notice Set the new admin.
-    // /// @dev After all is set up, admin only can change the token name
-    // /// @param _admin New admin address
-    // function set_admin(address _admin) external {
-    //     SteamStorage storage $ = _getSteamStorage();
-
-    //     if (msg.sender != $.admin) {
-    //         revert AdminOnly();
-    //     }
-
-    //     $.admin = _admin;
-
-    //     // Update owner as well to maintain consistency
-    //     // _transferOwnership(_admin);
-
-    //     emit SetAdmin(_admin);
-    // }
-
-    // /// @notice Change the token name and symbol
-    // /// @dev Only callable by the admin account
-    // /// @param _name New token name
-    // /// @param _symbol New token symbol
-    // function set_name(string calldata _name, string calldata _symbol) external {
-    //     SteamStorage storage $ = _getSteamStorage();
-
-    //     if (msg.sender != $.admin) {
-    //         revert AdminOnly();
-    //     }
-
-    //     // Need to reinitialize the parent contract to change name/symbol
-    //     // Can't do this directly as initializer is locked, so we need custom logic
-    //     _setNameAndSymbol(_name, _symbol);
-    // }
-
-    // /*//////////////////////////////////////////////////////////////
-    //                         ERC20 OVERRIDES
-    // //////////////////////////////////////////////////////////////*/
-    // /// @notice Custom implementation to set name and symbol after initialization
-    // /// @param _name New token name
-    // /// @param _symbol New token symbol
-    // function _setNameAndSymbol(string calldata _name, string calldata _symbol) internal {
-    //     _name(); // Storage access to satisfy compiler warning
-    //     _symbol(); // Storage access to satisfy compiler warning
-
-    //     // Access name/symbol storage slots directly
-    //     // This is the only way to modify these after initialization
-    //     assembly {
-    //         // Store name
-    //         sstore(0x0, mload(add(_name.offset, 0x20)))
-
-    //         // Store symbol
-    //         sstore(0x1, mload(add(_symbol.offset, 0x20)))
-    //     }
-    // }
-
-    // /// @notice Override the mint function to enforce STEAM-specific logic
-    // /// @param _to The account that will receive the created tokens
-    // /// @param _value The amount that will be created
-    // /// @return success Boolean indicating success
-    // function mint(address _to, uint256 _value) public override(MintableBurnableERC20_v1, IMintable) returns (bool) {
-    //     SteamStorage storage $ = _getSteamStorage();
-
-    //     if (msg.sender != $.minter) {
-    //         revert MinterOnly();
-    //     }
-
-    //     if (_to == address(0)) {
-    //         revert ZeroAddress();
-    //     }
-
-    //     if (block.timestamp >= $.start_epoch_time + RATE_REDUCTION_TIME) {
-    //         _update_mining_parameters();
-    //     }
-
-    //     uint256 _total_supply = totalSupply() + _value;
-    //     if (_total_supply > _available_supply()) {
-    //         revert ExceedsAllowableMintAmount();
-    //     }
-
-    //     // Use parent mint
-    //     super.mint(_to, _value);
-
-    //     return true;
-    // }
+        return true;
+    }
 
     /*//////////////////////////////////////////////////////////////
                         INTERFACE GETTERS
@@ -418,16 +331,10 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, MintableBurnableERC20_v1, I
         return _getSteamStorage().RATE_REDUCTION_COEFFICIENT;
     }
 
-    /// @notice Get the minter address
-    /// @return Minter address
-    function minter() external view returns (address) {
-        return _getSteamStorage().minter;
-    }
-
     /// @notice Get the admin address
     /// @return Admin address
     function admin() external view returns (address) {
-        return _getSteamStorage().admin;
+        return owner();
     }
 
     // Implement necessary ERC165 interface checks

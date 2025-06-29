@@ -219,7 +219,7 @@ contract StabilityPool_v1 is
         (uint256 nowEpoch, IVotingEscrow.Point memory nowPoint) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(
             week,
             0,
-            0
+            type(uint256).max
         );
         $.veSupply[week] = VeBalance(uint128(_veSupplyAt(nowPoint, week)), uint128(nowEpoch));
     }
@@ -256,7 +256,7 @@ contract StabilityPool_v1 is
         Token.sanityCheckERC20Token(stabilityPoolToken_);
         // slither-disable-next-line missing-zero-check
         VE_TOKEN = veToken_;
-        VE_START = IVotingEscrow(VE_TOKEN).point_history(1).ts;
+        VE_START = IVotingEscrow(VE_TOKEN).point_history(0).ts;
         console2.log("VE_START=%s, block.timestamp=%s", VE_START, block.timestamp);
         uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
         if (week < VE_START) {
@@ -896,7 +896,7 @@ contract StabilityPool_v1 is
             (uint256 epoch, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(
                 week,
                 first,
-                0 // the last one
+                type(uint256).max
             );
 
             nowSupply.value = uint128(_veSupplyAt(point, week));
@@ -935,7 +935,7 @@ contract StabilityPool_v1 is
         uint256 week = (timestamp / 1 weeks) * 1 weeks;
         VeBalance memory prevSupply = $.veSupply[week];
         uint256 first = prevSupply.epoch; // 0 is code for the first one
-        uint256 last = 0; // code for the last one
+        uint256 last = type(uint256).max; // code for the last one
         if (first > 0) {
             if (week == timestamp) return prevSupply.value;
             VeBalance memory nextSupply = $.veSupply[week + 1 weeks];
@@ -956,7 +956,7 @@ contract StabilityPool_v1 is
         uint256 week = (timestamp / 1 weeks) * 1 weeks;
         VeBalance memory prevBalance = $.veBalances[account][week];
         uint256 first = prevBalance.epoch; // 0 is code for the first one
-        uint256 last = 0; // code for the last one
+        uint256 last = type(uint256).max; // code for the last one
         if (first > 0) {
             if (week == timestamp) return prevBalance.value;
             VeBalance memory nextBalance = $.veBalances[account][week + 1 weeks];

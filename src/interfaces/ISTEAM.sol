@@ -30,6 +30,10 @@ interface ISTEAM {
                               PUBLIC MUTATOR FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
+    // Minting
+    function mint(address to, uint256 value) external returns (bool);
+    function burn(uint256 value) external returns (bool);
+
     // Mining logic
     function update_mining_parameters() external;
     function start_epoch_time_write() external returns (uint256);

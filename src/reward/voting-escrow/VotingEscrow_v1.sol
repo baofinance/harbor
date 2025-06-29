@@ -886,10 +886,7 @@ contract VotingEscrow_v1 is
         uint256 endEpoch
     ) external view returns (uint256 epoch_, IVotingEscrow.Point memory point) {
         VotingEscrowStorage storage $ = _getStorage();
-        if (startEpoch == 0) {
-            startEpoch = 1;
-        }
-        if (endEpoch == 0) {
+        if (endEpoch == type(uint256).max) {
             endEpoch = $.epoch;
         }
         unchecked {
@@ -922,10 +919,7 @@ contract VotingEscrow_v1 is
         uint256 endEpoch
     ) external view returns (uint256 epoch_, Point memory point) {
         VotingEscrowStorage storage $ = _getStorage();
-        if (startEpoch == 0) {
-            startEpoch = 1;
-        }
-        if (endEpoch == 0) {
+        if (endEpoch == type(uint256).max) {
             endEpoch = $.userPointEpoch[account];
         }
         unchecked {
