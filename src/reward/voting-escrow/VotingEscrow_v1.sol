@@ -14,6 +14,8 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
+import {IVotingEscrowLookup} from "src/interfaces/IVotingEscrowLookup.sol";
+import {IVotingEscrowBoost} from "src/interfaces/IVotingEscrowBoost.sol";
 
 /// @title VotingEscrow
 /// @author rootminus0x1
@@ -71,7 +73,9 @@ contract VotingEscrow_v1 is
     BaoOwnableRoles,
     ITokenHolder,
     TokenHolder,
-    IVotingEscrow
+    IVotingEscrow,
+    IVotingEscrowLookup,
+    IVotingEscrowBoost
 {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
@@ -873,7 +877,7 @@ contract VotingEscrow_v1 is
     //  * but these can be done later
     //  **************************************************************************/
 
-    /// @inheritdoc IVotingEscrow
+    /// @inheritdoc IVotingEscrowLookup
     // TODO: put this in a check
     // Caller should make sure the `ve.point_history(startEpoch) <= timestamp`.
     function findSupplyPoint(
@@ -882,6 +886,12 @@ contract VotingEscrow_v1 is
         uint256 endEpoch
     ) external view returns (uint256 epoch_, IVotingEscrow.Point memory point) {
         VotingEscrowStorage storage $ = _getStorage();
+        if (startEpoch == 0) {
+            startEpoch = 1;
+        }
+        if (endEpoch == 0) {
+            endEpoch = $.epoch;
+        }
         unchecked {
             while (startEpoch < endEpoch) {
                 uint256 mid = (startEpoch + endEpoch + 1) / 2;
@@ -902,7 +912,7 @@ contract VotingEscrow_v1 is
         }
     }
 
-    /// @inheritdoc IVotingEscrow
+    /// @inheritdoc IVotingEscrowLookup
     // TODO: put this in a check?
     // Caller should make sure the `ve.user_point_history(account, startEpoch) <= timestamp`.
     function findUserPoint(
@@ -912,6 +922,12 @@ contract VotingEscrow_v1 is
         uint256 endEpoch
     ) external view returns (uint256 epoch_, Point memory point) {
         VotingEscrowStorage storage $ = _getStorage();
+        if (startEpoch == 0) {
+            startEpoch = 1;
+        }
+        if (endEpoch == 0) {
+            endEpoch = $.userPointEpoch[account];
+        }
         unchecked {
             while (startEpoch < endEpoch) {
                 uint256 mid = (startEpoch + endEpoch + 1) / 2;
@@ -929,6 +945,11 @@ contract VotingEscrow_v1 is
         if (point.ts == 0) {
             point = $.userPointHistory[account][epoch_];
         }
+    }
+
+    /// @inheritdoc IVotingEscrowBoost
+    function adjusted_balance_of(address account) external view returns (uint256) {
+        return _balanceOf(account, block.timestamp);
     }
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
@@ -19,8 +20,8 @@ contract MockVeBoost {
 
 contract LiquidityGaugeV6Test is Test {
     address public gauge;
-    MockERC20 public lpToken;
-    MockERC20 public crvToken;
+    address public lpToken;
+    address public crvToken;
 
     address public user1;
     address public user2;
@@ -28,6 +29,8 @@ contract LiquidityGaugeV6Test is Test {
 
     // CRV token address from the contract (mainnet)
     address constant CRV_ADDRESS = 0xD533a949740bb3306d119CC777fa900bA034cd52;
+    address constant GAUGE_CONTROLLER = 0x2F50D538606Fa9EDD2B11E2446BEb18C9D5846bB;
+    address constant MINTER = 0xd061D61a4d941c39E5453435B6345Dc261C2fcE0;
     address constant VEBOOST_PROXY = 0x8E0c00ed546602fD9927DF742bbAbF726D5B0d16;
     address constant VOTING_ESCROW = 0x5f3b5DfEb7B28CDbD7FAba78963EE202a494e2A2;
 
@@ -37,7 +40,7 @@ contract LiquidityGaugeV6Test is Test {
         manager = makeAddr("manager");
 
         // Deploy mock LP token
-        lpToken = new MockERC20("Test LP Token", "TLP", 18);
+        lpToken = address(new MockERC20("Test LP Token", "TLP", 18));
 
         // --- Mock VEBOOST_PROXY ---
         MockVeBoost mockBoost = new MockVeBoost();
@@ -70,21 +73,24 @@ contract LiquidityGaugeV6Test is Test {
         );
 
         // Mock the LP token symbol call for the constructor
-        vm.mockCall(address(lpToken), abi.encodeWithSignature("symbol()"), abi.encode("TLP"));
+        vm.mockCall(lpToken, abi.encodeWithSignature("symbol()"), abi.encode("TLP"));
 
         // Deploy the gauge contract
         // We need to set tx.origin for the manager
-        vm /*  */.prank(manager, manager);
-        gauge = deployCode("LiquidityGaugeV6.vy", abi.encode(address(lpToken)));
+        vm.prank(manager, manager);
+        gauge = deployCode(
+            "LiquidityGaugeV6.vy",
+            abi.encode(lpToken, CRV_ADDRESS, GAUGE_CONTROLLER, MINTER, VOTING_ESCROW, VEBOOST_PROXY)
+        );
 
         // Mint some LP tokens to users for testing
-        lpToken.mint(user1, 1000 ether);
-        lpToken.mint(user2, 500 ether);
+        MockERC20(lpToken).mint(user1, 1000 ether);
+        MockERC20(lpToken).mint(user2, 500 ether);
     }
 
     function test_Deployment() public view {
         // Test basic deployment parameters
-        assertEq(ILiquidityGaugeV6(gauge).lp_token(), address(lpToken), "LP token should be set correctly");
+        assertEq(ILiquidityGaugeV6(gauge).lp_token(), lpToken, "LP token should be set correctly");
         assertEq(ILiquidityGaugeV6(gauge).factory(), manager, "Factory should be msg.sender");
         assertEq(ILiquidityGaugeV6(gauge).manager(), manager, "Manager should be tx.origin");
         assertFalse(ILiquidityGaugeV6(gauge).is_killed(), "Gauge should not be killed initially");
@@ -107,7 +113,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // Approve the gauge to spend LP tokens
         vm.prank(user1);
-        lpToken.approve(gauge, depositAmount);
+        IERC20(lpToken).approve(gauge, depositAmount);
 
         // Check initial balances
         assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), 0, "User1 should have 0 gauge tokens initially");
@@ -124,8 +130,8 @@ contract LiquidityGaugeV6Test is Test {
             "User1 should have deposited amount of gauge tokens"
         );
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), depositAmount, "Total supply should equal deposited amount");
-        assertEq(lpToken.balanceOf(user1), 900 ether, "User1 should have remaining LP tokens");
-        assertEq(lpToken.balanceOf(gauge), depositAmount, "Gauge should hold deposited LP tokens");
+        assertEq(IERC20(lpToken).balanceOf(user1), 900 ether, "User1 should have remaining LP tokens");
+        assertEq(IERC20(lpToken).balanceOf(gauge), depositAmount, "Gauge should hold deposited LP tokens");
     }
 
     function test_DepositForRecipient() public {
@@ -133,7 +139,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // Approve the gauge to spend LP tokens
         vm.prank(user1);
-        lpToken.approve(gauge, depositAmount);
+        IERC20(lpToken).approve(gauge, depositAmount);
 
         // Deposit LP tokens for user2
         vm.prank(user1);
@@ -147,8 +153,8 @@ contract LiquidityGaugeV6Test is Test {
             "User2 should have deposited amount of gauge tokens"
         );
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), depositAmount, "Total supply should equal deposited amount");
-        assertEq(lpToken.balanceOf(user1), 950 ether, "User1 should have remaining LP tokens");
-        assertEq(lpToken.balanceOf(gauge), depositAmount, "Gauge should hold deposited LP tokens");
+        assertEq(IERC20(lpToken).balanceOf(user1), 950 ether, "User1 should have remaining LP tokens");
+        assertEq(IERC20(lpToken).balanceOf(gauge), depositAmount, "Gauge should hold deposited LP tokens");
     }
 
     function test_Withdraw() public {
@@ -157,7 +163,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // First deposit
         vm.startPrank(user1);
-        lpToken.approve(gauge, depositAmount);
+        IERC20(lpToken).approve(gauge, depositAmount);
         ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // Check state before withdrawal
@@ -175,8 +181,8 @@ contract LiquidityGaugeV6Test is Test {
             "User1 should have remaining gauge tokens"
         );
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), remainingGaugeBalance, "Total supply should be reduced");
-        assertEq(lpToken.balanceOf(user1), 800 ether + withdrawAmount, "User1 should have withdrawn LP tokens");
-        assertEq(lpToken.balanceOf(gauge), remainingGaugeBalance, "Gauge should hold remaining LP tokens");
+        assertEq(IERC20(lpToken).balanceOf(user1), 800 ether + withdrawAmount, "User1 should have withdrawn LP tokens");
+        assertEq(IERC20(lpToken).balanceOf(gauge), remainingGaugeBalance, "Gauge should hold remaining LP tokens");
     }
 
     function test_MultipleUsersDeposit() public {
@@ -185,13 +191,13 @@ contract LiquidityGaugeV6Test is Test {
 
         // User1 deposits
         vm.prank(user1);
-        lpToken.approve(gauge, deposit1);
+        IERC20(lpToken).approve(gauge, deposit1);
         vm.prank(user1);
         ILiquidityGaugeV6(gauge).deposit(deposit1);
 
         // User2 deposits
         vm.prank(user2);
-        lpToken.approve(gauge, deposit2);
+        IERC20(lpToken).approve(gauge, deposit2);
         vm.prank(user2);
         ILiquidityGaugeV6(gauge).deposit(deposit2);
 
@@ -199,7 +205,7 @@ contract LiquidityGaugeV6Test is Test {
         assertEq(ILiquidityGaugeV6(gauge).balanceOf(user1), deposit1, "User1 should have correct balance");
         assertEq(ILiquidityGaugeV6(gauge).balanceOf(user2), deposit2, "User2 should have correct balance");
         assertEq(ILiquidityGaugeV6(gauge).totalSupply(), deposit1 + deposit2, "Total supply should be sum of deposits");
-        assertEq(lpToken.balanceOf(gauge), deposit1 + deposit2, "Gauge should hold all LP tokens");
+        assertEq(IERC20(lpToken).balanceOf(gauge), deposit1 + deposit2, "Gauge should hold all LP tokens");
     }
 
     function test_UserCheckpoint() public {
@@ -214,7 +220,7 @@ contract LiquidityGaugeV6Test is Test {
 
         // Deposit tokens
         vm.prank(user1);
-        lpToken.approve(gauge, depositAmount);
+        IERC20(lpToken).approve(gauge, depositAmount);
         vm.prank(user1);
         ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
@@ -239,7 +245,7 @@ contract LiquidityGaugeV6Test is Test {
         uint256 withdrawAmount = 100 ether; // More than deposited
 
         vm.startPrank(user1);
-        lpToken.approve(gauge, depositAmount);
+        IERC20(lpToken).approve(gauge, depositAmount);
         ILiquidityGaugeV6(gauge).deposit(depositAmount);
 
         // This should fail
@@ -265,8 +271,6 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
     address public distributor;
 
     uint256 constant REWARD_DURATION = 1 weeks;
-
-    address constant GAUGE_CONTROLLER = 0x2F50D538606Fa9EDD2B11E2446BEb18C9D5846bB;
 
     function setUp() public override {
         // Call parent setup
@@ -360,7 +364,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User1 deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -391,7 +395,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -414,12 +418,12 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User1: 25 ether, User2: 75 ether (3:1 ratio)
         vm.startPrank(user1);
-        lpToken.approve(gauge, 25 ether);
+        IERC20(lpToken).approve(gauge, 25 ether);
         ILiquidityGaugeV6(gauge).deposit(25 ether);
         vm.stopPrank();
 
         vm.startPrank(user2);
-        lpToken.approve(gauge, 75 ether);
+        IERC20(lpToken).approve(gauge, 75 ether);
         ILiquidityGaugeV6(gauge).deposit(75 ether);
         vm.stopPrank();
 
@@ -445,7 +449,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
         _setupRewards(rewardAmount);
 
         vm.startPrank(user1);
-        lpToken.approve(gauge, 100 ether);
+        IERC20(lpToken).approve(gauge, 100 ether);
         ILiquidityGaugeV6(gauge).deposit(100 ether);
         vm.stopPrank();
 
@@ -481,12 +485,12 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // Both users deposit equal amounts
         vm.startPrank(user1);
-        lpToken.approve(gauge, user1Amount);
+        IERC20(lpToken).approve(gauge, user1Amount);
         ILiquidityGaugeV6(gauge).deposit(user1Amount);
         vm.stopPrank();
 
         vm.startPrank(user2);
-        lpToken.approve(gauge, user2Amount);
+        IERC20(lpToken).approve(gauge, user2Amount);
         ILiquidityGaugeV6(gauge).deposit(user2Amount);
         vm.stopPrank();
 
@@ -542,12 +546,12 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // Both users deposit
         vm.startPrank(user1);
-        lpToken.approve(gauge, user1Amount);
+        IERC20(lpToken).approve(gauge, user1Amount);
         ILiquidityGaugeV6(gauge).deposit(user1Amount);
         vm.stopPrank();
 
         vm.startPrank(user2);
-        lpToken.approve(gauge, user2Amount);
+        IERC20(lpToken).approve(gauge, user2Amount);
         ILiquidityGaugeV6(gauge).deposit(user2Amount);
         vm.stopPrank();
 
@@ -571,7 +575,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -596,7 +600,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -631,7 +635,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -664,7 +668,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -698,7 +702,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
 
         // Try to withdraw immediately without any time passing
@@ -716,7 +720,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -742,7 +746,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 
@@ -775,7 +779,7 @@ contract LiquidityGaugeV6RewardsTest is LiquidityGaugeV6Test {
 
         // User deposits LP tokens
         vm.startPrank(user1);
-        lpToken.approve(gauge, lpAmount);
+        IERC20(lpToken).approve(gauge, lpAmount);
         ILiquidityGaugeV6(gauge).deposit(lpAmount);
         vm.stopPrank();
 

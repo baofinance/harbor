@@ -101,26 +101,26 @@ CACHED_CHAIN_ID: immutable(uint256)
 salt: public(immutable(bytes32))
 CACHED_DOMAIN_SEPARATOR: immutable(bytes32)
 
+
 # ERC20
 balanceOf: public(HashMap[address, uint256])
 totalSupply: public(uint256)
 allowance: public(HashMap[address, HashMap[address, uint256]])
 
-name: public(String[64])
-symbol: public(String[40])
+name: immutable(String[64])
+symbol: immutable(String[40])
 
 # ERC2612
 nonces: public(HashMap[address, uint256])
 
 # Gauge
-factory: public(address)
+factory: immutable(address)
 manager: public(address)
-lp_token: public(address)
-crv: public(address)
-escrow_boost: public(address)  # VotingEscrowBoost proxy
-gauge_controller: public(address)
-minter: public(address)
-escrow: public(address)
+lp_token: immutable(address)
+crv: immutable(address)
+gauge_controller: immutable(address)
+minter: immutable(address)
+escrow: immutable(address)
 
 is_killed: public(bool)
 
@@ -164,30 +164,25 @@ integrate_inv_supply: public(uint256[100000000000000000000000000000])  # bump ep
 
 
 @external
-def __init__(_lp_token: address, _crv: address, _gauge_controller: address, _minter: address, _escrow: address, _boost: address):
+def __init__(_lp_token: address, _crv: address, _gauge_controller: address, _minter: address, _escrow: address):
     """
     @notice Contract constructor
     @param _lp_token Liquidity Pool contract address
     """
-    self.lp_token = _lp_token
-    self.crv = _crv
-    self.gauge_controller = _gauge_controller
-    self.minter = _minter
-    self.escrow = _escrow
-    self.escrow_boost = _boost
-    self.factory = msg.sender
+    lp_token = _lp_token
+    crv = _crv
+    gauge_controller = _gauge_controller
+    minter = _minter
+    escrow = _escrow
+    factory = msg.sender
     self.manager = tx.origin
-
-    symbol: String[32] = ERC20Extended(_lp_token).symbol()
-    name: String[64] = concat("Curve.fi ", symbol, " Gauge Deposit")
-
-    self.name = name
-    self.symbol = concat(symbol, "-gauge")
-
+    lpSymbol: String[32] = ERC20Extended(_lp_token).symbol()
+    symbol = concat(lpSymbol, "-gauge")
+    name = concat("Zhenglong ", lpSymbol, " Gauge Deposit")
     self.period_timestamp[0] = block.timestamp
     self.inflation_params = (
-        (CRV20(self.crv).future_epoch_time_write() << 216)
-        + CRV20(self.crv).rate()
+        (CRV20(_crv).future_epoch_time_write() << 216)
+        + CRV20(_crv).rate()
     )
 
     NAME_HASH = keccak256(name)
@@ -246,21 +241,21 @@ def _checkpoint(addr: address):
         new_rate = 0
 
     if prev_future_epoch >= _period_time:
-        future_epoch_time_write: uint256 = CRV20(self.crv).future_epoch_time_write()
+        future_epoch_time_write: uint256 = CRV20(crv).future_epoch_time_write()
         if not gauge_is_killed:
-            new_rate = CRV20(self.crv).rate()
+            new_rate = CRV20(crv).rate()
         self.inflation_params = (future_epoch_time_write << 216) + new_rate
 
     # Update integral of 1/supply
     if block.timestamp > _period_time:
         _working_supply: uint256 = self.working_supply
-        Controller(self.gauge_controller).checkpoint_gauge(self)
+        Controller(gauge_controller).checkpoint_gauge(self)
         prev_week_time: uint256 = _period_time
         week_time: uint256 = min((_period_time + WEEK) / WEEK * WEEK, block.timestamp)
 
         for i in range(500):
             dt: uint256 = week_time - prev_week_time
-            w: uint256 = Controller(self.gauge_controller).gauge_relative_weight(self, prev_week_time)
+            w: uint256 = Controller(gauge_controller).gauge_relative_weight(self, prev_week_time)
 
             if _working_supply > 0:
                 if prev_future_epoch >= prev_week_time and prev_future_epoch < week_time:
@@ -360,8 +355,8 @@ def _update_liquidity_limit(addr: address, l: uint256, L: uint256):
     @param L Total amount of liquidity (LP tokens)
     """
     # To be called after totalSupply is updated
-    voting_balance: uint256 = VotingEscrowBoost(self.escrow_boost).adjusted_balance_of(addr)
-    voting_total: uint256 = ERC20(self.escrow).totalSupply()
+    voting_balance: uint256 = ERC20(escrow).balanceOf(addr) # this is where boosing is done
+    voting_total: uint256 = ERC20(escrow).totalSupply()
 
     lim: uint256 = l * TOKENLESS_PRODUCTION / 100
     if voting_total > 0:
@@ -430,7 +425,7 @@ def deposit(_value: uint256, _addr: address = msg.sender, _claim_rewards: bool =
 
         self._update_liquidity_limit(_addr, new_balance, total_supply)
 
-        ERC20(self.lp_token).transferFrom(msg.sender, self, _value)
+        ERC20(lp_token).transferFrom(msg.sender, self, _value)
 
         log Deposit(_addr, _value)
         log Transfer(empty(address), _addr, _value)
@@ -459,7 +454,7 @@ def withdraw(_value: uint256, _claim_rewards: bool = False):
 
         self._update_liquidity_limit(msg.sender, new_balance, total_supply)
 
-        ERC20(self.lp_token).transfer(msg.sender, _value)
+        ERC20(lp_token).transfer(msg.sender, _value)
 
     log Withdraw(msg.sender, _value)
     log Transfer(msg.sender, empty(address), _value)
@@ -625,7 +620,7 @@ def user_checkpoint(addr: address) -> bool:
     @param addr User address
     @return bool success
     """
-    assert msg.sender in [addr, self.minter]  # dev: unauthorized
+    assert msg.sender in [addr, minter]  # dev: unauthorized
     self._checkpoint(addr)
     self._update_liquidity_limit(addr, self.balanceOf[addr], self.totalSupply)
     return True
@@ -640,15 +635,6 @@ def set_rewards_receiver(_receiver: address):
     """
     self.rewards_receiver[msg.sender] = _receiver
 
-@external
-def set_voting_escrow_boost(_boost: address):
-    """
-    @notice Set the VotingEscrowBoost contract address
-    @dev This is used to calculate the adjusted balance of a user
-    @param _boost Address of the VotingEscrowBoost contract
-    """
-    assert msg.sender in [self.manager, Factory(self.factory).admin()]  # dev: only manager or factory admin
-    self.escrow_boost = _boost
 
 @external
 def kick(addr: address):
@@ -658,12 +644,12 @@ def kick(addr: address):
     @param addr Address to kick
     """
     t_last: uint256 = self.integrate_checkpoint_of[addr]
-    t_ve: uint256 = VotingEscrow(self.escrow).user_point_history__ts(
-        addr, VotingEscrow(self.escrow).user_point_epoch(addr)
+    t_ve: uint256 = VotingEscrow(escrow).user_point_history__ts(
+        addr, VotingEscrow(escrow).user_point_epoch(addr)
     )
     _balance: uint256 = self.balanceOf[addr]
 
-    assert ERC20(self.escrow).balanceOf(addr) == 0 or t_ve > t_last # dev: kick not allowed
+    assert ERC20(escrow).balanceOf(addr) == 0 or t_ve > t_last # dev: kick not allowed
     assert self.working_balances[addr] > _balance * TOKENLESS_PRODUCTION / 100  # dev: kick not needed
 
     self._checkpoint(addr)
@@ -682,7 +668,7 @@ def set_gauge_manager(_gauge_manager: address):
         method, but only for the gauge which they are the manager of.
     @param _gauge_manager The account to set as the new manager of the gauge.
     """
-    assert msg.sender in [self.manager, Factory(self.factory).admin()]  # dev: only manager or factory admin
+    assert msg.sender in [self.manager, Factory(factory).admin()]  # dev: only manager or factory admin
 
     self.manager = _gauge_manager
     log SetGaugeManager(_gauge_manager)
@@ -732,7 +718,7 @@ def add_reward(_reward_token: address, _distributor: address):
     @param _reward_token The token to add as an additional reward
     @param _distributor Address permitted to fund this contract with the reward token
     """
-    assert msg.sender in [self.manager, Factory(self.factory).admin()]  # dev: only manager or factory admin
+    assert msg.sender in [self.manager, Factory(factory).admin()]  # dev: only manager or factory admin
     assert _distributor != empty(address)  # dev: distributor cannot be zero address
 
     reward_count: uint256 = self.reward_count
@@ -753,7 +739,7 @@ def set_reward_distributor(_reward_token: address, _distributor: address):
     """
     current_distributor: address = self.reward_data[_reward_token].distributor
 
-    assert msg.sender in [current_distributor, Factory(self.factory).admin(), self.manager]
+    assert msg.sender in [current_distributor, Factory(factory).admin(), self.manager]
     assert current_distributor != empty(address)
     assert _distributor != empty(address)
 
@@ -767,13 +753,52 @@ def set_killed(_is_killed: bool):
     @dev When killed, the gauge always yields a rate of 0 and so cannot mint CRV
     @param _is_killed Killed status to set
     """
-    assert msg.sender == Factory(self.factory).admin()  # dev: only owner
+    assert msg.sender == Factory(factory).admin()  # dev: only owner
 
     self.is_killed = _is_killed
 
 
 # View Methods
 
+@view
+@external
+def lp_token() -> address:
+    return lp_token
+
+@view
+@external
+def crv() -> address:
+    return crv
+
+@view
+@external
+def gauge_controller() -> address:
+    return gauge_controller
+
+@view
+@external
+def minter() -> address:
+    return minter
+
+@view
+@external
+def escrow() -> address:
+    return escrow
+
+@view
+@external
+def factory() -> address:
+    return factory
+
+@view
+@external
+def name() -> String[64]:
+    return name
+
+@view
+@external
+def symbol() -> String[40]:
+    return symbol
 
 @view
 @external
@@ -817,7 +842,7 @@ def claimable_tokens(addr: address) -> uint256:
     @return uint256 number of claimable tokens per user
     """
     self._checkpoint(addr)
-    return self.integrate_fraction[addr] - Minter(self.minter).minted(addr, self)
+    return self.integrate_fraction[addr] - Minter(minter).minted(addr, self)
 
 
 @view

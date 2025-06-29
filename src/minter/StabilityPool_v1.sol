@@ -19,7 +19,10 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
+import {IVotingEscrowLookup} from "src/interfaces/IVotingEscrowLookup.sol";
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
+
+import {console2} from "forge-std/console2.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -212,13 +215,11 @@ contract StabilityPool_v1 is
 
         // VE set-up
         // TODO: look at putting the below into the VotingEscrow behind Extra interface
-        uint256 epoch = IVotingEscrow(VE_TOKEN).epoch();
         uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
-
-        (uint256 nowEpoch, IVotingEscrow.Point memory nowPoint) = IVotingEscrow(VE_TOKEN).findSupplyPoint(
+        (uint256 nowEpoch, IVotingEscrow.Point memory nowPoint) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(
             week,
-            1,
-            epoch
+            0,
+            0
         );
         $.veSupply[week] = VeBalance(uint128(_veSupplyAt(nowPoint, week)), uint128(nowEpoch));
     }
@@ -256,6 +257,7 @@ contract StabilityPool_v1 is
         // slither-disable-next-line missing-zero-check
         VE_TOKEN = veToken_;
         VE_START = IVotingEscrow(VE_TOKEN).point_history(1).ts;
+        console2.log("VE_START=%s, block.timestamp=%s", VE_START, block.timestamp);
         uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
         if (week < VE_START) {
             revert VotingEscrowNotReady();
@@ -890,18 +892,12 @@ contract StabilityPool_v1 is
         VeBalance memory nowSupply = $.veSupply[week];
         if (nowSupply.epoch == 0) {
             VeBalance memory prevSupply = $.veSupply[week - 1 weeks];
-            uint256 epoch;
-            IVotingEscrow.Point memory point;
-            // TODO: this should be 1 call, only diff is start epoch
-            if (prevSupply.epoch == 0) {
-                (epoch, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(week, 1, IVotingEscrow(VE_TOKEN).epoch());
-            } else {
-                (epoch, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(
-                    week,
-                    prevSupply.epoch,
-                    IVotingEscrow(VE_TOKEN).epoch()
-                );
-            }
+            uint256 first = prevSupply.epoch;
+            (uint256 epoch, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(
+                week,
+                first,
+                0 // the last one
+            );
 
             nowSupply.value = uint128(_veSupplyAt(point, week));
             nowSupply.epoch = uint128(epoch);
@@ -915,19 +911,13 @@ contract StabilityPool_v1 is
 
         VeBalance memory nowBalance = $.veBalances[account][week];
         if (nowBalance.epoch == 0) {
-            VeBalance memory prevBalance = $.veBalances[account][week - 1 weeks];
-            uint256 epoch;
-            IVotingEscrow.Point memory point;
-            if (prevBalance.epoch == 0) {
-                (epoch, point) = IVotingEscrow(VE_TOKEN).findUserPoint(account, week, 1, userPointEpoch);
-            } else {
-                (epoch, point) = IVotingEscrow(VE_TOKEN).findUserPoint(
-                    account,
-                    week,
-                    prevBalance.epoch,
-                    userPointEpoch
-                );
-            }
+            uint256 first = $.veBalances[account][week - 1 weeks].epoch;
+            (uint256 epoch, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findUserPoint(
+                account,
+                week,
+                first,
+                userPointEpoch
+            );
 
             // @note `week < point.ts` can happen if user create lock after week timestamp
             if (week >= point.ts) {
@@ -944,41 +934,41 @@ contract StabilityPool_v1 is
 
         uint256 week = (timestamp / 1 weeks) * 1 weeks;
         VeBalance memory prevSupply = $.veSupply[week];
-        IVotingEscrow.Point memory point;
-        uint256 first;
-        uint256 last;
-        if (prevSupply.epoch > 0) {
+        uint256 first = prevSupply.epoch; // 0 is code for the first one
+        uint256 last = 0; // code for the last one
+        if (first > 0) {
             if (week == timestamp) return prevSupply.value;
             VeBalance memory nextSupply = $.veSupply[week + 1 weeks];
-            uint256 nextEpoch = nextSupply.epoch;
-            if (nextEpoch == 0) nextEpoch = IVotingEscrow(VE_TOKEN).epoch();
-            (, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(timestamp, prevSupply.epoch, nextEpoch);
-        } else {
-            (, point) = IVotingEscrow(VE_TOKEN).findSupplyPoint(timestamp, 1, IVotingEscrow(VE_TOKEN).epoch());
+            last = nextSupply.epoch;
         }
+        (, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(timestamp, first, last);
 
         return _veSupplyAt(point, timestamp);
     }
 
     function _veBalanceOf(address account, uint256 timestamp) internal view returns (uint256) {
         // check whether the user has no locks
-        uint256 epoch = IVotingEscrow(VE_TOKEN).user_point_epoch(account);
-        if (epoch == 0) return 0;
-        IVotingEscrow.Point memory point = IVotingEscrow(VE_TOKEN).user_point_history(account, 1);
-        if (timestamp < point.ts) return 0;
+        if (timestamp > IVotingEscrow(VE_TOKEN).locked__end(account)) {
+            return 0;
+        }
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         uint256 week = (timestamp / 1 weeks) * 1 weeks;
         VeBalance memory prevBalance = $.veBalances[account][week];
-        if (prevBalance.epoch > 0) {
+        uint256 first = prevBalance.epoch; // 0 is code for the first one
+        uint256 last = 0; // code for the last one
+        if (first > 0) {
             if (week == timestamp) return prevBalance.value;
             VeBalance memory nextBalance = $.veBalances[account][week + 1 weeks];
-            uint256 nextEpoch = nextBalance.epoch;
-            if (nextEpoch == 0) nextEpoch = epoch;
-            (, point) = IVotingEscrow(VE_TOKEN).findUserPoint(account, timestamp, prevBalance.epoch, nextEpoch);
-        } else {
-            (, point) = IVotingEscrow(VE_TOKEN).findUserPoint(account, timestamp, 1, epoch);
+            last = nextBalance.epoch;
         }
+        (, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findUserPoint(
+            account,
+            timestamp,
+            first,
+            last
+        );
+
         return _veBalanceAt(point, timestamp);
     }
 
