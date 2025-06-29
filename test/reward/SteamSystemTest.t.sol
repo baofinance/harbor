@@ -26,7 +26,7 @@ abstract contract SteamSystemTest is Test {
 
     uint256 public constant TOTAL_SUPPLY = 100_000_000 ether;
     uint256 public constant INITIAL_RATE = 154_585_000_000_000_000;
-    uint256 public constant RATE_REDUCTION_COEFFICIENT = 1_147_080_000;
+    uint256 public constant RATE_REDUCTION_COEFFICIENT = 1_147_080_000_000_000_000;
 
     bool public vyperEscrow;
 
