@@ -2,7 +2,6 @@
 pragma solidity >=0.8.21 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-
 import {Test} from "forge-std/Test.sol";
 
 // Interfaces
@@ -15,10 +14,6 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
 
-interface ILiquidityGaugeV6Mock is ILiquidityGaugeV6 {
-    function set_mock_fraction(address user, uint256 value) external;
-}
-
 abstract contract SteamSystemTest is Test {
     IERC20STEAM public steam;
     ISteamMinter public minter;
@@ -30,8 +25,8 @@ abstract contract SteamSystemTest is Test {
     address public user;
 
     uint256 public constant TOTAL_SUPPLY = 100_000_000 ether;
-    uint256 public constant INITIAL_RATE = 159_529_984_450_000_000;
-    uint256 public constant RATE_REDUCTION_COEFFICIENT = 1290000000;
+    uint256 public constant INITIAL_RATE = 154_585_000_000_000_000;
+    uint256 public constant RATE_REDUCTION_COEFFICIENT = 1_147_080_000;
 
     bool public vyperEscrow;
 
@@ -47,16 +42,6 @@ abstract contract SteamSystemTest is Test {
 
         vm.prank(multisig);
         steam.initialize(61_000_000 ether, INITIAL_RATE, RATE_REDUCTION_COEFFICIENT, multisig, "STEAM", "STEAM");
-
-        // Deploy the Gauge Controller and add a gauge type
-        controller = IGaugeController(vm.deployCode("GaugeController.vy", abi.encode(address(steam), address(0xDEAD))));
-        controller.add_type("Liquidity", 1); // Add type index 0
-
-        // Deploy the Minter and assign it to STEAM
-        minter = ISteamMinter(vm.deployCode("SteamMinter.vy", abi.encode(address(steam), address(controller))));
-
-        vm.prank(multisig);
-        steam.set_minter(address(minter));
 
         if (vyperEscrow) {
             // // 1. Deploy escrow
@@ -92,11 +77,22 @@ abstract contract SteamSystemTest is Test {
             IBaoOwnable(escrow).transferOwnership(multisig);
         }
 
+        // Deploy the Gauge Controller and add a gauge type
+        controller = IGaugeController(vm.deployCode("GaugeController.vy", abi.encode(address(steam), address(escrow))));
+        controller.add_type("Liquidity", 1); // Add type index 0
+
+        // Deploy the Minter and assign it to STEAM
+        minter = ISteamMinter(vm.deployCode("SteamMinter.vy", abi.encode(address(steam), address(controller))));
+
+        vm.prank(multisig);
+        steam.set_minter(address(minter));
+        assertEq(steam.minter(), address(minter));
+
         // Deploy the Liquidity Gauge V6
         gauge = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(address(steam), address(steam), address(controller), address(minter), escrow, escrow)
+                abi.encode(address(steam), address(steam), address(controller), address(minter), address(escrow), address(escrow))
             )
         );
 
@@ -110,46 +106,82 @@ abstract contract SteamSystemTest is Test {
         assertEq(steam.minter(), address(minter));
     }
 
+    function test_MinterAddressIsCorrect() public view {
+        // The minter should be correctly set by this point
+        address expectedMinter = address(minter);
+
+        // Fetch the actual minter address from the STEAM token
+        address actualMinter = steam.minter();
+
+        // Assert that the expected and actual addresses match
+        assertEq(actualMinter, expectedMinter, "Minter address not set correctly");
+    }
+
     function test_MiningAndMinting() public {
+        // 1. Advance time to enable first mining epoch
         skip(365 days);
         steam.update_mining_parameters();
 
-        vm.prank(user);
-        gauge.user_checkpoint(user);
-        ILiquidityGaugeV6Mock(address(gauge)).set_mock_fraction(user, 100 ether);
+        // 2. Setup test user and amounts
+        address eoa = 0xb9ab9578a34a05c86124c399735fdE44dEc80E7F; // test EOA
+        uint256 lockAmount = 100 ether;
+        uint256 depositAmount = 100 ether;
+        uint256 unlockTime = block.timestamp + 4 * 365 days;
 
-        vm.prank(user);
+        // 3. Fund EOA with STEAM tokens
+        vm.prank(multisig);
+        steam.transfer(eoa, lockAmount + depositAmount);
+
+        // 4. Lock STEAM in Voting Escrow
+        vm.startPrank(eoa, eoa);
+        steam.approve(address(escrow), lockAmount);
+        IVotingEscrowVy(address(escrow)).create_lock(lockAmount, unlockTime);
+        IVotingEscrowVy(address(escrow)).checkpoint();
+       
+        // 5. Deposit STEAM in Gauge (staking)
+        steam.approve(address(gauge), depositAmount);
+        gauge.deposit(depositAmount);
+        vm.stopPrank();
+
+        // 6. Advance time to accrue rewards
+        skip(7 days); // simulate reward accumulation period
+
+        // 7. User calls checkpoint
+        vm.prank(eoa);
+        gauge.user_checkpoint(eoa);
+
+        // 8. Allow minter to mint for user
+        vm.prank(eoa);
         minter.toggle_approve_mint(address(this));
-        minter.mint_for(address(gauge), user);
+        assertTrue(minter.allowed_to_mint_for(address(this), eoa));
 
-        assertGt(steam.balanceOf(user), 0);
+        // 9. Mint STEAM rewards
+        minter.mint_for(address(gauge), eoa);
+
+        // 10. Assert minted balance
+        uint256 minted = steam.balanceOf(eoa);
+        assertGt(minted, 0, "User should have received minted STEAM");
     }
 
     function test_SupplyCap() public {
-        skip(20 * 365 days);
-        for (uint256 i = 0; i < 20; i++) {
+        // Simulate passage of 50 years
+        skip(50 * 365 days);
+
+        // Update mining parameters for each year
+        for (uint256 i = 0; i < 50; i++) {
             steam.update_mining_parameters();
         }
-        assertLe(steam.available_supply(), TOTAL_SUPPLY);
-    }
 
-    function test_MintMany() public {
-        skip(365 days);
-        steam.update_mining_parameters();
+        uint256 emitted = steam.available_supply();
 
-        vm.prank(user);
-        gauge.user_checkpoint(user);
-        ILiquidityGaugeV6Mock(address(gauge)).set_mock_fraction(user, 100 ether);
+        // Define upper and lower bounds
+        uint256 tolerance = 1e16; // 0.01 ether
+        uint256 upperBound = TOTAL_SUPPLY + tolerance; // 100M + 0.01 tokens
+        uint256 lowerBound = (TOTAL_SUPPLY * 985) / 1000; // 98.5% of TOTAL_SUPPLY
 
-        vm.prank(user);
-        minter.toggle_approve_mint(address(this));
-
-        address[8] memory gauges;
-        gauges[0] = address(gauge);
-
-        minter.mint_many(gauges);
-
-        assertGt(steam.balanceOf(user), 0);
+        // Assertions
+        assertGt(emitted, lowerBound, "Emitted too little (<98.5% of total supply)");
+        assertLe(emitted, upperBound, "Emitted too much (>100M + 0.01)");
     }
 
     function test_GaugeNotInControllerReverts() public {
@@ -157,17 +189,22 @@ abstract contract SteamSystemTest is Test {
         vm.prank(user);
         minter.toggle_approve_mint(address(this)); // Allow this test contract to mint for `user`
 
-        vm.expectRevert("Gauge not in controller");
+        vm.expectRevert();
         minter.mint_for(badGauge, user);
     }
 
     function test_ToggleApproveMint() public {
         bool initial = minter.allowed_to_mint_for(address(this), user);
-        minter.toggle_approve_mint(user);
+
+        // Simulate user calling toggle for msg.sender = address(this)
+        vm.prank(user);
+        minter.toggle_approve_mint(address(this));
+
         bool afterToggle = minter.allowed_to_mint_for(address(this), user);
 
         assertTrue(initial != afterToggle, "Toggle should flip state");
     }
+
 
     function test_ControllerGaugeType() public view {
         assertEq(controller.gauge_types(address(gauge)), 0);

@@ -58,7 +58,7 @@ YEAR: constant(uint256) = 86400 * 365
 
 # Supply parameters
 RATE_REDUCTION_TIME: constant(uint256) = YEAR
-RATE_DENOMINATOR: constant(uint256) = 10 ** 18
+RATE_DENOMINATOR: constant(uint256) = 1_000_000_000
 INFLATION_DELAY: constant(uint256) = 86400
 
 INITIAL_RATE: public(uint256)
