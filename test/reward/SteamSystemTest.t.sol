@@ -30,7 +30,7 @@ abstract contract SteamSystemTest is Test {
     address public user;
 
     uint256 public constant TOTAL_SUPPLY = 100_000_000 ether;
-    uint256 public constant INITIAL_RATE = 1_201_550_387_596_899;
+    uint256 public constant INITIAL_RATE = 159_529_984_450_000_000;
     uint256 public constant RATE_REDUCTION_COEFFICIENT = 1290000000;
 
     bool public vyperEscrow;
@@ -69,8 +69,26 @@ abstract contract SteamSystemTest is Test {
             escrow = UnsafeUpgrades.deployUUPSProxy(
                 address(new VotingEscrow_v1(address(steam))),
                 // "Zhenglong Voting Escrow", "veSTEAM", "1"
-                abi.encodeCall(VotingEscrow_v1.initialize, (multisig, "Voting Escrow STEAM", "veSTEAM", "1.0.0"))
+                abi.encodeCall(VotingEscrow_v1.initialize, (multisig, "Voting Escrow STEAM", "veSTEAM", "1.0"))
             );
+
+            // VotingEscrow_v1 logic = new VotingEscrow_v1(address(steam));
+
+            // // Prepare the initialization calldata
+            // bytes memory initData = abi.encodeWithSelector(
+            //     VotingEscrow_v1.initialize.selector,
+            //     multisig,
+            //     "Voting Escrow Steam",
+            //     "veSTEAM",
+            //     "1.0"
+            // );
+
+            // // Deploy the proxy with the logic address and the initializer calldata
+            // ERC1967Proxy proxy = new ERC1967Proxy(address(logic), initData);
+
+            // // Cast the proxy address to VotingEscrow_v1 to interact with it
+            // escrow = VotingEscrow_v1(address(proxy));
+
             IBaoOwnable(escrow).transferOwnership(multisig);
         }
 
