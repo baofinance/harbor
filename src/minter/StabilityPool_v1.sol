@@ -22,8 +22,6 @@ import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 import {IVotingEscrowLookup} from "src/interfaces/IVotingEscrowLookup.sol";
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -257,7 +255,6 @@ contract StabilityPool_v1 is
         // slither-disable-next-line missing-zero-check
         VE_TOKEN = veToken_;
         VE_START = IVotingEscrow(VE_TOKEN).point_history(0).ts;
-        console2.log("VE_START=%s, block.timestamp=%s", VE_START, block.timestamp);
         uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
         if (week < VE_START) {
             revert VotingEscrowNotReady();
