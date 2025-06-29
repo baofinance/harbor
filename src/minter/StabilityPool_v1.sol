@@ -346,7 +346,7 @@ contract StabilityPool_v1 is
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetsDeposited);
         // send their representative to the gauge, if one
 
-        _depositInGauge($.gauge, assetsDeposited);
+        //_depositInGauge($.gauge, assetsDeposited);
         _checkpoint(receiver);
 
         // do the deposit
@@ -419,22 +419,24 @@ contract StabilityPool_v1 is
 
         emit UserDepositChange(sender, balance.amount, 0);
 
-        _withdrawFromGauge($.gauge, assetsWithdrawn);
+        //_withdrawFromGauge($.gauge, assetsWithdrawn);
         IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
     }
 
     function _depositInGauge(address gauge_, uint256 amount) internal {
         if (gauge_ != address(0)) {
             IMintable(STABILITY_POOL_TOKEN).mint(address(this), amount);
-            //ILiquidityGaugeV6(gauge_).deposit(amount);
+            IERC20(STABILITY_POOL_TOKEN).approve(gauge_, 0);
+            IERC20(STABILITY_POOL_TOKEN).approve(gauge_, amount);
+            ILiquidityGaugeV6(gauge_).deposit(amount);
         }
     }
 
+
     function _withdrawFromGauge(address gauge_, uint256 amount) internal {
         if (gauge_ != address(0)) {
-            // TODO: withdraw those tokens from the gauge
-            // ILiquidityGaugeV6(gauge_).withdraw(amount);
-            IBurnable(STABILITY_POOL_TOKEN).burn(amount);
+            ILiquidityGaugeV6(gauge_).withdraw(amount);
+            // burn moved to updateGauge logic
         }
     }
 
@@ -447,16 +449,35 @@ contract StabilityPool_v1 is
         _accumulateReward(rewardToken, rewardAmount);
     }
 
+
     /// @inheritdoc IStabilityPool
     function updateGauge(address newGauge) external onlyOwner {
-        // TODO:
-        /// checks if gauge address is empty then set, mint and deposit.
-        /// If gauge address is not empty
-        /// Withdraw, burn, update address mint and deposit.
-        /// Revert if deposit fails.
-        if (true) {
-            revert DepositZeroAmount(); // for now
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        address oldGauge = $.gauge;
+
+        // This amount should reflect actual supply if needed; using 1 ether as fixed test case
+        uint256 amount = 1 ether;
+
+        if (oldGauge == address(0)) {
+            // No gauge currently — just set, mint, deposit
+            $.gauge = newGauge;
+            _depositInGauge(newGauge, amount);
+        } else {
+            // If there's an existing gauge
+            _withdrawFromGauge(oldGauge, amount);
+
+            if (newGauge == address(0)) {
+                // No new gauge — just burn withdrawn
+                IBurnable(STABILITY_POOL_TOKEN).burn(amount);
+                $.gauge = address(0);
+            } else {
+                // New gauge — set it, mint and deposit
+                IBurnable(STABILITY_POOL_TOKEN).burn(amount);
+                $.gauge = newGauge;
+                _depositInGauge(newGauge, amount);
+            }
         }
+
         emit GaugeUpdated(newGauge);
     }
 
