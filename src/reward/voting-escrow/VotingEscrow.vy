@@ -677,3 +677,16 @@ def changeController(_newController: address):
     """
     assert msg.sender == self.controller
     self.controller = _newController
+
+@external
+@view
+def adjusted_balance_of(account: address) -> uint256:
+    _epoch: uint256 = self.user_point_epoch[account]
+    if _epoch == 0:
+        return 0
+    else:
+        last_point: Point = self.user_point_history[account][_epoch]
+        last_point.bias -= last_point.slope * convert(block.timestamp - last_point.ts, int128)
+        if last_point.bias < 0:
+            last_point.bias = 0
+        return convert(last_point.bias, uint256)

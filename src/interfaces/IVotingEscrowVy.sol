@@ -63,6 +63,7 @@ interface IVotingEscrowVy {
     ) external;
 
     function checkpoint() external;
+    function adjusted_balance_of(address) external view returns (uint256);
     function deposit_for(address user, uint256 value) external;
     function create_lock(uint256 value, uint256 unlock_time) external;
     function increase_amount(uint256 value) external;
