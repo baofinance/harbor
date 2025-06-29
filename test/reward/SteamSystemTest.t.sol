@@ -92,7 +92,14 @@ abstract contract SteamSystemTest is Test {
         gauge = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(address(steam), address(steam), address(controller), address(minter), address(escrow), address(escrow))
+                abi.encode(
+                    address(steam),
+                    address(steam),
+                    address(controller),
+                    address(minter),
+                    address(escrow),
+                    address(escrow)
+                )
             )
         );
 
@@ -137,7 +144,7 @@ abstract contract SteamSystemTest is Test {
         steam.approve(address(escrow), lockAmount);
         IVotingEscrowVy(address(escrow)).create_lock(lockAmount, unlockTime);
         IVotingEscrowVy(address(escrow)).checkpoint();
-       
+
         // 5. Deposit STEAM in Gauge (staking)
         steam.approve(address(gauge), depositAmount);
         gauge.deposit(depositAmount);
@@ -204,7 +211,6 @@ abstract contract SteamSystemTest is Test {
 
         assertTrue(initial != afterToggle, "Toggle should flip state");
     }
-
 
     function test_ControllerGaugeType() public view {
         assertEq(controller.gauge_types(address(gauge)), 0);

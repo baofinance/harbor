@@ -43,4 +43,4 @@ interface IGaugeController {
 
     // Voting
     function vote_for_gauge_weights(address, uint256) external;
-} 
+}

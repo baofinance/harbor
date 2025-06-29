@@ -12,7 +12,9 @@ contract GaugeControllerTest is Test {
 
     function setUp() public {
         // Deploy the Gauge Controller and add a gauge type
-        controller = IGaugeController(vm.deployCode("GaugeController.vy", abi.encode(address(0xDEAD), address(0x1234))));
+        controller = IGaugeController(
+            vm.deployCode("GaugeController.vy", abi.encode(address(0xDEAD), address(0x1234)))
+        );
         controller.add_type("Liquidity", 1);
         gauge1 = makeAddr("gauge1");
         gauge2 = makeAddr("gauge2");
