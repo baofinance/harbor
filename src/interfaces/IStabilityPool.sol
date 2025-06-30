@@ -93,9 +93,6 @@ interface IStabilityPool {
     /// @notice Return the address of underlying token of this contract.
     function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the address of voting escrow token used for boosting rewards.
-    function VE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
-
     /// @notice Return the address of the gauge used for staking
     function gauge() external view returns (address gauge);
 
@@ -108,10 +105,6 @@ interface IStabilityPool {
 
     /// @notice Return the amount of assets currently attributed to 'account'.
     function assetBalanceOf(address account) external view returns (uint256 amount);
-
-    /// @notice Return the current boost ratio for some specific user.
-    /// @param account The address of user to query, multiplied by 1e18.
-    function getBoostRatio(address account) external view returns (uint256);
 
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);

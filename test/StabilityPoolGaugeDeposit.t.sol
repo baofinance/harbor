@@ -69,7 +69,9 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         IBaoOwnable(escrow).transferOwnership(multisig);
 
         // Gauge controller + minter
-        controller = IGaugeController(vm.deployCode("GaugeController.vy", abi.encode(address(steam2), address(escrow))));
+        controller = IGaugeController(
+            vm.deployCode("GaugeController.vy", abi.encode(address(steam2), address(escrow)))
+        );
         controller.add_type("Liquidity", 1);
         minter2 = ISteamMinter(vm.deployCode("SteamMinter.vy", abi.encode(address(steam2), address(controller))));
 
@@ -95,7 +97,10 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken), stabilityPoolCollateral);
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
+            address(rewardToken),
+            stabilityPoolCollateral
+        );
         vm.stopPrank();
 
         // Mint and distribute tokens
@@ -119,12 +124,19 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         deal(peggedToken, user1, INITIAL_BALANCE);
         deal(peggedToken, user2, INITIAL_BALANCE);
         deal(peggedToken, user3, INITIAL_BALANCE);
-        
+
         // Deploy a dummy gauge (can be overridden later)
         gauge = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(address(peggedToken), address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+                abi.encode(
+                    address(peggedToken),
+                    address(steam2),
+                    address(controller),
+                    address(minter2),
+                    address(escrow),
+                    address(escrow)
+                )
             )
         );
         controller.add_gauge(address(gauge), 0, 1);
@@ -169,7 +181,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
                 abi.encode(
-                    address(spt),
+                    address(stabilityPoolCollateral),
                     address(steam),
                     address(controller),
                     address(minter),
@@ -192,7 +204,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), DEPOSIT_AMOUNT);
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), DEPOSIT_AMOUNT);
     }
-    
+
     function testUpdateGaugeTwiceMovesSPT() public {
         // Initial deposit into the StabilityPool
         vm.startPrank(user1);
@@ -220,7 +232,14 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         ILiquidityGaugeV6 gauge1 = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+                abi.encode(
+                    stabilityPoolCollateral,
+                    address(steam2),
+                    address(controller),
+                    address(minter2),
+                    address(escrow),
+                    address(escrow)
+                )
             )
         );
         controller.add_gauge(address(gauge1), 0, 1);
@@ -237,7 +256,15 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         ILiquidityGaugeV6 gauge2 = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+                // abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+                abi.encode(
+                    stabilityPoolCollateral,
+                    address(steam2),
+                    address(controller),
+                    address(minter2),
+                    address(escrow),
+                    address(escrow)
+                )
             )
         );
         controller.add_gauge(address(gauge2), 0, 1);
@@ -261,7 +288,14 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         ILiquidityGaugeV6 gauge1 = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+                abi.encode(
+                    stabilityPoolCollateral,
+                    address(steam2),
+                    address(controller),
+                    address(minter2),
+                    address(escrow),
+                    address(escrow)
+                )
             )
         );
         controller.add_gauge(address(gauge1), 0, 1);

@@ -53,7 +53,7 @@ contract StabilityPool_v2 is StabilityPool_v1 {
         address steam_,
         address veSteam_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_, veSteam_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_, periodLength) {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
@@ -70,56 +70,11 @@ contract MockStabilityPool is StabilityPool_v1 {
         address steam_,
         address veSteam_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_, veSteam_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_, periodLength) {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
         return _getStabilityPoolStorage().totalAssetSupply;
-    }
-
-    function getVeStart() external view returns (uint256) {
-        return _VE_START;
-    }
-
-    function getVeBalance(address account, uint256 week) external view returns (uint128 value, uint128 epoch) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        VeBalance memory balance = $.veBalances[account][week];
-        return (balance.value, balance.epoch);
-    }
-
-    function getVeSupply(uint256 week) external view returns (uint128 value, uint128 epoch) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        VeBalance memory supply = $.veSupply[week];
-        return (supply.value, supply.epoch);
-    }
-
-    function veSupplyAtPoint(IVotingEscrow.Point calldata point, uint256 timestamp) external view returns (uint256) {
-        return _veSupplyAt(point, timestamp);
-    }
-
-    function veBalanceAtPoint(IVotingEscrow.Point calldata point, uint256 timestamp) external pure returns (uint256) {
-        return _veBalanceAt(point, timestamp);
-    }
-
-    function veTotalSupplyAt(uint256 timestamp) external view returns (uint256) {
-        return _veTotalSupply(timestamp);
-    }
-
-    function veBalanceOfAt(address account, uint256 timestamp) external view returns (uint256) {
-        return _veBalanceOf(account, timestamp);
-    }
-
-    function checkpointVeExternal(address account) external {
-        _checkpointVe(account);
-    }
-
-    function computeBoostRatio(
-        uint256 balance,
-        uint256 supply,
-        uint256 veBalance,
-        uint256 veSupply
-    ) external pure returns (uint256) {
-        return _computeBoostRatio(balance, supply, veBalance, veSupply);
     }
 }
 
@@ -197,7 +152,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         assertNotEq(IStabilityPool(sp).GAUGE_STAKE_TOKEN(), address(0)); // make sure it has something
         assertEq(IStabilityPool(sp).GAUGE_REWARD_TOKEN(), steam); // make sure it has something
         assertEq(IStabilityPool(sp).gauge(), address(0));
-        assertEq(IStabilityPool(sp).VE_TOKEN(), veSteam);
         assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
     }
 }
@@ -262,11 +216,11 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam, veSteam, 1 weeks));
+        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam, 1 weeks));
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, steam, veSteam, 1 weeks));
+        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, steam, 1 weeks));
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
@@ -293,10 +247,10 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initEventsBad() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
-        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam, veSteam, 1 weeks);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam, 1 weeks);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1 days - 1));
-        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam, veSteam, 1 days - 1);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam, 1 days - 1);
     }
 }
 

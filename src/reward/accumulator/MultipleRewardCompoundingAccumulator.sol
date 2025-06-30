@@ -186,14 +186,14 @@ abstract contract MultipleRewardCompoundingAccumulator is
         userRewardSnapshot_ = $.userRewardSnapshot[account][token];
     }
 
-    function _setUserRewardSnapshot(
-        address account,
-        address token,
-        UserRewardSnapshot memory userRewardSnapshot_
-    ) internal {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        $.userRewardSnapshot[account][token] = userRewardSnapshot_;
-    }
+    // function _setUserRewardSnapshot(
+    //     address account,
+    //     address token,
+    //     UserRewardSnapshot memory userRewardSnapshot_
+    // ) internal {
+    //     MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+    //     $.userRewardSnapshot[account][token] = userRewardSnapshot_;
+    // }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.MultipleRewardCompoundingAccumulator")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _MULTIPLEREWARDCOMPOUNDINGACCUMULATOR_STORAGE =
@@ -384,7 +384,6 @@ abstract contract MultipleRewardCompoundingAccumulator is
         snapshot.rewards.pending = uint128(_claimable(account, token));
         snapshot.checkpoint.integral = $.tokenToEpochExponentToIntegral[token][epochExponent];
         snapshot.checkpoint.timestamp = uint64(block.timestamp);
-
         $.userRewardSnapshot[account][token] = snapshot;
     }
 

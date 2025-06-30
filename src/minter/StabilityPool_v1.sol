@@ -5,6 +5,8 @@ pragma solidity 0.8.30;
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {Token} from "@bao/Token.sol";
@@ -19,7 +21,6 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
-import {IVotingEscrowLookup} from "src/interfaces/IVotingEscrowLookup.sol";
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 
 import {console2} from "forge-std/console2.sol";
@@ -40,14 +41,6 @@ import {console2} from "forge-std/console2.sol";
 /// * be deposited in a gauge for further rewards
 /// * represent ownership of the assets deposited here in a wallet.
 ///
-/// To add boost for STEAM, we maintain a time-weighted boost ratio for each user.
-///   boost[u][i] = min(balance[u][i], 0.4 * balance[u][i] + ve[u][i] * totalSupply[i] / veTotal[i] * 0.6)
-///   ratio[u][x -> y] = sum(boost[u][i] / balance[u][i] * (t[i] - t[i - 1])) / (t[y] - t[x])
-///
-///   1. supply[w] is the total amount of token staked at the beginning of week `w`.
-///   2. veSupply[w] is the total ve supply at the beginning of week `w`.
-///   3. ve[u][w] is the ve balance for user `u` at the beginning of week `w`.
-///   4. balance[u][w] is the amount of token staked for user `u` at the beginning of week `w`.
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
@@ -93,9 +86,6 @@ contract StabilityPool_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable GAUGE_REWARD_TOKEN;
 
-    /// @inheritdoc IStabilityPool
-    address public immutable VE_TOKEN;
-
     /// @dev timestamp of the start point for the VE_TOKEN
     uint256 internal immutable _VE_START;
 
@@ -112,25 +102,6 @@ contract StabilityPool_v1 is
         uint112 product;
         uint104 amount;
         uint40 updatedAt;
-    }
-
-    /// @dev The boost checkpoint struct. The compiler will pack this into single `uint256`.
-    /// Each epoch `t` starts at timestamp `t * 86400 * 7` (inclusive) and ends at `(t + 1) * 86400 * 7` (not inclusive).
-    ///
-    /// @param boostRatio The boost ratio of current epoch.
-    /// @param historyIndex The index of supply in totalSupplyHistory at checkpoint.
-    struct BoostCheckpoint {
-        uint64 boostRatio;
-        uint64 historyIndex;
-    }
-
-    /// @notice The ve balance/supply struct.
-    /// @dev Compiler will pack this into single `uint256`.
-    /// @param value The current ve balance/supply.
-    /// @param epoch The corresponding ve balance/supply history point epoch.
-    struct VeBalance {
-        uint128 value;
-        uint128 epoch;
     }
 
     /// @dev The gauge data struct. The compiler will pack this into single `uint256`.
@@ -165,33 +136,6 @@ contract StabilityPool_v1 is
         // address wrapper;
         /// @notice Error trackers for the error correction in the loss calculation.
         uint256 lastAssetLossError;
-        /// @notice Mapping from account address to index in `totalSupplyHistory`.
-        mapping(address => BoostCheckpoint) boostCheckpoint;
-        /// @notice Mapping from vote owner address to current balance sum of accepted stakers.
-        mapping(address => TokenBalance) voteOwnerBalances;
-        /// @notice Mapping from vote owner address to week timestamp to historical balance sum of accepted stakers.
-        mapping(address => mapping(uint256 => uint256)) voteOwnerHistoryBalances;
-        /// @dev Mapping from timestamp to corresponding ve supply struct.
-        //
-        // VE supply is the total ve balance
-        // TODO: change the uint meaning from timestamp to week number (i.e. timestamp / 1 weeks * 1 weeks)
-        mapping(uint256 => VeBalance) veSupply;
-        /// @dev Mapping from account address to timestamp to corresponding ve balance struct.
-        ///
-        /// Note that we only record the struct for the timestamp when `checkpoint(account)` is
-        /// invoked. This is used to saving gas, the reasons are below.
-        ///
-        /// There are two user types: EOA and contract account.  For normal EOA, the number
-        /// of history points usually are small and the call to `checkpoint(account)` is also
-        /// not frequently. For contract account, the number of history points usually are large
-        /// and the call to `checkpoint(account)` is very frequently.
-        ///
-        /// According to the implementation of `balanceOf(address account, uint256 timestamp)`.
-        /// For EOA, it is very likely to binary search for the correct epoch. And since the number
-        /// of history points is small, the number of contract call is also small. For contract
-        /// account, it is very likely to find the value in `_balances[account][week]`. Overall,
-        /// we will find the correct balance using only `O(1)` contract read.
-        mapping(address => mapping(uint256 => VeBalance)) veBalances;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -225,16 +169,6 @@ contract StabilityPool_v1 is
         $.totalAssetSupply = initialSupply;
         $.totalAssetSupplyHistory[0] = initialSupply;
         $.totalAssetSupplyHistoryLength = 1;
-
-        // VE set-up
-        // TODO: look at putting the below into the VotingEscrow behind Extra interface
-        uint256 week = _toWeekTsBefore(block.timestamp);
-        (uint256 nowEpoch, IVotingEscrow.Point memory nowPoint) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(
-            week,
-            0,
-            type(uint256).max
-        );
-        $.veSupply[week] = VeBalance(uint128(_veSupplyAt(nowPoint, week)), uint128(nowEpoch));
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -245,7 +179,6 @@ contract StabilityPool_v1 is
         address liquidationToken_,
         address gaugeStakeToken_,
         address gaugeRewardToken_,
-        address veToken_,
         uint40 periodLength
     ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, periodLength) {
         _disableInitializers();
@@ -269,16 +202,6 @@ contract StabilityPool_v1 is
         Token.sanityCheckERC20Token(gaugeStakeToken_);
         // slither-disable-next-line missing-zero-check
         GAUGE_REWARD_TOKEN = gaugeRewardToken_;
-
-        // VE set-up
-        Token.sanityCheckERC20Token(gaugeStakeToken_);
-        // slither-disable-next-line missing-zero-check
-        VE_TOKEN = veToken_;
-        _VE_START = IVotingEscrow(VE_TOKEN).point_history(0).ts;
-        uint256 week = _toWeekTsBefore(block.timestamp);
-        if (week < _VE_START) {
-            revert VotingEscrowNotReady();
-        }
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -318,11 +241,6 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function getBoostRatio(address account) public view returns (uint256) {
-        return _getBoostRatio(account);
-    }
-
-    /// @inheritdoc IStabilityPool
     function lastAssetLossError() external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.lastAssetLossError;
@@ -331,12 +249,6 @@ contract StabilityPool_v1 is
     /// @inheritdoc IMultipleRewardAccumulator
     function claimable(address account, address token) public view virtual override returns (uint256 earned) {
         earned = _claimable(account, token);
-        if (token == GAUGE_REWARD_TOKEN) {
-            UserRewardSnapshot memory _userSnapshot = _userRewardSnapshot(account, token);
-            uint256 fullEarned = earned - _userSnapshot.rewards.pending;
-            uint256 boostEarned = (fullEarned * getBoostRatio(account)) / 1 ether;
-            earned = _userSnapshot.rewards.pending + boostEarned;
-        }
     }
 
     /****************************
@@ -369,7 +281,6 @@ contract StabilityPool_v1 is
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetsDeposited);
         // send their representative to the gauge, if one
 
-        //_depositInGauge($.gauge.gauge, assetsDeposited);
         _checkpoint(receiver);
 
         // do the deposit
@@ -386,9 +297,6 @@ contract StabilityPool_v1 is
         balance.amount += uint104(assetsDeposited);
         $.assetBalances[receiver] = balance;
         emit UserDepositChange(receiver, balance.amount, 0);
-
-        // update boost checkpoint at last
-        _updateBoostCheckpoint(receiver, balance, supply);
     }
 
     /// @inheritdoc IStabilityPool
@@ -436,42 +344,9 @@ contract StabilityPool_v1 is
         }
         $.assetBalances[sender] = balance;
 
-        // update boost checkpoint we need to do it again after it being done in _checkpoint because
-        // we've updated the balances
-        _updateBoostCheckpoint(sender, balance, supply);
-
         emit UserDepositChange(sender, balance.amount, 0);
 
-        //_withdrawFromGauge($.gauge.gauge, assetsWithdrawn);
         IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
-    }
-
-    function _depositInGauge(address gauge_) internal {
-        if (gauge_ != address(0)) {
-            uint256 amount = 1 ether;
-
-            // Mint SPT tokens to this contract
-            IMintable(GAUGE_STAKE_TOKEN).mint(address(this), amount);
-
-            // Increase allowance for the gauge to pull the SPT
-            IERC20(GAUGE_STAKE_TOKEN).safeIncreaseAllowance(gauge_, amount);
-
-            // Deposit into the gauge
-            ILiquidityGaugeV6(gauge_).deposit(amount);
-        }
-    }
-
-    function _withdrawFromGauge(address gauge_) internal {
-        if (gauge_ != address(0)) {
-            uint256 amount = ILiquidityGaugeV6(gauge_).balanceOf(address(this));
-
-            // Withdraw the entire staked amount from the gauge
-            ILiquidityGaugeV6(gauge_).withdraw(amount);
-
-            // Burn the full SPT balance held by this contract
-            uint256 balance = IERC20(GAUGE_STAKE_TOKEN).balanceOf(address(this));
-            IBurnable(address(GAUGE_STAKE_TOKEN)).burn(balance);
-        }
     }
 
     /// protected public functions
@@ -488,16 +363,59 @@ contract StabilityPool_v1 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         address oldGauge = $.gauge.gauge;
 
+        emit GaugeUpdated(newGauge);
+
         if (oldGauge != address(0)) {
-            _withdrawFromGauge(oldGauge);
+            // Withdraw the entire staked amount from the gauge
+            ILiquidityGaugeV6(oldGauge).withdraw(1 ether); // wake-disable-line reentrancy all callers are nonReentrant
         }
+        $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
 
         if (newGauge != address(0)) {
-            _depositInGauge(newGauge);
+            // now transfer the entire amount into the new gauge
+            ILiquidityGaugeV6(newGauge).deposit(1 ether);
         }
+    }
 
-        $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
-        emit GaugeUpdated(newGauge);
+    function balanceOf(address account) external view returns (uint256 balance) {
+        balance = 0;
+        if (account != address(0)) {
+            StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+            if (account == $.gauge.gauge && $.totalAssetSupply.amount > 0) {
+                balance = 1 ether;
+            }
+        }
+    }
+
+    function symbol() external view returns (string memory) {
+        return string(abi.encodePacked("Zhenglong-SP-", IERC20Metadata(ASSET_TOKEN).symbol()));
+    }
+
+    function transferFrom(address sender, address receiver, uint256 amount) public returns (bool) {
+        if (receiver == address(0)) {
+            revert IERC20Errors.ERC20InvalidReceiver(address(0));
+        }
+        if (sender != address(this)) {
+            revert IERC20Errors.ERC20InvalidSender(sender);
+        }
+        emit IERC20.Transfer(sender, receiver, amount);
+        return true;
+    }
+
+    function transfer(address receiver, uint256 amount) external returns (bool) {
+        if (receiver == address(0)) {
+            revert IERC20Errors.ERC20InvalidReceiver(address(0));
+        }
+        emit IERC20.Transfer(_msgSender(), receiver, amount);
+        return true;
+    }
+
+    function allowance(address owner, address spender) external view returns (uint256) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        if (owner != address(this) || spender != $.gauge.gauge) {
+            return 0;
+        }
+        return 1 ether;
     }
 
     /**********************
@@ -505,7 +423,7 @@ contract StabilityPool_v1 is
      **********************/
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
-    // slither-disable-next-line reentrancy-events // function is only called from nonReentrant external functions
+    // slither-disable-next-line reentrancy-events,reentrancy-benign // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -522,9 +440,6 @@ contract StabilityPool_v1 is
         super._checkpoint(account);
 
         if (account != address(0)) {
-            // checkpoint the voting escrow
-            _checkpointVe(account);
-
             TokenBalance memory supply = $.totalAssetSupply;
             TokenBalance memory balance = $.assetBalances[account];
             uint104 newBalance = uint104(_getCompoundedBalance(balance.amount, balance.product, supply.product));
@@ -534,36 +449,7 @@ contract StabilityPool_v1 is
             }
             balance = TokenBalance({amount: newBalance, product: supply.product, updatedAt: uint40(block.timestamp)});
             $.assetBalances[account] = balance;
-            _updateBoostCheckpoint(account, balance, supply);
         }
-    }
-
-    /// @inheritdoc MultipleRewardCompoundingAccumulator
-    function _updateSnapshot(address account, address token) internal virtual override {
-        // TODO: this should just call into super._updateSnapshot();
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        UserRewardSnapshot memory snapshot = _userRewardSnapshot(account, token);
-        uint48 epochExponent = $.totalAssetSupply.product.epochAndExponent(); // <-- this bit seems to be duplicated?
-
-        // if (token == fxn) {
-
-        //     uint256 fullEarned = _claimable(account, token) - snapshot.rewards.pending;
-        //     // save gas when on earned
-        //     if (fullEarned > 0) {
-        //         uint256 ratio = _getBoostRatio(account);
-        //         uint256 boostEarned = (fullEarned * ratio) / 1 ether;
-        //         snapshot.rewards.pending += uint128(boostEarned);
-        //         if (fullEarned > boostEarned) {
-        //             // redistribute unboosted rewards.
-        //             _notifyReward(fxn, fullEarned - boostEarned);
-        //         }
-        //     }
-        // } else {
-        snapshot.rewards.pending = uint128(_claimable(account, token));
-        // }
-        snapshot.checkpoint.integral = _tokenToEpochExponentToIntegral(token, epochExponent);
-        snapshot.checkpoint.timestamp = uint64(block.timestamp);
-        _setUserRewardSnapshot(account, token, snapshot);
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
@@ -582,23 +468,6 @@ contract StabilityPool_v1 is
         TokenBalance memory balance = $.assetBalances[account];
         previousProd = balance.product;
         share = balance.amount;
-    }
-
-    /// @dev Internal function update boost checkpoint for the user.
-    /// @param account The address of user to update.
-    /// @param balance The latest balance struct of the user.
-    /// @param supply The latest total supply struct.
-    function _updateBoostCheckpoint(address account, TokenBalance memory balance, TokenBalance memory supply) internal {
-        uint256 ratio = _computeBoostRatio(
-            balance.amount,
-            supply.amount,
-            IVotingEscrow(VE_TOKEN).balanceOf(account),
-            IVotingEscrow(VE_TOKEN).totalSupply()
-        );
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        unchecked {
-            $.boostCheckpoint[account] = BoostCheckpoint(uint64(ratio), uint64($.totalAssetSupplyHistoryLength - 1));
-        }
     }
 
     /// @dev Internal function to reduce asset accounting.
@@ -738,348 +607,10 @@ contract StabilityPool_v1 is
     function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
         super._sweep(token, amount, receiver);
         if (token == ASSET_TOKEN) {
-            StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-            // we need to burn the appropriate amount of this contract to match the new token balance
-            //_withdrawFromGauge($.gauge.gauge, amount);
-
             _checkpoint(address(0));
 
             _notifyLoss(amount);
         }
-    }
-
-    /// @dev Internal function to get boost ratio for the given account.
-    ///
-    /// @param account The address of the account to query.
-    function _getBoostRatio(address account) internal view returns (uint256 boostRatio) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.assetBalances[account];
-        // no deposit before
-        if (balance.amount == 0) return 0;
-
-        BoostCheckpoint memory boostCheckpoint = $.boostCheckpoint[account];
-        // slither-disable-next-line incorrect-equality as we're checking for a shortcut case of this code running in the same block updatedAt was changed
-        if (uint256(balance.updatedAt) == block.timestamp) {
-            return boostCheckpoint.boostRatio;
-        }
-
-        uint256 nextIndex = boostCheckpoint.historyIndex;
-        uint256 currentRatio = boostCheckpoint.boostRatio;
-        uint256 prevTs = balance.updatedAt;
-        // compute the time weighted boost from balance.updatedAt to now.
-        uint256 nowTs = _toWeekTsAfter(prevTs);
-        for (uint256 i = 0; i < 256; ++i) {
-            // it is more than 4 years, should be enough
-            if (nowTs > block.timestamp) nowTs = block.timestamp;
-            boostRatio += currentRatio * (nowTs - prevTs);
-            // slither-disable-next-line incorrect-equality
-            if (nowTs == block.timestamp) break;
-            uint256 veBalance = _veBalanceOf(account, nowTs);
-            uint256 veSupply = _veTotalSupply(nowTs);
-            (currentRatio, nextIndex) = _boostRatioAt(account, balance, veBalance, veSupply, nextIndex, nowTs);
-            prevTs = nowTs;
-            nowTs += 1 weeks;
-        }
-        boostRatio /= uint256(block.timestamp - balance.updatedAt);
-    }
-
-    /* potentially much less gassy _getBoostRatio()
-    function _getBoostRatio(address account) internal view returns (uint256 boostRatio) {
-    StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-    TokenBalance memory balance = $.assetBalances[account];
-    if (balance.amount == 0) return 0;
-
-    // Fast path for same block
-    BoostCheckpoint memory boostCheckpoint = $.boostCheckpoint[account];
-    if (uint256(balance.updatedAt) == block.timestamp) {
-        return boostCheckpoint.boostRatio;
-    }
-
-    uint256 nextIndex = boostCheckpoint.historyIndex;
-    uint256 currentRatio = boostCheckpoint.boostRatio;
-    uint256 prevTs = balance.updatedAt;
-    uint256 nowTs = _getWeekTs(prevTs);
-    uint256 timeWeightedSum = 0;
-    uint256 supplyHistoryLength = $.totalAssetSupplyHistoryLength;
-    uint256 currentSupplyIndex = nextIndex;
-
-    // Pre-fetch next supply point to avoid repeated lookups
-    TokenBalance memory currentSupply = $.totalAssetSupplyHistory[currentSupplyIndex];
-    TokenBalance memory nextSupply;
-
-    // Process each week, but advance through supply history sequentially
-    for (uint256 i = 0; i < 256; ++i) {
-        if (nowTs > block.timestamp) nowTs = block.timestamp;
-
-        // Add current period to weighted sum
-        timeWeightedSum += currentRatio * (nowTs - prevTs);
-        if (nowTs == block.timestamp) break;
-
-        // Find appropriate supply records for this timestamp
-        // Instead of binary search, we scan forward (temporal locality)
-        while (currentSupplyIndex + 1 < supplyHistoryLength &&
-               $.totalAssetSupplyHistory[currentSupplyIndex + 1].updatedAt <= nowTs) {
-            currentSupplyIndex++;
-            currentSupply = $.totalAssetSupplyHistory[currentSupplyIndex];
-        }
-
-        // Calculate boost for this point in time
-        uint256 veBalance = _veBalanceOf(account, nowTs);
-        uint256 veSupply = _veTotalSupply(nowTs);
-        uint256 balanceAmount = _getCompoundedBalance(balance.amount, balance.product, currentSupply.product);
-        currentRatio = _computeBoostRatio(balanceAmount, currentSupply.amount, veBalance, veSupply);
-
-        // Move to next week
-        prevTs = nowTs;
-        nowTs += 1 weeks;
-    }
-
-    return timeWeightedSum / uint256(block.timestamp - balance.updatedAt);
-}
-    */
-
-    function _toWeekTsBefore(uint256 timestamp) internal pure returns (uint256 beforeTs) {
-        // truncate the timestamp to the previous week start
-        unchecked {
-            // slither-disable-next-line divide-before-multiply
-            beforeTs = (timestamp / 1 weeks) * 1 weeks;
-        }
-    }
-
-    /// @dev Internal function to compute the smallest week aligned timestamp after given timestamp.
-    /// @param timestamp The given timestamp.
-    function _toWeekTsAfter(uint256 timestamp) internal pure returns (uint256 afterTs) {
-        unchecked {
-            // slither-disable-next-line divide-before-multiply
-            afterTs = ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks; // use integer division to round down
-        }
-    }
-
-    /// @dev Internal function to get boost ratio at specific time point.
-    ///
-    /// Caller should make sure `t` is always a multiple of `WEEK`.
-    function _boostRatioAt(
-        address /*owner_*/,
-        TokenBalance memory balance,
-        uint256 veBalance,
-        uint256 veSupply,
-        uint256 startIndex,
-        uint256 t
-    ) internal view returns (uint256 boostRatio, uint256 index) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // Binary search to find largest `index` that totalSupplyHistory[index].updateAt <= t.
-        // The largest `index` may not be the correct one if there are multiple deposit/withdraw/liquidation
-        // in the same block. However, we only care about the boost ratio after timestamp `t`,
-        // it is tolerable to use the largest `index`.
-        unchecked {
-            uint256 endIndex = $.totalAssetSupplyHistoryLength - 1;
-            while (startIndex < endIndex) {
-                uint256 mid = (startIndex + endIndex + 1) >> 1;
-                if ($.totalAssetSupplyHistory[mid].updatedAt <= t) {
-                    startIndex = mid;
-                } else {
-                    endIndex = mid - 1;
-                }
-            }
-        }
-
-        // Find the actual balance base on the supply.
-        TokenBalance memory supply = $.totalAssetSupplyHistory[startIndex];
-        uint256 balanceAmount = _getCompoundedBalance(balance.amount, balance.product, supply.product);
-
-        boostRatio = _computeBoostRatio(balanceAmount, supply.amount, veBalance, veSupply);
-        index = startIndex;
-    }
-
-    /// @dev Internal function to compute boost ratio with given parameters.
-    function _computeBoostRatio(
-        uint256 balance,
-        uint256 supply,
-        uint256 veBalance,
-        uint256 veSupply
-    ) internal pure returns (uint256) {
-        console2.log("  balance=%s,   supply=%s", balance, supply);
-        console2.log("veBalance=%s, veSupply=%s", veBalance, veSupply);
-        unchecked {
-            if (balance == 0) return (1 ether * 4) / 10;
-
-            // Compute boost ratio with Curve's rule: min(balance, balance * 0.4 + 0.6 * veBalance * supply / veSupply) / balance
-            uint256 boostedBalance = balance * 4;
-            if (veSupply > 0) {
-                boostedBalance += (6 * veBalance * supply) / veSupply;
-            }
-            boostedBalance /= 10;
-            if (boostedBalance > balance) {
-                boostedBalance = balance;
-            }
-
-            return (boostedBalance * 1 ether) / balance;
-        }
-    }
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////
-    // internal functions to manage the VE_TOKEN checkpointing
-    /////////////////////////////////////////////////////////////////////////////////////////////////
-
-    // /// @dev Internal function to find largest `epoch` belongs to `[startEpoch, endEpoch]` and
-    // /// `ve.point_history(epoch) <= timestamp`.
-    // ///
-    // /// Caller should make sure the `ve.point_history(startEpoch) <= timestamp`.
-    // ///
-    // /// @param timestamp The timestamp to search.
-    // /// @param startEpoch The number of start epoch, inclusive.
-    // /// @param endEpoch The number of end epoch, inclusive.
-    // /// @return epoch The largest `epoch` that `ve.point_history(epoch) <= timestamp`.
-    // /// @return point The value of `ve.point_history(epoch)`.
-    // function _binarySearchVeSupplyPoint(
-    //     uint256 timestamp,
-    //     uint256 startEpoch,
-    //     uint256 endEpoch
-    // ) internal view returns (uint256 epoch, IVotingEscrow.Point memory point) {
-    //     unchecked {
-    //         while (startEpoch < endEpoch) {
-    //             uint256 mid = (startEpoch + endEpoch + 1) / 2;
-    //             IVotingEscrow.Point memory p = IVotingEscrow(VE_TOKEN).point_history(mid);
-    //             if (p.ts <= timestamp) {
-    //                 startEpoch = mid;
-    //                 point = p;
-    //             } else {
-    //                 endEpoch = mid - 1;
-    //             }
-    //         }
-    //     }
-    //     epoch = startEpoch;
-    //     // in case, the `p.ts <= timestamp` never hit in the binary search
-    //     if (point.ts == 0) {
-    //         point = IVotingEscrow(VE_TOKEN).point_history(epoch);
-    //     }
-    // }
-
-    /// @dev Internal function to compute the ve supply. Caller should make sure `timestamp` is not less than `point.ts`.
-    /// @param point The point for ve.
-    /// @param timestamp The timestamp to compute.
-    function _veSupplyAt(IVotingEscrow.Point memory point, uint256 timestamp) internal view returns (uint256) {
-        int256 bias = point.bias;
-        int256 slope = point.slope;
-        uint256 last = point.ts;
-        uint256 ti = _toWeekTsBefore(last);
-        while (true) {
-            ti += 1 weeks;
-            int128 dslope = 0;
-            if (ti > timestamp) ti = timestamp;
-            else {
-                dslope = IVotingEscrow(VE_TOKEN).slope_changes(ti);
-            }
-            bias -= slope * int256(ti - last);
-            if (ti == timestamp) break;
-            slope += dslope;
-            last = ti;
-        }
-        if (bias < 0) bias = 0; // the lock has expired, only happens when it is the last point
-
-        return uint256(int256(bias));
-    }
-
-    /// @dev Internal function to checkpoint ve balance and supply at timestamp week.
-    /// @param account The address of user to checkpoint.
-    // slither-disable-next-line reentrancy-benign // all the callers are non-reentrant
-    function _checkpointVe(address account) internal {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        uint256 week = _toWeekTsBefore(block.timestamp);
-        IVotingEscrow(VE_TOKEN).checkpoint();
-
-        // checkpoint supply
-        VeBalance memory nowSupply = $.veSupply[week];
-        if (nowSupply.epoch == 0) {
-            VeBalance memory prevSupply = $.veSupply[week - 1 weeks];
-            uint256 first = prevSupply.epoch;
-            (uint256 epoch, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(
-                week,
-                first,
-                type(uint256).max
-            );
-
-            nowSupply.value = uint128(_veSupplyAt(point, week));
-            nowSupply.epoch = uint128(epoch);
-            $.veSupply[week] = nowSupply;
-        }
-
-        // checkpoint balance for nonzero address
-        if (account == address(0)) return;
-        uint256 userPointEpoch = IVotingEscrow(VE_TOKEN).user_point_epoch(account);
-        if (userPointEpoch == 0) return;
-
-        VeBalance memory nowBalance = $.veBalances[account][week];
-        if (nowBalance.epoch == 0) {
-            uint256 first = $.veBalances[account][week - 1 weeks].epoch;
-            (uint256 epoch, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findUserPoint(
-                account,
-                week,
-                first,
-                userPointEpoch
-            );
-
-            // @note `week < point.ts` can happen if user create lock after week timestamp
-            if (week >= point.ts) {
-                nowBalance.value = uint128(_veBalanceAt(point, week));
-            }
-
-            nowBalance.epoch = uint128(epoch);
-            $.veBalances[account][week] = nowBalance;
-        }
-    }
-
-    function _veTotalSupply(uint256 timestamp) internal view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        uint256 week = _toWeekTsBefore(timestamp);
-        VeBalance memory prevSupply = $.veSupply[week];
-        uint256 first = prevSupply.epoch; // 0 is code for the first one
-        uint256 last = type(uint256).max; // code for the last one
-        if (first > 0) {
-            if (week == timestamp) return prevSupply.value;
-            VeBalance memory nextSupply = $.veSupply[week + 1 weeks];
-            last = nextSupply.epoch;
-        }
-        (, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(timestamp, first, last);
-
-        return _veSupplyAt(point, timestamp);
-    }
-
-    function _veBalanceOf(address account, uint256 timestamp) internal view returns (uint256) {
-        // check whether the user has no locks
-        if (timestamp > IVotingEscrow(VE_TOKEN).locked__end(account)) {
-            return 0;
-        }
-
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        uint256 week = _toWeekTsBefore(timestamp);
-        VeBalance memory prevBalance = $.veBalances[account][week];
-        uint256 first = prevBalance.epoch; // 0 is code for the first one
-        uint256 last = type(uint256).max; // code for the last one
-        if (first > 0) {
-            if (week == timestamp) return prevBalance.value;
-            VeBalance memory nextBalance = $.veBalances[account][week + 1 weeks];
-            last = nextBalance.epoch;
-        }
-        (, IVotingEscrow.Point memory point) = IVotingEscrowLookup(VE_TOKEN).findUserPoint(
-            account,
-            timestamp,
-            first,
-            last
-        );
-
-        return _veBalanceAt(point, timestamp);
-    }
-
-    /// @dev Internal function to compute the ve balance. Caller should make sure `timestamp` is not less than `point.ts`.
-    /// @param point The point for ve.
-    /// @param timestamp The timestamp to compute.
-    function _veBalanceAt(IVotingEscrow.Point memory point, uint256 timestamp) internal pure returns (uint256) {
-        int256 bias = point.bias - point.slope * int256(timestamp - point.ts);
-        if (bias < 0) bias = 0; // the lock has expired, only happens when it is the last point
-
-        return uint256(bias);
     }
 }
 
