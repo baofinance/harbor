@@ -28,18 +28,17 @@ contract GaugeControllerTest is Test {
     }
 
     function testGaugeRelativeWeightDefault() public {
-        controller.change_type_weight(0, 1);      // Set non-zero type weight
-        controller.add_gauge(gauge1, 0, 1);       // Add gauge with weight
+        controller.change_type_weight(0, 1); // Set non-zero type weight
+        controller.add_gauge(gauge1, 0, 1); // Add gauge with weight
 
         // Move ahead 2 weeks to ensure all changes are applied
         vm.warp(block.timestamp + 2 weeks);
 
-        controller.checkpoint_gauge(gauge1);      // Force update of weights
+        controller.checkpoint_gauge(gauge1); // Force update of weights
 
         uint256 weight = controller.gauge_relative_weight(gauge1, block.timestamp);
         assertEq(weight, 1e18, "Should return full weight by default");
     }
-
 
     function testMultipleGaugeTypes() public {
         controller.add_gauge(gauge1, 0, 1);
