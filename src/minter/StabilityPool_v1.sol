@@ -367,7 +367,7 @@ contract StabilityPool_v1 is
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetsDeposited);
         // send their representative to the gauge, if one
 
-        _depositInGauge($.gauge.gauge, assetsDeposited);
+        //_depositInGauge($.gauge.gauge, assetsDeposited);
         _checkpoint(receiver);
 
         // do the deposit
@@ -440,22 +440,35 @@ contract StabilityPool_v1 is
 
         emit UserDepositChange(sender, balance.amount, 0);
 
-        _withdrawFromGauge($.gauge.gauge, assetsWithdrawn);
+        //_withdrawFromGauge($.gauge.gauge, assetsWithdrawn);
         IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
     }
 
-    function _depositInGauge(address gauge_, uint256 amount) internal {
+    function _depositInGauge(address gauge_) internal {
         if (gauge_ != address(0)) {
+            uint256 amount = 1 ether;
+
+            // Mint SPT tokens to this contract
             IMintable(GAUGE_STAKE_TOKEN).mint(address(this), amount);
+
+            // Increase allowance for the gauge to pull the SPT
             IERC20(GAUGE_STAKE_TOKEN).safeIncreaseAllowance(gauge_, amount);
+
+            // Deposit into the gauge
             ILiquidityGaugeV6(gauge_).deposit(amount);
         }
     }
 
-    function _withdrawFromGauge(address gauge_, uint256 amount) internal {
+    function _withdrawFromGauge(address gauge_) internal {
         if (gauge_ != address(0)) {
+            uint256 amount = ILiquidityGaugeV6(gauge_).balanceOf(address(this));
+
+            // Withdraw the entire staked amount from the gauge
             ILiquidityGaugeV6(gauge_).withdraw(amount);
-            IBurnable(GAUGE_STAKE_TOKEN).burn(amount);
+
+            // Burn the full SPT balance held by this contract
+            uint256 balance = IERC20(GAUGE_STAKE_TOKEN).balanceOf(address(this));
+            IBurnable(address(GAUGE_STAKE_TOKEN)).burn(balance);
         }
     }
 
@@ -472,26 +485,16 @@ contract StabilityPool_v1 is
     function updateGauge(address newGauge) external nonReentrant onlyOwner {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         address oldGauge = $.gauge.gauge;
-        uint256 amount = $.totalAssetSupply.amount;
-        if (amount > 0) {
-            if (oldGauge == address(0)) {
-                // No gauge currently
-                _depositInGauge(newGauge, amount); // mint and deposit
-            } else {
-                // If there's an existing gauge - withdraw
-                ILiquidityGaugeV6(oldGauge).withdraw(amount);
-                if (newGauge == address(0)) {
-                    // No new gauge — burn withdrawn
-                    IBurnable(GAUGE_REWARD_TOKEN).burn(amount);
-                } else {
-                    // New gauge — deposit withdrawn
-                    IERC20(GAUGE_STAKE_TOKEN).safeIncreaseAllowance(newGauge, amount);
-                    ILiquidityGaugeV6(newGauge).deposit(amount);
-                }
-            }
-        }
-        $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
 
+        if (oldGauge != address(0)) {
+            _withdrawFromGauge(oldGauge);
+        }
+
+        if (newGauge != address(0)) {
+            _depositInGauge(newGauge);
+        }
+
+        $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
         emit GaugeUpdated(newGauge);
     }
 
@@ -737,7 +740,7 @@ contract StabilityPool_v1 is
         if (token == ASSET_TOKEN) {
             StabilityPoolStorage storage $ = _getStabilityPoolStorage();
             // we need to burn the appropriate amount of this contract to match the new token balance
-            _withdrawFromGauge($.gauge.gauge, amount);
+            //_withdrawFromGauge($.gauge.gauge, amount);
 
             _checkpoint(address(0));
 
