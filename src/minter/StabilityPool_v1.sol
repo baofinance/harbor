@@ -502,6 +502,7 @@ contract StabilityPool_v1 is
      **********************/
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
+    // slither-disable-next-line reentrancy-events // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -588,8 +589,8 @@ contract StabilityPool_v1 is
         uint256 ratio = _computeBoostRatio(
             balance.amount,
             supply.amount,
-            _veBalanceOf(account, block.timestamp), // IVotingEscrow(VE_TOKEN).balanceOf(account),
-            _veTotalSupply(block.timestamp) // IVotingEscrow(VE_TOKEN).totalSupply()
+            IVotingEscrow(VE_TOKEN).balanceOf(account),
+            IVotingEscrow(VE_TOKEN).totalSupply()
         );
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         unchecked {
@@ -1067,42 +1068,6 @@ contract StabilityPool_v1 is
 
         return _veBalanceAt(point, timestamp);
     }
-
-    // /// @dev Internal function to find largest `epoch` belongs to `[startEpoch, endEpoch]` and
-    // /// `ve.user_point_history(account, epoch) <= timestamp`.
-    // ///
-    // /// Caller should make sure the `ve.user_point_history(account, startEpoch) <= timestamp`.
-    // ///
-    // /// @param account The address of user to search.
-    // /// @param timestamp The timestamp to search.
-    // /// @param startEpoch The number of start epoch, inclusive.
-    // /// @param endEpoch The number of end epoch, inclusive.
-    // /// @return epoch The largest `epoch` that `ve.user_point_history(account, epoch) <= timestamp`.
-    // /// @return point The value of `ve.user_point_history(account, epoch)`.
-    // function _binarySearchVeBalancePoint(
-    //     address account,
-    //     uint256 timestamp,
-    //     uint256 startEpoch,
-    //     uint256 endEpoch
-    // ) internal view returns (uint256 epoch, IVotingEscrow.Point memory point) {
-    //     unchecked {
-    //         while (startEpoch < endEpoch) {
-    //             uint256 mid = (startEpoch + endEpoch + 1) / 2;
-    //             IVotingEscrow.Point memory p = IVotingEscrow(VE_TOKEN).user_point_history(account, mid);
-    //             if (p.ts <= timestamp) {
-    //                 startEpoch = mid;
-    //                 point = p;
-    //             } else {
-    //                 endEpoch = mid - 1;
-    //             }
-    //         }
-    //     }
-    //     epoch = startEpoch;
-    //     // in case, the `p.ts <= timestamp` never hit in the binary search
-    //     if (point.ts == 0) {
-    //         point = IVotingEscrow(VE_TOKEN).user_point_history(account, epoch);
-    //     }
-    // }
 
     /// @dev Internal function to compute the ve balance. Caller should make sure `timestamp` is not less than `point.ts`.
     /// @param point The point for ve.

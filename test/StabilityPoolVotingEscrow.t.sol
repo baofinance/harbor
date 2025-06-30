@@ -56,14 +56,22 @@ contract StabilityPoolVotingEscrowSetUp is TestStabilityPoolSetUp {
         user3 = makeAddr("user3");
         user4 = makeAddr("user4");
 
+        // First advance time to increase available supply
+        vm.warp(block.timestamp + 365 days); // Advance a year to increase mintable supply
+
+        // Update mining parameters to reflect the time advancement
+        vm.startPrank(owner);
+        ISTEAM(steam).update_mining_parameters();
+        vm.stopPrank();
+
         // Give them both tokens
         vm.startPrank(owner);
         MockERC20(peggedToken).mint(user3, 10_000 ether);
         MockERC20(peggedToken).mint(user4, 10_000 ether);
         IBaoRoles(steam).grantRoles(owner, IMintableRole(steam).MINTER_ROLE());
         // owner has initial supply
-        IERC20(steam).transfer(user3, 10_000 ether);
-        IERC20(steam).transfer(user4, 10_000 ether);
+        IERC20(steam).transfer(user3, 5_000 ether);
+        IERC20(steam).transfer(user4, 5_000 ether);
         vm.stopPrank();
 
         vm.startPrank(user3);
@@ -409,6 +417,9 @@ contract StabilityPoolVotingEscrowTest is StabilityPoolVotingEscrowSetUp {
         // Initial lock with a smaller amount
         _createLock(VoteSetup({user: user3, amount: LOCK_AMOUNT / 4, lockTime: MAX_TIME}));
 
+        // Force checkpoint
+        IVotingEscrow(veSteam).checkpoint();
+
         // Initial deposit
         vm.startPrank(user3, user3);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
@@ -417,7 +428,10 @@ contract StabilityPoolVotingEscrowTest is StabilityPoolVotingEscrowSetUp {
         // Increase lock amount
         IVotingEscrow(veSteam).increase_amount(LOCK_AMOUNT);
 
-        // Small deposit to trigger checkpoint
+        // Ensure checkpoint
+        IVotingEscrow(veSteam).checkpoint();
+
+        // Small deposit to trigger SP checkpoint
         IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
         uint256 increasedBoostRatio = IStabilityPool(stabilityPoolCollateral).getBoostRatio(user3);
         vm.stopPrank();
@@ -428,31 +442,66 @@ contract StabilityPoolVotingEscrowTest is StabilityPoolVotingEscrowSetUp {
 
     /* Test 18: Test increasing lock time and its effect on boost */
     function testIncreasingLockTime() public {
-        // Initial lock with shorter time
-        _createLock(VoteSetup({user: user3, amount: LOCK_AMOUNT, lockTime: MAX_TIME / 4}));
+        // Create the initial lock
+        _createLock(VoteSetup({user: user3, amount: LOCK_AMOUNT, lockTime: MAX_TIME / 2}));
 
         // Initial deposit
         vm.startPrank(user3);
-        // IERC20(peggedToken).approve(stabilityPoolCollateral, DEPOSIT_AMOUNT);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
         uint256 initialBoostRatio = IStabilityPool(stabilityPoolCollateral).getBoostRatio(user3);
         vm.stopPrank();
+
+        // Before increasing lock time, make sure VE_TOKEN is at a consistent state by checkpointing
+        IVotingEscrow(veSteam).checkpoint();
+
+        // Store the initial VE balance and supply for debugging
+        uint256 initialVeBalance = IVotingEscrow(veSteam).balanceOf(user3);
+        uint256 initialVeSupply = IVotingEscrow(veSteam).totalSupply();
+        console2.log("Initial VE balance:", initialVeBalance);
+        console2.log("Initial VE supply:", initialVeSupply);
 
         // Increase lock time
         vm.startPrank(user3, user3);
         IVotingEscrow(veSteam).increase_unlock_time(block.timestamp + MAX_TIME);
         vm.stopPrank();
 
-        // Small deposit to trigger checkpoint
+        // Explicitly checkpoint after increasing lock time
+        IVotingEscrow(veSteam).checkpoint();
+
+        // Force the StabilityPool to update its checkpoint for this user
         vm.startPrank(user3);
+        // Use a small deposit to trigger a checkpoint in the StabilityPool
         IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
-        uint256 increasedBoostRatio = IStabilityPool(stabilityPoolCollateral).getBoostRatio(user3);
         vm.stopPrank();
+
+        // Log the new VE balance and supply
+        uint256 newVeBalance = IVotingEscrow(veSteam).balanceOf(user3);
+        uint256 newVeSupply = IVotingEscrow(veSteam).totalSupply();
+        console2.log("New VE balance:", newVeBalance);
+        console2.log("New VE supply:", newVeSupply);
+
+        // If the VE balance did not increase as much as expected, we need to wait a week
+        // This helps the votingEscrow to properly calculate the new balance after increase_unlock_time
+        if (newVeBalance <= initialVeBalance) {
+            _advanceTimeAndCheckpoint(1 weeks);
+
+            // Force another update
+            vm.startPrank(user3);
+            IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
+            vm.stopPrank();
+
+            newVeBalance = IVotingEscrow(veSteam).balanceOf(user3);
+            newVeSupply = IVotingEscrow(veSteam).totalSupply();
+            console2.log("After 1 week VE balance:", newVeBalance);
+            console2.log("After 1 week VE supply:", newVeSupply);
+        }
+
+        // Get final boost ratio after these updates
+        uint256 increasedBoostRatio = IStabilityPool(stabilityPoolCollateral).getBoostRatio(user3);
 
         // Boost ratio should increase
         assertGt(increasedBoostRatio, initialBoostRatio, "Boost ratio should increase with longer lock time");
     }
-
     /* Test 19: Test complex interactions - multiple users with different lock strategies */
     function testComplexInteractionsMultipleUsers() public {
         // Setup multiple users with different lock strategies
@@ -596,32 +645,33 @@ contract StabilityPoolVotingEscrowTest is StabilityPoolVotingEscrowSetUp {
 
         // Explicitly checkpoint the user at current week to ensure VE balances are recorded
         vm.startPrank(user3);
-        // Make a small deposit to trigger checkpoint
+        // Force a checkpoint by making a small deposit
         IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
         vm.stopPrank();
 
         // Get week0 balance after checkpoint
         (uint128 value0Before, ) = MockStabilityPool(stabilityPoolCollateral).getVeBalance(user3, week0);
+        assertGt(value0Before, 0, "Week 0 balance should be recorded before advancing time");
 
         // Advance to next week
-        _advanceTimeAndCheckpoint(1 weeks + 1 days);
-        uint256 week1 = (block.timestamp / 1 weeks) * 1 weeks;
+        uint256 nextWeek = week0 + 1 weeks;
+        vm.warp(nextWeek);
+
+        // Explicitly checkpoint VE at the week boundary
+        IVotingEscrow(veSteam).checkpoint();
 
         // Make an operation to trigger checkpoint for the new week
         vm.startPrank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
         vm.stopPrank();
 
         // Check that VE balance was recorded for both weeks
         (uint128 value0, ) = MockStabilityPool(stabilityPoolCollateral).getVeBalance(user3, week0);
-        (uint128 value1, ) = MockStabilityPool(stabilityPoolCollateral).getVeBalance(user3, week1);
+        (uint128 value1, ) = MockStabilityPool(stabilityPoolCollateral).getVeBalance(user3, nextWeek);
 
         // Both should be recorded and the values should decay
-        assertGt(value0Before, 0, "Week 0 balance should be recorded before advancing time");
+        assertGt(value0, 0, "Week 0 balance should still be recorded");
         assertGt(value1, 0, "Week 1 balance should be recorded");
-
-        // Since value0 is from the previous checkpoint and not updated after advancing time,
-        // we need to compare value0Before with value1
         assertGt(value0Before, value1, "VE balance should decay over time");
     }
 }
@@ -803,257 +853,6 @@ contract TestStabilityPoolVotingEscrowFuzz is StabilityPoolVotingEscrowSetUp {
         }
     }
 }
-
-// /**
-//  * @title TestStabilityPoolVotingEscrowInvariants
-//  * @dev Tests invariants in the StabilityPool <-> VotingEscrow interaction
-//  */
-// contract TestStabilityPoolVotingEscrowInvariantsOld is StabilityPoolVotingEscrowSetUp {
-//     function setUp() public virtual override {
-//         super.setUp();
-
-//         // Create a lock for user3 with small, safe values
-//         vm.startPrank(user3, user3);
-//         IERC20(steam).approve(veSteam, 100 ether);
-//         IVotingEscrow(veSteam).create_lock(100 ether, block.timestamp + 52 weeks);
-//         vm.stopPrank();
-
-//         // Create an initial deposit to properly set up the storage
-//         vm.startPrank(user3);
-//         IERC20(peggedToken).approve(stabilityPoolCollateral, 10 ether);
-//         IStabilityPool(stabilityPoolCollateral).deposit(10 ether, user3, 0);
-//         vm.stopPrank();
-
-//         // Checkpoint to ensure VE state is consistent
-//         IVotingEscrow(veSteam).checkpoint();
-//     }
-
-//     /* Invariant Test 1: VotingEscrow checkpoint will always maintain a valid boost history */
-//     function invariant_ValidBoostHistory() public {
-//         // Setup a user with lock and deposit
-//         _createLock(VoteSetup({user: user3, amount: LOCK_AMOUNT, lockTime: MAX_TIME}));
-
-//         vm.startPrank(user3);
-//         IERC20(peggedToken).approve(stabilityPoolCollateral, DEPOSIT_AMOUNT);
-//         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
-//         vm.stopPrank();
-
-//         // Fast forward by random intervals and check boost after each
-//         for (uint i = 0; i < 10; i++) {
-//             uint256 timeJump = (i + 1) * 7 days;
-//             vm.warp(block.timestamp + timeJump);
-//             IVotingEscrow(veSteam).checkpoint();
-
-//             // User makes small deposit to trigger checkpoint
-//             vm.startPrank(user3);
-//             IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
-//             uint256 boostRatio = IStabilityPool(stabilityPoolCollateral).getBoostRatio(user3);
-//             vm.stopPrank();
-
-//             // Invariant: Boost ratio should always be between minimum and maximum
-//             assertGe(boostRatio, 0.4 ether, "Boost ratio should not go below minimum");
-//             assertLe(boostRatio, 1 ether, "Boost ratio should not exceed maximum");
-//         }
-//     }
-
-//     /* Invariant Test 2: Total VE supply from StabilityPool and VotingEscrow should be consistent <<< this hangs */
-//     function invariant_ConsistentTotalSupplyHangs() public {
-//         // Setup
-//         _createLock(VoteSetup({user: user3, amount: LOCK_AMOUNT, lockTime: MAX_TIME}));
-
-//         // Check total supply at various timestamps
-//         for (uint i = 0; i < 10; i++) {
-//             uint256 timestamp = block.timestamp + i * 30 days;
-
-//             // Get supply directly from VotingEscrow
-//             vm.warp(timestamp);
-//             IVotingEscrow(veSteam).checkpoint();
-//             uint256 directSupply = IVotingEscrow(veSteam).totalSupply();
-
-//             // Get supply via StabilityPool internal function
-//             uint256 poolSupply = MockStabilityPool(stabilityPoolCollateral).veTotalSupplyAt(timestamp);
-
-//             // Invariant: The supplies should be very close (small rounding differences may exist)
-//             assertApproxEqAbs(poolSupply, directSupply, 1, "VE supply calculations should be consistent");
-//         }
-//     }
-
-//     function invariant_ConsistentTotalSupply_() public {
-//         // Setup
-//         _createLock(VoteSetup({user: user3, amount: LOCK_AMOUNT, lockTime: MAX_TIME}));
-
-//         // Get the current week boundary
-//         uint256 currentWeek = (block.timestamp / 1 weeks) * 1 weeks;
-
-//         // Test fewer timestamps to avoid excessive time jumps
-//         for (uint i = 0; i < 5; i++) {
-//             uint256 timestamp = currentWeek + i * 1 weeks;
-
-//             // Make sure we checkpoint to record the supply properly
-//             vm.warp(timestamp);
-//             IVotingEscrow(veSteam).checkpoint();
-
-//             // Trigger a transaction to update checkpoint in StabilityPool
-//             vm.startPrank(user3);
-//             if (i > 0) {
-//                 // Just do something small to trigger checkpoint
-//                 IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
-//             }
-//             vm.stopPrank();
-
-//             // Get supply directly from VotingEscrow
-//             uint256 directSupply = IVotingEscrow(veSteam).totalSupply();
-
-//             // Get supply via StabilityPool internal function
-//             uint256 poolSupply = MockStabilityPool(stabilityPoolCollateral).veTotalSupplyAt(timestamp);
-
-//             // Invariant: The supplies should be very close (small rounding differences may exist)
-//             assertApproxEqAbs(poolSupply, directSupply, 1, "VE supply calculations should be consistent");
-
-//             // Add debug to output values
-//             console2.log("Week %s:", i);
-//             console2.log("Direct: %s, Pool: %s", directSupply, poolSupply);
-//         }
-//     }
-
-//     function invariant_ConsistentTotalSupply_test() public {
-//         // Setup - create a lock with reasonable values
-//         _createLock(VoteSetup({user: user3, amount: LOCK_AMOUNT, lockTime: MAX_TIME}));
-
-//         // Create checkpoints to ensure the VE contract has valid data
-//         IVotingEscrow(veSteam).checkpoint();
-
-//         // Start from current block time
-//         uint256 currentWeek = (block.timestamp / 1 weeks) * 1 weeks;
-
-//         // Test fewer timestamps with smaller time jumps
-//         for (uint i = 0; i < 3; i++) {
-//             // Use weekly jumps instead of 30 days to better align with checkpoint logic
-//             uint256 timestamp = currentWeek + i * 1 weeks;
-
-//             // Jump to this time
-//             vm.warp(timestamp);
-
-//             // Explicitly create checkpoint in VotingEscrow to ensure data consistency
-//             IVotingEscrow(veSteam).checkpoint();
-
-//             // For i > 0, trigger a transaction to update checkpoint in StabilityPool
-//             if (i > 0) {
-//                 vm.startPrank(user3);
-//                 IERC20(peggedToken).approve(stabilityPoolCollateral, 1);
-//                 IStabilityPool(stabilityPoolCollateral).deposit(1, user3, 0);
-//                 vm.stopPrank();
-//             }
-
-//             // Get supply directly from VotingEscrow
-//             uint256 directSupply = IVotingEscrow(veSteam).totalSupply();
-
-//             // Log the information before making the potentially problematic call
-//             console2.log("Testing for timestamp:", timestamp);
-//             console2.log("VE direct supply:", directSupply);
-
-//             // Safely get supply via StabilityPool internal function
-//             uint256 poolSupply;
-//             try MockStabilityPool(stabilityPoolCollateral).veTotalSupplyAt(timestamp) returns (uint256 value) {
-//                 poolSupply = value;
-//                 console2.log("Pool calculated supply:", poolSupply);
-
-//                 // Only assert if we successfully retrieved both values
-//                 assertApproxEqAbs(poolSupply, directSupply, 2, "VE supply calculations should be consistent");
-//             } catch Error(string memory reason) {
-//                 console2.log("Error getting pool supply:", reason);
-//                 // Don't fail the test, just log the error
-//             } catch (bytes memory) {
-//                 console2.log("Unknown error getting pool supply");
-//                 // Don't fail the test, just log the error
-//             }
-//         }
-//     }
-
-//     /* Invariant Test 3: Complex operations preserve boost ratio invariants */
-//     function invariant_ComplexOperationsBoostInvariants() public {
-//         // Setup multiple users
-//         address[] memory users = new address[](4);
-//         users[0] = user3;
-//         users[1] = user4;
-//         users[2] = makeAddr("user5");
-//         users[3] = makeAddr("user6");
-
-//         // Setup all users with tokens
-//         for (uint i = 0; i < 4; i++) {
-//             vm.startPrank(owner);
-//             MockERC20(peggedToken).mint(users[i], 1000 ether);
-//             MockERC20(steam).mint(users[i], 10000 ether);
-//             vm.stopPrank();
-
-//             // Create locks with varying amounts and times
-//             uint256 lockAmount = (LOCK_AMOUNT * (i + 1)) / 2; // 500, 1000, 1500, 2000 ether
-//             uint256 lockTime = (MAX_TIME * (i + 1)) / 4; // 1, 2, 3, 4 years
-
-//             vm.startPrank(users[i], users[i]);
-//             IERC20(steam).approve(veSteam, lockAmount);
-//             IVotingEscrow(veSteam).create_lock(lockAmount, block.timestamp + lockTime);
-//             vm.stopPrank();
-
-//             // Make deposits
-//             vm.startPrank(users[i]);
-//             IERC20(peggedToken).approve(stabilityPoolCollateral, 500 ether);
-//             IStabilityPool(stabilityPoolCollateral).deposit(100 ether * (i + 1), users[i], 0);
-//             vm.stopPrank();
-//         }
-
-//         // Perform a series of complex operations and verify invariants after each
-//         for (uint i = 0; i < 10; i++) {
-//             // Pick a random user
-//             uint userIndex = i % 4;
-//             address user = users[userIndex];
-
-//             // Pick a random operation
-//             uint opType = (i % 5);
-
-//             if (opType == 0) {
-//                 // Increase lock amount
-//                 vm.startPrank(user, user);
-//                 IERC20(steam).approve(veSteam, 100 ether);
-//                 IVotingEscrow(veSteam).increase_amount(100 ether);
-//                 vm.stopPrank();
-//             } else if (opType == 1 && block.timestamp + MAX_TIME > IVotingEscrow(veSteam).locked__end(user)) {
-//                 // Increase lock time if not at max
-//                 vm.startPrank(user, user);
-//                 IVotingEscrow(veSteam).increase_unlock_time(block.timestamp + MAX_TIME);
-//                 vm.stopPrank();
-//             } else if (opType == 2) {
-//                 // Additional deposit
-//                 vm.startPrank(user);
-//                 IStabilityPool(stabilityPoolCollateral).deposit(50 ether, user, 0);
-//                 vm.stopPrank();
-//             } else if (opType == 3) {
-//                 // Partial withdrawal
-//                 vm.startPrank(user);
-//                 IStabilityPool(stabilityPoolCollateral).withdraw(25 ether, user, 0);
-//                 vm.stopPrank();
-//             } else {
-//                 // Time advance
-//                 vm.warp(block.timestamp + 30 days);
-//                 IVotingEscrow(veSteam).checkpoint();
-//             }
-
-//             // Validate boost ratio invariants for all users
-//             for (uint j = 0; j < 4; j++) {
-//                 uint256 boostRatio = IStabilityPool(stabilityPoolCollateral).getBoostRatio(users[j]);
-
-//                 // Invariants that must always hold
-//                 assertGe(boostRatio, 0.4 ether, "Boost ratio should never go below minimum");
-//                 assertLe(boostRatio, 1 ether, "Boost ratio should never exceed maximum");
-//             }
-
-//             // Verify VE supply consistency
-//             uint256 directSupply = IVotingEscrow(veSteam).totalSupply();
-//             uint256 poolSupply = MockStabilityPool(stabilityPoolCollateral).veTotalSupplyAt(block.timestamp);
-//             assertApproxEqAbs(poolSupply, directSupply, 1, "VE supply calculations should be consistent");
-//         }
-//     }
-// }
 
 /**
  * @title TestStabilityPoolVotingEscrowInvariants

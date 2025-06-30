@@ -25,7 +25,7 @@ import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 /// https://github.com/curvefi/curve-dao-contracts/blob/master/contracts/ERC20CRV.vy
 /// This contract is an almost-identical fork of Curve's contract
 /// @custom:oz-upgrades
-// slither-disable block-timestamp
+// slither-disable-start timestamp
 // solhint-disable-next-line contract-name-camelcase
 contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM, IMintableRole {
     using SafeERC20 for IERC20;
