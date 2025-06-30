@@ -111,9 +111,9 @@ interface IVotingEscrow {
     function totalSupply(uint256 ts) external view returns (uint256);
 
     /// @notice Calculate total voting power at some point in the past
-    /// @param block Block to calculate the total voting power at
-    /// @return Total voting power at `block`
-    function totalSupplyAt(uint256 block) external view returns (uint256);
+    /// @param block_ Block to calculate the total voting power at
+    /// @return Total voting power at `block_`
+    function totalSupplyAt(uint256 block_) external view returns (uint256);
 
     /// @notice Get the current voting power for `account`
     /// @dev Adheres to the ERC20 `balanceOf` interface for Aragon compatibility
@@ -133,10 +133,10 @@ interface IVotingEscrow {
      * @notice Measure voting power of `account` at block height `block`
      * @dev Adheres to MiniMe `balanceOfAt` interface: https://github.com/Giveth/minime
      * @param account User's wallet address
-     * @param block Block to calculate the voting power at
+     * @param block_ Block to calculate the voting power at
      * @return Voting power
      */
-    function balanceOfAt(address account, uint256 block) external view returns (uint256);
+    function balanceOfAt(address account, uint256 block_) external view returns (uint256);
 
     /// @notice time -> signed slope change
     function slope_changes(uint256 week) external view returns (int128);

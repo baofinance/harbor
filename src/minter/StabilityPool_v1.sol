@@ -11,8 +11,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
-import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
@@ -21,9 +19,6 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
-import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
-
-import {console2} from "forge-std/console2.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -300,6 +295,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
+    // slither-disable-next-line reentrancy-no-eth
     function withdraw(
         uint256 assetAmount,
         address receiver,
@@ -410,9 +406,9 @@ contract StabilityPool_v1 is
         return true;
     }
 
-    function allowance(address owner, address spender) external view returns (uint256) {
+    function allowance(address owner_, address spender) external view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (owner != address(this) || spender != $.gauge.gauge) {
+        if (owner_ != address(this) || spender != $.gauge.gauge) {
             return 0;
         }
         return 1 ether;
@@ -423,7 +419,7 @@ contract StabilityPool_v1 is
      **********************/
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
-    // slither-disable-next-line reentrancy-events,reentrancy-benign // function is only called from nonReentrant external functions
+    // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 

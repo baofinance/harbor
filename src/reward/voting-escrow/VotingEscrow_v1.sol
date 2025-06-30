@@ -12,6 +12,7 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
+import {Token} from "@bao/Token.sol";
 
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 import {IVotingEscrowBoost} from "src/interfaces/IVotingEscrowBoost.sol";
@@ -144,6 +145,8 @@ contract VotingEscrow_v1 is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address token_) {
         _disableInitializers();
+        Token.sanityCheckERC20Token(token_);
+        // slither-disable-next-line missing-zero-check
         token = token_;
         decimals = IERC20Metadata(token).decimals();
     }
@@ -269,6 +272,7 @@ contract VotingEscrow_v1 is
     function create_lock(uint256 value, uint256 unlockTime) external nonReentrant onlyAllowedContractOrEOA {
         VotingEscrowStorage storage $ = _getStorage();
 
+        // slither-disable-next-line divide-before-multiply
         unlockTime = (unlockTime / 1 weeks) * 1 weeks; // Locktime is rounded down to weeks
         LockedBalance memory locked_ = $.locked[msg.sender];
 
@@ -319,6 +323,7 @@ contract VotingEscrow_v1 is
     function increase_unlock_time(uint256 unlockTime) external nonReentrant onlyAllowedContractOrEOA {
         VotingEscrowStorage storage $ = _getStorage();
 
+        // slither-disable-next-line divide-before-multiply
         unlockTime = (unlockTime / 1 weeks) * 1 weeks; // Locktime is rounded down to weeks
         LockedBalance memory locked_ = $.locked[msg.sender];
 
@@ -497,13 +502,9 @@ contract VotingEscrow_v1 is
     function _checkpoint(address addr, LockedBalance memory oldLocked, LockedBalance memory newLocked) internal {
         VotingEscrowStorage storage $ = _getStorage();
 
-        Param memory oldP;
-        Param memory newP;
+        Param memory oldP = Param({u: Point(0, 0, 0, 0), dslope: 0});
+        Param memory newP = Param({u: Point(0, 0, 0, 0), dslope: 0});
 
-        oldP.u = Point(0, 0, 0, 0);
-        newP.u = Point(0, 0, 0, 0);
-        oldP.dslope = 0;
-        newP.dslope = 0;
         uint256 epoch_ = $.epoch;
 
         if (addr != address(0)) {
@@ -559,6 +560,7 @@ contract VotingEscrow_v1 is
         // But that's ok b/c we know the block in such case
 
         // Go over weeks to fill history and calculate what the current point is
+        // slither-disable-next-line divide-before-multiply
         uint256 iTimestamp = (lastCheckpoint / 1 weeks) * 1 weeks;
         // solhint-disable-next-line explicit-types
         for (uint i = 0; i < 255; i++) {
@@ -591,6 +593,7 @@ contract VotingEscrow_v1 is
             lastPoint.blk = initialLastPoint.blk + (blockSlope * (iTimestamp - initialLastPoint.ts)) / 1 ether;
 
             epoch_ += 1;
+            // slither-disable-next-line incorrect-equality
             if (iTimestamp == block.timestamp) {
                 lastPoint.blk = block.number;
                 break;
@@ -757,6 +760,7 @@ contract VotingEscrow_v1 is
         VotingEscrowStorage storage $ = _getStorage();
 
         Point memory lastPoint = Point(point.bias, point.slope, point.ts, point.blk);
+        // slither-disable-next-line divide-before-multiply
         uint256 iTimestamp = (lastPoint.ts / 1 weeks) * 1 weeks;
 
         // solhint-disable-next-line explicit-types
@@ -771,6 +775,7 @@ contract VotingEscrow_v1 is
             }
 
             lastPoint.bias -= lastPoint.slope * int128(int256(iTimestamp - lastPoint.ts));
+            // slither-disable-next-line incorrect-equality
             if (iTimestamp == timestamp) {
                 break;
             }

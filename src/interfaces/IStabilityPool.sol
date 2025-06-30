@@ -94,7 +94,7 @@ interface IStabilityPool {
     function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of the gauge used for staking
-    function gauge() external view returns (address gauge);
+    function gauge() external view returns (address gauge_);
 
     /// @notice Return the total amount of asset deposited to this contract.
     function totalAssetSupply() external view returns (uint256 amount);

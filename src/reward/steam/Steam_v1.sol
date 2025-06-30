@@ -93,20 +93,20 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
     }
 
     /// @notice Initialize the Steam contract
-    /// @param owner Admin address
+    /// @param owner_ Admin address
     /// @param initSupply Initial token supply
-    /// @param name Token full name
-    /// @param symbol Token symbol
+    /// @param name_ Token full name
+    /// @param symbol_ Token symbol
     function initialize(
-        address owner,
+        address owner_,
         uint256 initSupply,
-        string calldata name,
-        string calldata symbol
+        string calldata name_,
+        string calldata symbol_
     ) external initializer {
         SteamStorage storage $ = _getSteamStorage();
 
         // Initialize PermittableERC20_v1
-        PermittableERC20_v1.initialize(owner, name, symbol);
+        PermittableERC20_v1.initialize(owner_, name_, symbol_);
 
         // Initialize STEAM-specific state
         $.startEpochTime = block.timestamp;
@@ -115,7 +115,7 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
         $.startEpochSupply = initSupply;
 
         // Mint initial supply to admin
-        _mint(owner, initSupply);
+        _mint(owner_, initSupply);
     }
 
     // @dev remove protections. if you have a balance of them you can burn them
@@ -259,6 +259,7 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
             }
 
             currentEpochTime -= _RATE_REDUCTION_TIME;
+            // slither-disable-next-line divide-before-multiply
             currentRate = (currentRate * RATE_REDUCTION_COEFFICIENT) / _RATE_DENOMINATOR; // Double-division with rounding makes rate a bit less => good
             assert(currentRate <= INITIAL_RATE); // This should never happen
         }

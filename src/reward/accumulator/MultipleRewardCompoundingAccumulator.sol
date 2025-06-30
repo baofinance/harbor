@@ -170,6 +170,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         mapping(address => mapping(address => UserRewardSnapshot)) userRewardSnapshot;
     }
 
+    // slither-disable-next-line dead-code
     function _tokenToEpochExponentToIntegral(
         address token,
         uint256 epochExponent
@@ -178,6 +179,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         globalIntegral = $.tokenToEpochExponentToIntegral[token][epochExponent];
     }
 
+    // slither-disable-next-line dead-code
     function _userRewardSnapshot(
         address account,
         address token
@@ -186,14 +188,15 @@ abstract contract MultipleRewardCompoundingAccumulator is
         userRewardSnapshot_ = $.userRewardSnapshot[account][token];
     }
 
-    // function _setUserRewardSnapshot(
-    //     address account,
-    //     address token,
-    //     UserRewardSnapshot memory userRewardSnapshot_
-    // ) internal {
-    //     MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-    //     $.userRewardSnapshot[account][token] = userRewardSnapshot_;
-    // }
+    // slither-disable-next-line dead-code
+    function _setUserRewardSnapshot(
+        address account,
+        address token,
+        UserRewardSnapshot memory userRewardSnapshot_
+    ) internal {
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+        $.userRewardSnapshot[account][token] = userRewardSnapshot_;
+    }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.MultipleRewardCompoundingAccumulator")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _MULTIPLEREWARDCOMPOUNDINGACCUMULATOR_STORAGE =

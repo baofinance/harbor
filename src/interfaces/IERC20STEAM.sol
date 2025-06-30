@@ -24,17 +24,17 @@ interface IERC20STEAM {
         uint256 initSupply,
         uint256 initRate,
         uint256 rateReductionCoefficient,
-        address admin,
-        string calldata name,
-        string calldata symbol
+        address admin_,
+        string calldata name_,
+        string calldata symbol_
     ) external;
 
     // solhint-disable-next-line func-name-mixedcase
-    function set_minter(address minter) external;
+    function set_minter(address minter_) external;
     // solhint-disable-next-line func-name-mixedcase
     function set_admin(address newAdmin) external;
     // solhint-disable-next-line func-name-mixedcase
-    function set_name(string calldata name, string calldata symbol) external;
+    function set_name(string calldata name_, string calldata symbol_) external;
 
     // Mining logic
     // solhint-disable-next-line func-name-mixedcase
