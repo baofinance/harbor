@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-
+// solhint-disable func-name-mixedcase,func-param-name-mixedcase
 interface IVotingEscrowVy {
     // Structs
     struct Point {
@@ -56,7 +56,7 @@ interface IVotingEscrowVy {
     // Mutator functions
     function initialize(
         address _admin,
-        address token_addr,
+        address tokenAddr,
         string memory _name,
         string memory _symbol,
         string memory _version
@@ -65,9 +65,9 @@ interface IVotingEscrowVy {
     function checkpoint() external;
     function adjusted_balance_of(address) external view returns (uint256);
     function deposit_for(address user, uint256 value) external;
-    function create_lock(uint256 value, uint256 unlock_time) external;
+    function create_lock(uint256 value, uint256 unlockTime) external;
     function increase_amount(uint256 value) external;
-    function increase_unlock_time(uint256 unlock_time) external;
+    function increase_unlock_time(uint256 unlockTime) external;
     function withdraw() external;
 
     function commit_transfer_ownership(address newAdmin) external;

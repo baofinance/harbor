@@ -3,6 +3,7 @@ pragma solidity >=0.8.0 <0.9.0;
 
 /// @title IGaugeController
 /// @notice Interface for the Curve-style Gauge Controller contract
+// solhint-disable func-name-mixedcase
 interface IGaugeController {
     // Views
     function admin() external view returns (address);

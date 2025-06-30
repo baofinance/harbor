@@ -22,6 +22,8 @@ import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 import {IVotingEscrowLookup} from "src/interfaces/IVotingEscrowLookup.sol";
 import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -95,7 +97,7 @@ contract StabilityPool_v1 is
     address public immutable VE_TOKEN;
 
     /// @dev timestamp of the start point for the VE_TOKEN
-    uint256 private immutable VE_START;
+    uint256 internal immutable _VE_START;
 
     /***********
      * Structs *
@@ -226,7 +228,7 @@ contract StabilityPool_v1 is
 
         // VE set-up
         // TODO: look at putting the below into the VotingEscrow behind Extra interface
-        uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
+        uint256 week = _toWeekTsBefore(block.timestamp);
         (uint256 nowEpoch, IVotingEscrow.Point memory nowPoint) = IVotingEscrowLookup(VE_TOKEN).findSupplyPoint(
             week,
             0,
@@ -272,9 +274,9 @@ contract StabilityPool_v1 is
         Token.sanityCheckERC20Token(gaugeStakeToken_);
         // slither-disable-next-line missing-zero-check
         VE_TOKEN = veToken_;
-        VE_START = IVotingEscrow(VE_TOKEN).point_history(0).ts;
-        uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
-        if (week < VE_START) {
+        _VE_START = IVotingEscrow(VE_TOKEN).point_history(0).ts;
+        uint256 week = _toWeekTsBefore(block.timestamp);
+        if (week < _VE_START) {
             revert VotingEscrowNotReady();
         }
     }
@@ -434,8 +436,8 @@ contract StabilityPool_v1 is
         }
         $.assetBalances[sender] = balance;
 
-        // update boost checkpoint at last
-        // TODO: this is done in _checkpoint so why are we doing it again here?
+        // update boost checkpoint we need to do it again after it being done in _checkpoint because
+        // we've updated the balances
         _updateBoostCheckpoint(sender, balance, supply);
 
         emit UserDepositChange(sender, balance.amount, 0);
@@ -479,7 +481,7 @@ contract StabilityPool_v1 is
                 _depositInGauge(newGauge, amount); // mint and deposit
             } else {
                 // If there's an existing gauge - withdraw
-                ILiquidityGaugeV6(oldGauge).withdraw(amount);
+                ILiquidityGaugeV6(oldGauge).withdraw(amount); // wake-disable-line reentrancy all callers are nonReentrant
                 if (newGauge == address(0)) {
                     // No new gauge — burn withdrawn
                     IBurnable(GAUGE_REWARD_TOKEN).burn(amount);
@@ -500,7 +502,6 @@ contract StabilityPool_v1 is
      **********************/
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
-    // TODO: this could be much more efficient, by passing back the total supply, and balance rather than updating it
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -508,7 +509,7 @@ contract StabilityPool_v1 is
         Gauge memory gauge_ = $.gauge;
         if (gauge_.gauge != address(0) && block.timestamp > uint256(gauge_.claimedAt) + 1 days) {
             uint256 balanceBefore = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this));
-            ILiquidityGaugeV6(gauge_.gauge).claim_rewards();
+            ILiquidityGaugeV6(gauge_.gauge).claim_rewards(); // wake-disable-line reentrancy all callers are nonReentrant
             uint256 rewards = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this)) - balanceBefore;
             $.gauge.claimedAt = uint64(block.timestamp);
             _notifyReward(GAUGE_REWARD_TOKEN, rewards);
@@ -527,11 +528,9 @@ contract StabilityPool_v1 is
                 // no unchecked here, just in case
                 emit UserDepositChange(account, newBalance, balance.amount - newBalance);
             }
-            _updateBoostCheckpoint(account, balance, supply);
-            balance.amount = newBalance;
-            balance.product = supply.product;
-            balance.updatedAt = uint40(block.timestamp);
+            balance = TokenBalance({amount: newBalance, product: supply.product, updatedAt: uint40(block.timestamp)});
             $.assetBalances[account] = balance;
+            _updateBoostCheckpoint(account, balance, supply);
         }
     }
 
@@ -589,8 +588,8 @@ contract StabilityPool_v1 is
         uint256 ratio = _computeBoostRatio(
             balance.amount,
             supply.amount,
-            IVotingEscrow(VE_TOKEN).balanceOf(account),
-            IVotingEscrow(VE_TOKEN).totalSupply()
+            _veBalanceOf(account, block.timestamp), // IVotingEscrow(VE_TOKEN).balanceOf(account),
+            _veTotalSupply(block.timestamp) // IVotingEscrow(VE_TOKEN).totalSupply()
         );
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         unchecked {
@@ -764,7 +763,7 @@ contract StabilityPool_v1 is
         uint256 currentRatio = boostCheckpoint.boostRatio;
         uint256 prevTs = balance.updatedAt;
         // compute the time weighted boost from balance.updatedAt to now.
-        uint256 nowTs = _getWeekTs(prevTs);
+        uint256 nowTs = _toWeekTsAfter(prevTs);
         for (uint256 i = 0; i < 256; ++i) {
             // it is more than 4 years, should be enough
             if (nowTs > block.timestamp) nowTs = block.timestamp;
@@ -835,11 +834,20 @@ contract StabilityPool_v1 is
 }
     */
 
+    function _toWeekTsBefore(uint256 timestamp) internal pure returns (uint256 beforeTs) {
+        // truncate the timestamp to the previous week start
+        unchecked {
+            // slither-disable-next-line divide-before-multiply
+            beforeTs = (timestamp / 1 weeks) * 1 weeks;
+        }
+    }
+
     /// @dev Internal function to compute the smallest week aligned timestamp after given timestamp.
     /// @param timestamp The given timestamp.
-    function _getWeekTs(uint256 timestamp) internal pure returns (uint256) {
+    function _toWeekTsAfter(uint256 timestamp) internal pure returns (uint256 afterTs) {
         unchecked {
-            return ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks; // use integer division to round down
+            // slither-disable-next-line divide-before-multiply
+            afterTs = ((timestamp + 1 weeks - 1) / 1 weeks) * 1 weeks; // use integer division to round down
         }
     }
 
@@ -886,16 +894,17 @@ contract StabilityPool_v1 is
         uint256 veBalance,
         uint256 veSupply
     ) internal pure returns (uint256) {
+        console2.log("  balance=%s,   supply=%s", balance, supply);
+        console2.log("veBalance=%s, veSupply=%s", veBalance, veSupply);
         unchecked {
             if (balance == 0) return (1 ether * 4) / 10;
 
             // Compute boost ratio with Curve's rule: min(balance, balance * 0.4 + 0.6 * veBalance * supply / veSupply) / balance
-            uint256 boostedBalance = (balance * 4) / 10;
+            uint256 boostedBalance = balance * 4;
             if (veSupply > 0) {
-                boostedBalance += (((veBalance * supply) / veSupply) * 6) / 10;
+                boostedBalance += (6 * veBalance * supply) / veSupply;
             }
-            boostedBalance = (boostedBalance * balance) / balance;
-
+            boostedBalance /= 10;
             if (boostedBalance > balance) {
                 boostedBalance = balance;
             }
@@ -949,7 +958,7 @@ contract StabilityPool_v1 is
         int256 bias = point.bias;
         int256 slope = point.slope;
         uint256 last = point.ts;
-        uint256 ti = (last / 1 weeks) * 1 weeks;
+        uint256 ti = _toWeekTsBefore(last);
         while (true) {
             ti += 1 weeks;
             int128 dslope = 0;
@@ -972,7 +981,7 @@ contract StabilityPool_v1 is
     // slither-disable-next-line reentrancy-benign // all the callers are non-reentrant
     function _checkpointVe(address account) internal {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        uint256 week = (block.timestamp / 1 weeks) * 1 weeks;
+        uint256 week = _toWeekTsBefore(block.timestamp);
         IVotingEscrow(VE_TOKEN).checkpoint();
 
         // checkpoint supply
@@ -1019,7 +1028,7 @@ contract StabilityPool_v1 is
     function _veTotalSupply(uint256 timestamp) internal view returns (uint256) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        uint256 week = (timestamp / 1 weeks) * 1 weeks;
+        uint256 week = _toWeekTsBefore(timestamp);
         VeBalance memory prevSupply = $.veSupply[week];
         uint256 first = prevSupply.epoch; // 0 is code for the first one
         uint256 last = type(uint256).max; // code for the last one
@@ -1040,7 +1049,7 @@ contract StabilityPool_v1 is
         }
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        uint256 week = (timestamp / 1 weeks) * 1 weeks;
+        uint256 week = _toWeekTsBefore(timestamp);
         VeBalance memory prevBalance = $.veBalances[account][week];
         uint256 first = prevBalance.epoch; // 0 is code for the first one
         uint256 last = type(uint256).max; // code for the last one

@@ -2,8 +2,6 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-vyper_version = "0.3.10"
-vyper = { optimize = "gas" }
 
 auto_detect_remappings = false # remappings seem to cause problems
 optimizer = true
@@ -35,10 +33,10 @@ skip = ["**/*.vy"]
 
 [vyper]
 version = "0.3.10"
-optimize = true
+optimize = "gas"
 optimize_runs = 700
-via_ir = false  # you can enable this later if needed
-evm_version = "shanghai"  # or "london", "cancun" depending on your target
+via_ir = false           # you can enable this later if needed
+evm_version = "shanghai" # or "london", "cancun" depending on your target
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

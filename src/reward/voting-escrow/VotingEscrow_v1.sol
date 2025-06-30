@@ -922,6 +922,9 @@ contract VotingEscrow_v1 is
         if (endEpoch == type(uint256).max) {
             endEpoch = $.userPointEpoch[account];
         }
+        if (startEpoch == 0) {
+            startEpoch = 1; // epoch 0 is always empty
+        }
         unchecked {
             while (startEpoch < endEpoch) {
                 uint256 mid = (startEpoch + endEpoch + 1) / 2;
@@ -942,6 +945,7 @@ contract VotingEscrow_v1 is
     }
 
     /// @inheritdoc IVotingEscrowBoost
+    // solhint-disable-next-line func-name-mixedcase
     function adjusted_balance_of(address account) external view returns (uint256) {
         return _balanceOf(account, block.timestamp);
     }

@@ -6,5 +6,6 @@ interface IVotingEscrowBoost {
     /// @notice Returns the adjusted balance of a user at the current epoch.
     /// @param account The address of the user.
     /// @return The adjusted balance of the user.
+    // solhint-disable-next-line func-name-mixedcase
     function adjusted_balance_of(address account) external view returns (uint256);
 }

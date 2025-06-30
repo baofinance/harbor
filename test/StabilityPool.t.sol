@@ -23,6 +23,7 @@ import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 
 import {Token} from "@bao/Token.sol";
 
+import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
@@ -75,6 +76,51 @@ contract MockStabilityPool is StabilityPool_v1 {
     function __totalSupply() external view returns (TokenBalance memory) {
         return _getStabilityPoolStorage().totalAssetSupply;
     }
+
+    function getVeStart() external view returns (uint256) {
+        return _VE_START;
+    }
+
+    function getVeBalance(address account, uint256 week) external view returns (uint128 value, uint128 epoch) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        VeBalance memory balance = $.veBalances[account][week];
+        return (balance.value, balance.epoch);
+    }
+
+    function getVeSupply(uint256 week) external view returns (uint128 value, uint128 epoch) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        VeBalance memory supply = $.veSupply[week];
+        return (supply.value, supply.epoch);
+    }
+
+    function veSupplyAtPoint(IVotingEscrow.Point calldata point, uint256 timestamp) external view returns (uint256) {
+        return _veSupplyAt(point, timestamp);
+    }
+
+    function veBalanceAtPoint(IVotingEscrow.Point calldata point, uint256 timestamp) external pure returns (uint256) {
+        return _veBalanceAt(point, timestamp);
+    }
+
+    function veTotalSupplyAt(uint256 timestamp) external view returns (uint256) {
+        return _veTotalSupply(timestamp);
+    }
+
+    function veBalanceOfAt(address account, uint256 timestamp) external view returns (uint256) {
+        return _veBalanceOf(account, timestamp);
+    }
+
+    function checkpointVeExternal(address account) external {
+        _checkpointVe(account);
+    }
+
+    function computeBoostRatio(
+        uint256 balance,
+        uint256 supply,
+        uint256 veBalance,
+        uint256 veSupply
+    ) external pure returns (uint256) {
+        return _computeBoostRatio(balance, supply, veBalance, veSupply);
+    }
 }
 
 // serves no other purpose than making the foundry traces more informative
@@ -117,14 +163,15 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
-        uint256 _init_supply = 0;
-        uint256 _init_rate = 0;
-        uint256 _rate_reduction_coefficient = 0;
+        uint256 _init_supply = 200_000 ether;
+        uint256 _init_rate = uint256(1000 ether) / 356 days; // emissions per second
+        uint256 _rate_reduction_coefficient = 2 ether; // rate halves every year
 
         steam = UnsafeUpgrades.deployUUPSProxy(
             address(new Steam_v1(_init_rate, _rate_reduction_coefficient)),
             abi.encodeCall(Steam_v1.initialize, (owner, _init_supply, "Zhenglong Steam", "STEAM"))
         );
+        IBaoOwnable(steam).transferOwnership(owner);
 
         veSteam = UnsafeUpgrades.deployUUPSProxy(
             address(new VotingEscrow_v1(address(steam))),

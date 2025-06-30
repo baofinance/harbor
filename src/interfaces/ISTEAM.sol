@@ -3,15 +3,17 @@ pragma solidity >=0.8.28 <0.9.0;
 
 /// @title ISTEAM
 /// @notice Interface for the STEAM inflationary token with mining parameters
+// solhint-disable func-name-mixedcase
 interface ISTEAM {
     /*//////////////////////////////////////////////////////////////////////////
                                        EVENTS
     //////////////////////////////////////////////////////////////////////////*/
-    // event Transfer(address indexed from, address indexed to, uint256 value);
-    // event Approval(address indexed owner, address indexed spender, uint256 value);
+
     event UpdateMiningParameters(uint256 time, uint256 rate, uint256 supply);
-    // event SetMinter(address minter);
-    // event SetAdmin(address admin);
+    error TooSoon();
+    error StartAfterEnd();
+    error TooFarInFuture();
+    error ExceedsAllowableMintAmount(uint256 value, uint256 totalSupply, uint256 availableSupply);
 
     /*//////////////////////////////////////////////////////////////////////////
                                PUBLIC VIEW FUNCTIONS

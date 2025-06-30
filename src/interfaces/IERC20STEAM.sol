@@ -21,30 +21,42 @@ interface IERC20STEAM {
 
     // Initialization & admin
     function initialize(
-        uint256 init_supply,
-        uint256 init_rate,
-        uint256 rate_reduction_coefficient,
+        uint256 initSupply,
+        uint256 initRate,
+        uint256 rateReductionCoefficient,
         address admin,
         string calldata name,
         string calldata symbol
     ) external;
 
+    // solhint-disable-next-line func-name-mixedcase
     function set_minter(address minter) external;
+    // solhint-disable-next-line func-name-mixedcase
     function set_admin(address newAdmin) external;
+    // solhint-disable-next-line func-name-mixedcase
     function set_name(string calldata name, string calldata symbol) external;
 
     // Mining logic
+    // solhint-disable-next-line func-name-mixedcase
     function update_mining_parameters() external;
+    // solhint-disable-next-line func-name-mixedcase
     function start_epoch_time_write() external returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
     function future_epoch_time_write() external returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
     function available_supply() external view returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
     function mintable_in_timeframe(uint256 start, uint256 end) external view returns (uint256);
 
     // View mining state
+    // solhint-disable-next-line func-name-mixedcase
     function mining_epoch() external view returns (int128);
+    // solhint-disable-next-line func-name-mixedcase
     function start_epoch_time() external view returns (uint256);
     function rate() external view returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
     function INITIAL_RATE() external view returns (uint256);
+    // solhint-disable-next-line func-name-mixedcase
     function RATE_REDUCTION_COEFFICIENT() external view returns (uint256);
     function minter() external view returns (address);
     function admin() external view returns (address);
