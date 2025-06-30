@@ -140,7 +140,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         assertEq(StabilityPool_v1(sp).owner(), owner);
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
-        assertNotEq(IStabilityPool(sp).STABILITY_POOL_TOKEN(), address(0)); // make sure it has something
+        assertNotEq(IStabilityPool(sp).GAUGE_STAKE_TOKEN(), address(0)); // make sure it has something
+        assertNotEq(IStabilityPool(sp).GAUGE_REWARD_TOKEN(), address(0)); // make sure it has something
+        assertEq(IStabilityPool(sp).gauge(), address(0));
         assertEq(IStabilityPool(sp).VE_TOKEN(), veSteam);
         assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
     }
@@ -219,7 +221,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, (owner))
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, address(0)))
         );
         IBaoOwnable(spProxy).transferOwnership(owner);
 

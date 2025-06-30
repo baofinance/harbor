@@ -82,7 +82,10 @@ interface IStabilityPool {
     function REWARDER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of token used to collect some rewards from the gauge.
-    function STABILITY_POOL_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
+    function GAUGE_STAKE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Return the address of token used to collect some rewards from the gauge.
+    function GAUGE_REWARD_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
     function LIQUIDATION_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
@@ -92,6 +95,9 @@ interface IStabilityPool {
 
     /// @notice Return the address of voting escrow token used for boosting rewards.
     function VE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Return the address of the gauge used for staking
+    function gauge() external view returns (address gauge);
 
     /// @notice Return the total amount of asset deposited to this contract.
     function totalAssetSupply() external view returns (uint256 amount);

@@ -38,7 +38,7 @@ import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 /// * be deposited in a gauge for further rewards
 /// * represent ownership of the assets deposited here in a wallet.
 ///
-/// To add boost for FXN, we maintain a time-weighted boost ratio for each user.
+/// To add boost for STEAM, we maintain a time-weighted boost ratio for each user.
 ///   boost[u][i] = min(balance[u][i], 0.4 * balance[u][i] + ve[u][i] * totalSupply[i] / veTotal[i] * 0.6)
 ///   ratio[u][x -> y] = sum(boost[u][i] / balance[u][i] * (t[i] - t[i - 1])) / (t[y] - t[x])
 ///
@@ -85,7 +85,11 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IStabilityPool
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable STABILITY_POOL_TOKEN;
+    address public immutable GAUGE_STAKE_TOKEN;
+
+    /// @inheritdoc IStabilityPool
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable GAUGE_REWARD_TOKEN;
 
     /// @inheritdoc IStabilityPool
     address public immutable VE_TOKEN;
@@ -127,6 +131,15 @@ contract StabilityPool_v1 is
         uint128 epoch;
     }
 
+    /// @dev The gauge data struct. The compiler will pack this into single `uint256`.
+    ///
+    /// @param gauge The address of the gauge.
+    /// @param lastClaimTimestamp The timestamp in second when last claim happened.
+    struct Gauge {
+        address gauge;
+        uint96 claimedAt;
+    }
+
     /*************
      * Variables *
      *************/
@@ -137,7 +150,7 @@ contract StabilityPool_v1 is
     struct StabilityPoolStorage {
         /// @notice The gauge that this token received some of it's rewards from.
         /// @dev as such this contract will inform the gauge of all deposits, withdrawals and losses
-        address gauge;
+        Gauge gauge;
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
         /// @dev Mapping account address to TokenBalance struct. Accessed via assetBalanceOf
@@ -248,7 +261,7 @@ contract StabilityPool_v1 is
 
         Token.sanityCheckERC20Token(stabilityPoolToken_);
         // slither-disable-next-line missing-zero-check
-        STABILITY_POOL_TOKEN = stabilityPoolToken_;
+        GAUGE_STAKE_TOKEN = stabilityPoolToken_;
 
         // VE set-up
         Token.sanityCheckERC20Token(stabilityPoolToken_);
@@ -262,13 +275,18 @@ contract StabilityPool_v1 is
     }
 
     /// @notice The check that allow this contract to be upgraded:
-    /// In UUPS proxies the implementation is responsible for upgrading itself
-    /// only owners can upgrade this contract.
+    /// In UUPS proxies the implementation is responsible for upgrading itself and only owners can upgrade this contract.
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /*************************
      * Public View Functions *
      *************************/
+
+    /// @inheritdoc IStabilityPool
+    function gauge() external view returns (address gauge_) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        gauge_ = $.gauge.gauge;
+    }
 
     /// @inheritdoc IStabilityPool
     function totalAssetSupply() external view returns (uint256 totalSupply_) {
@@ -304,16 +322,14 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
-    function claimable(address account, address token) public view virtual override returns (uint256) {
-        // StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // if (token == fxn) {
-        //     UserRewardSnapshot memory _userSnapshot = userRewardSnapshot(account, token);
-        //     uint256 fullEarned = _claimable(account, token) - _userSnapshot.rewards.pending;
-        //     uint256 ratio = getBoostRatio(account);
-        //     uint256 boostEarned = (fullEarned * ratio) / 1 ether;
-        //     return _userSnapshot.rewards.pending + boostEarned;
-        // } else {
-        return _claimable(account, token);
+    function claimable(address account, address token) public view virtual override returns (uint256 earned) {
+        earned = _claimable(account, token);
+        if (token == GAUGE_REWARD_TOKEN) {
+            UserRewardSnapshot memory _userSnapshot = _userRewardSnapshot(account, token);
+            uint256 fullEarned = earned - _userSnapshot.rewards.pending;
+            uint256 boostEarned = (fullEarned * getBoostRatio(account)) / 1 ether;
+            earned = _userSnapshot.rewards.pending + boostEarned;
+        }
     }
 
     /****************************
@@ -346,7 +362,7 @@ contract StabilityPool_v1 is
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetsDeposited);
         // send their representative to the gauge, if one
 
-        _depositInGauge($.gauge, assetsDeposited);
+        _depositInGauge($.gauge.gauge, assetsDeposited);
         _checkpoint(receiver);
 
         // do the deposit
@@ -373,7 +389,7 @@ contract StabilityPool_v1 is
         uint256 assetAmount,
         address receiver,
         uint256 minAmount
-    ) external virtual override returns (uint256 assetsWithdrawn) {
+    ) external virtual override nonReentrant returns (uint256 assetsWithdrawn) {
         if (receiver == address(0)) {
             revert InvalidReceiver(address(0));
         }
@@ -419,22 +435,21 @@ contract StabilityPool_v1 is
 
         emit UserDepositChange(sender, balance.amount, 0);
 
-        _withdrawFromGauge($.gauge, assetsWithdrawn);
+        _withdrawFromGauge($.gauge.gauge, assetsWithdrawn);
         IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
     }
 
     function _depositInGauge(address gauge_, uint256 amount) internal {
         if (gauge_ != address(0)) {
-            IMintable(STABILITY_POOL_TOKEN).mint(address(this), amount);
-            //ILiquidityGaugeV6(gauge_).deposit(amount);
+            IMintable(GAUGE_STAKE_TOKEN).mint(address(this), amount);
+            ILiquidityGaugeV6(gauge_).deposit(amount);
         }
     }
 
     function _withdrawFromGauge(address gauge_, uint256 amount) internal {
         if (gauge_ != address(0)) {
-            // TODO: withdraw those tokens from the gauge
-            // ILiquidityGaugeV6(gauge_).withdraw(amount);
-            IBurnable(STABILITY_POOL_TOKEN).burn(amount);
+            ILiquidityGaugeV6(gauge_).withdraw(amount);
+            IBurnable(GAUGE_STAKE_TOKEN).burn(amount);
         }
     }
 
@@ -449,14 +464,21 @@ contract StabilityPool_v1 is
 
     /// @inheritdoc IStabilityPool
     function updateGauge(address newGauge) external onlyOwner {
-        // TODO:
-        /// checks if gauge address is empty then set, mint and deposit.
-        /// If gauge address is not empty
-        /// Withdraw, burn, update address mint and deposit.
-        /// Revert if deposit fails.
-        if (true) {
-            revert DepositZeroAmount(); // for now
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        Gauge memory currentGauge = $.gauge;
+        if (currentGauge.gauge != address(0)) {
+            // what's the score
+            uint256 supply = $.totalAssetSupply.amount;
+            // bbalance before
+            uint256 balanceBefore = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this));
+            ILiquidityGaugeV6(currentGauge.gauge).withdraw(supply, true);
+            // rewards galore
+            uint256 rewards = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this)) - balanceBefore;
+            _notifyReward(GAUGE_REWARD_TOKEN, rewards);
+            // no need to burn: we're about deposit some more
+            ILiquidityGaugeV6(newGauge).deposit(supply);
         }
+        $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
         emit GaugeUpdated(newGauge);
     }
 
@@ -467,16 +489,17 @@ contract StabilityPool_v1 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     // TODO: this could be much more efficient, by passing back the total supply, and balance rather than updating it
     function _checkpoint(address account) internal virtual override {
-        // fetch FXN from gauge every 24h
-        // Gauge memory _gauge = $.gauge;
-        // if (_gauge.gauge != address(0) && block.timestamp > uint256(_gauge.claimedAt) + 1 days) {
-        //     console.log("gauge=%s", _gauge.gauge);
-        //     uint256 _balance = IERC20(fxn).balanceOf(address(this));
-        //     ICurveTokenMinter(minter).mint(_gauge.gauge);
-        //     uint256 _minted = IERC20(fxn).balanceOf(address(this)) - _balance;
-        //     $.gauge.claimedAt = uint64(block.timestamp);
-        //     _notifyReward(fxn, _minted);
-        // }
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+
+        // fetch STEAM from gauge no more frequently than every 24h
+        Gauge memory gauge_ = $.gauge;
+        if (gauge_.gauge != address(0) && block.timestamp > uint256(gauge_.claimedAt) + 1 days) {
+            uint256 balanceBefore = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this));
+            ILiquidityGaugeV6(gauge_.gauge).claim_rewards();
+            uint256 rewards = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this)) - balanceBefore;
+            $.gauge.claimedAt = uint64(block.timestamp);
+            _notifyReward(GAUGE_REWARD_TOKEN, rewards);
+        }
 
         super._checkpoint(account);
 
@@ -484,7 +507,6 @@ contract StabilityPool_v1 is
             // checkpoint the voting escrow
             _checkpointVe(account);
 
-            StabilityPoolStorage storage $ = _getStabilityPoolStorage();
             TokenBalance memory supply = $.totalAssetSupply;
             TokenBalance memory balance = $.assetBalances[account];
             uint104 newBalance = uint104(_getCompoundedBalance(balance.amount, balance.product, supply.product));
@@ -702,7 +724,7 @@ contract StabilityPool_v1 is
         if (token == ASSET_TOKEN) {
             StabilityPoolStorage storage $ = _getStabilityPoolStorage();
             // we need to burn the appropriate amount of this contract to match the new token balance
-            _withdrawFromGauge($.gauge, amount);
+            _withdrawFromGauge($.gauge.gauge, amount);
 
             _checkpoint(address(0));
 
@@ -744,6 +766,61 @@ contract StabilityPool_v1 is
         }
         boostRatio /= uint256(block.timestamp - balance.updatedAt);
     }
+
+    /* potentially much less gassy _getBoostRatio()
+    function _getBoostRatio(address account) internal view returns (uint256 boostRatio) {
+    StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+    TokenBalance memory balance = $.assetBalances[account];
+    if (balance.amount == 0) return 0;
+
+    // Fast path for same block
+    BoostCheckpoint memory boostCheckpoint = $.boostCheckpoint[account];
+    if (uint256(balance.updatedAt) == block.timestamp) {
+        return boostCheckpoint.boostRatio;
+    }
+
+    uint256 nextIndex = boostCheckpoint.historyIndex;
+    uint256 currentRatio = boostCheckpoint.boostRatio;
+    uint256 prevTs = balance.updatedAt;
+    uint256 nowTs = _getWeekTs(prevTs);
+    uint256 timeWeightedSum = 0;
+    uint256 supplyHistoryLength = $.totalAssetSupplyHistoryLength;
+    uint256 currentSupplyIndex = nextIndex;
+
+    // Pre-fetch next supply point to avoid repeated lookups
+    TokenBalance memory currentSupply = $.totalAssetSupplyHistory[currentSupplyIndex];
+    TokenBalance memory nextSupply;
+
+    // Process each week, but advance through supply history sequentially
+    for (uint256 i = 0; i < 256; ++i) {
+        if (nowTs > block.timestamp) nowTs = block.timestamp;
+
+        // Add current period to weighted sum
+        timeWeightedSum += currentRatio * (nowTs - prevTs);
+        if (nowTs == block.timestamp) break;
+
+        // Find appropriate supply records for this timestamp
+        // Instead of binary search, we scan forward (temporal locality)
+        while (currentSupplyIndex + 1 < supplyHistoryLength &&
+               $.totalAssetSupplyHistory[currentSupplyIndex + 1].updatedAt <= nowTs) {
+            currentSupplyIndex++;
+            currentSupply = $.totalAssetSupplyHistory[currentSupplyIndex];
+        }
+
+        // Calculate boost for this point in time
+        uint256 veBalance = _veBalanceOf(account, nowTs);
+        uint256 veSupply = _veTotalSupply(nowTs);
+        uint256 balanceAmount = _getCompoundedBalance(balance.amount, balance.product, currentSupply.product);
+        currentRatio = _computeBoostRatio(balanceAmount, currentSupply.amount, veBalance, veSupply);
+
+        // Move to next week
+        prevTs = nowTs;
+        nowTs += 1 weeks;
+    }
+
+    return timeWeightedSum / uint256(block.timestamp - balance.updatedAt);
+}
+    */
 
     /// @dev Internal function to compute the smallest week aligned timestamp after given timestamp.
     /// @param timestamp The given timestamp.
