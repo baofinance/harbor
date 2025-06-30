@@ -117,11 +117,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
 
-        steam = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockSTEAM()),
-            abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Steam Token", "STEAM"))
-        );
-
         uint256 _init_supply = 0;
         uint256 _init_rate = 0;
         uint256 _rate_reduction_coefficient = 0;
@@ -153,7 +148,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
         assertNotEq(IStabilityPool(sp).GAUGE_STAKE_TOKEN(), address(0)); // make sure it has something
-        assertNotEq(IStabilityPool(sp).GAUGE_REWARD_TOKEN(), address(0)); // make sure it has something
+        assertEq(IStabilityPool(sp).GAUGE_REWARD_TOKEN(), steam); // make sure it has something
         assertEq(IStabilityPool(sp).gauge(), address(0));
         assertEq(IStabilityPool(sp).VE_TOKEN(), veSteam);
         assertEq(IStabilityPool(sp).totalAssetSupply(), 0);

@@ -264,6 +264,10 @@ contract StabilityPool_v1 is
         // slither-disable-next-line missing-zero-check
         GAUGE_STAKE_TOKEN = gaugeStakeToken_;
 
+        Token.sanityCheckERC20Token(gaugeStakeToken_);
+        // slither-disable-next-line missing-zero-check
+        GAUGE_REWARD_TOKEN = gaugeRewardToken_;
+
         // VE set-up
         Token.sanityCheckERC20Token(gaugeStakeToken_);
         // slither-disable-next-line missing-zero-check
