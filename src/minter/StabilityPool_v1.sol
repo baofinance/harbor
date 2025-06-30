@@ -241,7 +241,8 @@ contract StabilityPool_v1 is
     constructor(
         address minter_,
         address liquidationToken_,
-        address stabilityPoolToken_,
+        address gaugeStakeToken_,
+        address gaugeRewardToken_,
         address veToken_,
         uint40 periodLength
     ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, periodLength) {
@@ -259,12 +260,12 @@ contract StabilityPool_v1 is
         }
         LIQUIDATION_TOKEN = liquidationToken_;
 
-        Token.sanityCheckERC20Token(stabilityPoolToken_);
+        Token.sanityCheckERC20Token(gaugeStakeToken_);
         // slither-disable-next-line missing-zero-check
-        GAUGE_STAKE_TOKEN = stabilityPoolToken_;
+        GAUGE_STAKE_TOKEN = gaugeStakeToken_;
 
         // VE set-up
-        Token.sanityCheckERC20Token(stabilityPoolToken_);
+        Token.sanityCheckERC20Token(gaugeStakeToken_);
         // slither-disable-next-line missing-zero-check
         VE_TOKEN = veToken_;
         VE_START = IVotingEscrow(VE_TOKEN).point_history(0).ts;
@@ -442,6 +443,7 @@ contract StabilityPool_v1 is
     function _depositInGauge(address gauge_, uint256 amount) internal {
         if (gauge_ != address(0)) {
             IMintable(GAUGE_STAKE_TOKEN).mint(address(this), amount);
+            IERC20(GAUGE_STAKE_TOKEN).safeIncreaseAllowance(gauge_, amount);
             ILiquidityGaugeV6(gauge_).deposit(amount);
         }
     }
@@ -463,22 +465,29 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    function updateGauge(address newGauge) external onlyOwner {
+    function updateGauge(address newGauge) external nonReentrant onlyOwner {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        Gauge memory currentGauge = $.gauge;
-        if (currentGauge.gauge != address(0)) {
-            // what's the score
-            uint256 supply = $.totalAssetSupply.amount;
-            // bbalance before
-            uint256 balanceBefore = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this));
-            ILiquidityGaugeV6(currentGauge.gauge).withdraw(supply, true);
-            // rewards galore
-            uint256 rewards = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this)) - balanceBefore;
-            _notifyReward(GAUGE_REWARD_TOKEN, rewards);
-            // no need to burn: we're about deposit some more
-            ILiquidityGaugeV6(newGauge).deposit(supply);
+        address oldGauge = $.gauge.gauge;
+        uint256 amount = $.totalAssetSupply.amount;
+        if (amount > 0) {
+            if (oldGauge == address(0)) {
+                // No gauge currently
+                _depositInGauge(newGauge, amount); // mint and deposit
+            } else {
+                // If there's an existing gauge - withdraw
+                ILiquidityGaugeV6(oldGauge).withdraw(amount);
+                if (newGauge == address(0)) {
+                    // No new gauge — burn withdrawn
+                    IBurnable(GAUGE_REWARD_TOKEN).burn(amount);
+                } else {
+                    // New gauge — deposit withdrawn
+                    IERC20(GAUGE_STAKE_TOKEN).safeIncreaseAllowance(newGauge, amount);
+                    ILiquidityGaugeV6(newGauge).deposit(amount);
+                }
+            }
         }
         $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
+
         emit GaugeUpdated(newGauge);
     }
 

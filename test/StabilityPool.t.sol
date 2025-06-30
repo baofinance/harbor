@@ -32,6 +32,7 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
+import {Steam_v1} from "src/reward/steam/Steam_v1.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
@@ -48,9 +49,10 @@ contract StabilityPool_v2 is StabilityPool_v1 {
         address minter_,
         address liquidationToken_,
         address stabilityPoolToken_,
+        address steam_,
         address veSteam_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veSteam_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_, veSteam_, periodLength) {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
@@ -64,9 +66,10 @@ contract MockStabilityPool is StabilityPool_v1 {
         address minter_,
         address liquidationToken_,
         address stabilityPoolToken_,
+        address steam_,
         address veSteam_,
         uint40 periodLength
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, veSteam_, periodLength) {}
+    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_, veSteam_, periodLength) {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
@@ -101,7 +104,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         vm.warp(block.timestamp + 1 weeks);
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, veSteam, 1 weeks)), // "StabilityPool_v1.sol",
+            address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, steam, veSteam, 1 weeks)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
         IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
@@ -117,6 +120,15 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         steam = UnsafeUpgrades.deployUUPSProxy(
             address(new MockSTEAM()),
             abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Steam Token", "STEAM"))
+        );
+
+        uint256 _init_supply = 0;
+        uint256 _init_rate = 0;
+        uint256 _rate_reduction_coefficient = 0;
+
+        steam = UnsafeUpgrades.deployUUPSProxy(
+            address(new Steam_v1(_init_rate, _rate_reduction_coefficient)),
+            abi.encodeCall(Steam_v1.initialize, (owner, _init_supply, "Zhenglong Steam", "STEAM"))
         );
 
         veSteam = UnsafeUpgrades.deployUUPSProxy(
@@ -174,6 +186,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
             minter,
             wrappedCollateralToken,
             stabilityPoolToken,
+            steam,
             veSteam,
             1 weeks
         );
@@ -207,11 +220,11 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, veSteam, 1 weeks));
+        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam, veSteam, 1 weeks));
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, veSteam, 1 weeks));
+        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, steam, veSteam, 1 weeks));
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
@@ -221,7 +234,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, address(0)))
+            abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(spProxy).transferOwnership(owner);
 
@@ -238,10 +251,10 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initEventsBad() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
-        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veSteam, 1 weeks);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam, veSteam, 1 weeks);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1 days - 1));
-        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, veSteam, 1 days - 1);
+        new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam, veSteam, 1 days - 1);
     }
 }
 

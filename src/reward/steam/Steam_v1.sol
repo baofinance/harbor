@@ -54,7 +54,10 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
     uint256 private constant RATE_DENOMINATOR = 10 ** 18;
     uint256 private constant INFLATION_DELAY = 86400;
 
-    address public immutable minter;
+    // STEAM specific state
+    uint256 public immutable INITIAL_RATE;
+    uint256 public immutable RATE_REDUCTION_COEFFICIENT;
+
     uint256 public constant MINTER_ROLE = _ROLE_0;
 
     /*//////////////////////////////////////////////////////////////
@@ -69,9 +72,6 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
         uint256 start_epoch_time;
         uint256 rate;
         uint256 start_epoch_supply;
-        // STEAM specific state
-        uint256 INITIAL_RATE;
-        uint256 RATE_REDUCTION_COEFFICIENT;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.Steam")) - 1)) & ~bytes32(uint256(0xff))'
@@ -90,23 +90,22 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address minter_) {
-        minter = minter_;
+    /// @param _init_rate Initial emission rate
+    /// @param _rate_reduction_coefficient Rate reduction coefficient
+    constructor(uint256 _init_rate, uint256 _rate_reduction_coefficient) {
         _disableInitializers();
+        INITIAL_RATE = _init_rate;
+        RATE_REDUCTION_COEFFICIENT = _rate_reduction_coefficient;
     }
 
     /// @notice Initialize the Steam contract
     /// @param owner Admin address
     /// @param _init_supply Initial token supply
-    /// @param _init_rate Initial emission rate
-    /// @param _rate_reduction_coefficient Rate reduction coefficient
     /// @param _name Token full name
     /// @param _symbol Token symbol
     function initialize(
         address owner,
         uint256 _init_supply,
-        uint256 _init_rate,
-        uint256 _rate_reduction_coefficient,
         string calldata _name,
         string calldata _symbol
     ) external initializer {
@@ -116,8 +115,7 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
         PermittableERC20_v1.initialize(owner, _name, _symbol);
 
         // Initialize STEAM-specific state
-        $.INITIAL_RATE = _init_rate;
-        $.RATE_REDUCTION_COEFFICIENT = _rate_reduction_coefficient;
+
         $.start_epoch_time = block.timestamp;
         $.mining_epoch = -1;
         $.rate = 0;
@@ -149,11 +147,11 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
         $.mining_epoch += 1;
 
         if (_rate == 0) {
-            _rate = $.INITIAL_RATE;
+            _rate = INITIAL_RATE;
         } else {
             _start_epoch_supply += _rate * RATE_REDUCTION_TIME;
             $.start_epoch_supply = _start_epoch_supply;
-            _rate = (_rate * RATE_DENOMINATOR) / $.RATE_REDUCTION_COEFFICIENT;
+            _rate = (_rate * RATE_DENOMINATOR) / RATE_REDUCTION_COEFFICIENT;
         }
 
         $.rate = _rate;
@@ -235,7 +233,7 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
         // Special case if end is in future (not yet minted) epoch
         if (end > current_epoch_time + RATE_REDUCTION_TIME) {
             current_epoch_time += RATE_REDUCTION_TIME;
-            current_rate = (current_rate * RATE_DENOMINATOR) / $.RATE_REDUCTION_COEFFICIENT;
+            current_rate = (current_rate * RATE_DENOMINATOR) / RATE_REDUCTION_COEFFICIENT;
         }
 
         if (end > current_epoch_time + RATE_REDUCTION_TIME) {
@@ -265,8 +263,8 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
             }
 
             current_epoch_time -= RATE_REDUCTION_TIME;
-            current_rate = (current_rate * $.RATE_REDUCTION_COEFFICIENT) / RATE_DENOMINATOR; // Double-division with rounding makes rate a bit less => good
-            assert(current_rate <= $.INITIAL_RATE); // This should never happen
+            current_rate = (current_rate * RATE_REDUCTION_COEFFICIENT) / RATE_DENOMINATOR; // Double-division with rounding makes rate a bit less => good
+            assert(current_rate <= INITIAL_RATE); // This should never happen
         }
 
         return to_mint;
@@ -276,7 +274,7 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
                             ADMIN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Override the mint function to enforce STEAM-specific logic
+    /// @notice mints STEAM tokens
     /// @param to The account that will receive the created tokens
     /// @param value The amount that will be created
     /// @return success Boolean indicating success
@@ -301,38 +299,23 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
     /*//////////////////////////////////////////////////////////////
                         INTERFACE GETTERS
     //////////////////////////////////////////////////////////////*/
-    /// @notice Get the mining epoch
-    /// @return Current mining epoch
+
+    /// @inheritdoc ISTEAM
     function mining_epoch() external view returns (int128) {
         return _getSteamStorage().mining_epoch;
     }
 
-    /// @notice Get the start epoch time
-    /// @return Start epoch timestamp
+    /// @inheritdoc ISTEAM
     function start_epoch_time() external view returns (uint256) {
         return _getSteamStorage().start_epoch_time;
     }
 
-    /// @notice Get the current emission rate
-    /// @return Current rate
+    /// @inheritdoc ISTEAM
     function rate() external view returns (uint256) {
         return _getSteamStorage().rate;
     }
 
-    /// @notice Get the initial rate
-    /// @return Initial emission rate
-    function INITIAL_RATE() external view returns (uint256) {
-        return _getSteamStorage().INITIAL_RATE;
-    }
-
-    /// @notice Get the rate reduction coefficient
-    /// @return Rate reduction coefficient
-    function RATE_REDUCTION_COEFFICIENT() external view returns (uint256) {
-        return _getSteamStorage().RATE_REDUCTION_COEFFICIENT;
-    }
-
-    /// @notice Get the admin address
-    /// @return Admin address
+    /// @inheritdoc ISTEAM
     function admin() external view returns (address) {
         return owner();
     }

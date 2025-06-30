@@ -33,6 +33,12 @@ fs_permissions = [
 [profile.slither]
 skip = ["**/*.vy"]
 
+[vyper]
+version = "0.3.10"
+optimize = true
+optimize_runs = 700
+via_ir = false  # you can enable this later if needed
+evm_version = "shanghai"  # or "london", "cancun" depending on your target
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

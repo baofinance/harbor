@@ -17,13 +17,28 @@ interface ISTEAM {
                                PUBLIC VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    // View mining state
+    /// @notice Get the mining epoch
+    /// @return Current mining epoch
     function mining_epoch() external view returns (int128);
+
+    /// @notice Get the start epoch time
+    /// @return Start epoch timestamp
     function start_epoch_time() external view returns (uint256);
+
+    /// @notice Get the current emission rate
+    /// @return Current rate
     function rate() external view returns (uint256);
+
+    /// @notice Get the initial rate
+    /// @return Initial emission rate
     function INITIAL_RATE() external view returns (uint256);
+
+    /// @notice Get the rate reduction coefficient
+    /// @return Rate reduction coefficient
     function RATE_REDUCTION_COEFFICIENT() external view returns (uint256);
-    function minter() external view returns (address);
+
+    /// @notice Get the admin address - this is the same as owner()
+    /// @return Admin address
     function admin() external view returns (address);
 
     /*//////////////////////////////////////////////////////////////////////////

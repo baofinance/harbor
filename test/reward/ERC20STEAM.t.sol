@@ -67,11 +67,8 @@ abstract contract ERC20STEAM is Test {
             assertEq(IERC20STEAM(steam).minter(), minter);
         } else {
             steam = UnsafeUpgrades.deployUUPSProxy(
-                address(new Steam_v1(minter)),
-                abi.encodeCall(
-                    Steam_v1.initialize,
-                    (admin, INITIAL_SUPPLY, INITIAL_RATE, RATE_REDUCTION_COEFFICIENT, "Zhenglong STEAM", "STEAM")
-                )
+                address(new Steam_v1(INITIAL_RATE, RATE_REDUCTION_COEFFICIENT)),
+                abi.encodeCall(Steam_v1.initialize, (admin, INITIAL_SUPPLY, "Zhenglong STEAM", "STEAM"))
             );
             IBaoRoles(steam).grantRoles(minter, IMintableRole(steam).MINTER_ROLE());
             IBaoOwnable(steam).transferOwnership(admin);
