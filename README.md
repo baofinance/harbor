@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/baofinance/bao-minter/actions/workflows/test.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
 
-# Minter
+# Zhenglong
 
-Minter is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD or anything that has a price feed
+Zhenglong is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD or anything that has a price feed
 These pegged tokens are minted in exchange for a capital efficient amount of collateral tokens.
 In addition, there are leveraged tokens whose total value is the difference in the value of the collateral and the pegged tokens.
 Pegged tokens and Leveraged tokens can be both minted and redeemed by users.
@@ -55,19 +55,19 @@ This provides a gas efficient and general pause mechanism for all UUPS upgradeab
 Provides discounts for collateral ration beneficial user actions.
 The reserve pool is funded by a portion of the fees collected, and can be filled by other mechanisms, e.g. simply transferring the collateral token to it.
 
-## Pegged Tokens
+## Pegged Tokens, or zheTokens
 
-Pegged tokens can be any ERC20 token and can be minted by other means not just by the Minter. Pegged tokens can therefore be minted by some other means and redeemed in the Minter.
-The Minter maintains a count of how many have been minted and redeemed by the Minter itself and ensures that no more are redeemed than are minted in the Minter itself.
+Pegged tokens can be any ERC20 token and can be minted by other means not just by Zhenglong. Pegged tokens can therefore be minted by some other means and redeemed in Zhenglong, or in a Zhenglong on another chain.
+The Minter contract maintains a count of how many have been minted and redeemed by the Minter contract itself and ensures that no more are redeemed than are minted by the Minter contract itself.
 
-## Leveraged Tokens
+## Leveraged Tokens, or steamedTokens
 
-Leveraged tokens operate on a one-to-one basis with the Minter. Only the Minter can mint them and redeem them.
-Leverage token's value is derived from the difference between the value of collateral and the value of the total number of pegged tokens minted by the Minter and not redeemed.
+Leveraged tokens operate on a one-to-one basis with the Minter contract. Only the Minter contract can mint them and redeem them.
+Leverage token's value is derived from the difference between the value of collateral and the value of the total number of pegged tokens minted by the Minter contract and not redeemed.
 Because of this the value of a leveraged token changes as the value of the collateral changes - by the price of the collateral changing.
 Minting or redeeming pegged or leveraged tokens makes no difference to the price of the leveraged token as each mint/redeem increases/decreases the total amount of collateral such that the value of the leveraged token is unaffected.
 Leveraged tokens act as a leveraged long collateral position.
-Leveraged token's value drops to zero when the value of the collateral held equals the total value of the pegged tokend minted but not redeemed by the Minter.
+Leveraged token's value drops to zero when the value of the collateral held equals the total value of the pegged tokend minted but not redeemed by the Minter contract.
 
 # Development
 
@@ -99,7 +99,7 @@ which runs all the scripts. It actually runs the github actions locally under do
 
     $ yarn deploy:local
 
-which deploys the Minter contracts, correctly connected up, on a local anvil instance.
+which deploys the Zhenglong contracts, correctly connected up, on a local anvil instance.
 
 Also note that config files for [wake](https://ackee.xyz/wake/docs/4.11.0/) are provided.
 

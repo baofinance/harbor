@@ -599,7 +599,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     address harvester;
     address liquidator;
 
-    function _setupStabilityPool(address liquidationToken) internal virtual override returns (address stabilityPool) {
+    function _setupStabilityPool(address) internal virtual override returns (address stabilityPool) {
         stabilityPool = address(new MockStabilityPool(peggedToken));
     }
 
@@ -629,7 +629,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         // Execute harvest
         vm.prank(harvester);
-        uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), harvesterBefore, "Incorrect bounty amount");
         assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), feeReceiverBefore, "Incorrect bounty amount");
     }

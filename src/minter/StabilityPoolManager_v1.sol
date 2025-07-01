@@ -18,8 +18,6 @@ import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 /// @title StabilityPoolManager
 /// @author Based on original Liquidator and Harvester contracts
 /// @notice Manages stability pools for rebalancing and harvesting operations
@@ -423,7 +421,6 @@ contract StabilityPoolManager_v1 is
         }
         // Check if there's anything to harvest
         uint256 harvestableAmount = IMinter(MINTER).harvestable();
-        console2.log("harvestableAmount=%s", harvestableAmount);
         if (harvestableAmount == 0) {
             revert NoHarvestable();
         }
@@ -431,12 +428,10 @@ contract StabilityPoolManager_v1 is
         // Calculate bounty
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         uint256 bountyAmount = Math.mulDiv(harvestableAmount, $.harvestBountyRatio, 1 ether);
-        console2.log("bountyAmount=%s", bountyAmount);
         if (bountyAmount < minBounty) {
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
         uint256 cutAmount = Math.mulDiv(harvestableAmount, $.harvestCutRatio, 1 ether);
-        console2.log("cutAmount=%s", cutAmount);
 
         // harvest everything - one loss recorded in stability pool (which is expensive in gas)
         ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestableAmount, address(this));
@@ -458,9 +453,6 @@ contract StabilityPoolManager_v1 is
 
         // Calculate total pool balances (similar to Harvester_v1)
         (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
-        console2.log("totalPoolHolding=%s", totalPoolHolding);
-        console2.log("poolHoldingCollateral=%s", poolHoldingCollateral);
-        console2.log("poolHoldingLeveraged=%s", poolHoldingLeveraged);
 
         // Distribute proportionally based on current holdings
         if (totalPoolHolding > 0) {
