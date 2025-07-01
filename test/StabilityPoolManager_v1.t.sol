@@ -164,9 +164,9 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
     function test_setBounty() public {
         // Test setting bounty
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        StabilityPoolManager_v1(stabilityPoolManager).setRebalanceBountyRatio(0.02 ether);
+        StabilityPoolManager_v1(stabilityPoolManager).updateRebalanceBountyRatio(0.02 ether);
         vm.prank(owner);
-        StabilityPoolManager_v1(stabilityPoolManager).setRebalanceBountyRatio(0.02 ether);
+        StabilityPoolManager_v1(stabilityPoolManager).updateRebalanceBountyRatio(0.02 ether);
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).rebalanceBountyRatio(),
             0.02 ether,
@@ -174,9 +174,9 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         );
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        StabilityPoolManager_v1(stabilityPoolManager).setHarvestBountyRatio(0.01 ether);
+        StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(0.01 ether);
         vm.prank(owner);
-        StabilityPoolManager_v1(stabilityPoolManager).setHarvestBountyRatio(0.01 ether);
+        StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(0.01 ether);
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(),
             0.01 ether,
@@ -189,7 +189,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         uint256 newRatio = 140 ether / 100; // 140%
 
         vm.prank(owner);
-        StabilityPoolManager_v1(stabilityPoolManager).setRebalanceThreshold(newRatio);
+        StabilityPoolManager_v1(stabilityPoolManager).updateRebalanceThreshold(newRatio);
 
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold(),
@@ -199,7 +199,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
 
         // Test unauthorized access
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        StabilityPoolManager_v1(stabilityPoolManager).setRebalanceThreshold(135 ether / 100);
+        StabilityPoolManager_v1(stabilityPoolManager).updateRebalanceThreshold(135 ether / 100);
     }
 
     function test_rebalanceable() public {
@@ -208,17 +208,17 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
 
         // Test rebalanceable condition using manager's rebalanceCollateralRatio
         vm.prank(owner);
-        IStabilityPoolManager(stabilityPoolManager).setRebalanceThreshold(currentCR + 1);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR + 1);
         assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // When CR >= manager's rebalance threshold, should not be rebalanceable
         vm.prank(owner);
-        IStabilityPoolManager(stabilityPoolManager).setRebalanceThreshold(currentCR);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
         assertFalse(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should not be rebalanceable");
 
         // Update rebalance ratio and test again
         vm.prank(owner);
-        StabilityPoolManager_v1(stabilityPoolManager).setRebalanceThreshold(currentCR + 2);
+        StabilityPoolManager_v1(stabilityPoolManager).updateRebalanceThreshold(currentCR + 2);
         assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable again");
     }
 
@@ -269,8 +269,8 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         bountyRatio = bound(bountyRatio, 0, 0.9 ether); // Ensure bounty ratio is between 0% and 100%
 
         vm.startPrank(owner);
-        IStabilityPoolManager(stabilityPoolManager).setRebalanceThreshold(threshold);
-        IStabilityPoolManager(stabilityPoolManager).setRebalanceBountyRatio(bountyRatio);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
         vm.stopPrank();
         // Check rebalanceable
         assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
@@ -379,10 +379,10 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         // Test when CR is too high compared to manager's ratio
         uint256 currentCR = IMinter(minter).collateralRatio();
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPoolManager(stabilityPoolManager).setRebalanceThreshold(currentCR);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
 
         vm.prank(owner);
-        IStabilityPoolManager(stabilityPoolManager).setRebalanceThreshold(currentCR);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
         assertFalse(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should not be rebalanceable");
     }
 }

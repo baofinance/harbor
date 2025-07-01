@@ -106,7 +106,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
-        IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceThreshold(1.3 ether);
+        IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
             address(
@@ -114,7 +114,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
-        IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceThreshold(1.3 ether);
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();

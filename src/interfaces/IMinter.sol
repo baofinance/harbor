@@ -108,9 +108,9 @@ interface IMinter {
 
     event UpdateConfig(Config config);
 
-    /// @notice Emitted when the platform contract is updated.
-    /// @param oldFeeReceiver The address of previous platform contract.
-    /// @param newFeeReceiver The address of the new (current) platform contract.
+    /// @notice Emitted when the fee receiving contract is updated.
+    /// @param oldFeeReceiver The address of previous fee receiving contract.
+    /// @param newFeeReceiver The address of the new (current) fee receiving contract.
     event UpdateFeeReceiver(address indexed oldFeeReceiver, address indexed newFeeReceiver);
 
     /// @notice Emitted when the platform contract is updated.
