@@ -7,6 +7,7 @@ import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Cont
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -179,7 +180,7 @@ contract Genesis_v1 is
     /// @inheritdoc IGenesis
     function withdraw(uint256 amount, address receiver) external nonReentrant returns (uint256 collateralOut) {
         if (amount == 0) {
-            revert Token.ZeroInputBalance(WRAPPED_COLLATERAL_TOKEN);
+            revert Token.ZeroInputBalance(address(this));
         }
         Token.ensureNonZeroAddress(receiver);
         GenesisStorage storage $ = _getGenesisStorage();
@@ -189,8 +190,12 @@ contract Genesis_v1 is
         address caller = _msgSender();
         uint256 callerShares = $.shares[caller];
 
-        // cap the amount to the shares actually held
-        amount = (amount > callerShares) ? callerShares : amount;
+        if (amount == type(uint256).max) {
+            // withdraw all shares
+            amount = callerShares;
+        } else if (amount > callerShares) {
+            revert IERC20Errors.ERC20InsufficientBalance(caller, callerShares, amount);
+        }
 
         // remove the amount from the share
         $.shares[caller] = callerShares - amount;
@@ -264,15 +269,17 @@ contract Genesis_v1 is
         // mint the pegged and leveraged, using all (yes, including any /2 truncation) the collateral
         // there is a potential to offer a bonus to depositors here by transferring collateral manually
         // into this contract.
-        uint256 halfCollateral = totalCollateral / 2;
+        uint256 peggedAmount = totalCollateral / 2;
+        uint256 leveragedAmount = totalCollateral - peggedAmount;
         // wake-disable-next-line reentrancy // nonReentrant on this function
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeIncreaseAllowance(MINTER, totalCollateral);
         // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
-        $.totalPeggedAtGenesisEnd = IMinter(MINTER).freeMintPeggedToken(halfCollateral, address(this));
-        $.totalLeveragedAtGenesisEnd = IMinter(MINTER).freeMintLeveragedToken(
-            totalCollateral - halfCollateral,
-            address(this)
-        );
+        if (peggedAmount > 0) {
+            $.totalPeggedAtGenesisEnd = IMinter(MINTER).freeMintPeggedToken(peggedAmount, address(this));
+        }
+        if (leveragedAmount > 0) {
+            $.totalLeveragedAtGenesisEnd = IMinter(MINTER).freeMintLeveragedToken(leveragedAmount, address(this));
+        }
         // minted tokens can now be claimed by the depositor, or collateral withdrawn
         $.genesisEnded = true;
     }
