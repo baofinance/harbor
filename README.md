@@ -2,7 +2,7 @@
 
 # Build status
 
-[![CI](https://github.com/baofinance/bao-minter/actions/workflows/test.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
+[![CI](https://github.com/baofinance/bao-minter/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
 
 # Introduction
 
@@ -129,7 +129,7 @@ which deploys the **Zhenglong** contracts, correctly connected up, on a local an
 
 Also note that config files for [wake](https://ackee.xyz/wake/docs/4.11.0/) are provided.
 
-### Test artifacts
+### Regression test artifacts
 
 Note that some "yarn test" artifacts:
 
@@ -138,4 +138,4 @@ Note that some "yarn test" artifacts:
 - the gas reports
 - generated graphs
 
-are stored in git in the <code>regression</code> folder. This provides a simple, albeit crude, mechanism to check for regressions in coverage, gas usage and model values.
+are stored in git in the <code>regression</code> folder. This provides a simple, albeit crude and pedantic, mechanism to check for regressions in coverage, gas usage and model values.
