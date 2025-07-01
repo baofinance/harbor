@@ -1,6 +1,10 @@
+# Build status
+
+[![CI](https://github.com/baofinance/bao-minter/actions/workflows/test.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
+
 # Minter
 
-Minter is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD.
+Minter is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD or anything that has a price feed
 These pegged tokens are minted in exchange for a capital efficient amount of collateral tokens.
 In addition, there are leveraged tokens whose total value is the difference in the value of the collateral and the pegged tokens.
 Pegged tokens and Leveraged tokens can be both minted and redeemed by users.
@@ -8,28 +12,52 @@ The system maintains the pegging by varying the price of the leveraged token suc
 This works perfectly while the value of the collateral held doesn't drop below the value of all the minted pegged tokens.
 A healthy collateral ratio is maintained through four mechanisms some of which operate throughout the collateral ratio spectrum and others kick in when collateral ratio levels are tending downward.
 
-## Build status
-[![CI](https://github.com/baofinance/bao-minter/actions/workflows/test.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
-
 ## Stability mechanisms
 
 ### Incentives
 
-Incentivising certain actions
-Fees and discounts can be set for each of minting/redeeming of pegged/leveraged tokens. It is expected but not enforced that fees increase as action increase as the collateral ratio decreases for certain user actions and decrease for others.
+Fees and discounts can be set for each of minting/redeeming actions of pegged/leveraged tokens. It is expected, but not enforced, that fees increase for an action if that action tends to decrease collateral ratio and vica versa. Collateral ratio increasing actions minting leveraged tokens and redeeming pegged tokens and collateral ratio decreasing actions are redeeming leveraged tokens and minting pegged tokens.
+
+Certain actions are incentivised and some deincentivised by a fee set-up that allows up to 8 fee levels per action.
+
+Fees can also be negative and this is interpreted as a kind of discount where you get more in returne for what you pay for. Discounts are funded by the reserve pool and when that empties discounts no longer apply.
+
+If fees are set to 100%, this is interpreted as "disallowed" in that if your mint/redeem would result in a collateral ratio that is "disallowed" the you get to mint/redeem only up to that level.
+
+Fees can be queried up front by so-called dry-run view functions, answering the question: What fees/discounts will I be charged/receive if I were to carry out this action. Obviously this is only true for the instant the dry-run function is called and if someone else moves the collateral ratio enough you may not get the result in reality.
 
 ### Rebalancing
 
+Rebalancing is when collateral ratio reaches a certain level, configurable in the StabilityPoolManager. Anyone can call the rebalance() function there and receive a bounty for doing so. If the collateral ratio of the system is not below the configured threshold, no rebalancing is performed.
+
+When a rebalance occurs, pegged tokens that have been deposited in one of the stability pools will be converted back to collateral and that collateral is available for depositors to claim. By removing pegged tokens from the system we will increase the collateral ratio to above the threshold for rebalancing. Further rebalancing operations can be performed if the threshold is breached again.
+
+There are currently two stability pools per pegged token / collateral token pair, one, as described above, that rebalances into collaterral tokens and the other that rebalances into leveraged tokens. Both reduce the supply of pegged tokens and so increase collateral ratio.
+
+Rebalancing is performed on the stability pools in proportion to the amount of pegged tokens they hold.
+
+The rebalance-to-leverage pool needs to rebalance fewer pegged tokens to reach threshold again because these tokens continue to have their own collateral backing the system.
+
 ### Pausing of certain user actions
+
+User actions can be paused.
+
+All contracts involved are in the system are upgradeable using the UUPS proxy pattern. This allows pausing a contract to be done by "upgrading" to a dumb contract whose ownership is help on the implementation, not the proxy, and so does not affect any of the data held by the proxy. This dumb contract responds to all calls with a message that the action is paused, with the exception of the upgradeToAndCall function which only the owner of the contract can call.
+
+This provides a pause mechanism with out burdening the caller of each function with the gas cost of looking up whether the function is paused or not.
+
+Unpausing becomes another "upgrade" to the original contract. Both "upgrades" are simple and cheap single transactions, on a par with calling a pause() function on the contract.
+
+This provides a gas efficient and general pause mechanism for all UUPS upgradeable contracts.
 
 ### Reserve pool
 
-Provides discounts for beneficial user actions.
-The reserve pool is filled with a percentage of the fees collected, and can be filled by other mechanisms, e.g. simply transferring the collateral token to it.
+Provides discounts for collateral ration beneficial user actions.
+The reserve pool is funded by a portion of the fees collected, and can be filled by other mechanisms, e.g. simply transferring the collateral token to it.
 
 ## Pegged Tokens
 
-Pegged tokens can be any ERC20 token and can be minted by other means not just by the Minter. Pegged tokens can therefore be minted by some other means and redeemed in the Mkinter.
+Pegged tokens can be any ERC20 token and can be minted by other means not just by the Minter. Pegged tokens can therefore be minted by some other means and redeemed in the Minter.
 The Minter maintains a count of how many have been minted and redeemed by the Minter itself and ensures that no more are redeemed than are minted in the Minter itself.
 
 ## Leveraged Tokens
@@ -43,30 +71,35 @@ Leveraged token's value drops to zero when the value of the collateral held equa
 
 # Development
 
-## Foundry
+## Tooling
 
-Installation and usage is [here](https://book.getfoundry.sh/)
+- Foundry installation and usage is [here](https://book.getfoundry.sh/)
+- Python dependencies are managed by uv, installation and usage is [here](https://docs.astral.sh/uv/getting-started/installation/)
 
 ## Usage
 
-    $ yarn
+This project uses both node and python dependencies
 
-to install node dependencies.
-Then add a good definition of <code>MAINNET_RPC_URL</code> to your <code>.env</code>.
+    $ yarn
+    $ uv sync
+
+Then add a good definition of <code>MAINNET_RPC_URL</code> to your <code>.env</code> and call
 
     $ yarn test
 
-which builds and tests the code, including generating coverage and gas usage reports, or
+which builds and tests the code.
 
-    $ yarn slither
+There are other yarn scripts for running linters, formatters, coverage, gas, contract sizes, etc: check the scripts in <code>package.json</code>
 
-which runs the slither code analyser, or
+You can also run
+
+    $ yarn CI
+
+which runs all the scripts. It actually runs the github actions locally under docker.
 
     $ yarn deploy:local
 
 which deploys the Minter contracts, correctly connected up, on a local anvil instance.
-
-etc. Check the scripts in <code>package.json</code>
 
 Also note that config files for [wake](https://ackee.xyz/wake/docs/4.11.0/) are provided.
 
@@ -75,7 +108,8 @@ Also note that config files for [wake](https://ackee.xyz/wake/docs/4.11.0/) are 
 Note that some "yarn test" artifacts:
 
 - the code-coverage report
+- the contract sizes
 - the gas reports
-- geerated graphs
+- generated graphs
 
 are stored in git. This provides a simple (albeit crude) mechanism to check for regressions in coverage, gas usage and model values.

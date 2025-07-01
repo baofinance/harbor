@@ -8,8 +8,7 @@ interface IStabilityPoolManager {
 
     event RebalanceBountyUpdated(uint256 rebalanceBountyRatio);
     event HarvestBountyUpdated(uint256 harvestBountyRatio);
-    // event LiquidationPerformed(address indexed stabilityPool, uint256 amount);
-    // event HarvestPerformed(uint256 harvestedAmount, uint256 bounty);
+    event HarvestCutUpdated(uint256 harvestCutRatio);
     event RebalanceThresholdUpdated(uint256 collateralRatio);
 
     /// @notice Emitted when liquidation happens.
@@ -18,6 +17,10 @@ interface IStabilityPoolManager {
     /// @param forLeveraged The resulting leveraged tokens.
     event Rebalanced(uint256 liquidated, uint256 forWrappedCollateral, uint256 forLeveraged);
     event Harvested(uint256 amount);
+    /// @notice Emitted when the fee receiving contract is updated.
+    /// @param oldFeeReceiver The address of previous fee receiving contract.
+    /// @param newFeeReceiver The address of the new (current) fee receiving contract.
+    event UpdateFeeReceiver(address indexed oldFeeReceiver, address indexed newFeeReceiver);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -52,9 +55,14 @@ interface IStabilityPoolManager {
     function hasStabilityPool(address stabilityPool) external view returns (bool);
     function harvestable() external view returns (uint256);
     function rebalanceable() external view returns (bool);
-    function harvestBountyRatio() external view returns (uint256 harvestRatio);
-    function rebalanceBountyRatio() external view returns (uint256 rebalanceRatio);
+    function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_);
+    function harvestCutRatio() external view returns (uint256 harvestCutRatio_);
+    function rebalanceBountyRatio() external view returns (uint256 rebalanceBountyRatio_);
+    /// @notice Returns the collateral ratio at which rebalancing should occur
+    /// @return The rebalance collateral ratio
     function rebalanceThreshold() external view returns (uint256);
+    /// @notice Returns the address of the fee receiver contract
+    function feeReceiver() external view returns (address);
 
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
@@ -66,7 +74,12 @@ interface IStabilityPoolManager {
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-    function setRebalanceBountyRatio(uint256 rebalanceRatio) external;
-    function setHarvestBountyRatio(uint256 harvestRatio) external;
-    function setRebalanceThreshold(uint256 newRatio) external;
+    function updateRebalanceBountyRatio(uint256 rebalanceRatio) external;
+    function updateHarvestBountyRatio(uint256 harvestRatio) external;
+    function updateRebalanceThreshold(uint256 newRatio) external;
+    /// @notice Updates the fee receiver to the given address
+    /// @param feeReceiver_ The new fee receiver
+    function updateFeeReceiver(address feeReceiver_) external;
+    /// @notice update the ratio sent to the feeReceiver, if any
+    function updateHarvestCutRatio(uint256 harvestCutRatio_) external;
 }

@@ -5,6 +5,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -16,6 +17,8 @@ import {Token} from "@bao/Token.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+
+import {console2} from "forge-std/console2.sol";
 
 /// @title StabilityPoolManager
 /// @author Based on original Liquidator and Harvester contracts
@@ -71,11 +74,15 @@ contract StabilityPoolManager_v1 is
     struct StabilityPoolManagerStorage {
         /// @notice Fixed bounty amount for rebalancing
         uint256 rebalanceBountyRatio;
-        uint256 rebalanceBountyToken;
         /// @notice The collateral ratio at which rebalancing should occur
         uint256 rebalanceThreshold;
         /// @notice Percentage-based bounty for harvesting (as a ratio of the harvested amount)
-        uint256 harvestRatio;
+        uint256 harvestBountyRatio;
+        /// @notice Percentage-based cut for harvesting (as a ratio of the harvested amount)
+        uint256 harvestCutRatio;
+        /// @notice The fee receiver that receives the harvest cut
+        // @custom:security non-reentrant
+        address feeReceiver;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPoolManager")) - 1)) & ~bytes32(uint256(0xff))'
@@ -121,11 +128,6 @@ contract StabilityPoolManager_v1 is
         Token.ensureContract(stabilityPoolLeveraged);
         // slither-disable-next-line missing-zero-check
         _STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
-
-        // // Validate and store the gauge
-        // Token.ensureContract(gauge);
-        // // slither-disable-next-line missing-zero-check
-        // _GAUGE = gauge;
     }
 
     /// @notice Initialize the contract with starting configuration
@@ -189,21 +191,32 @@ contract StabilityPoolManager_v1 is
     }
 
     /// @inheritdoc IStabilityPoolManager
-    function harvestBountyRatio() external view returns (uint256 harvestRatio) {
+    function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        harvestRatio = $.harvestRatio;
+        harvestBountyRatio_ = $.harvestBountyRatio;
     }
 
-    function rebalanceBountyRatio() external view returns (uint256 rebalanceRatio) {
+    /// @inheritdoc IStabilityPoolManager
+    function harvestCutRatio() external view returns (uint256 harvestCutRatio_) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        rebalanceRatio = $.rebalanceBountyRatio;
+        harvestCutRatio_ = $.harvestCutRatio;
+    }
+    /// @inheritdoc IStabilityPoolManager
+    function rebalanceBountyRatio() external view returns (uint256 rebalanceBountyRatio_) {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        rebalanceBountyRatio_ = $.rebalanceBountyRatio;
     }
 
-    /// @notice Returns the collateral ratio at which rebalancing should occur
-    /// @return The rebalance collateral ratio
+    /// @inheritdoc IStabilityPoolManager
     function rebalanceThreshold() external view returns (uint256) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         return $.rebalanceThreshold;
+    }
+
+    /// @inheritdoc IStabilityPoolManager
+    function feeReceiver() external view override returns (address) {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        return $.feeReceiver;
     }
 
     /*************************
@@ -212,7 +225,7 @@ contract StabilityPoolManager_v1 is
 
     /// @notice Updates the rebalance threshold collateral ratio
     /// @param newRatio The new rebalance threshold
-    function setRebalanceThreshold(uint256 newRatio) external onlyOwner {
+    function updateRebalanceThreshold(uint256 newRatio) external onlyOwner {
         if (newRatio < 1 ether) {
             revert InvalidRebalanceThreshold(newRatio);
         }
@@ -223,7 +236,7 @@ contract StabilityPoolManager_v1 is
     }
 
     /// @inheritdoc IStabilityPoolManager
-    function setRebalanceBountyRatio(uint256 rebalanceRatio_) external onlyOwner {
+    function updateRebalanceBountyRatio(uint256 rebalanceRatio_) external onlyOwner {
         if (rebalanceRatio_ > 1 ether) {
             revert InvalidRebalanceBountyRatio(rebalanceRatio_);
         }
@@ -234,14 +247,32 @@ contract StabilityPoolManager_v1 is
     }
 
     /// @inheritdoc IStabilityPoolManager
-    function setHarvestBountyRatio(uint256 harvestRatio_) external onlyOwner {
+    function updateHarvestBountyRatio(uint256 harvestRatio_) external onlyOwner {
         if (harvestRatio_ > 1 ether) {
             revert InvalidHarvestBountyRatio(harvestRatio_);
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.harvestRatio = harvestRatio_;
+        $.harvestBountyRatio = harvestRatio_;
 
         emit HarvestBountyUpdated(harvestRatio_);
+    }
+
+    /// @inheritdoc IStabilityPoolManager
+    function updateHarvestCutRatio(uint256 harvestCutRatio_) external onlyOwner {
+        if (harvestCutRatio_ > 1 ether) {
+            revert InvalidHarvestBountyRatio(harvestCutRatio_);
+        }
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        $.harvestCutRatio = harvestCutRatio_;
+
+        emit HarvestCutUpdated(harvestCutRatio_);
+    }
+
+    function updateFeeReceiver(address feeReceiver_) external override onlyOwner {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        address old = $.feeReceiver;
+        $.feeReceiver = feeReceiver_;
+        emit UpdateFeeReceiver(old, feeReceiver_);
     }
 
     /*************************
@@ -263,6 +294,9 @@ contract StabilityPoolManager_v1 is
         address bountyReceiver,
         uint256 minPeggedLiquidated
     ) external nonReentrant returns (uint256 peggedLiquidated) {
+        if (bountyReceiver == address(0)) {
+            revert IERC20Errors.ERC20InvalidReceiver(bountyReceiver);
+        }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         uint256 rebalanceThreshold_ = $.rebalanceThreshold;
         if (!_rebalanceable(IMinter(MINTER).collateralRatio(), rebalanceThreshold_)) {
@@ -374,7 +408,7 @@ contract StabilityPoolManager_v1 is
         if (poolHolding > 0) {
             // in the math we get truncation errors, but all that means is that dust is collected for the next harvest
             harvestedAmount = Math.mulDiv(harvestableAmount, poolHolding, totalHolding);
-            ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestedAmount, pool);
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(pool, harvestedAmount);
             IStabilityPool(pool).accumulateReward(WRAPPED_COLLATERAL_TOKEN, harvestedAmount);
         }
     }
@@ -384,27 +418,49 @@ contract StabilityPoolManager_v1 is
         address bountyReceiver,
         uint256 minBounty
     ) external nonReentrant returns (uint256 harvestedAmount) {
+        if (bountyReceiver == address(0)) {
+            revert IERC20Errors.ERC20InvalidReceiver(bountyReceiver);
+        }
         // Check if there's anything to harvest
         uint256 harvestableAmount = IMinter(MINTER).harvestable();
+        console2.log("harvestableAmount=%s", harvestableAmount);
         if (harvestableAmount == 0) {
             revert NoHarvestable();
         }
 
         // Calculate bounty
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 bountyAmount = Math.mulDiv(harvestableAmount, $.harvestRatio, 1 ether);
+        uint256 bountyAmount = Math.mulDiv(harvestableAmount, $.harvestBountyRatio, 1 ether);
+        console2.log("bountyAmount=%s", bountyAmount);
         if (bountyAmount < minBounty) {
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
-        // harvest the bounty
-        ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, bountyAmount, bountyReceiver);
+        uint256 cutAmount = Math.mulDiv(harvestableAmount, $.harvestCutRatio, 1 ether);
+        console2.log("cutAmount=%s", cutAmount);
 
+        // harvest everything - one loss recorded in stability pool (which is expensive in gas)
+        ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestableAmount, address(this));
         // keep a running total of the amount harvested
-        uint256 actuallyHarvested = bountyAmount;
-        harvestableAmount -= bountyAmount;
+        uint256 actuallyHarvested = 0;
+
+        // distribute the harvest deductions
+        if (bountyAmount > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
+            actuallyHarvested += bountyAmount;
+        }
+        if ($.feeReceiver != address(0) && cutAmount > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, cutAmount);
+            actuallyHarvested += cutAmount;
+        }
+
+        // now distribute the rest
+        harvestableAmount -= actuallyHarvested;
 
         // Calculate total pool balances (similar to Harvester_v1)
         (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
+        console2.log("totalPoolHolding=%s", totalPoolHolding);
+        console2.log("poolHoldingCollateral=%s", poolHoldingCollateral);
+        console2.log("poolHoldingLeveraged=%s", poolHoldingLeveraged);
 
         // Distribute proportionally based on current holdings
         if (totalPoolHolding > 0) {
@@ -422,7 +478,8 @@ contract StabilityPoolManager_v1 is
             );
         } else {
             // Send to treasury if no pools have a balance
-            ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestableAmount, TREASURY);
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(TREASURY, harvestableAmount);
+            actuallyHarvested += harvestableAmount;
         }
 
         emit Harvested(actuallyHarvested); //, bountyAmount);

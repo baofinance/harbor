@@ -77,7 +77,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
-        IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceThreshold(1.3 ether);
+        IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
         IBaoOwnable(stabilityPoolManagerCollateral).transferOwnership(owner);
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
@@ -86,7 +86,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             ),
             abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
-        IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceThreshold(1.3 ether);
+        IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
         IBaoOwnable(stabilityPoolManagerLeveraged).transferOwnership(owner);
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
