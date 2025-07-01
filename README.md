@@ -2,7 +2,13 @@
 
 # Build status
 
+### bao-minter
+
 [![CI](https://github.com/baofinance/bao-minter/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
+
+### bao-base
+
+[![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/test.yml)
 
 # Introduction
 
