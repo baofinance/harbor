@@ -1,8 +1,10 @@
+[![Zhenglong](doc/ZhenglongBanner.png)](https://www.zhenglong.finance/)
+
 # Build status
 
 [![CI](https://github.com/baofinance/bao-minter/actions/workflows/test.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
 
-# Zhenglong
+# Introduction
 
 Zhenglong is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD or anything that has a price feed
 These pegged tokens are minted in exchange for a capital efficient amount of collateral tokens.
@@ -80,12 +82,32 @@ Leveraged token's value drops to zero when the value of the collateral held equa
 
 This project uses both node and python dependencies
 
-    $ yarn
-    $ uv sync
+```sh
+$ yarn
+$ uv sync
+```
+
+Then you can either:
+
+- activate the python virtual environment by
+
+  ```sh
+  $ source .venv/bin/activate
+  ```
+
+  and everything works as you'd expect, or
+
+- prefix all the commands that need a vyper compiler
+  ```sh
+  $ uv run [commmand needing vyper]
+  ```
+  If you use vscode and have the microsoft python extension installed it activates in the termainal automatically
 
 Then add a good definition of <code>MAINNET_RPC_URL</code> to your <code>.env</code> and call
 
-    $ yarn test
+```sh
+$ yarn test
+```
 
 which builds and tests the code.
 
@@ -93,13 +115,17 @@ There are other yarn scripts for running linters, formatters, coverage, gas, con
 
 You can also run
 
-    $ yarn CI
+```sh
+$ yarn CI
+```
 
 which runs all the scripts. It actually runs the github actions locally under docker.
 
-    $ yarn deploy:local
+```sh
+$ yarn deploy:local
+```
 
-which deploys the Zhenglong contracts, correctly connected up, on a local anvil instance.
+which deploys the **Zhenglong** contracts, correctly connected up, on a local anvil instance.
 
 Also note that config files for [wake](https://ackee.xyz/wake/docs/4.11.0/) are provided.
 
@@ -112,4 +138,4 @@ Note that some "yarn test" artifacts:
 - the gas reports
 - generated graphs
 
-are stored in git. This provides a simple (albeit crude) mechanism to check for regressions in coverage, gas usage and model values.
+are stored in git in the <code>regression</code> folder. This provides a simple, albeit crude, mechanism to check for regressions in coverage, gas usage and model values.
