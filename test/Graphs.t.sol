@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -95,22 +95,16 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
         bountyReceiver = vm.createWallet("bountyReceiver").addr;
         treasury = vm.createWallet("treasury").addr;
 
-        address stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken)),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
-        );
+        address stabilityPoolCollateralEmpty = _setupStabilityPool(wrappedCollateralToken);
 
-        address stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken)),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
-        );
+        address stabilityPoolLeveragedEmpty = _setupStabilityPool(leveragedToken);
 
         // set up the stability pool managers
         stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
             address(
                 new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
             ),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
+            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).setRebalanceThreshold(1.3 ether);
 
@@ -118,7 +112,7 @@ contract TestGraphsDisallow is TestCollateralRatioRangeSetUp {
             address(
                 new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)
             ),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, (owner))
+            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).setRebalanceThreshold(1.3 ether);
 

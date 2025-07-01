@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {PriceOracle_v1} from "src/price/PriceOracle_v1.sol";

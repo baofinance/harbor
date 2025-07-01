@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -17,7 +17,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 
 import {Minter_v1} from "src/minter/Minter_v1.sol";
-import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
+import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -29,13 +29,11 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
-import {MockERC20, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
+import {MockERC20, MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
 
 import {ConfigFile} from "test/Config.sol";
-
-import "test/clog.sol";
 
 contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     address minter;
@@ -46,6 +44,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     address peggedToken;
     string peggedTokenBurnSig;
     address wrappedCollateralToken;
+    address collateralToken;
 
     address leveragedToken;
     address reservePool;
@@ -57,6 +56,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     uint256 zeroFeeRole;
     uint256 minterRole;
+    uint256 burnerRole;
     uint256 requesterRole;
 
     function _mintPegged(address receiver, uint256 amount) internal {
@@ -211,11 +211,12 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
     function setUp_leveragedToken() internal virtual {
         leveragedToken = UnsafeUpgrades.deployUUPSProxy(
-            address(new LeveragedToken_v1()), // "LeveragedToken_v1.sol",
-            abi.encodeCall(LeveragedToken_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
+            address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
+            abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
         );
         IBaoOwnable(leveragedToken).transferOwnership(owner);
-        minterRole = LeveragedToken_v1(leveragedToken).MINTER_ROLE();
+        minterRole = MintableBurnableERC20_v1(leveragedToken).MINTER_ROLE();
+        burnerRole = MintableBurnableERC20_v1(leveragedToken).BURNER_ROLE();
     }
 
     function setUp_reservePool() internal virtual {
@@ -250,9 +251,10 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         priceOracle = address(new MockWrappedPriceOracle());
 
         setUp_leveragedToken();
-        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD"));
-        peggedTokenBurnSig = "burn(address,uint256)";
+        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
+        peggedTokenBurnSig = "burnFrom(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
+        collateralToken = Deployed.stETH;
 
         setUp_reservePool();
     }
@@ -262,6 +264,8 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
         vm.prank(owner);
         IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
+        vm.prank(owner);
+        IBaoRoles(leveragedToken).grantRoles(minter, burnerRole);
         requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
 
         vm.prank(owner);
@@ -415,7 +419,7 @@ contract TestMinterInit is TestMinterSetUp {
         );
 
         {
-            MockERC20 token = new MockERC20("burn", "2arg");
+            MockERC20Burn2Arg token = new MockERC20Burn2Arg("burn", "2arg", 18);
             minter = UnsafeUpgrades.deployUUPSProxy(
                 address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
                 abi.encodeCall(Minter_v1.initialize, (owner))
@@ -423,14 +427,14 @@ contract TestMinterInit is TestMinterSetUp {
         }
 
         {
-            MockERC20Burn1Arg token = new MockERC20Burn1Arg("burn", "1arg");
+            MockERC20Burn1Arg token = new MockERC20Burn1Arg("burn", "1arg", 18);
             minter = UnsafeUpgrades.deployUUPSProxy(
                 address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
                 abi.encodeCall(Minter_v1.initialize, (owner))
             );
         }
         {
-            MockERC20BurnFrom token = new MockERC20BurnFrom("burn", "from");
+            MockERC20BurnFrom token = new MockERC20BurnFrom("burn", "from", 18);
             minter = UnsafeUpgrades.deployUUPSProxy(
                 address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
                 abi.encodeCall(Minter_v1.initialize, (owner))
@@ -546,20 +550,21 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
 
+        // make sure we have it all
+        deal(wrappedCollateralToken, address(this), 10 ether);
+        deal(peggedToken, address(this), 10 ether);
+        deal(leveragedToken, address(this), 10 ether);
+
         vm.expectRevert(IMinter.ActionPaused.selector);
-        vm.prank(owner);
         IMinter(minter).mintPeggedToken(1 ether, user, 0);
 
         vm.expectRevert(IMinter.ActionPaused.selector);
-        vm.prank(owner);
         IMinter(minter).mintLeveragedToken(1 ether, user, 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
-        vm.prank(owner);
         IMinter(minter).redeemPeggedToken(1 ether, user, 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        vm.prank(owner);
         IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
     }
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 interface IMultipleRewardDistributor {
     /**********
@@ -45,6 +45,9 @@ interface IMultipleRewardDistributor {
     /// @dev Thrown when the address of reward distributor is `address(0)`.
     error RewardDistributorIsZero();
 
+    /// @dev Thrown when the address of reward token is `address(0)`.
+    error RewardTokenIsZero();
+
     /// @dev Thrown when caller is not reward distributor.
     error NotRewardDistributor();
 
@@ -61,16 +64,30 @@ interface IMultipleRewardDistributor {
      * Public View Functions *
      *************************/
 
+    /// @notice The length of reward period in seconds.
+    /// @dev If the value is zero, the reward will be distributed immediately.
+    /// @dev It is either zero or at least 1 day (which is 86400).
+    function REWARD_PERIOD_LENGTH() external view returns (uint40); // solhint-disable-line func-name-mixedcase
+
+    function REWARD_MANAGER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
+
     /// @notice Return the address of reward distributor.
     ///
     /// @param token The address of reward token.
     function distributors(address token) external view returns (address);
 
     /// @notice Return the list of active reward tokens.
-    function getActiveRewardTokens() external view returns (address[] memory);
+    function activeRewardTokens() external view returns (address[] memory);
+
+    /// @notice Check if a reward token is active.
+    function isActiveRewardToken(address token) external view returns (bool isActive);
 
     /// @notice Return the list of historical reward tokens.
-    function getHistoricalRewardTokens() external view returns (address[] memory);
+    function historicalRewardTokens() external view returns (address[] memory);
+
+    function rewardData(
+        address token
+    ) external view returns (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued);
 
     /// @notice Return the amount of pending distributed rewards in current period.
     ///
@@ -83,8 +100,17 @@ interface IMultipleRewardDistributor {
      * Public Mutator Functions *
      ****************************/
 
+    /// @notice Register a new reward token.
+    /// @dev Make sure no fee on transfer token is added as reward token.
+    /// @param token The address of reward token.
+    /// @param distributor The address of reward distributor.
+    function registerRewardToken(address token, address distributor) external;
+
+    /// @notice Unregister an existing reward token.
+    /// @param token The address of reward token.
+    function unregisterRewardToken(address token) external;
+
     /// @notice Deposit new rewards to this contract.
-    ///
     /// @param token The address of reward token.
     /// @param amount The amount of new rewards.
     function depositReward(address token, uint256 amount) external;

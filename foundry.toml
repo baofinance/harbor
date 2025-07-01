@@ -3,14 +3,13 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
-ast = true
-build_info = true
-
 auto_detect_remappings = false # remappings seem to cause problems
 optimizer = true
-optimizer_runs = 500           # 10000 builds & tests but 20 deploys
-# via_ir = true # now causes a stack overflow that doesn't happen without this
-# deny_warnings = true # enable to stop compilations if there are warnings
+
+optimizer_runs = 700 # 500 builds & tests but 200 deploys
+
+# via_ir = true        # makes the compiler run 7-10 times slower, is good at reducing code size or lower gas usage
+deny_warnings = false # enable to stop compilations if there are warnings
 
 gas_reports_ignore = [
   "ERC20Mock",
@@ -21,14 +20,23 @@ gas_reports_ignore = [
   "MockAggregator",
   "MockWrappedPriceOracle",
 ]
-extra_output_files = ["evm.assembly", "ir"]
-extra_output = ["evm.assembly", "ir", "storageLayout"]
 
 fs_permissions = [
   { access = "read", path = "./" },
   { access = "read-write", path = "./results" },
   { access = "read-write", path = "./log" },
 ]
+
+# slither building profile - removes vyper
+[profile.slither]
+skip = ["**/*.vy"]
+
+[vyper]
+version = "0.3.10"
+optimize = "gas"
+optimize_runs = 700
+via_ir = false           # you can enable this later if needed
+evm_version = "shanghai" # or "london", "cancun" depending on your target
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 //import { Test } from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
@@ -18,7 +18,6 @@ import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
-import "test/clog.sol";
 import {TestMinterMint} from "test/Minter_mint.t.sol";
 
 contract TestMinterRedeemPegged is TestMinterMint {

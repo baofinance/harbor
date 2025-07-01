@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 //import { Test } from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
@@ -213,6 +213,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         uint256 minterCollateral;
         uint256 minterCollateralBalance;
         uint256 minterLeveragedBalance;
+        uint256 minterLeveragedPrice;
         uint256 collateralRatio;
     }
 
@@ -251,16 +252,20 @@ contract TestMinterMintLeveraged is TestMinterMint {
             IERC20(Deployed.wstETH).balanceOf(minter),
             IMinter(minter).collateralTokenBalance(),
             IMinter(minter).leveragedTokenBalance(),
+            IMinter(minter).leveragedTokenPrice(),
             IMinter(minter).collateralRatio()
         );
 
-        uint256 leveragePrice = IMinter(minter).leveragedTokenPrice();
         vm.expectEmit(true, true, false, true, minter);
         emit IMinter.MintLeveragedToken(sender, receiver, senderCollateralDecrease, receiverLeveragedIncrease);
         vm.prank(sender);
         uint256 minted = IMinter(minter).mintLeveragedToken(senderCollateralDecrease, receiver, 0);
         //               --------------------------------------------------------------------------
-        assertEq(leveragePrice, IMinter(minter).leveragedTokenPrice(), "minting leverage doesn't change it's price");
+        assertEq(
+            before.minterLeveragedPrice,
+            IMinter(minter).leveragedTokenPrice(),
+            "minting leverage doesn't change it's price"
+        );
         assertEq(minted, receiverLeveragedIncrease, "unexpected amount minted compared to price");
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver),

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -16,7 +16,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
-import {LeveragedToken_v1} from "src/minter/LeveragedToken_v1.sol";
+import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -31,8 +31,6 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
-
-import "test/clog.sol";
 
 contract TestLiquidate is TestStabilityPool2SetUp {
     address stabilityPoolManagerCollateral;
@@ -54,14 +52,21 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         vm.prank(user);
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);
 
+        address stabilityPoolToken = address(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
+            )
+        );
+
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken)),
+            address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam, 1 weeks)),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
 
         stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken)),
+            address(new StabilityPool_v1(minter, leveragedToken, stabilityPoolToken, steam, 1 weeks)),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
@@ -165,14 +165,14 @@ contract TokenDistributor_v1 is
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         Token.sanityCheckERC20Token(token);
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
-        $.tokens.add(token); // only adds if one is not already there
+        $.tokens.add(token); // wake-disable-line unchecked-return-value //only adds if one is not already there
     }
 
     /// @inheritdoc ITokenDistributor
     function removeToken(address token) public onlyOwner {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         // slither-disable-next-line unused-return
-        $.tokens.remove(token);
+        $.tokens.remove(token); // wake-disable-line unchecked-return-value //only removes if one is there
     }
 
     /// @inheritdoc ITokenDistributor
@@ -180,9 +180,9 @@ contract TokenDistributor_v1 is
         address[] calldata recipients,
         uint[] calldata shares // solhint-disable-line explicit-types
     ) public onlyOwner {
-        if (recipients.length != shares.length)
+        if (recipients.length != shares.length) {
             revert RecipientsAndSharesDifferentSizes(recipients.length, shares.length);
-
+        }
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         uint totalShares = 0; // solhint-disable-line explicit-types
 
@@ -192,11 +192,16 @@ contract TokenDistributor_v1 is
         for (i = 0; i < recipients.length; i++) {
             Token.ensureNonZeroAddress(recipients[i]);
             uint256 share = shares[i];
-            if (share > type(uint64).max) revert ShareAmountIsTooHigh(recipients[i], share);
-            if (share == 0) revert ShareAmountIsZero(recipients[i]);
-
+            if (share > type(uint64).max) {
+                revert ShareAmountIsTooHigh(recipients[i], share);
+            }
+            if (share == 0) {
+                revert ShareAmountIsZero(recipients[i]);
+            }
             // check for a zero share. If you want no shares don't include the recipient in recipients
-            if (shares[i] == 0) revert ShareAmountIsZero(recipients[i]);
+            if (shares[i] == 0) {
+                revert ShareAmountIsZero(recipients[i]);
+            }
             // check for duplicates. There's no in memory mappings so we use brute force.
             // as there should be a small amount of recipients (< 10), this O(n^2) algorithm is acceptable
             // also because this function is rarely called, it's best to check for errors
@@ -225,9 +230,12 @@ contract TokenDistributor_v1 is
     function addRecipient(address recipient, uint256 share) public onlyOwner {
         Token.ensureNonZeroAddress(recipient);
 
-        if (share == 0) revert ShareAmountIsZero(recipient);
-        if (share > type(uint64).max) revert ShareAmountIsTooHigh(recipient, share);
-
+        if (share == 0) {
+            revert ShareAmountIsZero(recipient);
+        }
+        if (share > type(uint64).max) {
+            revert ShareAmountIsTooHigh(recipient, share);
+        }
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
         // linear search is inefficient but OK for small numbers of recipients
         // it's not expected that this will be called very often
@@ -295,9 +303,11 @@ contract TokenDistributor_v1 is
     }
 
     /// @inheritdoc TokenHolder
-    function sweep(address token, uint256 amount, address receiver) public override {
+    function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
-        if ($.tokens.contains(token)) revert TokenStillInUse(token);
-        super.sweep(token, amount, receiver);
+        if ($.tokens.contains(token)) {
+            revert TokenStillInUse(token);
+        }
+        super._sweep(token, amount, receiver);
     }
 }

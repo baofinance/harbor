@@ -7,7 +7,19 @@ THIS="${BASH_SOURCE[0]}"
 
 # developer settings
 MOCK_PRICE=""
+# the wallet of the developer and what roles they are granted
+# developer is likely to be the public key of your wallet,
+# but we default to the public key derived from the PRIVATE_KEY environment variable
 DEVELOPER="$PUBLIC_KEY"
+# DEVELOPER_ROLES is a comma separated list of roles to grant the developer, where a role is:
+#   <contract name>.<role name>
+# where
+#   the contract name is the name given to the instance of a contract type. It can also be an address.
+#   the role name is the name of the function call needed to extract the role. It can also be a role number.
+# e.g.
+#   --developer-roles "minter.HARVESTER_ROLE,stabilityPoolCollateral.REBALANCER_ROLE"
+DEVELOPER_ROLES=""
+PEGGED_SYMBOL="PB" # pork bellies
 
 # BURN_SIG can be one of
 # - "burn(uint256)"
@@ -23,39 +35,44 @@ BURN_SIG="burn(uint256)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-  --burn-sig)
-    BURN_SIG="$2"
-    record "arguments.burn-sig" "${BURN_SIG}"
-    shift 2
-    ;;
-  --mock-price)
-    MOCK_PRICE="$2"
-    shift 2
-    record "arguments.mockPrice" "${MOCK_PRICE}"
-    ;;
-  --developer)
-    DEVELOPER="$2"
-    record "arguments.developer" "${DEVELOPER}"
-    shift 2
-    ;;
-  --developer-roles)
-    if [[ $RPC_URL == "local" ]]; then
-      DEVELOPER_ROLES="$2"
-      record "arguments.developer-roles" "${DEVELOPER_ROLES}"
+    --burn-sig)
+      BURN_SIG="$2"
+      record "arguments.burn-sig" "${BURN_SIG}"
+      shift 2
+      ;;
+    --mock-price)
+      MOCK_PRICE="$2"
+      shift 2
+      record "arguments.mockPrice" "${MOCK_PRICE}"
+      ;;
+    --developer)
+      DEVELOPER="$2"
       record "arguments.developer" "${DEVELOPER}"
-    else
-      error "can only use --developer-roles with --rpc-url [local|anvil]"
-    fi
-    shift 2
-    ;;
-  -*)
-    error "unexpected option for ${THIS}: $1"
-    exit 1
-    ;;
-  *)
-    error "unexpected argument for ${THIS}: $1"
-    exit 1
-    ;;
+      shift 2
+      ;;
+    --developer-roles)
+      if [[ $RPC_URL == "local" ]]; then
+        DEVELOPER_ROLES="$2"
+        record "arguments.developer-roles" "${DEVELOPER_ROLES}"
+        record "arguments.developer" "${DEVELOPER}"
+      else
+        error "can only use --developer-roles with --rpc-url [local|anvil]"
+      fi
+      shift 2
+      ;;
+    --pegged | --zhe)
+      PEGGED_SYMBOL="$2"
+      record "arguments.pegged" "${PEGGED_SYMBOL}"
+      shift 2
+      ;;
+    -*)
+      error "unexpected option for ${THIS}: $1"
+      exit 1
+      ;;
+    *)
+      error "unexpected argument for ${THIS}: $1"
+      exit 1
+      ;;
   esac
 done
 
@@ -69,9 +86,6 @@ record deployer.address "${PUBLIC_KEY}"
 record_from_network owner.address baomultisig.address
 record_from_network treasury.address safeGov.address
 
-record_from_network peggedToken.address baousd.address
-record_from_call peggedToken.symbol peggedToken "symbol()(string)"
-
 # collateral
 record_from_network collateralToken.address steth.address
 record_from_call collateralToken.symbol collateralToken "symbol()(string)"
@@ -83,13 +97,14 @@ record_from_network wrappedCollateralToken.address wsteth.address
 ###################################################################################################
 # deploy the stem for this deployer
 ###################################################################################################
-# make the owner the deployer so the deployer can change it
+# make the owner the deployer so the deployer can change it within 1 hour (else it goes there automatically)
 deploy_contract Stem_v1 "lib/bao-base/src/Stem_v1.sol:Stem_v1" "--constructor-args" deployer 3600
 
 ###################################################################################################
 # deploy the proxies, stemmed, recording the addresses
 ###################################################################################################
 
+deploy_stemmed peggedToken
 deploy_stemmed leveragedToken
 deploy_stemmed stakedETHWrappedPriceOracle
 deploy_stemmed feeReceiver
@@ -104,14 +119,22 @@ deploy_stemmed genesis
 # upgrade the proxies with implementations
 ###################################################################################################
 
+COLLATERAL_SYMBOL=$(query collateralToken.symbol)
+
+# pegged token
+# ---------------
+deploy_contract PeggedToken_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
+record peggedToken.symbol "zhe{COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
+record peggedToken.name "Bao Zhenglong ${COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
+
+upgrade_proxy peggedToken PeggedToken_v1 \
+  "initialize(address,string,string)" owner peggedToken.name peggedToken.symbol
+
 # leveraged token
 # ---------------
-deploy_contract LeveragedToken_v1 "src/minter/LeveragedToken_v1.sol:LeveragedToken_v1"
-
-peggedSymbol=$(query peggedToken.symbol)
-collateralSymbol=$(query collateralToken.symbol)
-record leveragedToken.symbol "steamed${collateralSymbol}-${peggedSymbol}"
-record leveragedToken.name "Bao Zhenglong steamed ${collateralSymbol}-${peggedSymbol}"
+deploy_contract LeveragedToken_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
+record leveragedToken.symbol "steamed${COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
+record leveragedToken.name "Bao Zhenglong steamed ${COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
 
 upgrade_proxy leveragedToken LeveragedToken_v1 \
   "initialize(address,string,string)" owner leveragedToken.name leveragedToken.symbol
@@ -182,7 +205,12 @@ deploy_contract Minter_v1 src/minter/Minter_v1.sol:Minter_v1 \
 
 upgrade_proxy minter Minter_v1 "initialize(address)" owner
 
+grantRoles minter peggedToken.MINTER_ROLE
+grantRoles minter peggedToken.BURNER_ROLE
+
 grantRoles minter leveragedToken.MINTER_ROLE
+grantRoles minter leveragedToken.BURNER_ROLE
+
 grantRoles minter reservePool.REQUESTER_ROLE
 
 send_transaction minter "updatePriceOracle(address)" priceOracle
@@ -200,11 +228,15 @@ deploy_contract StabilityPool_v1Collateral "src/minter/StabilityPool_v1.sol:Stab
   --constructor-args minter wrappedCollateralToken
 upgrade_proxy stabilityPoolCollateral StabilityPool_v1Collateral "initialize(address)" owner
 
+send_transaction stabilityPoolCollateral "registerRewardToken(address, address)" wrappedCollateralToken stabilityPoolCollateral
+
 # stabilityPoolSteamed
 # --------------------
 deploy_contract StabilityPool_v1Steamed "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
   --constructor-args minter leveragedToken
 upgrade_proxy stabilityPoolSteamed StabilityPool_v1Steamed "initialize(address)" owner
+
+send_transaction stabilityPoolSteamed "registerRewardToken(address, address)" steamedToken stabilityPoolSteamed
 
 # StabilityPoolManager
 # --------------------
@@ -235,7 +267,7 @@ grantRoles genesis minter.ZERO_FEE_ROLE
 if [[ -n "${DEVELOPER_ROLES}" ]]; then
   record developer.address "${DEVELOPER}"
   for role in ${DEVELOPER_ROLES//,/ }; do
-    info "granting ${role} to developer ${DEVELOPER}."
+    log "granting ${role} to developer ${DEVELOPER}."
     grantRoles developer "${role}" || warn "failed to grant ${role} to developer ${DEVELOPER}, continuing anyway"
   done
 fi

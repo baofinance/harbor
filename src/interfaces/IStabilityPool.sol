@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 interface IStabilityPool {
     /*//////////////////////////////////////////////////////////////
@@ -30,10 +30,9 @@ interface IStabilityPool {
     /// @param rewardAmount The amount of token gained.
     event RewardReceived(address rewardToken, uint256 rewardAmount);
 
-    /// @notice Emitted when the address of reward wrapper is updated.
-    /// @param oldWrapper The address of previous reward wrapper.
-    /// @param newWrapper The address of current reward wrapper.
-    event UpdateWrapper(address indexed oldWrapper, address indexed newWrapper);
+    /// @notice Emitted when the gauge is updated.
+    /// @param newGauge address of the new gauge
+    event GaugeUpdated(address newGauge);
 
     event Liquidated(
         address liquidatedToken,
@@ -46,12 +45,6 @@ interface IStabilityPool {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Thrown then the src token mismatched.
-    error ErrorWrapperSrcMismatch();
-
-    /// @dev Thrown then the dst token mismatched.
-    error ErrorWrapperDstMismatch();
-
     /// @dev Thrown when the deposited amount is zero.
     error DepositZeroAmount();
 
@@ -61,6 +54,9 @@ interface IStabilityPool {
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawZeroAmount();
 
+    /// @dev Thrown when the deposited amount is less than the minimum.
+    error WithdrawAmountLessThanMinimum(uint256 amount, uint256 minAmount);
+
     /// @dev Thrown when the withdrawn amount is zero.
     error WithdrawAmountExceedsBalance(uint256 amount, uint256 balance);
 
@@ -68,53 +64,47 @@ interface IStabilityPool {
     /// either wrapped collateral or leveraged tokens
     error InvalidLiquidationToken(address token);
 
+    /// @dev Thrown when a receiver address is not valid
+    error InvalidReceiver(address receiver);
+
+    /// @dev Thrown when a the voting escrow is being not ready
+    /// it must be set up and going before the stability pool is
+    error VotingEscrowNotReady();
+
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     /// @notice The role used for notifying rebalancing.
-    function REBALANCER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+    function REBALANCER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
     /// @notice The role used for notifying rewards (including when rebalancing).
-    function REWARDER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+    function REWARDER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
-    /// @notice The role for ve balance sharing.
-    function VE_SHARING_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+    /// @notice Return the address of token used to collect some rewards from the gauge.
+    function GAUGE_STAKE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
-    /// @notice The role for ve balance sharing.
-    function WITHDRAW_FROM_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
-
-    /// @notice The role used to manage rewards.
-    function REWARD_MANAGER_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
-
-    /// @notice The length of reward period in seconds.
-    /// @dev If the value is zero, the reward will be distributed immediately.
-    /// @dev It is either zero or at least 1 day (which is 86400).
-    function REWARD_PERIOD_LENGTH() external view returns (uint40); // solhint-disable-line func-name-mixedcase
-
-    /// @notice Return the address of Minter contract that mints asset tokens and supports liquidation of them.
-    function MINTER() external view returns (address); // solhint-disable-line func-name-mixedcase
+    /// @notice Return the address of token used to collect some rewards from the gauge.
+    function GAUGE_REWARD_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
-    function LIQUIDATION_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
+    function LIQUIDATION_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of underlying token of this contract.
-    function ASSET_TOKEN() external view returns (address); // solhint-disable-line func-name-mixedcase
+    function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Return the address of the gauge used for staking
+    function gauge() external view returns (address gauge_);
 
     /// @notice Return the total amount of asset deposited to this contract.
-    function totalAssetSupply() external view returns (uint256);
+    function totalAssetSupply() external view returns (uint256 amount);
 
-    /// @notice Return the hiostorical total asset deposited to this contract.
+    /// @notice Return the historical total asset deposited to this contract.
     // solhint-disable-next-line explicit-types
-    function totalSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
+    function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount);
 
-    /// @notice Return the amount of deposited asset for some specific user.
-    /// @param account The address of user to query.
-    function assetBalanceOf(address account) external view returns (uint256);
-
-    /// @notice Return the current boost ratio for some specific user.
-    /// @param account The address of user to query, multiplied by 1e18.
-    function getBoostRatio(address account) external view returns (uint256);
+    /// @notice Return the amount of assets currently attributed to 'account'.
+    function assetBalanceOf(address account) external view returns (uint256 amount);
 
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);
@@ -125,101 +115,31 @@ interface IStabilityPool {
 
     /// @notice Deposit some asset to this contract.
     /// @dev Use `amount=uint256(-1)` if you want to deposit all asset held.
-    /// @param amount The amount of asset to deposit.
+    /// @param assetAmount The amount of asset to deposit.
     /// @param receiver The address of recipient for the deposited asset.
     /// @param minAmount The minimum amount to deposit
-    /// @return amountDeposited the amount actually deposited
-    function deposit(uint256 amount, address receiver, uint256 minAmount) external returns (uint256 amountDeposited);
+    /// @return sharesMinted the amount of shares sent to 'receiver'
+    function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesMinted);
 
     /// @notice Withdraw asset from this contract.
-    function withdraw(uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
-
-    /// @notice Account for an increase in rewards
-    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+    /// @dev Use `amount=uint256(-1)` if you want to withdraw all asset held.
+    /// @param assetAmount The amount of asset to withdraw.
+    /// @param receiver The address of recipient for the withdrawn asset.
+    /// @param minAmount The minimum amount to withdraw
+    /// @return sharesBurned the amount of shares sent to 'receiver'
+    function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesBurned);
 
     /// @notice perform a liquidation of the amount
-    function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
+    // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
 
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice send reward tokens to the pool stakers
+    /// @notice Account for an increase in rewards
     /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
     /// Other reward tokens can also be added using this function
-    // function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
 
-    /*//////////////////////////////////////////////////////////////
-    ----------------------------------------------------------------
-    ----------------------- SHAREABLE part -------------------------
-    ----------------------------------------------------------------
-    //////////////////////////////////////////////////////////////*/
-
-    /*//////////////////////////////////////////////////////////////
-                                EVENTS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Emitted when one user share votes to another user.
-    /// @param owner The address of votes owner.
-    /// @param staker The address of staker to share votes.
-    event ShareVote(address indexed owner, address indexed staker);
-
-    /// @notice Emitted when the owner cancel sharing to some staker.
-    /// @param owner The address of votes owner.
-    /// @param staker The address of staker to cancel votes share.
-    event CancelShareVote(address indexed owner, address indexed staker);
-
-    /// @notice Emitted when staker accept the vote sharing.
-    /// @param staker The address of the staker.
-    /// @param oldOwner The address of the previous vote sharing owner.
-    /// @param newOwner The address of the current vote sharing owner.
-    event AcceptSharedVote(address indexed staker, address indexed oldOwner, address indexed newOwner);
-
-    /*//////////////////////////////////////////////////////////////
-                                 ERRORS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @dev Thrown when caller shares votes to self.
-    error ErrorSelfSharingIsNotAllowed();
-
-    /// @dev Thrown when a staker with shared votes try to share its votes to others.
-    error ErrorCascadedSharingIsNotAllowed();
-
-    /// @dev Thrown when staker try to accept non-allowed vote sharing.
-    error ErrorVoteShareNotAllowed();
-
-    /// @dev Thrown when staker try to reject a non-existed vote sharing.
-    error ErrorNoAcceptedSharedVote();
-
-    /// @dev Thrown when the staker has ability to share ve balance.
-    error ErrorVoteOwnerCannotStake();
-
-    /// @dev Thrown when staker try to accept twice.
-    error ErrorRepeatAcceptSharedVote();
-
-    /*//////////////////////////////////////////////////////////////
-                         PUBLIC READ FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Return the owner of votes of some staker.
-    /// @param account The address of user to query.
-    function getStakerVoteOwner(address account) external view returns (address);
-
-    /*//////////////////////////////////////////////////////////////
-                      PROTECTED UPDATE FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /// @notice Withdraw asset from this contract on behalf of someone
-    function withdrawFrom(address owner, uint256 amount, address receiver) external returns (uint256 amountWithdrawn);
-
-    /// @notice Owner changes the vote sharing state for some user.
-    /// @param staker The address of user to change.
-    function toggleVoteSharing(address staker) external;
-
-    /// @notice Staker accepts the vote sharing.
-    /// @param newOwner The address of the owner of the votes.
-    function acceptSharedVote(address newOwner) external;
-
-    /// @notice Staker reject the current vote sharing.
-    function rejectSharedVote() external;
+    function updateGauge(address newGauge) external;
 }

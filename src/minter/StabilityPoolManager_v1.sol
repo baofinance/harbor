@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -59,6 +59,12 @@ contract StabilityPoolManager_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address private immutable _STABILITY_POOL_LEVERAGED;
 
+    // /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    // address private immutable _GAUGE;
+
+    // /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    // address private immutable _STEAM_TOKEN;
+
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPoolManager
@@ -115,6 +121,11 @@ contract StabilityPoolManager_v1 is
         Token.ensureContract(stabilityPoolLeveraged);
         // slither-disable-next-line missing-zero-check
         _STABILITY_POOL_LEVERAGED = stabilityPoolLeveraged;
+
+        // // Validate and store the gauge
+        // Token.ensureContract(gauge);
+        // // slither-disable-next-line missing-zero-check
+        // _GAUGE = gauge;
     }
 
     /// @notice Initialize the contract with starting configuration
@@ -202,7 +213,9 @@ contract StabilityPoolManager_v1 is
     /// @notice Updates the rebalance threshold collateral ratio
     /// @param newRatio The new rebalance threshold
     function setRebalanceThreshold(uint256 newRatio) external onlyOwner {
-        if (newRatio < 1 ether) revert InvalidRebalanceThreshold(newRatio);
+        if (newRatio < 1 ether) {
+            revert InvalidRebalanceThreshold(newRatio);
+        }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         $.rebalanceThreshold = newRatio;
 
@@ -359,8 +372,8 @@ contract StabilityPoolManager_v1 is
     ) private returns (uint256 harvestedAmount) {
         harvestedAmount = 0;
         if (poolHolding > 0) {
-            // in the math we get truncation errors, but all that means is that dust is collected in the next harvest
-            harvestedAmount = (harvestableAmount * poolHolding) / totalHolding;
+            // in the math we get truncation errors, but all that means is that dust is collected for the next harvest
+            harvestedAmount = Math.mulDiv(harvestableAmount, poolHolding, totalHolding);
             ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestedAmount, pool);
             IStabilityPool(pool).accumulateReward(WRAPPED_COLLATERAL_TOKEN, harvestedAmount);
         }
@@ -379,7 +392,7 @@ contract StabilityPoolManager_v1 is
 
         // Calculate bounty
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 bountyAmount = (harvestableAmount * $.harvestRatio) / 1 ether;
+        uint256 bountyAmount = Math.mulDiv(harvestableAmount, $.harvestRatio, 1 ether);
         if (bountyAmount < minBounty) {
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
