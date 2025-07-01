@@ -88,7 +88,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address user1;
     address user2;
 
-    function _setupStabilityPool(address liquidationToken) internal returns (address stabilityPool) {
+    function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
         string memory liquidation = IERC20Metadata(liquidationToken).symbol();
 
         address stabilityPoolToken = address(
