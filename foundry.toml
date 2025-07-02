@@ -44,6 +44,6 @@ mainnet = { key = "${ETHERSCAN_KEY}" }
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
 mainnet = "${MAINNET_RPC_URL}"
-local = "http://localhost:8545"
+local = "${LOCAL_URL}"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
