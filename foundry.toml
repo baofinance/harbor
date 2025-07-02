@@ -28,7 +28,7 @@ fs_permissions = [
 ]
 
 # slither building profile - removes vyper
-[profile.slither]
+[profile.novyper]
 skip = ["**/*.vy"]
 
 [vyper]

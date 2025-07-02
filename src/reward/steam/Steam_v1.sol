@@ -48,7 +48,9 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
     uint256 private constant _INFLATION_DELAY = 1 days;
 
     // STEAM specific state
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable INITIAL_RATE;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable RATE_REDUCTION_COEFFICIENT;
 
     uint256 public constant MINTER_ROLE = _ROLE_0;

@@ -133,8 +133,10 @@ contract VotingEscrow_v1 is
 
     // we choose this names below as they are the most gas efficient and code efficient
     // way of implementing the public interface
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     // solhint-disable-next-line immutable-vars-naming
     address public immutable token;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     // solhint-disable-next-line immutable-vars-naming
     uint8 public immutable decimals;
 

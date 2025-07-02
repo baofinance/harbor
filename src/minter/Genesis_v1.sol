@@ -62,8 +62,10 @@ contract Genesis_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
 
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STABILITY_POOL_COLLATERAL;
 
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable STABILITY_POOL_LEVERAGED;
 
     // Share-with-proxy Storage

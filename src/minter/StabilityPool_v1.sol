@@ -82,6 +82,7 @@ contract StabilityPool_v1 is
     address public immutable GAUGE_REWARD_TOKEN;
 
     /// @dev timestamp of the start point for the VE_TOKEN
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 internal immutable _VE_START;
 
     /***********
