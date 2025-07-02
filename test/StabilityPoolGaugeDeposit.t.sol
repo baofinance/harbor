@@ -328,7 +328,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0);
     }
 
-        function testDepositAndMintRewards() public {
+    function testDepositAndMintRewards() public {
         // Step 1: Deposit into StabilityPool
         vm.startPrank(user1);
         uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
@@ -353,7 +353,14 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         ILiquidityGaugeV6 newGauge = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(stabilityPoolCollateral, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+                abi.encode(
+                    stabilityPoolCollateral,
+                    address(steam2),
+                    address(controller),
+                    address(minter2),
+                    address(escrow),
+                    address(escrow)
+                )
             )
         );
         controller.add_gauge(address(newGauge), 0, 1);
@@ -373,7 +380,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         // Step 8: Ensure gauge weight records are updated
         controller.checkpoint_gauge(address(newGauge));
         uint256 weight = controller.gauge_relative_weight(address(newGauge));
-        console2.log("Gauge relative weight:", weight);  // should be > 0
+        console2.log("Gauge relative weight:", weight); // should be > 0
 
         // Step 9: Approve the test contract to mint rewards on behalf of StabilityPool
         vm.prank(address(stabilityPoolCollateral));
