@@ -85,12 +85,11 @@ def mint_many(gauge_addrs: address[8]):
 def mint_for(gauge_addr: address, _for: address):
     """
     @notice Mint tokens for `_for`
-    @dev Only possible when `msg.sender` has been approved via `toggle_approve_mint`
+    @dev Allows anyone to mint on behalf of any address. The minted tokens always go to `_for`.
     @param gauge_addr `LiquidityGauge` address to get mintable amount from
     @param _for Address to mint to
     """
-    if self.allowed_to_mint_for[msg.sender][_for]:
-        self._mint_for(gauge_addr, _for)
+    self._mint_for(gauge_addr, _for)
 
 
 @external

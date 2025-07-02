@@ -327,4 +327,66 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         assertEq(gauge1.balanceOf(stabilityPoolCollateral), 0);
         assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0);
     }
+
+        function testDepositAndMintRewards() public {
+        // Step 1: Deposit into StabilityPool
+        vm.startPrank(user1);
+        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+
+        // Step 2: Deploy gauge with SPT
+        address spt = IStabilityPool(stabilityPoolCollateral).GAUGE_STAKE_TOKEN();
+
+        // Step 3: Grant roles for minting and burning
+        address sptOwner = IBaoOwnable(spt).owner();
+        if (sptOwner != address(this)) {
+            vm.prank(sptOwner);
+            IBaoOwnable(spt).transferOwnership(address(this));
+        }
+
+        vm.prank(address(this));
+        IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), MINTER_ROLE);
+        vm.prank(address(this));
+        IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), BURNER_ROLE);
+
+        // Step 4: Deploy and register gauge
+        ILiquidityGaugeV6 newGauge = ILiquidityGaugeV6(
+            vm.deployCode(
+                "LiquidityGaugeV6.vy",
+                abi.encode(stabilityPoolCollateral, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+            )
+        );
+        controller.add_gauge(address(newGauge), 0, 1);
+
+        // Step 5: Update gauge
+        address spOwner = IBaoOwnable(stabilityPoolCollateral).owner();
+        vm.prank(spOwner);
+        IStabilityPool(stabilityPoolCollateral).updateGauge(address(newGauge));
+
+        // Step 6: Advance time to enable emissions
+        skip(365 days); // emission epoch delay
+        steam2.update_mining_parameters();
+
+        // Step 7: Simulate some inflation time
+        skip(30 days);
+
+        // Step 8: Ensure gauge weight records are updated
+        controller.checkpoint_gauge(address(newGauge));
+        uint256 weight = controller.gauge_relative_weight(address(newGauge));
+        console2.log("Gauge relative weight:", weight);  // should be > 0
+
+        // Step 9: Approve the test contract to mint rewards on behalf of StabilityPool
+        vm.prank(address(stabilityPoolCollateral));
+        minter2.toggle_approve_mint(address(this));
+
+        // Sanity check
+        assertTrue(minter2.allowed_to_mint_for(address(this), address(stabilityPoolCollateral)));
+
+        // Step 10: Mint STEAM rewards to the StabilityPool
+        minter2.mint_for(address(newGauge), address(stabilityPoolCollateral));
+
+        // Final assertion: StabilityPool should have received STEAM
+        uint256 rewardBalance = steam2.balanceOf(address(stabilityPoolCollateral));
+        assertGt(rewardBalance, 0, "STEAM should have been minted to StabilityPool");
+    }
 }
