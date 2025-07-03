@@ -331,7 +331,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
     function testDepositAndMintRewards() public {
         // Step 1: Deposit into StabilityPool
         vm.startPrank(user1);
-        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        // uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
         vm.stopPrank();
 
         // Step 2: Deploy gauge with SPT

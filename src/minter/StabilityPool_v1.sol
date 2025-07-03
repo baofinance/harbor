@@ -174,9 +174,8 @@ contract StabilityPool_v1 is
         address minter_,
         address liquidationToken_,
         address gaugeStakeToken_,
-        address gaugeRewardToken_,
-        uint40 periodLength
-    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, periodLength) {
+        address gaugeRewardToken_
+    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, 1 weeks) {
         _disableInitializers();
         address asset = IMinter(minter_).PEGGED_TOKEN();
         Token.sanityCheckERC20Token(asset);

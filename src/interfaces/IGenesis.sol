@@ -9,9 +9,11 @@ interface IGenesis is ITokenHolder {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-
-    /// @notice Emitted when the status of `genesisClaimable` is updated.
-    event ClaimingEnabledUpdated(bool status);
+    event GenesisBegins();
+    event GenesisEnds();
+    event Deposit(address indexed caller, address indexed receiver, uint256 collateralIn);
+    event Withdraw(address indexed caller, address indexed receiver, uint256 amount);
+    event Claim(address indexed caller, address indexed receiver, uint256 peggedAmount, uint256 leveragedAmount);
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
