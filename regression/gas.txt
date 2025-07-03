@@ -18,6 +18,15 @@ lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | transfer          | 2.999e+04 |
 | transferOwnership | 1.207e+04 |
 
+lib/bao-base/src/Stem_v1.sol:Stem_v1
+| function name             |       max |
+|---------------------------|-----------|
+| UPGRADE_INTERFACE_VERSION | 4.350e+02 |
+| fallback                  | 2.660e+02 |
+| owner                     | 3.120e+02 |
+| proxiableUUID             | 2.740e+02 |
+| upgradeToAndCall          | 2.911e+05 |
+
 lib/bao-base/src/Token.sol:Token
 | function name                       |       max |
 |-------------------------------------|-----------|
@@ -31,15 +40,15 @@ src/minter/Genesis_v1.sol:Genesis_v1
 | PEGGED_TOKEN             | 2.830e+02 |
 | WRAPPED_COLLATERAL_TOKEN | 2.820e+02 |
 | balanceOf                | 2.591e+03 |
-| claim                    | 8.540e+04 |
+| claim                    | 8.751e+04 |
 | claimable                | 1.161e+04 |
-| deposit                  | 6.561e+04 |
-| endGenesis               | 3.486e+05 |
+| deposit                  | 6.747e+04 |
+| endGenesis               | 3.494e+05 |
 | genesisIsEnded           | 2.349e+03 |
-| initialize               | 7.069e+04 |
+| initialize               | 7.146e+04 |
 | owner                    | 2.401e+03 |
 | transferOwnership        | 1.202e+04 |
-| withdraw                 | 4.150e+04 |
+| withdraw                 | 4.335e+04 |
 
 src/minter/Minter_v1.sol:Minter_v1
 | function name                            |       max |
@@ -246,6 +255,7 @@ src/reward/steam/Steam_v1.sol:Steam_v1
 | INITIAL_RATE               | 2.830e+02 |
 | MINTER_ROLE                | 2.610e+02 |
 | RATE_REDUCTION_COEFFICIENT | 2.840e+02 |
+| UPGRADE_INTERFACE_VERSION  | 5.030e+02 |
 | admin                      | 2.437e+03 |
 | allowance                  | 2.833e+03 |
 | approve                    | 2.478e+04 |
@@ -259,6 +269,8 @@ src/reward/steam/Steam_v1.sol:Steam_v1
 | mint                       | 3.919e+04 |
 | mintable_in_timeframe      | 6.602e+03 |
 | name                       | 3.240e+03 |
+| owner                      | 2.391e+03 |
+| proxiableUUID              | 3.650e+02 |
 | rate                       | 2.382e+03 |
 | start_epoch_time           | 2.410e+03 |
 | start_epoch_time_write     | 2.553e+03 |
@@ -268,6 +280,7 @@ src/reward/steam/Steam_v1.sol:Steam_v1
 | transferFrom               | 3.571e+04 |
 | transferOwnership          | 1.202e+04 |
 | update_mining_parameters   | 4.012e+04 |
+| upgradeToAndCall           | 1.088e+04 |
 
 src/reward/voting-escrow/VotingEscrow.vy:VotingEscrow
 | function name               |       max |
