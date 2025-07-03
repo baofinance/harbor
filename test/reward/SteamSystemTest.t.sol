@@ -5,17 +5,22 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Test} from "forge-std/Test.sol";
 
 // Interfaces
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
+
 import {IERC20STEAM} from "src/interfaces/IERC20STEAM.sol";
 import {ISteamMinter} from "src/interfaces/ISteamMinter.sol";
 import {IGaugeController} from "src/interfaces/IGaugeController.sol";
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 import {IVotingEscrowVy} from "src/interfaces/IVotingEscrowVy.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {ISTEAM} from "src/interfaces/ISTEAM.sol";
 
 import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
+import {Steam_v1} from "src/reward/steam/Steam_v1.sol";
 
 abstract contract SteamSystemTest is Test {
-    IERC20STEAM public steam;
+    address public steam;
     ISteamMinter public minter;
     IGaugeController public controller;
     ILiquidityGaugeV6 public gauge;
@@ -29,77 +34,76 @@ abstract contract SteamSystemTest is Test {
     uint256 public constant RATE_REDUCTION_COEFFICIENT = 1_147_080_000_000_000_000;
 
     bool public vyperEscrow;
+    bool public vyperSteam;
 
-    constructor(bool vyperEscrow_) {
+    constructor(bool vyperEscrow_, bool vyperSteam_) {
         vyperEscrow = vyperEscrow_;
+        vyperSteam = vyperSteam_;
     }
 
     function setUp() public virtual {
         user = makeAddr("user");
 
-        // Deploy and initialize the STEAM token
-        steam = IERC20STEAM(vm.deployCode("ERC20STEAM.vy"));
-
-        vm.prank(multisig);
-        steam.initialize(61_000_000 ether, INITIAL_RATE, RATE_REDUCTION_COEFFICIENT, multisig, "STEAM", "STEAM");
+        if (vyperSteam) {
+            // Deploy and initialize the STEAM token
+            steam = vm.deployCode("ERC20STEAM.vy");
+            vm.prank(multisig);
+            IERC20STEAM(steam).initialize(
+                61_000_000 ether,
+                INITIAL_RATE,
+                RATE_REDUCTION_COEFFICIENT,
+                multisig,
+                "STEAM",
+                "STEAM"
+            );
+        } else {
+            // Deploy the Solidity version of the STEAM token
+            steam = UnsafeUpgrades.deployUUPSProxy(
+                address(new Steam_v1(INITIAL_RATE, RATE_REDUCTION_COEFFICIENT)),
+                // "Zhenglong Voting Escrow", "veSTEAM", "1"
+                abi.encodeCall(Steam_v1.initialize, (multisig, 61_000_000 ether, "STEAM", "STEAM"))
+            );
+            IBaoOwnable(steam).transferOwnership(multisig);
+        }
 
         if (vyperEscrow) {
             // // 1. Deploy escrow
             escrow = vm.deployCode("VotingEscrow.vy");
             // // 2. Call initialize manually
             vm.prank(multisig);
-            IVotingEscrowVy(escrow).initialize(multisig, address(steam), "Voting Escrow Steam", "veSTEAM", "1.0");
+            IVotingEscrowVy(escrow).initialize(multisig, steam, "Voting Escrow Steam", "veSTEAM", "1.0");
         } else {
             // Use the Solidity version of the escrow
             escrow = UnsafeUpgrades.deployUUPSProxy(
-                address(new VotingEscrow_v1(address(steam))),
+                address(new VotingEscrow_v1(steam)),
                 // "Zhenglong Voting Escrow", "veSTEAM", "1"
                 abi.encodeCall(VotingEscrow_v1.initialize, (multisig, "Voting Escrow STEAM", "veSTEAM", "1.0"))
             );
-
-            // VotingEscrow_v1 logic = new VotingEscrow_v1(address(steam));
-
-            // // Prepare the initialization calldata
-            // bytes memory initData = abi.encodeWithSelector(
-            //     VotingEscrow_v1.initialize.selector,
-            //     multisig,
-            //     "Voting Escrow Steam",
-            //     "veSTEAM",
-            //     "1.0"
-            // );
-
-            // // Deploy the proxy with the logic address and the initializer calldata
-            // ERC1967Proxy proxy = new ERC1967Proxy(address(logic), initData);
-
-            // // Cast the proxy address to VotingEscrow_v1 to interact with it
-            // escrow = VotingEscrow_v1(address(proxy));
 
             IBaoOwnable(escrow).transferOwnership(multisig);
         }
 
         // Deploy the Gauge Controller and add a gauge type
-        controller = IGaugeController(vm.deployCode("GaugeController.vy", abi.encode(address(steam), address(escrow))));
+        controller = IGaugeController(vm.deployCode("GaugeController.vy", abi.encode(steam, escrow)));
         controller.add_type("Liquidity", 1); // Add type index 0
 
         // Deploy the Minter and assign it to STEAM
-        minter = ISteamMinter(vm.deployCode("SteamMinter.vy", abi.encode(address(steam), address(controller))));
+        minter = ISteamMinter(vm.deployCode("SteamMinter.vy", abi.encode(steam, address(controller))));
 
-        vm.prank(multisig);
-        steam.set_minter(address(minter));
-        assertEq(steam.minter(), address(minter));
+        vm.startPrank(multisig);
+        if (vyperSteam) {
+            IERC20STEAM(steam).set_minter(address(minter));
+            assertEq(IERC20STEAM(steam).minter(), address(minter));
+        } else {
+            IBaoRoles(steam).grantRoles(address(minter), IMintableRole(steam).MINTER_ROLE());
+        }
+        vm.stopPrank();
 
         // Deploy the Liquidity Gauge V6
         gauge = ILiquidityGaugeV6(
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
-                abi.encode(
-                    address(steam),
-                    address(steam),
-                    address(controller),
-                    address(minter),
-                    address(escrow),
-                    address(escrow)
-                )
+                abi.encode(steam, steam, address(controller), address(minter), escrow, escrow)
             )
         );
 
@@ -108,26 +112,38 @@ abstract contract SteamSystemTest is Test {
     }
 
     function test_Deployment() public view {
-        assertEq(steam.totalSupply(), 61_000_000 ether);
-        assertEq(steam.balanceOf(multisig), 61_000_000 ether);
-        assertEq(steam.minter(), address(minter));
+        assertEq(IERC20STEAM(steam).totalSupply(), 61_000_000 ether);
+        assertEq(IERC20STEAM(steam).balanceOf(multisig), 61_000_000 ether);
+        if (vyperSteam) {
+            assertEq(IERC20STEAM(steam).minter(), address(minter));
+        } else {
+            // If using Solidity, check the roles
+            assertTrue(
+                IBaoRoles(steam).hasAnyRole(address(minter), IMintableRole(steam).MINTER_ROLE()),
+                "Minter role not granted"
+            );
+        }
     }
 
     function test_MinterAddressIsCorrect() public view {
-        // The minter should be correctly set by this point
-        address expectedMinter = address(minter);
+        if (vyperSteam) {
+            // The minter should be correctly set by this point
+            address expectedMinter = address(minter);
 
-        // Fetch the actual minter address from the STEAM token
-        address actualMinter = steam.minter();
+            // Fetch the actual minter address from the STEAM token
+            address actualMinter = IERC20STEAM(steam).minter();
 
-        // Assert that the expected and actual addresses match
-        assertEq(actualMinter, expectedMinter, "Minter address not set correctly");
+            // Assert that the expected and actual addresses match
+            assertEq(actualMinter, expectedMinter, "Minter address not set correctly");
+        } else {
+            assertTrue(true); // no equivalent check in the solidity version
+        }
     }
 
     function test_MiningAndMinting() public {
         // 1. Advance time to enable first mining epoch
         skip(365 days);
-        steam.update_mining_parameters();
+        IERC20STEAM(steam).update_mining_parameters();
 
         // 2. Setup test user and amounts
         address eoa = 0xb9ab9578a34a05c86124c399735fdE44dEc80E7F; // test EOA
@@ -137,16 +153,16 @@ abstract contract SteamSystemTest is Test {
 
         // 3. Fund EOA with STEAM tokens
         vm.prank(multisig);
-        steam.transfer(eoa, lockAmount + depositAmount);
+        IERC20STEAM(steam).transfer(eoa, lockAmount + depositAmount);
 
         // 4. Lock STEAM in Voting Escrow
         vm.startPrank(eoa, eoa);
-        steam.approve(address(escrow), lockAmount);
-        IVotingEscrowVy(address(escrow)).create_lock(lockAmount, unlockTime);
-        IVotingEscrowVy(address(escrow)).checkpoint();
+        IERC20STEAM(steam).approve(escrow, lockAmount);
+        IVotingEscrowVy(escrow).create_lock(lockAmount, unlockTime);
+        IVotingEscrowVy(escrow).checkpoint();
 
         // 5. Deposit STEAM in Gauge (staking)
-        steam.approve(address(gauge), depositAmount);
+        IERC20STEAM(steam).approve(address(gauge), depositAmount);
         gauge.deposit(depositAmount);
         vm.stopPrank();
 
@@ -166,7 +182,7 @@ abstract contract SteamSystemTest is Test {
         minter.mint_for(address(gauge), eoa);
 
         // 10. Assert minted balance
-        uint256 minted = steam.balanceOf(eoa);
+        uint256 minted = IERC20STEAM(steam).balanceOf(eoa);
         assertGt(minted, 0, "User should have received minted STEAM");
     }
 
@@ -176,10 +192,10 @@ abstract contract SteamSystemTest is Test {
 
         // Update mining parameters for each year
         for (uint256 i = 0; i < 50; i++) {
-            steam.update_mining_parameters();
+            IERC20STEAM(steam).update_mining_parameters();
         }
 
-        uint256 emitted = steam.available_supply();
+        uint256 emitted = IERC20STEAM(steam).available_supply();
 
         // Define upper and lower bounds
         uint256 tolerance = 1e16; // 0.01 ether
@@ -223,11 +239,11 @@ abstract contract SteamSystemTest is Test {
         address eoa = 0xb9ab9578a34a05c86124c399735fdE44dEc80E7F;
 
         vm.prank(multisig);
-        steam.transfer(eoa, lockAmount);
+        IERC20STEAM(steam).transfer(eoa, lockAmount);
 
         // Simulate tx.origin and msg.sender being the same
         vm.startPrank(eoa, eoa); // <- sets msg.sender and tx.origin
-        steam.approve(escrow, lockAmount);
+        IERC20STEAM(steam).approve(escrow, lockAmount);
         IVotingEscrowVy(escrow).create_lock(lockAmount, unlockTime);
         vm.stopPrank();
 
@@ -240,9 +256,9 @@ abstract contract SteamSystemTest is Test {
 
         // Give the test contract STEAM tokens
         vm.prank(multisig);
-        steam.transfer(address(this), lockAmount);
+        IERC20STEAM(steam).transfer(address(this), lockAmount);
 
-        steam.approve(escrow, lockAmount);
+        IERC20STEAM(steam).approve(escrow, lockAmount);
 
         // Expect revert with exact revert message
         vyperEscrow
@@ -252,10 +268,18 @@ abstract contract SteamSystemTest is Test {
     }
 }
 
-contract SteamSystemVyEscrowTest is SteamSystemTest {
-    constructor() SteamSystemTest(true) {}
+contract SteamSystemVyEscrowVySteamTest is SteamSystemTest {
+    constructor() SteamSystemTest(true, true) {}
 }
 
-contract SteamSystemSolEscrowTest is SteamSystemTest {
-    constructor() SteamSystemTest(false) {}
+contract SteamSystemVyEscrowSolSteamTest is SteamSystemTest {
+    constructor() SteamSystemTest(true, false) {}
+}
+
+contract SteamSystemSolEscrowVySteamTest is SteamSystemTest {
+    constructor() SteamSystemTest(false, true) {}
+}
+
+contract SteamSystemSolEscrowSolSteamTest is SteamSystemTest {
+    constructor() SteamSystemTest(false, false) {}
 }
