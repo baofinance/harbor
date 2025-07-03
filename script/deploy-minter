@@ -82,13 +82,13 @@ done
 
 # shellcheck disable=SC2154 # PUBLIC_KEY is exported elsewhere
 # TODO: make these work without adding .address
-record deployer.address "${PUBLIC_KEY}"
 record_from_network owner.address baomultisig.address
 record_from_network treasury.address safeGov.address
 
 # collateral
 record_from_network collateralToken.address steth.address
 record_from_call collateralToken.symbol collateralToken "symbol()(string)"
+COLLATERAL_SYMBOL=$(query collateralToken.symbol)
 record_from_network collateralToken.priceFeed.usd.address steth.priceFeed.usd.address
 
 # wrapped collateral
@@ -106,6 +106,8 @@ deploy_contract Stem_v1 "lib/bao-base/src/Stem_v1.sol:Stem_v1" "--constructor-ar
 
 deploy_stemmed peggedToken
 deploy_stemmed leveragedToken
+deploy_stemmed STEAM
+deploy_stemmed veSTEAM
 deploy_stemmed stakedETHWrappedPriceOracle
 deploy_stemmed feeReceiver
 deploy_stemmed stabilityPoolManager
@@ -119,13 +121,11 @@ deploy_stemmed genesis
 # upgrade the proxies with implementations
 ###################################################################################################
 
-COLLATERAL_SYMBOL=$(query collateralToken.symbol)
-
 # pegged token
 # ---------------
 deploy_contract PeggedToken_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
-record peggedToken.symbol "zhe{COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
-record peggedToken.name "Bao Zhenglong ${COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
+record peggedToken.symbol "zhe${PEGGED_SYMBOL}"
+record peggedToken.name "Bao Zhenglong ${PEGGED_SYMBOL}"
 
 upgrade_proxy peggedToken PeggedToken_v1 \
   "initialize(address,string,string)" owner peggedToken.name peggedToken.symbol
@@ -133,8 +133,9 @@ upgrade_proxy peggedToken PeggedToken_v1 \
 # leveraged token
 # ---------------
 deploy_contract LeveragedToken_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
-record leveragedToken.symbol "steamed${COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
-record leveragedToken.name "Bao Zhenglong steamed ${COLLATERAL_SYMBOL}-${PEGGED_SYMBOL}"
+LEVERAGED_SYMBOL="steamed${PEGGED_SYMBOL}x${COLLATERAL_SYMBOL}"
+record leveragedToken.symbol "${LEVERAGED_SYMBOL}"
+record leveragedToken.name "Zhenglong governance ${LEVERAGED_SYMBOL}"
 
 upgrade_proxy leveragedToken LeveragedToken_v1 \
   "initialize(address,string,string)" owner leveragedToken.name leveragedToken.symbol
@@ -197,7 +198,7 @@ upgrade_proxy reservePool ReservePool_v1 "initialize(address)" owner
 
 # minter
 # ------
-deploy_library Config_v1 src/minter/lib/Config_v1.sol:Config_v1
+deploy_library Config_v1 src/minter/library/Config_v1.sol:Config_v1
 
 deploy_contract Minter_v1 src/minter/Minter_v1.sol:Minter_v1 \
   --libraries Config_v1 \
@@ -219,24 +220,83 @@ send_transaction minter "updateReservePool(address)" reservePool
 
 # TODO: set up the minter config
 
+# gauge/steam/veSteam
+######################
+
+# STEAM
+# -----
+record STEAM.INITIAL_RATE $(to_number 154_585_000_000_000_000)
+record STEAM.RATE_REDUCTION_COEFFICIENT $(to_number 1_147_080_000_000_000_000)
+record STEAM.initialSupply $(to_number 61_000_000 ether)
+record STEAM.name "Zhenglong STEAM"
+record STEAM.symbol "STEAM"
+
+deploy_contract Steam_v1 "src/reward/steam/Steam_v1.sol:Steam_v1" \
+  --constructor-args STEAM.INITIAL_RATE STEAM.RATE_REDUCTION_COEFFICIENT
+upgrade_proxy STEAM Steam_v1 \
+  "initialize(address,uint256,string,string)" owner STEAM.initialSupply STEAM.name STEAM.symbol
+
+# veSTEAM
+# -------
+record veSTEAM.symbol "veSTEAM"
+record veSTEAM.name "Zhenglong voting escrow STEAM"
+record veSTEAM.version "v1.0"
+deploy_contract VeSTEAM_v1 "src/reward/voting-escrow/VotingEscrow_v1.sol:VotingEscrow_v1" \
+  --constructor-args STEAM
+upgrade_proxy veSTEAM VeSTEAM_v1 \
+  "initialize(address,string,string, string)" owner veSTEAM.name veSTEAM.symbol veSTEAM.version
+
+# gauge controller for steam
+# --------------------------
+deploy_contract gaugeController "src/reward/gauge/GaugeController.vy:GaugeController" \
+  --constructor-args STEAM veSTEAM
+send_transaction gaugeController "add_type(string,uint256)" "Liquidity" 1
+
+deploy_contract steamMinter "src/reward/steam/SteamMinter.vy:SteamMinter" \
+  --constructor-args STEAM gaugeController
+grantRoles steamMinter STEAM.MINTER_ROLE
+
 # stability pools
 #################
 
-# stabilityPoolCollateral
-# -----------------------
-deploy_contract StabilityPool_v1Collateral "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
-  --constructor-args minter wrappedCollateralToken
-upgrade_proxy stabilityPoolCollateral StabilityPool_v1Collateral "initialize(address)" owner
+# stabilityPools
+# --------------
+declare -A TOKEN_SYMBOL
+TOKEN_SYMBOL[Collateral]="${COLLATERAL_SYMBOL}"
+TOKEN_SYMBOL[Steamed]="${LEVERAGED_SYMBOL}"
+declare -A TOKEN_KEY
+TOKEN_KEY[Collateral]="wrappedCollateralToken"
+TOKEN_KEY[Steamed]="leveragedToken"
+# two stability pools
+for liquidation in Collateral Steamed; do
+  # gauge stake token
+  // TODO: allow to deploy_proxy with initialisation
+  deploy_stemmed stabilityPool${liquidation}Stake
+  deploy_contract StabilityPool_v1${liquidation}Stake_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
+  upgrade_proxy stabilityPool${liquidation}Stake StabilityPool_v1${liquidation}Stake_v1 \
+    "initialize(address,string,string)" owner \
+    "Zhenglong stability pool ${PEGGED_SYMBOL} (${TOKEN_SYMBOL[${liquidation}]})" \
+    "spZhe${PEGGED_SYMBOL}>${TOKEN_SYMBOL[${liquidation}]}"
 
-send_transaction stabilityPoolCollateral "registerRewardToken(address, address)" wrappedCollateralToken stabilityPoolCollateral
+  # guage
+  deploy_contract stabilityPool${liquidation}Gauge "src/reward/gauge/LiquidityGaugeV6.vy:LiquidityGaugeV6" \
+    --constructor-args stabilityPool${liquidation}Stake STEAM gaugeController steamMinter veSTEAM veSTEAM
 
-# stabilityPoolSteamed
-# --------------------
-deploy_contract StabilityPool_v1Steamed "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
-  --constructor-args minter leveragedToken
-upgrade_proxy stabilityPoolSteamed StabilityPool_v1Steamed "initialize(address)" owner
+  # stability pool
+  deploy_contract StabilityPool_v1${liquidation} "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
+    --constructor-args minter ${TOKEN_KEY[$liquidation]} STEAM veSTEAM
+  upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address)" owner
 
-send_transaction stabilityPoolSteamed "registerRewardToken(address, address)" steamedToken stabilityPoolSteamed
+  grantRoles stabilityPool${liquidation} stabilityPool${liquidation}Stake.MINTER_ROLE
+  send_transaction stabilityPool${liquidation} "updateGauge(address)" stabilityPool${liquidation}Gauge
+  send_transaction stabilityPool${liquidation} "registerRewardToken(address, address)" ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}
+
+  # grant stabilityPoolManager access
+  grantRoles stabilityPoolManager stabilityPool${liquidation}.REBALANCER_ROLE
+  grantRoles stabilityPoolManager stabilityPool${liquidation}.REWARDER_ROLE
+
+  send_transaction stabilityPool${liquidation}Stake "transferOwnership(address)" owner
+done
 
 # StabilityPoolManager
 # --------------------
@@ -244,22 +304,15 @@ deploy_contract StabilityPoolManager_v1 "src/minter/StabilityPoolManager_v1.sol:
   --constructor-args minter treasury stabilityPoolCollateral stabilityPoolSteamed
 upgrade_proxy stabilityPoolManager StabilityPool_v1Steamed "initialize(address)" owner
 
-grantRoles stabilityPoolManager stabilityPoolCollateral.REBALANCER_ROLE
-grantRoles stabilityPoolManager stabilityPoolCollateral.REWARDER_ROLE
-
-grantRoles stabilityPoolManager stabilityPoolSteamed.REBALANCER_ROLE
-grantRoles stabilityPoolManager stabilityPoolSteamed.REWARDER_ROLE
-
 grantRoles stabilityPoolManager minter.HARVESTER_ROLE
+
+# TODO: set the bounties and fee ratios
 
 # genesis
 #########
 deploy_contract Genesis_v1 "src/minter/Genesis_v1.sol:Genesis_v1" --constructor-args minter
 upgrade_proxy genesis Genesis_v1 "initialize(address)" owner
 grantRoles genesis minter.ZERO_FEE_ROLE
-
-# TODO: set the reward amount
-# TODO: and fill the liquidator with those tokens
 
 ###################################################################################################
 # developer options
