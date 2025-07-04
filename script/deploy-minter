@@ -250,6 +250,7 @@ upgrade_proxy veSTEAM VeSTEAM_v1 \
 # --------------------------
 deploy_contract gaugeController "src/reward/gauge/GaugeController.vy:GaugeController" \
   --constructor-args STEAM veSTEAM
+# add gauge type 0 (used later)
 send_transaction gaugeController "add_type(string,uint256)" "Liquidity" 1
 
 deploy_contract steamMinter "src/reward/steam/SteamMinter.vy:SteamMinter" \
@@ -281,15 +282,24 @@ for liquidation in Collateral Steamed; do
   # guage
   deploy_contract stabilityPool${liquidation}Gauge "src/reward/gauge/LiquidityGaugeV6.vy:LiquidityGaugeV6" \
     --constructor-args stabilityPool${liquidation}Stake STEAM gaugeController steamMinter veSTEAM veSTEAM
+  # add gauge, type 0, weight 1
+  send_transaction gaugeController "add_gauge(address,int128,uint256)" stabilityPool${liquidation}Gauge 0 1
 
   # stability pool
   deploy_contract StabilityPool_v1${liquidation} "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
     --constructor-args minter ${TOKEN_KEY[$liquidation]} STEAM veSTEAM
   upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address)" owner
 
-  grantRoles stabilityPool${liquidation} stabilityPool${liquidation}Stake.MINTER_ROLE
+  # mint the stake token to the stability pool
+  grantRoles deployer stabilityPool${liquidation}Stake.MINTER_ROLE
+  send_transaction stabilityPool${liquidation}Stake "mint(address,uint256)" stabilityPool${liquidation} 1000000000000000000
+  revokeRoles deployer stabilityPool${liquidation}Stake.MINTER_ROLE
+  record_from_call stabilityPool${liquidation}Stake.totalSupply stabilityPool${liquidation}Stake "totalSupply()(uint256)"
+  record_from_call stabilityPool${liquidation}Stake.balanceOf stabilityPool${liquidation}Stake "balanceOf(address)(uint256)" stabilityPool${liquidation}
+  record_from_call stabilityPool${liquidation}Stake.allowance stabilityPool${liquidation}Stake "allowance(address,address)(uint256)" stabilityPool${liquidation} stabilityPool${liquidation}Gauge
   send_transaction stabilityPool${liquidation} "updateGauge(address)" stabilityPool${liquidation}Gauge
   send_transaction stabilityPool${liquidation} "registerRewardToken(address, address)" ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}
+  send_transaction stabilityPool${liquidation} "registerRewardToken(address, address)" STEAM stabilityPool${liquidation}
 
   # grant stabilityPoolManager access
   grantRoles stabilityPoolManager stabilityPool${liquidation}.REBALANCER_ROLE

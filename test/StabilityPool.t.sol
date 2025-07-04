@@ -20,6 +20,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
+import {IMintable} from "@bao/interfaces/IMintable.sol";
 
 import {Token} from "@bao/Token.sol";
 
@@ -99,17 +100,19 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             )
         );
 
-        // we need to let the veSteam bed down for a week (at least till we cross the next block / 7 * 7 boundary)
-        vm.warp(block.timestamp + 1 weeks);
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, steam, veSteam)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
+        IBaoRoles(stabilityPoolToken).grantRoles(address(this), IMintableRole(stabilityPoolToken).MINTER_ROLE());
+        IMintable(stabilityPoolToken).mint(stabilityPool, 1 ether);
+
         IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
         vm.prank(owner);
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken, stabilityPool);
 
+        IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
         IBaoOwnable(stabilityPool).transferOwnership(owner);
     }
 

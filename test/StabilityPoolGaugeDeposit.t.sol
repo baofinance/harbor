@@ -17,6 +17,7 @@ import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 import {IVotingEscrowVy} from "src/interfaces/IVotingEscrowVy.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
@@ -66,6 +67,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             address(new VotingEscrow_v1(address(steam2))),
             abi.encodeCall(VotingEscrow_v1.initialize, (multisig, "Voting Escrow STEAM", "veSTEAM", "1.0"))
         );
+        vm.label(escrow, "VotingEscrow_v1");
         IBaoOwnable(escrow).transferOwnership(multisig);
 
         // Gauge controller + minter
@@ -173,7 +175,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         // Step 2: Deploy a new LiquidityGauge using SPT as lp_token
         address spt = IStabilityPool(stabilityPoolCollateral).GAUGE_STAKE_TOKEN();
 
-        vm.startPrank(address(this)); // Test contract owns the SPT
+        vm.startPrank(owner);
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), 1); // 1 = SMART_CONTRACT_MANAGER_ROLE or MINTER_ROLE
         vm.stopPrank();
 
@@ -181,7 +183,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
                 abi.encode(
-                    address(stabilityPoolCollateral),
+                    address(spt),
                     address(steam),
                     address(controller),
                     address(minter),
@@ -195,6 +197,8 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         controller.add_gauge(address(newGauge), 0, 1);
 
         // Step 4: Update the gauge in the StabilityPool
+        vm.prank(stabilityPoolCollateral); // minte role
+        IMintable(spt).mint(stabilityPoolCollateral, 1 ether); // Mint 1 ether of SPT to the StabilityPool
         address ownerOfSP = IBaoOwnable(stabilityPoolCollateral).owner();
         vm.prank(ownerOfSP);
         IStabilityPool(stabilityPoolCollateral).updateGauge(address(newGauge));
@@ -216,16 +220,13 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Ensure the test contract owns the SPT token (proxy likely owns it initially)
         address sptOwner = IBaoOwnable(spt).owner();
-        if (sptOwner != address(this)) {
-            vm.prank(sptOwner);
-            IBaoOwnable(spt).transferOwnership(address(this));
-        }
 
         // Grant MINTER and BURNER roles to the StabilityPool
-        vm.prank(address(this));
+
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(stabilityPoolCollateral, MINTER_ROLE); // 1 = MINTER_ROLE or SMART_CONTRACT_MANAGER_ROLE
 
-        vm.prank(address(this));
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(stabilityPoolCollateral, BURNER_ROLE);
 
         // Prepare the first gauge
@@ -233,7 +234,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
                 abi.encode(
-                    stabilityPoolCollateral,
+                    spt,
                     address(steam2),
                     address(controller),
                     address(minter2),
@@ -258,7 +259,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
                 "LiquidityGaugeV6.vy",
                 // abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
                 abi.encode(
-                    stabilityPoolCollateral,
+                    spt,
                     address(steam2),
                     address(controller),
                     address(minter2),
@@ -289,7 +290,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
                 abi.encode(
-                    stabilityPoolCollateral,
+                    spt,
                     address(steam2),
                     address(controller),
                     address(minter2),
@@ -304,11 +305,10 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         address sptOwner = IBaoOwnable(spt).owner();
         vm.startPrank(sptOwner);
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), BURNER_ROLE);
-        vm.stopPrank();
 
         // Step 4: Assign SMART_CONTRACT_MANAGER_ROLE so SP can mint/transfer SPT
-        vm.prank(address(this));
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), 1); // SMART_CONTRACT_MANAGER_ROLE
+        vm.stopPrank();
 
         // Step 5: SP owner updates to use a gauge
         address spOwner = IBaoOwnable(stabilityPoolCollateral).owner();
@@ -325,7 +325,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Step 8: Assert both gauge and SP hold zero SPT after burn
         assertEq(gauge1.balanceOf(stabilityPoolCollateral), 0);
-        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0);
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 1 ether);
     }
 
     function testDepositAndMintRewards() public {
@@ -339,14 +339,10 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Step 3: Grant roles for minting and burning
         address sptOwner = IBaoOwnable(spt).owner();
-        if (sptOwner != address(this)) {
-            vm.prank(sptOwner);
-            IBaoOwnable(spt).transferOwnership(address(this));
-        }
 
-        vm.prank(address(this));
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), MINTER_ROLE);
-        vm.prank(address(this));
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), BURNER_ROLE);
 
         // Step 4: Deploy and register gauge
@@ -354,7 +350,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
                 abi.encode(
-                    stabilityPoolCollateral,
+                    spt,
                     address(steam2),
                     address(controller),
                     address(minter2),
@@ -380,7 +376,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         // Step 8: Ensure gauge weight records are updated
         controller.checkpoint_gauge(address(newGauge));
         uint256 weight = controller.gauge_relative_weight(address(newGauge));
-        console2.log("Gauge relative weight:", weight); // should be > 0
+        assertGt(weight, 0, "Gauge relative weight should be > 0");
 
         // Step 9: Approve the test contract to mint rewards on behalf of StabilityPool
         vm.prank(address(stabilityPoolCollateral));

@@ -361,57 +361,21 @@ contract StabilityPool_v1 is
 
         emit GaugeUpdated(newGauge);
 
+        // Step 1: Withdraw from old gauge if exists
         if (oldGauge != address(0)) {
-            // Withdraw the entire staked amount from the gauge
-            ILiquidityGaugeV6(oldGauge).withdraw(1 ether); // wake-disable-line reentrancy all callers are nonReentrant
+            ILiquidityGaugeV6(oldGauge).withdraw(1 ether);
         }
+
+        // Step 2: Update internal storage
         $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
 
+        // Step 3: If new gauge exists, approve and deposit
         if (newGauge != address(0)) {
-            // now transfer the entire amount into the new gauge
+            // Approve exactly 1 ether of SPT to newGauge
+            IERC20(GAUGE_STAKE_TOKEN).safeIncreaseAllowance(newGauge, 1 ether);
+
             ILiquidityGaugeV6(newGauge).deposit(1 ether);
         }
-    }
-
-    function balanceOf(address account) external view returns (uint256 balance) {
-        balance = 0;
-        if (account != address(0)) {
-            StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-            if (account == $.gauge.gauge && $.totalAssetSupply.amount > 0) {
-                balance = 1 ether;
-            }
-        }
-    }
-
-    function symbol() external view returns (string memory) {
-        return string(abi.encodePacked("Zhenglong-SP-", IERC20Metadata(ASSET_TOKEN).symbol()));
-    }
-
-    function transferFrom(address sender, address receiver, uint256 amount) public returns (bool) {
-        if (receiver == address(0)) {
-            revert IERC20Errors.ERC20InvalidReceiver(address(0));
-        }
-        if (sender != address(this)) {
-            revert IERC20Errors.ERC20InvalidSender(sender);
-        }
-        emit IERC20.Transfer(sender, receiver, amount);
-        return true;
-    }
-
-    function transfer(address receiver, uint256 amount) external returns (bool) {
-        if (receiver == address(0)) {
-            revert IERC20Errors.ERC20InvalidReceiver(address(0));
-        }
-        emit IERC20.Transfer(_msgSender(), receiver, amount);
-        return true;
-    }
-
-    function allowance(address owner_, address spender) external view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (owner_ != address(this) || spender != $.gauge.gauge) {
-            return 0;
-        }
-        return 1 ether;
     }
 
     /**********************
