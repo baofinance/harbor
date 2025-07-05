@@ -364,44 +364,44 @@ contract TestMinterInit is TestMinterSetUp {
         new Minter_v1(Deployed.wstETH, peggedToken, priceOracle, peggedTokenBurnSig);
     }
 
-    function _burnSig(address peggedToken_, string memory peggedTokenBurnSig_) internal {
-        address impl_ = address(
-            new Minter_v1(wrappedCollateralToken, peggedToken_, leveragedToken, peggedTokenBurnSig_)
-        );
-        address proxy = UnsafeUpgrades.deployUUPSProxy(
-            impl_, // "Minter_v1.sol",
-            abi.encodeCall(Minter_v1.initialize, (owner))
-        );
+    function _burnSig() internal {
         // let this contract mint and burn pegged
-        IBaoOwnable(proxy).transferOwnership(owner);
+        IBaoRoles(minter).grantRoles(zeroFee, IMinter(minter).ZERO_FEE_ROLE());
+        IMinter(minter).updatePriceOracle(priceOracle);
 
+        deal(wrappedCollateralToken, zeroFee, 1 ether);
+        vm.prank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
         // mint some
-        uint256 thisPegged = IERC20(peggedToken_).balanceOf(address(this));
-        uint256 totalPegged = IERC20(peggedToken_).totalSupply();
-        uint256 peggedMinted = IMinter(proxy).freeMintPeggedToken(1 ether, address(this));
+        uint256 thisPegged = IERC20(peggedToken).balanceOf(zeroFee);
+        uint256 totalPegged = IERC20(peggedToken).totalSupply();
+        vm.prank(zeroFee);
+        uint256 peggedMinted = IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
         assertEq(
-            IERC20(peggedToken_).balanceOf(address(this)),
+            IERC20(peggedToken).balanceOf(zeroFee),
             thisPegged + peggedMinted,
             "pegged tokens minted should be added to balance"
         );
         assertEq(
-            IERC20(peggedToken_).totalSupply(),
+            IERC20(peggedToken).totalSupply(),
             totalPegged + peggedMinted,
             "pegged tokens minted should be added to to supply"
         );
 
         // burn some
-        uint256 peggedBurned = IMinter(proxy).freeRedeemPeggedToken(peggedMinted, address(this));
-        assertEq(peggedMinted, peggedBurned, "pegged tokens minted and burned should be equal");
+        vm.prank(zeroFee);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        vm.prank(zeroFee);
+        IMinter(minter).freeRedeemPeggedToken(peggedMinted, zeroFee);
         assertEq(
-            IERC20(peggedToken_).balanceOf(address(this)),
+            IERC20(peggedToken).balanceOf(zeroFee),
             thisPegged,
             "pegged tokens balance should be equal to initial balance"
         );
         assertEq(
-            IERC20(peggedToken_).totalSupply(),
+            IERC20(peggedToken).totalSupply(),
             totalPegged,
-            "pegged tokens balance should be equal to initial balance"
+            "pegged tokens totalSupply should be equal to total supply"
         );
     }
 
@@ -409,37 +409,45 @@ contract TestMinterInit is TestMinterSetUp {
         deal(wrappedCollateralToken, address(this), 100 ether);
 
         minter = UnsafeUpgrades.deployUUPSProxy(
+            // mock, no need to permission minting
             address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
+        _burnSig();
 
+        peggedToken = Deployed.BaoUSD;
+        peggedTokenBurnSig = "burn(uint256)";
         minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1(wrappedCollateralToken, Deployed.BaoUSD, leveragedToken, "burn(uint256)")),
+            address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
+        vm.prank(IBaoUSD(peggedToken).operator());
+        IBaoUSD(peggedToken).addMinter(minter);
+        _burnSig();
 
-        {
-            MockERC20Burn2Arg token = new MockERC20Burn2Arg("burn", "2arg", 18);
-            minter = UnsafeUpgrades.deployUUPSProxy(
-                address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
-                abi.encodeCall(Minter_v1.initialize, (owner))
-            );
-        }
+        peggedToken = address(new MockERC20Burn2Arg("burn", "2arg", 18));
+        peggedTokenBurnSig = MockERC20Burn2Arg(peggedToken).burnSignature();
+        minter = UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
+            abi.encodeCall(Minter_v1.initialize, (owner))
+        );
+        _burnSig();
 
-        {
-            MockERC20Burn1Arg token = new MockERC20Burn1Arg("burn", "1arg", 18);
-            minter = UnsafeUpgrades.deployUUPSProxy(
-                address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
-                abi.encodeCall(Minter_v1.initialize, (owner))
-            );
-        }
-        {
-            MockERC20BurnFrom token = new MockERC20BurnFrom("burn", "from", 18);
-            minter = UnsafeUpgrades.deployUUPSProxy(
-                address(new Minter_v1(wrappedCollateralToken, address(token), leveragedToken, token.burnSignature())),
-                abi.encodeCall(Minter_v1.initialize, (owner))
-            );
-        }
+        peggedToken = address(new MockERC20Burn1Arg("burn", "1arg", 18));
+        peggedTokenBurnSig = MockERC20Burn1Arg(peggedToken).burnSignature();
+        minter = UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
+            abi.encodeCall(Minter_v1.initialize, (owner))
+        );
+        _burnSig();
+
+        peggedToken = address(new MockERC20BurnFrom("burn", "from", 18));
+        peggedTokenBurnSig = MockERC20BurnFrom(peggedToken).burnSignature();
+        minter = UnsafeUpgrades.deployUUPSProxy(
+            address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
+            abi.encodeCall(Minter_v1.initialize, (owner))
+        );
+        _burnSig();
 
         // burn sig is not a valid ERC20 burn sig
         vm.expectRevert(abi.encodeWithSelector(Minter_v1.UnrecognisedBurnSignature.selector, "burn(address,address)"));

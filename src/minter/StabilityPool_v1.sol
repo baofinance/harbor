@@ -363,7 +363,7 @@ contract StabilityPool_v1 is
 
         // Step 1: Withdraw from old gauge if exists
         if (oldGauge != address(0)) {
-            ILiquidityGaugeV6(oldGauge).withdraw(1 ether);
+            ILiquidityGaugeV6(oldGauge).withdraw(1 ether); //wake-disable-line reentrancy all callers are nonReentrant
         }
 
         // Step 2: Update internal storage
@@ -371,10 +371,13 @@ contract StabilityPool_v1 is
 
         // Step 3: If new gauge exists, approve and deposit
         if (newGauge != address(0)) {
-            // Approve exactly 1 ether of SPT to newGauge
-            IERC20(GAUGE_STAKE_TOKEN).safeIncreaseAllowance(newGauge, 1 ether);
+            // Use forceApprove for full compatibility (OZ v5+)
+            SafeERC20.forceApprove(IERC20(GAUGE_STAKE_TOKEN), newGauge, 1 ether);
 
-            ILiquidityGaugeV6(newGauge).deposit(1 ether);
+            ILiquidityGaugeV6(newGauge).deposit(1 ether); //wake-disable-line reentrancy all callers are nonReentrant
+
+            // Reset approval to 0 for safety
+            SafeERC20.forceApprove(IERC20(GAUGE_STAKE_TOKEN), newGauge, 0);
         }
     }
 

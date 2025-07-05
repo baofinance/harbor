@@ -10,12 +10,13 @@ lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | decimals          | 2.880e+02 |
 | grantRoles        | 2.636e+04 |
 | initialize        | 1.663e+05 |
-| mint              | 4.707e+04 |
+| mint              | 4.907e+04 |
 | name              | 3.217e+03 |
 | owner             | 2.411e+03 |
 | symbol            | 3.207e+03 |
 | totalSupply       | 2.326e+03 |
 | transfer          | 2.999e+04 |
+| transferFrom      | 3.084e+04 |
 | transferOwnership | 1.207e+04 |
 
 lib/bao-base/src/Stem_v1.sol:Stem_v1
@@ -128,7 +129,7 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | hasStabilityPool           | 5.370e+02 |
 | initialize                 | 7.069e+04 |
 | owner                      | 2.423e+03 |
-| rebalance                  | 5.255e+05 |
+| rebalance                  | 5.254e+05 |
 | rebalanceBountyRatio       | 2.354e+03 |
 | rebalanceThreshold         | 2.347e+03 |
 | rebalanceable              | 2.910e+04 |
@@ -149,11 +150,11 @@ src/minter/StabilityPool_v1.sol:StabilityPool_v1
 | GAUGE_REWARD_TOKEN | 3.270e+02 |
 | GAUGE_STAKE_TOKEN  | 3.250e+02 |
 | LIQUIDATION_TOKEN  | 3.060e+02 |
-| gauge              | 2.493e+03 |
-| grantRoles         | 2.640e+04 |
+| gauge              | 2.427e+03 |
+| grantRoles         | 2.633e+04 |
 | initialize         | 1.388e+05 |
-| owner              | 2.380e+03 |
-| totalAssetSupply   | 2.416e+03 |
+| owner              | 2.402e+03 |
+| totalAssetSupply   | 2.438e+03 |
 | transferOwnership  | 1.202e+04 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
@@ -195,11 +196,10 @@ src/reward/gauge/GaugeController.vy:GaugeController
 src/reward/gauge/LiquidityGaugeV6.vy:LiquidityGaugeV6
 | function name        |       max |
 |----------------------|-----------|
-| add_reward           | 9.076e+04 |
+| add_reward           | 9.072e+04 |
 | balanceOf            | 2.333e+03 |
 | claimable_reward     | 1.826e+04 |
 | deposit_reward_token | 1.356e+05 |
-| factory              | 2.221e+03 |
 | integrate_fraction   | 3.330e+02 |
 | is_killed            | 2.221e+03 |
 | lp_token             | 2.221e+03 |
@@ -209,7 +209,7 @@ src/reward/gauge/LiquidityGaugeV6.vy:LiquidityGaugeV6
 | reward_count         | 2.244e+03 |
 | symbol               | 4.718e+03 |
 | totalSupply          | 2.221e+03 |
-| user_checkpoint      | 3.397e+05 |
+| user_checkpoint      | 3.454e+05 |
 | working_balances     | 2.333e+03 |
 | working_supply       | 2.244e+03 |
 
@@ -265,6 +265,7 @@ src/reward/steam/Steam_v1.sol:Steam_v1
 | decimals                   | 2.660e+02 |
 | future_epoch_time_write    | 2.620e+03 |
 | grantRoles                 | 2.636e+04 |
+| hasAnyRole                 | 2.615e+03 |
 | mining_epoch               | 2.432e+03 |
 | mint                       | 3.919e+04 |
 | mintable_in_timeframe      | 6.602e+03 |
@@ -303,7 +304,7 @@ src/reward/voting-escrow/VotingEscrow.vy:VotingEscrow
 | get_last_user_slope         | 4.591e+03 |
 | increase_amount             | 6.306e+05 |
 | increase_unlock_time        | 2.684e+05 |
-| initialize                  | 3.165e+05 |
+| initialize                  | 3.193e+05 |
 | locked                      | 4.456e+03 |
 | locked__end                 | 2.393e+03 |
 | name                        | 4.741e+03 |
@@ -356,46 +357,43 @@ src/reward/voting-escrow/VotingEscrow_v1.sol:VotingEscrow_v1
 test/StabilityPool.t.sol:MockStabilityPool
 | function name           |       max |
 |-------------------------|-----------|
-| ASSET_TOKEN             | 3.050e+02 |
+| ASSET_TOKEN             | 2.830e+02 |
 | GAUGE_REWARD_TOKEN      | 3.270e+02 |
 | GAUGE_STAKE_TOKEN       | 3.250e+02 |
 | LIQUIDATION_TOKEN       | 3.060e+02 |
 | REBALANCER_ROLE         | 3.070e+02 |
 | REWARDER_ROLE           | 2.620e+02 |
-| REWARD_MANAGER_ROLE     | 2.610e+02 |
+| REWARD_MANAGER_ROLE     | 2.830e+02 |
 | __totalSupply           | 2.806e+03 |
-| accumulateReward        | 3.060e+04 |
+| accumulateReward        | 3.058e+04 |
 | activeRewardTokens      | 7.461e+03 |
 | approve                 | 2.130e+02 |
 | assetBalanceOf          | 5.680e+03 |
 | claim                   | 1.140e+05 |
-| claimable               | 1.302e+04 |
+| claimable               | 1.309e+04 |
 | deposit                 | 2.752e+05 |
 | gauge                   | 2.427e+03 |
-| grantRoles              | 2.640e+04 |
+| grantRoles              | 2.633e+04 |
 | initialize              | 1.388e+05 |
 | isActiveRewardToken     | 2.744e+03 |
-| lastAssetLossError      | 2.402e+03 |
+| lastAssetLossError      | 2.380e+03 |
 | owner                   | 2.402e+03 |
-| registerRewardToken     | 9.784e+04 |
-| setRewardReceiver       | 2.461e+04 |
-| sweep                   | 1.292e+05 |
-| symbol                  | 7.030e+03 |
+| registerRewardToken     | 9.788e+04 |
+| setRewardReceiver       | 2.459e+04 |
+| sweep                   | 1.291e+05 |
 | totalAssetSupply        | 2.438e+03 |
 | totalAssetSupplyHistory | 2.722e+03 |
-| transfer                | 2.344e+03 |
-| transferFrom            | 2.519e+03 |
 | transferOwnership       | 1.202e+04 |
-| unregisterRewardToken   | 9.431e+04 |
-| updateGauge             | 3.255e+05 |
-| upgradeToAndCall        | 1.099e+04 |
-| withdraw                | 1.628e+05 |
+| unregisterRewardToken   | 9.436e+04 |
+| updateGauge             | 4.130e+05 |
+| upgradeToAndCall        | 1.098e+04 |
+| withdraw                | 1.627e+05 |
 
 test/StabilityPool.t.sol:StabilityPool_v2
 | function name   |       max |
 |-----------------|-----------|
-| proxiableUUID   | 3.420e+02 |
-| version         | 4.680e+02 |
+| proxiableUUID   | 3.640e+02 |
+| version         | 4.900e+02 |
 
 test/StabilityPoolManager_v1.t.sol:MockMinter
 | function name            |       max |

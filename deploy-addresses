@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+file=$(find ./deploy -name "*_latest.log" -type f -printf "%T+ %p\n" | sort | head -n 1 | awk '{print $2}')
+
+temp_addresses=$(mktemp)
+jq -r 'to_entries[] | select(.value | type == "object" and has("address"))
+      | "export \(.key)=\"\(.value.address)\""' "$file" | sort >"$temp_addresses"
+
+source "$temp_addresses"
+
+rm "$temp_addresses"

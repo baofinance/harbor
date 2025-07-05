@@ -17,7 +17,7 @@
 | GaugeController                |              8,601 |               15,975 |
 | Genesis_v1                     |              7,503 |               17,073 |
 | LinearReward                   |                 85 |               24,491 |
-| LiquidityGaugeV6               |             10,632 |               13,944 |
+| LiquidityGaugeV6               |             10,216 |               14,360 |
 | Math                           |                 85 |               24,491 |
 | MessageHashUtils               |                 85 |               24,491 |
 | Minter_v1                      |             24,042 |                  534 |
@@ -29,7 +29,7 @@
 | SafeERC20                      |                 85 |               24,491 |
 | SignedMath                     |                 85 |               24,491 |
 | StabilityPoolManager_v1        |             11,337 |               13,239 |
-| StabilityPool_v1               |             20,403 |                4,173 |
+| StabilityPool_v1               |             19,656 |                4,920 |
 | StakedETHWrappedPriceOracle_v1 |              3,695 |               20,881 |
 | SteamMinter                    |              1,383 |               23,193 |
 | Steam_v1                       |             11,600 |               12,976 |
