@@ -32,9 +32,15 @@ PEGGED_SYMBOL="PB" # pork bellies
 # - "burnFrom(address,uint256)"
 #    this is one of the most gas efficient forms, is extensively used and frequetly alongside the burn(uint256) form
 BURN_SIG="burn(uint256)"
-
+MINTER_CONFIG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --minter-config-file | --mcf)
+      record minter.configFile "$2"
+      record_raw minter.config "$(<$2)"
+      MINTER_CONFIG="true"
+      shift 2
+      ;;
     --burn-sig)
       BURN_SIG="$2"
       record "arguments.burn-sig" "${BURN_SIG}"
@@ -104,18 +110,17 @@ deploy_contract Stem_v1 "lib/bao-base/src/Stem_v1.sol:Stem_v1" "--constructor-ar
 # deploy the proxies, stemmed, recording the addresses
 ###################################################################################################
 
-deploy_stemmed peggedToken
-deploy_stemmed leveragedToken
-deploy_stemmed STEAM
-deploy_stemmed veSTEAM
-deploy_stemmed stakedETHWrappedPriceOracle
-deploy_stemmed feeReceiver
-deploy_stemmed stabilityPoolManager
-deploy_stemmed reservePool
-deploy_stemmed minter
-deploy_stemmed stabilityPoolCollateral
-deploy_stemmed stabilityPoolSteamed
-deploy_stemmed genesis
+BaoOwnables=()
+for contract in \
+  peggedToken leveragedToken \
+  STEAM veSTEAM \
+  stakedETHWrappedPriceOracle \
+  minter reservePool feeReceiver \
+  stabilityPoolManager \
+  genesis; do
+  deploy_stemmed "${contract}"
+  BaoOwnables+=("${contract}")
+done
 
 ###################################################################################################
 # upgrade the proxies with implementations
@@ -219,6 +224,13 @@ send_transaction minter "updateFeeReceiver(address)" feeReceiver
 send_transaction minter "updateReservePool(address)" reservePool
 
 # TODO: set up the minter config
+if [[ -n "${MINTER_CONFIG}" ]]; then
+  send_transaction minter "updateConfig(((uint256[],int256[]),(uint256[],int256[]),(uint256[],int256[]),(uint256[],int256[])))" \
+    "(($(query minter.config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.mintPeggedIncentiveConfig.incentiveRatios)),\
+     ($(query minter.config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.redeemPeggedIncentiveConfig.incentiveRatios)),\
+     ($(query minter.config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.mintLeveragedIncentiveConfig.incentiveRatios)),\
+     ($(query minter.config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.redeemLeveragedIncentiveConfig.incentiveRatios)))"
+fi
 
 # gauge/steam/veSteam
 ######################
@@ -271,8 +283,8 @@ TOKEN_KEY[Steamed]="leveragedToken"
 # two stability pools
 for liquidation in Collateral Steamed; do
   # gauge stake token
-  // TODO: allow to deploy_proxy with initialisation
   deploy_stemmed stabilityPool${liquidation}Stake
+  BaoOwnables+=("stabilityPool${liquidation}Stake")
   deploy_contract StabilityPool_v1${liquidation}Stake_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
   upgrade_proxy stabilityPool${liquidation}Stake StabilityPool_v1${liquidation}Stake_v1 \
     "initialize(address,string,string)" owner \
@@ -286,8 +298,10 @@ for liquidation in Collateral Steamed; do
   send_transaction gaugeController "add_gauge(address,int128,uint256)" stabilityPool${liquidation}Gauge 0 1
 
   # stability pool
+  deploy_stemmed stabilityPool${liquidation}
+  BaoOwnables+=("stabilityPool${liquidation}")
   deploy_contract StabilityPool_v1${liquidation} "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
-    --constructor-args minter ${TOKEN_KEY[$liquidation]} STEAM veSTEAM
+    --constructor-args minter ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}Stake STEAM
   upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address)" owner
 
   # mint the stake token to the stability pool
@@ -298,6 +312,7 @@ for liquidation in Collateral Steamed; do
   record_from_call stabilityPool${liquidation}Stake.balanceOf stabilityPool${liquidation}Stake "balanceOf(address)(uint256)" stabilityPool${liquidation}
   record_from_call stabilityPool${liquidation}Stake.allowance stabilityPool${liquidation}Stake "allowance(address,address)(uint256)" stabilityPool${liquidation} stabilityPool${liquidation}Gauge
   send_transaction stabilityPool${liquidation} "updateGauge(address)" stabilityPool${liquidation}Gauge
+
   send_transaction stabilityPool${liquidation} "registerRewardToken(address, address)" ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}
   send_transaction stabilityPool${liquidation} "registerRewardToken(address, address)" STEAM stabilityPool${liquidation}
 
@@ -305,8 +320,11 @@ for liquidation in Collateral Steamed; do
   grantRoles stabilityPoolManager stabilityPool${liquidation}.REBALANCER_ROLE
   grantRoles stabilityPoolManager stabilityPool${liquidation}.REWARDER_ROLE
 
-  send_transaction stabilityPool${liquidation}Stake "transferOwnership(address)" owner
+  send_transaction stabilityPool${liquidation}Gauge "set_gauge_manager(address)" owner
 done
+
+send_transaction gaugeController "commit_transfer_ownership(address)" owner
+send_transaction gaugeController "apply_transfer_ownership()"
 
 # StabilityPoolManager
 # --------------------
@@ -339,13 +357,8 @@ fi
 # upgrade the proxies with implementations
 ###################################################################################################
 # finalise tokens by transferring ownership
-send_transaction leveragedToken "transferOwnership(address)" owner
-send_transaction feeReceiver "transferOwnership(address)" owner
-send_transaction reservePool "transferOwnership(address)" owner
-send_transaction minter "transferOwnership(address)" owner
-send_transaction stabilityPoolCollateral "transferOwnership(address)" owner
-send_transaction stabilityPoolSteamed "transferOwnership(address)" owner
-send_transaction stabilityPoolManager "transferOwnership(address)" owner
-send_transaction genesis "transferOwnership(address)" owner
+for contract in ${BaoOwnables[@]}; do
+  send_transaction "${contract}" "transferOwnership(address)" owner
+done
 
 log "deployed minter successfully."
