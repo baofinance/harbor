@@ -206,7 +206,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             ic(ua(100, 110, 120, 140), ia(-50, -50, 0, 20, 70)),
             ic(ua(110, 140), ia(disallow, 150, 120))
         );
-        writeConfig(config, "default");
+        writeConfig(config, "default-int");
     }
 
     function setUp_leveragedToken() internal virtual {
