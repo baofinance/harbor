@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+set -e
+shopt -s extglob
+
+file=$(find ./deploy -name "*_latest.log" -type f -printf "%T+ %p\n" | sort | head -n 1 | awk '{print $2}')
+if [[ ! -f "$file" ]]; then
+  echo "Error: No deployment log file found" >&2
+  exit 1
+fi
+
+current_dir=$(basename "$(pwd)")
+project_name="baofinance/${current_dir}"
+
+contracts=$(jq -c '
+to_entries[]
+| select(.value | type == "object")
+| .key as $name
+| .value as $value
+| if $value | has("implementation") then
+    # Process proxy contracts
+    {
+      name: $name,
+      contractType: $value.implementation.contractType,
+      contractPath: $value.implementation.contractPath,
+      address: $value.address,
+      isProxy: true
+    }
+  elif ($value.category != "library") and ($value | has("contractType")) and ($value | has("proxies") | not) then
+    # Process non-proxy contracts
+    {
+      name: $name,
+      contractType: $value.contractType,
+      contractPath: $value.contractPath,
+      address: $value.address,
+      isProxy: false
+    }
+  else
+    empty  # Skip other entries
+  end
+' "$file")
+
+# Generate Markdown table header
+(
+  echo "| Contract | Contract Type | Address |"
+  echo "| --- | --- | --- |"
+
+  # Process each contract and add to the table
+  echo "$contracts" | while read -r contract; do
+    name=$(echo "$contract" | jq -r '.name')
+    contract_type=$(echo "$contract" | jq -r '.contractType')
+    contract_path=$(echo "$contract" | jq -r '.contractPath')
+    address=$(echo "$contract" | jq -r '.address')
+
+    # For library files, extract the module name and look up the repository URL
+    if [[ "$contract_path" =~ ^(lib/[^/]+)(/.*)?$ ]]; then
+      module_name="${BASH_REMATCH[1]}"
+      contract_path="${BASH_REMATCH[2]}"
+      # Extract the repository URL for the module
+      repo_url=$(git config -f .gitmodules --get "submodule.${module_name}.url")
+      github_path="${repo_url}/blob/main/${contract_path}"
+    else
+      # For project files, link to the current project repository
+      github_path="https://github.com/${project_name}/blob/main/${contract_path}"
+    fi
+    # Create the markdown table row
+    echo "| $name | [$contract_type]($github_path) | [\`$address\`](https://etherscan.io/address/$address) |"
+  done
+
+) >contracts.md
+
+# Generate Mermaid diagram header
+(
+  echo '```mermaid'
+  echo '---'
+  echo 'config:'
+  echo '  layout: elk'
+  echo '---'
+  echo 'flowchart LR'
+
+  # Process each contract and add to the diagram
+  echo "$contracts" | while read -r contract; do
+    name=$(echo "$contract" | jq -r '.name')
+    contract_type=$(echo "$contract" | jq -r '.contractType')
+    address=$(echo "$contract" | jq -r '.address')
+    is_proxy=$(echo "$contract" | jq -r '.isProxy')
+
+    # Create the node with different styling based on proxy status
+    # if [[ "$is_proxy" == "true" ]]; then
+    # Style proxies differently
+    # echo "    $node_id[\"$name<br/><small>$contract_type<br/>$address</small>\"]:::proxy"
+    # else
+    echo "    $address[\"$name<br/><small>$contract_type<br/>$address</small>\"]"
+    # fi
+  done
+
+  # Process each contract to find view functions that return addresses
+  declare -A skip_functions
+  for fn in "owner" "admin" "manager" "future_admin" "controller"; do skip_functions[$fn]=1; done
+
+  echo "$contracts" | while read -r contract; do
+    name=$(echo "$contract" | jq -r '.name')
+    contract_type=$(echo "$contract" | jq -r '.contractType')
+    address=$(echo "$contract" | jq -r '.address')
+
+    # forge inspect doesn't do vyper files
+    abi_output=$(jq -c '.abi' out/${contract_type}.@(sol|vy)/${contract_type}.json)
+
+    # Extract view functions that return a single address
+    address_functions=$(echo "$abi_output" | jq -c '.[] |
+      select(.type == "function" and .stateMutability == "view" and
+             (.outputs | length == 1) and
+             (.outputs[0].type == "address") and
+             (.inputs | length == 0))')
+
+    # Process each function
+    echo "$address_functions" | while read -r func; do
+      [[ -z "$func" ]] && continue # Skip empty functions
+
+      function_name=$(echo "$func" | jq -r '.name')
+      [[ -n "${skip_functions[$function_name]}" ]] && continue
+
+      # Call the function on the contract
+      target_address=$(cast call "$address" "$function_name()(address)")
+
+      # Check if target address is one of our known contracts
+      if [[ "$target_address" != "0x0000000000000000000000000000000000000000" ]]; then
+        echo "    $address -->|$function_name| $target_address"
+      fi
+    done
+  done
+
+  # Add class definitions for styling
+  # echo "    classDef proxy fill:#f9f,stroke:#333,stroke-width:2px"
+  echo '```'
+) >contracts-diagram.md
