@@ -106,6 +106,8 @@ contract Genesis_v1 is
         __Context_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
+
+        emit GenesisBegins();
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -177,6 +179,8 @@ contract Genesis_v1 is
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(caller, address(this), collateralIn);
 
         $.shares[receiver] += collateralIn;
+
+        emit Deposit(caller, receiver, collateralIn);
     }
 
     /// @inheritdoc IGenesis
@@ -205,6 +209,8 @@ contract Genesis_v1 is
         // transfer the amount out
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, amount);
         collateralOut = amount;
+
+        emit Withdraw(caller, receiver, amount);
     }
 
     /// @inheritdoc IGenesis
@@ -231,6 +237,8 @@ contract Genesis_v1 is
         IERC20(LEVERAGED_TOKEN).safeTransfer(receiver, leveragedAmount);
 
         $.shares[caller] = 0;
+
+        emit Claim(caller, receiver, peggedAmount, leveragedAmount);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -284,5 +292,7 @@ contract Genesis_v1 is
         }
         // minted tokens can now be claimed by the depositor, or collateral withdrawn
         $.genesisEnded = true;
+
+        emit GenesisEnds();
     }
 }

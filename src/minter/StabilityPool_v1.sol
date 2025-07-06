@@ -5,8 +5,6 @@ pragma solidity 0.8.30;
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {Token} from "@bao/Token.sol";
@@ -174,9 +172,8 @@ contract StabilityPool_v1 is
         address minter_,
         address liquidationToken_,
         address gaugeStakeToken_,
-        address gaugeRewardToken_,
-        uint40 periodLength
-    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, periodLength) {
+        address gaugeRewardToken_
+    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, 1 weeks) {
         _disableInitializers();
         address asset = IMinter(minter_).PEGGED_TOKEN();
         Token.sanityCheckERC20Token(asset);
@@ -362,57 +359,24 @@ contract StabilityPool_v1 is
 
         emit GaugeUpdated(newGauge);
 
+        // Step 1: Withdraw from old gauge if exists
         if (oldGauge != address(0)) {
-            // Withdraw the entire staked amount from the gauge
-            ILiquidityGaugeV6(oldGauge).withdraw(1 ether); // wake-disable-line reentrancy all callers are nonReentrant
+            ILiquidityGaugeV6(oldGauge).withdraw(1 ether); //wake-disable-line reentrancy all callers are nonReentrant
         }
+
+        // Step 2: Update internal storage
         $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
 
+        // Step 3: If new gauge exists, approve and deposit
         if (newGauge != address(0)) {
-            // now transfer the entire amount into the new gauge
-            ILiquidityGaugeV6(newGauge).deposit(1 ether);
-        }
-    }
+            // Use forceApprove for full compatibility (OZ v5+)
+            SafeERC20.forceApprove(IERC20(GAUGE_STAKE_TOKEN), newGauge, 1 ether);
 
-    function balanceOf(address account) external view returns (uint256 balance) {
-        balance = 0;
-        if (account != address(0)) {
-            StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-            if (account == $.gauge.gauge && $.totalAssetSupply.amount > 0) {
-                balance = 1 ether;
-            }
-        }
-    }
+            ILiquidityGaugeV6(newGauge).deposit(1 ether); //wake-disable-line reentrancy all callers are nonReentrant
 
-    function symbol() external view returns (string memory) {
-        return string(abi.encodePacked("Zhenglong-SP-", IERC20Metadata(ASSET_TOKEN).symbol()));
-    }
-
-    function transferFrom(address sender, address receiver, uint256 amount) public returns (bool) {
-        if (receiver == address(0)) {
-            revert IERC20Errors.ERC20InvalidReceiver(address(0));
+            // Reset approval to 0 for safety
+            SafeERC20.forceApprove(IERC20(GAUGE_STAKE_TOKEN), newGauge, 0);
         }
-        if (sender != address(this)) {
-            revert IERC20Errors.ERC20InvalidSender(sender);
-        }
-        emit IERC20.Transfer(sender, receiver, amount);
-        return true;
-    }
-
-    function transfer(address receiver, uint256 amount) external returns (bool) {
-        if (receiver == address(0)) {
-            revert IERC20Errors.ERC20InvalidReceiver(address(0));
-        }
-        emit IERC20.Transfer(_msgSender(), receiver, amount);
-        return true;
-    }
-
-    function allowance(address owner_, address spender) external view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        if (owner_ != address(this) || spender != $.gauge.gauge) {
-            return 0;
-        }
-        return 1 ether;
     }
 
     /**********************

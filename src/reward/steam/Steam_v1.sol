@@ -108,7 +108,7 @@ contract Steam_v1 is Initializable, UUPSUpgradeable, PermittableERC20_v1, ISTEAM
         SteamStorage storage $ = _getSteamStorage();
 
         // Initialize PermittableERC20_v1
-        PermittableERC20_v1.initialize(owner_, name_, symbol_);
+        __PermittableERC20_init(owner_, name_, symbol_);
 
         // Initialize STEAM-specific state
         $.startEpochTime = block.timestamp;

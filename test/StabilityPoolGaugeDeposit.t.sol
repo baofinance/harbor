@@ -17,6 +17,7 @@ import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 import {IVotingEscrowVy} from "src/interfaces/IVotingEscrowVy.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
@@ -66,6 +67,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             address(new VotingEscrow_v1(address(steam2))),
             abi.encodeCall(VotingEscrow_v1.initialize, (multisig, "Voting Escrow STEAM", "veSTEAM", "1.0"))
         );
+        vm.label(escrow, "VotingEscrow_v1");
         IBaoOwnable(escrow).transferOwnership(multisig);
 
         // Gauge controller + minter
@@ -173,21 +175,19 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         // Step 2: Deploy a new LiquidityGauge using SPT as lp_token
         address spt = IStabilityPool(stabilityPoolCollateral).GAUGE_STAKE_TOKEN();
 
-        vm.startPrank(address(this)); // Test contract owns the SPT
+        vm.startPrank(owner);
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), 1); // 1 = SMART_CONTRACT_MANAGER_ROLE or MINTER_ROLE
         vm.stopPrank();
 
-        ILiquidityGaugeV6 newGauge = ILiquidityGaugeV6(
-            vm.deployCode(
-                "LiquidityGaugeV6.vy",
-                abi.encode(
-                    address(stabilityPoolCollateral),
-                    address(steam),
-                    address(controller),
-                    address(minter),
-                    address(escrow),
-                    address(escrow)
-                )
+        address newGauge = vm.deployCode(
+            "LiquidityGaugeV6.vy",
+            abi.encode(
+                address(spt),
+                address(steam),
+                address(controller),
+                address(minter),
+                address(escrow),
+                address(escrow)
             )
         );
 
@@ -195,9 +195,14 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         controller.add_gauge(address(newGauge), 0, 1);
 
         // Step 4: Update the gauge in the StabilityPool
-        address ownerOfSP = IBaoOwnable(stabilityPoolCollateral).owner();
-        vm.prank(ownerOfSP);
-        IStabilityPool(stabilityPoolCollateral).updateGauge(address(newGauge));
+        assertEq(IERC20(spt).balanceOf(newGauge), 0 ether, "SPT should be minted to StabilityPool");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 1 ether, "SPT should be minted to StabilityPool");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, newGauge), 0, "Gauge allowance of SP' SPT should be 0");
+        vm.prank(IBaoOwnable(stabilityPoolCollateral).owner());
+        IStabilityPool(stabilityPoolCollateral).updateGauge(newGauge);
+        assertEq(IERC20(spt).balanceOf(newGauge), 1 ether, "SPT should be transferred to gauge");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0 ether, "SP's SPT is gone");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, newGauge), 0, "Gauge allowance of SP' SPT should be 0");
 
         // ✅ Final assertions
         assertEq(deposited, DEPOSIT_AMOUNT);
@@ -216,65 +221,59 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Ensure the test contract owns the SPT token (proxy likely owns it initially)
         address sptOwner = IBaoOwnable(spt).owner();
-        if (sptOwner != address(this)) {
-            vm.prank(sptOwner);
-            IBaoOwnable(spt).transferOwnership(address(this));
-        }
 
         // Grant MINTER and BURNER roles to the StabilityPool
-        vm.prank(address(this));
+
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(stabilityPoolCollateral, MINTER_ROLE); // 1 = MINTER_ROLE or SMART_CONTRACT_MANAGER_ROLE
 
-        vm.prank(address(this));
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(stabilityPoolCollateral, BURNER_ROLE);
 
         // Prepare the first gauge
-        ILiquidityGaugeV6 gauge1 = ILiquidityGaugeV6(
-            vm.deployCode(
-                "LiquidityGaugeV6.vy",
-                abi.encode(
-                    stabilityPoolCollateral,
-                    address(steam2),
-                    address(controller),
-                    address(minter2),
-                    address(escrow),
-                    address(escrow)
-                )
-            )
+        address gauge1 = vm.deployCode(
+            "LiquidityGaugeV6.vy",
+            abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
         );
         controller.add_gauge(address(gauge1), 0, 1);
 
         // Update gauge to gauge1
-        address spOwner = IBaoOwnable(stabilityPoolCollateral).owner();
-        vm.prank(spOwner);
-        IStabilityPool(stabilityPoolCollateral).updateGauge(address(gauge1));
+
+        assertEq(IERC20(spt).balanceOf(gauge1), 0 ether, "SPT should be minted to StabilityPool");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 1 ether, "SPT should be minted to StabilityPool");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge1), 0, "Gauge allowance of SP' SPT should be 0");
+        vm.prank(IBaoOwnable(stabilityPoolCollateral).owner());
+        IStabilityPool(stabilityPoolCollateral).updateGauge(gauge1);
+        assertEq(IERC20(spt).balanceOf(gauge1), 1 ether, "SPT should be transferred to gauge");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0 ether, "SP's SPT is gone");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge1), 0, "Gauge allowance of SP' SPT should be 0");
 
         // Confirm gauge1 now holds 1e18 stake
-        assertEq(gauge1.balanceOf(stabilityPoolCollateral), 1 ether);
+        assertEq(ILiquidityGaugeV6(gauge1).balanceOf(stabilityPoolCollateral), 1 ether);
 
         // Prepare second gauge
-        ILiquidityGaugeV6 gauge2 = ILiquidityGaugeV6(
-            vm.deployCode(
-                "LiquidityGaugeV6.vy",
-                // abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
-                abi.encode(
-                    stabilityPoolCollateral,
-                    address(steam2),
-                    address(controller),
-                    address(minter2),
-                    address(escrow),
-                    address(escrow)
-                )
-            )
+        address gauge2 = vm.deployCode(
+            "LiquidityGaugeV6.vy",
+            // abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
+            abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
         );
-        controller.add_gauge(address(gauge2), 0, 1);
+        controller.add_gauge(gauge2, 0, 1);
 
         // Update to second gauge — will withdraw from gauge1 and burn, then mint to gauge2
-        vm.prank(spOwner);
-        IStabilityPool(stabilityPoolCollateral).updateGauge(address(gauge2));
+        assertEq(IERC20(spt).balanceOf(gauge2), 0 ether, "2, SPT of gauge2");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0 ether, "2, SPT of SP");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge1), 0, "2, SPT Gauge allowance of SP");
+        assertEq(ILiquidityGaugeV6(gauge2).balanceOf(stabilityPoolCollateral), 0 ether, "2, gauge2 of SP");
+        vm.prank(IBaoOwnable(stabilityPoolCollateral).owner());
+        IStabilityPool(stabilityPoolCollateral).updateGauge(gauge2);
+        assertEq(IERC20(spt).balanceOf(gauge1), 0 ether, "2, SPT of gauge1");
+        assertEq(IERC20(spt).balanceOf(gauge2), 1 ether, "2, SPT of gauge2");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0 ether, "2, SPT of SP");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge1), 0, "2, SPT of gauge1");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge2), 0 ether, "2, Gauge2 allowance of SP's SPT");
 
         // Final assertion: new gauge holds exactly 1 ether of SPT
-        assertEq(gauge2.balanceOf(stabilityPoolCollateral), 1 ether);
+        assertEq(ILiquidityGaugeV6(gauge2).balanceOf(stabilityPoolCollateral), 1 ether, "2, gauge2 of SP");
     }
 
     function testUpdateGaugeToZeroBurnsSPT() public {
@@ -285,53 +284,47 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Step 2: Setup the SPT and deploy gauge
         address spt = IStabilityPool(stabilityPoolCollateral).GAUGE_STAKE_TOKEN();
-        ILiquidityGaugeV6 gauge1 = ILiquidityGaugeV6(
-            vm.deployCode(
-                "LiquidityGaugeV6.vy",
-                abi.encode(
-                    stabilityPoolCollateral,
-                    address(steam2),
-                    address(controller),
-                    address(minter2),
-                    address(escrow),
-                    address(escrow)
-                )
-            )
+        address gauge1 = vm.deployCode(
+            "LiquidityGaugeV6.vy",
+            abi.encode(spt, address(steam2), address(controller), address(minter2), address(escrow), address(escrow))
         );
         controller.add_gauge(address(gauge1), 0, 1);
 
         // Step 3: Assign BURNER_ROLE on SPT to the StabilityPool
-        address sptOwner = IBaoOwnable(spt).owner();
-        vm.startPrank(sptOwner);
-        IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), BURNER_ROLE);
-        vm.stopPrank();
 
         // Step 4: Assign SMART_CONTRACT_MANAGER_ROLE so SP can mint/transfer SPT
-        vm.prank(address(this));
-        IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), 1); // SMART_CONTRACT_MANAGER_ROLE
 
         // Step 5: SP owner updates to use a gauge
+        assertEq(IERC20(spt).balanceOf(gauge1), 0 ether, "before spt of gauge1");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 1 ether, "before spt of SP");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge1), 0, "before spt allowance gauge1");
+        assertEq(ILiquidityGaugeV6(gauge1).balanceOf(stabilityPoolCollateral), 0 ether, "before gauge1 of SP");
         address spOwner = IBaoOwnable(stabilityPoolCollateral).owner();
         vm.prank(spOwner);
-        IStabilityPool(stabilityPoolCollateral).updateGauge(address(gauge1));
+        IStabilityPool(stabilityPoolCollateral).updateGauge(gauge1);
+        assertEq(IERC20(spt).balanceOf(gauge1), 1 ether, "after spt of gauge1");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0 ether, "after spt of SP");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge1), 0, "after spt allowance gauge1");
 
         // Step 6: Gauge should have non-zero stake after update
-        uint256 staked = gauge1.balanceOf(stabilityPoolCollateral);
-        assertGt(staked, 0);
+        assertEq(ILiquidityGaugeV6(gauge1).balanceOf(stabilityPoolCollateral), 1 ether, "after gauge1 of SP");
 
         // Step 7: SP owner updates to null gauge (should burn SPT)
         vm.prank(spOwner);
         IStabilityPool(stabilityPoolCollateral).updateGauge(address(0));
+        assertEq(IERC20(spt).balanceOf(gauge1), 0 ether, "2, after spt of gauge1");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 1 ether, "2, after spt of SP");
+        assertEq(IERC20(spt).allowance(stabilityPoolCollateral, gauge1), 0, "2, after spt SP allowance gauge");
 
         // Step 8: Assert both gauge and SP hold zero SPT after burn
-        assertEq(gauge1.balanceOf(stabilityPoolCollateral), 0);
-        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 0);
+        assertEq(ILiquidityGaugeV6(gauge1).balanceOf(stabilityPoolCollateral), 0, "2, after gauge1 of SP");
+        assertEq(IERC20(spt).balanceOf(stabilityPoolCollateral), 1 ether);
     }
 
     function testDepositAndMintRewards() public {
         // Step 1: Deposit into StabilityPool
         vm.startPrank(user1);
-        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        // uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
         vm.stopPrank();
 
         // Step 2: Deploy gauge with SPT
@@ -339,14 +332,10 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Step 3: Grant roles for minting and burning
         address sptOwner = IBaoOwnable(spt).owner();
-        if (sptOwner != address(this)) {
-            vm.prank(sptOwner);
-            IBaoOwnable(spt).transferOwnership(address(this));
-        }
 
-        vm.prank(address(this));
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), MINTER_ROLE);
-        vm.prank(address(this));
+        vm.prank(sptOwner);
         IBaoRoles(spt).grantRoles(address(stabilityPoolCollateral), BURNER_ROLE);
 
         // Step 4: Deploy and register gauge
@@ -354,7 +343,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
             vm.deployCode(
                 "LiquidityGaugeV6.vy",
                 abi.encode(
-                    stabilityPoolCollateral,
+                    spt,
                     address(steam2),
                     address(controller),
                     address(minter2),
@@ -380,7 +369,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         // Step 8: Ensure gauge weight records are updated
         controller.checkpoint_gauge(address(newGauge));
         uint256 weight = controller.gauge_relative_weight(address(newGauge));
-        console2.log("Gauge relative weight:", weight); // should be > 0
+        assertGt(weight, 0, "Gauge relative weight should be > 0");
 
         // Step 9: Approve the test contract to mint rewards on behalf of StabilityPool
         vm.prank(address(stabilityPoolCollateral));

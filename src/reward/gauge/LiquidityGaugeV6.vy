@@ -113,7 +113,6 @@ symbol: public(String[40])
 nonces: public(HashMap[address, uint256])
 
 # Gauge
-factory: public(address)
 manager: public(address)
 lp_token: public(address)
 crv: public(address)
@@ -175,7 +174,6 @@ def __init__(_lp_token: address, _crv: address, _gauge_controller: address, _min
     self.minter = _minter
     self.escrow = _escrow
     self.escrow_boost = _boost
-    self.factory = msg.sender
     self.manager = tx.origin
 
     symbol: String[32] = ERC20Extended(_lp_token).symbol()
@@ -647,7 +645,7 @@ def set_voting_escrow_boost(_boost: address):
     @dev This is used to calculate the adjusted balance of a user
     @param _boost Address of the VotingEscrowBoost contract
     """
-    assert msg.sender in [self.manager, Factory(self.factory).admin()]  # dev: only manager or factory admin
+    assert msg.sender == self.manager  # dev: only manager
     self.escrow_boost = _boost
 
 @external
@@ -682,7 +680,7 @@ def set_gauge_manager(_gauge_manager: address):
         method, but only for the gauge which they are the manager of.
     @param _gauge_manager The account to set as the new manager of the gauge.
     """
-    assert msg.sender in [self.manager, Factory(self.factory).admin()]  # dev: only manager or factory admin
+    assert msg.sender == self.manager  # dev: only manager
 
     self.manager = _gauge_manager
     log SetGaugeManager(_gauge_manager)
@@ -732,7 +730,7 @@ def add_reward(_reward_token: address, _distributor: address):
     @param _reward_token The token to add as an additional reward
     @param _distributor Address permitted to fund this contract with the reward token
     """
-    assert msg.sender in [self.manager, Factory(self.factory).admin()]  # dev: only manager or factory admin
+    assert msg.sender == self.manager  # dev: only manager
     assert _distributor != empty(address)  # dev: distributor cannot be zero address
 
     reward_count: uint256 = self.reward_count
@@ -753,7 +751,7 @@ def set_reward_distributor(_reward_token: address, _distributor: address):
     """
     current_distributor: address = self.reward_data[_reward_token].distributor
 
-    assert msg.sender in [current_distributor, Factory(self.factory).admin(), self.manager]
+    assert msg.sender in [current_distributor, self.manager]
     assert current_distributor != empty(address)
     assert _distributor != empty(address)
 
@@ -767,7 +765,7 @@ def set_killed(_is_killed: bool):
     @dev When killed, the gauge always yields a rate of 0 and so cannot mint CRV
     @param _is_killed Killed status to set
     """
-    assert msg.sender == Factory(self.factory).admin()  # dev: only owner
+    assert msg.sender == self.manager  # dev: only owner
 
     self.is_killed = _is_killed
 

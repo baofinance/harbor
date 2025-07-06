@@ -79,10 +79,20 @@ contract Test_GenesisBase is TestMinterSetUp {
     }
 
     function setUp_genesisProxy() internal {
+        // vm.expectEmit();
+        // emit IERC1967.Upgraded(genesisImpl);
+        // vm.expectEmit();
+        // emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
+        // vm.expectEmit();
+        // emit IGenesis.GenesisBegins();
+        // vm.expectEmit();
+        // emit Initializable.Initialized(1);
         genesis = UnsafeUpgrades.deployUUPSProxy(
             genesisImpl, //"Genesis_v1.sol",
             abi.encodeCall(Genesis_v1.initialize, owner)
         );
+        // vm.expectEmit();
+        // emit IBaoOwnable.OwnershipTransferred(address(this), owner);
         IBaoOwnable(genesis).transferOwnership(owner);
 
         // approve genesis to use my collateral
@@ -98,6 +108,8 @@ contract Test_GenesisBase is TestMinterSetUp {
         emit IERC1967.Upgraded(genesisImpl);
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
+        vm.expectEmit();
+        emit IGenesis.GenesisBegins();
         vm.expectEmit();
         emit Initializable.Initialized(1); // from the proxy delegate call
         setUp_genesisProxy();
@@ -144,6 +156,8 @@ contract Test_GenesisBase is TestMinterSetUp {
 
         // first actual deposit
         uint256 thisBalance = IERC20(wrappedCollateralToken).balanceOf(address(this));
+        vm.expectEmit();
+        emit IGenesis.Deposit(address(this), user1, 1 ether);
         IGenesis(genesis).deposit(1 ether, user1);
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether, "user1 now has 1 ether genesis tokens");
         assertEq(IGenesis(genesis).balanceOf(user2), 0, "user2 still has no genesis tokens");
@@ -184,6 +198,8 @@ contract Test_GenesisBase is TestMinterSetUp {
 
         // can withdraw some
         vm.prank(user2);
+        vm.expectEmit();
+        emit IGenesis.Withdraw(user2, user3, 1 ether);
         IGenesis(genesis).withdraw(1 ether, user3);
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether);
         assertEq(IGenesis(genesis).balanceOf(user2), 8 ether);
@@ -255,6 +271,8 @@ contract Test_GenesisBase is TestMinterSetUp {
         assertEq(IERC20(leveragedToken).balanceOf(genesis), 0 ether, "genesis now has 0 ether leveraged tokens");
         assertFalse(IGenesis(genesis).genesisIsEnded());
         vm.prank(owner);
+        vm.expectEmit();
+        emit IGenesis.GenesisEnds();
         IGenesis(genesis).endGenesis();
         assertEq(IGenesis(genesis).balanceOf(user1), 1 ether, "user1 still has 1 ether genesis tokens");
         assertEq(IGenesis(genesis).balanceOf(user2), 8 ether, "user2 now has 8 ether genesis tokens");
@@ -303,6 +321,8 @@ contract Test_GenesisBase is TestMinterSetUp {
         // user2 claims
         assertEq(IGenesis(genesis).balanceOf(user2), 8 ether, "user2 still has 9 ether genesis tokens");
         vm.prank(user2);
+        vm.expectEmit();
+        emit IGenesis.Claim(user2, user1, 8000 ether, 8000 ether);
         IGenesis(genesis).claim(user1);
         assertEq(IGenesis(genesis).balanceOf(user2), 0 ether, "user2 has no genesis tokens");
         assertEq(IERC20(peggedToken).balanceOf(user1), 8000 ether, "user1 has got pegged");
