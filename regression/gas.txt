@@ -67,7 +67,7 @@ src/minter/Minter_v1.sol:Minter_v1
 | freeMintLeveragedToken                   | 1.437e+05 |
 | freeMintPeggedToken                      | 1.550e+05 |
 | freeRedeemLeveragedToken                 | 8.661e+04 |
-| freeRedeemPeggedToken                    | 8.184e+04 |
+| freeRedeemPeggedToken                    | 1.076e+05 |
 | freeSwapPeggedForLeveraged               | 1.031e+05 |
 | grantRoles                               | 2.640e+04 |
 | harvestable                              | 2.241e+04 |
@@ -450,6 +450,7 @@ test/mock/MockERC20.sol:MockERC20
 test/mock/MockERC20.sol:MockERC20Burn1Arg
 | function name   |       max |
 |-----------------|-----------|
+| approve         | 4.670e+04 |
 | balanceOf       | 2.582e+03 |
 | burnSignature   | 4.490e+02 |
 | decimals        | 2.333e+03 |
@@ -460,6 +461,7 @@ test/mock/MockERC20.sol:MockERC20Burn1Arg
 test/mock/MockERC20.sol:MockERC20Burn2Arg
 | function name   |       max |
 |-----------------|-----------|
+| approve         | 4.670e+04 |
 | balanceOf       | 2.560e+03 |
 | burnSignature   | 4.490e+02 |
 | decimals        | 2.333e+03 |
@@ -470,6 +472,7 @@ test/mock/MockERC20.sol:MockERC20Burn2Arg
 test/mock/MockERC20.sol:MockERC20BurnFrom
 | function name   |       max |
 |-----------------|-----------|
+| approve         | 4.670e+04 |
 | balanceOf       | 2.560e+03 |
 | burnSignature   | 4.490e+02 |
 | decimals        | 2.333e+03 |
