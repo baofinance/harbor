@@ -77,6 +77,29 @@ contract Array {
         result[7] = h;
     }
 
+    function ua(
+        uint a_,
+        uint b,
+        uint c,
+        uint d,
+        uint e,
+        uint f,
+        uint g,
+        uint h,
+        uint i
+    ) internal pure returns (uint[] memory result) {
+        result = new uint[](9);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
+    }
+
     function ia() internal pure returns (int[] memory result) {
         result = new int[](0);
     }
