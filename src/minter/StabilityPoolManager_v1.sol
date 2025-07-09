@@ -224,7 +224,7 @@ contract StabilityPoolManager_v1 is
     /// @notice Updates the rebalance threshold collateral ratio
     /// @param newRatio The new rebalance threshold
     function updateRebalanceThreshold(uint256 newRatio) external onlyOwner {
-        if (newRatio < 1 ether) {
+        if (newRatio <= 1 ether) {
             revert InvalidRebalanceThreshold(newRatio);
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
@@ -302,7 +302,7 @@ contract StabilityPoolManager_v1 is
             revert CollateralRatioNotBelowRebalanceThreshold(IMinter(MINTER).collateralRatio(), rebalanceThreshold_);
         }
 
-        // sum up the relative sizes of the stabilility pools - this is the pegged token holdings
+        // sum up the relative sizes of the stability pools - this is the pegged token holdings
         // note that these holdings are depleted by the liquidation process
         (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
         // slither-disable-next-line incorrect-equality
@@ -310,38 +310,43 @@ contract StabilityPoolManager_v1 is
             revert NoTokensToLiquidate(PEGGED_TOKEN);
         }
 
-        // get the amount to liquidate (double(ish) the anmount)
+        // Get the amount of pegged tokens needed to be liquidated to reach target collateral ratio
         uint256 peggedForCollateral = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceThreshold_);
         uint256 peggedForLeveraged = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(rebalanceThreshold_);
 
-        // rescale to the pool holdings
-        if (peggedForCollateral == 0) {
-            peggedForLeveraged = totalPoolHolding;
-        } else if (peggedForLeveraged == 0) {
-            peggedForCollateral = totalPoolHolding;
-        } else {
-            // round up, just to be sure we are out of rebalance
+        // Distribute between pools based on weighted holdings if both have tokens
+        if (poolHoldingCollateral > 0 && poolHoldingLeveraged > 0) {
+            // Calculate effectiveness ratio (how many times more effective leveraged liquidation is)
+            uint256 effectivenessRatio = (peggedForCollateral * 1 ether) / peggedForLeveraged;
+
+            // Weight each pool by its holdings, adjusting the leveraged pool by effectiveness
+            uint256 weightedCollateral = poolHoldingCollateral;
+            uint256 weightedLeveraged = (poolHoldingLeveraged * effectivenessRatio) / 1 ether;
+            uint256 totalWeight = weightedCollateral + weightedLeveraged;
+
+            // Calculate the proportional contribution of each pool
+            uint256 collateralLiquidationFraction = (weightedCollateral * 1 ether) / totalWeight;
+            uint256 leveragedLiquidationFraction = 1 ether - collateralLiquidationFraction;
+
+            // Apply the fractions to determine how much each pool should liquidate
             peggedForCollateral = Math.mulDiv(
                 peggedForCollateral,
-                poolHoldingCollateral,
-                totalPoolHolding,
+                collateralLiquidationFraction,
+                1 ether,
                 Math.Rounding.Ceil
             );
+
             peggedForLeveraged = Math.mulDiv(
                 peggedForLeveraged,
-                poolHoldingLeveraged,
-                totalPoolHolding,
+                leveragedLiquidationFraction,
+                1 ether,
                 Math.Rounding.Ceil
             );
         }
 
-        // can't liquidate more than the pools hold
-        if (peggedForCollateral > poolHoldingCollateral) {
-            peggedForCollateral = poolHoldingCollateral;
-        }
-        if (peggedForLeveraged > poolHoldingLeveraged) {
-            peggedForLeveraged = poolHoldingLeveraged;
-        }
+        // Cap the liquidation amounts to what each pool actually holds
+        peggedForCollateral = Math.min(peggedForCollateral, poolHoldingCollateral);
+        peggedForLeveraged = Math.min(peggedForLeveraged, poolHoldingLeveraged);
         peggedLiquidated = peggedForCollateral + peggedForLeveraged;
 
         // make sure we're going to liquidate at least the minimum

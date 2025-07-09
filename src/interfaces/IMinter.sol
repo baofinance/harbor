@@ -226,6 +226,7 @@ interface IMinter {
     /// If, however, there are no leveraged tokens then no amount of redemption can change the collateral ratio.
     /// In the case of no leveraged tokens we return the total supply minted by this minter
     /// @param targetCollateralRatio The collateral ratio that we aim to meet by the returned pegged tokens redeemed.
+    /// Must be greater than 1 ether
     /// @return peggedTokens The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
     /// given the current collateral ratio
     function redeemPeggedForCollateralRatio(uint256 targetCollateralRatio) external view returns (uint256 peggedTokens);
