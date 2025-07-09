@@ -312,3 +312,49 @@ contract TestGraphsLiquidatePartialBoth is TestGraphsLiquidate {
         return "_partial_both";
     }
 }
+
+//////////////////////
+
+contract TestGraphsLiquidateParameters is TestGraphs, TestCollateralRatioRangeSetUp {
+    string file;
+
+    function setUpConfig() internal virtual override {
+        setUp_config_likely();
+    }
+
+    function setUp() public override {
+        super.setUp();
+
+        file = openFile(
+            "liquidate_parameters",
+            sa(
+                "current CR",
+                "pegged for collateral for 1.01",
+                "pegged for leveraged for 1.01",
+                "pegged for collateral for 1.25",
+                "pegged for leveraged for 1.25",
+                "pegged for collateral for 1.5",
+                "pegged for leveraged for 1.5"
+            )
+        );
+    }
+
+    function setDown() internal override {
+        vm.closeFile(file);
+    }
+
+    function doOneCollateralRatio() internal override {
+        writeLine(
+            file,
+            ua(
+                currentCollateralRatio,
+                IMinter(minter).redeemPeggedForCollateralRatio(1.01 ether),
+                IMinter(minter).swapPeggedForLeveragedForCollateralRatio(1.01 ether),
+                IMinter(minter).redeemPeggedForCollateralRatio(1.25 ether),
+                IMinter(minter).swapPeggedForLeveragedForCollateralRatio(1.25 ether),
+                IMinter(minter).redeemPeggedForCollateralRatio(1.5 ether),
+                IMinter(minter).swapPeggedForLeveragedForCollateralRatio(1.5 ether)
+            )
+        );
+    }
+}
