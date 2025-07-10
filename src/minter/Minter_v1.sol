@@ -30,8 +30,6 @@ import {IReservePool} from "src/interfaces/IReservePool.sol";
 import {ConfigIncentiveLib} from "src/minter/library/ConfigIncentiveLib.sol";
 import {Config_v1} from "src/minter/library/Config_v1.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
 /// @notice Provides a gas-efficient, feature-rich implementation for the `IMinter` interface.
@@ -448,15 +446,8 @@ contract Minter_v1 is
     ) external view returns (uint256 peggedTokens) {
         MinterStorage storage $ = _getMinterStorage();
         OracleData memory oracle = _fetchMax($.priceOracle);
-        console2.log("oracle.price=%s", oracle.price);
         uint256 collateralTokenBalance_ = $.underlyingCollateral;
-        console2.log("collateralTokenBalance_=%s", collateralTokenBalance_);
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        console2.log("peggedTokenBalance_=%s", peggedTokenBalance_);
-        console2.log(
-            "collateralRatio=%s",
-            _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_)
-        );
         if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_)) {
             peggedTokens = _redeemPeggedForCollateralRatio(
                 targetCollateralRatio,
@@ -1893,10 +1884,13 @@ contract Minter_v1 is
         return (collateralTokenBalance_ * collateralPrice) < (peggedTokenBalance_ * 1 ether);
     }
 
-    /// @notice Returns a modified collateral ratio.
-    /// The real collateral ratio (collateral value / pegged value) floors at 1
-    /// We want to be able to have a similar value that doesn't recognise a de-peg and assumes the pegged token has value 1
-    /// @dev this is a modified theoretical collateral ratio
+    /// @notice Calculates the raw collateral ratio without any flooring.
+    /// @dev This returns the actual mathematical ratio (collateralValue / peggedValue) which may be < 1
+    /// in depegged scenarios. No special casing is done in this function - edge cases must be handled by the caller.
+    /// @param collateralTokenBalance_ The amount of collateral tokens
+    /// @param collateralPrice The price of collateral in terms of the pegged token
+    /// @param peggedTokenBalance_ The amount of pegged tokens
+    /// @return collateralRatio_ The raw collateral ratio with 18 decimals
     function _collateralRatio(
         uint256 collateralTokenBalance_,
         uint256 collateralPrice,

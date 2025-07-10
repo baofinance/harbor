@@ -199,11 +199,17 @@ interface IMinter {
     /// @notice Return the current config.
     function config() external view returns (Config memory);
 
-    /// @notice Return the current collateral ratio of the peggedToken to the collateral token (18 decimals).
-    /// This function isn't technically correct if the pegged token depegs, when the collateral ratio is 1.
-    /// As that is not very useful and also makes the funtion piecewise, the number returned is the collateral ratio
-    /// assuming the assuming the pegged token price is exactly 1 (i.e. not depegged).
-    /// if there are no pegged tokens, `uint256(-1)` is returned.
+    /// @notice Return the current collateral ratio of the system (18 decimals).
+    /// This is the raw ratio of (collateral value) / (pegged token balance) without any flooring.
+    /// When the system is depegged (ratio < 1), this function will return the actual value below 1.
+    ///
+    /// Special cases:
+    /// - If both collateral and pegged tokens are zero: Returns 1 ether (to avoid discontinuity when first minting)
+    /// - If pegged tokens are zero but collateral exists: Returns a very large number (1 ether * 1 ether * 1 ether)
+    /// - If collateral price is zero: Returns 1 ether * 1 ether
+    ///
+    /// This value is used for critical system operations like rebalancing, especially in depegged scenarios.
+    /// For the real market value of the pegged token, see peggedTokenPrice() instead.
     function collateralRatio() external view returns (uint256);
 
     /// @notice Return the current leveraged ratio of the leveragedToken (18 decimals).

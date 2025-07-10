@@ -306,10 +306,24 @@ contract TestGraphsLiquidatePartialLeveraged is TestGraphsLiquidate {
     }
 }
 
-contract TestGraphsLiquidatePartialBoth is TestGraphsLiquidate {
-    constructor() TestGraphsLiquidate(1 ether / 4, 1 ether / 4) {}
+contract TestGraphsLiquidatePartialBoth33 is TestGraphsLiquidate {
+    constructor() TestGraphsLiquidate(0.4 ether, 0.4 ether) {}
     function context() internal pure override returns (string memory) {
-        return "_partial_both";
+        return "_partial_both44";
+    }
+}
+
+contract TestGraphsLiquidatePartialBoth15 is TestGraphsLiquidate {
+    constructor() TestGraphsLiquidate(0.2 ether, 0.6 ether) {}
+    function context() internal pure override returns (string memory) {
+        return "_partial_both26";
+    }
+}
+
+contract TestGraphsLiquidatePartialBoth51 is TestGraphsLiquidate {
+    constructor() TestGraphsLiquidate(0.6 ether, 0.2 ether) {}
+    function context() internal pure override returns (string memory) {
+        return "_partial_both62";
     }
 }
 

@@ -1,12 +1,12 @@
-datafile = "liquidate_all_both.csv"
+datafile = "liquidate_partial_both44.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
 set terminal svg enhanced size 700 600 background rgb "gray90"
-#set terminal pngcairo size 500 300
+# set terminal pdf background rgb "gray90"
+# set output "liquidate_partial_both.pdf"
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
-set yrange [0:5]
 set y2range [0:30000]
 
 set ytics nomirror
@@ -28,3 +28,4 @@ plot \
      datafile using ($1):($7) axes x1y2 with lines linewidth 1 linetype 4 dashtype 3, \
      datafile using ($1):($8) axes x1y2 with lines linewidth 1 linetype 6 dashtype 2, \
      datafile using ($1):($9) axes x1y2 with lines linewidth 1 linetype 6 dashtype 3
+unset output

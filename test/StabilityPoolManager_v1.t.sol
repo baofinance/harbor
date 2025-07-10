@@ -390,7 +390,7 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
                 after_.poolLeveragedCollateral,
             "Collateral balances"
         );
-        console2.log("poolLeveragedLeveraged gain=", after_.poolLeveragedLeveraged - before.poolLeveragedLeveraged);
+        // console2.log("poolLeveragedLeveraged gain=", after_.poolLeveragedLeveraged - before.poolLeveragedLeveraged);
         assertEq(
             ((after_.poolLeveragedLeveraged -
                 before.poolLeveragedLeveraged +
