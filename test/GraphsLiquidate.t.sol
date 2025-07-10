@@ -168,6 +168,7 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
 
 contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
     string liquidateFile;
+    string toFile;
     address stabilityPoolManager;
     address bountyReceiver;
     address treasury;
@@ -227,27 +228,56 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
                 "after SPLeveraged pegged"
             )
         );
+
+        toFile = openFile(
+            "liquidate_to",
+            sa(
+                "current CR",
+                "before SPCollateral collateral",
+                "after SPCollateral collateral",
+                "before SPLeveraged leveraged",
+                "after SPLeveraged leveraged",
+                "before minter collateral",
+                "after minter collateral"
+            )
+        );
     }
 
     function setDown() internal override {
         vm.closeFile(liquidateFile);
+        vm.closeFile(toFile);
+    }
+
+    struct Measures {
+        uint256 collateralRatio;
+        uint256 minterPegged;
+        uint256 minterCollateral;
+        uint256 stabilityPoolCollateralPegged;
+        uint256 stabilityPoolLeveragedPegged;
+        uint256 stabilityPoolCollateralCollateral;
+        uint256 stabilityPoolLeveragedLeveraged;
+    }
+
+    function _readMeasures() internal view returns (Measures memory m) {
+        m.collateralRatio = IMinter(minter).collateralRatio();
+        m.minterPegged = IMinter(minter).peggedTokenBalance();
+        m.minterCollateral = IERC20(wrappedCollateralToken).balanceOf(minter);
+        m.stabilityPoolCollateralPegged = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
+        m.stabilityPoolLeveragedPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
+        m.stabilityPoolCollateralCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
+        m.stabilityPoolLeveragedLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
     }
 
     function doOneCollateralRatio() internal override {
-        uint256 beforeCollateralRatio = IMinter(minter).collateralRatio();
-        uint256 beforeMinterPegged = IMinter(minter).peggedTokenBalance();
-        uint256 beforeStabilityPoolCollateralPegged = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
-        uint256 beforeStabilityPoolLeveragedPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
+        Measures memory pre = _readMeasures();
 
         uint256 snap = vm.snapshotState();
 
         if (IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
             IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
         }
-        uint256 afterCollateralRatio = IMinter(minter).collateralRatio();
-        uint256 afterMinterPegged = IMinter(minter).peggedTokenBalance();
-        uint256 afterStabilityPoolCollateralPegged = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
-        uint256 afterStabilityPoolLeveragedPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
+
+        Measures memory post = _readMeasures();
 
         vm.revertToState(snap);
 
@@ -255,14 +285,26 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
             liquidateFile,
             ua(
                 currentCollateralRatio,
-                beforeCollateralRatio,
-                afterCollateralRatio,
-                beforeMinterPegged,
-                afterMinterPegged,
-                beforeStabilityPoolCollateralPegged,
-                afterStabilityPoolCollateralPegged,
-                beforeStabilityPoolLeveragedPegged,
-                afterStabilityPoolLeveragedPegged
+                pre.collateralRatio,
+                post.collateralRatio,
+                pre.minterPegged,
+                post.minterPegged,
+                pre.stabilityPoolCollateralPegged,
+                post.stabilityPoolCollateralPegged,
+                pre.stabilityPoolLeveragedPegged,
+                post.stabilityPoolLeveragedPegged
+            )
+        );
+        writeLine(
+            toFile,
+            ua(
+                currentCollateralRatio,
+                pre.stabilityPoolCollateralCollateral,
+                post.stabilityPoolCollateralCollateral,
+                pre.stabilityPoolLeveragedLeveraged,
+                post.stabilityPoolLeveragedLeveraged,
+                pre.minterCollateral,
+                post.minterCollateral
             )
         );
     }
