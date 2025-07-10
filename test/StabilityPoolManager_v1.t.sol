@@ -412,56 +412,6 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         );
     }
 
-    // GIST-1 audit issue
-    function test_rebalanceDepeg() public {
-        uint256 threshold = 1.3 ether;
-        uint256 bountyRatio = 0.2 ether;
-
-        vm.startPrank(owner);
-        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
-        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
-        vm.stopPrank();
-        // Check rebalanceable
-        assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
-
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-
-        // Setup conditions for successful rebalance using the manager's ratio
-        setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
-
-        // Fund the stability pools
-        vm.startPrank(user);
-
-        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-
-        uint256 userPegged = IERC20(peggedToken).balanceOf(user);
-        assertEq(userPegged, 100 * price, "User should have 100 pegged tokens");
-
-        IStabilityPool(stabilityPoolCollateral).deposit(userPegged / 3, user, 0);
-        IStabilityPool(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
-        vm.stopPrank();
-
-        // Execute rebalance as liquidator
-        Balances memory before = _readBalances();
-        assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");
-
-        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1555 ether); // makes the collateral ratio = 0.93
-        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-
-        console.log("price: %s", price);
-        console.log("CR: %s", IMinter(minter).collateralRatio());
-        console.log("Pegged balance before rebalance: %s", IMinter(minter).peggedTokenBalance());
-
-        IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
-
-        console.log("Pegged balance AFTER: %s", IMinter(minter).peggedTokenBalance());
-        console.log("CR AFTER: %s", IMinter(minter).collateralRatio());
-
-        // we hit the rebalance collateral ratio exactly
-        assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");
-    }
-
     function test_rebalanceFailures() public {
         // Test when CR is too high compared to manager's ratio
         uint256 currentCR = IMinter(minter).collateralRatio();
@@ -1317,5 +1267,153 @@ contract TestStabilityPoolManagerUpgradeable is TestStabilityPoolManagerSetUp {
             0.1 ether,
             "Storage should be preserved across upgrades"
         );
+    }
+}
+
+contract Gist_1 is TestStabilityPoolManagerSetUp {
+    // GIST-1 audit issue (modified only to have it compile here and generate the same error/log output)
+    function test_rebalanceDepeg() public {
+        uint256 threshold = 1.3 ether;
+        uint256 bountyRatio = 0.2 ether;
+
+        vm.startPrank(owner);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
+        vm.stopPrank();
+        // Check rebalanceable
+        assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
+
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        // Setup conditions for successful rebalance using the manager's ratio
+        setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
+
+        // Fund the stability pools
+        vm.startPrank(user);
+
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+
+        uint256 userPegged = IERC20(peggedToken).balanceOf(user);
+        assertEq(userPegged, 100 * price, "User should have 100 pegged tokens");
+
+        IStabilityPool(stabilityPoolCollateral).deposit(userPegged / 3, user, 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
+        vm.stopPrank();
+
+        // Execute rebalance as liquidator
+        assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");
+
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1555 ether); // makes the collateral ratio = 0.93
+        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        console.log("price: %s", price);
+        console.log("CR: %s", IMinter(minter).collateralRatio());
+        console.log("Pegged balance before rebalance: %s", IMinter(minter).peggedTokenBalance());
+
+        IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        console.log("Pegged balance AFTER: %s", IMinter(minter).peggedTokenBalance());
+        console.log("CR AFTER: %s", IMinter(minter).collateralRatio());
+
+        // we hit the rebalance collateral ratio exactly
+        assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");
+    }
+
+    function test_rebalanceDepeg_exagerated() public {
+        uint256 threshold = 1.3 ether;
+        uint256 bountyRatio = 0.2 ether;
+
+        vm.startPrank(owner);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
+        vm.stopPrank();
+        // Check rebalanceable
+        assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
+
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        // Setup conditions for successful rebalance using the manager's ratio
+        setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
+
+        // Fund the stability pools
+        vm.startPrank(user);
+
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+
+        uint256 userPegged = IERC20(peggedToken).balanceOf(user);
+        assertEq(userPegged, 100 * price, "User should have 100 pegged tokens");
+
+        IStabilityPool(stabilityPoolCollateral).deposit(userPegged / 3, user, 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
+        vm.stopPrank();
+
+        // Execute rebalance as liquidator
+        assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");
+
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1000 ether); // makes the collateral ratio = 120 / 100 / 2 = 60%
+        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        console.log("price: %s", price);
+        console.log("CR: %s", IMinter(minter).collateralRatio());
+        console.log("Pegged balance before rebalance: %s", IMinter(minter).peggedTokenBalance());
+
+        IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        console.log("Pegged balance AFTER: %s", IMinter(minter).peggedTokenBalance());
+        console.log("CR AFTER: %s", IMinter(minter).collateralRatio());
+
+        // we hit the rebalance collateral ratio exactly
+        assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");
+    }
+}
+
+contract Gist_2 is TestStabilityPoolManagerSetUp {
+    function test_insufficientStabilityPoolBalance() public {
+        uint256 threshold = 1.4 ether; // Ensure threshold is between 100% and 200%
+        uint256 bountyRatio = 0.2 ether; // Ensure bounty ratio is between 0% and 100%
+
+        vm.startPrank(owner);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
+        vm.stopPrank();
+        // Check rebalanceable
+        assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
+
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        // Setup conditions for successful rebalance using the manager's ratio
+        setUp_collateral(100 ether, 20 ether, user); // CR = 120 / 100 = 120%
+
+        // Fund the stability pools
+        vm.startPrank(user);
+
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+
+        uint256 userPegged = IERC20(peggedToken).balanceOf(user);
+        assertEq(userPegged, 100 * price, "User should have 100 pegged tokens");
+
+        IStabilityPool(stabilityPoolCollateral).deposit(userPegged / 4, user, 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
+        vm.stopPrank();
+
+        console.log(
+            "stabilityPoolCollateral pegged balance: %e",
+            IERC20(peggedToken).balanceOf(stabilityPoolCollateral)
+        );
+        console.log("stabilityPoolLeveraged pegged balance: %e", IERC20(peggedToken).balanceOf(stabilityPoolLeveraged));
+        console.log();
+
+        // Execute rebalance as liquidator
+        assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");
+
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(1800 ether);
+        IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+        // Adding one more rebalance call would drive the CR to the expected.
+        //                                          ---------
+        // we hit the rebalance collateral ratio exactly
+        assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");
     }
 }

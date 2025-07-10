@@ -448,13 +448,19 @@ contract Minter_v1 is
         OracleData memory oracle = _fetchMax($.priceOracle);
         uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_)) {
-            peggedTokens = _redeemPeggedForCollateralRatio(
-                targetCollateralRatio,
-                collateralTokenBalance_,
-                oracle.price,
-                peggedTokenBalance_
-            );
+        uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_);
+        if (targetCollateralRatio > currentCollateralRatio) {
+            if (currentCollateralRatio < 1 ether) {
+                // we're depegged, so all we can do is redeem them all
+                peggedTokens = peggedTokenBalance_;
+            } else {
+                peggedTokens = _redeemPeggedForCollateralRatioT(
+                    targetCollateralRatio,
+                    collateralTokenBalance_,
+                    oracle.price,
+                    peggedTokenBalance_
+                );
+            }
         } else {
             peggedTokens = 0;
         }
@@ -1451,7 +1457,7 @@ contract Minter_v1 is
                         collateralInBand$ = (peggedIn * underlyingCollateral_ * 1 ether) / peggedTokenBalance_;
                     } else {
                         // note the bandUpperBound cannot be == 1 ether so this is safe below
-                        peggedInBand = _redeemPeggedForCollateralRatio(
+                        peggedInBand = _redeemPeggedForCollateralRatioT(
                             bandUpperBound,
                             underlyingCollateral_,
                             price,
@@ -1788,8 +1794,21 @@ contract Minter_v1 is
         }
     }
 
-    /// @dev pegged value must not be greater than collateral value, i.e. it's depegged
-
+    /// @notice Calculates the number of leveraged tokens that must be minted to maintain the system invariant
+    /// when adding new collateral. The system maintains the invariant: collateral_value = pegged_value + leveraged_value.
+    /// This function determines how many leveraged tokens are needed at the current leveraged token price to absorb
+    /// the excess value created by the additional collateral.
+    /// @dev Implementation uses the derivative of the invariant equation. The leveraged token price is calculated
+    /// as the current excess value per leveraged token: (collateral_value - pegged_value) / leveraged_token_count.
+    /// The formula calculates: (new_total_collateral_value - pegged_value - existing_leveraged_value) / leveraged_price,
+    /// which simplifies to the additional collateral value divided by the current leveraged token price.
+    /// This preserves the leveraged token price while absorbing exactly the required excess value.
+    /// @param underlyingCollateralIn The amount of new underlying collateral being added to the system
+    /// @param leveragedTokenBalance_ The current total supply of leveraged tokens
+    /// @param peggedTokenBalance_ The current total supply of pegged tokens managed by this contract
+    /// @param underlyingCollateral_ The current amount of underlying collateral held by the system
+    /// @param price The current price of one unit of collateral in terms of pegged token value
+    /// @return leveragedTokens The number of leveraged tokens that should be minted to maintain the invariant
     function _leveragedTokensForCollateral(
         uint256 underlyingCollateralIn,
         uint256 leveragedTokenBalance_,
@@ -1802,7 +1821,6 @@ contract Minter_v1 is
             underlyingCollateral_,
             price
         );
-        // TODO: check what happens when the leverage price tracks the collateral rather than pegged
         uint256 leveragedPrice_ = (leveragedTokenBalance_ > 0)
             ? (collateralValue$ - peggedValue$) / leveragedTokenBalance_
             : 1 ether; // TODO: this initial value is set in two places
@@ -1865,7 +1883,16 @@ contract Minter_v1 is
         }
     }
 
-    function _redeemPeggedForCollateralRatio(
+    /**
+     * @notice Calculate how many pegged tokens need to be redeemed to achieve a target collateral ratio
+     * @dev This function assumed pegged price == 1 and so does not handle a depegged state (CR < 1)
+     * @param targetCollateralRatio The target collateral ratio to achieve, must be > 1
+     * @param collateralTokenBalance_ The current collateral token balance
+     * @param price The price of the collateral token in terms of the pegged token
+     * @param peggedTokenBalance_ The current pegged token balance
+     * @return peggedTokens The number of pegged tokens that need to be redeemed
+     */
+    function _redeemPeggedForCollateralRatioT(
         uint256 targetCollateralRatio,
         uint256 collateralTokenBalance_,
         uint256 price,

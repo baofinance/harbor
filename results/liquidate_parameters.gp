@@ -6,7 +6,7 @@ set terminal svg enhanced size 600 500 background rgb "gray90"
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
-set yrange [0:100000]
+set yrange [0:30000]
 
 set ylabel "pegged tokens to liquidate"
 depeg = 1

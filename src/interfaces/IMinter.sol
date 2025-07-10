@@ -229,8 +229,9 @@ interface IMinter {
 
     /// @notice Returns the amount of Pegged tokens that need to be redeemed to achieve a given target collateral ratio
     /// This is based on the fact that redeeming pegged tokens has a upward pressure on collateral ratio
-    /// If, however, there are no leveraged tokens then no amount of redemption can change the collateral ratio.
-    /// In the case of no leveraged tokens we return the total supply minted by this minter
+    /// If, however, there are no leveraged tokens, or their value is 0 due to a depeg, then no amount of redemption can
+    /// change the collateral ratio.
+    /// In the case of total leveraged token value being zero we return the supply minted by this Minter
     /// @param targetCollateralRatio The collateral ratio that we aim to meet by the returned pegged tokens redeemed.
     /// Must be greater than 1 ether
     /// @return peggedTokens The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
