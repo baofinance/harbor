@@ -414,13 +414,30 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
 
     function test_rebalanceFailures() public {
         // Test when CR is too high compared to manager's ratio
+        setUp_collateral(100 ether, 40 ether); // 1.4
         uint256 currentCR = IMinter(minter).collateralRatio();
+
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
 
-        vm.prank(owner);
+        vm.startPrank(owner);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
+
         assertFalse(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should not be rebalanceable");
+
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR + 1);
+        assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
+
+        vm.expectRevert();
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1 ether);
+
+        vm.expectRevert();
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(0.9 ether);
+
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1 ether + 1);
+        assertEq(IStabilityPoolManager(stabilityPoolManager).rebalanceThreshold(), 1 ether + 1);
+
+        vm.stopPrank();
     }
 
     // // Test rebalance with zero collateral needed
