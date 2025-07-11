@@ -714,6 +714,17 @@ contract Minter_v1 is
     //////////////////////////////
 
     /// @inheritdoc IMinter
+    function reset() external onlyOwner {
+        MinterStorage storage $ = _getMinterStorage();
+        uint256 underlying = $.underlyingCollateral;
+        uint256 wrapped = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
+        OracleData memory oracle = _fetchMid($.priceOracle);
+        wrapped = _underlyingValueOf(wrapped, oracle.rate);
+        emit Reset(underlying, wrapped);
+        $.underlyingCollateral = wrapped;
+    }
+
+    /// @inheritdoc IMinter
     function updateConfig(Config calldata config_) external override onlyOwner {
         // or is this handled by the fact that the CR for discount is much lower than the rebalance CR
         emit UpdateConfig(config_); // the code below may alter the config so emit it soon
