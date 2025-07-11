@@ -20,7 +20,7 @@
 | LiquidityGaugeV6               |             10,216 |               14,360 |
 | Math                           |                 85 |               24,491 |
 | MessageHashUtils               |                 85 |               24,491 |
-| Minter_v1                      |             24,358 |                  218 |
+| Minter_v1                      |             24,387 |                  189 |
 | Panic                          |                 85 |               24,491 |
 | PermittableERC20_v1            |              8,169 |               16,407 |
 | PriceOracle_v1                 |              1,958 |               22,618 |
