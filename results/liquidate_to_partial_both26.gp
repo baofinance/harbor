@@ -1,5 +1,5 @@
-datafile = "liquidate_partial_both62.csv"
-datafileto = "liquidate_to_partial_both62.csv"
+datafile = "liquidate_partial_both44.csv"
+datafileto = "liquidate_to_partial_both44.csv"
 set datafile separator comma
 
 set key autotitle columnheader noenhanced below title " "

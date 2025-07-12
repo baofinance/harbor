@@ -511,6 +511,12 @@ interface IMinter {
     /// @return leveragedOut The amount of leveraged tokens received.
     function freeSwapPeggedForLeveraged(uint256 peggedIn, address receiver) external returns (uint256 leveragedOut);
 
+    function freeSwapPeggedForCollateralAndLeveraged(
+        uint256 peggedForCollateral,
+        address collateralReceiver,
+        uint256 peggedForLeveraged,
+        address leveragedReceiver
+    ) external returns (uint256 wrappedCollateralOut, uint256 leveragedOut);
     /// @notice Mint some leveraged tokens in exchange for collateral tokens.
     /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
     /// collateral token.
