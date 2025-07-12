@@ -20,7 +20,7 @@
 | LiquidityGaugeV6               |             10,216 |               14,360 |
 | Math                           |                 85 |               24,491 |
 | MessageHashUtils               |                 85 |               24,491 |
-| Minter_v1                      |             24,387 |                  189 |
+| Minter_v1                      |             24,840 |                 -264 |
 | Panic                          |                 85 |               24,491 |
 | PermittableERC20_v1            |              8,169 |               16,407 |
 | PriceOracle_v1                 |              1,958 |               22,618 |
@@ -28,7 +28,7 @@
 | SafeCast                       |                 85 |               24,491 |
 | SafeERC20                      |                 85 |               24,491 |
 | SignedMath                     |                 85 |               24,491 |
-| StabilityPoolManager_v1        |             11,495 |               13,081 |
+| StabilityPoolManager_v1        |             11,410 |               13,166 |
 | StabilityPool_v1               |             19,656 |                4,920 |
 | StakedETHWrappedPriceOracle_v1 |              3,695 |               20,881 |
 | SteamMinter                    |              1,383 |               23,193 |

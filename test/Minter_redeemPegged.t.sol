@@ -220,9 +220,15 @@ contract TestMinterRedeemPegged is TestMinterMint {
         uint256 collateralRatioBefore = IMinter(minter).collateralRatio();
 
         vm.expectEmit(minter);
-        emit IMinter.SwapPeggedForLeveraged(zeroFee, receiver, ownerPeggedDecrease, receiverLeveragedIncrease);
+        emit IMinter.SwapPeggedForCollateralAndLeveraged(
+            zeroFee,
+            receiver,
+            ownerPeggedDecrease,
+            0,
+            receiverLeveragedIncrease
+        );
         vm.prank(zeroFee);
-        uint256 returned = IMinter(minter).freeSwapPeggedForLeveraged(peggedIn, receiver);
+        (uint256 returned, ) = IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, peggedIn, receiver);
         //                 ----------------------------------------------------------------------
         assertEq(returned, receiverLeveragedIncrease, "unexpected amount of free collateral returned");
         assertEq(
@@ -245,26 +251,26 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         vm.prank(sender);
-        IMinter(minter).freeSwapPeggedForLeveraged(price, receiver);
+        IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, price, receiver);
         // 1 ----------------------------------------------------------------
 
         // zero input, when none
         assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(zeroFee);
-        IMinter(minter).freeSwapPeggedForLeveraged(0, receiver);
+        IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, 0, receiver);
         // 2 ----------------------------------------------------------
 
         // some input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(zeroFee);
-        IMinter(minter).freeSwapPeggedForLeveraged(price, receiver);
+        IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, price, receiver);
         // 3 ----------------------------------------------------------------
 
         // all input, when none
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(zeroFee);
-        IMinter(minter).freeSwapPeggedForLeveraged(type(uint256).max, receiver);
+        IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, type(uint256).max, receiver);
         // 4 --------------------------------------------------------------------------
 
         uint256 BaoUSDTotalSupplyBefore = IERC20(peggedToken).totalSupply();
@@ -286,7 +292,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // zero input, when some
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(zeroFee);
-        IMinter(minter).freeSwapPeggedForLeveraged(0, receiver);
+        IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, 0, receiver);
         // 5 -----------------------------------------------------------
 
         assertEq(IBaoOwnable(minter).owner(), owner);
@@ -294,7 +300,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         // check that we can't swap more than minter has minted, i.e 0
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(zeroFee);
-        IMinter(minter).freeSwapPeggedForLeveraged(price, receiver);
+        IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, price, receiver);
         // 6 ----------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
@@ -311,9 +317,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         assertEq(IMinter(minter).peggedTokenBalance(), price);
         vm.expectEmit(minter);
-        emit IMinter.SwapPeggedForLeveraged(zeroFee, receiver, price, price);
+        emit IMinter.SwapPeggedForCollateralAndLeveraged(zeroFee, receiver, price, 0, price);
         vm.prank(zeroFee);
-        IMinter(minter).freeSwapPeggedForLeveraged(price, receiver);
+        IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, price, receiver);
         // 7 ----------------------------------------------------------------
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
         assertEq(IERC20(leveragedToken).balanceOf(receiver), price);

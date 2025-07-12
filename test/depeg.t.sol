@@ -52,7 +52,7 @@ contract EverythingTest is TestStabilityPoolManagerSetUp {
         uint256 leverageRatio = IMinter(minter).leverageRatio();
         assertEq(
             leverageRatio,
-            isDepegged ? 100 ether /* the cap */ : 3.499999999999999991 ether,
+            isDepegged ? 20 ether /* the cap */ : 3.499999999999999991 ether,
             "leverageRatio wrong"
         );
     }

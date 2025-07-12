@@ -78,7 +78,7 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         if (pegged > 0) {
             uint256 startPegged = IERC20(peggedToken).balanceOf(zeroFee);
             vm.prank(zeroFee);
-            uint256 actualPegged = IMinter(minter).freeSwapPeggedForLeveraged(pegged, zeroFee);
+            (uint256 actualPegged, ) = IMinter(minter).freeSwapPeggedForCollateralAndLeveraged(0, pegged, zeroFee);
             assertEq(actualPegged, pegged, "swapped requested");
             assertEq(startPegged - IERC20(peggedToken).balanceOf(zeroFee), pegged, "gave up correct pegged");
 

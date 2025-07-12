@@ -374,12 +374,7 @@ contract StabilityPoolManager_v1 is
         }
 
         (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter(MINTER)
-            .freeSwapPeggedForCollateralAndLeveraged(
-                peggedForCollateral,
-                address(this),
-                peggedForLeveraged,
-                address(this)
-            );
+            .freeSwapPeggedForCollateralAndLeveraged(peggedForCollateral, peggedForLeveraged, address(this));
 
         if (peggedForCollateral > 0) {
             // extract the collateral bounty

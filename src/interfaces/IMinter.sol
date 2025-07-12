@@ -83,14 +83,16 @@ interface IMinter {
     );
 
     /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
-    /// @param sender The address of peggedToken and leveragedToken owner.
-    /// @param receiver The address of receiver for collateral token.
+    /// @param sender The address of peggedToken owner.
+    /// @param receiver The address of receiver for collateral and leveraged token.
     /// @param peggedTokenBurned The amount of peggedToken burned.
-    /// @param leveragedOut The amount of collateral token redeemed.
-    event SwapPeggedForLeveraged(
+    /// @param collateralOut The amount of collateral token redeemed.
+    /// @param leveragedOut The amount of leveraged token redeemed
+    event SwapPeggedForCollateralAndLeveraged(
         address indexed sender,
         address indexed receiver,
         uint256 peggedTokenBurned,
+        uint256 collateralOut,
         uint256 leveragedOut
     );
 
@@ -506,16 +508,15 @@ interface IMinter {
     function freeRedeemPeggedToken(uint256 peggedIn, address receiver) external returns (uint256 collateralOut);
 
     /// @notice Redeem some pegged tokens for collateral tokens.
-    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
+    /// @param peggedForCollateral the amount of peggedToken to redeem for collateral.
+    /// @param peggedForLeveraged the amount of peggedToken to redeem for leveraged tokens.
     /// @param receiver The address of receiver for collateral token.
+    /// @return wrappedCollateralOut The amount of collateral tokens received.
     /// @return leveragedOut The amount of leveraged tokens received.
-    function freeSwapPeggedForLeveraged(uint256 peggedIn, address receiver) external returns (uint256 leveragedOut);
-
     function freeSwapPeggedForCollateralAndLeveraged(
         uint256 peggedForCollateral,
-        address collateralReceiver,
         uint256 peggedForLeveraged,
-        address leveragedReceiver
+        address receiver
     ) external returns (uint256 wrappedCollateralOut, uint256 leveragedOut);
     /// @notice Mint some leveraged tokens in exchange for collateral tokens.
     /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all

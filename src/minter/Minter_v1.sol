@@ -461,7 +461,9 @@ contract Minter_v1 is
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_)) {
             // from the definition of collateral ratio with no change in collateral only change in pegged
-            peggedTokens = peggedTokenBalance_ - (collateralTokenBalance_ * oracle.price) / targetCollateralRatio;
+            peggedTokens =
+                peggedTokenBalance_ -
+                Math.mulDiv(collateralTokenBalance_, oracle.price, targetCollateralRatio);
         } else {
             peggedTokens = 0;
         }
@@ -1053,39 +1055,10 @@ contract Minter_v1 is
         $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
     }
 
-    /// @inheritdoc IMinter
-    function freeSwapPeggedForLeveraged(
-        uint256 peggedIn,
-        address receiver
-    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 leveragedOut) {
-        MinterStorage storage $ = _getMinterStorage();
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-
-        peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
-        peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
-
-        OracleData memory oracle = _fetchMid($.priceOracle);
-
-        leveragedOut = _leveragedTokensForPegged(
-            peggedIn,
-            _leveragedTokenBalance(),
-            peggedTokenBalance_,
-            $.underlyingCollateral,
-            oracle.price
-        );
-
-        // burn pegged tokens and send the collateral
-        _swapPeggedForLeveraged(peggedIn, leveragedOut, receiver);
-
-        // update our records (collateral doesn't change)
-        $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
-    }
-
     function freeSwapPeggedForCollateralAndLeveraged(
         uint256 peggedForCollateral,
-        address collateralReceiver,
         uint256 peggedForLeveraged,
-        address leveragedReceiver
+        address receiver
     ) external nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -1108,20 +1081,23 @@ contract Minter_v1 is
             oracle.price
         );
 
-        emit RedeemPeggedToken(_msgSender(), collateralReceiver, peggedForCollateral, wrappedCollateralOut);
+        emit SwapPeggedForCollateralAndLeveraged(
+            _msgSender(),
+            receiver,
+            peggedForLeveraged + peggedForCollateral,
+            wrappedCollateralOut,
+            leveragedOut
+        );
 
         // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
         _burnPeggedToken(peggedForCollateral + peggedForLeveraged);
 
         // return the collateral
-        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(collateralReceiver, wrappedCollateralOut);
-
-        // tell the world
-        emit SwapPeggedForLeveraged(_msgSender(), leveragedReceiver, peggedForLeveraged, leveragedOut);
+        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
 
         // mint the tokens to the receiver
         // wake-disable-next-line reentrancy
-        IMintable(LEVERAGED_TOKEN).mint(leveragedReceiver, leveragedOut);
+        IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ - (peggedForCollateral + peggedForLeveraged);
@@ -1290,25 +1266,6 @@ contract Minter_v1 is
 
         // return the collateral
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
-    }
-
-    /// @notice Perform the transfers and event emissions for redeeming pegged tokens for leveraged tokens
-    /// Fees and discounts transfers and event emissions are not handled here.
-    /// @dev no checks for zeros values are performed.
-    /// @param peggedIn The amount of pegged tokens to be taken from the sender.
-    /// @param leveragedOut The amount of leveraged to be transferred to the `receiver`.
-    /// @param receiver The address of the receiver.
-
-    function _swapPeggedForLeveraged(uint256 peggedIn, uint256 leveragedOut, address receiver) private {
-        // tell the world
-        emit SwapPeggedForLeveraged(_msgSender(), receiver, peggedIn, leveragedOut);
-
-        // burn the tokens from the sender - get them first then burn them
-        _burnPeggedToken(peggedIn);
-
-        // mint the tokens to the receiver
-        // wake-disable-next-line reentrancy
-        IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
     }
 
     /// @notice Perform the transfers and event emissions for minting leveraged tokens
