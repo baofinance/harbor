@@ -400,16 +400,22 @@ contract TestGraphsLiquidateParameters is TestGraphs, TestCollateralRatioRangeSe
     }
 
     function doOneCollateralRatio() internal override {
+        (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter(minter)
+            .redeemPeggedForCollateralRatio(1.01 ether);
+        (uint256 peggedForCollateral125, uint256 peggedForLeveraged125) = IMinter(minter)
+            .redeemPeggedForCollateralRatio(1.25 ether);
+        (uint256 peggedForCollateral150, uint256 peggedForLeveraged150) = IMinter(minter)
+            .redeemPeggedForCollateralRatio(1.50 ether);
         writeLine(
             file,
             ua(
                 currentCollateralRatio,
-                IMinter(minter).redeemPeggedForCollateralRatio(1.01 ether),
-                IMinter(minter).swapPeggedForLeveragedForCollateralRatio(1.01 ether),
-                IMinter(minter).redeemPeggedForCollateralRatio(1.25 ether),
-                IMinter(minter).swapPeggedForLeveragedForCollateralRatio(1.25 ether),
-                IMinter(minter).redeemPeggedForCollateralRatio(1.5 ether),
-                IMinter(minter).swapPeggedForLeveragedForCollateralRatio(1.5 ether)
+                peggedForCollateral101,
+                peggedForLeveraged101,
+                peggedForCollateral125,
+                peggedForLeveraged125,
+                peggedForCollateral150,
+                peggedForLeveraged150
             )
         );
     }

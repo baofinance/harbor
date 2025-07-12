@@ -229,18 +229,13 @@ interface IMinter {
     /// In the case of total leveraged token value being zero we return the supply minted by this Minter
     /// @param targetCollateralRatio The collateral ratio that we aim to meet by the returned pegged tokens redeemed.
     /// Must be greater than 1 ether
-    /// @return peggedTokens The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
-    /// given the current collateral ratio
-    function redeemPeggedForCollateralRatio(uint256 targetCollateralRatio) external view returns (uint256 peggedTokens);
-
-    /// @notice Returns the number of pegged tokens needed to be swapped for leveraged tokens to
-    /// achieve the `targetCollateralRatio`
-    /// @param targetCollateralRatio The target collateral ratio
-    /// @return peggedTokens The number of pegged tokens needed to be swapped to achieve the given
-    /// `targetCollateralRatio`
-    function swapPeggedForLeveragedForCollateralRatio(
+    /// @return peggedForCollateral The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
+    /// given the current collateral ratio and redeeming into collateral
+    /// @return peggedForLeveraged The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
+    /// given the current collateral ratio and redeeming into leveaged tokens
+    function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedTokens);
+    ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged);
 
     function wrappedCollateralForCollateralRatio(
         uint256 targetCollateralRatio

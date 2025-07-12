@@ -428,7 +428,7 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedTokens) {
+    ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
         MinterStorage storage $ = _getMinterStorage();
         OracleData memory oracle = _fetchMax($.priceOracle);
         uint256 collateralTokenBalance_ = $.underlyingCollateral;
@@ -437,35 +437,20 @@ contract Minter_v1 is
         if (targetCollateralRatio > currentCollateralRatio) {
             if (currentCollateralRatio < 1 ether) {
                 // we're depegged, so all we can do is redeem them all
-                peggedTokens = peggedTokenBalance_;
+                peggedForCollateral = peggedTokenBalance_;
             } else {
-                peggedTokens = _redeemPeggedForCollateralRatioT(
+                peggedForCollateral = _redeemPeggedForCollateralRatioT(
                     targetCollateralRatio,
                     collateralTokenBalance_,
                     oracle.price,
                     peggedTokenBalance_
                 );
             }
-        } else {
-            peggedTokens = 0;
-        }
-    }
-
-    /// @inheritdoc IMinter
-    function swapPeggedForLeveragedForCollateralRatio(
-        uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedTokens) {
-        MinterStorage storage $ = _getMinterStorage();
-        OracleData memory oracle = _fetchMax($.priceOracle);
-        uint256 collateralTokenBalance_ = $.underlyingCollateral;
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_)) {
-            // from the definition of collateral ratio with no change in collateral only change in pegged
-            peggedTokens =
+            peggedForLeveraged =
                 peggedTokenBalance_ -
                 Math.mulDiv(collateralTokenBalance_, oracle.price, targetCollateralRatio);
         } else {
-            peggedTokens = 0;
+            peggedForCollateral = 0;
         }
     }
 

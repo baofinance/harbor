@@ -311,8 +311,9 @@ contract StabilityPoolManager_v1 is
         }
 
         // Get the amount of pegged tokens needed to be liquidated to reach target collateral ratio
-        uint256 peggedForCollateral = IMinter(MINTER).redeemPeggedForCollateralRatio(rebalanceThreshold_);
-        uint256 peggedForLeveraged = IMinter(MINTER).swapPeggedForLeveragedForCollateralRatio(rebalanceThreshold_);
+        (uint256 peggedForCollateral, uint256 peggedForLeveraged) = IMinter(MINTER).redeemPeggedForCollateralRatio(
+            rebalanceThreshold_
+        );
 
         // Distribute between pools based on weighted holdings if both have tokens
         if (poolHoldingCollateral > 0 && poolHoldingLeveraged > 0) {
