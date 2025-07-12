@@ -6,7 +6,7 @@ set terminal svg enhanced size 700 600 background rgb "gray90"
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
-set yrange [0:5]
+set yrange [0:1.6]
 set y2range [0:30000]
 
 set ytics nomirror

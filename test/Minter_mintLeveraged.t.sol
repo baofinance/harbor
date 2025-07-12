@@ -122,7 +122,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
         // zero input, when none
         assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
+        // vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
         vm.prank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(0, receiver);
         // 2 ----------------------------------------------
@@ -133,11 +133,11 @@ contract TestMinterMintLeveraged is TestMinterMint {
         IMinter(minter).freeMintLeveragedToken(1 ether, receiver);
         // 3 ----------------------------------------------------
 
-        // all input, when none
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
-        vm.prank(zeroFee);
-        IMinter(minter).freeMintLeveragedToken(type(uint256).max, receiver);
-        // 4 --------------------------------------------------------------
+        // // all input, when none
+        // vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
+        // vm.prank(zeroFee);
+        // IMinter(minter).freeMintLeveragedToken(type(uint256).max, receiver);
+        // // 4 --------------------------------------------------------------
 
         // get collateral & allowance
         deal(address(Deployed.wstETH), zeroFee, 10 ether);
@@ -145,7 +145,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         IERC20(Deployed.wstETH).approve(minter, 10 ether);
 
         // zero input, when some
-        vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
+        // vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
         vm.prank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(0, receiver);
         // 5 ----------------------------------------------
@@ -195,9 +195,9 @@ contract TestMinterMintLeveraged is TestMinterMint {
         _freeMintLeveragedToken(2 ether);
         // 8 ---------------------------
 
-        // check all-of function, when some
-        _freeMintLeveragedToken(type(uint256).max);
-        // 9 -------------------------------------
+        // // check all-of function, when some
+        // _freeMintLeveragedToken(type(uint256).max);
+        // // 9 -------------------------------------
     }
 
     //---------------------------------------------------------------------------------------------

@@ -70,25 +70,13 @@ interface IMinter {
         uint256 leveragedOut
     );
 
-    /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
-    /// @param sender The address of peggedToken and leveragedToken owner.
-    /// @param receiver The address of receiver for collateral token.
-    /// @param peggedTokenBurned The amount of peggedToken burned.
-    /// @param collateralOut The amount of collateral token redeemed.
-    event RedeemPeggedToken(
-        address indexed sender,
-        address indexed receiver,
-        uint256 peggedTokenBurned,
-        uint256 collateralOut
-    );
-
-    /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
+    /// @notice Emitted when someone redeems a peggedToken .
     /// @param sender The address of peggedToken owner.
     /// @param receiver The address of receiver for collateral and leveraged token.
     /// @param peggedTokenBurned The amount of peggedToken burned.
     /// @param collateralOut The amount of collateral token redeemed.
     /// @param leveragedOut The amount of leveraged token redeemed
-    event SwapPeggedForCollateralAndLeveraged(
+    event RedeemPeggedToken(
         address indexed sender,
         address indexed receiver,
         uint256 peggedTokenBurned,
@@ -152,6 +140,7 @@ interface IMinter {
     /// @dev Thrown when pegged or leveraged is passed but redeeming is reduced below the miniumum requested.
     error ReturnInsufficientAmount(address returningToken, uint256 miniumum, uint256 actual);
     error NoRedeemableTokens(address redeemingToken);
+    error InsufficientRedeemableTokens(address redeemingToken, uint256 available, uint256 requested);
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
@@ -502,18 +491,12 @@ interface IMinter {
     function freeMintPeggedToken(uint256 collateralIn, address receiver) external returns (uint256 peggedOut);
 
     /// @notice Redeem some pegged tokens for collateral tokens.
-    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
-    /// @param receiver The address of receiver for collateral token.
-    /// @return collateralOut The amount of collateral tokens received.
-    function freeRedeemPeggedToken(uint256 peggedIn, address receiver) external returns (uint256 collateralOut);
-
-    /// @notice Redeem some pegged tokens for collateral tokens.
     /// @param peggedForCollateral the amount of peggedToken to redeem for collateral.
     /// @param peggedForLeveraged the amount of peggedToken to redeem for leveraged tokens.
     /// @param receiver The address of receiver for collateral token.
     /// @return wrappedCollateralOut The amount of collateral tokens received.
     /// @return leveragedOut The amount of leveraged tokens received.
-    function freeSwapPeggedForCollateralAndLeveraged(
+    function freeRedeemPeggedToken(
         uint256 peggedForCollateral,
         uint256 peggedForLeveraged,
         address receiver

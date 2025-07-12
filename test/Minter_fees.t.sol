@@ -505,7 +505,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         IERC20(peggedToken).approve(minter, type(uint256).max);
 
         vm.expectEmit(true, true, true, true, minter);
-        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees);
+        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees, 0);
         vm.prank(owner); // the owner has all the tokens
         IMinter(minter).redeemPeggedToken(pegged, user, 0);
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + expectedFees);
@@ -558,7 +558,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         IERC20(peggedToken).approve(minter, type(uint256).max);
 
         vm.expectEmit(minter);
-        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees); // 1
+        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees, 0); // 1
         vm.prank(owner); // the owner has all the tokens
         IMinter(minter).redeemPeggedToken(pegged, user, 0); // 2
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + expectedFees);

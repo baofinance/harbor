@@ -1,5 +1,5 @@
-datafile = "liquidate_partial_both62.csv"
-datafileto = "liquidate_to_partial_both62.csv"
+datafile = "liquidate_partial_both44.csv"
+datafileto = "liquidate_to_partial_both44.csv"
 set datafile separator comma
 
 set key autotitle columnheader noenhanced below title " "
@@ -10,7 +10,7 @@ set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
 set yrange [0:25]
-set y2range [0:100000]
+set y2range [0:200000]
 
 set ytics nomirror
 set y2tics 50000

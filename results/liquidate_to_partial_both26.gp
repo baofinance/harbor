@@ -10,7 +10,7 @@ set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]
 set yrange [0:25]
-set y2range [0:100000]
+set y2range [0:200000]
 
 set ytics nomirror
 set y2tics 50000

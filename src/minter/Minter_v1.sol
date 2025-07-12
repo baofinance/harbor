@@ -1010,17 +1010,14 @@ contract Minter_v1 is
         address receiver
     ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
         MinterStorage storage $ = _getMinterStorage();
-        // how much collateral to use
-        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
         // TODO: should this be the mid price/rate?
         OracleData memory oracle = _fetchMid($.priceOracle);
         uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, oracle.rate);
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = $.underlyingCollateral;
-        // transfer and mint
 
-        // TODO: should this use the actual price not the 1 ether price, i.e. mint them at the depegged amount
+        // transfer and mint
         peggedOut =
             (underlyingCollateralIn * oracle.price * 1 ether) /
             _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price);
@@ -1033,75 +1030,60 @@ contract Minter_v1 is
 
     // @inheritdoc IMinter
     function freeRedeemPeggedToken(
-        uint256 peggedIn,
-        address receiver
-    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut) {
-        MinterStorage storage $ = _getMinterStorage();
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 underlyingCollateral_ = $.underlyingCollateral;
-        peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
-        peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
-
-        OracleData memory oracle = _fetchMax($.priceOracle);
-        uint256 underlyingCollateralOut = (peggedIn *
-            _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price)) / (oracle.price * 1 ether);
-        wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
-
-        // burn pegged tokens and send the collateral to the receiver
-        _redeemPeggedToken(peggedIn, wrappedCollateralOut, receiver);
-
-        // update our records
-        $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
-        $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
-    }
-
-    function freeSwapPeggedForCollateralAndLeveraged(
         uint256 peggedForCollateral,
         uint256 peggedForLeveraged,
         address receiver
-    ) external nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
-        MinterStorage storage $ = _getMinterStorage();
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 underlyingCollateral_ = $.underlyingCollateral;
+    ) public nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
+        if (peggedForCollateral + peggedForLeveraged > 0) {
+            MinterStorage storage $ = _getMinterStorage();
+            uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
-        if ((peggedForCollateral + peggedForLeveraged) > peggedTokenBalance_) {
-            // do some scaling?
+            if ((peggedForCollateral + peggedForLeveraged) > peggedTokenBalance_) {
+                revert InsufficientRedeemableTokens(
+                    PEGGED_TOKEN,
+                    peggedTokenBalance_,
+                    peggedForCollateral + peggedForLeveraged
+                );
+            }
+
+            OracleData memory oracle = _fetchMax($.priceOracle);
+            if (peggedForCollateral > 0) {
+                uint256 underlyingCollateral_ = $.underlyingCollateral;
+                uint256 underlyingCollateralOut = (peggedForCollateral *
+                    _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price)) /
+                    (oracle.price * 1 ether);
+                wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
+                // return the collateral
+                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
+                $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
+            }
+
+            if (peggedForLeveraged > 0) {
+                leveragedOut = _leveragedTokensForPegged(
+                    peggedForLeveraged,
+                    _leveragedTokenBalance(),
+                    peggedTokenBalance_,
+                    $.underlyingCollateral,
+                    oracle.price
+                );
+                // mint the tokens to the receiver
+                // wake-disable-next-line reentrancy
+                IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
+            }
+
+            emit RedeemPeggedToken(
+                _msgSender(),
+                receiver,
+                peggedForLeveraged + peggedForCollateral,
+                wrappedCollateralOut,
+                leveragedOut
+            );
+
+            // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
+            _burnPeggedToken(peggedForCollateral + peggedForLeveraged);
+            // update our records
+            $.peggedTokenBalance = peggedTokenBalance_ - (peggedForCollateral + peggedForLeveraged);
         }
-
-        OracleData memory oracle = _fetchMax($.priceOracle);
-        uint256 underlyingCollateralOut = (peggedForCollateral *
-            _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price)) / (oracle.price * 1 ether);
-        wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
-
-        leveragedOut = _leveragedTokensForPegged(
-            peggedForLeveraged,
-            _leveragedTokenBalance(),
-            peggedTokenBalance_,
-            $.underlyingCollateral,
-            oracle.price
-        );
-
-        emit SwapPeggedForCollateralAndLeveraged(
-            _msgSender(),
-            receiver,
-            peggedForLeveraged + peggedForCollateral,
-            wrappedCollateralOut,
-            leveragedOut
-        );
-
-        // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
-        _burnPeggedToken(peggedForCollateral + peggedForLeveraged);
-
-        // return the collateral
-        IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
-
-        // mint the tokens to the receiver
-        // wake-disable-next-line reentrancy
-        IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
-
-        // update our records
-        $.peggedTokenBalance = peggedTokenBalance_ - (peggedForCollateral + peggedForLeveraged);
-        $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
     }
 
     // @inheritdoc IMinter
@@ -1111,7 +1093,6 @@ contract Minter_v1 is
     ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
-        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
         OracleData memory oracle = _fetchMid($.priceOracle);
         uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, oracle.rate);
         // mint the tokens to the receiver
@@ -1135,8 +1116,6 @@ contract Minter_v1 is
         address receiver
     ) external override onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
-        // how much collateral to use
-        leveragedIn = Token.allOf(_msgSender(), LEVERAGED_TOKEN, leveragedIn);
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
         leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
@@ -1259,7 +1238,7 @@ contract Minter_v1 is
 
     function _redeemPeggedToken(uint256 peggedIn, uint256 wrappedCollateralOut, address receiver) private {
         // tell the world
-        emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut);
+        emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut, 0);
 
         // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
         _burnPeggedToken(peggedIn);

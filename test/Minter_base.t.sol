@@ -392,7 +392,7 @@ contract TestMinterInit is TestMinterSetUp {
         vm.prank(zeroFee);
         IERC20(peggedToken).approve(minter, type(uint256).max);
         vm.prank(zeroFee);
-        IMinter(minter).freeRedeemPeggedToken(peggedMinted, zeroFee);
+        IMinter(minter).freeRedeemPeggedToken(peggedMinted, 0, zeroFee);
         assertEq(
             IERC20(peggedToken).balanceOf(zeroFee),
             thisPegged,

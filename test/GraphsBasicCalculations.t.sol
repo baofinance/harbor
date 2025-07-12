@@ -58,7 +58,7 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
     ) internal returns (uint256 collateralForPegged, uint256 collateralForLeveraged) {
         // recipient must have the amount of tokens being redeemed
         if (amountOfPegged > 0) {
-            collateralForPegged = IMinter(minter).freeRedeemPeggedToken(amountOfPegged, recipient);
+            (collateralForPegged, ) = IMinter(minter).freeRedeemPeggedToken(amountOfPegged, 0, recipient);
         }
         if (amoutOfLeveraged > 0) {
             collateralForLeveraged = IMinter(minter).freeMintLeveragedToken(amoutOfLeveraged, recipient);
@@ -244,7 +244,7 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
         for (uint256 i = 0; i <= iterations; i++) {
             writeOneLine(file, commandStatus);
             if (IMinter(minter).peggedTokenBalance() > 0) {
-                try IMinter(minter).freeRedeemPeggedToken(price * 1 ether, address(this)) {
+                try IMinter(minter).freeRedeemPeggedToken(price * 1 ether, 0, address(this)) {
                     commandStatus = 0; // 0 = success
                 } catch {
                     // unexpected revert

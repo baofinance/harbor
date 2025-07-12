@@ -373,8 +373,11 @@ contract StabilityPoolManager_v1 is
             ITokenHolder(_STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
         }
 
-        (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter(MINTER)
-            .freeSwapPeggedForCollateralAndLeveraged(peggedForCollateral, peggedForLeveraged, address(this));
+        (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter(MINTER).freeRedeemPeggedToken(
+            peggedForCollateral,
+            peggedForLeveraged,
+            address(this)
+        );
 
         if (peggedForCollateral > 0) {
             // extract the collateral bounty
