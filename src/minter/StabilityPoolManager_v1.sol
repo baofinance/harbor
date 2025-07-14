@@ -318,15 +318,15 @@ contract StabilityPoolManager_v1 is
         // Distribute between pools based on weighted holdings if both have tokens
         if (poolHoldingCollateral > 0 && poolHoldingLeveraged > 0) {
             // Calculate effectiveness ratio (how many times more effective leveraged liquidation is)
-            uint256 effectivenessRatio = (peggedForCollateral * 1 ether) / peggedForLeveraged;
+            // uint256 effectivenessRatio = (peggedForCollateral * 1 ether) / peggedForLeveraged;
 
             // Weight each pool by its holdings, adjusting the leveraged pool by effectiveness
-            uint256 weightedCollateral = poolHoldingCollateral;
-            uint256 weightedLeveraged = (poolHoldingLeveraged * effectivenessRatio) / 1 ether;
-            uint256 totalWeight = weightedCollateral + weightedLeveraged;
+            // uint256 weightedCollateral = poolHoldingCollateral;
+            uint256 weightedLeveraged = Math.mulDiv(poolHoldingLeveraged, peggedForCollateral, peggedForLeveraged);
+            uint256 totalWeight = poolHoldingCollateral + weightedLeveraged;
 
             // Calculate the proportional contribution of each pool
-            uint256 collateralLiquidationFraction = (weightedCollateral * 1 ether) / totalWeight;
+            uint256 collateralLiquidationFraction = Math.mulDiv(poolHoldingCollateral, 1 ether, totalWeight);
             uint256 leveragedLiquidationFraction = 1 ether - collateralLiquidationFraction;
 
             // Apply the fractions to determine how much each pool should liquidate

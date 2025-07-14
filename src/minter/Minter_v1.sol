@@ -123,6 +123,9 @@ contract Minter_v1 is
     /// @notice The role that allows access to the sweep function.
     uint256 public constant HARVESTER_ROLE = _ROLE_1;
 
+    /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
+    uint256 private constant _LEVERAGE_RATIO_CAP = 20 ether;
+
     ////////////////
     // Immutables //
     ////////////////
@@ -405,7 +408,7 @@ contract Minter_v1 is
                 // we're depegged, so all we can do is redeem them all
                 peggedForCollateral = peggedTokenBalance_;
             } else {
-                peggedForCollateral = _redeemPeggedForCollateralRatioT(
+                peggedForCollateral = _redeemPeggedForCollateralRatio(
                     targetCollateralRatio,
                     collateralTokenBalance_,
                     oracle.price,
@@ -1387,7 +1390,7 @@ contract Minter_v1 is
                         collateralInBand$ = (peggedIn * underlyingCollateral_ * 1 ether) / peggedTokenBalance_;
                     } else {
                         // note the bandUpperBound cannot be == 1 ether so this is safe below
-                        peggedInBand = _redeemPeggedForCollateralRatioT(
+                        peggedInBand = _redeemPeggedForCollateralRatio(
                             bandUpperBound,
                             underlyingCollateral_,
                             price,
@@ -1763,8 +1766,6 @@ contract Minter_v1 is
             leveragedPrice_;
     }
 
-    uint256 constant leverageRatioCap = 20 ether;
-
     function _leverageRatio(
         uint256 peggedTokenBalance_,
         uint256 underlyingCollateral_,
@@ -1777,13 +1778,13 @@ contract Minter_v1 is
         );
         if (peggedValue$ >= collateralValue$) {
             // it divides by 0 or goes negative!
-            ratio = leverageRatioCap;
+            ratio = _LEVERAGE_RATIO_CAP;
         } else {
             // we have collateral and it's worth something
             // ratio = (1 ether * 1 ether) / (1 ether - (peggedValue$ / (collateralValue$ / 1 ether)));
             ratio = (1 ether * 1 ether) / (1 ether - ((peggedValue$ * 1 ether) / collateralValue$));
-            if (ratio > leverageRatioCap) {
-                ratio = leverageRatioCap;
+            if (ratio > _LEVERAGE_RATIO_CAP) {
+                ratio = _LEVERAGE_RATIO_CAP;
             }
         }
     }
@@ -1798,10 +1799,10 @@ contract Minter_v1 is
         // we use leverage ratio for this calculation as it is capped
         if (leveragedTokenBalance_ > 0) {
             uint256 leverageRatio_ = _leverageRatio(peggedTokenBalance_, collateralTokenBalance_, collateralPrice);
-
-            if (leverageRatio_ == leverageRatioCap) {
+            // slither-disable-next-line incorrect-equality
+            if (leverageRatio_ == _LEVERAGE_RATIO_CAP) {
                 // cap the amount returned
-                leveragedTokens = (peggedIn * leverageRatioCap) / 1 ether;
+                leveragedTokens = (peggedIn * _LEVERAGE_RATIO_CAP) / 1 ether;
             } else {
                 // Convert using leverage ratio approach as this is only called in a rebalance context
                 leveragedTokens = Math.mulDiv(
@@ -1854,7 +1855,7 @@ contract Minter_v1 is
      * @param peggedTokenBalance_ The current pegged token balance
      * @return peggedTokens The number of pegged tokens that need to be redeemed
      */
-    function _redeemPeggedForCollateralRatioT(
+    function _redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio,
         uint256 collateralTokenBalance_,
         uint256 price,
