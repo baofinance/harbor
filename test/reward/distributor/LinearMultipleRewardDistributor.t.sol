@@ -527,353 +527,214 @@ contract LinearMultipleRewardDistributorTest is Test {
         assertApproxEqAbs(rd.rate, expectedRate2, rewardPeriodLength);
         assertApproxEqAbs(rd.queued, 0, rewardPeriodLength);
     }
-}
-/*
-describe("LinearMultipleRewardDistributor.spec", async () => {
-  context("constructor", async () => {
-    it("should revert, when period length is invalid", async () => {
-      const [deployer] = await ethers.getSigners();
-      const MockLinearMultipleRewardDistributor = await ethers.getContractFactory(
-        "MockLinearMultipleRewardDistributor",
-        deployer
-      );
 
-      await expect(MockLinearMultipleRewardDistributor.deploy(1)).to.revertedWith("invalid period length");
-      await expect(MockLinearMultipleRewardDistributor.deploy(86400 - 1)).to.revertedWith("invalid period length");
-      await expect(MockLinearMultipleRewardDistributor.deploy(86400 * 28 + 1)).to.revertedWith("invalid period length");
-    });
+    /// @notice Test the edge case where queued rewards are very small and trigger the rounding error logic
+    /// This test exposes the type mismatch bug: comparing uint96 (token amount) with uint40 (time in seconds)
+    function test_unregisterRewardToken_WithSmallQueuedAmount_TypeMismatch() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
+        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-    for (const REWARD_PERIOD_LENGTH of [0, 86400, 86400 * 7, 86400 * 14, 86400 * 28]) {
-      it(`should succeed with period[${REWARD_PERIOD_LENGTH}]`, async () => {
-        const [deployer] = await ethers.getSigners();
-        const MockLinearMultipleRewardDistributor = await ethers.getContractFactory(
-          "MockLinearMultipleRewardDistributor",
-          deployer
+        vm.startPrank(manager);
+        distributor.registerRewardToken(address(token0), holder0);
+        vm.stopPrank();
+
+        // Mint tokens and approve
+        token0.mint(holder0, 100_000 ether);
+        vm.prank(holder0);
+        token0.approve(address(distributor), MAX_UINT);
+
+        // Deposit a very small amount that will result in tiny queued remainder
+        // When amount = 1000 wei and periodLength = 86400 seconds:
+        // rate = 1000 / 86400 = 0 (integer division)
+        // queued = 1000 - (0 * 86400) = 1000 wei
+        // This creates the scenario where queued (1000 wei) < REWARD_PERIOD_LENGTH (86400 seconds)
+        uint256 verySmallAmount = 1000; // 1000 wei (much less than 86,400)
+
+        vm.prank(holder0);
+        distributor.depositReward(address(token0), verySmallAmount);
+
+        // Check the reward data to confirm our scenario
+        RewardData memory rd;
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+
+        // Verify our assumptions:
+        // 1. Rate should be 0 due to integer division
+        assertEq(rd.rate, 0, "Rate should be 0 for very small amounts");
+        // 2. Queued should equal the full deposit amount since rate = 0
+        assertEq(rd.queued, verySmallAmount, "Queued should equal deposit amount when rate is 0");
+        // 3. Queued (1000 wei) should be much less than REWARD_PERIOD_LENGTH (86400 seconds)
+        assertTrue(
+            rd.queued < REWARD_PERIOD_LENGTH,
+            "Queued amount should be less than period length (this triggers the bug)"
         );
-        const distributor = await MockLinearMultipleRewardDistributor.deploy(REWARD_PERIOD_LENGTH);
-        expect(await distributor.REWARD_PERIOD_LENGTH()).to.eq(REWARD_PERIOD_LENGTH);
-      });
+
+        // Wait for the period to finish so distribution is considered complete
+        vm.warp(rd.finishAt + 1);
+
+        // Verify that pendingRewards shows no distributable or undistributed rewards
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(token0));
+        assertEq(pending.unlocked, 0, "No unlocked rewards expected");
+        assertEq(pending.locked, 0, "No locked rewards expected");
+
+        // Now try to unregister - this should trigger the buggy comparison
+        // The bug: `if (_data.queued < REWARD_PERIOD_LENGTH)` compares uint96 to uint40
+        // This comparison happens between:
+        // - _data.queued = 1000 (uint96 - token amount in wei)
+        // - REWARD_PERIOD_LENGTH = 86400 (uint40 - time in seconds)
+        vm.prank(manager);
+
+        // This should succeed but with the wrong logic due to type mismatch
+        // The comparison is mathematically meaningless (comparing wei to seconds)
+        vm.expectEmit(address(distributor));
+        emit IMultipleRewardDistributor.UnregisterRewardToken(address(token0));
+        distributor.unregisterRewardToken(address(token0));
+
+        // Verify the token was successfully unregistered
+        address[] memory activeTokens = distributor.activeRewardTokens();
+        assertEq(activeTokens.length, 0, "Token should be unregistered");
+
+        address[] memory historicalTokens = distributor.historicalRewardTokens();
+        assertEq(historicalTokens.length, 1, "Token should be in historical list");
+        assertEq(historicalTokens[0], address(token0), "Token should be in historical list");
     }
-  });
 
-  for (const REWARD_PERIOD_LENGTH of [0, 86400, 86400 * 7, 86400 * 14, 86400 * 28]) {
-    let deployer: HardhatEthersSigner;
-    let manager: HardhatEthersSigner;
-    let holder0: HardhatEthersSigner;
-    let holder1: HardhatEthersSigner;
-    let holder2: HardhatEthersSigner;
+    /// @notice Test case that demonstrates the type mismatch with normal token amounts
+    /// This shows that for most realistic scenarios, queued < REWARD_PERIOD_LENGTH due to modulo math
+    function test_unregisterRewardToken_WithNormalQueuedAmount_TypeMismatch() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
+        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-    let token0: MockERC20;
-    let token1: MockERC20;
-    let token2: MockERC20;
-    let distributor: MockLinearMultipleRewardDistributor;
+        vm.startPrank(manager);
+        distributor.registerRewardToken(address(token0), holder0);
+        vm.stopPrank();
 
-    context(`run with period[${REWARD_PERIOD_LENGTH}]`, async () => {
-      beforeEach(async () => {
-        [deployer, manager, holder0, holder1, holder2] = await ethers.getSigners();
-        const MockERC20 = await ethers.getContractFactory("MockERC20", deployer);
-        const MockLinearMultipleRewardDistributor = await ethers.getContractFactory(
-          "MockLinearMultipleRewardDistributor",
-          deployer
+        // Use a token with 6 decimals to create a more realistic scenario
+        MockERC20 usdcLikeToken = new MockERC20("USDC", "USDC", 6);
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(usdcLikeToken), holder0);
+
+        // Mint tokens and approve
+        usdcLikeToken.mint(holder0, 1000000 * 10 ** 6); // 1M USDC
+        vm.prank(holder0);
+        usdcLikeToken.approve(address(distributor), MAX_UINT);
+
+        // Deposit amount that creates a normal queued remainder
+        uint256 amount = 100000 * 10 ** 6; // 100,000 USDC (6 decimals)
+
+        vm.prank(holder0);
+        distributor.depositReward(address(usdcLikeToken), amount);
+
+        // Check the reward data
+        RewardData memory rd;
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(usdcLikeToken));
+
+        // Calculate expected values
+        uint256 expectedRate = amount / REWARD_PERIOD_LENGTH;
+        uint256 expectedQueued = amount - (expectedRate * REWARD_PERIOD_LENGTH);
+
+        assertEq(rd.rate, expectedRate, "Rate calculation should be correct");
+        assertEq(rd.queued, expectedQueued, "Queued calculation should be correct");
+
+        // The key insight: queued is ALWAYS less than REWARD_PERIOD_LENGTH due to modulo math
+        // This demonstrates that the type mismatch affects almost ALL scenarios
+        assertTrue(rd.queued < REWARD_PERIOD_LENGTH, "Queued is always less than period length (modulo property)");
+
+        // Show that this is a meaningful amount in token terms, but small in time terms
+        assertTrue(rd.queued > 0, "Should have some queued remainder for this amount");
+
+        // Validate the type mismatch scenario: comparing uint96 (token wei) with uint40 (seconds)
+        // This is the core of the bug - these units are incomparable
+        assertLt(rd.queued, uint256(REWARD_PERIOD_LENGTH), "Type mismatch: comparing token wei to time seconds");
+        assertGt(rd.queued, 0, "Queued should contain meaningful token amount despite small time comparison");
+
+        // Wait for period to finish
+        vm.warp(rd.finishAt + 1000);
+
+        // Check pending rewards after period finish
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(usdcLikeToken));
+
+        // After period completion, distributable rewards equal rate * REWARD_PERIOD_LENGTH
+        // because pending() returns (rate * (finishAt - lastUpdate), 0) when block.timestamp > finishAt
+        uint256 expectedDistributable = rd.rate * REWARD_PERIOD_LENGTH;
+        assertEq(pending.unlocked, expectedDistributable, "Distributable equals rate * period length");
+        assertEq(pending.locked, 0, "No undistributed rewards after period completion");
+
+        // The bug manifests here: even though queued would be set to 0 due to the buggy comparison,
+        // unregistration still fails because of the large distributable amount
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributionNotFinished.selector));
+        distributor.unregisterRewardToken(address(usdcLikeToken));
+
+        // Validate the bug's limited impact: the queued amount is small compared to distributable
+        uint256 totalRemainingRewards = pending.unlocked + pending.locked;
+        assertEq(totalRemainingRewards, expectedDistributable, "Total remaining equals distributable");
+        assertGt(totalRemainingRewards, rd.queued, "Distributable amount dwarfs queued amount");
+
+        // The type mismatch bug only affects the small queued portion, not the main distributable amount
+        assertTrue(rd.queued < REWARD_PERIOD_LENGTH, "Bug condition: queued < REWARD_PERIOD_LENGTH");
+        assertGt(
+            totalRemainingRewards,
+            uint256(REWARD_PERIOD_LENGTH),
+            "But total rewards much larger than period length"
         );
+    }
 
-        token0 = await MockERC20.deploy("R0", "R0", 18);
-        token1 = await MockERC20.deploy("R1", "R1", 18);
-        token2 = await MockERC20.deploy("R2", "R2", 18);
-        distributor = await MockLinearMultipleRewardDistributor.deploy(REWARD_PERIOD_LENGTH);
-        await distributor.initialize();
-      });
+    /// @notice Test what happens when queued is near the maximum possible value (edge case)
+    function test_unregisterRewardToken_QueuedNearRewardPeriod() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
+        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
-      context("initialization", async () => {
-        it("should initialize correctly", async () => {
-          expect(await distributor.REWARD_PERIOD_LENGTH()).to.eq(REWARD_PERIOD_LENGTH);
-          expect(await distributor.activeRewardTokens()).to.deep.eq([]);
-          expect(await distributor.historicalRewardTokens()).to.deep.eq([]);
-          expect(await distributor.hasRole(ZeroHash, deployer.address)).to.eq(true);
-        });
-      });
+        vm.startPrank(manager);
+        distributor.registerRewardToken(address(token0), holder0);
+        vm.stopPrank();
 
-      context("reward manage", async () => {
-        beforeEach(async () => {
-          await distributor.grantRole(await distributor.REWARD_MANAGER_ROLE(), manager.address);
-        });
+        // Mint tokens and approve
+        token0.mint(holder0, 100_000 ether);
+        vm.prank(holder0);
+        token0.approve(address(distributor), MAX_UINT);
 
-        context("#registerRewardToken", async () => {
-          it("should revert when non-manager call", async () => {
-            const role = await distributor.REWARD_MANAGER_ROLE();
-            await expect(distributor.registerRewardToken(await token0.getAddress(), holder0.address)).to.revertedWith(
-              "AccessControl: account " + deployer.address.toLowerCase() + " is missing role " + role
-            );
-          });
+        // Create a scenario where queued is close to REWARD_PERIOD_LENGTH
+        // Use: amount = rate * REWARD_PERIOD_LENGTH + (REWARD_PERIOD_LENGTH - 1)
+        // This gives: queued = REWARD_PERIOD_LENGTH - 1
+        uint256 targetAmount = REWARD_PERIOD_LENGTH + (REWARD_PERIOD_LENGTH - 1);
 
-          it("should revert, when distributor is zero", async () => {
-            await expect(
-              distributor.connect(manager).registerRewardToken(await token0.getAddress(), ZeroAddress)
-            ).to.revertedWithCustomError(distributor, "RewardDistributorIsZero");
-          });
+        vm.prank(holder0);
+        distributor.depositReward(address(token0), targetAmount);
 
-          it("should revert, when duplicated rewards", async () => {
-            await expect(distributor.connect(manager).registerRewardToken(await token0.getAddress(), holder0.address))
-              .to.emit(distributor, "RegisterRewardToken")
-              .withArgs(await token0.getAddress(), holder0.address);
-            await expect(
-              distributor.connect(manager).registerRewardToken(await token0.getAddress(), holder0.address)
-            ).to.revertedWithCustomError(distributor, "DuplicatedRewardToken");
-          });
+        // Check the reward data
+        RewardData memory rd;
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
 
-          it("should succeed when add new tokens", async () => {
-            await expect(distributor.connect(manager).registerRewardToken(await token0.getAddress(), holder0.address))
-              .to.emit(distributor, "RegisterRewardToken")
-              .withArgs(await token0.getAddress(), holder0.address);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([await token0.getAddress()]);
-            expect(await distributor.distributors(await token0.getAddress())).to.eq(holder0.address);
-            await expect(distributor.connect(manager).registerRewardToken(await token1.getAddress(), holder1.address))
-              .to.emit(distributor, "RegisterRewardToken")
-              .withArgs(await token1.getAddress(), holder1.address);
-            expect(await distributor.distributors(await token1.getAddress())).to.eq(holder1.address);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([
-              await token0.getAddress(),
-              await token1.getAddress(),
-            ]);
-            await expect(distributor.connect(manager).registerRewardToken(await token2.getAddress(), holder2.address))
-              .to.emit(distributor, "RegisterRewardToken")
-              .withArgs(await token2.getAddress(), holder2.address);
-            expect(await distributor.distributors(await token2.getAddress())).to.eq(holder2.address);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([
-              await token0.getAddress(),
-              await token1.getAddress(),
-              await token2.getAddress(),
-            ]);
-          });
+        // Verify our near-boundary case: queued should be REWARD_PERIOD_LENGTH - 1
+        uint256 expectedQueued = REWARD_PERIOD_LENGTH - 1;
+        assertEq(rd.queued, expectedQueued, "Queued should be very close to period length");
 
-          it("should succeed when remove token from historical", async () => {
-            await expect(distributor.connect(manager).registerRewardToken(await token0.getAddress(), holder0.address))
-              .to.emit(distributor, "RegisterRewardToken")
-              .withArgs(await token0.getAddress(), holder0.address);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([await token0.getAddress()]);
-            expect(await distributor.distributors(await token0.getAddress())).to.eq(holder0.address);
-            await expect(distributor.connect(manager).registerRewardToken(await token1.getAddress(), holder1.address))
-              .to.emit(distributor, "RegisterRewardToken")
-              .withArgs(await token1.getAddress(), holder1.address);
-            expect(await distributor.distributors(await token1.getAddress())).to.eq(holder1.address);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([
-              await token0.getAddress(),
-              await token1.getAddress(),
-            ]);
-            await expect(distributor.connect(manager).registerRewardToken(await token2.getAddress(), holder2.address))
-              .to.emit(distributor, "RegisterRewardToken")
-              .withArgs(await token2.getAddress(), holder2.address);
-            expect(await distributor.distributors(await token2.getAddress())).to.eq(holder2.address);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([
-              await token0.getAddress(),
-              await token1.getAddress(),
-              await token2.getAddress(),
-            ]);
+        // This demonstrates the near-boundary condition of the bug
+        assertLt(rd.queued, uint256(REWARD_PERIOD_LENGTH), "Near edge case: queued just under period length");
 
-            await expect(distributor.connect(manager).unregisterRewardToken(await token0.getAddress()))
-              .to.emit(distributor, "UnregisterRewardToken")
-              .withArgs(await token0.getAddress());
-            expect(await distributor.activeRewardTokens()).to.deep.eq([
-              await token2.getAddress(),
-              await token1.getAddress(),
-            ]);
-            expect(await distributor.historicalRewardTokens()).to.deep.eq([await token0.getAddress()]);
-            expect(await distributor.distributors(await token0.getAddress())).to.eq(ZeroAddress);
-          });
-        });
+        // Wait for period to finish
+        vm.warp(rd.finishAt + 1000);
 
-        context("#updateRewardDistributor", async () => {
-          beforeEach(async () => {
-            await distributor.connect(manager).registerRewardToken(await token0.getAddress(), holder0.address);
-          });
+        // Check pending rewards
+        PendingRewards memory pending;
+        (pending.unlocked, pending.locked) = distributor.pendingRewards(address(token0));
 
-          it("should revert when non-manager call", async () => {
-            const role = await distributor.REWARD_MANAGER_ROLE();
-            await expect(distributor.updateRewardDistributor(ZeroAddress, ZeroAddress)).to.revertedWith(
-              "AccessControl: account " + deployer.address.toLowerCase() + " is missing role " + role
-            );
-          });
+        // After period completion, distributable rewards are rate * REWARD_PERIOD_LENGTH
+        uint256 expectedDistributable = rd.rate * REWARD_PERIOD_LENGTH;
+        assertEq(pending.unlocked, expectedDistributable, "Distributable equals rate * period length");
+        assertEq(pending.locked, 0, "No undistributed rewards after period completion");
 
-          it("should revert, when distributor is zero", async () => {
-            await expect(
-              distributor.connect(manager).updateRewardDistributor(await token0.getAddress(), ZeroAddress)
-            ).to.revertedWithCustomError(distributor, "RewardDistributorIsZero");
-          });
+        // At this near-boundary, the buggy comparison succeeds: queued (86399) < REWARD_PERIOD_LENGTH (86400)
+        // So queued would be set to 0, but unregistration still fails due to large distributable amount
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributionNotFinished.selector));
+        distributor.unregisterRewardToken(address(token0));
 
-          it("should revert, when reward is not active", async () => {
-            await expect(
-              distributor.connect(manager).updateRewardDistributor(await token1.getAddress(), holder1.address)
-            ).to.revertedWithCustomError(distributor, "NotActiveRewardToken");
-          });
-
-          it("should succeed", async () => {
-            expect(await distributor.distributors(await token0.getAddress())).to.eq(holder0.address);
-            await expect(
-              distributor.connect(manager).updateRewardDistributor(await token0.getAddress(), holder1.address)
-            )
-              .to.emit(distributor, "UpdateRewardDistributor")
-              .withArgs(await token0.getAddress(), holder0.address, holder1.address);
-            expect(await distributor.distributors(await token0.getAddress())).to.eq(holder1.address);
-          });
-        });
-
-        context("#unregisterRewardToken", async () => {
-          beforeEach(async () => {
-            await distributor.connect(manager).registerRewardToken(await token0.getAddress(), holder0.address);
-            await distributor.connect(manager).registerRewardToken(await token1.getAddress(), holder1.address);
-            await distributor.connect(manager).registerRewardToken(await token2.getAddress(), holder2.address);
-          });
-
-          it("should revert when non-manager call", async () => {
-            const role = await distributor.REWARD_MANAGER_ROLE();
-            await expect(distributor.unregisterRewardToken(ZeroAddress)).to.revertedWith(
-              "AccessControl: account " + deployer.address.toLowerCase() + " is missing role " + role
-            );
-          });
-
-          it("should revert, when reward is not active", async () => {
-            await distributor.connect(manager).unregisterRewardToken(await token0.getAddress());
-            await expect(
-              distributor.connect(manager).unregisterRewardToken(await token0.getAddress())
-            ).to.revertedWithCustomError(distributor, "NotActiveRewardToken");
-          });
-
-          if (REWARD_PERIOD_LENGTH > 0) {
-            it("should revert, when reward distribution is not over", async () => {
-              await token0.mint(holder0.address, ethers.parseEther("1000"));
-              await token0.connect(holder0).approve(await distributor.getAddress(), MaxUint256);
-              await distributor.connect(holder0).depositReward(await token0.getAddress(), ethers.parseEther("1000"));
-              await expect(
-                distributor.connect(manager).unregisterRewardToken(await token0.getAddress())
-              ).to.revertedWithCustomError(distributor, "RewardDistributionNotFinished");
-            });
-          }
-
-          it("should succeed", async () => {
-            await expect(distributor.connect(manager).unregisterRewardToken(await token0.getAddress()))
-              .to.emit(distributor, "UnregisterRewardToken")
-              .withArgs(await token0.getAddress());
-            expect(await distributor.distributors(await token0.getAddress())).to.eq(ZeroAddress);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([
-              await token2.getAddress(),
-              await token1.getAddress(),
-            ]);
-            expect(await distributor.historicalRewardTokens()).to.deep.eq([await token0.getAddress()]);
-
-            await expect(distributor.connect(manager).unregisterRewardToken(await token1.getAddress()))
-              .to.emit(distributor, "UnregisterRewardToken")
-              .withArgs(await token1.getAddress());
-            expect(await distributor.distributors(await token1.getAddress())).to.eq(ZeroAddress);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([await token2.getAddress()]);
-            expect(await distributor.historicalRewardTokens()).to.deep.eq([
-              await token0.getAddress(),
-              await token1.getAddress(),
-            ]);
-
-            await expect(distributor.connect(manager).unregisterRewardToken(await token2.getAddress()))
-              .to.emit(distributor, "UnregisterRewardToken")
-              .withArgs(await token2.getAddress());
-            expect(await distributor.distributors(await token2.getAddress())).to.eq(ZeroAddress);
-            expect(await distributor.activeRewardTokens()).to.deep.eq([]);
-            expect(await distributor.historicalRewardTokens()).to.deep.eq([
-              await token0.getAddress(),
-              await token1.getAddress(),
-              await token2.getAddress(),
-            ]);
-          });
-        });
-      });
-
-      context("#depositReward", async () => {
-        beforeEach(async () => {
-          await distributor.grantRole(await distributor.REWARD_MANAGER_ROLE(), manager.address);
-          await distributor.connect(manager).registerRewardToken(await token0.getAddress(), holder0.address);
-        });
-
-        it("should revert, when token is not active", async () => {
-          await expect(distributor.depositReward(await token1.getAddress(), 0)).to.revertedWithCustomError(
-            distributor,
-            "NotActiveRewardToken"
-          );
-        });
-
-        it("should revert, when caller is not distributor", async () => {
-          await expect(distributor.depositReward(await token0.getAddress(), 0)).to.revertedWithCustomError(
-            distributor,
-            "NotRewardDistributor"
-          );
-        });
-
-        it("should succeed", async () => {
-          await token0.mint(holder0.address, ethers.parseEther("100000"));
-          await token0.connect(holder0).approve(await distributor.getAddress(), MaxUint256);
-          const depositAmount0 = ethers.parseEther("1000");
-          let tx = distributor.connect(holder0).depositReward(await token0.getAddress(), depositAmount0);
-          await expect(tx)
-            .to.emit(distributor, "DepositReward")
-            .withArgs(await token0.getAddress(), depositAmount0);
-          expect(await token0.balanceOf(await distributor.getAddress())).to.eq(depositAmount0);
-          if (REWARD_PERIOD_LENGTH === 0) {
-            await expect(tx)
-              .to.emit(distributor, "_accumulateReward_called")
-              .withArgs(await token0.getAddress(), depositAmount0);
-          } else {
-            const timestamp0 = (await ethers.provider.getBlock("latest"))!.timestamp;
-            const rewardData0 = await distributor.rewardData(await token0.getAddress());
-            const expectedRate0 = depositAmount0 / toBigInt(REWARD_PERIOD_LENGTH);
-            expect(rewardData0.lastUpdate).to.eq(timestamp0);
-            expect(rewardData0.finishAt).to.eq(timestamp0 + REWARD_PERIOD_LENGTH);
-            expect(rewardData0.rate).to.eq(expectedRate0);
-            expect(await distributor.pendingRewards(await token0.getAddress())).to.deep.eq([
-              0n,
-              expectedRate0 * toBigInt(REWARD_PERIOD_LENGTH),
-            ]);
-
-            // 1/3 period
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp0 + Math.floor(REWARD_PERIOD_LENGTH / 3)]);
-            await network.provider.send("evm_mine", []);
-            expect(await distributor.pendingRewards(await token0.getAddress())).to.deep.eq([
-              expectedRate0 * toBigInt(Math.floor(REWARD_PERIOD_LENGTH / 3)),
-              expectedRate0 * toBigInt(REWARD_PERIOD_LENGTH - Math.floor(REWARD_PERIOD_LENGTH / 3)),
-            ]);
-
-            // deposit 89% of expectedRate * toBigInt(Math.floor(REWARD_PERIOD_LENGTH / 3)), should be queued
-            const depositAmount1 = (expectedRate0 * toBigInt(Math.floor(REWARD_PERIOD_LENGTH / 3)) * 89n) / 100n;
-            tx = distributor.connect(holder0).depositReward(await token0.getAddress(), depositAmount1);
-            await expect(tx)
-              .to.emit(distributor, "DepositReward")
-              .withArgs(await token0.getAddress(), depositAmount1);
-
-            const timestamp1 = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await expect(tx)
-              .to.emit(distributor, "_accumulateReward_called")
-              .withArgs(await token0.getAddress(), expectedRate0 * toBigInt(timestamp1 - timestamp0));
-            const rewardData1 = await distributor.rewardData(await token0.getAddress());
-            expect(rewardData1.lastUpdate).to.eq(timestamp1);
-            expect(rewardData1.finishAt).to.eq(timestamp0 + REWARD_PERIOD_LENGTH);
-            expect(rewardData1.rate).to.eq(expectedRate0);
-            expect(rewardData1.queued).to.closeTo(depositAmount1, REWARD_PERIOD_LENGTH);
-
-            // deposit another 2% expectedRate * toBigInt(Math.floor(REWARD_PERIOD_LENGTH / 3)), should distribute
-            const depositAmount2 = (expectedRate0 * toBigInt(Math.floor(REWARD_PERIOD_LENGTH / 3)) * 2n) / 100n;
-            tx = distributor.connect(holder0).depositReward(await token0.getAddress(), depositAmount2);
-            await expect(tx)
-              .to.emit(distributor, "DepositReward")
-              .withArgs(await token0.getAddress(), depositAmount2)
-              .to.emit(distributor, "_accumulateReward_called");
-            const timestamp2 = (await ethers.provider.getBlock("latest"))!.timestamp;
-            const rewardData2 = await distributor.rewardData(await token0.getAddress());
-            const expectedRate2 =
-              (depositAmount1 + depositAmount2 + expectedRate0 * toBigInt(timestamp0 + REWARD_PERIOD_LENGTH - timestamp2)) /
-              toBigInt(REWARD_PERIOD_LENGTH);
-            expect(rewardData2.lastUpdate).to.eq(timestamp2);
-            expect(rewardData2.finishAt).to.eq(timestamp2 + REWARD_PERIOD_LENGTH);
-            expect(rewardData2.rate).to.closeTo(expectedRate2, REWARD_PERIOD_LENGTH);
-            expect(rewardData2.queued).to.closeTo(0n, REWARD_PERIOD_LENGTH);
-          }
-        });
-      });
-    });
-  }
-});
-*/
+        // The bug affects only the queued clearing logic, not the main barrier to unregistration
+        assertTrue(rd.queued < REWARD_PERIOD_LENGTH, "Bug condition: queued < REWARD_PERIOD_LENGTH");
+        assertGt(pending.unlocked, rd.queued, "Distributable amount much larger than queued");
+    }
+}
