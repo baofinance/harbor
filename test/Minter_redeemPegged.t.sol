@@ -560,8 +560,8 @@ contract TestMinterRedeemPegged is TestMinterMint {
             abi.encodeWithSelector(
                 IMinter.ReturnInsufficientAmount.selector,
                 Deployed.wstETH,
-                expectedCollateralOut + 1,
-                expectedCollateralOut
+                expectedCollateralOut,
+                expectedCollateralOut + 1
             )
         );
         vm.prank(sender);

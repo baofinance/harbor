@@ -392,40 +392,6 @@ contract Minter_v1 is
     }
 
     /// @inheritdoc IMinter
-    function leveragedTokensForCollateral(
-        uint256 forWrappedCollateral
-    ) external view override returns (uint256 leveragedTokens) {
-        MinterStorage storage $ = _getMinterStorage();
-        OracleData memory oracle = _fetchMid($.priceOracle);
-        leveragedTokens = _leveragedTokensForCollateral(
-            _underlyingValueOf(forWrappedCollateral, oracle.rate),
-            _leveragedTokenBalance(),
-            $.peggedTokenBalance,
-            $.underlyingCollateral,
-            oracle.price
-        );
-    }
-
-    /// @inheritdoc IMinter
-    function collateralForLeverageTokens(
-        uint256 forLeveragedTokens
-    ) external view override returns (uint256 wrappedCollateral) {
-        MinterStorage storage $ = _getMinterStorage();
-        OracleData memory oracle = _fetchMid($.priceOracle);
-        // TODO: add check for being depegged here and remove it from the below function
-        wrappedCollateral = _wrappedValueOf(
-            _underlyingCollateralForLeveragedTokens(
-                forLeveragedTokens,
-                _leveragedTokenBalance(),
-                $.peggedTokenBalance,
-                $.underlyingCollateral,
-                oracle.price
-            ),
-            oracle.rate
-        );
-    }
-
-    /// @inheritdoc IMinter
     function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
@@ -777,7 +743,7 @@ contract Minter_v1 is
         // check the amounts involved
         // slither-disable-next-line incorrect-equality        if (peggedOut == 0) revert MintZeroAmount(PEGGED_TOKEN);
         if (peggedOut < minPeggedOut) {
-            revert MintInsufficientAmount(PEGGED_TOKEN, minPeggedOut, peggedOut);
+            revert MintInsufficientAmount(PEGGED_TOKEN, peggedOut, minPeggedOut);
         }
 
         // do the mint for collateral
@@ -865,7 +831,7 @@ contract Minter_v1 is
         }
 
         if (wrappedCollateralOut < minWrappedCollateralOut) {
-            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, minWrappedCollateralOut, wrappedCollateralOut);
+            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
         }
 
         // redeem pegged tokens and send the remainder of the collateral
@@ -920,7 +886,7 @@ contract Minter_v1 is
         }
         // make sure it meets the minimum requirements
         if (leveragedOut < minLeveragedOut) {
-            revert MintInsufficientAmount(LEVERAGED_TOKEN, minLeveragedOut, leveragedOut);
+            revert MintInsufficientAmount(LEVERAGED_TOKEN, leveragedOut, minLeveragedOut);
         }
         // mint the leveraged tokens and take wrappedCollateralIn
         _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);
@@ -968,7 +934,7 @@ contract Minter_v1 is
         }
         wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
         if (wrappedCollateralOut < minWrappedCollateralOut) {
-            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, minWrappedCollateralOut, wrappedCollateralOut);
+            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
         }
 
         _redeemLeveragedToken(leveragedIn, wrappedCollateralOut, receiver);
@@ -1871,9 +1837,11 @@ contract Minter_v1 is
         if (leveragedTokenBalance_ == 0) {
             collateral = forLeveraged * collateralPrice;
         } else {
-            collateral =
-                (forLeveraged * (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether)) /
-                (collateralPrice * leveragedTokenBalance_);
+            collateral = Math.mulDiv(
+                forLeveraged,
+                collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether,
+                collateralPrice * leveragedTokenBalance_
+            );
         }
     }
 

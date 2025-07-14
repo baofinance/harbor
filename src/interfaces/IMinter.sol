@@ -134,17 +134,16 @@ interface IMinter {
     /// @dev Thrown when collateral is passed but minting is prevented for some other reason.
     error MintZeroAmount(address mintingToken);
     /// @dev Thrown when collateral is passed but minting is reduced below the miniumum requested.
-    error MintInsufficientAmount(address mintingToken, uint256 miniumum, uint256 actual);
+    error MintInsufficientAmount(address mintingToken, uint256 actual, uint256 miniumum);
     /// @dev Thrown when pegged or leveraged is passed but redeeming is prevented for some other reason.
     error ReturnZeroAmount(address returningToken);
     /// @dev Thrown when pegged or leveraged is passed but redeeming is reduced below the miniumum requested.
-    error ReturnInsufficientAmount(address returningToken, uint256 miniumum, uint256 actual);
+    error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 miniumum);
     error NoRedeemableTokens(address redeemingToken);
     error InsufficientRedeemableTokens(address redeemingToken, uint256 available, uint256 requested);
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
-    // TODO: make these expected, actual.
     error TooManyCollateralRatioBounds(string config, uint count, uint max); // solhint-disable-line explicit-types
     error InvalidCollateralRatioBoundValue(string config, uint256 value, uint index, string reason); // solhint-disable-line explicit-types
     error CollateralRatioBoundValueNotIncreasing(
@@ -218,10 +217,6 @@ interface IMinter {
     /// collateral.
     function peggedTokenPrice() external view returns (uint256);
 
-    /// @notice Return the leveraged tokens that are the same value are the given collateral token (at the current
-    /// collateral ratio).
-    function leveragedTokensForCollateral(uint256 forWrappedCollateral) external view returns (uint256 leveragedTokens);
-
     /// @notice Returns the amount of Pegged tokens that need to be redeemed to achieve a given target collateral ratio
     /// This is based on the fact that redeeming pegged tokens has a upward pressure on collateral ratio
     /// If, however, there are no leveraged tokens, or their value is 0 due to a depeg, then no amount of redemption can
@@ -236,16 +231,6 @@ interface IMinter {
     function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged);
-
-    function wrappedCollateralForCollateralRatio(
-        uint256 targetCollateralRatio
-    ) external view returns (uint256 wrappedCollateral);
-
-    /// @notice Returns the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and
-    /// discounts
-    /// @param forLeveragedTokens The amount of leveraged tokens
-    /// @return collateral The amount of collateral tokens equivalent to `forLeveragedTokens` wrapped collateral
-    function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 collateral);
 
     /// @notice Returns the address of the price oracle contract
     function priceOracle() external view returns (address);
