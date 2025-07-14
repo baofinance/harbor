@@ -28,7 +28,7 @@
 | SafeCast                       |                 85 |               24,491 |
 | SafeERC20                      |                 85 |               24,491 |
 | SignedMath                     |                 85 |               24,491 |
-| StabilityPoolManager_v1        |             11,273 |               13,303 |
+| StabilityPoolManager_v1        |             11,210 |               13,366 |
 | StabilityPool_v1               |             19,656 |                4,920 |
 | StakedETHWrappedPriceOracle_v1 |              3,695 |               20,881 |
 | SteamMinter                    |              1,383 |               23,193 |
