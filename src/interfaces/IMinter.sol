@@ -70,27 +70,17 @@ interface IMinter {
         uint256 leveragedOut
     );
 
-    /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
-    /// @param sender The address of peggedToken and leveragedToken owner.
-    /// @param receiver The address of receiver for collateral token.
+    /// @notice Emitted when someone redeems a peggedToken .
+    /// @param sender The address of peggedToken owner.
+    /// @param receiver The address of receiver for collateral and leveraged token.
     /// @param peggedTokenBurned The amount of peggedToken burned.
     /// @param collateralOut The amount of collateral token redeemed.
+    /// @param leveragedOut The amount of leveraged token redeemed
     event RedeemPeggedToken(
         address indexed sender,
         address indexed receiver,
         uint256 peggedTokenBurned,
-        uint256 collateralOut
-    );
-
-    /// @notice Emitted when someone redeem collateral token with peggedToken or leveragedToken.
-    /// @param sender The address of peggedToken and leveragedToken owner.
-    /// @param receiver The address of receiver for collateral token.
-    /// @param peggedTokenBurned The amount of peggedToken burned.
-    /// @param leveragedOut The amount of collateral token redeemed.
-    event SwapPeggedForLeveraged(
-        address indexed sender,
-        address indexed receiver,
-        uint256 peggedTokenBurned,
+        uint256 collateralOut,
         uint256 leveragedOut
     );
 
@@ -144,16 +134,16 @@ interface IMinter {
     /// @dev Thrown when collateral is passed but minting is prevented for some other reason.
     error MintZeroAmount(address mintingToken);
     /// @dev Thrown when collateral is passed but minting is reduced below the miniumum requested.
-    error MintInsufficientAmount(address mintingToken, uint256 miniumum, uint256 actual);
+    error MintInsufficientAmount(address mintingToken, uint256 actual, uint256 miniumum);
     /// @dev Thrown when pegged or leveraged is passed but redeeming is prevented for some other reason.
     error ReturnZeroAmount(address returningToken);
     /// @dev Thrown when pegged or leveraged is passed but redeeming is reduced below the miniumum requested.
-    error ReturnInsufficientAmount(address returningToken, uint256 miniumum, uint256 actual);
+    error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 miniumum);
     error NoRedeemableTokens(address redeemingToken);
+    error InsufficientRedeemableTokens(address redeemingToken, uint256 available, uint256 requested);
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
-    // TODO: make these expected, actual.
     error TooManyCollateralRatioBounds(string config, uint count, uint max); // solhint-disable-line explicit-types
     error InvalidCollateralRatioBoundValue(string config, uint256 value, uint index, string reason); // solhint-disable-line explicit-types
     error CollateralRatioBoundValueNotIncreasing(
@@ -203,11 +193,17 @@ interface IMinter {
     /// @notice Return the current config.
     function config() external view returns (Config memory);
 
-    /// @notice Return the current collateral ratio of the peggedToken to the collateral token (18 decimals).
-    /// This function isn't technically correct if the pegged token depegs, when the collateral ratio is 1.
-    /// As that is not very useful and also makes the funtion piecewise, the number returned is the collateral ratio
-    /// assuming the assuming the pegged token price is exactly 1 (i.e. not depegged).
-    /// if there are no pegged tokens, `uint256(-1)` is returned.
+    /// @notice Return the current collateral ratio of the system (18 decimals).
+    /// This is the raw ratio of (collateral value) / (pegged token balance) without any flooring.
+    /// When the system is depegged (ratio < 1), this function will return the actual value below 1.
+    ///
+    /// Special cases:
+    /// - If both collateral and pegged tokens are zero: Returns 1 ether (to avoid discontinuity when first minting)
+    /// - If pegged tokens are zero but collateral exists: Returns a very large number (1 ether * 1 ether * 1 ether)
+    /// - If collateral price is zero: Returns 1 ether * 1 ether
+    ///
+    /// This value is used for critical system operations like rebalancing, especially in depegged scenarios.
+    /// For the real market value of the pegged token, see peggedTokenPrice() instead.
     function collateralRatio() external view returns (uint256);
 
     /// @notice Return the current leveraged ratio of the leveragedToken (18 decimals).
@@ -221,37 +217,20 @@ interface IMinter {
     /// collateral.
     function peggedTokenPrice() external view returns (uint256);
 
-    /// @notice Return the leveraged tokens that are the same value are the given collateral token (at the current
-    /// collateral ratio).
-    function leveragedTokensForCollateral(uint256 forWrappedCollateral) external view returns (uint256 leveragedTokens);
-
     /// @notice Returns the amount of Pegged tokens that need to be redeemed to achieve a given target collateral ratio
     /// This is based on the fact that redeeming pegged tokens has a upward pressure on collateral ratio
-    /// If, however, there are no leveraged tokens then no amount of redemption can change the collateral ratio.
-    /// In the case of no leveraged tokens we return the total supply minted by this minter
+    /// If, however, there are no leveraged tokens, or their value is 0 due to a depeg, then no amount of redemption can
+    /// change the collateral ratio.
+    /// In the case of total leveraged token value being zero we return the supply minted by this Minter
     /// @param targetCollateralRatio The collateral ratio that we aim to meet by the returned pegged tokens redeemed.
-    /// @return peggedTokens The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
-    /// given the current collateral ratio
-    function redeemPeggedForCollateralRatio(uint256 targetCollateralRatio) external view returns (uint256 peggedTokens);
-
-    /// @notice Returns the number of pegged tokens needed to be swapped for leveraged tokens to
-    /// achieve the `targetCollateralRatio`
-    /// @param targetCollateralRatio The target collateral ratio
-    /// @return peggedTokens The number of pegged tokens needed to be swapped to achieve the given
-    /// `targetCollateralRatio`
-    function swapPeggedForLeveragedForCollateralRatio(
+    /// Must be greater than 1 ether
+    /// @return peggedForCollateral The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
+    /// given the current collateral ratio and redeeming into collateral
+    /// @return peggedForLeveraged The number of pegged tokens that need to be redeemed to achieve the `targetCollateralRatio`
+    /// given the current collateral ratio and redeeming into leveaged tokens
+    function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedTokens);
-
-    function wrappedCollateralForCollateralRatio(
-        uint256 targetCollateralRatio
-    ) external view returns (uint256 wrappedCollateral);
-
-    /// @notice Returns the amount of collateral tokens 'forLeveragedTokens' will buy in the absence of fees and
-    /// discounts
-    /// @param forLeveragedTokens The amount of leveraged tokens
-    /// @return collateral The amount of collateral tokens equivalent to `forLeveragedTokens` wrapped collateral
-    function collateralForLeverageTokens(uint256 forLeveragedTokens) external view returns (uint256 collateral);
+    ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged);
 
     /// @notice Returns the address of the price oracle contract
     function priceOracle() external view returns (address);
@@ -491,18 +470,17 @@ interface IMinter {
     /// @return peggedOut The amount of pegged tokens received.
     function freeMintPeggedToken(uint256 collateralIn, address receiver) external returns (uint256 peggedOut);
 
-    /// @notice Redeem some pegged tokens for collateral tokens.
-    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
+    /// @notice Redeem some pegged tokens for collateral tokens and leveraged tokens.
+    /// @param peggedForCollateral the amount of peggedToken to redeem for collateral.
+    /// @param peggedForLeveraged the amount of peggedToken to redeem for leveraged tokens.
     /// @param receiver The address of receiver for collateral token.
-    /// @return collateralOut The amount of collateral tokens received.
-    function freeRedeemPeggedToken(uint256 peggedIn, address receiver) external returns (uint256 collateralOut);
-
-    /// @notice Redeem some pegged tokens for collateral tokens.
-    /// @param peggedIn the amount of peggedToken to redeem, use `uint256(-1)` to redeem all peggedToken.
-    /// @param receiver The address of receiver for collateral token.
+    /// @return wrappedCollateralOut The amount of collateral tokens received.
     /// @return leveragedOut The amount of leveraged tokens received.
-    function freeSwapPeggedForLeveraged(uint256 peggedIn, address receiver) external returns (uint256 leveragedOut);
-
+    function freeRedeemPeggedToken(
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged,
+        address receiver
+    ) external returns (uint256 wrappedCollateralOut, uint256 leveragedOut);
     /// @notice Mint some leveraged tokens in exchange for collateral tokens.
     /// @param collateralIn The amount of wrapped value of collateral token supplied, use `uint256(-1)` to supply all
     /// collateral token.
