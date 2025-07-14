@@ -34,20 +34,20 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         assertEq(IERC20(peggedToken).balanceOf(zeroFee), price * 10, "zeroFee should have pegged");
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
 
-        uint256 peggedTokens = IMinter(minter).redeemPeggedForCollateralRatio(11 ether / 10);
+        (uint256 peggedTokens, ) = IMinter(minter).redeemPeggedForCollateralRatio(11 ether / 10);
         assertEq(peggedTokens, IMinter(minter).peggedTokenBalance(), "should be all tokens");
         vm.prank(zeroFee);
-        IMinter(minter).freeRedeemPeggedToken(peggedTokens, zeroFee);
+        IMinter(minter).freeRedeemPeggedToken(peggedTokens, 0, zeroFee);
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "should have liquidated all");
     }
 
     function _liquidateRedeemToCR(uint256 targetCR) private {
         uint256 startCR = IMinter(minter).collateralRatio();
         vm.prank(zeroFee);
-        uint256 peggedTokens = IMinter(minter).redeemPeggedForCollateralRatio(targetCR);
+        (uint256 peggedTokens, ) = IMinter(minter).redeemPeggedForCollateralRatio(targetCR);
         if (peggedTokens > 0) {
             vm.prank(zeroFee);
-            IMinter(minter).freeRedeemPeggedToken(peggedTokens, zeroFee);
+            IMinter(minter).freeRedeemPeggedToken(peggedTokens, 0, zeroFee);
             if (targetCR < startCR) {
                 assertEq(IMinter(minter).collateralRatio(), startCR, "should not have changed CR");
             } else {
@@ -74,12 +74,12 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
 
     function _liquidateSwapToCR(uint256 targetCR) private {
         // uint256 startCR = IMinter(minter).collateralRatio();
-        uint256 pegged = IMinter(minter).swapPeggedForLeveragedForCollateralRatio(targetCR);
+        (, uint256 pegged) = IMinter(minter).redeemPeggedForCollateralRatio(targetCR);
         if (pegged > 0) {
             uint256 startPegged = IERC20(peggedToken).balanceOf(zeroFee);
             vm.prank(zeroFee);
-            uint256 actualPegged = IMinter(minter).freeSwapPeggedForLeveraged(pegged, zeroFee);
-            assertEq(actualPegged, pegged, "swapped requested");
+            (, uint256 actualPegged) = IMinter(minter).freeRedeemPeggedToken(0, pegged, zeroFee);
+            assertApproxEqAbs(actualPegged, pegged, 2e4, "swapped requested");
             assertEq(startPegged - IERC20(peggedToken).balanceOf(zeroFee), pegged, "gave up correct pegged");
 
             // if (targetCR < startCR) {

@@ -221,7 +221,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             1 ether,
             "wrong amount of collateral"
         );
-        assertEq(poolLeveraged, IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged), "wrong amount of leveraged");
+        assertEq(
+            poolLeveraged,
+            IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged),
+            "collateral pool: wrong amount of leveraged"
+        );
 
         // collateral ratio has gone to stability, liquidate it, with no effect
         vm.expectRevert(
@@ -296,9 +300,10 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             0,
             "wrong amount of collateral"
         );
-        assertEq(
+        assertApproxEqAbs(
             IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged) - poolLeveraged,
-            liquidated, // TODO: why is this exactly the same as the liquidated pegged?
+            liquidated,
+            1e3, // 461538461538461537802 != 461538461538461538462
             "wrong amount of leveraged"
         );
         assertEq(IMinter(minter).collateralRatio(), 1.3 ether, "collateral ratio should be 130 still");

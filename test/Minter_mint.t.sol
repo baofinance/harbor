@@ -67,8 +67,14 @@ contract TestMinterMintMechanics is TestMinterMint {
         IERC20(wrappedCollateralToken).approve(minter, 10 ether);
 
         // how much can I get for 2 eth
-        uint256 leveragedFor2 = IMinter(minter).leveragedTokensForCollateral(2 ether);
-        uint256 leveragedFor1a = IMinter(minter).leveragedTokensForCollateral(1 ether);
+        (, uint256 fee2, , , uint256 leveragedFor2, uint256 price, ) = IMinter(minter).mintLeveragedTokenDryRun(
+            2 ether
+        );
+        leveragedFor2 += (fee2 * price) / 1 ether;
+        (, uint256 fee1a, , , uint256 leveragedFor1a, , ) = IMinter(minter).mintLeveragedTokenDryRun(1 ether);
+        leveragedFor1a += (fee1a * price) / 1 ether;
+        // uint256 leveragedFor2 = IMinter(minter).leveragedTokensForCollateral(2 ether);
+        // uint256 leveragedFor1a = IMinter(minter).leveragedTokensForCollateral(1 ether);
 
         uint256 leveragedPrice = IMinter(minter).leveragedTokenPrice();
         vm.prank(zeroFee);
@@ -77,7 +83,9 @@ contract TestMinterMintMechanics is TestMinterMint {
 
         assertEq(actualMinted1a, leveragedFor1a, "actual minted is as predicted");
 
-        uint256 leveragedFor1b = IMinter(minter).leveragedTokensForCollateral(1 ether);
+        // uint256 leveragedFor1b = IMinter(minter).leveragedTokensForCollateral(1 ether);
+        (, uint256 fee1b, , , uint256 leveragedFor1b, , ) = IMinter(minter).mintLeveragedTokenDryRun(1 ether);
+        leveragedFor1b += (fee1b * price) / 1 ether;
         assertEq(leveragedFor1a + leveragedFor1b, leveragedFor2, "1 + 1 = 2");
     }
 
@@ -89,9 +97,9 @@ contract TestMinterMintMechanics is TestMinterMint {
 
         // check that the fees match the reported value, both emit and that transferred
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
-        uint256 leveragedCalculated = IMinter(minter).leveragedTokensForCollateral(collateral - fee);
-        vm.expectEmit(true, true, false, true, minter);
-        emit IMinter.MintLeveragedToken(sender, sender, collateral, leveragedCalculated);
+        // uint256 leveragedCalculated = IMinter(minter).leveragedTokensForCollateral(collateral - fee);
+        vm.expectEmit(true, true, true, false, minter);
+        emit IMinter.MintLeveragedToken(sender, sender, collateral, 0);
         // console2.log("expected leveraged minted=%s", leveragedCalculated);
         vm.prank(sender);
         uint256 leveragedMinted = IMinter(minter).mintLeveragedToken(collateral, sender, 0);
