@@ -224,7 +224,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         assertEq(
             poolLeveraged,
             IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged),
-            "c: wrong amount of leveraged"
+            "collateral pool: wrong amount of leveraged"
         );
 
         // collateral ratio has gone to stability, liquidate it, with no effect

@@ -470,7 +470,7 @@ interface IMinter {
     /// @return peggedOut The amount of pegged tokens received.
     function freeMintPeggedToken(uint256 collateralIn, address receiver) external returns (uint256 peggedOut);
 
-    /// @notice Redeem some pegged tokens for collateral tokens.
+    /// @notice Redeem some pegged tokens for collateral tokens and leveraged tokens.
     /// @param peggedForCollateral the amount of peggedToken to redeem for collateral.
     /// @param peggedForLeveraged the amount of peggedToken to redeem for leveraged tokens.
     /// @param receiver The address of receiver for collateral token.
