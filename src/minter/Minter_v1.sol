@@ -1364,12 +1364,14 @@ contract Minter_v1 is
                 // all the requested collateral can be consumed
                 collateralInBand = underlyingCollateralIn;
             } else {
-                uint256 phi = (bandLowerBound * (1 ether - bandFeeRatio)) +
+                uint256 phi$ = (bandLowerBound * (1 ether - bandFeeRatio)) +
                     (bandFeeRatio * 1 ether) -
                     (1 ether * 1 ether);
-                collateralInBand =
-                    ((underlyingCollateral_ * 1 ether * 1 ether) / phi) -
-                    (((bandLowerBound * peggedTokenBalance_) * 1 ether * 1 ether) / (price * phi));
+                collateralInBand = Math.mulDiv(
+                    underlyingCollateral_ * price - bandLowerBound * peggedTokenBalance_,
+                    1e36,
+                    price * phi$
+                );
 
                 collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
             }
@@ -1651,7 +1653,7 @@ contract Minter_v1 is
         uint256 leveragedTokenBalance_
     ) private pure returns (uint256 fee, uint256 leveragedRedeemed, uint256 collateralOut) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        if (peggedTokenBalance_ == 0 || _isDepegged(underlyingCollateral_, price, peggedTokenBalance_)) {
+        if (peggedTokenBalance_ == 0) {
             revert ActionPaused();
         }
         // we can't meaningfully do anything with leveraged tokens as their value is zero
@@ -1852,15 +1854,22 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 collateral) {
-        if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
+            peggedTokenBalance_,
+            collateralTokenBalance_,
+            collateralPrice
+        );
+        if (collateralValue$ <= peggedValue$) {
             return 0;
         }
         if (leveragedTokenBalance_ == 0) {
             collateral = forLeveraged * collateralPrice;
         } else {
-            collateral =
-                (forLeveraged * (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether)) /
-                (collateralPrice * leveragedTokenBalance_);
+            collateral = Math.mulDiv(
+                forLeveraged,
+                collateralValue$ - peggedValue$,
+                collateralPrice * leveragedTokenBalance_
+            );
         }
     }
 
@@ -1873,14 +1882,6 @@ contract Minter_v1 is
         peggedTokens =
             (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
             (targetCollateralRatio - 1 ether);
-    }
-
-    function _isDepegged(
-        uint256 collateralTokenBalance_,
-        uint256 collateralPrice,
-        uint256 peggedTokenBalance_
-    ) private pure returns (bool) {
-        return (collateralTokenBalance_ * collateralPrice) < (peggedTokenBalance_ * 1 ether);
     }
 
     /// @notice Returns a modified collateral ratio.

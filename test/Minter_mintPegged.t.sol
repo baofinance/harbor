@@ -21,10 +21,6 @@ import {TestMinterMint} from "test/Minter_mint.t.sol";
 contract TestMinterMintPegged is TestMinterMint {
     using SafeERC20 for IERC20;
 
-    function setUp() public override {
-        super.setUp();
-    }
-
     //---------------------------------------------------------------------------------------------
     // Free Mint Pegged
     //---------------------------------------------------------------------------------------------
