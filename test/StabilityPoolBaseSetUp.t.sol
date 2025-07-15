@@ -49,7 +49,9 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
         // Set up reward tokens
         rewardTokens = new address[](2);
         rewardTokens[0] = address(new MockERC20("Reward Token 1", "RWD1", 18));
+        vm.label(rewardTokens[0], MockERC20(rewardTokens[0]).symbol());
         rewardTokens[1] = address(new MockERC20("Reward Token 2", "RWD2", 18));
+        vm.label(rewardTokens[1], MockERC20(rewardTokens[1]).symbol());
 
         stabilityPools = new address[](2);
         stabilityPools[0] = stabilityPoolCollateral;

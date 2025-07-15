@@ -1,5 +1,5 @@
 [lsp]
-compilation_delay = 0.1
+compilation_delay = 0.5
 
 [compiler.solc.optimizer]
 enabled = false # unset = let the compiler decide
@@ -30,7 +30,7 @@ remappings = [
 enable = true
 
 [lsp.detectors]
-enable = true
+enable = false
 
 [detectors]
 # ignore_paths = ["test"]

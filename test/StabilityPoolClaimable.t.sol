@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
+import {console2 as console} from "forge-std/console2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -29,7 +29,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
     function setUp() public override {
         super.setUp();
-
+        // TODO: re-use TestStabilityPoolBaseSetUp
         // Create additional users
         user3 = vm.createWallet("user3").addr;
         vm.prank(user3);
@@ -44,7 +44,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Create reward tokens
         rewardToken1 = new MockERC20("Reward Token 1", "RWD1", 18);
+        vm.label(address(rewardToken1), MockERC20(rewardToken1).symbol());
         rewardToken2 = new MockERC20("Reward Token 2", "RWD2", 18);
+        vm.label(address(rewardToken2), MockERC20(rewardToken2).symbol());
 
         // Grant roles
         vm.startPrank(owner);
@@ -543,6 +545,56 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
             initialClaimableUser1,
             0.01e18
+        );
+    }
+
+    function test_ClaimableAfterCompleteAssetSweep_() public {
+        // Initial deposit for all users
+        _depositForUsers();
+
+        uint256 rewardAmount = 300 ether;
+
+        // Rebalancer sweeps some asset tokens - this should trigger _notifyLoss
+        vm.startPrank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(
+            peggedToken,
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            rebalancer
+        );
+        vm.stopPrank();
+
+        // Distribute more rewards after loss
+        _distributeRewards(address(rewardToken1), rewardAmount);
+
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
+            rewardAmount,
+            "User claimable after full liquidation: %s"
+        );
+    }
+
+    function test_ClaimableAfterNearCompleteAssetSweep_() public {
+        // Initial deposit for all users
+        _depositForUsers();
+
+        uint256 rewardAmount = 300 ether;
+
+        // Rebalancer sweeps some asset tokens - this should trigger _notifyLoss
+        vm.startPrank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(
+            peggedToken,
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            rebalancer
+        );
+        vm.stopPrank();
+
+        // Distribute more rewards after loss
+        _distributeRewards(address(rewardToken1), rewardAmount);
+
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
+            rewardAmount,
+            "User claimable after full liquidation: %s"
         );
     }
 }

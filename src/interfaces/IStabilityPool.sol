@@ -136,7 +136,7 @@ interface IStabilityPool {
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Account for an increase in rewards
+    /// @notice Account for an increase in rewards for immediate distribution
     /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
     /// Other reward tokens can also be added using this function
     function accumulateReward(address rewardToken, uint256 rewardAmount) external;

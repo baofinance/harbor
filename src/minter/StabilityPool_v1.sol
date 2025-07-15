@@ -434,7 +434,7 @@ contract StabilityPool_v1 is
     /// @dev Internal function to reduce asset accounting.
     /// @param loss The amount of asset lost.
 
-    function _notifyLoss(uint256 loss) private {
+    function _notifyLoss(uint256 loss) internal {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
         if (supply.amount == 0) {

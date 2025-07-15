@@ -75,6 +75,20 @@ contract MockStabilityPool is StabilityPool_v1 {
     function __totalSupply() external view returns (TokenBalance memory) {
         return _getStabilityPoolStorage().totalAssetSupply;
     }
+
+    /// @notice Exposes the notifyReward function for testing purposes
+    function __notifyReward(address rewardToken, uint256 rewardAmount) external {
+        return _notifyReward(rewardToken, rewardAmount);
+    }
+
+    /// @notice Exposes the notifyReward function for testing purposes
+    function __notifyLoss(uint256 lossAmount) external {
+        _notifyLoss(lossAmount);
+    }
+
+    function __distributePendingReward() external {
+        _distributePendingReward();
+    }
 }
 
 // serves no other purpose than making the foundry traces more informative
@@ -89,28 +103,35 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
     function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
         string memory liquidation = IERC20Metadata(liquidationToken).symbol();
+        string memory pegged = IERC20Metadata(IMinter(minter).PEGGED_TOKEN()).symbol();
+        string memory wrappedCollateral = IERC20Metadata(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).symbol();
 
+        string memory SPName = string.concat(pegged, "x", wrappedCollateral, "~", liquidation);
         address stabilityPoolToken = address(
             UnsafeUpgrades.deployUUPSProxy(
                 address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
                 abi.encodeCall(
                     MintableBurnableERC20_v1.initialize,
-                    (owner, "StabilityPool Token", string.concat("lpBaoUSDLwstETHx", liquidation))
+                    (owner, "StabilityPool Token", string.concat("lp", SPName))
                 )
             )
         );
+        vm.label(stabilityPoolToken, string.concat("lp", SPName));
 
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, steam, veSteam)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner))
         );
+        vm.label(stabilityPool, SPName);
+
         IBaoRoles(stabilityPoolToken).grantRoles(address(this), IMintableRole(stabilityPoolToken).MINTER_ROLE());
         IMintable(stabilityPoolToken).mint(stabilityPool, 1 ether);
 
         IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
         vm.prank(owner);
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken, stabilityPool);
+        IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam, stabilityPool);
 
         IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
         IBaoOwnable(stabilityPool).transferOwnership(owner);
@@ -127,12 +148,14 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             address(new Steam_v1(_init_rate, _rate_reduction_coefficient)),
             abi.encodeCall(Steam_v1.initialize, (owner, _init_supply, "Zhenglong Steam", "STEAM"))
         );
+        vm.label(steam, "STEAM");
         IBaoOwnable(steam).transferOwnership(owner);
 
         veSteam = UnsafeUpgrades.deployUUPSProxy(
             address(new VotingEscrow_v1(address(steam))),
             abi.encodeCall(VotingEscrow_v1.initialize, (owner, "Zhenglong Voting Escrow", "veSTEAM", "1"))
         );
+        vm.label(veSteam, "veSTEAM");
         IBaoOwnable(veSteam).transferOwnership(owner);
 
         stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
