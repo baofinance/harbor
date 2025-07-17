@@ -17,8 +17,10 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
+import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+
+import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
@@ -174,6 +176,7 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
     address treasury;
     uint256 peggedForSPCRatio;
     uint256 peggedForSPLRatio;
+    address user;
 
     constructor(uint256 peggedForSPCRatio_, uint256 peggedForSPLRatio_) {
         peggedForSPCRatio = peggedForSPCRatio_;
@@ -196,6 +199,7 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         if (peggedForSPL > 0) {
             IStabilityPool(stabilityPoolLeveraged).deposit(peggedForSPL, address(this), 0);
         }
+        user = address(this);
         bountyReceiver = vm.createWallet("bountyReceiver").addr;
         treasury = vm.createWallet("treasury").addr;
 
@@ -233,12 +237,14 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
             "liquidate_to",
             sa(
                 "current CR",
-                "before SPCollateral collateral",
+                "after user collateral",
                 "after SPCollateral collateral",
-                "before SPLeveraged leveraged",
+                "after user leveraged",
                 "after SPLeveraged leveraged",
-                "before minter collateral",
-                "after minter collateral"
+                "",
+                "after minter collateral",
+                "after user SPCollateral balance",
+                "after user SPLeveraged balance"
             )
         );
     }
@@ -256,6 +262,10 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         uint256 stabilityPoolLeveragedPegged;
         uint256 stabilityPoolCollateralCollateral;
         uint256 stabilityPoolLeveragedLeveraged;
+        uint256 userCollateral;
+        uint256 userLeveraged;
+        uint256 userBalanceSPCollateral;
+        uint256 userBalanceSPLeveraged;
     }
 
     function _readMeasures() internal view returns (Measures memory m) {
@@ -266,6 +276,10 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         m.stabilityPoolLeveragedPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
         m.stabilityPoolCollateralCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
         m.stabilityPoolLeveragedLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
+        m.userCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user, wrappedCollateralToken);
+        m.userLeveraged = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(user, leveragedToken);
+        m.userBalanceSPCollateral = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user);
+        m.userBalanceSPLeveraged = IStabilityPool(stabilityPoolLeveraged).assetBalanceOf(user);
     }
 
     function doOneCollateralRatio() internal override {
@@ -299,12 +313,14 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
             toFile,
             ua(
                 currentCollateralRatio,
-                pre.stabilityPoolCollateralCollateral,
+                post.userCollateral,
                 post.stabilityPoolCollateralCollateral,
-                pre.stabilityPoolLeveragedLeveraged,
+                post.userLeveraged,
                 post.stabilityPoolLeveragedLeveraged,
-                pre.minterCollateral,
-                post.minterCollateral
+                0,
+                post.minterCollateral,
+                post.userBalanceSPCollateral,
+                post.userBalanceSPLeveraged
             )
         );
     }
