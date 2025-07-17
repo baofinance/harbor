@@ -36,7 +36,7 @@ enable = false
 # ignore_paths = ["test"]
 # exclude_paths = ["node_modules", "lib", "script"]
 only = []
-exclude = [
+#exclude = [
   #  "abi-encode-with-signature",
   #  "axelar-proxy-contract-id",
   #  "balance-relied-on",
@@ -46,11 +46,11 @@ exclude = [
   #  "msg-value-nonpayable-function",
   #  "unused-contract",
   #  "unchecked-return-value"
-]
+#]
 
 [printers]
 only = []
-exclude = [
+#exclude = [
   #   "control-flow-graph",
   #   "imports-graph",
   #   "inheritance-graph",
@@ -63,4 +63,4 @@ exclude = [
   #   "state-changes",
   #   "storage-layout",
   #   "tokens",
-]
+#]

@@ -90,6 +90,12 @@ interface IStabilityPool {
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
     function LIQUIDATION_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
+    /// @notice Return the minimum the amount of assets the pool can hold if non-zero.
+    function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Return the minimum the amount of assets that can be deposited in one call.
+    function MIN_DEPOSIT() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
+
     /// @notice Return the address of underlying token of this contract.
     function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 

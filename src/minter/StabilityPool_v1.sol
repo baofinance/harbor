@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
@@ -17,6 +18,8 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
+
+import {console2} from "forge-std/console2.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -46,7 +49,7 @@ contract StabilityPool_v1 is
     IStabilityPool
 {
     using SafeERC20 for IERC20;
-    using DecrementalFloatingPoint for uint112;
+    using DecrementalFloatingPoint for uint128;
 
     /*************
      * Constants *
@@ -83,6 +86,16 @@ contract StabilityPool_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 internal immutable _VE_START;
 
+    /// @dev the pool cannot have less than this supply once it has reached that supply
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 public immutable MIN_TOTAL_ASSET_SUPPLY;
+
+    /// @dev the minimum deposit size, used to guarantee the MIN_TOTAL_ASSET_SUPPLY if non-zero
+    /// Although strictly it is only needed for the first deposit, it's a small amount and so not a big penalty for all
+    /// with the added protection of making multiple small deposit attack vectors harder
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 public immutable MIN_DEPOSIT; // = MIN_TOTAL_ASSET_SUPPLY;
+
     /***********
      * Structs *
      ***********/
@@ -93,9 +106,9 @@ contract StabilityPool_v1 is
     /// @param amount The amount of token currently.
     /// @param updatedAt The timestamp in day when the struct is updated.
     struct TokenBalance {
-        uint112 product;
-        uint104 amount;
-        uint40 updatedAt;
+        uint128 product; // TODO: this could be 124 bits
+        uint104 amount; // This has to store 1e36
+        uint40 updatedAt; // TODO: this could be days rather than seconds requiring fewer bits
     }
 
     /// @dev The gauge data struct. The compiler will pack this into single `uint256`.
@@ -156,7 +169,7 @@ contract StabilityPool_v1 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         TokenBalance memory initialSupply = TokenBalance({
-            product: DecrementalFloatingPoint.encode(0, 0, uint64(1 ether)),
+            product: DecrementalFloatingPoint.init(),
             amount: 0,
             updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
         });
@@ -172,7 +185,8 @@ contract StabilityPool_v1 is
         address minter_,
         address liquidationToken_,
         address gaugeStakeToken_,
-        address gaugeRewardToken_
+        address gaugeRewardToken_,
+        uint256 minTotalAssetSupply
     ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, 1 weeks) {
         _disableInitializers();
         address asset = IMinter(minter_).PEGGED_TOKEN();
@@ -195,6 +209,11 @@ contract StabilityPool_v1 is
         Token.sanityCheckERC20Token(gaugeStakeToken_);
         // slither-disable-next-line missing-zero-check
         GAUGE_REWARD_TOKEN = gaugeRewardToken_;
+
+        // set these two to the same thing, for public visibility
+        // their purpose is the same thing - preventing a complete emptying of a non-empty pool
+        MIN_TOTAL_ASSET_SUPPLY = minTotalAssetSupply;
+        MIN_DEPOSIT = minTotalAssetSupply;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -264,6 +283,11 @@ contract StabilityPool_v1 is
         if (assetsDeposited < minAmount) {
             revert DepositAmountLessThanMinimum(assetsDeposited, minAmount);
         }
+        // although not strictly necessary: it is only needed for the first deposit
+        // we enforce this limit on all deposits because it is a small amount (1$)
+        if (assetsDeposited < MIN_TOTAL_ASSET_SUPPLY) {
+            revert DepositAmountLessThanMinimum(assetsDeposited, MIN_TOTAL_ASSET_SUPPLY);
+        }
 
         // tell the world
         emit Deposit(sender, receiver, assetsDeposited);
@@ -322,10 +346,18 @@ contract StabilityPool_v1 is
         if (assetsWithdrawn < minAmount) {
             revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
+
+        // floor the total supply ar the minimum
+        // we do this silently as the lesser of two evils because its a small amount (1$) and most
+        // users would rather lose a $ than resubmitting the withdrawal transaction
+        // besides the user could have passed a -1 in meaning all my balance.
+        TokenBalance memory supply = $.totalAssetSupply;
+        if (supply.amount - assetsWithdrawn < MIN_TOTAL_ASSET_SUPPLY) {
+            assetsWithdrawn = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
+        }
         emit Withdraw(sender, receiver, assetsWithdrawn);
 
         // update the global record
-        TokenBalance memory supply = $.totalAssetSupply;
         unchecked {
             supply.amount -= uint104(assetsWithdrawn);
             supply.updatedAt = uint40(block.timestamp);
@@ -414,7 +446,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator
-    function _getTotalPoolShare() internal view virtual override returns (uint112 currentProd, uint256 totalShare) {
+    function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
         currentProd = supply.product;
@@ -424,7 +456,7 @@ contract StabilityPool_v1 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     function _getUserPoolShare(
         address account
-    ) internal view virtual override returns (uint112 previousProd, uint256 share) {
+    ) internal view virtual override returns (uint128 previousProd, uint256 share) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory balance = $.assetBalances[account];
         previousProd = balance.product;
@@ -440,6 +472,15 @@ contract StabilityPool_v1 is
         if (supply.amount == 0) {
             return;
         }
+        // Enforce minimum balance to prevent complete depletion
+        if (loss >= supply.amount - MIN_TOTAL_ASSET_SUPPLY) {
+            // Loss would breach minimum - limit it
+            loss = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
+        }
+        if (loss == 0) {
+            return; // No loss to apply
+        }
+
         // calculate the loss per unit. which, due to integer division, has errors
         uint256 assetLossPerUnitStaked;
         // those errors are contained in an over-applied error which is essentially
@@ -448,40 +489,32 @@ contract StabilityPool_v1 is
         // the loss error does not affect the supply, only the user share of that and ensures that
         // when it comes to making a claim, users get a fair allocation.
 
-        // use >= here, in case someone send extra asset to this contract.
-        if (loss >= supply.amount) {
-            // Complete liquidation
-            assetLossPerUnitStaked = 1 ether;
-            $.lastAssetLossError = 0;
-            supply.amount = 0;
-        } else {
-            uint256 lossInEther = loss * 1 ether;
+        uint256 lossInEther = loss * 1 ether;
 
-            // calculate the new loss error (over applied)
-            // Handle case where loss is less than the over-application error
-            if (lossInEther <= $.lastAssetLossError) {
-                // Consume the error by the loss amount
-                $.lastAssetLossError -= lossInEther;
-                assetLossPerUnitStaked = 0; // No loss per unit staked, as the error absorbs the loss
-            } else {
-                // Calculate adjusted loss after accounting for error
-                uint256 lossNumerator = lossInEther - $.lastAssetLossError;
-                // Use ceiling division (n-1)/d + 1 to round up if there's any remainder
-                // this is an optimised version of ceilDiv in that we know the denominator is > zero (see code above)
-                // This ensures the pool is not disadvantaged and only favours the pool when necessary.
-                assetLossPerUnitStaked = (lossNumerator - 1) / uint256(supply.amount) + 1;
-                // Store the over-application as the new error
-                $.lastAssetLossError = (assetLossPerUnitStaked * uint256(supply.amount)) - lossNumerator;
-            }
-            // Reduce supply by loss amount
-            supply.amount -= uint104(loss);
+        // calculate the new loss error (over applied)
+        // Handle case where loss is less than the over-application error
+        if (lossInEther <= $.lastAssetLossError) {
+            // Consume the error by the loss amount
+            $.lastAssetLossError -= lossInEther;
+            assetLossPerUnitStaked = 0; // No loss per unit staked, as the error absorbs the loss
+        } else {
+            // Calculate adjusted loss after accounting for error
+            uint256 lossNumerator = lossInEther - $.lastAssetLossError;
+            // Use ceiling division (n-1)/d + 1 to round up if there's any remainder
+            // this is an optimised version of ceilDiv in that we know the denominator is > zero (see code above)
+            // This ensures the pool is not disadvantaged and only favours the pool when necessary.
+            assetLossPerUnitStaked = (lossNumerator - 1) / uint256(supply.amount) + 1;
+            // Store the over-application as the new error
+            $.lastAssetLossError = (assetLossPerUnitStaked * uint256(supply.amount)) - lossNumerator;
         }
+        // Reduce supply by loss amount
+        supply.amount -= uint104(loss);
 
         // Update product factor and total supply
         // The newProductFactor is the factor by which to change all deposits, due to the depletion of StabilityPool assets in the liquidation.
-        // We make the product factor 0 if there was a pool-emptying. Otherwise, it is (1 - assetLossPerUnitStaked)
-        uint256 newProductFactor = 1 ether - assetLossPerUnitStaked;
-        supply.product = supply.product.mul(uint64(newProductFactor));
+        // As we don't allow pool emptying it is (1 - assetLossPerUnitStaked) which is always > 0 and < 1.
+        uint128 newProductFactor = 1 ether - uint128(assetLossPerUnitStaked);
+        supply.product = supply.product.mul(newProductFactor);
         supply.updatedAt = uint40(block.timestamp);
         _recordTotalSupply(supply);
     }
@@ -509,52 +542,29 @@ contract StabilityPool_v1 is
     /// @return compoundedBalance The amount asset deposited after several liquidation.
     function _getCompoundedBalance(
         uint256 initialBalance,
-        uint112 initialProduct,
-        uint112 currentProduct
-    ) private pure returns (uint256 compoundedBalance) {
-        // no balance before, return 0
+        uint128 initialProduct,
+        uint128 currentProduct
+    ) internal pure returns (uint256 compoundedBalance) {
+        uint256[9] memory scaleFactors = [uint256(1), 1e9, 1e18, 1e27, 1e36, 1e45, 1e54, 1e63, 1e72];
         // slither-disable-next-line incorrect-equality
         if (initialBalance == 0) {
             return 0;
         }
+        uint8 initialExponent = initialProduct.exponent();
+        uint8 currentExponent = currentProduct.exponent();
+        uint256 initialMagnitude = initialProduct.magnitude();
+        uint256 currentMagnitude = currentProduct.magnitude();
 
-        // If stake was made before a pool-emptying event, then it has been fully cancelled with debt -- so, return 0
-        if (initialProduct.epoch() < currentProduct.epoch()) {
-            return 0;
+        // Liquity's formula: amount * currentP / initialP / SCALE_FACTOR^(exponentDiff)
+        uint8 exponentDiff = currentExponent - initialExponent;
+
+        // Prevent overflow by limiting exponent difference (like Liquity's MAX_SCALE_FACTOR_EXPONENT)
+        if (exponentDiff > 8) {
+            return 0; // Too many exponent changes
         }
 
-        uint256 exponentDiff = currentProduct.exponent() - initialProduct.exponent();
-
-        // Compute the compounded stake. If a scale change in P was made during the stake's lifetime,
-        // account for it. If more than one scale change was made, then the stake has decreased by a factor of
-        // at least 1e-9 -- so return 0.
-        // slither-disable-next-line incorrect-equality
-        if (exponentDiff == 0) {
-            compoundedBalance =
-                (initialBalance * uint256(currentProduct.magnitude())) /
-                uint256(initialProduct.magnitude());
-            // slither-disable-next-line incorrect-equality
-        } else if (exponentDiff == 1) {
-            compoundedBalance =
-                (initialBalance * uint256(currentProduct.magnitude())) /
-                uint256(initialProduct.magnitude()) /
-                DecrementalFloatingPoint.HALF_PRECISION;
-        } else {
-            compoundedBalance = 0;
-        }
-
-        // If compounded deposit is less than a billionth of the initial deposit, return 0.
-        //
-        // NOTE: originally, this line was in place to stop rounding errors making the deposit too large. However, the error
-        // corrections should ensure the error in P "favors the Pool", i.e. any given compounded deposit should slightly less
-        // than it's theoretical value.
-        //
-        // Thus it's unclear whether this line is still really needed.
-        if (compoundedBalance < initialBalance / DecrementalFloatingPoint.HALF_PRECISION) {
-            compoundedBalance = 0;
-        }
-
-        return compoundedBalance;
+        uint256 scaleFactor = scaleFactors[exponentDiff];
+        compoundedBalance = Math.mulDiv(initialBalance, currentMagnitude, initialMagnitude) / scaleFactor;
     }
 
     // Rebalancing support

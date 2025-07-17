@@ -169,15 +169,27 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
-        // User1 withdraws all
+        // Get the minimum total asset supply
+        uint256 minTotalAssetSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+
+        // User1 withdraws all (but system will keep minimum)
         vm.startPrank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
         vm.stopPrank();
 
-        // Check withdrawal results
-        assertEq(withdrawn, DEPOSIT_AMOUNT);
-        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), 0);
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), 0);
+        // Check withdrawal results - should withdraw all except the minimum
+        uint256 expectedWithdrawn = DEPOSIT_AMOUNT - minTotalAssetSupply;
+        assertEq(withdrawn, expectedWithdrawn, "Should withdraw all except minimum");
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            minTotalAssetSupply,
+            "Should leave minimum in pool"
+        );
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            minTotalAssetSupply,
+            "User should have minimum balance"
+        );
     }
 
     function testRewardDistribution() public {

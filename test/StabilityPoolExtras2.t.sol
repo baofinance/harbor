@@ -172,15 +172,37 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         // Get exact balance
         uint256 exactBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
-        // Withdraw exactly that amount
+        // Calculate maximum withdrawable amount considering MIN_TOTAL_ASSET_SUPPLY protection
+        uint256 MIN_TOTAL_ASSET_SUPPLY = 1 ether;
+        uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 maxWithdrawable = totalSupply > MIN_TOTAL_ASSET_SUPPLY ? totalSupply - MIN_TOTAL_ASSET_SUPPLY : 0;
+
+        // When trying to withdraw the exact balance, the pool will limit it to maxWithdrawable
+        uint256 expectedWithdrawal = exactBalance > maxWithdrawable ? maxWithdrawable : exactBalance;
+
+        // Withdraw exactly the user's balance (but expect it to be limited by protection)
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(exactBalance, user1, 0);
 
-        assertEq(withdrawn, exactBalance, "Should withdraw exact balance amount");
+        assertEq(
+            withdrawn,
+            expectedWithdrawal,
+            "Should withdraw maximum allowed amount considering MIN_TOTAL_ASSET_SUPPLY protection"
+        );
+
+        // The remaining balance should be the original balance minus what was actually withdrawn
+        uint256 expectedRemainingBalance = exactBalance - expectedWithdrawal;
         assertEq(
             IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            0,
-            "Balance should be 0 after exact withdrawal"
+            expectedRemainingBalance,
+            "Balance should reflect actual withdrawal amount"
+        );
+
+        // Pool total supply should not go below MIN_TOTAL_ASSET_SUPPLY
+        assertGe(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            MIN_TOTAL_ASSET_SUPPLY,
+            "Pool should maintain minimum total asset supply"
         );
     }
 

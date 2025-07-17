@@ -24,7 +24,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
     MockERC20 rewardToken1;
     MockERC20 rewardToken2;
 
-    uint256 constant INITIAL_REWARD_AMOUNT = 1000 ether;
+    uint256 constant INITIAL_REWARD_AMOUNT = 2000 ether;
     uint256 constant DEPOSIT_AMOUNT = 10 ether;
 
     function setUp() public override {
@@ -75,9 +75,9 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // Give users some pegged tokens for deposits
-        deal(peggedToken, user1, DEPOSIT_AMOUNT * 10);
-        deal(peggedToken, user2, DEPOSIT_AMOUNT * 10);
-        deal(peggedToken, user3, DEPOSIT_AMOUNT * 10);
+        deal(peggedToken, user1, DEPOSIT_AMOUNT * 200);
+        deal(peggedToken, user2, DEPOSIT_AMOUNT * 200);
+        deal(peggedToken, user3, DEPOSIT_AMOUNT * 200);
 
         setUp_collateral(100 ether, 100 ether);
     }
@@ -489,26 +489,70 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         );
     }
 
-    function testClaimableWithTinyDeposit() public {
+    function testClaimableWithMinimumDeposit() public {
         // First make a normal deposit
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
-        // Then make a tiny deposit for user2
+        // Then make a small deposit for user2 (but still above minimum)
+        uint256 smallDeposit = 1 ether; // Changed from 1 wei to 1 ether (minimum allowed)
         vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(1, user2, 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(smallDeposit, user2, 0);
 
         // Distribute rewards
         uint256 rewardAmount = 101 ether;
         _distributeRewards(address(rewardToken1), rewardAmount);
 
-        // Check the tiny deposit still gets some rewards, proportional to its share
-        uint256 expectedUser2 = (rewardAmount * 1) / (DEPOSIT_AMOUNT + 1);
+        // Check the small deposit still gets some rewards, proportional to its share
+        uint256 expectedUser2 = (rewardAmount * smallDeposit) / (DEPOSIT_AMOUNT + smallDeposit);
 
         assertApproxEqRel(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, address(rewardToken1)),
             expectedUser2,
             0.01e18
+        );
+
+        // Optional: Also verify user1 gets the remaining rewards
+        uint256 expectedUser1 = (rewardAmount * DEPOSIT_AMOUNT) / (DEPOSIT_AMOUNT + smallDeposit);
+        assertApproxEqRel(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
+            expectedUser1,
+            0.01e18
+        );
+    }
+
+    function testClaimableWithSmallDeposit() public {
+        // First make a large deposit
+        uint256 largeDeposit = DEPOSIT_AMOUNT * 100; // 1000 ether
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(largeDeposit, user1, 0);
+
+        // Then make a minimum deposit for user2
+        uint256 smallDeposit = 1 ether; // Minimum allowed
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(smallDeposit, user2, 0);
+
+        // Distribute rewards
+        uint256 rewardAmount = 1001 ether;
+        _distributeRewards(address(rewardToken1), rewardAmount);
+
+        // Check the small deposit gets proportional rewards
+        // user2 should get: (1 ether / 1001 ether) * 1001 ether ≈ 1 ether
+        uint256 expectedUser2 = (rewardAmount * smallDeposit) / (largeDeposit + smallDeposit);
+        uint256 expectedUser1 = (rewardAmount * largeDeposit) / (largeDeposit + smallDeposit);
+
+        assertApproxEqRel(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, address(rewardToken1)),
+            expectedUser2,
+            0.01e18,
+            "Small deposit should get proportional rewards"
+        );
+
+        assertApproxEqRel(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
+            expectedUser1,
+            0.01e18,
+            "Large deposit should get most of the rewards"
         );
     }
 
@@ -537,14 +581,16 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
             0.01e18
         );
 
-        // Distribute more rewards - these should not be claimable since there are no deposits
+        // Distribute more rewards - these SHOULD be claimable based on historical deposit ratios
         _distributeRewards(address(rewardToken1), rewardAmount);
 
-        // Should still have the same claimable amount (no new rewards)
+        // User1 should now have: original claimable + 1/3 of new rewards
+        uint256 expectedTotal = initialClaimableUser1 + (rewardAmount / 3);
         assertApproxEqRel(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
-            initialClaimableUser1,
-            0.01e18
+            expectedTotal,
+            0.01e18,
+            "After total loss, new rewards should still be distributed based on historical ratios"
         );
     }
 
@@ -566,9 +612,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         // Distribute more rewards after loss
         _distributeRewards(address(rewardToken1), rewardAmount);
 
-        assertEq(
+        assertApproxEqAbs(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
-            rewardAmount,
+            rewardAmount / 3,
+            1e3,
             "User claimable after full liquidation: %s"
         );
     }
@@ -591,9 +638,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         // Distribute more rewards after loss
         _distributeRewards(address(rewardToken1), rewardAmount);
 
-        assertEq(
+        assertApproxEqAbs(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
-            rewardAmount,
+            rewardAmount / 3,
+            1e3,
             "User claimable after full liquidation: %s"
         );
     }

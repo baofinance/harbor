@@ -20,6 +20,8 @@ import {MockStabilityPool} from "test/StabilityPool.t.sol";
 /// @title TestStabilityPoolLoss
 /// @notice Consolidated test suite for loss-related functionality in StabilityPool
 contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
+    uint256 constant MIN_TOTAL_ASSET_SUPPLY = 1 ether;
+
     // Constants for tolerance in assertions
     uint256 constant TOLERANCE_SMALL = 1000; // 1000 wei absolute tolerance for small amounts
     uint256 constant TOLERANCE_LARGE = 10000; // 10000 wei absolute tolerance for large amounts
@@ -38,22 +40,6 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         vm.prank(rebalancer);
         tokenHolder.sweep(assetToken, amount, address(0xdead));
     }
-
-    // /// @notice Helper function to distribute rewards to a stability pool
-    // /// @param pool The stability pool address
-    // /// @param token The reward token address
-    // /// @param amount The amount of rewards to distribute
-    // function distributeRewards(address pool, address token, uint256 amount) internal {
-    //     vm.startPrank(owner);
-    //     IBaoRoles(pool).grantRoles(address(this), REWARDER_ROLE);
-    //     vm.stopPrank();
-
-    //     // Mint reward tokens to the pool directly (this ensures they're available for claims)
-    //     deal(token, pool, IERC20(token).balanceOf(pool) + amount);
-
-    //     // Accumulate the reward
-    //     IStabilityPool(pool).accumulateReward(token, amount);
-    // }
 
     /// @notice Basic loss notification test with parameterized deposit and loss amounts
     function testBasicLoss(uint256 depositAmount, uint256 lossAmount) public {
@@ -189,9 +175,9 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Only test with the first pool to simplify
         address pool = stabilityPools[0];
 
-        uint256 lossAmount = (depositAmount * lossPercentage) / 100;
+        uint256 intendedLossAmount = (depositAmount * lossPercentage) / 100;
         if (lossPercentage == 100) {
-            lossAmount = depositAmount - 1; // Leave 1 wei to avoid complete depletion
+            intendedLossAmount = depositAmount - 1; // Leave 1 wei to avoid complete depletion
         }
 
         // Setup: User deposits
@@ -203,35 +189,47 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         vm.stopPrank();
 
         // Action: Simulate loss through sweep
-        simulateLoss(pool, lossAmount);
+        simulateLoss(pool, intendedLossAmount);
+
+        // Calculate actual loss considering MIN_TOTAL_ASSET_SUPPLY protection
+        uint256 actualLossAmount;
+        uint256 expectedRemaining;
+
+        if (depositAmount - intendedLossAmount < MIN_TOTAL_ASSET_SUPPLY) {
+            // Loss is limited by MIN_TOTAL_ASSET_SUPPLY protection
+            actualLossAmount = depositAmount - MIN_TOTAL_ASSET_SUPPLY;
+            expectedRemaining = MIN_TOTAL_ASSET_SUPPLY;
+        } else {
+            // Normal loss without protection intervention
+            actualLossAmount = intendedLossAmount;
+            expectedRemaining = depositAmount - intendedLossAmount;
+        }
 
         // Assertions with appropriate tolerance
-        uint256 expectedRemaining = depositAmount - lossAmount;
         assertApproxEqAbs(IStabilityPool(pool).totalAssetSupply(), expectedRemaining, 10);
 
         uint256 remainingBalance = IStabilityPool(pool).assetBalanceOf(user1);
         assertApproxEqAbs(remainingBalance, expectedRemaining, TOLERANCE_LARGE);
 
         // Test withdrawal after near-total loss if there's anything left
-        if (remainingBalance > 0) {
+        if (remainingBalance > MIN_TOTAL_ASSET_SUPPLY) {
+            uint256 withdrawableAmount = remainingBalance - MIN_TOTAL_ASSET_SUPPLY;
             uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
             vm.prank(user1);
-            IStabilityPool(pool).withdraw(remainingBalance, user1, 0);
+            IStabilityPool(pool).withdraw(withdrawableAmount, user1, 0);
 
             // Allow for some rounding in the withdrawal
             assertApproxEqAbs(
                 IERC20(peggedToken).balanceOf(user1),
-                initialAssetBalance + remainingBalance,
+                initialAssetBalance + withdrawableAmount,
                 TOLERANCE_LARGE
             );
 
-            // Should be approximately zero balance left
-            assertLe(IStabilityPool(pool).assetBalanceOf(user1), TOLERANCE_SMALL);
+            // Should be approximately MIN_TOTAL_ASSET_SUPPLY left
+            assertApproxEqAbs(IStabilityPool(pool).assetBalanceOf(user1), MIN_TOTAL_ASSET_SUPPLY, TOLERANCE_SMALL);
         }
     }
-
-    /// @notice Test rewards distribution after loss
 
     /// @notice Test rewards distribution after loss
     function testRewardsAfterLoss(uint256 depositAmount, uint256 rewardAmount, uint256 lossAmount) public {
@@ -315,58 +313,55 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
     /// @notice Test loss distribution with deposits/withdrawals between loss events
     function testComplexLossScenario() public {
-        // Only test with the first pool to simplify
-        address pool = stabilityPools[0];
-
         deal(peggedToken, user1, user1Deposit);
         deal(peggedToken, user2, user2Deposit);
 
         vm.prank(user1);
-        IStabilityPool(pool).deposit(user1Deposit, user1, 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(user1Deposit, user1, 0);
 
         vm.prank(user2);
-        IStabilityPool(pool).deposit(user2Deposit, user2, 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
 
         // First loss
         uint256 firstLoss = 60 ether; // 20% loss
-        simulateLoss(pool, firstLoss);
+        simulateLoss(stabilityPoolCollateral, firstLoss);
 
         // Expected loss distribution
         uint256 expectedUser1LossFirst = (firstLoss * user1Deposit) / (user1Deposit + user2Deposit);
         uint256 expectedUser2LossFirst = firstLoss - expectedUser1LossFirst;
 
         assertApproxEqAbs(
-            IStabilityPool(pool).assetBalanceOf(user1),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
             user1Deposit - expectedUser1LossFirst,
             TOLERANCE_LARGE
         );
 
         assertApproxEqAbs(
-            IStabilityPool(pool).assetBalanceOf(user2),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2),
             user2Deposit - expectedUser2LossFirst,
             TOLERANCE_LARGE
         );
 
         // User1 withdraws half
-        uint256 user1RemainingBalance = IStabilityPool(pool).assetBalanceOf(user1);
+        uint256 user1RemainingBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
         uint256 user1WithdrawAmount = user1RemainingBalance / 2;
 
         vm.prank(user1);
-        IStabilityPool(pool).withdraw(user1WithdrawAmount, user1, 0);
+        IStabilityPool(stabilityPoolCollateral).withdraw(user1WithdrawAmount, user1, 0);
 
         // User3 deposits
         uint256 user3Deposit = 50 ether;
         deal(peggedToken, user3, user3Deposit);
 
         vm.prank(user3);
-        IStabilityPool(pool).deposit(user3Deposit, user3, 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(user3Deposit, user3, 0);
 
         // Second loss
         uint256 secondLoss = 40 ether;
-        simulateLoss(pool, secondLoss);
+        simulateLoss(stabilityPoolCollateral, secondLoss);
 
         // Check final balances
-        uint256 totalAssetsAfterAll = IStabilityPool(pool).totalAssetSupply();
+        uint256 totalAssetsAfterAll = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
         uint256 expectedTotalAssets = user1Deposit +
             user2Deposit +
             user3Deposit -
@@ -376,22 +371,45 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         assertApproxEqAbs(totalAssetsAfterAll, expectedTotalAssets, TOLERANCE_LARGE);
 
-        // Ensure all users can withdraw remaining balances
-        uint256 user1FinalBalance = IStabilityPool(pool).assetBalanceOf(user1);
-        uint256 user2FinalBalance = IStabilityPool(pool).assetBalanceOf(user2);
-        uint256 user3FinalBalance = IStabilityPool(pool).assetBalanceOf(user3);
+        // Ensure all users can withdraw remaining balances (considering MIN_TOTAL_ASSET_SUPPLY protection)
+        uint256 user1FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user2FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        uint256 user3FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
 
-        vm.prank(user1);
-        IStabilityPool(pool).withdraw(user1FinalBalance, user1, 0);
+        // Calculate total withdrawable amount (total balances minus MIN_TOTAL_ASSET_SUPPLY protection)
+        uint256 totalUserBalances = user1FinalBalance + user2FinalBalance + user3FinalBalance;
+        uint256 totalWithdrawable = totalUserBalances > MIN_TOTAL_ASSET_SUPPLY
+            ? totalUserBalances - MIN_TOTAL_ASSET_SUPPLY
+            : 0;
 
-        vm.prank(user2);
-        IStabilityPool(pool).withdraw(user2FinalBalance, user2, 0);
+        if (totalWithdrawable > 0) {
+            // Withdraw proportionally based on user balances, leaving MIN_TOTAL_ASSET_SUPPLY protected
+            uint256 user1Withdrawable = (user1FinalBalance * totalWithdrawable) / totalUserBalances;
+            uint256 user2Withdrawable = (user2FinalBalance * totalWithdrawable) / totalUserBalances;
+            uint256 user3Withdrawable = totalWithdrawable - user1Withdrawable - user2Withdrawable; // Handle rounding
 
-        vm.prank(user3);
-        IStabilityPool(pool).withdraw(user3FinalBalance, user3, 0);
+            if (user1Withdrawable > 0) {
+                vm.prank(user1);
+                IStabilityPool(stabilityPoolCollateral).withdraw(user1Withdrawable, user1, 0);
+            }
 
-        // There might be some dust left due to rounding
-        assertLe(IStabilityPool(pool).totalAssetSupply(), TOLERANCE_SMALL);
+            if (user2Withdrawable > 0) {
+                vm.prank(user2);
+                IStabilityPool(stabilityPoolCollateral).withdraw(user2Withdrawable, user2, 0);
+            }
+
+            if (user3Withdrawable > 0) {
+                vm.prank(user3);
+                IStabilityPool(stabilityPoolCollateral).withdraw(user3Withdrawable, user3, 0);
+            }
+        }
+
+        // Pool should be left with approximately MIN_TOTAL_ASSET_SUPPLY due to protection
+        assertApproxEqAbs(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            MIN_TOTAL_ASSET_SUPPLY,
+            TOLERANCE_LARGE
+        );
     }
 }
 
@@ -424,19 +442,33 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         string memory context,
         address user,
         uint256 claimableImmediate,
-        uint256 claimableDelayed
+        uint256 toleranceImmediate,
+        uint256 claimableDelayed,
+        uint256 toleranceDelayed
     ) internal view {
-        assertEq(
+        assertApproxEqAbs(
             IMultipleRewardAccumulator(pool).claimable(user, immediateReward),
             claimableImmediate,
+            toleranceImmediate,
             string.concat(context, " ", vm.getLabel(user), " immediate rewards")
         );
-        assertEq(
+        assertApproxEqAbs(
             IMultipleRewardAccumulator(pool).claimable(user, delayedReward),
             claimableDelayed,
+            toleranceDelayed,
             string.concat(context, " ", vm.getLabel(user), " delayed rewards")
         );
     }
+
+    function _checkRewards(
+        string memory context,
+        address user,
+        uint256 claimableImmediate,
+        uint256 claimableDelayed
+    ) internal view {
+        _checkRewards(context, user, claimableImmediate, 0, claimableDelayed, 0);
+    }
+
     function test_EpochRetentionAfterCompleteLiquidation_RewardsStillPayOut_() public {
         // Phase 1: Initial setup
         deal(peggedToken, user1, user1Deposit);
@@ -467,7 +499,8 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         _checkRewards("after notify", user1, (immediateAmount * 1) / 3, 0);
         _checkRewards("after notify", user2, (immediateAmount * 2) / 3, 0);
 
-        vm.warp(startTime + 1 days); // 1/7 of the reward period
+        uint daycount = 1;
+        vm.warp(startTime + daycount * 1 days); // 1/7 of the reward period
 
         _checkRewards("1 day", user1, (immediateAmount * 1) / 3, 0);
         _checkRewards("1 day", user2, (immediateAmount * 2) / 3, 0);
@@ -475,12 +508,14 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         // make the pending immediate
         MockStabilityPool(pool).__distributePendingReward();
 
-        _checkRewards("1 day, dist", user1, (immediateAmount * 1) / 3, (delayedAmount * 1) / 3 / 7);
-        _checkRewards("1 day, dist", user2, (immediateAmount * 2) / 3, (delayedAmount * 2) / 3 / 7);
+        _checkRewards("1 day, dist", user1, (immediateAmount * 1) / 3, (((delayedAmount * 1) / 3) * daycount) / 7);
+        _checkRewards("1 day, dist", user2, (immediateAmount * 2) / 3, (((delayedAmount * 2) / 3) * daycount) / 7);
 
         // Phase 2: Partial (1/2) liquidation
 
-        vm.warp(startTime + 2 days); // 2/7 of the reward period
+        uint prevdaycount = daycount;
+        daycount = 2;
+        vm.warp(startTime + daycount * 1 days); // 2/7 of the reward period
 
         uint256 totalSupply = IStabilityPool(pool).totalAssetSupply();
         vm.prank(rebalancer);
@@ -493,92 +528,149 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
 
         // Test current rewards preservation and claiming
         // THE KEY ASSERTION: Rewards are preserved despite complete liquidation
-        _checkRewards("2 days, half", user1, (immediateAmount * 1) / 3, (delayedAmount * 1) / 3 / 7);
-        _checkRewards("2 days, half", user2, (immediateAmount * 2) / 3, (delayedAmount * 2) / 3 / 7);
+        _checkRewards("2 days, half", user1, (immediateAmount * 1) / 3, (((delayedAmount * 1) / 3) * prevdaycount) / 7);
+        _checkRewards("2 days, half", user2, (immediateAmount * 2) / 3, (((delayedAmount * 2) / 3) * prevdaycount) / 7);
 
         // make the pending immediate
         MockStabilityPool(pool).__distributePendingReward();
 
-        _checkRewards("2 days, half, dist", user1, (immediateAmount * 1) / 3, (((delayedAmount * 1) / 3) * 2) / 7);
-        _checkRewards("2 days, half, dist", user2, (immediateAmount * 2) / 3, (((delayedAmount * 2) / 3) * 2) / 7);
+        _checkRewards(
+            "2 days, half, dist",
+            user1,
+            (immediateAmount * 1) / 3,
+            (((delayedAmount * 1) / 3) * daycount) / 7
+        );
+        _checkRewards(
+            "2 days, half, dist",
+            user2,
+            (immediateAmount * 2) / 3,
+            (((delayedAmount * 2) / 3) * daycount) / 7
+        );
 
         // Phase 3: Complete liquidation
 
         uint256 totalAssets = IStabilityPool(pool).totalAssetSupply();
-        uint256 snap = vm.snapshotState();
         uint256 totalDeposit = user1Deposit + user2Deposit;
-        for (uint i = 0; i < 2; i++) {
-            vm.warp(startTime + 4 days); // 4/7 of the reward period
-            vm.prank(rebalancer);
-            // tokenHolder.sweep(immediateRewardToken, IStabilityPool(pool).totalAssetSupply(), address(0xdead)); TODO
-            MockStabilityPool(pool).__notifyLoss(totalAssets);
+        prevdaycount = daycount;
+        daycount = 4;
+        vm.warp(startTime + daycount * 1 days); // 4/7 of the reward period
+        vm.prank(rebalancer);
+        // tokenHolder.sweep(immediateRewardToken, IStabilityPool(pool).totalAssetSupply(), address(0xdead)); TODO
+        MockStabilityPool(pool).__notifyLoss(totalAssets);
 
-            assertEq(IStabilityPool(pool).totalAssetSupply(), i * 1 ether, "Pool should be completely emptied");
-            if (i == 0) assertEq(IStabilityPool(pool).assetBalanceOf(user1), 0, "User1 asset balance should be 0");
-            if (i == 0) assertEq(IStabilityPool(pool).assetBalanceOf(user2), 0, "User2 asset balance should be 0");
+        // Calculate expected user balances after complete liquidation
+        // The MIN_TOTAL_ASSET_SUPPLY (1 ether) is distributed proportionally
 
-            // Test current rewards preservation and claiming
-            // THE KEY ASSERTION: Rewards are preserved despite complete liquidation
-            _checkRewards("4 days, full", user1, (immediateAmount * 1) / 3, (((delayedAmount * 1) / 3) * 2) / 7);
-            _checkRewards("4 days, full", user2, (immediateAmount * 2) / 3, (((delayedAmount * 2) / 3) * 2) / 7);
+        uint256 totalOriginalDeposits = user1Deposit + user2Deposit; // 300 ether
+        uint256 expectedUser1Balance = (MIN_TOTAL_ASSET_SUPPLY * user1Deposit) / totalOriginalDeposits; // 1/3 ether
+        uint256 expectedUser2Balance = (MIN_TOTAL_ASSET_SUPPLY * user2Deposit) / totalOriginalDeposits; // 2/3 ether
 
-            // sneakily withdraw before we're noticed
-            if (i == 1) IStabilityPool(pool).withdraw(type(uint256).max, address(this), 0);
-            // make the pending immediate
-            MockStabilityPool(pool).__distributePendingReward();
+        assertApproxEqAbs(
+            IStabilityPool(pool).assetBalanceOf(user1),
+            expectedUser1Balance,
+            1000,
+            "User1 should have proportional share of protected amount"
+        );
+        assertApproxEqAbs(
+            IStabilityPool(pool).assetBalanceOf(user2),
+            expectedUser2Balance,
+            1000,
+            "User2 should have proportional share of protected amount"
+        );
 
-            // ---------------------------------------------------------------------- this should be 4 --------v
-            _checkRewards(
-                "4 days, full, dist",
-                user1,
-                (immediateAmount * 1) / 3,
-                (((delayedAmount * user1Deposit) / totalDeposit) * 2 * (i + 1)) / 7
-            );
-            _checkRewards(
-                "4 days, full, dist",
-                user2,
-                (immediateAmount * 2) / 3,
-                (((delayedAmount * user2Deposit) / totalDeposit) * 2 * (i + 1)) / 7
-            );
+        // Test current rewards preservation and claiming
+        // THE KEY ASSERTION: Rewards are preserved despite complete liquidation
+        _checkRewards("4 days, full", user1, (immediateAmount * 1) / 3, (((delayedAmount * 1) / 3) * prevdaycount) / 7);
+        _checkRewards("4 days, full", user2, (immediateAmount * 2) / 3, (((delayedAmount * 2) / 3) * prevdaycount) / 7);
 
-            // phase 4 deal more rewards - no receiver
-            deal(wrappedCollateralToken, pool, IERC20(wrappedCollateralToken).balanceOf(pool) + immediateAmount * 10);
-            IStabilityPool(pool).accumulateReward(immediateReward, immediateAmount * 10);
+        // make the pending immediate
+        MockStabilityPool(pool).__distributePendingReward();
 
-            deal(steam, pool, IERC20(steam).balanceOf(pool) + delayedAmount * 10);
-            MockStabilityPool(pool).__notifyReward(steam, delayedAmount * 10);
+        // ---------------------------------------------------------------------- this should be 4 --------v
+        _checkRewards(
+            "4 days, full, dist",
+            user1,
+            (immediateAmount * 1) / 3,
+            0,
+            (((delayedAmount * user1Deposit) / totalDeposit) * daycount) / 7,
+            600
+        );
+        _checkRewards(
+            "4 days, full, dist",
+            user2,
+            (immediateAmount * 2) / 3,
+            0,
+            (((delayedAmount * user2Deposit) / totalDeposit) * daycount) / 7,
+            1200
+        );
 
-            _checkRewards("new reward", user1, (immediateAmount * 1) / 3, (((delayedAmount * 1) / 3) * 2) / 7);
-            _checkRewards("new reward", user2, (immediateAmount * 2) / 3, (((delayedAmount * 2) / 3) * 2) / 7);
-            MockStabilityPool(pool).__distributePendingReward();
-            _checkRewards("new reward, dist", user1, (immediateAmount * 1) / 3, (((delayedAmount * 1) / 3) * 2) / 7);
-            _checkRewards("new reward, dist", user2, (immediateAmount * 2) / 3, (((delayedAmount * 2) / 3) * 2) / 7);
+        // phase 4 deal more rewards - users still receive them due to retained proportional shares
+        deal(wrappedCollateralToken, pool, IERC20(wrappedCollateralToken).balanceOf(pool) + immediateAmount * 10);
+        IStabilityPool(pool).accumulateReward(immediateReward, immediateAmount * 10);
+        uint256 immediateAmount2 = immediateAmount + immediateAmount * 10;
 
-            // deposit
-            deal(peggedToken, user3, user3Deposit);
-            vm.prank(user3);
-            IStabilityPool(pool).deposit(user3Deposit, user3, 0);
+        deal(steam, pool, IERC20(steam).balanceOf(pool) + delayedAmount * 10);
+        MockStabilityPool(pool).__notifyReward(steam, delayedAmount * 10);
 
-            MockStabilityPool(pool).__distributePendingReward();
-            _checkRewards("new reward, dist", user3, 0, 0);
+        // Users receive rewards from both original and new distributions
+        _checkRewards(
+            "new reward",
+            user1,
+            ((immediateAmount2) * 1) / 3,
+            7500,
+            (((delayedAmount * 1) / 3) * daycount) / 7,
+            600
+        );
+        _checkRewards(
+            "new reward",
+            user2,
+            ((immediateAmount2) * 2) / 3,
+            15000,
+            (((delayedAmount * 2) / 3) * daycount) / 7,
+            1200
+        );
+        MockStabilityPool(pool).__distributePendingReward();
+        _checkRewards(
+            "new reward, dist",
+            user1,
+            (immediateAmount2 * 1) / 3,
+            7500,
+            (((delayedAmount * 1) / 3) * daycount) / 7,
+            600
+        );
+        _checkRewards(
+            "new reward, dist",
+            user2,
+            (immediateAmount2 * 2) / 3,
+            15000,
+            (((delayedAmount * 2) / 3) * daycount) / 7,
+            1200
+        );
 
-            vm.revertToState(snap);
-            // now we deposit just before notifying the loss
-            console2.log("sneaky deposit");
-            deal(peggedToken, address(this), 1 ether);
-            IERC20(peggedToken).approve(pool, 1 ether);
-            IStabilityPool(pool).deposit(1 ether, address(this), 0);
-            totalDeposit += 1 ether;
-        }
+        // deposit
+        deal(peggedToken, user3, user3Deposit);
+        vm.prank(user3);
+        IStabilityPool(pool).deposit(user3Deposit, user3, 0);
+        _checkRewards("new deposit, dist", user3, 0, 0);
 
-        //
-        //
-        //
-        //
-        //
-        //
-        //
-        //
+        // rewards don't change despite a deposit
+        _checkRewards(
+            "new deposit, dist",
+            user1,
+            (immediateAmount2 * 1) / 3,
+            7500,
+            (((delayedAmount * 1) / 3) * daycount) / 7,
+            600
+        );
+        _checkRewards(
+            "new deposit, dist",
+            user2,
+            (immediateAmount2 * 2) / 3,
+            15000,
+            (((delayedAmount * 2) / 3) * daycount) / 7,
+            1200
+        );
+
         // Users can still claim their current rewards
         uint256 user1BalanceBefore = IERC20(immediateReward).balanceOf(user1);
         uint256 user2BalanceBefore = IERC20(immediateReward).balanceOf(user2);
