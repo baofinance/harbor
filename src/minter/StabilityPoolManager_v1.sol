@@ -16,6 +16,7 @@ import {Token} from "@bao/Token.sol";
 
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @title StabilityPoolManager
@@ -366,7 +367,7 @@ contract StabilityPoolManager_v1 is
         // allow the minter to burn my pegged tokens I've just swept up
         IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedLiquidated);
 
-        // sweep the pegged from each pool
+        // sweep the pegged from each pool - this just snaffles the tokens, no accounting: that is done later
         if (peggedForCollateral > 0) {
             ITokenHolder(_STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
         }
@@ -374,6 +375,7 @@ contract StabilityPoolManager_v1 is
             ITokenHolder(_STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
         }
 
+        // now liquidate the tokens to be liquidated for the reward
         (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter(MINTER).freeRedeemPeggedToken(
             peggedForCollateral,
             peggedForLeveraged,
@@ -387,8 +389,8 @@ contract StabilityPoolManager_v1 is
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, collateralBounty);
             // transfer the amounts and update the stability pool accounts
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(_STABILITY_POOL_COLLATERAL, wrappedCollateralReturned);
-            IStabilityPool(_STABILITY_POOL_COLLATERAL).accumulateReward(
-                WRAPPED_COLLATERAL_TOKEN,
+            IStabilityPool(_STABILITY_POOL_COLLATERAL).notifyLiquidation(
+                peggedForCollateral,
                 wrappedCollateralReturned
             );
         }
@@ -399,7 +401,7 @@ contract StabilityPoolManager_v1 is
             IERC20(LEVERAGED_TOKEN).safeTransfer(bountyReceiver, leveragedBounty);
             // transfer the amounts and update the stability pool accounts
             IERC20(LEVERAGED_TOKEN).safeTransfer(_STABILITY_POOL_LEVERAGED, leveragedReturned);
-            IStabilityPool(_STABILITY_POOL_LEVERAGED).accumulateReward(LEVERAGED_TOKEN, leveragedReturned);
+            IStabilityPool(_STABILITY_POOL_LEVERAGED).notifyLiquidation(peggedForLeveraged, leveragedReturned);
         }
 
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
@@ -416,7 +418,7 @@ contract StabilityPoolManager_v1 is
             // in the math we get truncation errors, but all that means is that dust is collected for the next harvest
             harvestedAmount = Math.mulDiv(harvestableAmount, poolHolding, totalHolding);
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(pool, harvestedAmount);
-            IStabilityPool(pool).accumulateReward(WRAPPED_COLLATERAL_TOKEN, harvestedAmount);
+            IMultipleRewardDistributor(pool).depositReward(WRAPPED_COLLATERAL_TOKEN, harvestedAmount);
         }
     }
 

@@ -20,7 +20,7 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
     uint256 public userPoolShare;
     uint128 public userProduct;
 
-    constructor(uint40 period) MultipleRewardCompoundingAccumulator(_ROLE_0, period) {}
+    constructor(uint40 period) MultipleRewardCompoundingAccumulator(_ROLE_0, _ROLE_1, period) {}
 
     function initialize(address owner_) external initializer {
         _initializeOwner(owner_);

@@ -8,7 +8,11 @@ contract MockLinearMultipleRewardDistributor is LinearMultipleRewardDistributor 
     // used to discover if the _accumulateReward virtual function has been called
     event _accumulateReward_called(address token, uint256 amount);
 
-    constructor(uint256 rewardManagerRole, uint40 period) LinearMultipleRewardDistributor(rewardManagerRole, period) {}
+    constructor(
+        uint256 rewardManagerRole,
+        uint256 rewardDepositorRole,
+        uint40 period
+    ) LinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, period) {}
 
     function initialize(address owner_) external initializer {
         _initializeOwner(owner_);

@@ -63,7 +63,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
 
             // Register reward token
             vm.prank(manager);
-            accumulator.registerRewardToken(tokenAddresses[i], deployer);
+            accumulator.registerRewardToken(tokenAddresses[i]);
         }
     }
 

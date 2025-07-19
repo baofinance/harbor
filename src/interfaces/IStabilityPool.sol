@@ -78,9 +78,6 @@ interface IStabilityPool {
     /// @notice The role used for notifying rebalancing.
     function REBALANCER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
-    /// @notice The role used for notifying rewards (including when rebalancing).
-    function REWARDER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
-
     /// @notice Return the address of token used to collect some rewards from the gauge.
     function GAUGE_STAKE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
@@ -142,10 +139,10 @@ interface IStabilityPool {
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Account for an increase in rewards for immediate distribution
-    /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
-    /// Other reward tokens can also be added using this function
-    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+    /// @notice Notify the stability pool of a liquidation event.
+    function notifyLiquidation(uint256 liquidated, uint256 returned) external;
 
+    /// @notice Update the gauge address, used for rewards
+    /// This also removes the deposit from the previous gauge (if any) and deposits into the 'newGauge'.
     function updateGauge(address newGauge) external;
 }

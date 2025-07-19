@@ -61,7 +61,7 @@ contract StabilityPool_v1 is
 
     uint256 public constant REBALANCER_ROLE = _ROLE_1;
 
-    uint256 public constant REWARDER_ROLE = _ROLE_2;
+    uint256 private constant _REWARD_DEPOSITOR_ROLE = _ROLE_2;
 
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
@@ -187,7 +187,7 @@ contract StabilityPool_v1 is
         address gaugeStakeToken_,
         address gaugeRewardToken_,
         uint256 minTotalAssetSupply
-    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, 1 weeks) {
+    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
         _disableInitializers();
         address asset = IMinter(minter_).PEGGED_TOKEN();
         Token.sanityCheckERC20Token(asset);
@@ -373,15 +373,6 @@ contract StabilityPool_v1 is
         emit UserDepositChange(sender, balance.amount, 0);
 
         IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
-    }
-
-    /// protected public functions
-
-    function accumulateReward(
-        address rewardToken,
-        uint256 rewardAmount
-    ) external virtual onlyRoles(REWARDER_ROLE + REBALANCER_ROLE) {
-        _accumulateReward(rewardToken, rewardAmount);
     }
 
     /// @inheritdoc IStabilityPool
@@ -574,14 +565,20 @@ contract StabilityPool_v1 is
         _checkOwnerOrRoles(REBALANCER_ROLE);
     }
 
+    /// @inheritdoc IStabilityPool
     // slither-disable-next-line reentrancy-no-eth,reentrancy-benign should only ever called from nonReentrant functions
-    function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder) {
-        super._sweep(token, amount, receiver);
-        if (token == ASSET_TOKEN) {
-            _checkpoint(address(0));
+    function notifyLiquidation(uint256 liquidated, uint256 returned) external onlyRoles(REBALANCER_ROLE) {
+        // tell the world
+        emit Liquidated(ASSET_TOKEN, liquidated, LIQUIDATION_TOKEN, returned);
+        // recalculate balances and
+        // make sure rewards in-flight rewards are distributed on the pre-loss balances
+        _checkpoint(address(0));
 
-            _notifyLoss(amount);
-        }
+        // capture the reward, distributed immediately, at the prior-to-loss balances
+        _accumulateReward(LIQUIDATION_TOKEN, returned);
+
+        // update balances due to loss
+        _notifyLoss(liquidated);
     }
 }
 

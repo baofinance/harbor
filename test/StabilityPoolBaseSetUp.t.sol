@@ -35,7 +35,7 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
     uint256 constant INITIAL_DEPOSIT = 100 ether;
     uint256 constant INITIAL_REWARD_AMOUNT = 1000 ether;
     uint256 REBALANCER_ROLE;
-    uint256 REWARDER_ROLE;
+    uint256 REWARD_DEPOSITOR_ROLE;
 
     function setUp() public virtual override {
         super.setUp();
@@ -76,17 +76,18 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
 
         // Grant rebalancer role for both stability pools
         REBALANCER_ROLE = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        REWARDER_ROLE = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
+        REWARD_DEPOSITOR_ROLE = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         vm.startPrank(owner);
         for (uint i = 0; i < rewardTokens.length; i++) {
             MockERC20(rewardTokens[i]).mint(address(this), INITIAL_REWARD_AMOUNT * 10);
             IBaoRoles(address(stabilityPools[i])).grantRoles(rebalancer, REBALANCER_ROLE);
-            IBaoRoles(address(stabilityPools[i])).grantRoles(rewarder, REWARDER_ROLE);
-            IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-                address(rewardTokens[i]),
-                stabilityPools[i]
-            );
+            IBaoRoles(address(stabilityPools[i])).grantRoles(rewarder, REWARD_DEPOSITOR_ROLE);
+            IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardTokens[i]));
         }
+        assertTrue(
+            IBaoRoles(stabilityPoolCollateral).hasAnyRole(rewarder, REWARD_DEPOSITOR_ROLE),
+            "rewarder is set up"
+        );
         vm.stopPrank();
     }
 }

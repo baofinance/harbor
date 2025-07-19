@@ -92,17 +92,14 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Grant roles to new addresses
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
+        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-            address(rewardToken),
-            stabilityPoolCollateral
-        );
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
         vm.stopPrank();
 
         // Mint and distribute tokens

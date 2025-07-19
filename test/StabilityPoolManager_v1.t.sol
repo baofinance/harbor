@@ -1159,12 +1159,12 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         // Mock the stability pool accumulate reward calls
         vm.mockCall(
             stabilityPoolCollateral,
-            abi.encodeWithSelector(IStabilityPool.accumulateReward.selector),
+            abi.encodeWithSelector(IStabilityPool.notifyLiquidation.selector),
             abi.encode()
         );
         vm.mockCall(
             stabilityPoolLeveraged,
-            abi.encodeWithSelector(IStabilityPool.accumulateReward.selector),
+            abi.encodeWithSelector(IStabilityPool.notifyLiquidation.selector),
             abi.encode()
         );
 

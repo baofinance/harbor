@@ -21,12 +21,11 @@ import {LinearReward} from "./LinearReward.sol";
 ///
 /// This contract manages the registration, tracking, and linear distribution of
 /// multiple reward tokens. It maintains a list of active and historical reward tokens,
-/// associates distributors with specific tokens, and calculates distribution rates
+/// associates distributors using roles based access, and calculates distribution rates
 /// over defined time periods.
 ///
 /// Key features:
 /// - Register and unregister reward tokens
-/// - Assign distributors for each reward token
 /// - Configure linear reward distribution with customizable period lengths
 /// - Track pending and distributed rewards
 /// - Manage active and historical reward tokens
@@ -54,6 +53,9 @@ abstract contract LinearMultipleRewardDistributor is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable REWARD_MANAGER_ROLE;
 
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 public immutable REWARD_DEPOSITOR_ROLE;
+
     /// @notice The length of reward period in seconds.
     /// @dev If the value is zero, the reward will be distributed immediately.
     /// @dev It is either zero or at least 1 day (which is 86400).
@@ -65,12 +67,9 @@ abstract contract LinearMultipleRewardDistributor is
      *************/
 
     struct LinearMultipleRewardDistributorStorage {
-        /// @inheritdoc IMultipleRewardDistributor
-        mapping(address => address) distributors;
         /// @notice Mapping from reward token address to linear distribution reward data.
         mapping(address => LinearReward.RewardData) rewardData;
         /// @dev The list of active reward tokens.
-        // TODO: use upgradeable versions
         EnumerableSet.AddressSet activeRewardTokens;
         /// @dev The list of historical reward tokens.
         EnumerableSet.AddressSet historicalRewardTokens;
@@ -97,13 +96,14 @@ abstract contract LinearMultipleRewardDistributor is
     /// @dev there is no need for an initializer
     /// @dev abstract classes should not define role numbers, so pass them in
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(uint256 rewardManagerRole, uint40 periodLength_) {
+    constructor(uint256 rewardManagerRole, uint256 rewardDepositorRole, uint40 periodLength_) {
         REWARD_MANAGER_ROLE = rewardManagerRole;
 
         if (periodLength_ != 0 && (periodLength_ < 1 days || periodLength_ > 28 days)) {
             revert InvalidPeriodLength(periodLength_);
         }
         REWARD_PERIOD_LENGTH = periodLength_;
+        REWARD_DEPOSITOR_ROLE = rewardDepositorRole;
     }
 
     /*************************
@@ -117,11 +117,6 @@ abstract contract LinearMultipleRewardDistributor is
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         LinearReward.RewardData memory data = $.rewardData[token];
         return (data.lastUpdate, data.finishAt, data.rate, data.queued);
-    }
-
-    function distributors(address token) external view returns (address) {
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        return $.distributors[token];
     }
 
     /// @inheritdoc IMultipleRewardDistributor
@@ -156,15 +151,12 @@ abstract contract LinearMultipleRewardDistributor is
      ****************************/
 
     /// @inheritdoc IMultipleRewardDistributor
-    function depositReward(address token, uint256 amount) external override {
+    function depositReward(address token, uint256 amount) external override onlyOwnerOrRoles(REWARD_DEPOSITOR_ROLE) {
         address _distributor = _msgSender();
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
         if (!$.activeRewardTokens.contains(token)) {
             revert NotActiveRewardToken();
-        }
-        if ($.distributors[token] != _distributor) {
-            revert NotRewardDistributor();
         }
         if (amount > 0) {
             IERC20(token).safeTransferFrom(_distributor, address(this), amount);
@@ -182,45 +174,21 @@ abstract contract LinearMultipleRewardDistributor is
      ************************/
 
     /// @inheritdoc IMultipleRewardDistributor
-    function registerRewardToken(address token, address distributor) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
+    function registerRewardToken(address token) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
         if (token == address(0)) {
             revert RewardTokenIsZero();
-        }
-        if (distributor == address(0)) {
-            revert RewardDistributorIsZero();
         }
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
         if (!$.activeRewardTokens.add(token)) {
             revert DuplicatedRewardToken(); // if value was not added then it already exists
         }
-        $.distributors[token] = distributor;
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.remove(token); // wake-disable-line unchecked-return-value
 
-        emit RegisterRewardToken(token, distributor);
+        emit RegisterRewardToken(token);
     }
 
-    /// @notice Update the distributor for reward token.
-    ///
-    /// @param token The address of reward token.
-    /// @param newDistributor The address of new reward distributor.
-    function updateRewardDistributor(
-        address token,
-        address newDistributor
-    ) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
-        if (newDistributor == address(0)) {
-            revert RewardDistributorIsZero();
-        }
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        if (!$.activeRewardTokens.contains(token)) {
-            revert NotActiveRewardToken();
-        }
-        address oldDistributor = $.distributors[token];
-        $.distributors[token] = newDistributor;
-
-        emit UpdateRewardDistributor(token, oldDistributor, newDistributor);
-    }
     /// @inheritdoc IMultipleRewardDistributor
     function unregisterRewardToken(address token) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
@@ -239,7 +207,6 @@ abstract contract LinearMultipleRewardDistributor is
             }
         }
 
-        $.distributors[token] = address(0);
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.add(token); // wake-disable-line unchecked-return-value
         emit UnregisterRewardToken(token);

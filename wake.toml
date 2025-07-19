@@ -13,6 +13,7 @@ include_paths = []
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
+  "openzeppelin-contracts/contracts=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
@@ -37,30 +38,30 @@ enable = false
 # exclude_paths = ["node_modules", "lib", "script"]
 only = []
 #exclude = [
-  #  "abi-encode-with-signature",
-  #  "axelar-proxy-contract-id",
-  #  "balance-relied-on",
-  #  "calldata-tuple-reencoding-head-overflow-bug",
-  #  "call-options-not-called",
-  #  "empty-byte-array-copy-bug",
-  #  "msg-value-nonpayable-function",
-  #  "unused-contract",
-  #  "unchecked-return-value"
+#  "abi-encode-with-signature",
+#  "axelar-proxy-contract-id",
+#  "balance-relied-on",
+#  "calldata-tuple-reencoding-head-overflow-bug",
+#  "call-options-not-called",
+#  "empty-byte-array-copy-bug",
+#  "msg-value-nonpayable-function",
+#  "unused-contract",
+#  "unchecked-return-value"
 #]
 
 [printers]
 only = []
 #exclude = [
-  #   "control-flow-graph",
-  #   "imports-graph",
-  #   "inheritance-graph",
-  #   "inheritance-tree",
-  #   "lsp-control-flow-graph",
-  #   "lsp-inheritance-graph",
-  #   "lsp-linearized-inheritance-graph",
-  #   "lsp-selectors",
-  #   "modifiers",
-  #   "state-changes",
-  #   "storage-layout",
-  #   "tokens",
+#   "control-flow-graph",
+#   "imports-graph",
+#   "inheritance-graph",
+#   "inheritance-tree",
+#   "lsp-control-flow-graph",
+#   "lsp-inheritance-graph",
+#   "lsp-linearized-inheritance-graph",
+#   "lsp-selectors",
+#   "modifiers",
+#   "state-changes",
+#   "storage-layout",
+#   "tokens",
 #]

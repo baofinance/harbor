@@ -58,7 +58,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolSetUp {
         rewardToken = new MockERC20("Reward Token", "RWD", 18);
 
         // Setup roles
-        uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
+        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
@@ -68,10 +68,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolSetUp {
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
 
         // Register reward token
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-            address(rewardToken),
-            stabilityPoolCollateral
-        );
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
         vm.stopPrank();
 
         // Mint reward tokens

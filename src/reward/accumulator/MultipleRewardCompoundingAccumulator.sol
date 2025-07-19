@@ -228,8 +228,9 @@ abstract contract MultipleRewardCompoundingAccumulator is
     /// @dev we don't disable initializers here, because this contract is abstract - the deriving contract should do that.
     constructor(
         uint256 rewardManagerRole,
+        uint256 rewardDepositorRole,
         uint40 periodLength
-    ) LinearMultipleRewardDistributor(rewardManagerRole, periodLength) {}
+    ) LinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, periodLength) {}
 
     /*************************
      * Public View Functions *

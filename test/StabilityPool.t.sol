@@ -138,9 +138,8 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         IMintable(stabilityPoolToken).mint(stabilityPool, 1 ether);
 
         IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
-        vm.prank(owner);
-        IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken, stabilityPool);
-        IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam, stabilityPool);
+        IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken);
+        IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam);
 
         IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
         IBaoOwnable(stabilityPool).transferOwnership(owner);

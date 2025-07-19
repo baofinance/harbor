@@ -52,7 +52,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Set up roles
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
+        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
@@ -60,10 +60,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
 
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-            address(rewardToken),
-            stabilityPoolCollateral
-        );
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
         vm.stopPrank();
 
         // Mint initial tokens
@@ -202,12 +199,12 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // only rewarders
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
 
         // Distribute rewards
         vm.startPrank(rewarder);
         rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
 
         // Check rewards
@@ -306,8 +303,8 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Distribute rewards
         vm.startPrank(rewarder);
-        rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(address(rewardToken), REWARD_AMOUNT);
+        // rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
 
         // Check rewards proportional to deposits
@@ -350,14 +347,11 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         // This call should fail as the token isn't registered yet
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
         vm.prank(rewarder);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
 
         // Now register the token properly with the REWARD_MANAGER_ROLE
         vm.prank(rewardManager);
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-            address(rewardToken),
-            stabilityPoolCollateral
-        );
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
         assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
 
         // Verify token is registered
@@ -366,7 +360,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Now we should be able to accumulate rewards
         vm.startPrank(rewarder);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(address(rewardToken), REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
 
         // Verify rewards are claimable
@@ -381,8 +375,8 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Distribute rewards
         vm.startPrank(rewarder);
-        rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(address(rewardToken), REWARD_AMOUNT);
+        // rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
 
         // Pre-check claimable amount

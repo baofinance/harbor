@@ -40,7 +40,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         rebalancer = vm.createWallet("rebalancer").addr;
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
 
-        uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
+        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
 
         // Create reward tokens
         rewardToken1 = new MockERC20("Reward Token 1", "RWD1", 18);
@@ -54,14 +54,8 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
 
         // register reward tokens
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-            address(rewardToken1),
-            stabilityPoolCollateral
-        );
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-            address(rewardToken2),
-            stabilityPoolCollateral
-        );
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken1));
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken2));
         vm.stopPrank();
 
         // Initialize reward tokens with some balance for the rewarder
@@ -96,10 +90,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
     }
 
-    function _distributeRewards(address token, uint256 amount) internal {
+    function _accumulateReward(address token, uint256 amount) internal {
         vm.startPrank(rewarder);
-        IERC20(token).transfer(stabilityPoolCollateral, amount);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(token, amount);
+        // IERC20(token).transfer(stabilityPoolCollateral, amount);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(token, amount);
         vm.stopPrank();
     }
 
@@ -109,7 +103,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether; // 100 per user
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Check claimable amounts - should be distributed equally as all have equal deposits
         assertApproxEqRel(
@@ -137,14 +131,14 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // User2 withdraws half their deposit
         vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
 
         // Distribute more rewards - should be split proportionally to current deposits
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // First rewards should be split equally
         // Second rewards should be split as 2/5 to user1, 1/5 to user2, 2/5 to user3
@@ -180,7 +174,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Advance time again
         vm.warp(block.timestamp + 1 hours);
@@ -216,7 +210,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3), user3Balance);
 
         // Distribute more rewards - should be split proportionally to current deposits
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // After the second distribution, check each user's rewards:
         // First reward distribution: Each user gets 1/3 (equal shares)
@@ -255,7 +249,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Record initial claimable amounts
         uint256 initialClaimableUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
@@ -299,7 +293,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Record initial claimable amounts
         uint256 initialClaimableUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
@@ -320,7 +314,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         );
 
         // Distribute more rewards after loss
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Users should still get proportional rewards despite the reduced total supply
         assertApproxEqRel(
@@ -336,11 +330,11 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute rewards from first token
         uint256 rewardAmount1 = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount1);
+        _accumulateReward(address(rewardToken1), rewardAmount1);
 
         // Distribute rewards from second token
         uint256 rewardAmount2 = 600 ether;
-        _distributeRewards(address(rewardToken2), rewardAmount2);
+        _accumulateReward(address(rewardToken2), rewardAmount2);
 
         // Check claimable amounts for both tokens
         assertApproxEqRel(
@@ -362,7 +356,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // User1 makes an additional deposit
         vm.prank(user1);
@@ -379,7 +373,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         );
 
         // Distribute more rewards - now user1 should get a larger share
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Calculate expected rewards:
         // User1 now has 2/4 of total deposits
@@ -407,7 +401,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Record initial claimable amounts
         uint256 initialClaimableUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
@@ -434,14 +428,14 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
 
         // Distribute first reward
-        _distributeRewards(address(rewardToken1), 200 ether);
+        _accumulateReward(address(rewardToken1), 200 ether);
 
         // User 3 joins with a deposit
         vm.prank(user3);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user3, 0);
 
         // Distribute second reward
-        _distributeRewards(address(rewardToken1), 300 ether);
+        _accumulateReward(address(rewardToken1), 300 ether);
 
         // User 1 withdraws half
         vm.prank(user1);
@@ -451,14 +445,14 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         vm.warp(block.timestamp + 3 days);
 
         // Distribute third reward
-        _distributeRewards(address(rewardToken1), 150 ether);
+        _accumulateReward(address(rewardToken1), 150 ether);
 
         // Sweep some asset tokens to simulate a loss
         vm.prank(rebalancer);
         ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 4, rebalancer);
 
         // Distribute fourth reward
-        _distributeRewards(address(rewardToken1), 100 ether);
+        _accumulateReward(address(rewardToken1), 100 ether);
 
         // Calculate expected rewards through this complex scenario
         // First distribution: 50/50 split between user1 and user2 = 100 each
@@ -501,7 +495,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute rewards
         uint256 rewardAmount = 101 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Check the small deposit still gets some rewards, proportional to its share
         uint256 expectedUser2 = (rewardAmount * smallDeposit) / (DEPOSIT_AMOUNT + smallDeposit);
@@ -534,7 +528,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute rewards
         uint256 rewardAmount = 1001 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Check the small deposit gets proportional rewards
         // user2 should get: (1 ether / 1001 ether) * 1001 ether ≈ 1 ether
@@ -562,7 +556,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // Distribute some rewards
         uint256 rewardAmount = 300 ether;
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // Record initial claimable amounts
         uint256 initialClaimableUser1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
@@ -582,7 +576,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         );
 
         // Distribute more rewards - these SHOULD be claimable based on historical deposit ratios
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         // User1 should now have: original claimable + 1/3 of new rewards
         uint256 expectedTotal = initialClaimableUser1 + (rewardAmount / 3);
@@ -610,7 +604,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // Distribute more rewards after loss
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         assertApproxEqAbs(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
@@ -636,7 +630,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // Distribute more rewards after loss
-        _distributeRewards(address(rewardToken1), rewardAmount);
+        _accumulateReward(address(rewardToken1), rewardAmount);
 
         assertApproxEqAbs(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1)),
