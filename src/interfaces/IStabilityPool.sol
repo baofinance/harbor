@@ -9,9 +9,9 @@ interface IStabilityPool {
 
     /// @notice Emitted when user deposit asset into this contract.
     /// @param owner The address of asset owner.
-    /// @param reciever The address of receiver of the asset in this contract.
+    /// @param receiver The address of receiver of the asset in this contract.
     /// @param amount The amount of asset deposited.
-    event Deposit(address indexed owner, address indexed reciever, uint256 amount);
+    event Deposit(address indexed owner, address indexed receiver, uint256 amount);
 
     /// @notice Emitted when the amount of deposited asset changed due to liquidation or deposit or unlock.
     /// @param owner The address of asset owner.

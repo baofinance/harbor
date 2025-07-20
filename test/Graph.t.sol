@@ -42,7 +42,7 @@ abstract contract TestGraph is Test {
 
     function setDown() internal virtual;
 
-    function test_doGraph() public {
+    function test_doGraph() public virtual {
         currentX = startX;
         while (currentX < finishX) {
             doOneX();
