@@ -38,6 +38,7 @@ plot \
      datafile using ($1):($6) axes x1y1 with lines linewidth 2 linetype 1 dashtype 3, \
      datafile using ($1):($3) axes x1y2 with lines linewidth 2 linetype 2, \
      datafile using ($1):($5) axes x1y2 with lines linewidth 2 linetype 2 dashtype 2, \
-     datafile using ($1):($7) axes x1y2 with lines linewidth 2 linetype 2 dashtype 3
+     datafile using ($1):($7) axes x1y2 with lines linewidth 2 linetype 2 dashtype 3, \
+     datafile using ($1):($8) axes x1y1 with lines linewidth 2 linetype 8
 
 unset output
