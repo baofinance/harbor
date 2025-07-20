@@ -29,7 +29,7 @@ set arrow from rebalance, graph 0 to rebalance, graph 1 nohead linetype 1 dashty
 set label "< rebalance 1/2" at rebalance, 1.5 left textcolor "black"
 depositInPool =6
 set arrow from depositInPool, graph 0 to depositInPool, graph 1 nohead linetype 1 dashtype 2 linecolor"black"
-set label "< depoist x2" at depositInPool, 1.4 left textcolor "black"
+set label "< deposit x2" at depositInPool, 1.4 left textcolor "black"
 
 set colorsequence default
 plot \
