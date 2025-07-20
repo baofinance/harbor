@@ -27,16 +27,11 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 import {Array} from "test/Array.sol";
 import {TestGraph} from "test/Graph.t.sol";
 
-contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
-    string rewardsFile;
-    bool deposited1;
-    bool deposited2;
+abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
+    string rewardFile;
 
     function setUp() public override {
         super.setUp();
-
-        deposited1 = false;
-        deposited2 = false;
 
         startX = 0;
         finishX = startX + 14 days;
@@ -51,21 +46,57 @@ contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IStabilityPool(stabilityPoolCollateral).deposit(100 ether, address(this), 0);
 
-        rewardsFile = openFile("reward", sa("Time", "claimable", "claim"));
+        rewardFile = openFile(
+            "reward",
+            sa("Time", "claimable", "claim", "distributable", "undistributed", "rate", "queued")
+        );
     }
 
     function incrementX() internal virtual override {
-        currentX += 1 days;
+        currentX += 0.25 hours;
         vm.warp(startX + currentX);
     }
 
     function setDown() internal override {
-        vm.closeFile(rewardsFile);
+        vm.closeFile(rewardFile);
     }
+
+    function doActions() internal virtual;
 
     function doOneX() internal override {
         // write a gnuplot data file line for fees, invariant and liquidation
 
+        doActions();
+
+        // get claimable
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), steam);
+
+        // get claim - wrap in a snapshot to avoid changes of state
+        uint256 claim = IERC20(steam).balanceOf(address(this));
+        uint256 snap = vm.snapshotState();
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        claim = IERC20(steam).balanceOf(address(this)) - claim;
+        vm.revertToState(snap);
+
+        (uint256 distributable, uint256 undistributed) = IMultipleRewardDistributor(stabilityPoolCollateral)
+            .pendingRewards(steam);
+
+        (, , /*uint256 lastUpdate*/ /*uint256 finishAt*/ uint256 rate, uint256 queued) = IMultipleRewardDistributor(
+            stabilityPoolCollateral
+        ).rewardData(steam);
+
+        writeLine(
+            rewardFile,
+            ua((currentX * 1 ether) / 1 days, claimable, claim, distributable, undistributed, rate, queued * 1e6)
+        );
+    }
+}
+
+abstract contract TestGraphRewardClaim is TestGraphReward {
+    bool deposited1;
+    bool deposited2;
+
+    function doActions() internal virtual override {
         // do actions that change the state
         if (!deposited1 && currentX >= startX + 1 days) {
             vm.prank(rewardDepositor);
@@ -78,17 +109,5 @@ contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
             IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(steam, 2 ether);
             deposited2 = true;
         }
-
-        // get claimable
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), steam);
-
-        // get claim - wrap in a snapshot to avoid changes of state
-        uint256 claim = IERC20(steam).balanceOf(address(this));
-        uint256 snap = vm.snapshotState();
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        claim = IERC20(steam).balanceOf(address(this)) - claim;
-        vm.revertToState(snap);
-
-        writeLine(rewardsFile, ua((currentX * 1 ether) / 1 days, claimable, claim));
     }
 }
