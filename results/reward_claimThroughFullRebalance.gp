@@ -20,16 +20,19 @@ set y2tics
 
 depositReward = 1
 set arrow from depositReward, graph 0 to depositReward, graph 1 nohead linetype 1 dashtype 2 linecolor"blue"
-set label "< depositReward(1)" at depositReward, 1.6 left textcolor "blue"
+set label "< depositReward(1)" at depositReward, 1.65 left textcolor "blue"
 depositReward = 8
 set arrow from depositReward, graph 0 to depositReward, graph 1 nohead linetype 1 dashtype 2 linecolor"blue"
-set label "< end period" at depositReward, 1.6 left textcolor "blue"
+set label "< end period" at depositReward, 1.65 left textcolor "blue"
 rebalance = 3
 set arrow from rebalance, graph 0 to rebalance, graph 1 nohead linetype 1 dashtype 2 linecolor"black"
-set label "< rebalance 100%" at rebalance, 1.5 left textcolor "black"
-depositInPool =6
+set label "< rebalance 100%" at rebalance, 1.55 left textcolor "black"
+depositInPool = 5
 set arrow from depositInPool, graph 0 to depositInPool, graph 1 nohead linetype 1 dashtype 2 linecolor"black"
-set label "< deposit x2" at depositInPool, 1.4 left textcolor "black"
+set label "< deposit x2" at depositInPool, 1.45 left textcolor "black"
+rebalance = 7
+set arrow from rebalance, graph 0 to rebalance, graph 1 nohead linetype 1 dashtype 2 linecolor"black"
+set label "< rebalance 100%" at rebalance, 1.35 left textcolor "black"
 
 set colorsequence default
 plot \

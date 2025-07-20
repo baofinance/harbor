@@ -124,6 +124,7 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     bool depositedReward1;
     bool depositedReward2;
     bool rebalance1;
+    bool rebalance2;
     bool depositedInPool;
 
     uint256 price;
@@ -156,16 +157,34 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             "reward",
             sa(
                 "Time",
-                "claimSTEAM",
-                "claimCollateral",
+                "claim1STEAM",
+                "claim1Collateral",
                 "distributableSTEAM",
                 "distributableCollateral",
                 "undistributedSTEAM",
                 "undistributedCollateral",
                 "queuedSTEAM",
-                "queuedCollateral"
+                "queuedCollateral",
+                "claim2STEAM",
+                "claim2Collateral"
             )
         );
+    }
+
+    struct ClaimAmounts {
+        uint256 STEAM1;
+        uint256 Collateral1;
+        uint256 STEAM2;
+        uint256 Collateral2;
+    }
+
+    struct TokenAmounts {
+        uint256 distributableSTEAM;
+        uint256 undistributedSTEAM;
+        uint256 distributableCollateral;
+        uint256 undistributedCollateral;
+        uint256 queuedSTEAM;
+        uint256 queuedCollateral;
     }
 
     function doOneX() internal virtual override {
@@ -179,23 +198,30 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         //     wrappedCollateralToken
         // );
 
+        ClaimAmounts memory claim;
         // get claim - wrap in a snapshot to avoid changes of state
-        uint256 claimSTEAM = IERC20(steam).balanceOf(address(this));
-        uint256 claimCollateral = IERC20(wrappedCollateralToken).balanceOf(address(this));
+        claim.STEAM1 = IERC20(steam).balanceOf(address(this));
+        claim.Collateral1 = IERC20(wrappedCollateralToken).balanceOf(address(this));
+        claim.STEAM2 = IERC20(steam).balanceOf(user2);
+        claim.Collateral2 = IERC20(wrappedCollateralToken).balanceOf(user2);
+
         uint256 snap = vm.snapshotState();
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        claimSTEAM = IERC20(steam).balanceOf(address(this)) - claimSTEAM;
-        claimCollateral = IERC20(wrappedCollateralToken).balanceOf(address(this)) - claimCollateral;
+        claim.STEAM1 = IERC20(steam).balanceOf(address(this)) - claim.STEAM1;
+        claim.Collateral1 = IERC20(wrappedCollateralToken).balanceOf(address(this)) - claim.Collateral1;
+        claim.STEAM2 = IERC20(steam).balanceOf(user2) - claim.STEAM2;
+        claim.Collateral2 = IERC20(wrappedCollateralToken).balanceOf(user2) - claim.Collateral2;
         vm.revertToState(snap);
 
-        (uint256 distributableSTEAM, uint256 undistributedSTEAM) = IMultipleRewardDistributor(stabilityPoolCollateral)
+        TokenAmounts memory token;
+        (token.distributableSTEAM, token.undistributedSTEAM) = IMultipleRewardDistributor(stabilityPoolCollateral)
             .pendingRewards(steam);
-        (uint256 distributableCollateral, uint256 undistributedCollateral) = IMultipleRewardDistributor(
+        (token.distributableCollateral, token.undistributedCollateral) = IMultipleRewardDistributor(
             stabilityPoolCollateral
         ).pendingRewards(wrappedCollateralToken);
 
-        (, , , uint256 queuedSTEAM) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(steam);
-        (, , , uint256 queuedCollateral) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(
+        (, , , token.queuedSTEAM) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(steam);
+        (, , , token.queuedCollateral) = IMultipleRewardDistributor(stabilityPoolCollateral).rewardData(
             wrappedCollateralToken
         );
 
@@ -203,14 +229,16 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             rewardFile,
             ua(
                 (currentX * 1 ether) / 1 days,
-                claimSTEAM,
-                claimCollateral,
-                distributableSTEAM,
-                distributableCollateral,
-                undistributedSTEAM,
-                undistributedCollateral,
-                queuedSTEAM,
-                queuedCollateral
+                claim.STEAM1,
+                claim.Collateral1,
+                token.distributableSTEAM,
+                token.distributableCollateral,
+                token.undistributedSTEAM,
+                token.undistributedCollateral,
+                token.queuedSTEAM,
+                token.queuedCollateral,
+                claim.STEAM2,
+                claim.Collateral2
             )
         );
     }
@@ -234,10 +262,19 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
             rebalance1 = true;
         }
 
-        if (!depositedInPool && currentX >= startX + 6 days) {
-            address there = makeAddr("there");
-            IStabilityPool(stabilityPoolCollateral).deposit(initialPoolDeposit * 2, there, 0);
+        if (!depositedInPool && currentX >= startX + 5 days) {
+            IStabilityPool(stabilityPoolCollateral).deposit(initialPoolDeposit * 2, user2, 0);
+            currentPoolDeposit += initialPoolDeposit * 2;
             depositedInPool = true;
+        }
+
+        if (!rebalance2 && currentX >= startX + 7 days) {
+            uint256 toLiquidateTo = (currentPoolDeposit * 1 ether) / price;
+            // liquidate pegged into collateral, creating an immediate reward
+            IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, toLiquidateTo);
+            vm.prank(rebalancer);
+            IStabilityPool(stabilityPoolCollateral).notifyLiquidation(currentPoolDeposit, toLiquidateTo);
+            rebalance2 = true;
         }
 
         // if (!deposited2 && currentX >= startX + 6 days) {
