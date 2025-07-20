@@ -209,6 +209,9 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         claim.STEAM1 = IERC20(steam).balanceOf(address(this)) - claim.STEAM1;
         claim.Collateral1 = IERC20(wrappedCollateralToken).balanceOf(address(this)) - claim.Collateral1;
+
+        vm.prank(user2);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         claim.STEAM2 = IERC20(steam).balanceOf(user2) - claim.STEAM2;
         claim.Collateral2 = IERC20(wrappedCollateralToken).balanceOf(user2) - claim.Collateral2;
         vm.revertToState(snap);
@@ -263,8 +266,9 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         }
 
         if (!depositedInPool && currentX >= startX + 5 days) {
-            IStabilityPool(stabilityPoolCollateral).deposit(initialPoolDeposit * 2, user2, 0);
-            currentPoolDeposit += initialPoolDeposit * 2;
+            uint256 user2Deposit = (initialPoolDeposit * 2) / 3;
+            IStabilityPool(stabilityPoolCollateral).deposit(user2Deposit, user2, 0);
+            currentPoolDeposit += user2Deposit;
             depositedInPool = true;
         }
 
