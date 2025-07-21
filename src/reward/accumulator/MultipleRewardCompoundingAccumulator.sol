@@ -5,6 +5,7 @@ pragma solidity 0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
@@ -242,12 +243,18 @@ abstract contract MultipleRewardCompoundingAccumulator is
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
-    function claimable(address account, address token) public view virtual override returns (uint256) {
-        return _claimable(account, token);
+    function claimable(address account, address token) external view virtual override returns (uint256) {
+        if (!isActiveRewardToken(token)) {
+            revert NotActiveRewardToken();
+        }
+        return _claimable(account, token, true);
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimed(address account, address token) external view returns (uint256) {
+        if (!isActiveRewardToken(token)) {
+            revert NotActiveRewardToken();
+        }
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         return $.userRewardSnapshot[account][token].rewards.claimed;
     }
@@ -326,28 +333,87 @@ abstract contract MultipleRewardCompoundingAccumulator is
      * Internal Functions *
      **********************/
 
-    function _claimable(address account, address token) internal view virtual returns (uint256) {
+    function _divByScaleFactor(uint256 value, uint i) internal pure returns (uint256 result) {
+        uint256[/*DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE + 1*/ 9] memory scaleFactors = [
+            uint256(1),
+            1e9,
+            1e18,
+            1e27,
+            1e36,
+            1e45,
+            1e54,
+            1e63,
+            1e72
+        ];
+        result = value / scaleFactors[i];
+    }
+
+    function _scaleAdjustedValue(
+        uint256 baseValue,
+        uint128 fromProd,
+        uint128 toProd,
+        uint256 denominator
+    ) internal pure returns (uint256) {
+        uint8 fromExp = fromProd.exponent();
+        uint8 toExp = toProd.exponent();
+        uint256 fromMag = fromProd.magnitude();
+        uint256 toMag = toProd.magnitude();
+
+        if (baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE) {
+            return 0; // Too many scale changes
+        }
+        return _divByScaleFactor(Math.mulDiv(baseValue, toMag, fromMag * denominator), toExp - fromExp);
+    }
+
+    /// @dev Internal function to compute the amount of asset deposited after several liquidation.
+    ///
+    /// @param initialBalance The amount of asset deposited initially.
+    /// @param initialProduct The epoch state snapshot at initial depositing.
+    /// @return compoundedBalance The amount asset deposited after several liquidation.
+    function _getCompoundedBalance(
+        uint256 initialBalance,
+        uint128 initialProduct,
+        uint128 currentProduct
+    ) internal pure returns (uint256 compoundedBalance) {
+        return _scaleAdjustedValue(initialBalance, initialProduct, currentProduct, 1);
+    }
+
+    function _claimable(
+        address account,
+        address token,
+        bool includeTemporalPending
+    ) internal view virtual returns (uint256 claimable_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
-        UserRewardSnapshot memory userSnapshot = $.userRewardSnapshot[account][token];
-        (uint128 previousProd, uint256 shares) = _getUserPoolShare(account);
-        if (shares == 0) {
-            return userSnapshot.rewards.pending;
+        claimable_ = uint256($.userRewardSnapshot[account][token].rewards.pending);
+        (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
+        (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
+
+        if (shares > 0 && totalShare > 0) {
+            uint8 userExponent = userProd.exponent();
+            uint120 userMagnitude = userProd.magnitude();
+
+            uint8 maxExponentsToCheck = uint8(
+                Math.min(DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
+            );
+            // Get the sum 'S' from the epoch at which the stake was made. The gain may span many exponent changes.
+            mapping(uint8 => uint192) storage tokenIntegrals = $.tokenToExponentToIntegral[token];
+            uint192 integral = tokenIntegrals[userExponent];
+
+            for (uint8 i = 1; i <= maxExponentsToCheck; ++i) {
+                uint192 integralAtScale = tokenIntegrals[userExponent + i];
+                if (integralAtScale > 0) {
+                    // Skip zero integrals for gas efficiency
+                    integral += uint192(_divByScaleFactor(integralAtScale, i));
+                }
+            }
+
+            claimable_ += (shares * integral) / (userMagnitude * _REWARD_PRECISION);
         }
-        uint8 exponent = previousProd.exponent();
-        uint120 magnitude = previousProd.magnitude();
-
-        // Grab the sum 'S' from the epoch at which the stake was made. The gain may span up to one exponent change.
-        // If it does, the second portion of the gain is scaled by 1e9.
-        // If the gain spans no scale change, the second portion will be 0.
-        uint256 firstPortion = $.tokenToExponentToIntegral[token][exponent] - userSnapshot.checkpoint.integral;
-        uint256 secondPortion = $.tokenToExponentToIntegral[token][exponent + 1] /
-            uint256(DecrementalFloatingPoint.SCALE_FACTOR);
-
-        return
-            uint256(userSnapshot.rewards.pending) +
-            (shares * (firstPortion + secondPortion)) /
-            (magnitude * _REWARD_PRECISION);
+        if (includeTemporalPending) {
+            (uint256 amount, ) = this.pendingRewards(token);
+            claimable_ += _scaleAdjustedValue(amount, userProd, currentProd, totalShare);
+        }
     }
 
     /// @dev Internal function to update the global and user snapshot.
@@ -357,34 +423,32 @@ abstract contract MultipleRewardCompoundingAccumulator is
         _distributePendingReward();
 
         if (account != address(0)) {
-            // checkpoint active reward tokens
-            address[] memory rewardTokens = activeRewardTokens();
-            for (uint256 i = 0; i < rewardTokens.length; i++) {
-                _updateSnapshot(account, rewardTokens[i]);
+            // get all the reward tokens ever
+            address[] memory activeTokens = activeRewardTokens();
+            address[] memory historicalTokens = historicalRewardTokens();
+
+            uint256 activeLength = activeTokens.length;
+            uint256 totalLength = activeLength + historicalTokens.length;
+
+            // Early exit if no tokens to process
+            if (totalLength == 0) {
+                return;
             }
 
-            // checkpoint historical reward tokens
-            rewardTokens = historicalRewardTokens();
-            for (uint256 i = 0; i < rewardTokens.length; i++) {
-                _updateSnapshot(account, rewardTokens[i]);
+            MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+            (uint128 currentProd, ) = _getTotalPoolShare();
+            uint8 exponent = currentProd.exponent();
+
+            for (uint256 i = 0; i < totalLength; i++) {
+                address token = (i < activeLength) ? activeTokens[i] : historicalTokens[i - activeLength];
+                UserRewardSnapshot memory snapshot = $.userRewardSnapshot[account][token];
+
+                snapshot.rewards.pending = uint128(_claimable(account, token, false));
+                snapshot.checkpoint.integral = $.tokenToExponentToIntegral[token][exponent];
+                snapshot.checkpoint.timestamp = uint64(block.timestamp);
+                $.userRewardSnapshot[account][token] = snapshot;
             }
         }
-    }
-
-    /// @notice Internal function to update snapshot for single token.
-    /// @param account The address of user to update.
-    /// @param token The address of token to update.
-    // slither-disable-next-line dead-code
-    function _updateSnapshot(address account, address token) internal virtual {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        UserRewardSnapshot memory snapshot = $.userRewardSnapshot[account][token];
-        (uint128 currentProd, ) = _getTotalPoolShare();
-        uint8 exponent = currentProd.exponent();
-
-        snapshot.rewards.pending = uint128(_claimable(account, token));
-        snapshot.checkpoint.integral = $.tokenToExponentToIntegral[token][exponent];
-        snapshot.checkpoint.timestamp = uint64(block.timestamp);
-        $.userRewardSnapshot[account][token] = snapshot;
     }
 
     /// @dev Internal function to claim active reward tokens.
@@ -430,14 +494,10 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
     /// @inheritdoc LinearMultipleRewardDistributor
     function _accumulateReward(address token, uint256 amount) internal virtual override {
-        if (!isActiveRewardToken(token)) {
-            revert NotActiveRewardToken();
-        }
         // slither-disable-next-line incorrect-equality
         if (amount == 0) {
             return;
         }
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
         (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
         if (totalShare == 0) {
@@ -447,13 +507,10 @@ abstract contract MultipleRewardCompoundingAccumulator is
         }
 
         uint8 exponent = currentProd.exponent();
-        uint256 magnitude = currentProd.magnitude();
 
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         uint192 integral = $.tokenToExponentToIntegral[token][exponent];
-        // @note usually `amount <= 10^6 * 10^18` and `magnitude <= 10^18`,
-        // so the value of `amount * _REWARD_PRECISION` won't exceed type(uint192).max.
-        // For the other parts, we rely on the overflow check provided by solc 0.8.
-        integral += (uint192((amount * _REWARD_PRECISION) / totalShare) * uint192(magnitude));
+        integral += uint192((amount * _REWARD_PRECISION) / totalShare) * uint192(currentProd.magnitude());
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }
 

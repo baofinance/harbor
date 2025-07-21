@@ -114,6 +114,9 @@ abstract contract LinearMultipleRewardDistributor is
     function rewardData(
         address token
     ) external view returns (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued) {
+        if (!isActiveRewardToken(token)) {
+            revert NotActiveRewardToken();
+        }
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         LinearReward.RewardData memory data = $.rewardData[token];
         return (data.lastUpdate, data.finishAt, data.rate, data.queued);
@@ -142,6 +145,9 @@ abstract contract LinearMultipleRewardDistributor is
     function pendingRewards(
         address token
     ) external view override returns (uint256 distributable, uint256 undistributed) {
+        if (!isActiveRewardToken(token)) {
+            revert NotActiveRewardToken();
+        }
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         (distributable, undistributed) = $.rewardData[token].pending();
     }

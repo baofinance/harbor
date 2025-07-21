@@ -27,6 +27,9 @@ library DecrementalFloatingPoint {
     // what the exponent is multiplied by to form a factor for the magnitude
     uint120 internal constant SCALE_FACTOR = 1e9;
 
+    // can't be any more than this in 256 bits diff of 8 gives exponent of 72 decimals
+    uint8 internal constant _MAX_EXPONENT_DIFFERENCE = 8;
+
     /// @dev The threshold below which exponent is incremented (1e27).
     uint120 internal constant MIN_PRECISION = MAGNITUDE_PRECISION / SCALE_FACTOR;
 

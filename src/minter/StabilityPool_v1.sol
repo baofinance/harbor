@@ -258,11 +258,6 @@ contract StabilityPool_v1 is
         return $.lastAssetLossError;
     }
 
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claimable(address account, address token) public view virtual override returns (uint256 earned) {
-        earned = _claimable(account, token);
-    }
-
     /****************************
      * Public Mutator Functions *
      ****************************/
@@ -524,38 +519,6 @@ contract StabilityPool_v1 is
             $.totalAssetSupplyHistoryLength = totalSupplyHistoryLength_ + 1;
         }
         $.totalAssetSupply = supply;
-    }
-
-    /// @dev Internal function to compute the amount of asset deposited after several liquidation.
-    ///
-    /// @param initialBalance The amount of asset deposited initially.
-    /// @param initialProduct The epoch state snapshot at initial depositing.
-    /// @return compoundedBalance The amount asset deposited after several liquidation.
-    function _getCompoundedBalance(
-        uint256 initialBalance,
-        uint128 initialProduct,
-        uint128 currentProduct
-    ) internal pure returns (uint256 compoundedBalance) {
-        uint256[9] memory scaleFactors = [uint256(1), 1e9, 1e18, 1e27, 1e36, 1e45, 1e54, 1e63, 1e72];
-        // slither-disable-next-line incorrect-equality
-        if (initialBalance == 0) {
-            return 0;
-        }
-        uint8 initialExponent = initialProduct.exponent();
-        uint8 currentExponent = currentProduct.exponent();
-        uint256 initialMagnitude = initialProduct.magnitude();
-        uint256 currentMagnitude = currentProduct.magnitude();
-
-        // Liquity's formula: amount * currentP / initialP / SCALE_FACTOR^(exponentDiff)
-        uint8 exponentDiff = currentExponent - initialExponent;
-
-        // Prevent overflow by limiting exponent difference (like Liquity's MAX_SCALE_FACTOR_EXPONENT)
-        if (exponentDiff > 8) {
-            return 0; // Too many exponent changes
-        }
-
-        uint256 scaleFactor = scaleFactors[exponentDiff];
-        compoundedBalance = Math.mulDiv(initialBalance, currentMagnitude, initialMagnitude) / scaleFactor;
     }
 
     // Rebalancing support
