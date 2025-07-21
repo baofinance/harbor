@@ -66,7 +66,6 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
         vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);
         vm.stopPrank();
 

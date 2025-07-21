@@ -33,8 +33,6 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
     address user3;
     address user4;
-    address rewarder;
-    address rebalancer;
     address rewardManager;
     MockERC20 rewardToken;
 
@@ -49,20 +47,18 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         // Create additional users
         user3 = vm.createWallet("user3").addr;
         user4 = vm.createWallet("user4").addr;
-        rewarder = vm.createWallet("rewarder").addr;
-        rebalancer = vm.createWallet("rebalancer").addr;
         rewardManager = vm.createWallet("rewardManager").addr;
 
         // Create a reward token
         rewardToken = new MockERC20("Reward Token", "RWD", 18);
 
         // Setup roles
-        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
+        uint256 rewardDepositorRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
+        IBaoRoles(stabilityPoolCollateral).grantRoles(rewardDepositor, rewardDepositorRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
 
@@ -71,10 +67,10 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // Mint reward tokens
-        rewardToken.mint(rewarder, 1000 ether);
+        rewardToken.mint(rewardDepositor, 1000 ether);
 
         // Approve the stabilityPool to spend reward tokens
-        vm.prank(rewarder);
+        vm.prank(rewardDepositor);
         rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
 
         // Give users tokens for deposits
@@ -95,6 +91,16 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
 
         vm.prank(user4);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+    }
+
+    function _liquidate(uint256 assets) private {
+        uint256 returned = assets / 2000;
+        vm.startPrank(rebalancer);
+        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, assets, rebalancer);
+        deal(wrappedCollateralToken, rebalancer, returned);
+        IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, returned);
+        IStabilityPool(stabilityPoolCollateral).notifyLiquidation(assets, returned);
+        vm.stopPrank();
     }
 
     // Test for totalSupplyHistory getter (coverage for function 236)
@@ -137,9 +143,9 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
-        // Perform a sweep to trigger asset loss
-        vm.prank(rebalancer); //                                                  vv prime number
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT / 13, rebalancer);
+        // Perform a liquidate to trigger asset loss
+        _liquidate(DEPOSIT_AMOUNT / 13);
+        // ------------prime number ^^
 
         // Loss error should now be non-zero
         assertGt(IStabilityPool(stabilityPoolCollateral).lastAssetLossError(), 0, "Loss error should be updated");
@@ -154,8 +160,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Force a "complete" liquidation to test product changes (limited by MIN_TOTAL_ASSET_SUPPLY)
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT, rebalancer);
+        _liquidate(DEPOSIT_AMOUNT);
 
         // After "complete" liquidation, user retains MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
@@ -190,8 +195,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
             uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
             uint256 maxLiquidatable = totalSupply > MIN_TOTAL_ASSET_SUPPLY ? totalSupply - MIN_TOTAL_ASSET_SUPPLY : 0;
             if (maxLiquidatable > 0) {
-                vm.prank(rebalancer);
-                ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, (maxLiquidatable * 999) / 1000, rebalancer);
+                _liquidate((maxLiquidatable * 999) / 1000);
             }
         }
 
@@ -216,8 +220,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         assertEq(initialBalance, DEPOSIT_AMOUNT, "Initial balance should match deposit amount");
 
         // Perform a "full" liquidation (limited by MIN_TOTAL_ASSET_SUPPLY protection)
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT, rebalancer);
+        _liquidate(DEPOSIT_AMOUNT);
 
         // Check final balance is MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
@@ -250,8 +253,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         deal(peggedToken, address(stabilityPoolCollateral), DEPOSIT_AMOUNT * 2);
 
         // Perform a liquidation that's more than the totalSupply
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, (DEPOSIT_AMOUNT * 3) / 2, rebalancer);
+        _liquidate((DEPOSIT_AMOUNT * 3) / 2);
 
         // Check final balance is MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
@@ -334,24 +336,6 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
 
         // Make sure the asset token sweep logic wasn't triggered
         assertEq(IStabilityPool(stabilityPoolCollateral).lastAssetLossError(), 0, "Asset loss error should not change");
-    }
-
-    // Test accumulating rewards through the rebalancer role
-    function testDepositRewardAsRebalancer() public {
-        // Make deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Accumulate rewards as rebalancer
-        vm.prank(rebalancer);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
-
-        // Check rewards are claimable
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken)),
-            REWARD_AMOUNT,
-            "Rewards should be claimable"
-        );
     }
 
     // Test deposit with maximum amount
@@ -470,12 +454,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
             IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 10, user2, 0);
 
             // Perform near-total liquidation to force exponent changes
-            vm.startPrank(rebalancer);
-            ITokenHolder(stabilityPoolCollateral).sweep(
-                peggedToken,
-                (IERC20(peggedToken).balanceOf(stabilityPoolCollateral) * 999) / 1000,
-                rebalancer
-            );
+            _liquidate((IERC20(peggedToken).balanceOf(stabilityPoolCollateral) * 999) / 1000);
             vm.stopPrank();
         }
 
@@ -548,8 +527,8 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         assertEq(uint256(atDay1), block.timestamp, "History timestamp should match block timestamp");
     }
 
-    // Test sweep with very small asset amount
-    function testSweepTinyAssetAmount() public {
+    // Test liquidate with very small asset amount
+    function testLiquidateTinyAssetAmount() public {
         // Setup initial deposit
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
@@ -558,36 +537,16 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
 
         // Sweep a tiny amount of asset tokens
         uint256 tinyAmount = 1;
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, tinyAmount, rebalancer);
+        _liquidate(tinyAmount);
 
         // Verify the impact on user balance
         uint256 finalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        assertLt(finalBalance, initialBalance, "Balance should decrease after sweep");
+        assertLt(finalBalance, initialBalance, "Balance should decrease after liquidate");
 
         // Check that lastAssetLossError was updated
         assertTrue(
             IStabilityPool(stabilityPoolCollateral).lastAssetLossError() > 0,
-            "lastAssetLossError should be updated after tiny sweep"
-        );
-    }
-
-    // Test with deposits that actually create rounding errors
-    function testRoundingErrorGeneration() public {
-        // Make a deposit that will create actual rounding when partially liquidated
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Sweep a prime number amount to force rounding
-        uint256 primeAmount = DEPOSIT_AMOUNT / 13; // Using prime to force rounding
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, primeAmount, rebalancer);
-
-        // This should generate actual rounding error
-        assertGt(
-            IStabilityPool(stabilityPoolCollateral).lastAssetLossError(),
-            0,
-            "Prime number sweep should generate rounding error"
+            "lastAssetLossError should be updated after tiny liquidate"
         );
     }
 
@@ -600,8 +559,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Sweep exactly the total supply amount (but protection will limit it)
-        vm.prank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, DEPOSIT_AMOUNT, rebalancer);
+        _liquidate(DEPOSIT_AMOUNT);
 
         // Verify protection prevents complete depletion
         assertEq(

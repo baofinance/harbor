@@ -254,8 +254,8 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         deal(rewardToken, address(this), rewardAmount);
         IERC20(rewardToken).approve(pool, rewardAmount);
 
-        // Distribute rewards using the rewarder account
-        vm.prank(rewarder);
+        // Distribute rewards using the rewardDepositor account
+        vm.prank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(rewardToken, rewardAmount);
 
         // Action: Simulate loss through sweep
@@ -434,9 +434,6 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         assertGt(rewardTokens.length, 2, "Pool 2 active reward tokens");
         assertEq(rewardTokens[0], wrappedCollateralToken, "First reward token should be immediate reward");
         assertEq(rewardTokens[1], steam, "Second reward token should be delayed");
-
-        vm.prank(owner);
-        IBaoRoles(pool).grantRoles(address(this), REWARD_DEPOSITOR_ROLE);
     }
 
     function _checkRewards(
@@ -492,8 +489,9 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         _checkRewards("initial", user2, 0, 0);
 
         // load up with rewards
-        deal(steam, address(this), IERC20(steam).balanceOf(pool) + delayedAmount);
+        deal(steam, rewardDepositor, IERC20(steam).balanceOf(pool) + delayedAmount);
         IERC20(steam).approve(pool, type(uint256).max);
+        vm.prank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(steam, delayedAmount);
 
         _checkRewards("after notify", user1, 0, 0);
@@ -561,7 +559,8 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         );
 
         // phase 4 deal more rewards - users still receive them due to retained proportional shares
-        deal(steam, address(this), IERC20(steam).balanceOf(pool) + delayedAmount * 10);
+        deal(steam, rewardDepositor, IERC20(steam).balanceOf(pool) + delayedAmount * 10);
+        vm.prank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(steam, delayedAmount * 10);
 
         // Users receive rewards from both original and new distributions

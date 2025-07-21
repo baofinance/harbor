@@ -110,6 +110,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address user1;
     address user2;
     address rewardDepositor;
+    address rebalancer;
 
     function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
         string memory liquidation = IERC20Metadata(liquidationToken).symbol();
@@ -143,6 +144,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             rewardDepositor,
             IMultipleRewardDistributor(stabilityPool).REWARD_DEPOSITOR_ROLE()
         );
+        IBaoRoles(stabilityPool).grantRoles(rebalancer, IStabilityPool(stabilityPool).REBALANCER_ROLE());
 
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken);
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam);

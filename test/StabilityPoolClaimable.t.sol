@@ -19,8 +19,6 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
     address user3;
-    address rewarder;
-    address rebalancer;
     MockERC20 rewardToken1;
     MockERC20 rewardToken2;
 
@@ -35,35 +33,23 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         vm.prank(user3);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
-        // Create roles
-        rewarder = vm.createWallet("rewarder").addr;
-        rebalancer = vm.createWallet("rebalancer").addr;
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-
-        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
-
         // Create reward tokens
         rewardToken1 = new MockERC20("Reward Token 1", "RWD1", 18);
         vm.label(address(rewardToken1), MockERC20(rewardToken1).symbol());
         rewardToken2 = new MockERC20("Reward Token 2", "RWD2", 18);
         vm.label(address(rewardToken2), MockERC20(rewardToken2).symbol());
 
-        // Grant roles
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
-
         // register reward tokens
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken1));
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken2));
         vm.stopPrank();
 
-        // Initialize reward tokens with some balance for the rewarder
-        rewardToken1.mint(rewarder, INITIAL_REWARD_AMOUNT);
-        rewardToken2.mint(rewarder, INITIAL_REWARD_AMOUNT);
+        // Initialize reward tokens with some balance for the rewardDepositor
+        rewardToken1.mint(rewardDepositor, INITIAL_REWARD_AMOUNT);
+        rewardToken2.mint(rewardDepositor, INITIAL_REWARD_AMOUNT);
 
         // Approve rewards to be spent by the stability pool
-        vm.startPrank(rewarder);
+        vm.startPrank(rewardDepositor);
         rewardToken1.approve(stabilityPoolCollateral, type(uint256).max);
         rewardToken2.approve(stabilityPoolCollateral, type(uint256).max);
         vm.stopPrank();
@@ -91,7 +77,7 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
     }
 
     function _accumulateReward(address token, uint256 amount) internal {
-        vm.startPrank(rewarder);
+        vm.startPrank(rewardDepositor);
         // IERC20(token).transfer(stabilityPoolCollateral, amount);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(token, amount);
         vm.stopPrank();

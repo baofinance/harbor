@@ -22,8 +22,6 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
     // Additional users for loss tests
     address user3;
     address user4;
-    address rebalancer;
-    address rewarder;
 
     // Mock tokens for reward testing
     address[] rewardTokens;
@@ -34,8 +32,6 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
     // Constants
     uint256 constant INITIAL_DEPOSIT = 100 ether;
     uint256 constant INITIAL_REWARD_AMOUNT = 1000 ether;
-    uint256 REBALANCER_ROLE;
-    uint256 REWARD_DEPOSITOR_ROLE;
 
     function setUp() public virtual override {
         super.setUp();
@@ -43,8 +39,6 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
         // Set up additional users
         user3 = makeAddr("user3");
         user4 = makeAddr("user4");
-        rebalancer = makeAddr("rebalancer");
-        rewarder = makeAddr("rewarder");
 
         // Set up reward tokens
         rewardTokens = new address[](2);
@@ -75,19 +69,10 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
         // Set up reward tokens
 
         // Grant rebalancer role for both stability pools
-        REBALANCER_ROLE = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        REWARD_DEPOSITOR_ROLE = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         vm.startPrank(owner);
         for (uint i = 0; i < rewardTokens.length; i++) {
             MockERC20(rewardTokens[i]).mint(address(this), INITIAL_REWARD_AMOUNT * 10);
-            IBaoRoles(address(stabilityPools[i])).grantRoles(rebalancer, REBALANCER_ROLE);
-            IBaoRoles(address(stabilityPools[i])).grantRoles(rewarder, REWARD_DEPOSITOR_ROLE);
-            IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardTokens[i]));
         }
-        assertTrue(
-            IBaoRoles(stabilityPoolCollateral).hasAnyRole(rewarder, REWARD_DEPOSITOR_ROLE),
-            "rewarder is set up"
-        );
         vm.stopPrank();
     }
 }

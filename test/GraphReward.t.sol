@@ -128,7 +128,6 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
     bool depositedInPool;
 
     uint256 price;
-    address rebalancer;
 
     uint256 currentPoolDeposit;
 
@@ -142,12 +141,7 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         super.setUp();
 
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        rebalancer = makeAddr("rebalancer");
         vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(
-            rebalancer,
-            IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE()
-        );
         IBaoRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
         vm.stopPrank();
 

@@ -26,8 +26,6 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 /// @dev Based on the testing approach from rebalance-pool
 contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
     address user3;
-    address rewarder;
-    address rebalancer;
     address rewardManager;
     MockERC20 rewardToken;
     MockERC20 liquidationToken;
@@ -42,8 +40,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // Create additional users and roles
         user3 = vm.createWallet("user3").addr;
-        rewarder = vm.createWallet("rewarder").addr;
-        rebalancer = vm.createWallet("rebalancer").addr;
         rewardManager = vm.createWallet("rewardManager").addr;
 
         // Create reward and liquidation tokens
@@ -51,20 +47,16 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         liquidationToken = new MockERC20("Liquidation Token", "LQT", 18);
 
         // Set up roles
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
 
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
         vm.stopPrank();
 
         // Mint initial tokens
-        rewardToken.mint(rewarder, INITIAL_BALANCE);
+        rewardToken.mint(rewardDepositor, INITIAL_BALANCE);
         liquidationToken.mint(rebalancer, INITIAL_BALANCE);
 
         // Distribute tokens to users
@@ -82,7 +74,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         vm.prank(user3);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
-        vm.prank(rewarder);
+        vm.prank(rewardDepositor);
         rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
 
         setUp_collateral(1000 ether, 1000 ether);
@@ -197,12 +189,12 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
 
-        // only rewarders
+        // only rewardDepositors
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
 
         // Distribute rewards
-        vm.startPrank(rewarder);
+        vm.startPrank(rewardDepositor);
         rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
@@ -302,7 +294,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
 
         // Distribute rewards
-        vm.startPrank(rewarder);
+        vm.startPrank(rewardDepositor);
         // rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
@@ -335,7 +327,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Try to accumulate reward without registering token first - should revert
-        vm.prank(rewarder);
+        vm.prank(rewardDepositor);
         rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
 
         address[] memory activeTokensBefore = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
@@ -346,7 +338,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // This call should fail as the token isn't registered yet
         vm.expectRevert(IMultipleRewardDistributor.NotActiveRewardToken.selector);
-        vm.prank(rewarder);
+        vm.prank(rewardDepositor);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
 
         // Now register the token properly with the REWARD_MANAGER_ROLE
@@ -359,7 +351,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         assertEq(activeTokens.length, activeTokensBefore.length);
 
         // Now we should be able to accumulate rewards
-        vm.startPrank(rewarder);
+        vm.startPrank(rewardDepositor);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
 
@@ -374,7 +366,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Distribute rewards
-        vm.startPrank(rewarder);
+        vm.startPrank(rewardDepositor);
         // rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();

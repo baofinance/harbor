@@ -34,8 +34,6 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 contract TestStabilityPoolRebalance is TestStabilityPoolSetUp {
     address user3;
     address user4;
-    address rewarder;
-    address rebalancer;
     address rewardManager;
     MockERC20 rewardToken;
 
@@ -50,21 +48,15 @@ contract TestStabilityPoolRebalance is TestStabilityPoolSetUp {
         // Create additional users
         user3 = vm.createWallet("user3").addr;
         user4 = vm.createWallet("user4").addr;
-        rewarder = vm.createWallet("rewarder").addr;
-        rebalancer = vm.createWallet("rebalancer").addr;
         rewardManager = vm.createWallet("rewardManager").addr;
 
         // Create a reward token
         rewardToken = new MockERC20("Reward Token", "RWD", 18);
 
         // Setup roles
-        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
 
         // Register reward token
@@ -72,10 +64,10 @@ contract TestStabilityPoolRebalance is TestStabilityPoolSetUp {
         vm.stopPrank();
 
         // Mint reward tokens
-        rewardToken.mint(rewarder, 1000 ether);
+        rewardToken.mint(rewardDepositor, 1000 ether);
 
         // Approve the stabilityPool to spend reward tokens
-        vm.prank(rewarder);
+        vm.prank(rewardDepositor);
         rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
 
         // Give users tokens for deposits

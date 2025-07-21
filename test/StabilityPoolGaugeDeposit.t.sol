@@ -29,8 +29,6 @@ import {MockERC20} from "test/mock/MockERC20.sol";
 contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
     // Roles & actors
     address public user3;
-    address public rewarder;
-    address public rebalancer;
     address public rewardManager;
     address public multisig = 0x3dFc49e5112005179Da613BdE5973229082dAc35;
 
@@ -82,8 +80,6 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Create actors
         user3 = vm.createWallet("user3").addr;
-        rewarder = vm.createWallet("rewarder").addr;
-        rebalancer = vm.createWallet("rebalancer").addr;
         rewardManager = vm.createWallet("rewardManager").addr;
 
         // Create mock reward & liquidation tokens
@@ -91,19 +87,15 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         liquidationToken = new MockERC20("Liquidation Token", "LQT", 18);
 
         // Grant roles to new addresses
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewarderRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
         uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
 
         vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
         vm.stopPrank();
 
         // Mint and distribute tokens
-        rewardToken.mint(rewarder, INITIAL_BALANCE);
+        rewardToken.mint(rewardDepositor, INITIAL_BALANCE);
         liquidationToken.mint(rebalancer, INITIAL_BALANCE);
 
         // Approvals
@@ -116,7 +108,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         vm.prank(user3);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
-        vm.prank(rewarder);
+        vm.prank(rewardDepositor);
         rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
 
         // Allocate test funds
