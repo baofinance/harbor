@@ -111,6 +111,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address user2;
     address rewardDepositor;
     address rebalancer;
+    address rewardManager;
 
     function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
         string memory liquidation = IERC20Metadata(liquidationToken).symbol();
@@ -139,7 +140,10 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         IBaoRoles(stabilityPoolToken).grantRoles(address(this), IMintableRole(stabilityPoolToken).MINTER_ROLE());
         IMintable(stabilityPoolToken).mint(stabilityPool, 1 ether);
 
-        IBaoRoles(stabilityPool).grantRoles(owner, IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE());
+        IBaoRoles(stabilityPool).grantRoles(
+            rewardManager,
+            IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE()
+        );
         IBaoRoles(stabilityPool).grantRoles(
             rewardDepositor,
             IMultipleRewardDistributor(stabilityPool).REWARD_DEPOSITOR_ROLE()
@@ -174,7 +178,8 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         vm.label(veSteam, "veSTEAM");
         IBaoOwnable(veSteam).transferOwnership(owner);
 
-        rewardDepositor = makeAddr("rewardDistributor");
+        rewardDepositor = makeAddr("rewardDepositor");
+        rebalancer = makeAddr("rebalancer");
 
         stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
 

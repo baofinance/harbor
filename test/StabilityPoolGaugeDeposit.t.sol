@@ -29,7 +29,6 @@ import {MockERC20} from "test/mock/MockERC20.sol";
 contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
     // Roles & actors
     address public user3;
-    address public rewardManager;
     address public multisig = 0x3dFc49e5112005179Da613BdE5973229082dAc35;
 
     // STEAM setup
@@ -80,19 +79,13 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
 
         // Create actors
         user3 = vm.createWallet("user3").addr;
-        rewardManager = vm.createWallet("rewardManager").addr;
 
         // Create mock reward & liquidation tokens
         rewardToken = new MockERC20("Reward Token", "RWD", 18);
         liquidationToken = new MockERC20("Liquidation Token", "LQT", 18);
 
-        // Grant roles to new addresses
-        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
+        vm.prank(rewardManager);
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
-        vm.stopPrank();
 
         // Mint and distribute tokens
         rewardToken.mint(rewardDepositor, INITIAL_BALANCE);

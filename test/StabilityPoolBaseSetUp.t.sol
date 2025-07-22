@@ -19,10 +19,6 @@ import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 /// @title TestStabilityPoolLossSetUp
 /// @notice Base setup for all stability pool loss tests
 contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
-    // Additional users for loss tests
-    address user3;
-    address user4;
-
     // Mock tokens for reward testing
     address[] rewardTokens;
 
@@ -35,10 +31,6 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
 
     function setUp() public virtual override {
         super.setUp();
-
-        // Set up additional users
-        user3 = makeAddr("user3");
-        user4 = makeAddr("user4");
 
         // Set up reward tokens
         rewardTokens = new address[](2);
@@ -55,24 +47,14 @@ contract TestStabilityPoolBaseSetUp is TestStabilityPool2SetUp {
         deal(peggedToken, user3, 3000 ether);
         deal(peggedToken, user4, 4000 ether);
 
-        // Approve tokens for additional users
-        vm.startPrank(user3);
-        IERC20(peggedToken).approve(address(stabilityPoolCollateral), type(uint256).max);
-        IERC20(peggedToken).approve(address(stabilityPoolLeveraged), type(uint256).max);
-        vm.stopPrank();
-
-        vm.startPrank(user4);
-        IERC20(peggedToken).approve(address(stabilityPoolCollateral), type(uint256).max);
-        IERC20(peggedToken).approve(address(stabilityPoolLeveraged), type(uint256).max);
-        vm.stopPrank();
-
-        // Set up reward tokens
-
-        // Grant rebalancer role for both stability pools
-        vm.startPrank(owner);
         for (uint i = 0; i < rewardTokens.length; i++) {
-            MockERC20(rewardTokens[i]).mint(address(this), INITIAL_REWARD_AMOUNT * 10);
+            MockERC20(rewardTokens[i]).mint(rewardDepositor, INITIAL_REWARD_AMOUNT * 10);
+            for (uint s = 0; s < stabilityPools.length; s++) {
+                vm.prank(rewardManager);
+                IMultipleRewardDistributor(stabilityPools[s]).registerRewardToken(rewardTokens[i]);
+                vm.prank(rewardDepositor);
+                IERC20(rewardTokens[i]).approve(stabilityPools[s], type(uint256).max);
+            }
         }
-        vm.stopPrank();
     }
 }

@@ -22,7 +22,7 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 
 import {MockERC20} from "test/mock/MockERC20.sol";
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
+import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -30,78 +30,11 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 /// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool_v1 contract.
 /// It extends the TestStabilityPoolSetUp to include more complex scenarios and edge cases.
 /// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool_v1
-contract TestStabilityPoolExtra1 is TestStabilityPoolSetUp {
-    address user3;
-    address user4;
-    address rewardManager;
-    MockERC20 rewardToken;
-
+contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
     // Constants for testing
     uint256 constant DEPOSIT_AMOUNT = 100 ether;
     uint256 constant TINY_DEPOSIT = 1 ether; // Extremely small deposit to test edge cases
     uint256 constant REWARD_AMOUNT = 50 ether;
-
-    function setUp() public override {
-        super.setUp();
-
-        // Create additional users
-        user3 = vm.createWallet("user3").addr;
-        user4 = vm.createWallet("user4").addr;
-        rewardManager = vm.createWallet("rewardManager").addr;
-
-        // Create a reward token
-        rewardToken = new MockERC20("Reward Token", "RWD", 18);
-
-        // Setup roles
-        uint256 rewardDepositorRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewardDepositor, rewardDepositorRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
-
-        // Register reward token
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
-        vm.stopPrank();
-
-        // Mint reward tokens
-        rewardToken.mint(rewardDepositor, 1000 ether);
-
-        // Approve the stabilityPool to spend reward tokens
-        vm.prank(rewardDepositor);
-        rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
-
-        // Give users tokens for deposits
-        deal(peggedToken, user1, 1000 ether);
-        deal(peggedToken, user2, 1000 ether);
-        deal(peggedToken, user3, 1000 ether);
-        deal(peggedToken, user4, 1000 ether);
-
-        // Set approvals
-        vm.prank(user1);
-        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-
-        vm.prank(user2);
-        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-
-        vm.prank(user3);
-        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-
-        vm.prank(user4);
-        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-    }
-
-    function _liquidate(uint256 assets) private {
-        uint256 returned = assets / 2000;
-        vm.startPrank(rebalancer);
-        ITokenHolder(stabilityPoolCollateral).sweep(peggedToken, assets, rebalancer);
-        deal(wrappedCollateralToken, rebalancer, returned);
-        IERC20(wrappedCollateralToken).transfer(stabilityPoolCollateral, returned);
-        IStabilityPool(stabilityPoolCollateral).notifyLiquidation(assets, returned);
-        vm.stopPrank();
-    }
 
     // Test for totalSupplyHistory getter (coverage for function 236)
     function testTotalSupplyHistory() public {

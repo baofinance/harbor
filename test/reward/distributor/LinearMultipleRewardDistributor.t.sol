@@ -14,6 +14,7 @@ import {Useful} from "test/Useful.sol";
 contract LinearMultipleRewardDistributorTest is Test {
     address owner;
     address manager;
+    address rewardDepositor;
     uint256 REWARD_MANAGER_ROLE = 1;
     uint256 REWARD_DEPOSITOR_ROLE = 2;
     address holder0;
@@ -34,6 +35,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         holder0 = makeAddr("holder0");
         holder1 = makeAddr("holder1");
         holder2 = makeAddr("holder2");
+        rewardDepositor = makeAddr("rewardDepositor");
 
         token0 = new MockERC20("R0", "R0", 18);
         token1 = new MockERC20("R1", "R1", 18);
@@ -149,6 +151,8 @@ contract LinearMultipleRewardDistributorTest is Test {
         );
         distributor.initialize(owner);
         distributor.grantRoles(manager, REWARD_MANAGER_ROLE);
+        distributor.grantRoles(rewardDepositor, REWARD_DEPOSITOR_ROLE);
+
         distributor.transferOwnership(owner);
         assertEq(distributor.owner(), owner);
         return distributor;
@@ -158,14 +162,6 @@ contract LinearMultipleRewardDistributorTest is Test {
         MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        distributor.registerRewardToken(address(token0));
-    }
-
-    function test_registerRewardToken_RevertWhenDistributorIsZero() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
-
-        vm.prank(manager);
-        vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributorIsZero.selector));
         distributor.registerRewardToken(address(token0));
     }
 
@@ -315,12 +311,12 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(holder0, 1000 ether);
-        vm.prank(holder0);
+        token0.mint(rewardDepositor, 1000 ether);
+        vm.prank(rewardDepositor);
         token0.approve(address(distributor), MAX_UINT);
 
         // Deposit reward
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         distributor.depositReward(address(token0), 1000 ether);
 
         // Try to unregister
@@ -337,6 +333,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
 
+        vm.prank(rewardDepositor);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.NotActiveRewardToken.selector));
         distributor.depositReward(address(token1), 0);
     }
@@ -347,7 +344,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
 
-        vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.NotRewardDistributor.selector));
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         distributor.depositReward(address(token0), 0);
     }
 
@@ -358,14 +355,14 @@ contract LinearMultipleRewardDistributorTest is Test {
         distributor.registerRewardToken(address(token0));
 
         // Mint tokens and approve
-        token0.mint(holder0, 100_000 ether);
-        vm.prank(holder0);
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
         token0.approve(address(distributor), MAX_UINT);
 
         // Deposit reward
         uint256 depositAmount = 1000 ether;
 
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         vm.expectEmit(address(distributor));
         emit MockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), depositAmount);
         vm.expectEmit(address(distributor));
@@ -395,8 +392,8 @@ contract LinearMultipleRewardDistributorTest is Test {
         distributor.registerRewardToken(address(token0));
 
         // Mint tokens and approve
-        token0.mint(holder0, 100_000 ether);
-        vm.prank(holder0);
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
         token0.approve(address(distributor), MAX_UINT);
 
         // Deposit reward
@@ -404,7 +401,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         uint256 timestamp0 = block.timestamp;
 
         // no _accumulateReward call when we have a non-zero period
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         vm.expectEmit(address(distributor));
         emit IMultipleRewardDistributor.DepositReward(address(token0), depositAmount0);
         distributor.depositReward(address(token0), depositAmount0);
@@ -438,7 +435,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         // Deposit 89% of expected unlocked rewards, should be queued
         uint256 depositAmount1 = (expectedRate0 * oneThirdPeriod * 89) / 100;
 
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         vm.expectEmit(address(distributor));
         emit MockLinearMultipleRewardDistributor._accumulateReward_called(
             address(token0),
@@ -461,7 +458,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         // Deposit another 2% of expected unlocked rewards, should trigger distribution
         uint256 depositAmount2 = (expectedRate0 * oneThirdPeriod * 2) / 100;
 
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         vm.expectEmit(address(distributor));
         // no _accumulateReward call since we trigger distribution
         emit IMultipleRewardDistributor.DepositReward(address(token0), depositAmount2);
@@ -494,8 +491,8 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(holder0, 100_000 ether);
-        vm.prank(holder0);
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
         token0.approve(address(distributor), MAX_UINT);
 
         // Deposit a very small amount that will result in tiny queued remainder
@@ -505,7 +502,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         // This creates the scenario where queued (1000 wei) < REWARD_PERIOD_LENGTH (86400 seconds)
         uint256 verySmallAmount = 1000; // 1000 wei (much less than 86,400)
 
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         distributor.depositReward(address(token0), verySmallAmount);
 
         // Check the reward data to confirm our scenario
@@ -571,14 +568,14 @@ contract LinearMultipleRewardDistributorTest is Test {
         distributor.registerRewardToken(address(usdcLikeToken));
 
         // Mint tokens and approve
-        usdcLikeToken.mint(holder0, 1000000 * 10 ** 6); // 1M USDC
-        vm.prank(holder0);
+        usdcLikeToken.mint(rewardDepositor, 1000000 * 10 ** 6); // 1M USDC
+        vm.prank(rewardDepositor);
         usdcLikeToken.approve(address(distributor), MAX_UINT);
 
         // Deposit amount that creates a normal queued remainder
         uint256 amount = 100000 * 10 ** 6; // 100,000 USDC (6 decimals)
 
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         distributor.depositReward(address(usdcLikeToken), amount);
 
         // Check the reward data
@@ -647,8 +644,8 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.stopPrank();
 
         // Mint tokens and approve
-        token0.mint(holder0, 100_000 ether);
-        vm.prank(holder0);
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
         token0.approve(address(distributor), MAX_UINT);
 
         // Create a scenario where queued is close to REWARD_PERIOD_LENGTH
@@ -656,7 +653,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         // This gives: queued = REWARD_PERIOD_LENGTH - 1
         uint256 targetAmount = REWARD_PERIOD_LENGTH + (REWARD_PERIOD_LENGTH - 1);
 
-        vm.prank(holder0);
+        vm.prank(rewardDepositor);
         distributor.depositReward(address(token0), targetAmount);
 
         // Check the reward data

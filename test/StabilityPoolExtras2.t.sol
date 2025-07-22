@@ -34,7 +34,6 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
     address user3;
     address user4;
-    address rewardManager;
     MockERC20 rewardToken;
 
     // Constants for testing
@@ -49,20 +48,12 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         user3 = vm.createWallet("user3").addr;
         user4 = vm.createWallet("user4").addr;
 
-        rewardManager = vm.createWallet("rewardManager").addr;
-
         // Create a reward token
         rewardToken = new MockERC20("Reward Token", "RWD", 18);
 
-        // Setup roles
-        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
-
+        vm.prank(rewardManager);
         // Register reward token
         IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
-        vm.stopPrank();
 
         // Mint reward tokens
         rewardToken.mint(rewardDepositor, 1000 ether);

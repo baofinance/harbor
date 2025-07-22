@@ -12,6 +12,8 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 // solhint-disable not-rely-on-time
 
 /// @title MultipleRewardCompoundingAccumulator
@@ -244,17 +246,11 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimable(address account, address token) external view virtual override returns (uint256) {
-        if (!isActiveRewardToken(token)) {
-            revert NotActiveRewardToken();
-        }
         return _claimable(account, token, true);
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimed(address account, address token) external view returns (uint256) {
-        if (!isActiveRewardToken(token)) {
-            revert NotActiveRewardToken();
-        }
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         return $.userRewardSnapshot[account][token].rewards.claimed;
     }
@@ -294,7 +290,6 @@ abstract contract MultipleRewardCompoundingAccumulator is
         if (account != _msgSender() && receiver != address(0)) {
             revert ClaimOthersRewardToAnother();
         }
-
         _checkpoint(account);
         _claim(account, receiver);
     }
@@ -354,14 +349,26 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint128 toProd,
         uint256 denominator
     ) internal pure returns (uint256) {
+        // console2.log("_scaleAdjustedValue(");
+        // console2.log("   baseValue=%s,", baseValue);
+        // console2.log("   fromProd=%s,", fromProd);
+        // console2.log("   toProd=%s,", toProd);
+        // console2.log("   denominator=%s)...", denominator);
+
         uint8 fromExp = fromProd.exponent();
+        // console2.log("fromExp=%s", fromExp);
         uint8 toExp = toProd.exponent();
+        // console2.log("toExp=%s", toExp);
         uint256 fromMag = fromProd.magnitude();
+        // console2.log("fromMag=%s", fromMag);
         uint256 toMag = toProd.magnitude();
+        // console2.log("toMag=%s", toMag);
 
         if (baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE) {
             return 0; // Too many scale changes
         }
+        // console2.log("before divByScaleFactor", Math.mulDiv(baseValue, toMag, fromMag * denominator));
+        // console2.log("-> ", _divByScaleFactor(Math.mulDiv(baseValue, toMag, fromMag * denominator), toExp - fromExp));
         return _divByScaleFactor(Math.mulDiv(baseValue, toMag, fromMag * denominator), toExp - fromExp);
     }
 
@@ -386,13 +393,16 @@ abstract contract MultipleRewardCompoundingAccumulator is
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
         claimable_ = uint256($.userRewardSnapshot[account][token].rewards.pending);
+        console2.log("claimable_ =%s from $.userRewardSnapshot[account][token].rewards.pending", claimable_);
         (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
+        // console2.log("userProd   =%s", userProd);
+        // console2.log("shares    =%s", shares);
         (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
+        // console2.log("currentProd=%s", currentProd);
+        // console2.log("totalShare=%s", totalShare);
 
         if (shares > 0 && totalShare > 0) {
             uint8 userExponent = userProd.exponent();
-            uint120 userMagnitude = userProd.magnitude();
-
             uint8 maxExponentsToCheck = uint8(
                 Math.min(DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
             );
@@ -407,12 +417,26 @@ abstract contract MultipleRewardCompoundingAccumulator is
                     integral += uint192(_divByScaleFactor(integralAtScale, i));
                 }
             }
-
-            claimable_ += (shares * integral) / (userMagnitude * _REWARD_PRECISION);
+            // Get user's checkpoint integral
+            uint192 userCheckpointIntegral = $.userRewardSnapshot[account][token].checkpoint.integral;
+            if (integral > userCheckpointIntegral) {
+                claimable_ +=
+                    (shares * (integral - userCheckpointIntegral)) /
+                    (userProd.magnitude() * _REWARD_PRECISION);
+                console2.log(
+                    "claimable_+=%s from (shares * (integral - userCheckpointIntegral)) / (userProd.magnitude() * _REWARD_PRECISION)",
+                    (shares * (integral - userCheckpointIntegral)) / (userProd.magnitude() * _REWARD_PRECISION)
+                );
+            }
         }
         if (includeTemporalPending) {
             (uint256 amount, ) = this.pendingRewards(token);
-            claimable_ += _scaleAdjustedValue(amount, userProd, currentProd, totalShare);
+            claimable_ += _scaleAdjustedValue(amount * shares, userProd, currentProd, totalShare);
+            console2.log(
+                "claimable_+=%s from _scaleAdjustedValue(amount, userProd, currentProd, totalShare)",
+                _scaleAdjustedValue(amount * shares, userProd, currentProd, totalShare)
+            );
+            // claimable_ += (amount * shares) / totalShare;
         }
     }
 

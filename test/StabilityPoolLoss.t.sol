@@ -29,18 +29,6 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
     uint256 constant user1Deposit = 100 ether;
     uint256 constant user2Deposit = 200 ether;
 
-    /// @notice Helper function to simulate loss on a stability pool
-    /// @param pool The stability pool address
-    /// @param amount The amount of loss to apply
-    function simulateLoss(address pool, uint256 amount) internal {
-        ITokenHolder tokenHolder = ITokenHolder(pool);
-        address assetToken = IStabilityPool(pool).ASSET_TOKEN();
-
-        // Simulate loss by sweeping assets from the pool
-        vm.prank(rebalancer);
-        tokenHolder.sweep(assetToken, amount, address(0xdead));
-    }
-
     /// @notice Basic loss notification test with parameterized deposit and loss amounts
     function testBasicLoss(uint256 depositAmount, uint256 lossAmount) public {
         // Bound inputs to reasonable values
@@ -62,7 +50,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertEq(initialTotalAssets, depositAmount);
 
         // Action: Simulate loss through sweep
-        simulateLoss(pool, lossAmount);
+        _liquidate(pool, lossAmount);
 
         // Get resulting balances
         uint256 totalAssetSupply = IStabilityPool(pool).totalAssetSupply();
@@ -103,7 +91,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertEq(IStabilityPool(pool).totalAssetSupply(), totalDeposit);
 
         // Action: Simulate loss through sweep
-        simulateLoss(pool, lossAmount);
+        _liquidate(pool, lossAmount);
 
         // Calculate expected losses
         uint256 expectedUser1Loss = (lossAmount * user1Deposit_) / totalDeposit;
@@ -145,7 +133,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         vm.stopPrank();
 
         // Action: Simulate loss through sweep
-        simulateLoss(pool, lossAmount);
+        _liquidate(pool, lossAmount);
 
         uint256 remainingBalance = IStabilityPool(pool).assetBalanceOf(user1);
         assertApproxEqAbs(remainingBalance, depositAmount - lossAmount, TOLERANCE_LARGE);
@@ -189,7 +177,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         vm.stopPrank();
 
         // Action: Simulate loss through sweep
-        simulateLoss(pool, intendedLossAmount);
+        _liquidate(pool, intendedLossAmount);
 
         // Calculate actual loss considering MIN_TOTAL_ASSET_SUPPLY protection
         uint256 actualLossAmount;
@@ -257,13 +245,16 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Distribute rewards using the rewardDepositor account
         vm.prank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(rewardToken, rewardAmount);
+        skip(8 days);
 
         // Action: Simulate loss through sweep
-        simulateLoss(pool, lossAmount);
+        _liquidate(pool, lossAmount);
 
         // Check user can still claim rewards after loss
         uint256 claimable = IMultipleRewardAccumulator(pool).claimable(user1, rewardToken);
-        assertApproxEqAbs(claimable, rewardAmount, 1000);
+        // there are substantial rounding errors as distribution is calculated per second
+        // and that results in truncation - the remainder is added to the queue
+        assertApproxEqAbs(claimable, rewardAmount, 1e6);
     }
 
     /// @notice Test multiple loss notifications in sequence
@@ -300,7 +291,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 remainingBalance = depositAmount;
 
         for (uint256 i = 0; i < lossAmounts.length; i++) {
-            simulateLoss(pool, lossAmounts[i]);
+            _liquidate(pool, lossAmounts[i]);
 
             remainingBalance -= lossAmounts[i];
 
@@ -324,7 +315,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // First loss
         uint256 firstLoss = 60 ether; // 20% loss
-        simulateLoss(stabilityPoolCollateral, firstLoss);
+        _liquidate(stabilityPoolCollateral, firstLoss);
 
         // Expected loss distribution
         uint256 expectedUser1LossFirst = (firstLoss * user1Deposit) / (user1Deposit + user2Deposit);
@@ -358,7 +349,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // Second loss
         uint256 secondLoss = 40 ether;
-        simulateLoss(stabilityPoolCollateral, secondLoss);
+        _liquidate(stabilityPoolCollateral, secondLoss);
 
         // Check final balances
         uint256 totalAssetsAfterAll = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
@@ -431,7 +422,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         delayedReward = steam;
 
         address[] memory rewardTokens = IMultipleRewardDistributor(pool).activeRewardTokens();
-        assertGt(rewardTokens.length, 2, "Pool 2 active reward tokens");
+        assertGe(rewardTokens.length, 2, "Pool 2 active reward tokens");
         assertEq(rewardTokens[0], wrappedCollateralToken, "First reward token should be immediate reward");
         assertEq(rewardTokens[1], steam, "Second reward token should be delayed");
     }
@@ -490,6 +481,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
 
         // load up with rewards
         deal(steam, rewardDepositor, IERC20(steam).balanceOf(pool) + delayedAmount);
+        vm.prank(rewardDepositor);
         IERC20(steam).approve(pool, type(uint256).max);
         vm.prank(rewardDepositor);
         IMultipleRewardDistributor(pool).depositReward(steam, delayedAmount);
@@ -500,8 +492,8 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         uint daycount = 1;
         vm.warp(startTime + daycount * 1 days); // 1/7 of the reward period
 
-        _checkRewards("1 day", user1, 0, 0);
-        _checkRewards("1 day", user2, 0, 0);
+        _checkRewards("1 day", user1, 0, (((delayedAmount * 1) / 3) * daycount) / 7);
+        _checkRewards("1 day", user2, 0, (((delayedAmount * 2) / 3) * daycount) / 7);
 
         // Phase 2: Partial (1/2) liquidation
         //////////////////////////////////////
@@ -581,11 +573,34 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
             1200
         );
 
-        // phase 6: post emptying deposit
-        /////////////////////////////////
+        // move it on one day
         prevdaycount = daycount;
         daycount = 5;
         vm.warp(startTime + daycount * 1 days); // 5/7 of the reward period
+        // Users receive rewards from both original and new distributions
+        uint256 oldAmountDelayed = (delayedAmount * 5) / 7;
+        uint256 newAmountDelayed = (((delayedAmount * (7 - 5)) / 7 + (delayedAmount * 10) / 301) * 1) / 7;
+
+        _checkRewards(
+            "new reward, 5+1 day",
+            user1,
+            (immediateAmount * 1) / 3,
+            0,
+            ((oldAmountDelayed + newAmountDelayed) * 1) / 3, // Original + new delayed rewards (1 day)
+            30100 // 41554285714285686596 41554285714285714285
+        );
+        _checkRewards(
+            "new reward, 5+1 day",
+            user2,
+            (immediateAmount * 2) / 3,
+            0,
+            ((oldAmountDelayed + newAmountDelayed) * 2) / 3, // Original + new delayed rewards (1 day)
+            60200 // Increased tolerance for accumulated precision errors
+        );
+
+        // phase 6: post emptying deposit
+        /////////////////////////////////
+
         deal(peggedToken, user3, user3Deposit);
         vm.prank(user3);
         IStabilityPool(pool).deposit(user3Deposit, user3, 0);
@@ -598,8 +613,6 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         assertEq(IStabilityPool(pool).assetBalanceOf(user3), user3Deposit, "User3 new deposit balance");
         // rewards change when a deposit is made because it triggers distribution of pending new delayed rewards
 
-        uint256 oldAmountDelayed = (delayedAmount * 4) / 7;
-        uint256 newAmountDelayed = (((delayedAmount * (7 - 4)) / 7 + delayedAmount * 10) * 1) / 7;
         _checkRewards(
             "new deposit",
             user1,
@@ -624,6 +637,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
         daycount = 6;
         vm.warp(startTime + daycount * 1 days); // 6/7 of the reward period
         //newAmountDelayed = (((delayedAmount * (7 - 4)) / 7 + (delayedAmount * 10) / 301) * 2) / 7;
+        //newAmountDelayed = (((delayedAmount * (7 - 4)) / 7 + delayedAmount * 10) * 2) / 7; // <-- this calculation
         _checkRewards(
             "deposit, 1 day",
             user1,
@@ -631,6 +645,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolLoss {
             7500,
             ((oldAmountDelayed + newAmountDelayed) * 1) / 3, // Original + new delayed rewards (1 day)
             30100 // 41554285714285686596 41554285714285714285
+            // 41654067394399592531 !~= 41554285714285714285
         );
         _checkRewards(
             "deposit, 1 day",
