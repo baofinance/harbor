@@ -21,6 +21,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
@@ -58,6 +59,7 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
+        uint256 rewardDepositorRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
 
         // Grant roles
         vm.startPrank(owner);
@@ -65,6 +67,8 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
         IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManager, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManager, zeroFeeRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManager, harvesterRole);
+        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManager, rewardDepositorRole);
+        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManager, rewardDepositorRole);
         vm.stopPrank();
     }
 }
@@ -557,85 +561,28 @@ contract MockStabilityPoolManagerUpgraded is StabilityPoolManager_v1 {
     }
 }
 
-contract MockMinter {
-    uint256 public harvestable;
-    uint256 public collateralRatio;
-    address public immutable WRAPPED_COLLATERAL_TOKEN;
-    address public immutable PEGGED_TOKEN;
-    address public immutable LEVERAGED_TOKEN;
-
-    constructor(address wrappedCollateralToken, address peggedToken, address leveragedToken) {
-        WRAPPED_COLLATERAL_TOKEN = wrappedCollateralToken;
-        PEGGED_TOKEN = peggedToken;
-        LEVERAGED_TOKEN = leveragedToken;
-    }
-    function setHarvestable(uint256 amount) external {
-        harvestable = amount;
-    }
-    function setCollateralRatio(uint256 ratio) external {
-        collateralRatio = ratio;
-    }
-    function ZERO_FEE_ROLE() external pure returns (uint256) {
-        return 128; // any power of 2
-    }
-    function HARVESTER_ROLE() external pure returns (uint256) {
-        return 256; // any power of 2
-    }
-    function grantRoles(address, uint256) external {}
-
-    function sweep(address token, uint256 amount, address receiver) external {
-        harvestable -= amount;
-        IERC20(token).transfer(receiver, amount);
-    }
-}
-
-contract MockStabilityPool {
-    mapping(address => uint256) public assetBalanceOf;
-    uint256 public totalAssetSupply;
-    address ASSET_TOKEN;
-
-    constructor(address token) {
-        ASSET_TOKEN = token;
-    }
-    function deposit(uint256 amount, address user, uint256) external {
-        assetBalanceOf[user] += amount;
-        totalAssetSupply += amount;
-        IERC20(ASSET_TOKEN).transferFrom(msg.sender, address(this), amount);
-    }
-    function sweep(address token, uint256 amount, address receiver) external {
-        IERC20(token).transfer(receiver, amount);
-    }
-    function REBALANCER_ROLE() external pure returns (uint256) {
-        return 128; // any power of 2
-    }
-    function grantRoles(address, uint256) external {}
-    function accumulateReward(address token, uint256 amount) external {}
-}
-
 contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     address harvester;
     address liquidator;
 
-    function _setupStabilityPool(address) internal virtual override returns (address stabilityPool) {
-        stabilityPool = address(new MockStabilityPool(peggedToken));
-    }
-
-    function setUp_minter() internal virtual override {
-        minter = address(new MockMinter(wrappedCollateralToken, peggedToken, leveragedToken));
-    }
-
     function setUp() public override {
         super.setUp();
 
-        deal(wrappedCollateralToken, minter, 100 ether);
         harvester = makeAddr("harvester");
         liquidator = makeAddr("liquidator");
+
+        uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
+        vm.prank(owner);
+        IBaoRoles(minter).grantRoles(harvester, harvesterRole);
+
+        setUp_collateral(500 ether, 500 ether, address(this));
+        (uint256 startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, 1010101010101010101);
+        uint256 harvestableAmount = IMinter(minter).harvestable();
+        assertApproxEqAbs(harvestableAmount, 10 ether, 10, "harvestable should be 10 ether");
     }
 
     function test_harvest0_() public {
-        // Setup harvestable amount
-        MockMinter(minter).setHarvestable(5 ether);
-
         // Make sure pools have some tokens to calculate proportion
         deal(peggedToken, stabilityPoolCollateral, 3 ether);
         deal(peggedToken, stabilityPoolLeveraged, 2 ether);
@@ -648,18 +595,14 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         vm.prank(harvester);
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), harvesterBefore, "Incorrect bounty amount");
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), feeReceiverBefore, "Incorrect bounty amount");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), feeReceiverBefore, "Incorrect fee amount");
     }
 
     function test_harvestMinBounty_() public {
-        MockMinter(minter).setHarvestable(5 ether);
-
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPoolManager.InsufficientBounty.selector, wrappedCollateralToken, 0, 1)
         );
-        vm.prank(harvester);
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 1);
-        assertEq(MockMinter(minter).harvestable(), 5 ether);
 
         vm.prank(owner);
         IStabilityPoolManager(stabilityPoolManager).updateHarvestBountyRatio(0.10 ether);
@@ -668,25 +611,19 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             abi.encodeWithSelector(
                 IStabilityPoolManager.InsufficientBounty.selector,
                 wrappedCollateralToken,
-                0.5 ether,
-                0.5 ether + 1
+                1 ether - 1,
+                1 ether
             )
         );
-        vm.prank(harvester);
-        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0.5 ether + 1);
-        assertEq(MockMinter(minter).harvestable(), 5 ether);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 1 ether);
 
-        vm.prank(harvester);
-        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0.5 ether);
-        assertEq(MockMinter(minter).harvestable(), 0);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 1 ether - 1);
+        assertEq(IMinter(minter).harvestable(), 0);
 
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0.5 ether, "Incorrect bounty amount");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 1 ether - 1, "Incorrect bounty amount of 0.5");
     }
 
     function test_harvest_() public {
-        // Setup harvestable amount
-        MockMinter(minter).setHarvestable(5 ether);
-
         // Make sure pools have some tokens to calculate proportion
         deal(peggedToken, stabilityPoolCollateral, 3 ether);
         deal(peggedToken, stabilityPoolLeveraged, 2 ether);
@@ -703,15 +640,16 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         vm.prank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
 
-        // Calculate expected bounty (5% of 5 ether)
-        uint256 expectedBounty = (5 ether * 5) / 100;
+        // Calculate expected bounty (5% of 10 ether)
+        uint256 expectedBounty = (10 ether * 5) / 100;
 
         // Verify results
-        assertEq(harvested, 5 ether, "Incorrect harvest amount");
-        assertEq(
+        assertApproxEqAbs(harvested, 10 ether, 10, "Incorrect harvest amount");
+        assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(harvester) - harvesterBefore,
             expectedBounty,
-            "Incorrect bounty amount"
+            1,
+            "Incorrect bounty amount 5%"
         );
 
         // Check distribution to pools (proportional to balance)
@@ -720,50 +658,50 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         assertApproxEqRel(
             pool1Increase,
-            ((5 ether - expectedBounty) * 3) / 5,
+            ((10 ether - expectedBounty) * 3) / 5,
             0.01 ether,
             "Pool 1 should receive 3/5 of remaining harvest"
         );
 
         assertApproxEqRel(
             pool2Increase,
-            ((5 ether - expectedBounty) * 2) / 5,
+            ((10 ether - expectedBounty) * 2) / 5,
             0.01 ether,
             "Pool 2 should receive 2/5 of remaining harvest"
         );
     }
 
     function test_harvestToTreasury() public {
-        // Test with unauthorized caller
-        MockMinter(minter).setHarvestable(5 ether);
-
         // stability pools are empty, no bount or fee
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "Harvester should not receive bounty");
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(treasury), 5 ether, "Treasury should receive bounty");
+        assertApproxEqAbs(
+            IERC20(wrappedCollateralToken).balanceOf(treasury),
+            10 ether,
+            10,
+            "Treasury should receive bounty"
+        );
         assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral), 0 ether);
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged), 0 ether);
-
-        deal(peggedToken, stabilityPoolCollateral, 3 ether);
-        MockMinter(minter).setHarvestable(5 ether);
-        // one pool is empty, no bount or fee
-        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral), 5 ether);
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0);
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(treasury), 5 ether, "still 5");
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral), 5 ether);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged), 0 ether);
     }
 
-    function test_harvestFailures() public {
-        // Test when nothing to harvest
-        MockMinter(minter).setHarvestable(0);
-
-        vm.prank(harvester);
-        vm.expectRevert(IStabilityPoolManager.NoHarvestable.selector);
+    function test_harvestToTreasury2() public {
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IStabilityPool(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
+        // one pool is empty, no bount or fee
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        assertApproxEqAbs(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
+            10 ether,
+            10,
+            "all goes to one pool, not treasury"
+        );
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "no bounty");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(treasury), 0, "Treasury should not receive bounty");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged), 0 ether, "none in this pool");
+    }
 
-        MockMinter(minter).setHarvestable(5 ether);
+    function test_harvestFailures() public {
         vm.prank(owner);
         StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(0.05 ether);
 
@@ -773,24 +711,23 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             abi.encodeWithSelector(
                 IStabilityPoolManager.InsufficientBounty.selector,
                 wrappedCollateralToken,
-                0.25 ether, // 5% of 5 ether
+                0.5 ether - 1, // 5% of 10 ether
                 1 ether
             )
         );
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 1 ether);
-    }
 
-    // function test_harvest_noStabilityPools() public {
-    //     // Setup a manager with no stability pools
-    //     address[] memory emptyPools = new address[](0);
-    //     vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager.NoStabilityPools.selector));
-    //     // Deploy a new manager with no pools
-    //     new StabilityPoolManager_v1(minter, treasury, emptyPools);
-    // }
+        // Test when nothing to harvest
+        vm.startPrank(harvester);
+        ITokenHolder(minter).sweep(wrappedCollateralToken, IMinter(minter).harvestable(), owner);
+        vm.stopPrank();
+
+        vm.expectRevert(IStabilityPoolManager.NoHarvestable.selector);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+    }
 
     function test_multiplePools() public {
         // Test that distributes to multiple pools when harvesting
-        MockMinter(minter).setHarvestable(10 ether);
 
         // Fund the stability pools with different balances
         deal(peggedToken, stabilityPoolCollateral, 7 ether);
@@ -806,8 +743,18 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 expectedPool1 = (totalHarvestDistributed * 7) / 10;
         uint256 expectedPool2 = (totalHarvestDistributed * 3) / 10;
 
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral), expectedPool1);
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged), expectedPool2);
+        assertApproxEqAbs(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
+            expectedPool1,
+            10,
+            "Pool 1 should receive 70% of harvest"
+        );
+        assertApproxEqAbs(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged),
+            expectedPool2,
+            10,
+            "Pool 2 should receive 30% of harvest"
+        );
     }
 
     // Test case where bountyAmount is 0 due to zero harvestBountyRatio
@@ -818,9 +765,6 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             0,
             "Harvest bounty ratio should be 0"
         );
-
-        // Set harvestable amount
-        MockMinter(minter).setHarvestable(10 ether);
 
         // Set up pools with balances
         deal(peggedToken, stabilityPoolCollateral, 7 ether);
@@ -846,8 +790,8 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 pool1Increase = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - pool1Before;
         uint256 pool2Increase = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged) - pool2Before;
 
-        assertEq(harvested, 10 ether, "Should have harvested 10 ether");
-        assertEq(pool1Increase + pool2Increase, 10 ether, "Full harvest amount should go to pools");
+        assertApproxEqAbs(harvested, 10 ether, 10, "Should have harvested 10 ether");
+        assertApproxEqAbs(pool1Increase + pool2Increase, 10 ether, 10, "Full harvest amount should go to pools");
 
         // Verify proportional distribution (7:3 ratio)
         assertApproxEqRel(pool1Increase, 7 ether, 0.01 ether, "Pool 1 should receive 70% of harvest");
@@ -867,9 +811,6 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         // Set up bounty ratio
         vm.prank(owner);
         StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(0.1 ether); // 10% bounty
-
-        // Set harvestable amount
-        MockMinter(minter).setHarvestable(10 ether);
 
         // Set up pools with balances
         deal(peggedToken, stabilityPoolCollateral, 7 ether);
@@ -891,17 +832,19 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 remainingForPools = 7 ether; // 10 - 1 - 2 = 7 ether
 
         // Verify harvested amount
-        assertEq(harvested, 10 ether, "Incorrect harvest amount");
-        assertEq(
+        assertApproxEqAbs(harvested, 10 ether, 10, "Incorrect harvest amount");
+        assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(harvester) - harvesterBefore,
             expectedBounty,
+            1,
             "Harvester should receive correct bounty"
         );
 
         // Check cut was correctly sent to fee receiver
-        assertEq(
+        assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(feeReceiver) - feeReceiverBefore,
             expectedCut,
+            2,
             "Fee receiver should receive correct cut"
         );
 
@@ -930,9 +873,6 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0, "Pool 1 should be empty");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolLeveraged), 0, "Pool 2 should be empty");
 
-        // Set harvestable amount
-        MockMinter(minter).setHarvestable(10 ether);
-
         // Set up bounty ratio
         vm.prank(owner);
         StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(0.1 ether); // 10% bounty
@@ -950,19 +890,21 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 expectedToTreasury = 9 ether; // remainder goes to treasury
 
         // Verify harvested amount
-        assertEq(harvested, 10 ether, "Should return total harvested amount");
+        assertApproxEqAbs(harvested, 10 ether, 100, "Should return total harvested amount");
 
         // Check bounty was correctly sent to harvester
-        assertEq(
+        assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(harvester) - harvesterBefore,
             expectedBounty,
+            1,
             "Harvester should receive correct bounty"
         );
 
         // Check remainder went to treasury
-        assertEq(
+        assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(treasury) - treasuryBefore,
             expectedToTreasury,
+            10,
             "Treasury should receive remainder when pools are empty"
         );
     }
@@ -979,9 +921,6 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             address(0),
             "Fee receiver should be zero address"
         );
-
-        // Set harvestable amount
-        MockMinter(minter).setHarvestable(10 ether);
 
         // Set up pools with balances
         deal(peggedToken, stabilityPoolCollateral, 7 ether);
@@ -1000,11 +939,18 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 pool1Increase = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - pool1Before;
         uint256 pool2Increase = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged) - pool2Before;
 
-        assertEq(harvested, 10 ether, "Should return total harvested amount");
-        assertEq(
+        assertApproxEqAbs(harvested, 10 ether, 10, "Should return total harvested amount");
+        assertApproxEqAbs(
             pool1Increase + pool2Increase,
-            10 ether, // Full amount should go to pools (no bounty since default is 0)
+            8 ether, // Full amount should go to pools (no bounty since default is 0)
+            10,
             "Full harvest amount should go to pools when no fee receiver is set"
+        );
+        assertApproxEqAbs(
+            IERC20(wrappedCollateralToken).balanceOf(treasury),
+            2 ether,
+            10,
+            "Treasury gets the fee receiver cut"
         );
     }
 
@@ -1038,6 +984,27 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 }
 
 contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSetUp {
+    uint256 startPrice;
+    uint256 startRate;
+
+    function setUp() public override {
+        super.setUp();
+
+        // Get some harvestable amount in the minter
+        assertEq(IMinter(minter).harvestable(), 0, "Initial harvestable should be 0");
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "Initial pegged token balance should be 0");
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "Initial leveraged token balance should be 0");
+
+        setUp_collateral(500 ether, 500 ether, address(this));
+        (startPrice, , startRate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        // Set up token balances for stability pools
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, address(this), 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(200 ether, address(this), 0);
+    }
+
     function test_updateHarvestCutRatio_() public {
         // Initially should be zero
         assertEq(
@@ -1102,7 +1069,11 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         StabilityPoolManager_v1(stabilityPoolManager).updateFeeReceiver(address(0xDEAD));
     }
 
-    function test_harvestWithCutAndFeeReceiver_() public {
+    function test_harvestWithCutAndFeeReceiver_(uint256 bounty, uint256 cut) public {
+        bounty = bound(bounty, 0, 1 ether);
+        cut = bound(cut, 0, 1 ether - bounty);
+        // Bound result 374701533993322492
+        // Bound result 347222887455236596
         // Set up fee receiver and harvest cut ratio
         vm.prank(owner);
         StabilityPoolManager_v1(stabilityPoolManager).updateFeeReceiver(feeReceiver);
@@ -1110,74 +1081,60 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         vm.prank(owner);
         StabilityPoolManager_v1(stabilityPoolManager).updateHarvestCutRatio(0.1 ether); // 10% cut
 
-        // Set up harvester role
-        uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
-        address harvester = vm.createWallet("harvester").addr;
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(harvester, harvesterRole);
-
-        // Mock some harvestable amount in the minter
-        uint256 harvestableAmount = 100 ether;
-        vm.mockCall(minter, abi.encodeWithSelector(IMinter.harvestable.selector), abi.encode(harvestableAmount));
-
-        // Mock the token sweep to simulate harvesting - make it succeed
-        vm.mockCall(
-            minter,
-            abi.encodeWithSelector(
-                ITokenHolder.sweep.selector,
-                wrappedCollateralToken,
-                harvestableAmount,
-                address(stabilityPoolManager)
-            ),
-            abi.encode()
-        );
-
         // Set bounty ratio for testing
         vm.prank(owner);
-        StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(0.05 ether); // 5% bounty
+        StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(bounty); // 10% bounty
 
-        // Set up token balances for stability pools
-        vm.mockCall(
-            address(peggedToken),
-            abi.encodeWithSelector(IERC20.balanceOf.selector, stabilityPoolCollateral),
-            abi.encode(7 ether)
+        vm.prank(owner);
+        StabilityPoolManager_v1(stabilityPoolManager).updateHarvestCutRatio(cut); // 20% bounty
+
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(
+            startPrice,
+            (startRate * 10) / 9 // Set a rate to ensure collateral is available
         );
-        vm.mockCall(
-            address(peggedToken),
-            abi.encodeWithSelector(IERC20.balanceOf.selector, stabilityPoolLeveraged),
-            abi.encode(3 ether)
-        );
+        uint256 harvestableAmount = IMinter(minter).harvestable();
+        assertApproxEqAbs(harvestableAmount, 100 ether, 100, "harvestable should be 100 ether");
 
-        // Give enough tokens to the stabilityPoolManager so it can transfer them
-        // Need enough to cover the bounty (5%), cut (10%), and distribution to the pools
-        deal(wrappedCollateralToken, address(stabilityPoolManager), harvestableAmount);
-
-        // Also give tokens to each mock call to ensure enough balance
-        deal(wrappedCollateralToken, stabilityPoolCollateral, 0);
-        deal(wrappedCollateralToken, stabilityPoolLeveraged, 0);
-
-        // Mock the stability pool accumulate reward calls
-        vm.mockCall(
-            stabilityPoolCollateral,
-            abi.encodeWithSelector(IStabilityPool.notifyLiquidation.selector),
-            abi.encode()
-        );
-        vm.mockCall(
-            stabilityPoolLeveraged,
-            abi.encodeWithSelector(IStabilityPool.notifyLiquidation.selector),
-            abi.encode()
-        );
-
+        address harvester = makeAddr("harvester");
         // Expect Harvested event with the correct amount
         vm.expectEmit();
         emit IStabilityPoolManager.Harvested(harvestableAmount);
-
-        // Execute harvest
-        vm.prank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        assertEq(
+            IERC20(peggedToken).balanceOf(stabilityPoolManager),
+            0,
+            "StabilityPoolManager should not receive tokens yet"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(feeReceiver),
+            (harvestableAmount * cut) / 1 ether,
+            "Fee receiver should receive fee"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(harvester),
+            (harvestableAmount * bounty) / 1 ether,
+            "harvester should get bounty"
+        );
+        uint256 remaining = harvestableAmount -
+            (harvestableAmount * cut) /
+            1 ether -
+            (harvestableAmount * bounty) /
+            1 ether;
+        assertApproxEqAbs(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
+            (remaining * 3) / 5,
+            1, // 11123023142057636471 != 11123023142057636470
+            "stabilityPoolCollateral should get some"
+        );
+        assertApproxEqAbs(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged),
+            (remaining * 2) / 5,
+            1,
+            "stabilityPoolLeveraged should get some"
+        );
 
         // Verify harvested amount
-        assertEq(harvested, harvestableAmount, "Should return total harvested amount");
+        assertApproxEqAbs(harvested, 100 ether, 100, "Should return total harvested amount");
     }
 
     function test_harvestWithoutSufficientTokens_() public {
@@ -1324,14 +1281,14 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(1555 ether); // makes the collateral ratio = 0.93
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
-        console.log("price: %s", price);
-        console.log("CR: %s", IMinter(minter).collateralRatio());
-        console.log("Pegged balance before rebalance: %s", IMinter(minter).peggedTokenBalance());
+        // console.log("price: %s", price);
+        // console.log("CR: %s", IMinter(minter).collateralRatio());
+        // console.log("Pegged balance before rebalance: %s", IMinter(minter).peggedTokenBalance());
 
         IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
 
-        console.log("Pegged balance AFTER: %s", IMinter(minter).peggedTokenBalance());
-        console.log("CR AFTER: %s", IMinter(minter).collateralRatio());
+        // console.log("Pegged balance AFTER: %s", IMinter(minter).peggedTokenBalance());
+        // console.log("CR AFTER: %s", IMinter(minter).collateralRatio());
 
         // we hit the rebalance collateral ratio exactly
         assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");
@@ -1372,14 +1329,14 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(1000 ether); // makes the collateral ratio = 120 / 100 / 2 = 60%
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
-        console.log("price: %s", price);
-        console.log("CR: %s", IMinter(minter).collateralRatio());
-        console.log("Pegged balance before rebalance: %s", IMinter(minter).peggedTokenBalance());
+        // console.log("price: %s", price);
+        // console.log("CR: %s", IMinter(minter).collateralRatio());
+        // console.log("Pegged balance before rebalance: %s", IMinter(minter).peggedTokenBalance());
 
         IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
 
-        console.log("Pegged balance AFTER: %s", IMinter(minter).peggedTokenBalance());
-        console.log("CR AFTER: %s", IMinter(minter).collateralRatio());
+        // console.log("Pegged balance AFTER: %s", IMinter(minter).peggedTokenBalance());
+        // console.log("CR AFTER: %s", IMinter(minter).collateralRatio());
 
         // we hit the rebalance collateral ratio exactly
         assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");

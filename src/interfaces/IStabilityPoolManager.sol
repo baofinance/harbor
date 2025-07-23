@@ -70,6 +70,7 @@ interface IStabilityPoolManager {
     //////////////////////////////////////////////////////////////*/
     function rebalance(address bountyReceiver, uint256 minPeggedLiquidated) external returns (uint256 liquidatedPegged);
 
+    /// @notice Harvests tokens to stability pools and returns the total amount harvested
     function harvest(address bountyReceiver, uint256 minBounty) external returns (uint256 harvestedAmount);
 
     /*//////////////////////////////////////////////////////////////

@@ -12,8 +12,6 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 // solhint-disable not-rely-on-time
 
 /// @title MultipleRewardCompoundingAccumulator
@@ -328,48 +326,24 @@ abstract contract MultipleRewardCompoundingAccumulator is
      * Internal Functions *
      **********************/
 
-    function _divByScaleFactor(uint256 value, uint i) internal pure returns (uint256 result) {
-        uint256[/*DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE + 1*/ 9] memory scaleFactors = [
-            uint256(1),
-            1e9,
-            1e18,
-            1e27,
-            1e36,
-            1e45,
-            1e54,
-            1e63,
-            1e72
-        ];
-        result = value / scaleFactors[i];
-    }
-
     function _scaleAdjustedValue(
         uint256 baseValue,
         uint128 fromProd,
-        uint128 toProd,
-        uint256 denominator
-    ) internal pure returns (uint256) {
-        // console2.log("_scaleAdjustedValue(");
-        // console2.log("   baseValue=%s,", baseValue);
-        // console2.log("   fromProd=%s,", fromProd);
-        // console2.log("   toProd=%s,", toProd);
-        // console2.log("   denominator=%s)...", denominator);
-
+        uint128 toProd
+    ) internal pure returns (uint256 adjusted) {
         uint8 fromExp = fromProd.exponent();
-        // console2.log("fromExp=%s", fromExp);
         uint8 toExp = toProd.exponent();
-        // console2.log("toExp=%s", toExp);
         uint256 fromMag = fromProd.magnitude();
-        // console2.log("fromMag=%s", fromMag);
         uint256 toMag = toProd.magnitude();
-        // console2.log("toMag=%s", toMag);
 
         if (baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE) {
-            return 0; // Too many scale changes
+            adjusted = 0; // Too many scale changes
+        } else {
+            adjusted = DecrementalFloatingPoint._divByScaleFactor(
+                Math.mulDiv(baseValue, toMag, fromMag),
+                toExp - fromExp
+            );
         }
-        // console2.log("before divByScaleFactor", Math.mulDiv(baseValue, toMag, fromMag * denominator));
-        // console2.log("-> ", _divByScaleFactor(Math.mulDiv(baseValue, toMag, fromMag * denominator), toExp - fromExp));
-        return _divByScaleFactor(Math.mulDiv(baseValue, toMag, fromMag * denominator), toExp - fromExp);
     }
 
     /// @dev Internal function to compute the amount of asset deposited after several liquidation.
@@ -382,7 +356,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint128 initialProduct,
         uint128 currentProduct
     ) internal pure returns (uint256 compoundedBalance) {
-        return _scaleAdjustedValue(initialBalance, initialProduct, currentProduct, 1);
+        return _scaleAdjustedValue(initialBalance, initialProduct, currentProduct);
     }
 
     function _claimable(
@@ -393,13 +367,8 @@ abstract contract MultipleRewardCompoundingAccumulator is
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
         claimable_ = uint256($.userRewardSnapshot[account][token].rewards.pending);
-        console2.log("claimable_ =%s from $.userRewardSnapshot[account][token].rewards.pending", claimable_);
         (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
-        // console2.log("userProd   =%s", userProd);
-        // console2.log("shares    =%s", shares);
         (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
-        // console2.log("currentProd=%s", currentProd);
-        // console2.log("totalShare=%s", totalShare);
 
         if (shares > 0 && totalShare > 0) {
             uint8 userExponent = userProd.exponent();
@@ -414,7 +383,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
                 uint192 integralAtScale = tokenIntegrals[userExponent + i];
                 if (integralAtScale > 0) {
                     // Skip zero integrals for gas efficiency
-                    integral += uint192(_divByScaleFactor(integralAtScale, i));
+                    integral += uint192(DecrementalFloatingPoint._divByScaleFactor(integralAtScale, i));
                 }
             }
             // Get user's checkpoint integral
@@ -423,20 +392,12 @@ abstract contract MultipleRewardCompoundingAccumulator is
                 claimable_ +=
                     (shares * (integral - userCheckpointIntegral)) /
                     (userProd.magnitude() * _REWARD_PRECISION);
-                console2.log(
-                    "claimable_+=%s from (shares * (integral - userCheckpointIntegral)) / (userProd.magnitude() * _REWARD_PRECISION)",
-                    (shares * (integral - userCheckpointIntegral)) / (userProd.magnitude() * _REWARD_PRECISION)
-                );
             }
         }
         if (includeTemporalPending) {
-            (uint256 amount, ) = this.pendingRewards(token);
-            claimable_ += _scaleAdjustedValue(amount * shares, userProd, currentProd, totalShare);
-            console2.log(
-                "claimable_+=%s from _scaleAdjustedValue(amount, userProd, currentProd, totalShare)",
-                _scaleAdjustedValue(amount * shares, userProd, currentProd, totalShare)
-            );
-            // claimable_ += (amount * shares) / totalShare;
+            (uint256 amount, ) = _pendingRewards(token);
+            // if exponents are the same the degenerates to (amount * shares) / totalShare
+            claimable_ += _scaleAdjustedValue(amount * shares, userProd, currentProd) / totalShare;
         }
     }
 
@@ -534,7 +495,8 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         uint192 integral = $.tokenToExponentToIntegral[token][exponent];
-        integral += uint192((amount * _REWARD_PRECISION) / totalShare) * uint192(currentProd.magnitude());
+        integral += uint192(Math.mulDiv(amount * _REWARD_PRECISION, uint256(currentProd.magnitude()), totalShare));
+
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }
 

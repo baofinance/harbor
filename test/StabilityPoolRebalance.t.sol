@@ -74,8 +74,8 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
     }
 
-    function _liquidate(address pool, uint256 assets) internal {
-        uint256 returned = assets / 2000;
+    function _liquidate(address pool, uint256 assets) internal returns (uint256 returned) {
+        returned = assets / 2000;
         address assetToken = IStabilityPool(pool).ASSET_TOKEN();
         address liquidateToken = IStabilityPool(pool).LIQUIDATION_TOKEN();
         vm.startPrank(rebalancer);
@@ -86,8 +86,8 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
         vm.stopPrank();
     }
 
-    function _liquidate(uint256 assets) internal {
-        _liquidate(stabilityPoolCollateral, assets);
+    function _liquidate(uint256 assets) internal returns (uint256 returned) {
+        returned = _liquidate(stabilityPoolCollateral, assets);
     }
 }
 

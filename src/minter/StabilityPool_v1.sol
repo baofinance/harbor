@@ -6,7 +6,6 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
@@ -15,11 +14,8 @@ import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
-
-import {console2} from "forge-std/console2.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp

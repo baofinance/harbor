@@ -152,6 +152,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(liquidationToken);
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam);
+        if (liquidationToken != wrappedCollateralToken) {
+            IMultipleRewardDistributor(stabilityPool).registerRewardToken(wrappedCollateralToken);
+        }
 
         IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
         IBaoOwnable(stabilityPool).transferOwnership(owner);

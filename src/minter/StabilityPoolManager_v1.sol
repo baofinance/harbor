@@ -407,18 +407,11 @@ contract StabilityPoolManager_v1 is
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
     }
 
-    function _harvestToPool(
-        uint256 harvestableAmount,
-        uint256 totalHolding,
-        address pool,
-        uint256 poolHolding
-    ) private returns (uint256 harvestedAmount) {
-        harvestedAmount = 0;
-        if (poolHolding > 0) {
-            // in the math we get truncation errors, but all that means is that dust is collected for the next harvest
-            harvestedAmount = Math.mulDiv(harvestableAmount, poolHolding, totalHolding);
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(pool, harvestedAmount);
-            IMultipleRewardDistributor(pool).depositReward(WRAPPED_COLLATERAL_TOKEN, harvestedAmount);
+    function _harvestToPool(uint256 amount, address pool) private {
+        if (amount > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).forceApprove(pool, amount);
+            IMultipleRewardDistributor(pool).depositReward(WRAPPED_COLLATERAL_TOKEN, amount);
+            IERC20(WRAPPED_COLLATERAL_TOKEN).forceApprove(pool, 0);
         }
     }
 
@@ -435,57 +428,44 @@ contract StabilityPoolManager_v1 is
         if (harvestableAmount == 0) {
             revert NoHarvestable();
         }
+        uint256 harvestableRemaining = harvestableAmount;
 
         // Calculate bounty
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 bountyAmount = Math.mulDiv(harvestableAmount, $.harvestBountyRatio, 1 ether);
+        uint256 bountyAmount = (harvestableAmount * $.harvestBountyRatio) / 1 ether;
         if (bountyAmount < minBounty) {
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
-        uint256 cutAmount = Math.mulDiv(harvestableAmount, $.harvestCutRatio, 1 ether);
+        uint256 cutAmount = (harvestableAmount * $.harvestCutRatio) / 1 ether;
 
         // harvest everything - one loss recorded in stability pool (which is expensive in gas)
         ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestableAmount, address(this));
-        // keep a running total of the amount harvested
-        uint256 actuallyHarvested = 0;
 
         // distribute the harvest deductions
         if (bountyAmount > 0) {
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
-            actuallyHarvested += bountyAmount;
+            harvestableRemaining -= bountyAmount;
         }
-        if ($.feeReceiver != address(0) && cutAmount > 0) {
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, cutAmount);
-            actuallyHarvested += cutAmount;
+        if (cutAmount > 0) {
+            address cutReceiver = $.feeReceiver == address(0) ? TREASURY : $.feeReceiver;
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(cutReceiver, cutAmount);
+            harvestableRemaining -= cutAmount;
         }
-
-        // now distribute the rest
-        harvestableAmount -= actuallyHarvested;
 
         // Calculate total pool balances (similar to Harvester_v1)
-        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
+        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, ) = _poolHoldings();
 
         // Distribute proportionally based on current holdings
         if (totalPoolHolding > 0) {
-            actuallyHarvested += _harvestToPool(
-                harvestableAmount,
-                totalPoolHolding,
-                _STABILITY_POOL_COLLATERAL,
-                poolHoldingCollateral
-            );
-            actuallyHarvested += _harvestToPool(
-                harvestableAmount,
-                totalPoolHolding,
-                _STABILITY_POOL_LEVERAGED,
-                poolHoldingLeveraged
-            );
+            uint256 harvestedToCollateral = Math.mulDiv(harvestableRemaining, poolHoldingCollateral, totalPoolHolding);
+            _harvestToPool(harvestedToCollateral, _STABILITY_POOL_COLLATERAL);
+            _harvestToPool(harvestableRemaining - harvestedToCollateral, _STABILITY_POOL_LEVERAGED);
         } else {
             // Send to treasury if no pools have a balance
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(TREASURY, harvestableAmount);
-            actuallyHarvested += harvestableAmount;
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(TREASURY, harvestableRemaining);
         }
 
-        emit Harvested(actuallyHarvested); //, bountyAmount);
-        return actuallyHarvested;
+        emit Harvested(harvestableAmount);
+        return harvestableAmount;
     }
 }

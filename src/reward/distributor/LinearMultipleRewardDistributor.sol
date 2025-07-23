@@ -142,8 +142,7 @@ abstract contract LinearMultipleRewardDistributor is
     function pendingRewards(
         address token
     ) external view override returns (uint256 distributable, uint256 undistributed) {
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        (distributable, undistributed) = $.rewardData[token].pending();
+        (distributable, undistributed) = _pendingRewards(token);
     }
 
     /****************************
@@ -264,4 +263,9 @@ abstract contract LinearMultipleRewardDistributor is
     /// @param token The address of token.
     /// @param amount The amount of rewards to accumulate.
     function _accumulateReward(address token, uint256 amount) internal virtual;
+
+    function _pendingRewards(address token) internal view returns (uint256 distributable, uint256 undistributed) {
+        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
+        (distributable, undistributed) = $.rewardData[token].pending();
+    }
 }
