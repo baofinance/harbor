@@ -173,7 +173,7 @@ contract VotingEscrow_v1 is
         VotingEscrowStorage storage $ = _getStorage();
         $.pointHistory[0] = Point(0, 0, block.timestamp, block.number);
 
-        $.transfersEnabled = true;
+        $.transfersEnabled = false;
 
         $.name = _name;
         $.symbol = _symbol;
