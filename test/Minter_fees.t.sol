@@ -980,3 +980,38 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
     }
 }
+
+contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
+    uint256 price;
+
+    function setUp() public virtual override(TestMinterFeeSetUp) {
+        super.setUp();
+        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        deal(address(wrappedCollateralToken), address(this), 1_000_000_000_000 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+    }
+
+    function test_mintPeggedLargeDeposit() public {
+        uint256 amount = 1_000_000_000_000 ether;
+        uint256 snap = vm.snapshotState();
+
+        for (uint256 p = 1; p < amount; p += amount / 10) {
+            for (uint256 l = 0; l < amount; l += amount / 10) {
+                for (uint256 d = 1; d < amount; d += amount / 10) {
+                    setUp_collateral(p, l);
+                    uint256 snap2 = vm.snapshotState();
+                    uint256 minted = IMinter(minter).mintPeggedToken(d, address(this), 0);
+                    IMinter(minter).redeemPeggedToken(minted, address(this), 0);
+                    vm.revertToState(snap2);
+
+                    minted = IMinter(minter).mintLeveragedToken(d, address(this), 0);
+                    IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
+
+                    vm.revertToState(snap);
+                }
+            }
+        }
+    }
+}
