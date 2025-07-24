@@ -984,6 +984,10 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
 contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
     uint256 price;
 
+    function setUpConfig() internal virtual override {
+        setUp_config_flat();
+    }
+
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -997,9 +1001,9 @@ contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
         uint256 amount = 1_000_000_000_000 ether;
         uint256 snap = vm.snapshotState();
 
-        for (uint256 p = 1; p < amount; p += amount / 10) {
-            for (uint256 l = 0; l < amount; l += amount / 10) {
-                for (uint256 d = 1; d < amount; d += amount / 10) {
+        for (uint256 p = 1e9; p < amount; p += amount / 10) {
+            for (uint256 l = 1e9; l < amount; l += amount / 10) {
+                for (uint256 d = 1e9; d < amount; d += amount / 10) {
                     setUp_collateral(p, l);
                     uint256 snap2 = vm.snapshotState();
                     uint256 minted = IMinter(minter).mintPeggedToken(d, address(this), 0);

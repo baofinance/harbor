@@ -30,6 +30,8 @@ import {IReservePool} from "src/interfaces/IReservePool.sol";
 import {ConfigIncentiveLib} from "src/minter/library/ConfigIncentiveLib.sol";
 import {Config_v1} from "src/minter/library/Config_v1.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
 /// @notice Provides a gas-efficient, feature-rich implementation for the `IMinter` interface.
@@ -719,13 +721,19 @@ contract Minter_v1 is
         address receiver,
         uint256 minPeggedOut
     ) external override nonReentrant returns (uint256 peggedOut) {
+        console2.log("mintPeggedToken(");
+        console2.log("   wrappedCollateralIn=%s,", wrappedCollateralIn);
+        console2.log("   receiver=%s,", receiver);
+        console2.log("   minPeggedOut=%s)...", minPeggedOut);
         MinterStorage storage $ = _getMinterStorage();
         // work out how much collateral to use
         OracleData memory oracle = _fetchMid($.priceOracle);
         wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+        console2.log("peggedTokenBalance_=%s", peggedTokenBalance_);
         uint256 underlyingCollateral_ = $.underlyingCollateral;
+        console2.log("underlyingCollateral_=%s", underlyingCollateral_);
 
         // fee, etc. calculation
         uint256 underlyingFee;
@@ -737,6 +745,9 @@ contract Minter_v1 is
             oracle.price,
             peggedTokenBalance_
         );
+        console2.log("underlyingFee=%s", underlyingFee);
+        console2.log("peggedOut=%s", peggedOut);
+        console2.log("underlyingCollateralIn=%s", underlyingCollateralIn);
 
         // slither-disable-next-line incorrect-equality
         if (underlyingCollateralIn == 0) {
