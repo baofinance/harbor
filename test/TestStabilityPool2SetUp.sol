@@ -20,29 +20,19 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
+import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
 
-contract TestStabilityPool2SetUp is TestStabilityPoolSetUp {
+contract TestStabilityPool2SetUp is TestStabilityPoolRebalanceSetUp {
     address stabilityPoolLeveraged;
 
-    function setUp() public virtual override(TestStabilityPoolSetUp) {
+    function setUp() public virtual override {
         super.setUp();
 
         stabilityPoolLeveraged = _setupStabilityPool(leveragedToken);
-
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+
         vm.prank(user2);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(stabilityPoolCollateral, zeroFeeRole);
-        vm.prank(stabilityPoolCollateral);
-        IERC20(peggedToken).approve(minter, type(uint256).max);
-
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(stabilityPoolLeveraged, zeroFeeRole);
-        vm.prank(stabilityPoolLeveraged);
-        IERC20(peggedToken).approve(minter, type(uint256).max);
     }
 }

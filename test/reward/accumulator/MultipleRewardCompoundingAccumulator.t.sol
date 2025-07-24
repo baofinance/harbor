@@ -63,7 +63,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
 
             // Register reward token
             vm.prank(manager);
-            accumulator.registerRewardToken(tokenAddresses[i], deployer);
+            accumulator.registerRewardToken(tokenAddresses[i]);
         }
     }
 
@@ -196,7 +196,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             accumulator.checkpoint(address(0));
 
             for (uint256 j = 0; j < t.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToEpochExponentToIntegral(tokenAddresses[j], 0);
+                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
                 uint256 depositAmount = t.baseRewardAmount * (j + 1);
                 uint256 rate = depositAmount / t.periodLength;
 
@@ -214,7 +214,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             accumulator.checkpoint(deployer);
 
             for (uint256 j = 0; j < t.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToEpochExponentToIntegral(tokenAddresses[j], 0);
+                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
                 uint256 depositAmount = t.baseRewardAmount * (j + 1);
                 uint256 rate = depositAmount / t.periodLength;
 
@@ -251,7 +251,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             accumulator.checkpoint(deployer);
 
             for (uint256 j = 0; j < t.rewardCount; j++) {
-                globalSnapshot = accumulator.tokenToEpochExponentToIntegral(tokenAddresses[j], 0);
+                globalSnapshot = accumulator.tokenToExponentToIntegral(tokenAddresses[j], 0);
                 uint256 depositAmount = t.baseRewardAmount * (j + 1);
                 uint256 rate = depositAmount / t.periodLength;
 

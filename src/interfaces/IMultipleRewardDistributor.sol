@@ -8,21 +8,9 @@ interface IMultipleRewardDistributor {
      **********/
 
     /// @notice Emitted when new reward token is registered.
-    ///
+    /// distributors are those who hold the REWARD_DEPOSITOR_ROLE
     /// @param token The address of reward token.
-    /// @param distributor The address of reward distributor.
-    event RegisterRewardToken(address indexed token, address indexed distributor);
-
-    /// @notice Emitted when the reward distributor is updated.
-    ///
-    /// @param token The address of reward token.
-    /// @param oldDistributor The address of previous reward distributor.
-    /// @param newDistributor The address of current reward distributor.
-    event UpdateRewardDistributor(
-        address indexed token,
-        address indexed oldDistributor,
-        address indexed newDistributor
-    );
+    event RegisterRewardToken(address indexed token);
 
     /// @notice Emitted when a reward token is unregistered.
     ///
@@ -71,10 +59,7 @@ interface IMultipleRewardDistributor {
 
     function REWARD_MANAGER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the address of reward distributor.
-    ///
-    /// @param token The address of reward token.
-    function distributors(address token) external view returns (address);
+    function REWARD_DEPOSITOR_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the list of active reward tokens.
     function activeRewardTokens() external view returns (address[] memory);
@@ -103,8 +88,7 @@ interface IMultipleRewardDistributor {
     /// @notice Register a new reward token.
     /// @dev Make sure no fee on transfer token is added as reward token.
     /// @param token The address of reward token.
-    /// @param distributor The address of reward distributor.
-    function registerRewardToken(address token, address distributor) external;
+    function registerRewardToken(address token) external;
 
     /// @notice Unregister an existing reward token.
     /// @param token The address of reward token.

@@ -965,11 +965,10 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
     function test_leveraged() public {
         // go depegged
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(500 ether);
-        // vm.expectRevert(IMinter.ActionPaused.selector);
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
 
-        vm.expectRevert(IMinter.ActionPaused.selector);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
 
         // actually re-pegged but on the border where there be zero divides
