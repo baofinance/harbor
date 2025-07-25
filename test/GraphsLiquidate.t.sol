@@ -69,6 +69,7 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
         vm.startPrank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
+        IBaoRoles(stabilityPoolLeveragedEmpty).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);
         vm.stopPrank();
 
@@ -80,6 +81,7 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
         vm.startPrank(owner);
+        IBaoRoles(stabilityPoolCollateralEmpty).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
         IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManagerLeveraged, zeroFeeRole);
         vm.stopPrank();

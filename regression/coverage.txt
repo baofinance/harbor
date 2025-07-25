@@ -1,18 +1,18 @@
 | File                                                            | % Lines          | % Statements     | % Branches     | % Funcs        |
 |-----------------------------------------------------------------|------------------|------------------|----------------|----------------|
-| src/math/DecrementalFloatingPoint.sol                           | ✓ 100% (24/24)   | ✓ 100% (24/24)   | ✓ 100% (4/4)   | ✓ 100% (6/6)   |
+| src/math/DecrementalFloatingPoint.sol                           | ✓ 100% (31/31)   | ✓ 100% (33/33)   | ✓ 100% (9/9)   | ✓ 100% (6/6)   |
 | src/minter/Genesis_v1.sol                                       | X  99% (88/89)   | ✓ 100% (88/88)   | ✓ 100% (14/14) | X  92% (11/12) |
 | src/minter/Minter_v1.sol                                        | X  97% (576/595) | X  97% (638/658) | X  88% (84/95) | X  97% (67/69) |
 | src/minter/ReservePool_v1.sol                                   | X  94% (15/16)   | ✓ 100% (15/15)   | ✓ 100% (3/3)   | X  80% (4/5)   |
-| src/minter/StabilityPoolManager_v1.sol                          | X  99% (166/167) | X  99% (177/178) | X  95% (20/21) | ✓ 100% (24/24) |
-| src/minter/StabilityPool_v1.sol                                 | X  96% (176/183) | X  94% (184/195) | X  93% (28/30) | ✓ 100% (22/22) |
+| src/minter/StabilityPoolManager_v1.sol                          | X  99% (165/166) | X  99% (176/177) | X  95% (20/21) | ✓ 100% (24/24) |
+| src/minter/StabilityPool_v1.sol                                 | X  95% (163/171) | X  93% (170/182) | X  88% (21/24) | ✓ 100% (19/19) |
 | src/minter/TokenDistributor_v1.sol                              | X  96% (93/97)   | X  97% (112/115) | X  77% (10/13) | X  93% (14/15) |
 | src/minter/library/ConfigIncentiveLib.sol                       | ✓ 100% (22/22)   | ✓ 100% (14/14)   | ✓ 100% (1/1)   | ✓ 100% (9/9)   |
 | src/minter/library/Config_v1.sol                                | X  93% (68/73)   | X  95% (87/92)   | X  73% (19/26) | ✓ 100% (3/3)   |
 | src/price/PriceOracle_v1.sol                                    | X  97% (31/32)   | X  97% (36/37)   | X  85% (11/13) | ✓ 100% (3/3)   |
 | src/price/StakedETHWrappedPriceOracle_v1.sol                    | X   0% (0/29)    | X   0% (0/25)    | X   0% (0/5)   | X   0% (0/4)   |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol | X  98% (118/121) | X  98% (142/145) | ✓ 100% (11/11) | X  95% (19/20) |
-| src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (92/92)   | ✓ 100% (102/102) | ✓ 100% (16/16) | ✓ 100% (15/15) |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol | X  96% (131/136) | X  97% (166/171) | X  88% (14/16) | X  95% (20/21) |
+| src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (77/77)   | ✓ 100% (86/86)   | ✓ 100% (12/12) | ✓ 100% (14/14) |
 | src/reward/distributor/LinearReward.sol                         | ✓ 100% (25/25)   | ✓ 100% (27/27)   | ✓ 100% (6/6)   | ✓ 100% (2/2)   |
 | src/reward/steam/Steam_v1.sol                                   | X  90% (92/102)  | X  89% (102/115) | X  65% (11/17) | X  94% (16/17) |
 | src/reward/voting-escrow/VotingEscrow_v1.sol                    | X  98% (316/324) | X  98% (335/341) | X  91% (58/64) | ✓ 100% (39/39) |

@@ -43,17 +43,19 @@ library LinearReward {
             _data.lastUpdate = uint40(block.timestamp);
             _data.finishAt = uint40(block.timestamp + _periodLength);
         } else {
+            // If the new rewards (including queued) are at least 90% of what has already been distributed, then
+            // start a new period and recalculate the rate. Otherwise, add the new rewards to the queue.
             uint256 _elapsed = block.timestamp - (_data.finishAt - _periodLength);
             uint256 _distributed = uint256(_data.rate) * _elapsed;
             if (_distributed * 9 <= _amount * 10) {
-                // APR increase or drop no more than 10%, distribute
+                // APR increase, or drop no more than 10%, distribute
                 _amount = _amount + uint256(_data.rate) * (_data.finishAt - _data.lastUpdate);
                 _data.rate = (_amount / _periodLength).toUint80();
                 _data.queued = uint96(_amount - (_data.rate * _periodLength)); // keep rounding error
                 _data.finishAt = uint40(block.timestamp + _periodLength);
                 _data.lastUpdate = uint40(block.timestamp);
             } else {
-                // APR drop more than 10%, wait for more rewards
+                // APR decrease or drop more than 10%, wait for more rewards
                 _data.queued = _amount.toUint96();
             }
         }

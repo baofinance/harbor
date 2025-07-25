@@ -9,91 +9,150 @@ pragma solidity 0.8.30;
 /// typically decrease over time:
 /// * Loss-Focused Design: Optimized for the product factor which decreases with each loss event
 /// * Precision Preservation: Maintains accuracy even as values approach zero
-/// * Epoch Tracking: Records complete liquidation events via epoch increments
-/// * Efficient Representation: Packs multiple components into a compact uint64
+/// * Exponent Tracking: Records precision scaling events (no epochs)
+/// * Efficient Representation: Packs multiple components into a compact uint128
 ///
-/// @dev The real number is `magnitude * 10^{-18 - 9 * exponent}`, where `magnitude` is in range `(0, 10^18]`.
+/// @dev The real number is `magnitude * 10^{-36 - 9 * exponent}`, where `magnitude` is in range `(0, 10^36]`.
+/// exponent is powers of 1e9 and as such cannot be more than 8
 /// And the floating point is encoded as:
+/// [ exponent | magnitude ]
+/// [ 8  bits  | 120  bits ]
+/// [ MSB              LSB ]
 ///
-/// [  epoch  | exponent | magnitude ]
-/// [ 24 bits | 24  bits |  64 bits  ]
-/// [ MSB                        LSB ]
-///
-/// Hopefully, the `epoch` and `exponent` won't exceed `type(uint24).max`.
+
 library DecrementalFloatingPoint {
     /// @dev The precision of the `magnitude` in the floating point.
-    uint64 internal constant PRECISION = 1e18;
+    uint120 internal constant MAGNITUDE_PRECISION = 1e36;
 
-    /// @dev The half precision of the `magnitude` in the floating point.
-    uint64 internal constant HALF_PRECISION = 1e9;
+    // what the exponent is multiplied by to form a factor for the magnitude
+    uint120 internal constant SCALE_FACTOR = 1e9;
 
-    /// @dev Encode `_epoch`, `_exponent` and `_magnitude` to the floating point.
-    function encode(uint24 _epoch, uint24 _exponent, uint64 _magnitude) internal pure returns (uint112 prod) {
-        assembly {
-            prod := add(_magnitude, add(shl(64, _exponent), shl(88, _epoch)))
-        }
-    }
+    // can't be any more than this in 256 bits diff of 8 gives exponent of 72 decimals
+    uint8 internal constant _MAX_EXPONENT_DIFFERENCE = 8;
 
-    /// @dev Return the epoch of the floating point.
-    /// @param prod The current encoded floating point.
-    function epoch(uint112 prod) internal pure returns (uint24 _epoch) {
-        assembly {
-            _epoch := shr(88, prod)
-        }
+    /// @dev The threshold below which exponent is incremented (1e27).
+    uint120 internal constant MIN_PRECISION = MAGNITUDE_PRECISION / SCALE_FACTOR;
+
+    /// @dev Encode `exponent` and `magnitude` to the floating point.
+    function encode(uint8 exponent_, uint120 magnitude_) internal pure returns (uint128 prod) {
+        prod = uint128(magnitude_) | (uint128(exponent_) << 120);
     }
 
     /// @dev Return the exponent of the floating point.
     /// @param prod The current encoded floating point.
-    function exponent(uint112 prod) internal pure returns (uint24 _exponent) {
-        assembly {
-            _exponent := and(shr(64, prod), 0xffffff)
-        }
-    }
-
-    /// @dev Return the epoch and exponent of the floating point.
-    /// @param prod The current encoded floating point.
-    function epochAndExponent(uint112 prod) internal pure returns (uint48 _epochExponent) {
-        assembly {
-            _epochExponent := shr(64, prod)
-        }
+    function exponent(uint128 prod) internal pure returns (uint8 exponent_) {
+        exponent_ = uint8(prod >> 120);
     }
 
     /// @dev Return the magnitude of the floating point.
     /// @param prod The current encoded floating point.
-    function magnitude(uint112 prod) internal pure returns (uint64 _magnitude) {
-        assembly {
-            _magnitude := and(prod, 0xffffffffffffffff)
+    function magnitude(uint128 prod) internal pure returns (uint120 magnitude_) {
+        magnitude_ = uint120(prod & ((1 << 120) - 1));
+    }
+
+    // solhint-disable-next-line explicit-types
+    function _divByScaleFactor(uint256 value, uint i) internal pure returns (uint256 result) {
+        uint256[/*DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE + 1*/ 9] memory scaleFactors = [
+            uint256(1),
+            1e9,
+            1e18,
+            1e27,
+            1e36,
+            1e45,
+            1e54,
+            1e63,
+            1e72
+        ];
+        result = value / scaleFactors[i];
+    }
+
+    /// @dev Multiply the floating point by a scalar in range (0..1].
+    ///
+    /// Caller should make sure `factor` is always > 0 and <= 1
+    ///
+    /// @param prod The current encoded floating point.
+    /// @param factor The multiplier applied to the product, multiplied by 1e18.
+    // function mul(uint128 prod, uint256 factor) internal pure returns (uint128 newProd) {
+    //     // require(factor <= PRECISION, "Factor must be <= 1e36");
+    //     // require(factor > 0, "Factor must be > 0"); // Minimum balance prevents factor=0
+
+    //     uint8 currentExponent = exponent(prod);
+    //     uint256 currentMagnitude = magnitude(prod);
+
+    //     unchecked {
+    //         // Apply the factor
+    //         uint256 newMagnitude = (currentMagnitude * factor) / 1 ether;
+    //         uint8 newExponent = currentExponent;
+
+    //         // if result < MIN_PRECISION, scale up
+    //         while (newMagnitude < MIN_PRECISION && newMagnitude > 0) {
+    //             newMagnitude *= SCALE_FACTOR; // Multiply by 1e9
+    //             newExponent += 1; // Increment exponent
+    //         }
+
+    //         // Ensure magnitude stays within bounds
+    //         // require(newMagnitude <= PRECISION, "Magnitude overflow");
+
+    //         newProd = encode(newExponent, uint120(newMagnitude));
+    //     }
+    // }
+
+    // slither-disable-next-line divide-before-multiply
+    function mul(uint128 prod, uint256 factor) internal pure returns (uint128 newProd) {
+        uint8 currentExponent = exponent(prod);
+        uint256 currentMagnitude = magnitude(prod);
+
+        unchecked {
+            // Calculate intermediate result (without division yet)
+            uint256 intermediate = currentMagnitude * factor;
+            uint8 newExponent = currentExponent;
+
+            if (intermediate > 0) {
+                // Determine if we need scaling by checking against thresholds
+                uint256 divResult = intermediate / 1 ether;
+
+                // Based on the division result, determine how many scales we need
+                if (divResult < MIN_PRECISION) {
+                    // We'll need at least 1 scale
+                    if (divResult < MIN_PRECISION / 1e18) {
+                        // Need at least 3 scales
+                        if (divResult < MIN_PRECISION / 1e27) {
+                            // Need 4 scales: We'll scale intermediate by 1e36
+                            newExponent += 4;
+                            // intermediate = (intermediate * 1e36) / 1 ether;
+                            intermediate *= 1e18;
+                        } else {
+                            // Need 3 scales: We'll scale intermediate by 1e27
+                            newExponent += 3;
+                            // intermediate = (intermediate * 1e27) / 1 ether;
+                            intermediate *= 1e9;
+                        }
+                    } else {
+                        // Need 1-2 scales
+                        if (divResult < MIN_PRECISION / 1e9) {
+                            // Need 2 scales: We'll scale intermediate by 1e18
+                            newExponent += 2;
+                            // intermediate = (intermediate * 1e18) / 1 ether;
+                        } else {
+                            // Need 1 scale: We'll scale intermediate by 1e9
+                            newExponent += 1;
+                            // intermediate = (intermediate * 1e9) / 1 ether;
+                            intermediate /= 1e9;
+                        }
+                    }
+                } else {
+                    // No scaling needed, just divide by 1 ether
+                    intermediate = divResult;
+                }
+            }
+
+            // Encode the final result
+            newProd = encode(newExponent, uint120(intermediate));
         }
     }
 
-    /// @dev Multiply the floating point by a scalar no more than 1.0.
-    ///
-    /// Caller should make sure `scale` is always smaller than or equals to 1.0
-    ///
-    /// @param prod The current encoded floating point.
-    /// @param scale The multiplier applied to the product, multiplied by 1e18.
-    function mul(uint112 prod, uint64 scale) internal pure returns (uint112) {
-        uint24 _epoch = epoch(prod);
-        uint24 _exponent = exponent(prod);
-        uint256 _magnitude = magnitude(prod);
-
-        unchecked {
-            if (scale == 0) {
-                _epoch += 1;
-                _exponent = 0;
-                _magnitude = PRECISION;
-            } else {
-                uint256 scaledMagnitude = _magnitude * uint256(scale);
-                if (scaledMagnitude / PRECISION < HALF_PRECISION) {
-                    _exponent += 1;
-                    _magnitude = scaledMagnitude / HALF_PRECISION;
-                } else {
-                    _magnitude = scaledMagnitude / PRECISION;
-                }
-            }
-        }
-
-        // it is safe to direct convert `_magnitude` to uint64.
-        return encode(_epoch, _exponent, uint64(_magnitude));
+    /// @dev Initialize a new floating point with full precision (equivalent to Liquity's P = P_PRECISION).
+    function init() internal pure returns (uint128) {
+        return encode(0, MAGNITUDE_PRECISION); // exponent=0, magnitude=1e36
     }
 }

@@ -270,7 +270,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.expectEmit(true, true, true, false, minter);
         emit IMinter.MintLeveragedToken(sender, receiver, senderCollateralDecrease, 0);
         vm.prank(sender);
-        uint256 minted = IMinter(minter).mintLeveragedToken(senderCollateralDecrease, receiver, 0);
+        //uint256 minted =
+        IMinter(minter).mintLeveragedToken(senderCollateralDecrease, receiver, 0);
         //               --------------------------------------------------------------------------
         assertEq(
             before.minterLeveragedPrice,
@@ -460,7 +461,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // for a range of collateral ratios,
 
         // mint one
-        (, uint256 fee, uint256 discount, , uint256 oneMint, uint256 price, uint256 rate) = IMinter(minter)
+        (, uint256 fee, uint256 discount, , uint256 oneMint, uint256 price, ) = IMinter(minter)
             .mintLeveragedTokenDryRun(collateral);
         oneMint = oneMint + (fee * price) / 1 ether - (discount * price) / 1 ether;
         // mint multiple
