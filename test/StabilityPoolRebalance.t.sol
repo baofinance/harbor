@@ -20,6 +20,8 @@ import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 
 import {MockERC20} from "test/mock/MockERC20.sol";
@@ -32,6 +34,7 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
     address user4;
     MockERC20 rewardToken;
     uint256 constant INITIAL_BALANCE = 1000 ether;
+    uint256 price;
 
     function setUp() public virtual override {
         super.setUp();
@@ -72,10 +75,12 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
 
         vm.prank(user4);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+
+        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
     function _liquidate(address pool, uint256 assets) internal returns (uint256 returned) {
-        returned = assets / 2000;
+        returned = (assets * 1 ether) / price;
         address assetToken = IStabilityPool(pool).ASSET_TOKEN();
         address liquidateToken = IStabilityPool(pool).LIQUIDATION_TOKEN();
         vm.startPrank(rebalancer);

@@ -415,8 +415,6 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
     uint256 constant user2Deposit = 200 ether;
     uint256 constant user3Deposit = 300 ether;
 
-    uint256 price;
-
     function setUp() public override {
         super.setUp();
         pool = stabilityPoolCollateral;

@@ -288,7 +288,6 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         // Distribute rewards
         vm.startPrank(rewardDepositor);
-        // rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
         skip(7 days); // Wait for rewards to accumulate
@@ -362,13 +361,9 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         // Distribute rewards
         vm.startPrank(rewardDepositor);
-        // rewardToken.transfer(stabilityPoolCollateral, REWARD_AMOUNT);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
         vm.stopPrank();
         skip(7 days); // Wait for rewards to accumulate
-
-        // Pre-check claimable amount
-        // uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken));
 
         // User1 sets reward receiver to user3
         vm.prank(user1);
