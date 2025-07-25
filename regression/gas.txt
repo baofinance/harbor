@@ -367,9 +367,9 @@ test/StabilityPool.t.sol:MockStabilityPool
 | activeRewardTokens      | 1.423e+04 |
 | approve                 | 2.130e+02 |
 | assetBalanceOf          | 8.032e+03 |
-| claim                   | 2.685e+05 |
-| claimable               | 2.153e+04 |
-| deposit                 | 4.404e+05 |
+| claim                   | 2.684e+05 |
+| claimable               | 2.154e+04 |
+| deposit                 | 4.381e+05 |
 | depositReward           | 1.178e+05 |
 | gauge                   | 2.471e+03 |
 | grantRoles              | 2.640e+04 |
@@ -389,7 +389,7 @@ test/StabilityPool.t.sol:MockStabilityPool
 | unregisterRewardToken   | 8.921e+04 |
 | updateGauge             | 4.130e+05 |
 | upgradeToAndCall        | 1.092e+04 |
-| withdraw                | 2.600e+05 |
+| withdraw                | 2.599e+05 |
 
 test/StabilityPool.t.sol:StabilityPool_v2
 | function name   |       max |
@@ -468,7 +468,7 @@ test/mock/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockMu
 | REWARD_MANAGER_ROLE       | 2.830e+02 |
 | REWARD_PERIOD_LENGTH      | 2.710e+02 |
 | activeRewardTokens        | 9.672e+03 |
-| checkpoint                | 2.792e+05 |
+| checkpoint                | 2.793e+05 |
 | claimable                 | 1.983e+04 |
 | claimed                   | 2.848e+03 |
 | depositReward             | 1.442e+05 |

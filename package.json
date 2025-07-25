@@ -35,6 +35,7 @@
     "sizes": "./lib/bao-base/run regression-of sizes",
     "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
     "lint:bash": "./lib/bao-base/run lint-bash --lint script",
+    "regression": "yarn sizes; yarn gas; yarn coverage",
     "wtf": "grep -rn NaN results/*.csv | awk -F: '!a[$1]++'",
     "mermaid": "mmdc"
   },

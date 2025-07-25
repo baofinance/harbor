@@ -12,8 +12,6 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 // solhint-disable not-rely-on-time
 
 /// @title MultipleRewardCompoundingAccumulator
@@ -367,33 +365,20 @@ abstract contract MultipleRewardCompoundingAccumulator is
         address token,
         bool includeTemporalPending
     ) internal view virtual returns (uint256 claimable_) {
-        console2.log("_claimable(", account);
-        console2.log("   account=%s,", account);
-        console2.log("   token=%s,", token);
-        console2.log("   includeTemporalPending=%s)...", includeTemporalPending);
-
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
         claimable_ = uint256($.userRewardSnapshot[account][token].rewards.pending);
-        console2.log("claimable_=%s", claimable_);
         (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
-        console2.log("userProd.magnitude()=%s", userProd.magnitude());
-        console2.log("userProd.exponent()=%s", userProd.exponent());
-        console2.log("shares=%s", shares);
 
         if (shares > 0) {
             uint8 userExponent = userProd.exponent();
             (uint128 currentProd, uint256 totalShares) = _getTotalPoolShare();
-            console2.log("currentProd.magnitude()=%s", currentProd.magnitude());
-            console2.log("currentProd.exponent()=%s", currentProd.exponent());
-            console2.log("totalShare=%s", totalShares);
             uint8 maxExponentsToCheck = uint8(
                 Math.min(DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
             );
             // Get the sum 'S' from the epoch at which the stake was made. The gain may span many exponent changes.
             mapping(uint8 => uint192) storage tokenIntegrals = $.tokenToExponentToIntegral[token];
             uint192 integral = tokenIntegrals[userExponent];
-            console2.log("integral=%s", integral);
 
             for (uint8 i = 1; i <= maxExponentsToCheck; ++i) {
                 uint192 integralAtScale = tokenIntegrals[userExponent + i];
@@ -402,10 +387,8 @@ abstract contract MultipleRewardCompoundingAccumulator is
                     integral += uint192(DecrementalFloatingPoint._divByScaleFactor(integralAtScale, i));
                 }
             }
-            console2.log("integral=%s", integral);
             // Get user's checkpoint integral
             uint192 userCheckpointIntegral = $.userRewardSnapshot[account][token].checkpoint.integral;
-            console2.log("userCheckpointIntegral=%s", userCheckpointIntegral);
             if (integral > userCheckpointIntegral) {
                 claimable_ += Math.mulDiv(
                     shares,
@@ -416,7 +399,6 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
             if (includeTemporalPending && totalShares > 0) {
                 (uint256 amount, ) = _pendingRewards(token);
-                console2.log("amount=%s", amount);
                 // if exponents are the same this degenerates to (amount * shares) / totalShares
                 claimable_ += _scaleAdjustedValue(amount * shares, currentProd, userProd) / totalShares;
             }
