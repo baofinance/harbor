@@ -136,7 +136,7 @@ def initialize(_admin: address, token_addr: address, _name: String[64], _symbol:
     self.point_history[0].blk = block.number
     self.point_history[0].ts = block.timestamp
     self.controller = _admin
-    self.transfersEnabled = True
+    self.transfersEnabled = False
 
     _decimals: uint256 = ERC20(token_addr).decimals()
     assert _decimals <= 255

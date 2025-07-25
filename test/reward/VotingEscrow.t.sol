@@ -216,7 +216,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         assertEq(_symbol(), "veSTEAM", "Symbol should match");
         assertEq(_version(), "1.0.0", "Version should match");
         assertEq(_decimals(), 18, "Decimals should match token");
-        assertTrue(_transfersEnabled(), "Transfers should be enabled");
+        assertFalse(_transfersEnabled(), "Transfers should not be enabled");
     }
 
     function test_InitialPointHistory() public view {
@@ -1196,7 +1196,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         assertEq(_symbol(), "veSTEAM", "Symbol should match");
         assertEq(_version(), "1.0.0", "Version should match");
         assertEq(_decimals(), 18, "Decimals should match token");
-        assertTrue(_transfersEnabled(), "Transfers should be enabled");
+        assertFalse(_transfersEnabled(), "Transfers should not be enabled");
         assertEq(_controller(), admin, "Controller should be admin");
 
         // Check initial point history
