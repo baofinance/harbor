@@ -38,6 +38,6 @@
 | Token                          |                719 |               23,857 |
 | TokenDistributor_v1            |             10,111 |               14,465 |
 | TransientSlot                  |                 85 |               24,491 |
-| VotingEscrow                   |             10,231 |               14,345 |
-| VotingEscrow_v1                |             14,931 |                9,645 |
+| VotingEscrow                   |             10,230 |               14,346 |
+| VotingEscrow_v1                |             14,926 |                9,650 |
 | WordCodec                      |                 85 |               24,491 |
