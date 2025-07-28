@@ -1515,12 +1515,14 @@ contract Minter_v1 is
                 // note that 1 - bandIncentiveRatio must always be positive, which it is as:
                 //   * fees < 1 ether. if is was = 1 ether then this would be a disallow band.
                 //   * discount are removed
-                collateralInBand =
-                    ((ConfigIncentiveLib._collateralRatioUpperBounds(config_, band) *
+                collateralInBand = Math.mulDiv(
+                    ConfigIncentiveLib._collateralRatioUpperBounds(config_, band) *
                         balanceOf.pegged -
                         balanceOf.collateral *
-                        price) * 1 ether) /
-                    (price * (1 ether - uint256(SignedMath.max(0, bandIncentiveRatio))));
+                        price,
+                    1 ether,
+                    price * (1 ether - uint256(SignedMath.max(0, bandIncentiveRatio)))
+                );
                 // can't have more collateral in the band that there is collateralIn left
                 collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
             }
