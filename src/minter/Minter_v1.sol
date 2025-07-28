@@ -1297,7 +1297,7 @@ contract Minter_v1 is
             }
             uint256 collateralInBand; // includes the fee
             uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, band);
-            if (bandLowerBound < 1 ether) {
+            if (bandLowerBound <= 1 ether) {
                 // This band is the depegged band - exactly one (or a disallow) is guaranteed to be there when the config is added
                 // if we check for _depegged then the phi calc below results in an underflow as band lower bound is 0
                 // all the requested collateral can be consumed
@@ -1649,6 +1649,7 @@ contract Minter_v1 is
                 break;
             }
             // still some collateral left and we're allowed to mint or redeem, so simulate
+            // TODO: change + to - below as we're taking collateral out
             collateralTokenBalance_ += collateralInBand;
             band--;
         }

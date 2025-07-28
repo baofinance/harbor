@@ -68,6 +68,9 @@ library ConfigIncentiveLib {
         // if we are in the lowest band, the lower bound is 0
         // else its the previous upper bound
         result = index == 0 ? 0 ether : _collateralRatioUpperBounds(config_, index - 1);
+        if (result == 1 ether - 1) {
+            result = 1 ether;
+        }
     }
 
     /// @notice Returns the collateral ratio bound count
