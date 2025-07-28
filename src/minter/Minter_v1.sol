@@ -1500,7 +1500,7 @@ contract Minter_v1 is
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
         uint band = _findBand(config_, balanceOf.collateral, price, balanceOf.pegged, true); // solhint-disable-line explicit-types
-
+        uint feeError$ = 0;
         // simulate minting until we run out of collateral, adding the fee & bonus as we go
         while (true) {
             int256 bandIncentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
@@ -1526,19 +1526,26 @@ contract Minter_v1 is
             }
             underlyingCollateralIn -= collateralInBand; // includes the fee at this point
             {
-                int256 bandFeeDiscount = (int256(collateralInBand) * bandIncentiveRatio) / 1 ether;
-                if (bandFeeDiscount >= 0) {
+                int256 bandFeeDiscount$ = int256(collateralInBand) * bandIncentiveRatio;
+                if (bandFeeDiscount$ >= 0) {
                     // tally the weighted fee ratios
-                    fee += uint256(bandFeeDiscount);
-                    collateralInBand -= uint256(bandFeeDiscount);
+                    uint256 bandFee = uint256(bandFeeDiscount$) / 1 ether;
+                    feeError$ += uint256(bandFeeDiscount$) % 1 ether;
+                    if (feeError$ >= 1 ether) {
+                        fee += feeError$ / 1 ether; // add the error to the fee
+                        feeError$ %= feeError$; // reset the error
+                    }
+                    fee += bandFee;
+                    collateralInBand -= bandFee;
                 } else {
                     // we can't net out fee and reserve pool access, because minting leveraged dollar-by-dollar must give the
                     // same result as minting leveraged for the full amount in terms of fees, etc. I.e it needs to be the definite integral
                     // tally the discounts
-                    if (uint256(-bandFeeDiscount) <= reservePoolBalance_) {
-                        discount += uint256(-bandFeeDiscount);
-                        collateralInBand += uint256(-bandFeeDiscount);
-                        reservePoolBalance_ -= uint256(-bandFeeDiscount); // it's negative, btw
+                    uint256 bandDiscount = uint256(-bandFeeDiscount$) / 1 ether;
+                    if (bandDiscount <= reservePoolBalance_) {
+                        discount += bandDiscount;
+                        collateralInBand += bandDiscount;
+                        reservePoolBalance_ -= bandDiscount;
                     } else {
                         discount += reservePoolBalance_;
                         collateralInBand += reservePoolBalance_;
@@ -1757,16 +1764,27 @@ contract Minter_v1 is
             underlyingCollateral_,
             price
         );
-        uint256 leveragedPrice_ = (leveragedTokenBalance_ > 0)
-            ? (collateralValue$ - peggedValue$) / leveragedTokenBalance_
-            : 1 ether; // TODO: this initial value is set in two places
-        leveragedTokens =
-            ((underlyingCollateral_ + underlyingCollateralIn) *
-                price -
-                peggedValue$ -
-                leveragedTokenBalance_ *
-                leveragedPrice_) /
-            leveragedPrice_;
+        // uint256 leveragedPrice_ = (leveragedTokenBalance_ > 0)
+        //     ? (collateralValue$ - peggedValue$) / leveragedTokenBalance_
+        //     : 1 ether; // TODO: this initial value is set in two places
+        // leveragedTokens =
+        //     ((underlyingCollateral_ + underlyingCollateralIn) *
+        //         price -
+        //         peggedValue$ -
+        //         leveragedTokenBalance_ *
+        //         leveragedPrice_) /
+        //     leveragedPrice_;
+
+        if (leveragedTokenBalance_ > 0) {
+            leveragedTokens = Math.mulDiv(
+                underlyingCollateralIn * price,
+                leveragedTokenBalance_,
+                collateralValue$ - peggedValue$
+            );
+        } else {
+            uint256 newCollateralValue$ = (underlyingCollateral_ + underlyingCollateralIn) * price;
+            leveragedTokens = (newCollateralValue$ - peggedValue$) / 1 ether; // TODO: the initial leverage price is set here
+        }
     }
 
     function _leverageRatio(
