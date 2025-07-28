@@ -27,6 +27,8 @@ fs_permissions = [
   { access = "read-write", path = "./log" },
 ]
 
+gas_limit = "18446744073709551615"
+
 # slither building profile - removes vyper
 [profile.novyper]
 skip = ["**/*.vy"]

@@ -249,9 +249,11 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         owner = vm.createWallet("owner").addr;
 
         priceOracle = address(new MockWrappedPriceOracle());
+        vm.label(priceOracle, "priceOracle");
 
         setUp_leveragedToken();
         peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
+        vm.label(peggedToken, "pegged");
         peggedTokenBurnSig = "burnFrom(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
         collateralToken = Deployed.stETH;
