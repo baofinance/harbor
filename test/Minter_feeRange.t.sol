@@ -397,7 +397,7 @@ contract TestMinterIntegralVarFees is TestMinterFeeRange {
         console2.log("minted=%s", minted);
         Measures memory post = _measure();
 
-        assertApproxEqAbs(post.feeWrapped, postSteps.feeWrapped, 4, "mp integral fee wrapped");
+        assertEq(post.feeWrapped, postSteps.feeWrapped, "mp integral fee wrapped");
         assertEq(minted, mintedSteps, "mp integral minted");
 
         assertEq(post.userPegged, postSteps.userPegged, "mp integral user pegged");

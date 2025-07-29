@@ -80,7 +80,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         assertGt(incentiveRatioPlus, incentiveRatio, "the more in danger the higher the fee");
 
         // check that the fees match the reported value, both emit and that transferred
-        int256 expectedFees = (incentiveRatio * int256(collateral)) / 1 ether;
+        int256 expectedFees$ = (incentiveRatio * int256(collateral));
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         vm.expectEmit(minter);
         // emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
@@ -88,7 +88,8 @@ contract TestMinterFees is TestMinterFeeSetUp {
             user,
             user,
             collateral,
-            uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether
+            uint256((int256(price) * (int256(collateral) * 1 ether - expectedFees$))) / 1e36
+            // 1985025125628140703510 !=1985025125628140704000
         );
         vm.prank(user);
         uint256 minted = IMinter(minter).mintPeggedToken(collateral, user, 0);
@@ -96,7 +97,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         // assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + fee);
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver),
-            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
+            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees$ / 1 ether)
         );
 
         // we are now in danger (CR=1.33), so check the fee here

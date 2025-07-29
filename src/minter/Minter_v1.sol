@@ -508,16 +508,16 @@ contract Minter_v1 is
         OracleData memory oracle = _fetchMid($.priceOracle);
         price = oracle.price;
         rate = oracle.rate;
-        uint256 underlyingFee;
+        uint256 underlyingFee$;
         uint256 underlyingCollateralTaken;
-        (underlyingFee, peggedMinted, underlyingCollateralTaken) = _mintPeggedAdjustments(
+        (underlyingFee$, peggedMinted, underlyingCollateralTaken) = _mintPeggedAdjustments(
             $.mintPeggedIncentiveConfig,
             _underlyingValueOf(wrappedCollateralIn, rate),
             $.underlyingCollateral,
             price,
             $.peggedTokenBalance
         );
-        wrappedFee = _wrappedValueOf(underlyingFee, rate);
+        wrappedFee = _wrappedValueOf(underlyingFee$, rate) / 1 ether;
         wrappedCollateralTaken = _wrappedValueOf(underlyingCollateralTaken, rate);
         // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralTaken == 0
@@ -728,9 +728,9 @@ contract Minter_v1 is
         uint256 underlyingCollateral_ = $.underlyingCollateral;
 
         // fee, etc. calculation
-        uint256 underlyingFee;
+        uint256 underlyingFee$;
         uint256 underlyingCollateralIn;
-        (underlyingFee, peggedOut, underlyingCollateralIn) = _mintPeggedAdjustments(
+        (underlyingFee$, peggedOut, underlyingCollateralIn) = _mintPeggedAdjustments(
             $.mintPeggedIncentiveConfig,
             _underlyingValueOf(wrappedCollateralIn, oracle.rate),
             underlyingCollateral_,
@@ -744,7 +744,7 @@ contract Minter_v1 is
         }
 
         // check the amounts involved
-        // slither-disable-next-line incorrect-equality        if (peggedOut == 0) revert MintZeroAmount(PEGGED_TOKEN);
+        // slither-disable-next-line incorrect-equality
         if (peggedOut < minPeggedOut) {
             revert MintInsufficientAmount(PEGGED_TOKEN, peggedOut, minPeggedOut);
         }
@@ -753,12 +753,13 @@ contract Minter_v1 is
         _mintPeggedToken(_wrappedValueOf(underlyingCollateralIn, oracle.rate), peggedOut, receiver);
 
         // take the fee
-        uint256 wrappedFee = _wrappedValueOf(underlyingFee, oracle.rate);
-        if (underlyingFee > 0) {
+        uint256 wrappedFee = _wrappedValueOf(underlyingFee$, oracle.rate) / 1 ether;
+        if (wrappedFee > 0) {
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, wrappedFee);
         }
 
         // update our records
+        // TODO: fix the line below
         $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralIn - wrappedFee;
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
     }
@@ -1263,11 +1264,11 @@ contract Minter_v1 is
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for minting pegged tokens.
-    /// @return fee The pro-rated fee.
     /// @param underlyingCollateralIn The proposed amount of collateral being posted in exchange for pegged tokens.
     /// @param underlyingCollateral_ The amount of collateral held. This is used to calculate collateral ratios.
     /// @param price The value of a collateral token in terms of the pegged token.
     /// @param peggedTokenBalance_ The amount of pegged tokens issued. This is used to calculate collateral ratios.
+    /// @return fee$ The pro-rated fee.
     /// @return peggedMinted the amount of pegged tokens minted (i.e after fees and discounts)
     /// @return maxCollateralIn the amount of collateral that is allowed, according to the config
 
@@ -1277,7 +1278,7 @@ contract Minter_v1 is
         uint256 underlyingCollateral_,
         uint256 price,
         uint256 peggedTokenBalance_
-    ) private pure returns (uint256 fee, uint256 peggedMinted, uint256 maxCollateralIn) {
+    ) private pure returns (uint256 fee$, uint256 peggedMinted, uint256 maxCollateralIn) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) {
             revert ActionPaused();
@@ -1285,7 +1286,7 @@ contract Minter_v1 is
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
-        fee = 0;
+        fee$ = 0;
         peggedMinted = 0;
         maxCollateralIn = 0;
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
@@ -1314,12 +1315,12 @@ contract Minter_v1 is
 
                 collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
             }
-            uint256 bandFee = (collateralInBand * bandFeeRatio) / 1 ether;
+            uint256 bandFee$ = (collateralInBand * bandFeeRatio);
             maxCollateralIn += collateralInBand;
-            fee += bandFee;
+            fee$ += bandFee$;
             underlyingCollateralIn -= collateralInBand;
-            uint256 collateralAddedInBand = collateralInBand - bandFee;
-            uint256 peggedMintedInBand = (collateralAddedInBand * price * 1 ether) /
+            uint256 collateralAddedInBand$ = collateralInBand * 1 ether - bandFee$;
+            uint256 peggedMintedInBand = (collateralAddedInBand$ * price) /
                 _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, price);
 
             peggedMinted += peggedMintedInBand;
@@ -1331,7 +1332,7 @@ contract Minter_v1 is
                 break;
             }
             // still some collateral left and we're allowed to mint, so simulate
-            underlyingCollateral_ += collateralAddedInBand;
+            underlyingCollateral_ += collateralAddedInBand$ / 1 ether;
             peggedTokenBalance_ += peggedMintedInBand;
             band--;
         }
