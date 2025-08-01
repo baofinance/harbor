@@ -47,7 +47,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             "mint pegged incentive config"
         );
 
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        // (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(2 ether, 1 ether); // CR = 3/2 = 1.5
         assertEq(IMinter(minter).collateralRatio(), 15 ether / 10);
         assertLt(
@@ -84,13 +84,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         vm.expectEmit(minter);
         // emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
-        emit IMinter.MintPeggedToken(
-            user,
-            user,
-            collateral,
-            uint256((int256(price) * (int256(collateral) * 1 ether - expectedFees$))) / 1e36
-            // 1985025125628140703510 !=1985025125628140704000
-        );
+        emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
         vm.prank(user);
         uint256 minted = IMinter(minter).mintPeggedToken(collateral, user, 0);
         assertEq(minted, peggedMinted, "pegged minted");

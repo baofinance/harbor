@@ -35,7 +35,26 @@ import {Array} from "test/Array.sol";
 
 import {ConfigFile} from "test/Config.sol";
 
-contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
+abstract contract TestExtras is Test {
+    function difference(uint256 a, uint256 b) internal pure returns (uint256 diff) {
+        uint256 larger = a > b ? a : b;
+        uint256 smaller = a < b ? a : b;
+        return larger - smaller;
+    }
+
+    function assertEq(
+        uint256 a,
+        uint256 b,
+        uint256 tolerance, // tolerance must be lett than - to catch over enthusiastic tolerances
+        uint256 toleranceTolerance, // tolerance must be at least - to catch over enthusiastic tolerances
+        string memory message
+    ) internal pure {
+        assertApproxEqAbs(a, b, tolerance, message);
+        assertGt(difference(a, b), toleranceTolerance, string.concat(message, " (tolerance too large)"));
+    }
+}
+
+contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
     address minter;
     IMinter.Config config;
     bool isConfigSet = false;

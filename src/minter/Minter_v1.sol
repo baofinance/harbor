@@ -30,6 +30,8 @@ import {IReservePool} from "src/interfaces/IReservePool.sol";
 import {ConfigIncentiveLib} from "src/minter/library/ConfigIncentiveLib.sol";
 import {Config_v1} from "src/minter/library/Config_v1.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
 /// @notice Provides a gas-efficient, feature-rich implementation for the `IMinter` interface.
@@ -416,8 +418,7 @@ contract Minter_v1 is
                 );
             }
             peggedForLeveraged =
-                peggedTokenBalance_ -
-                Math.mulDiv(collateralTokenBalance_, oracle.price, targetCollateralRatio);
+                peggedTokenBalance_ - Math.mulDiv(collateralTokenBalance_, oracle.price, targetCollateralRatio);
         } else {
             peggedForCollateral = 0;
         }
@@ -433,8 +434,7 @@ contract Minter_v1 is
         uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_);
         if (targetCollateralRatio > currentCollateralRatio) {
             wrappedCollateral = _wrappedValueOf(
-                ($.peggedTokenBalance * 1 ether * 1 ether) /
-                    (targetCollateralRatio * oracle.price) -
+                ($.peggedTokenBalance * 1 ether * 1 ether) / (targetCollateralRatio * oracle.price) -
                     currentCollateralRatio,
                 oracle.rate
             );
@@ -508,18 +508,14 @@ contract Minter_v1 is
         OracleData memory oracle = _fetchMid($.priceOracle);
         price = oracle.price;
         rate = oracle.rate;
-        uint256 underlyingFee$;
-        uint256 underlyingCollateralTaken;
-        (underlyingFee$, peggedMinted, underlyingCollateralTaken) = _mintPeggedAdjustments(
+        uint256 underlyingCollateralAdded;
+        (wrappedFee, peggedMinted, wrappedCollateralTaken, underlyingCollateralAdded) = _mintPeggedAdjustments(
             $.mintPeggedIncentiveConfig,
-            _underlyingValueOf(wrappedCollateralIn, rate),
+            wrappedCollateralIn,
             $.underlyingCollateral,
-            price,
+            oracle,
             $.peggedTokenBalance
         );
-        wrappedFee = _wrappedValueOf(underlyingFee$, rate) / 1 ether;
-        wrappedCollateralTaken = _wrappedValueOf(underlyingCollateralTaken, rate);
-        // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralTaken == 0
             ? int256(1 ether)
             : int256(wrappedFee * 1 ether) / int256(wrappedCollateralTaken);
@@ -728,18 +724,21 @@ contract Minter_v1 is
         uint256 underlyingCollateral_ = $.underlyingCollateral;
 
         // fee, etc. calculation
-        uint256 underlyingFee$;
-        uint256 underlyingCollateralIn;
-        (underlyingFee$, peggedOut, underlyingCollateralIn) = _mintPeggedAdjustments(
+        uint256 wrappedFee;
+        uint256 underlyingCollateralAdded;
+        (wrappedFee, peggedOut, wrappedCollateralIn, underlyingCollateralAdded) = _mintPeggedAdjustments(
             $.mintPeggedIncentiveConfig,
-            _underlyingValueOf(wrappedCollateralIn, oracle.rate),
+            wrappedCollateralIn,
             underlyingCollateral_,
-            oracle.price,
+            oracle,
             peggedTokenBalance_
         );
+        console2.log("peggedOut=%s", peggedOut);
+        console2.log("should be peggedOut=%s", (wrappedCollateralIn * oracle.price) / 1e18);
+        // require(peggedOut == (wrappedCollateralIn * oracle.price) / 1e18, "mint pegged out");
 
         // slither-disable-next-line incorrect-equality
-        if (underlyingCollateralIn == 0) {
+        if (wrappedCollateralIn == 0) {
             revert MintZeroAmount(PEGGED_TOKEN);
         }
 
@@ -750,18 +749,18 @@ contract Minter_v1 is
         }
 
         // do the mint for collateral
-        _mintPeggedToken(_wrappedValueOf(underlyingCollateralIn, oracle.rate), peggedOut, receiver);
+        _mintPeggedToken(wrappedCollateralIn, peggedOut, receiver);
 
         // take the fee
-        uint256 wrappedFee = _wrappedValueOf(underlyingFee$, oracle.rate) / 1 ether;
         if (wrappedFee > 0) {
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, wrappedFee);
         }
 
         // update our records
-        // TODO: fix the line below
-        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralIn - wrappedFee;
+        // TODO: fix the line below and fix the divides before multiplies
+        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralAdded;
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
+        // console2.log("$.peggedTokenBalance=%s", $.peggedTokenBalance);
     }
 
     /// @inheritdoc IMinter
@@ -1116,6 +1115,10 @@ contract Minter_v1 is
         value = (wrapped * rate) / 1 ether;
     }
 
+    function _underlyingValueOf$(uint256 wrapped, uint256 rate) internal pure returns (uint256 value) {
+        value = wrapped * rate;
+    }
+
     function _wrappedValueOf(uint256 underlying, uint256 rate) internal pure returns (uint256 value) {
         value = (underlying * 1 ether) / rate;
     }
@@ -1257,6 +1260,27 @@ contract Minter_v1 is
 
     // Adjustments - fees, bonuses and disallows
     // -----------------------------------------
+    // Each of the algorithms simulates the operation {mint/redeem}/{Pegged/Leveraged} in a loop covering each fee band
+    // Much of the operations are performed and some results are returned at 1e36 precision.
+    // This is because, particularly for collateral based results, the result is transformed into a wrapped collateral basis,
+    // which can reduce precision through dividing before multiplying across function call boundaries.
+    // The fee calculation also takes into account truncations due to divisions such that each iteration of the loop
+    // adds back truncations from previous iterations to the current iteration. This is an adaption of the Kahan–Babuška summation
+    // algorithm, which is used to reduce numerical errors in floating point arithmetic, to integer arithmetic in solidity.
+    // Although it is anticipated that few fee calculations will cross more than one boundary, we should still handle the case well,
+    // and fairly, where, say a large deposit is made in the face of a relatively small collateral balance or when fee boundaries
+    // are placed closely together to create the correct incentives for investors.
+
+    struct Workspace {
+        uint band;
+        uint256 underlyingCollateralInLeft$;
+        uint256 underlyingCollateralHeld$;
+        uint256 peggedTokenHeld$;
+        uint256 underlyingFee$;
+        uint256 minted$;
+        int256 feeError$$;
+        int256 mintederror$$;
+    }
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
     /// Fees, discounts and disallows relating to the different incentiveRatios values are calculated as sum, weighted
@@ -1264,78 +1288,205 @@ contract Minter_v1 is
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for minting pegged tokens.
-    /// @param underlyingCollateralIn The proposed amount of collateral being posted in exchange for pegged tokens.
-    /// @param underlyingCollateral_ The amount of collateral held. This is used to calculate collateral ratios.
-    /// @param price The value of a collateral token in terms of the pegged token.
+    /// @param wrappedCollateralIn The proposed amount of wrapped collateral being posted in exchange for pegged tokens. scaled to 1e36
+    /// @param underlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
+    /// @param oracle The price The value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
     /// @param peggedTokenBalance_ The amount of pegged tokens issued. This is used to calculate collateral ratios.
-    /// @return fee$ The pro-rated fee.
+    /// @return wrappedFee The pro-rated fee, in wrapped collateral_value.
     /// @return peggedMinted the amount of pegged tokens minted (i.e after fees and discounts)
-    /// @return maxCollateralIn the amount of collateral that is allowed, according to the config
+    /// @return maxWrappedCollateralIn the amount of wrapped collateral that is allowed, according to the config
+    /// @return underlyingCollateralAdded the amount of underlying collateral added to the backing of the pegged tokens
 
     function _mintPeggedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
-        uint256 underlyingCollateralIn,
-        uint256 underlyingCollateral_,
-        uint256 price,
+        uint256 wrappedCollateralIn,
+        uint256 underlyingCollateral,
+        OracleData memory oracle,
         uint256 peggedTokenBalance_
-    ) private pure returns (uint256 fee$, uint256 peggedMinted, uint256 maxCollateralIn) {
+    )
+        private
+        pure
+        returns (
+            uint256 wrappedFee,
+            uint256 peggedMinted,
+            uint256 maxWrappedCollateralIn,
+            uint256 underlyingCollateralAdded
+        )
+    {
+        console2.log("_mintPeggedAdjustments(");
+        console2.log("   wrappedCollateralIn=%s,", wrappedCollateralIn);
+        console2.log("   underlyingCollateral=%s,", underlyingCollateral);
+        console2.log("   price=%s, rate=%s", oracle.price, oracle.rate);
+        console2.log("   peggedTokenBalance_=%s)...", peggedTokenBalance_);
+
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
         if (peggedTokenBalance_ == 0) {
             revert ActionPaused();
         }
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
-        uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
-        fee$ = 0;
-        peggedMinted = 0;
-        maxCollateralIn = 0;
+        Workspace memory w;
+        w.band = _findBand(config_, underlyingCollateral, oracle.price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
+        // wrappedFee = 0;
+        // peggedMinted = 0;
+        // maxWrappedCollateralIn = 0;
+        // underlyingCollateralAdded = 0;
+        w.underlyingCollateralInLeft$ = wrappedCollateralIn * oracle.rate; // scaled to 1e36
+        w.underlyingCollateralHeld$ = underlyingCollateral * 1 ether; // scaled to 1e36
+        w.peggedTokenHeld$ = peggedTokenBalance_ * 1 ether;
+        w.underlyingFee$ = 0;
+        w.minted$ = 0;
+        // Errors memory errors = Errors(0, 0); // accumulates successive fee truncation errors, correcting as we go
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
-            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, band)); // no discounts for this action
+            console2.log("w.peggedTokenHeld$=%s", w.peggedTokenHeld$);
+            console2.log("w.band=%s", w.band);
+            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, w.band)); // no discounts for this action
+            console2.log("bandFeeRatio=%s", bandFeeRatio);
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
-            uint256 collateralInBand; // includes the fee
-            uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, band);
+
+            uint256 collateralInBand$; // includes the fee
+            uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, w.band);
+            console2.log("bandLowerBound=%s", bandLowerBound);
+            uint256 peggedTokenPrice$ = 1 ether * 1 ether;
             if (bandLowerBound <= 1 ether) {
-                // This band is the depegged band - exactly one (or a disallow) is guaranteed to be there when the config is added
-                // if we check for _depegged then the phi calc below results in an underflow as band lower bound is 0
-                // all the requested collateral can be consumed
-                collateralInBand = underlyingCollateralIn;
+                // We can never mint enough pegged tokens such that we de-peg and
+                // if we have already de-pegged, we can use all the collateral given
+                collateralInBand$ = w.underlyingCollateralInLeft$;
+                console2.log(
+                    "last possible band collateralInBand$=%s (CR=%s)",
+                    collateralInBand$,
+                    _collateralRatio(w.underlyingCollateralHeld$ / 1 ether, oracle.price, w.peggedTokenHeld$ / 1 ether)
+                );
+                if (bandLowerBound < 1 ether) {
+                    // This band is the depegged band - exactly one (or a disallow) is guaranteed to be there when the config is added
+                    // if we check for _depegged then the phi calc below results in an underflow as band lower bound is 0
+                    // console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
+                    // console2.log("oracle.price=%s", oracle.price);
+                    // console2.log("w.peggedTokenHeld$=%s", w.peggedTokenHeld$);
+                    peggedTokenPrice$ = Math.mulDiv(
+                        w.underlyingCollateralHeld$,
+                        oracle.price * 1 ether,
+                        w.peggedTokenHeld$
+                    );
+                    console2.log("peggedTokenPrice$=%s", peggedTokenPrice$);
+                    console2.log(
+                        "peggedTokenPrice$()=%s",
+                        _peggedTokenPrice$(
+                            w.peggedTokenHeld$ / 1 ether,
+                            w.underlyingCollateralHeld$ / 1 ether,
+                            oracle.price
+                        )
+                    );
+                }
             } else {
+                // here we can assume pegged tokens are pegged
+                // we have collateral ratio R = C.p / Z
+                // where p = price of collateral in pegged tokens, C = collateral balance and
+                // Z = pegged token balance
+                // adding fee ratio, f, change in collateral, dC, and change in pegged, dZ, we have
+                //   R = ((C + dC - dC * f) * p) / (Z + dZ - dp * f)
+                // captures the changes in pegged and collateral in order of R to be the lower bound, for a
+                // given constant fee ratio, f
+                // now, dZ = dC * p and solving for dC gives us
+                //   dC = (C * p - Z * R * Z) / (p * phi)
+                // where phi = R * (1 - f) - 1 + f
                 uint256 phi$ = (bandLowerBound * (1 ether - bandFeeRatio)) +
                     (bandFeeRatio * 1 ether) -
                     (1 ether * 1 ether);
-                collateralInBand = Math.mulDiv(
-                    underlyingCollateral_ * price - bandLowerBound * peggedTokenBalance_,
+                // console2.log("phi$=%s", phi$);
+                // console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
+                // console2.log("w.peggedTokenHeld$=%s", w.peggedTokenHeld$);
+
+                collateralInBand$ = Math.mulDiv(
+                    w.underlyingCollateralHeld$ * oracle.price - bandLowerBound * w.peggedTokenHeld$,
                     1e36,
-                    price * phi$
+                    (oracle.price * phi$)
                 );
+                // console2.log("collateralInBand$=%s", collateralInBand$);
 
-                collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
+                collateralInBand$ = Math.min(w.underlyingCollateralInLeft$, collateralInBand$);
+                console2.log("collateralInBand$=%s", collateralInBand$);
             }
-            uint256 bandFee$ = (collateralInBand * bandFeeRatio);
-            maxCollateralIn += collateralInBand;
-            fee$ += bandFee$;
-            underlyingCollateralIn -= collateralInBand;
-            uint256 collateralAddedInBand$ = collateralInBand * 1 ether - bandFee$;
-            uint256 peggedMintedInBand = (collateralAddedInBand$ * price) /
-                _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, price);
+            uint256 bandFee$ = (collateralInBand$ * bandFeeRatio) / 1 ether; // scaled to 1e36
+            // console2.log("bandFee$=%s", bandFee$);
+            w.feeError$$ += int256((collateralInBand$ * bandFeeRatio) % 1 ether);
+            // console2.log("w.feeError$$=%s", w.feeError$$);
+            // perform a rounding to nearest
+            if (w.feeError$$ >= 0.5 ether) {
+                bandFee$ += 1; // rounding up, which is the nearest
+                // console2.log("bandFee$=%s (rounded up)", bandFee$);
+                w.feeError$$ -= 1 ether; // remove that correction
+            }
+            w.underlyingFee$ += bandFee$;
+            // console2.log("w.underlyingFee$=%s", w.underlyingFee$);
+            uint256 collateralAddedInBand$ = collateralInBand$ - bandFee$;
+            // console2.log("collateralAddedInBand$=%s", collateralAddedInBand$);
 
-            peggedMinted += peggedMintedInBand;
+            w.underlyingCollateralInLeft$ -= collateralInBand$;
+            // console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
+
+            uint256 peggedMintedInBand$ = Math.mulDiv(
+                collateralAddedInBand$,
+                oracle.price * 1 ether,
+                peggedTokenPrice$
+            );
+            console2.log("peggedMintedInBand$=%s", peggedMintedInBand$);
+            // mintedError$$ += int256((collateralAddedInBand$ * oracle.price) % peggedTokenPrice$);
+            // if (mintedError$$ >= int256(peggedTokenPrice$) / 2) {
+            //     peggedMintedInBand$ += 1;
+            //     mintedError$$ -= int256(peggedTokenPrice$);
+            // }
+            // w.minted$ += peggedMintedInBand$;
+
+            // errors.transfer$ +=
+            //     ((collateralAddedInBand$ * price)) %
+            //     _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral$ / 1 ether, price);
+            // console2.log("errors.transfer$=%s", errors.transfer$);
+            // // Apply accumulated error when it reaches 1 ether
+            // if (errors.transfer$ >= 1 ether) {
+            //     // we have a fee that is not a whole number of tokens, so round it up
+            //     peggedMintedInBand += errors.transfer$ / 1 ether;
+            //     console2.log("peggedMintedInBand=%s (rounded)", peggedMintedInBand);
+            //     errors.transfer$ %= 1 ether;
+            //     console2.log("errors.transfer$=%s", errors.transfer$);
+            // }
+
+            w.minted$ += peggedMintedInBand$;
+            console2.log("w.minted$=%s", w.minted$);
 
             // slither-disable-next-line incorrect-equality
-            if (underlyingCollateralIn == 0 || band == 0) {
+            if (w.underlyingCollateralInLeft$ == 0 || w.band == 0) {
                 // we have run out of collateral for the simulation
                 // or we are in the lowest band, so no more, so exit
                 break;
             }
             // still some collateral left and we're allowed to mint, so simulate
-            underlyingCollateral_ += collateralAddedInBand$ / 1 ether;
-            peggedTokenBalance_ += peggedMintedInBand;
-            band--;
+            w.underlyingCollateralHeld$ += collateralAddedInBand$;
+            // console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
+            w.peggedTokenHeld$ += peggedMintedInBand$;
+            // console2.log("w.peggedTokenHeld$=%s", w.peggedTokenHeld$);
+            w.band--;
         }
+        console2.log("loop done");
+        console2.log("w.underlyingFee$=%s", w.underlyingFee$);
+        console2.log("w.minted$=%s", w.minted$);
+        console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingFee$);
+
+        // return the results
+        // here we do our best to ensure dust isn't collected
+        wrappedFee = w.underlyingFee$ / oracle.rate;
+        console2.log("wrappedFee=%s", wrappedFee);
+        // peggedMinted = w.minted$ > 0 ? (w.minted$ - 1) / 1 ether + 1 : 0; // round up (the e36 value), if not 0
+        peggedMinted = w.minted$ / 1 ether;
+        console2.log("peggedMinted=%s", peggedMinted);
+        maxWrappedCollateralIn = wrappedCollateralIn - w.underlyingCollateralInLeft$ / oracle.rate;
+        console2.log("maxWrappedCollateralIn=%s", maxWrappedCollateralIn);
+        underlyingCollateralAdded = ((maxWrappedCollateralIn - wrappedFee) * oracle.rate) / 1 ether;
+        console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
     }
 
     /// @notice Perform a dry run of a redeem pegged to calculate the various transfers of tokens
@@ -1517,10 +1668,8 @@ contract Minter_v1 is
                 //   * fees < 1 ether. if is was = 1 ether then this would be a disallow band.
                 //   * discount are removed
                 collateralInBand = Math.mulDiv(
-                    ConfigIncentiveLib._collateralRatioUpperBounds(config_, band) *
-                        balanceOf.pegged -
-                        balanceOf.collateral *
-                        price,
+                    ConfigIncentiveLib._collateralRatioUpperBounds(config_, band) * balanceOf.pegged -
+                        balanceOf.collateral * price,
                     1 ether,
                     price * (1 ether - uint256(SignedMath.max(0, bandIncentiveRatio)))
                 );
@@ -1713,7 +1862,7 @@ contract Minter_v1 is
     // other calculations
     // ------------------
 
-    // the price of a leveraged token in terms of the pegged token's underlying
+    // the price of a pegged token taking into account de-peg rate
     function _peggedTokenPrice$(
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
