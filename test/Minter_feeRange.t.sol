@@ -443,6 +443,51 @@ contract TestMinterFixedFeeRangeDepegDeep_ is TestMinterFixedFeeRange_ {
     }
 }
 
+contract TestMinterFixedFeeRangePrice1_ is TestMinterFixedFeeRange_ {
+    function setUp() public virtual override {
+        super.setUp();
+        price = measurePrice = 1 ether;
+        rate = measureRate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+}
+
+contract TestMinterFixedFeeRangePrice1Million is TestMinterFixedFeeRange_ {
+    function setUp() public virtual override {
+        super.setUp();
+        price = measurePrice = 1 ether * 1e6;
+        rate = measureRate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+}
+
+contract TestMinterFixedFeeRangePrice1Millionth is TestMinterFixedFeeRange_ {
+    function setUp() public virtual override {
+        super.setUp();
+        price = measurePrice = 1 ether / 1e6;
+        rate = measureRate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+}
+
+contract TestMinterFixedFeeRangePrice1Billion is TestMinterFixedFeeRange_ {
+    function setUp() public virtual override {
+        super.setUp();
+        price = measurePrice = 1 ether * 1e9;
+        rate = measureRate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+}
+
+contract TestMinterFixedFeeRangePrice1Billionth is TestMinterFixedFeeRange_ {
+    function setUp() public virtual override {
+        super.setUp();
+        price = measurePrice = 1 ether / 1e9;
+        rate = measureRate = 1 ether;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+}
+
 contract TestMinterIntegralFixedFees is TestMinterFeeRange {
     // TODO:
     // 1) we have disallows
