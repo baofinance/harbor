@@ -1,6 +1,7 @@
 {
   "license": "MIT",
   "scripts": {
+    "uv": "uv sync; echo \"to enable vyper builds, run:\n   source ./.venv/bin/activate\"",
     "foundryup": "curl -L https://foundry.paradigm.xyz | bash && foundryup",
     "CI": "./lib/bao-base/run CI",
     "clean": "./lib/bao-base/run clean",

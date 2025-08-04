@@ -41,16 +41,84 @@ abstract contract TestExtras is Test {
         uint256 smaller = a < b ? a : b;
         return larger - smaller;
     }
-
-    function assertEq(
+    /**
+     * @dev Asserts that two values are within acceptable proximity using either absolute or relative tolerance
+     * @param a First value
+     * @param b Second value
+     * @param maxAbsDiff Maximum absolute difference allowed
+     * @param maxRelDiff Maximum relative difference allowed (in 1e18 format where 1e18 = 100%)
+     * @param minAbsDiff Minimum absolute difference required (set to 0 to ignore)
+     * @param message Error message on failure
+     */
+    function assertNear(
         uint256 a,
         uint256 b,
-        uint256 tolerance, // tolerance must be lett than - to catch over enthusiastic tolerances
-        uint256 toleranceTolerance, // tolerance must be at least - to catch over enthusiastic tolerances
+        uint256 maxAbsDiff,
+        uint256 maxRelDiff,
+        uint256 minAbsDiff,
         string memory message
     ) internal pure {
-        assertApproxEqAbs(a, b, tolerance, message);
-        assertGt(difference(a, b), toleranceTolerance, string.concat(message, " (tolerance too large)"));
+        uint256 diff = difference(a, b);
+
+        // Check if within tolerance bounds (either absolute or relative)
+        bool withinMaxTolerance = diff <= maxAbsDiff;
+
+        uint256 maxValue = a > b ? a : b;
+        uint256 relDiff = 0;
+        if (maxValue > 0) {
+            relDiff = (diff * 1e18) / maxValue;
+            withinMaxTolerance = withinMaxTolerance || (relDiff <= maxRelDiff);
+        }
+
+        // Check for minimum difference if specified
+        bool aboveMinTolerance = (minAbsDiff == 0) || (diff >= minAbsDiff);
+
+        // Assert within bounds
+        if (!withinMaxTolerance) {
+            string memory failMessage = string.concat(
+                message,
+                " (difference too large: abs diff: ",
+                Useful.toString(diff),
+                " exceeds max ",
+                Useful.toString(maxAbsDiff),
+                ", rel diff: ",
+                Useful.toString(relDiff),
+                " exceeds max ",
+                Useful.toString(maxRelDiff),
+                ")"
+            );
+            vm.assertLe(diff, maxAbsDiff, failMessage);
+        } else if (!aboveMinTolerance) {
+            string memory failMessage = string.concat(
+                message,
+                " (difference too small: abs diff: ",
+                Useful.toString(diff),
+                " below min ",
+                Useful.toString(minAbsDiff),
+                ")"
+            );
+            vm.assertGe(diff, minAbsDiff, failMessage);
+        }
+    }
+
+    /**
+     * @dev Overload for the common case where no minimum difference is required
+     */
+    function assertNear(
+        uint256 a,
+        uint256 b,
+        uint256 maxAbsDiff,
+        uint256 maxRelDiff,
+        string memory message
+    ) internal pure {
+        assertNear(a, b, maxAbsDiff, maxRelDiff, 0, message);
+    }
+
+    /**
+     * @dev Overload for just checking absolute tolerance
+     */
+    function assertNear(uint256 a, uint256 b, uint256 maxAbsDiff, string memory message) internal pure {
+        assertNear(a, b, maxAbsDiff, type(uint256).max, 0, message);
     }
 }
 
