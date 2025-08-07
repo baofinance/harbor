@@ -11,6 +11,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -36,18 +37,12 @@ import {Array} from "test/Array.sol";
 import {ConfigFile} from "test/Config.sol";
 
 abstract contract TestExtras is Test {
-    function difference(uint256 a, uint256 b) internal pure returns (uint256 diff) {
-        uint256 larger = a > b ? a : b;
-        uint256 smaller = a < b ? a : b;
-        return larger - smaller;
-    }
     /**
      * @dev Asserts that two values are within acceptable proximity using either absolute or relative tolerance
      * @param a First value
      * @param b Second value
      * @param maxAbsDiff Maximum absolute difference allowed
      * @param maxRelDiff Maximum relative difference allowed (in 1e18 format where 1e18 = 100%)
-     * @param minAbsDiff Minimum absolute difference required (set to 0 to ignore)
      * @param message Error message on failure
      */
     function assertNear(
@@ -55,70 +50,39 @@ abstract contract TestExtras is Test {
         uint256 b,
         uint256 maxAbsDiff,
         uint256 maxRelDiff,
-        uint256 minAbsDiff,
         string memory message
     ) internal pure {
-        uint256 diff = difference(a, b);
-
-        // Check if within tolerance bounds (either absolute or relative)
-        bool withinMaxTolerance = diff <= maxAbsDiff;
-
-        uint256 maxValue = a > b ? a : b;
-        uint256 relDiff = 0;
-        if (maxValue > 0) {
-            relDiff = (diff * 1e18) / maxValue;
-            withinMaxTolerance = withinMaxTolerance || (relDiff <= maxRelDiff);
+        uint256 absDiff = a > b ? a - b : b - a;
+        if (absDiff <= maxAbsDiff) {
+            // SUCCESS (abs): Log and exit.
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " (within abs tolerance)"));
+            return;
         }
 
-        // Check for minimum difference if specified
-        bool aboveMinTolerance = (minAbsDiff == 0) || (diff >= minAbsDiff);
-
-        // Assert within bounds
-        if (!withinMaxTolerance) {
-            string memory failMessage = string.concat(
-                message,
-                " (difference too large: abs diff: ",
-                Useful.toString(diff),
-                " exceeds max ",
-                Useful.toString(maxAbsDiff),
-                ", rel diff: ",
-                Useful.toString(relDiff),
-                " exceeds max ",
-                Useful.toString(maxRelDiff),
-                ")"
-            );
-            vm.assertLe(diff, maxAbsDiff, failMessage);
-        } else if (!aboveMinTolerance) {
-            string memory failMessage = string.concat(
-                message,
-                " (difference too small: abs diff: ",
-                Useful.toString(diff),
-                " below min ",
-                Useful.toString(minAbsDiff),
-                ")"
-            );
-            vm.assertGe(diff, minAbsDiff, failMessage);
+        uint256 relDiff;
+        uint256 larger = a > b ? a : b;
+        if (larger > 0) {
+            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
+            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
+            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
         }
+        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
+
+        if (relDiff <= maxRelDiff) {
+            // SUCCESS (rel): Log and exit.
+            vm.assertApproxEqRel(a, b, relDiff, string.concat(message, " (within rel tolerance)"));
+            return;
+        }
+
+        // FAILURE: Both checks failed. Revert with a clear message.
+        // We use assertApproxEqRel as it's generally more informative for large numbers.
+        vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " (outside both abs & rel tolerances)"));
     }
 
-    /**
-     * @dev Overload for the common case where no minimum difference is required
-     */
-    function assertNear(
-        uint256 a,
-        uint256 b,
-        uint256 maxAbsDiff,
-        uint256 maxRelDiff,
-        string memory message
-    ) internal pure {
-        assertNear(a, b, maxAbsDiff, maxRelDiff, 0, message);
-    }
-
-    /**
-     * @dev Overload for just checking absolute tolerance
-     */
+    /// @dev Overload for just checking absolute tolerance - its just an alias for existing vm call
+    /// we prefer this as it's shorter text to type
     function assertNear(uint256 a, uint256 b, uint256 maxAbsDiff, string memory message) internal pure {
-        assertNear(a, b, maxAbsDiff, type(uint256).max, 0, message);
+        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
     }
 }
 
@@ -319,6 +283,7 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
             address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)), // "Minter_v1.sol",
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
+        vm.label(minter, "minter");
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
         IMinter(minter).updatePriceOracle(priceOracle);
