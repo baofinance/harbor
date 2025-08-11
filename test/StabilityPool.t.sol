@@ -178,6 +178,13 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
     }
 
+    function _beginWithdrawal(address user) internal {
+        vm.prank(user);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user);
+        vm.warp(start + 1);
+    }
+
     function test_initOnly(address sp, address liquidateTo) internal view {
         assertEq(StabilityPool_v1(sp).owner(), owner);
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
@@ -341,6 +348,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(user1), 8 * price);
 
         // $3 withdrawal
+        _beginWithdrawal(user1);
         vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPool.WithdrawAmountExceedsBalance.selector, 3 * price, 2 * price)
@@ -358,6 +366,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 7 * price);
 
         // withdraw some
+        _beginWithdrawal(user1);
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(4 * price, receiver, 0);
         // 2 withdraw ---------------------------------------------------------------------------
@@ -366,6 +375,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(receiver), 3 * price);
 
         // withdraw rest
+        _beginWithdrawal(user1);
         vm.prank(user1);
         withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, receiver, 0);
         // 3 withdraw ---------------------------------------------------------------------------

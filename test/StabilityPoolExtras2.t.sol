@@ -132,6 +132,9 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
         // Attempt withdraw with zero address as receiver
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1);
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidReceiver.selector, address(0)));
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, address(0), 0);
 
@@ -174,6 +177,9 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
         // Withdraw exactly that amount
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(exactBalance, user1, 0);
 
         assertEq(withdrawn, exactBalance, "Should withdraw exact balance amount");
@@ -204,6 +210,10 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1);
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
 

@@ -154,6 +154,10 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // User1 withdraws half
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
         vm.startPrank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
         vm.stopPrank();
@@ -170,6 +174,10 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // User1 withdraws all
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
         vm.startPrank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
         vm.stopPrank();
@@ -257,6 +265,10 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
 
         // User1 withdraws half
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
 
         // User3 deposits
@@ -264,6 +276,10 @@ contract TestStabilityPoolSpec is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user3, 0);
 
         // User2 withdraws all
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.warp(start + 1);
         vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user2, 0);
 
