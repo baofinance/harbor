@@ -53,7 +53,18 @@ contract StabilityPool_v2 is StabilityPool_v1 {
         address stabilityPoolToken_,
         address steam_,
         address veSteam_
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_) {}
+    )
+        StabilityPool_v1(
+            minter_,
+            liquidationToken_,
+            stabilityPoolToken_,
+            steam_,
+            0.025 ether,
+            0x3dFc49e5112005179Da613BdE5973229082dAc35,
+            3600,
+            90000
+        )
+    {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
@@ -69,7 +80,18 @@ contract MockStabilityPool is StabilityPool_v1 {
         address stabilityPoolToken_,
         address steam_,
         address veSteam_
-    ) StabilityPool_v1(minter_, liquidationToken_, stabilityPoolToken_, steam_) {}
+    )
+        StabilityPool_v1(
+            minter_,
+            liquidationToken_,
+            stabilityPoolToken_,
+            steam_,
+            0.025 ether,
+            0x3dFc49e5112005179Da613BdE5973229082dAc35,
+            3600,
+            90000
+        )
+    {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
@@ -81,6 +103,10 @@ contract MockStabilityPool is StabilityPool_v1 {
 contract MockSTEAM is MintableBurnableERC20_v1 {}
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
+    uint256 internal constant EARLY_WITHDRAWAL_FEE = 0.025 ether;
+    address internal constant FEE_ADDRESS = 0x3dFc49e5112005179Da613BdE5973229082dAc35;
+    uint256 internal constant WITHDRAWAL_START_DELAY = 3600;
+    uint256 internal constant WITHDRAWAL_END_WINDOW = 90000;
     address stabilityPoolCollateral;
     address steam;
     address veSteam;
@@ -136,6 +162,15 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         IBaoOwnable(veSteam).transferOwnership(owner);
 
         stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
+        // configure withdrawal settings on the proxy (constructor values are on implementation only)
+        vm.startPrank(owner);
+        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
+        IStabilityPool(stabilityPoolCollateral).setFeeAddress(FEE_ADDRESS);
+        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(
+            WITHDRAWAL_START_DELAY,
+            WITHDRAWAL_END_WINDOW
+        );
+        vm.stopPrank();
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
@@ -216,11 +251,33 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam));
+        address(
+            new StabilityPool_v1(
+                minter,
+                wrappedCollateralToken,
+                stabilityPoolToken,
+                steam,
+                EARLY_WITHDRAWAL_FEE,
+                FEE_ADDRESS,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW
+            )
+        );
     }
 
     function test_initEvents(address liquidateTo) internal {
-        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, steam));
+        address sp = address(
+            new StabilityPool_v1(
+                minter,
+                liquidateTo,
+                stabilityPoolToken,
+                steam,
+                EARLY_WITHDRAWAL_FEE,
+                FEE_ADDRESS,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW
+            )
+        );
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();

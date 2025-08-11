@@ -34,6 +34,20 @@ If fees are set to 100%, this is interpreted as "disallowed" in that if your min
 
 Fees can be queried up front by so-called dry-run view functions, answering the question: What fees/discounts will I be charged/receive if I were to carry out this action. Obviously this is only true for the instant the dry-run function is called and if someone else moves the collateral ratio enough you may not get the result in reality.
 
+#### Withdrawal requests (StabilityPool)
+
+- Requesting: `requestWithdrawal()` creates an account window `[now + WITHDRAWAL_START_DELAY, now + WITHDRAWAL_END_WINDOW]`.
+- Withdrawing:
+  - Before start: allowed, early-withdrawal fee applies.
+  - During the window [start, end]: allowed, no fee.
+  - After end: allowed, early-withdrawal fee applies.
+  - A successful withdraw ends the window immediately (end is set to `now - 1`).
+- Depositing during an active window cancels the request (start and end moved to the past).
+- Configuration:
+  - `earlyWithdrawalFee` (scaled by 1e18, e.g., `0.025 ether` = 2.5%)
+  - `feeAddress` (recipient of early-withdrawal fees)
+  - `WITHDRAWAL_START_DELAY` and `WITHDRAWAL_END_WINDOW` (must satisfy `endWindow > startDelay > 0`)
+
 ### Rebalancing
 
 Rebalancing is when collateral ratio reaches a certain level, configurable in the StabilityPoolManager. Anyone can call the rebalance() function there and receive a bounty for doing so. If the collateral ratio of the system is not below the configured threshold, no rebalancing is performed.
