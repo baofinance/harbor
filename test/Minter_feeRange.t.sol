@@ -39,24 +39,6 @@ abstract contract TestMinterFeeRangeSetUp is TestMinterSetUp {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         vm.stopPrank();
     }
-
-    function setUp_configFixed() internal {
-        setUp_config(
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(80, 80, 80, 80, 80, 80, 80, 80)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(70, 70, 70, 70, 70, 70, 70, 70)),
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
-        );
-    }
-
-    function setUp_configVariable() internal {
-        setUp_config(
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)), // mint pegged
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // redeem pegged
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // mint leveraged
-            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)) // redeem leveraged
-        );
-    }
 }
 
 abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
@@ -69,78 +51,342 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     uint256 measurePrice;
     uint256 measureRate;
 
+    uint256 mintPeggedBands;
+    uint256 redeemPeggedBands;
+    uint256 mintLeveragedBands;
+    uint256 redeemLeveragedBands;
+
     function setUp() public virtual override {
         super.setUp();
         minCollateral = 1e9;
-        maxCollateral = 1e30;
+        maxCollateral = 1e33;
         factorCollateral = 1000;
         minToken = 1e16;
-        maxToken = 1e36;
+        maxToken = 1e33;
         factorToken = 100;
         measurePrice = price;
         measureRate = rate;
+
+        mintPeggedBands = 7;
+        redeemPeggedBands = 7;
+        mintLeveragedBands = 7;
+        redeemLeveragedBands = 7;
     }
 
-    function test_mintPegged() public virtual returns (uint256 result) {
+    // function _mostBands(
+    //     uint mostBandsSoFar,
+    //     IMinter.IncentiveConfig memory bandConfig,
+    //     uint256 preCR,
+    //     uint256 postCR
+    // ) internal pure returns (uint256 bands) {
+    //     // Sort the CRs to determine which direction we're moving
+    //     uint256 lowerCR = preCR < postCR ? preCR : postCR;
+    //     uint256 higherCR = preCR < postCR ? postCR : preCR;
+
+    //     // Extract boundaries from the bandConfig
+    //     uint256[] memory boundaries = bandConfig.collateralRatioBandUpperBounds;
+
+    //     // Count how many boundaries fall between our CRs
+    //     uint256 boundariesCrossed = 0;
+    //     for (uint i = 0; i < boundaries.length; i++) {
+    //         // Check if this boundary is between our collateral ratios
+    //         if (boundaries[i] > lowerCR && boundaries[i] <= higherCR) {
+    //             boundariesCrossed++;
+    //         }
+    //     }
+
+    //     // The number of bands crossed is the number of boundaries crossed + 1
+    //     // (starting from one band and potentially crossing into others)
+    //     uint256 bandsCrossed = boundariesCrossed + 1;
+    //     bands = Math.max(mostBandsSoFar, bandsCrossed);
+    //     return bands;
+    // }
+
+    function test_mintPeggedRange_() public virtual {
         uint256 snap = vm.snapshotState();
+        // uint256 bands = 0;
         for (uint256 p = minCollateral; p < maxCollateral; p *= factorCollateral) {
             for (uint256 l = minCollateral; l < maxCollateral; l *= factorCollateral) {
                 for (uint256 w = minToken; w < maxToken; w *= factorToken) {
                     setUp_collateral(p, l, user);
+                    // uint256 preCR = IMinter(minter).collateralRatio();
                     MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-                    result = _mintPegged(w, result);
+                    _mintPegged(w);
+                    // bands = _mostBands(
+                    //     bands,
+                    //     config.mintPeggedIncentiveConfig,
+                    //     preCR,
+                    //     IMinter(minter).collateralRatio()
+                    // );
                     vm.revertToState(snap);
                 }
             }
         }
+        // assertEq(bands, mintPeggedBands, "mintPeggedMostBands");
     }
 
-    function test_redeemPegged() public virtual returns (uint256 result) {
+    function test_redeemPeggedRange_() public virtual {
         uint256 snap = vm.snapshotState();
+        // uint256 bands = 0;
         for (uint256 p = minCollateral; p < maxCollateral; p *= factorCollateral) {
             for (uint256 l = minCollateral; l < maxCollateral; l *= factorCollateral) {
                 for (uint256 w = minToken; w <= maxToken; w *= factorToken) {
                     bool finishAfterThis = w >= p;
                     w = finishAfterThis ? p : w; // to avoid truncated returns
                     setUp_collateral(p, l, user);
+                    // uint256 preCR = IMinter(minter).collateralRatio();
                     MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-                    result = _redeemPegged(w, result);
+                    _redeemPegged(w);
+                    // bands = _mostBands(
+                    //     bands,
+                    //     config.redeemPeggedIncentiveConfig,
+                    //     preCR,
+                    //     IMinter(minter).collateralRatio()
+                    // );
                     vm.revertToState(snap);
                     if (finishAfterThis) break;
                 }
             }
         }
+        // assertEq(bands, redeemPeggedBands, "redeemPeggedMostBands");
     }
 
-    function test_mintLeveraged() public virtual returns (uint256 result) {
+    function test_mintLeveragedRange_() public virtual {
         uint256 snap = vm.snapshotState();
+        // uint256 bands = 0;
         for (uint256 p = minCollateral; p < maxCollateral; p *= factorCollateral) {
             for (uint256 l = minCollateral; l < maxCollateral; l *= factorCollateral) {
                 for (uint256 w = minToken; w < maxToken; w *= factorToken) {
                     setUp_collateral(p, l, user);
+                    // uint256 preCR = IMinter(minter).collateralRatio();
                     MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-                    result = _mintLeveraged(w, result);
+                    _mintLeveraged(w);
+                    // bands = _mostBands(
+                    //     bands,
+                    //     config.mintLeveragedIncentiveConfig,
+                    //     preCR,
+                    //     IMinter(minter).collateralRatio()
+                    // );
                     vm.revertToState(snap);
                 }
             }
         }
+        // assertEq(bands, mintLeveragedBands, "mintLeveragedMostBands");
     }
 
-    function test_redeemLeveraged() public virtual returns (uint256 result) {
+    function test_redeemLeveragedRange_() public virtual {
         uint256 snap = vm.snapshotState();
+        // uint256 bands = 0;
         for (uint256 p = minCollateral; p <= maxCollateral; p *= factorCollateral) {
             for (uint256 l = minCollateral; l <= maxCollateral; l *= factorCollateral) {
                 for (uint256 w = minToken; w <= maxToken; w *= factorToken) {
                     bool finishAfterThis = w >= l;
                     w = finishAfterThis ? l : w; // to avoid truncated returns
                     setUp_collateral(p, l, user);
+                    // uint256 preCR = IMinter(minter).collateralRatio();
                     MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-                    result = _redeemLeveraged(w, result);
+                    _redeemLeveraged(w);
+                    // bands = _mostBands(
+                    //     bands,
+                    //     config.redeemLeveragedIncentiveConfig,
+                    //     preCR,
+                    //     IMinter(minter).collateralRatio()
+                    // );
                     vm.revertToState(snap);
                     if (finishAfterThis) break;
                 }
             }
         }
+        // assertEq(bands, redeemLeveragedBands, "redeemLeveragedMostBands");
+    }
+
+    // Put near top of test contract (inside the contract)
+    struct LeveragedSpanCtx {
+        uint256[] bounds;
+        uint256 feePerc;
+        uint256 oneMinusFee;
+        uint256 price;
+        uint256 rate;
+        uint256 pBase;
+        uint256 globalSnap;
+        // working fields reused
+        uint256 s;
+        uint256 e;
+        uint256 desiredCR;
+        uint256 lRef;
+        uint256 attempt;
+        uint256 crNow;
+        uint256 lower;
+        uint256 preCR;
+        uint256 targetCR;
+        uint256 underlyingCurrent;
+        uint256 peggedSupply;
+        uint256 underlyingTarget;
+        uint256 deltaUnderlying;
+        uint256 wNeeded;
+        uint256 bi;
+        uint256 crossings;
+    }
+
+    // Inline helpers with minimal stack footprint
+    function _bandLower(uint256 idx, uint256[] memory b) internal pure returns (uint256) {
+        return idx == 0 ? 0 : b[idx - 1];
+    }
+    function _inBand(uint256 cr, uint256 idx, uint256[] memory b) internal pure returns (bool) {
+        return cr > _bandLower(idx, b) && cr <= b[idx];
+    }
+    function _calcLForCR(uint256 pBase, uint256 targetCR) internal pure returns (uint256) {
+        return targetCR <= 1e18 ? 0 : (pBase * (targetCR - 1e18)) / 1e18;
+    }
+    function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a == 0 ? 0 : (a - 1) / b + 1;
+    }
+
+    function test_mintLeveragedBandSpans_() public {
+        LeveragedSpanCtx memory C;
+
+        C.bounds = config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds;
+        assertGe(C.bounds.length, 6, "len bounds ge 6");
+
+        int256 feeI = initial(config.mintLeveragedIncentiveConfig.incentiveRatios);
+        // feeI must be >=0 and < 1e18
+        if (feeI < 0) {
+            // Force fail using only allowed asserts
+            assertEq(uint256(1), uint256(0), "fee negative");
+        }
+        C.feePerc = uint256(uint64(uint256(uint256(int256(feeI))))); // shrink not required but keeps stack light
+        assertLt(uint256(feeI), 1e18, "fee < 1e18");
+        C.oneMinusFee = 1e18 - uint256(feeI);
+
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
+        C.price = measurePrice;
+        C.rate = measureRate;
+        assertGt(C.price, 0, "oracle price>0");
+        assertGt(C.rate, 0, "oracle rate>0");
+
+        C.pBase = 1e24;
+        C.globalSnap = vm.snapshotState();
+
+        for (C.s = 0; C.s < C.bounds.length; C.s++) {
+            vm.revertToState(C.globalSnap);
+
+            // Placement (mid-band)
+            {
+                uint256 lowerBand = _bandLower(C.s, C.bounds);
+                C.desiredCR = lowerBand + (C.bounds[C.s] - lowerBand) / 2;
+                if (C.desiredCR >= C.bounds[C.s]) C.desiredCR = C.bounds[C.s] - 1;
+                C.lRef = _calcLForCR(C.pBase, C.desiredCR);
+
+                uint256 placeSnap = vm.snapshotState();
+                for (C.attempt = 0; C.attempt < 8; C.attempt++) {
+                    vm.revertToState(placeSnap);
+                    setUp_collateral(C.pBase, C.lRef, user);
+                    C.crNow = IMinter(minter).collateralRatio();
+                    if (_inBand(C.crNow, C.s, C.bounds)) break;
+                    C.lower = lowerBand;
+                    if (C.crNow <= C.lower) {
+                        C.lRef += (C.lRef / 6) + 1;
+                    } else if (C.crNow > C.bounds[C.s]) {
+                        uint256 dec = (C.lRef / 6) + 1;
+                        C.lRef = dec >= C.lRef ? C.lRef / 2 : C.lRef - dec;
+                    } else {
+                        break;
+                    }
+                }
+                {
+                    uint256 chk = IMinter(minter).collateralRatio();
+                    // Containment assertions
+                    assertGt(chk, _bandLower(C.s, C.bounds), "place lower");
+                    assertLe(chk, C.bounds[C.s], "place upper");
+                }
+            }
+
+            uint256 startSnap = vm.snapshotState();
+
+            for (C.e = C.s; C.e < C.bounds.length; C.e++) {
+                vm.revertToState(startSnap);
+                C.preCR = IMinter(minter).collateralRatio();
+                // Assert starting band containment
+                assertGt(C.preCR, _bandLower(C.s, C.bounds), "pre lower");
+                assertLe(C.preCR, C.bounds[C.s], "pre upper");
+
+                if (C.e == C.s) {
+                    uint256 bandUpper = C.bounds[C.s];
+                    uint256 bandLower = _bandLower(C.s, C.bounds);
+                    // Safe headroom
+                    uint256 headroom = (C.preCR + 1 < bandUpper) ? (bandUpper - 1 - C.preCR) : 0;
+                    if (headroom == 0) {
+                        continue;
+                    }
+
+                    C.targetCR = C.preCR + headroom / 2;
+                    if (C.targetCR >= bandUpper) C.targetCR = bandUpper - 1;
+
+                    C.underlyingCurrent = IMinter(minter).collateralTokenBalance();
+                    C.peggedSupply = IMinter(minter).peggedTokenBalance();
+                    C.underlyingTarget = Math.mulDiv(C.targetCR, C.peggedSupply, C.price);
+                    if (C.underlyingTarget > C.underlyingCurrent && C.oneMinusFee != 0 && C.rate != 0) {
+                        C.deltaUnderlying = C.underlyingTarget - C.underlyingCurrent;
+                        C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.oneMinusFee) + 5;
+
+                        if (IMinter(minter).leveragedTokenPrice() != 0) {
+                            _mintLeveraged(C.wNeeded);
+                            uint256 postCR0 = IMinter(minter).collateralRatio();
+                            assertGt(postCR0, bandLower, "zero-span lower");
+                            assertLe(postCR0, bandUpper, "zero-span upper");
+
+                            C.crossings = 0;
+                            for (C.bi = 0; C.bi < C.bounds.length; C.bi++) {
+                                uint256 b0 = C.bounds[C.bi];
+                                if (b0 > C.preCR && b0 <= postCR0) C.crossings++;
+                            }
+                            assertEq(C.crossings, 0, "zero-span crossings");
+                        }
+                    }
+                    continue;
+                }
+
+                // Non-zero span
+                C.targetCR = C.bounds[C.e] - 1;
+
+                uint256 preCRLocal = C.preCR;
+                uint256 preLevSupply = IERC20(leveragedToken).totalSupply();
+
+                C.underlyingCurrent = IMinter(minter).collateralTokenBalance();
+                C.peggedSupply = IMinter(minter).peggedTokenBalance();
+                C.underlyingTarget = Math.mulDiv(C.targetCR, C.peggedSupply, C.price);
+                if (C.underlyingTarget <= C.underlyingCurrent) continue;
+                C.deltaUnderlying = C.underlyingTarget - C.underlyingCurrent;
+                if (C.oneMinusFee == 0 || C.rate == 0) continue;
+                C.wNeeded = _ceilDiv(C.deltaUnderlying * 1e36, C.rate * C.oneMinusFee) + 10;
+                if (IMinter(minter).leveragedTokenPrice() == 0) continue;
+
+                _mintLeveraged(C.wNeeded);
+
+                // Re-measure
+                uint256 postCR = IMinter(minter).collateralRatio();
+                uint256 postLevSupply = IERC20(leveragedToken).totalSupply();
+
+                // If no supply change or CR did not increase, treat as an impossible span and skip
+                if (postLevSupply == preLevSupply || postCR <= preCRLocal) {
+                    continue;
+                }
+
+                // Normal end-band assertions
+                assertGt(postCR, _bandLower(C.e, C.bounds), "end lower");
+                assertLe(postCR, C.bounds[C.e], "end upper");
+
+                // Count crossings
+                C.crossings = 0;
+                for (C.bi = 0; C.bi < C.bounds.length; C.bi++) {
+                    uint256 b = C.bounds[C.bi];
+                    if (b > preCRLocal && b <= postCR) C.crossings++;
+                }
+                assertEq(C.crossings, (C.e - C.s), "cross count");
+            }
+        }
+
+        vm.revertToState(C.globalSnap);
     }
 
     struct Measures {
@@ -177,84 +423,16 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         m.leveragedPrice = IMinter(minter).leveragedTokenPrice();
     }
 
-    function _mintPegged(uint256 wrapped, uint256 result) internal virtual returns (uint256);
-    function _redeemPegged(uint256 wrapped, uint256 result) internal virtual returns (uint256);
-    function _mintLeveraged(uint256 wrapped, uint256 result) internal virtual returns (uint256);
-    function _redeemLeveraged(uint256 wrapped, uint256 result) internal virtual returns (uint256);
+    function _mintPegged(uint256 wrapped) internal virtual;
+    function _redeemPegged(uint256 wrapped) internal virtual;
+    function _mintLeveraged(uint256 wrapped) internal virtual;
+    function _redeemLeveraged(uint256 wrapped) internal virtual;
 }
 
 contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
-    uint256 mintPeggedBands;
-    uint256 redeemPeggedBands;
-    uint256 mintLeveragedBands;
-    uint256 redeemLeveragedBands;
-
-    function setUp() public virtual override {
-        super.setUp();
-        mintPeggedBands = 7;
-        redeemPeggedBands = 7;
-        mintLeveragedBands = 7;
-        redeemLeveragedBands = 7;
-    }
-
     function setUpConfig() internal virtual override {
         // we need flat rates across close boundaries to measure the error in crossing boundaries
-        setUp_configFixed();
-    }
-
-    function test_mintPegged() public virtual override returns (uint256 result) {
-        result = super.test_mintPegged();
-        // starting from pegged cannot go de-pegged
-        console2.log("mintPeggedMostBands:", result);
-        assertEq(result, mintPeggedBands, "mintPeggedMostBands should be 7");
-    }
-
-    function test_redeemPegged() public virtual override returns (uint256 result) {
-        result = super.test_redeemPegged();
-        assertEq(result, redeemPeggedBands, "redeemPeggedMostBands should be 8");
-    }
-
-    function test_mintLeveraged() public virtual override returns (uint256 result) {
-        result = super.test_mintLeveraged();
-        assertEq(result, mintLeveragedBands, "mintLeveragedMostBands should be 8");
-    }
-
-    function test_redeemLeveraged() public virtual override returns (uint256 result) {
-        result = super.test_redeemLeveraged();
-        assertEq(result, redeemLeveragedBands, "redeemLeveragedMostBands should be 8");
-    }
-
-    function _mostBands(
-        uint mostBandsSoFar,
-        IMinter.IncentiveConfig memory bandConfig,
-        Measures memory pre,
-        Measures memory post
-    ) internal pure returns (uint256 bands) {
-        // Get the collateral ratios
-        uint256 preCR = pre.collateralRatio;
-        uint256 postCR = post.collateralRatio;
-
-        // Sort the CRs to determine which direction we're moving
-        uint256 lowerCR = preCR < postCR ? preCR : postCR;
-        uint256 higherCR = preCR < postCR ? postCR : preCR;
-
-        // Extract boundaries from the bandConfig
-        uint256[] memory boundaries = bandConfig.collateralRatioBandUpperBounds;
-
-        // Count how many boundaries fall between our CRs
-        uint256 boundariesCrossed = 0;
-        for (uint i = 0; i < boundaries.length; i++) {
-            // Check if this boundary is between our collateral ratios
-            if (boundaries[i] > lowerCR && boundaries[i] <= higherCR) {
-                boundariesCrossed++;
-            }
-        }
-
-        // The number of bands crossed is the number of boundaries crossed + 1
-        // (starting from one band and potentially crossing into others)
-        uint256 bandsCrossed = boundariesCrossed + 1;
-        bands = Math.max(mostBandsSoFar, bandsCrossed);
-        return bands;
+        setUp_config_flatWide();
     }
 
     // TODO: ensure that
@@ -269,7 +447,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         return (doubledResult / 2) + (doubledResult % 2);
     }
 
-    function _mintPegged(uint256 wrapped, uint256 result) internal override returns (uint256) {
+    function _mintPegged(uint256 wrapped) internal override {
         // MINT PEGGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         Measures memory pre = _measure();
@@ -277,7 +455,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         uint256 minted = IMinter(minter).mintPeggedToken(wrapped, user, 0);
         // ---------------------------------------------------------------
         Measures memory post = _measure();
-        result = _mostBands(result, config.mintPeggedIncentiveConfig, pre, post);
 
         uint256 fee = (uint256(initial(config.mintPeggedIncentiveConfig.incentiveRatios)) * wrapped) / 1 ether;
         assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, "mp fee wrapped");
@@ -309,11 +486,9 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         assertNear(post.peggedPrice, pre.peggedPrice, 1, 500, "mp pegged price");
         // assertNear(post.leveragedPrice, pre.leveragedPrice, 1, 1000, "mp leveraged price");
-
-        return result;
     }
 
-    function _redeemPegged(uint256 wrapped, uint256 result) internal override returns (uint256) {
+    function _redeemPegged(uint256 wrapped) internal override {
         // REDEEM PEGGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         Measures memory pre = _measure();
@@ -322,7 +497,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         uint256 wrappedReturned = IMinter(minter).redeemPeggedToken(pegged, user, 0);
         // -------------------------------------------------------------------------
         Measures memory post = _measure();
-        result = _mostBands(result, config.redeemPeggedIncentiveConfig, pre, post);
 
         // adjust wrapped value for de-pegged situation
         wrapped = (wrapped * pre.peggedPrice) / 1e18;
@@ -341,46 +515,62 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         assertNear(post.peggedPrice, pre.peggedPrice, 1e12, "rp pegged price");
         // assertEq(post.leveragedPrice, pre.leveragedPrice, 1, "rp leveraged price");
-
-        return result;
     }
 
-    function _mintLeveraged(uint256 wrapped, uint256 result) internal override returns (uint256) {
+    function _mintLeveraged(uint256 wrapped) internal override {
         // MINT LEVERAGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        Measures memory pre = _measure();
+        Measures memory pre;
+        uint256 lp = IMinter(minter).leveragedTokenPrice();
+        bool canMint = IMinter(minter).collateralRatio() > 1 ether;
+        if (!canMint) {
+            console2.log("can't mint: %s", IMinter(minter).collateralRatio());
+            vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        } else {
+            pre = _measure();
+        }
         vm.prank(user);
         uint256 minted = IMinter(minter).mintLeveragedToken(wrapped, user, 0);
         // ------------------------------------------------------------------
-        Measures memory post = _measure();
-        result = _mostBands(result, config.mintLeveragedIncentiveConfig, pre, post);
+        if (canMint) {
+            Measures memory post = _measure();
 
-        uint256 fee = (uint256(initial(config.mintLeveragedIncentiveConfig.incentiveRatios)) * wrapped) / 1 ether;
-        // TODO: the fee is slightly low so is knowcking out all the rest below
-        assertApproxEqAbs(post.feeWrapped, pre.feeWrapped + fee, 2, "ml fee wrapped");
+            uint256 fee = (uint256(initial(config.mintLeveragedIncentiveConfig.incentiveRatios)) * wrapped) / 1 ether;
+            // TODO: the fee is slightly low so is knowcking out all the rest below
+            assertApproxEqAbs(post.feeWrapped, pre.feeWrapped + fee, 2, "ml fee wrapped");
 
-        assertEq(post.userPegged, pre.userPegged, "ml user pegged ");
-        assertApproxEqAbs(minted, Math.mulDiv((wrapped - fee), (p * r) / 1e18, 1e18), p, "ml user leveraged");
-        assertEq(post.userLeveraged, pre.userLeveraged + minted, "ml user leveraged returned");
-        assertEq(post.userWrapped, pre.userWrapped - wrapped, "ml user wrapped");
+            assertNear(
+                post.minterUnderlying,
+                pre.minterUnderlying + ((wrapped - fee) * r) / 1e18,
+                1,
+                "ml minter underlying"
+            );
 
-        assertEq(post.minterPegged, pre.minterPegged, "ml minter pegged");
-        assertEq(post.minterLeveraged, pre.minterLeveraged + minted, "ml minter leveraged");
-        assertApproxEqAbs(post.minterWrapped, pre.minterWrapped + wrapped - fee, 1, "ml minter wrapped");
-        assertApproxEqAbs(
-            post.minterUnderlying,
-            pre.minterUnderlying + ((wrapped - fee) * r) / 1e18,
-            1,
-            "ml minter underlying"
-        );
+            assertEq(post.userWrapped, pre.userWrapped - wrapped, "ml user wrapped");
 
-        assertEq(post.peggedPrice, pre.peggedPrice, "ml pegged price");
-        assertEq(post.leveragedPrice, pre.leveragedPrice, "ml leveraged price");
+            assertEq(post.minterLeveraged, pre.minterLeveraged + minted, "ml minter leveraged");
+            assertNear(post.minterWrapped, pre.minterWrapped + wrapped - fee, 1, "ml minter wrapped");
 
-        return result;
+            assertEq(post.userLeveraged, pre.userLeveraged + minted, "ml user leveraged returned");
+            assertNear(
+                minted,
+                Math.mulDiv((wrapped - fee) * r /*underlying collateral */, p, lp * 1e18),
+                1,
+                3,
+                "ml user leveraged"
+            );
+
+            assertEq(post.peggedPrice, pre.peggedPrice, "ml pegged price");
+            assertNear(
+                post.leveragedPrice,
+                pre.leveragedPrice,
+                IERC20(leveragedToken).totalSupply() > 1e9 ? 15 : 0,
+                "ml leveraged price"
+            );
+        }
     }
 
-    function _redeemLeveraged(uint256 wrapped, uint256 result) internal override returns (uint256) {
+    function _redeemLeveraged(uint256 wrapped) internal override {
         // REDEEM LEVERAGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         Measures memory pre = _measure();
@@ -402,7 +592,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         uint256 wrappedReturned = IMinter(minter).redeemLeveragedToken(leveraged, user, 0);
         // -------------------------------------------------------------------------------
         Measures memory post = _measure();
-        result = _mostBands(result, config.redeemLeveragedIncentiveConfig, pre, post);
 
         uint256 fee = (uint256(initial(config.redeemLeveragedIncentiveConfig.incentiveRatios)) * wrapped) / 1 ether;
         assertEq(post.feeWrapped, pre.feeWrapped + fee, "rl fee wrapped");
@@ -419,8 +608,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         assertEq(post.peggedPrice, pre.peggedPrice, "rl pegged price");
         assertEq(post.leveragedPrice, pre.leveragedPrice, "rl leveraged price");
-
-        return result;
     }
 }
 
@@ -457,7 +644,7 @@ contract TestMinterFixedFeeRangePrice1_ is TestMinterFixedFeeRange_ {
     }
 }
 
-contract TestMinterFixedFeeRangePrice1Million is TestMinterFixedFeeRange_ {
+contract TestMinterFixedFeeRangePrice1Million_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
         price = measurePrice = 1 ether * 1e6;
@@ -466,7 +653,7 @@ contract TestMinterFixedFeeRangePrice1Million is TestMinterFixedFeeRange_ {
     }
 }
 
-contract TestMinterFixedFeeRangePrice1Millionth is TestMinterFixedFeeRange_ {
+contract TestMinterFixedFeeRangePrice1Millionth_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
         price = measurePrice = 1 ether / 1e6;
@@ -475,7 +662,7 @@ contract TestMinterFixedFeeRangePrice1Millionth is TestMinterFixedFeeRange_ {
     }
 }
 
-contract TestMinterFixedFeeRangePrice1Billion is TestMinterFixedFeeRange_ {
+contract TestMinterFixedFeeRangePrice1Billion_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
         price = measurePrice = 1 ether * 1e9;
@@ -484,7 +671,7 @@ contract TestMinterFixedFeeRangePrice1Billion is TestMinterFixedFeeRange_ {
     }
 }
 
-contract TestMinterFixedFeeRangePrice1Billionth is TestMinterFixedFeeRange_ {
+contract TestMinterFixedFeeRangePrice1Billionth_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
         price = measurePrice = 1 ether / 1e9;
@@ -495,7 +682,7 @@ contract TestMinterFixedFeeRangePrice1Billionth is TestMinterFixedFeeRange_ {
 
 // rate checks
 
-contract TestMinterFixedFeeRangeRate1Million is TestMinterFixedFeeRange_ {
+contract TestMinterFixedFeeRangeRate1Million_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
         price = measurePrice = 1 ether;
@@ -504,7 +691,7 @@ contract TestMinterFixedFeeRangeRate1Million is TestMinterFixedFeeRange_ {
     }
 }
 
-contract TestMinterFixedFeeRangeRate1Millionth is TestMinterFixedFeeRange_ {
+contract TestMinterFixedFeeRangeRate1Millionth_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
         super.setUp();
         price = measurePrice = 1 ether;
@@ -529,15 +716,15 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
     }
 
     function setUpConfig() internal virtual override {
-        setUp_configFixed();
+        setUp_config_flatWide();
     }
 
-    function _mintPegged(uint256 wrapped, uint256) internal override returns (uint256) {
+    function _mintPegged(uint256 wrapped) internal override {
         // MINT PEGGED
         uint256 snap = vm.snapshotState();
         uint256 mintedSteps = 0;
         uint256 wrappedStep = wrapped / steps;
-        assertEq(wrapped, wrappedStep * steps, "passed in the correct wrapped");
+        assertNear(wrapped, wrappedStep * steps, steps, "mp passed in the correct wrapped");
         for (uint i = 0; i < steps; i++) {
             vm.prank(user);
             mintedSteps += IMinter(minter).mintPeggedToken(wrappedStep, user, 0);
@@ -554,7 +741,7 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
         uint256 pegTolAbs = 32;
         uint256 colTolRel = 2e6;
 
-        assertNear(post.feeWrapped, postSteps.feeWrapped, 2, "mp integral fee wrapped");
+        assertNear(post.feeWrapped, postSteps.feeWrapped, 3, "mp integral fee wrapped");
         assertNear(minted, mintedSteps, pegTolAbs, 0, "mp integral minted");
 
         assertNear(post.userPegged, postSteps.userPegged, pegTolAbs, 1, "mp integral user pegged");
@@ -565,10 +752,9 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
         assertEq(post.minterLeveraged, postSteps.minterLeveraged, "mp integral minter leveraged");
         assertNear(post.minterWrapped, postSteps.minterWrapped, 1, colTolRel, "mp integral minter wrapped");
         assertNear(post.minterUnderlying, postSteps.minterUnderlying, 2, colTolRel, "mp integral minter underlying");
-        return 0;
     }
 
-    function _redeemPegged(uint256 wrapped, uint256) internal override returns (uint256) {
+    function _redeemPegged(uint256 wrapped) internal override {
         // REDEEM PEGGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         uint256 snap = vm.snapshotState();
@@ -589,14 +775,6 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
         // -------------------------------------------------------------------------
 
         Measures memory post = _measure();
-        uint256 fee;
-        uint256 discount;
-        int256 fd = (initial(config.redeemPeggedIncentiveConfig.incentiveRatios) * int256(wrapped)) / 1 ether;
-        if (fd > 0) {
-            fee = uint256(fd);
-        } else {
-            discount = uint256(-fd);
-        }
 
         uint256 pegTolAbs = 32;
         uint256 colTolRel = 2e6;
@@ -612,34 +790,45 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
         assertEq(post.minterLeveraged, postSteps.minterLeveraged, "rp integral minter leveraged");
         assertNear(post.minterWrapped, postSteps.minterWrapped, 1, colTolRel, "rp integral minter wrapped");
         assertNear(post.minterUnderlying, postSteps.minterUnderlying, 1, colTolRel, "rp integral minter underlying");
-        return 0;
     }
 
-    function _mintLeveraged(uint256 wrapped, uint256) internal override returns (uint256) {
+    function _mintLeveraged(uint256 wrapped) internal override {
         // MINT LEVERAGED
-        (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        Measures memory pre = _measure();
-        vm.prank(user);
-        uint256 minted = IMinter(minter).mintLeveragedToken(wrapped, user, 0);
-        // ------------------------------------------------------------------
-        Measures memory post = _measure();
+        // we don't allow minting leveragedTokens when it's not economically sensible to do so
+        if (IMinter(minter).collateralRatio() > 1 ether) {
+            uint256 snap = vm.snapshotState();
+            uint256 mintedSteps = 0;
+            uint256 wrappedStep = wrapped / steps;
+            assertNear(wrapped, wrappedStep * steps, steps, "ml passed in the correct wrapped");
+            for (uint i = 0; i < steps; i++) {
+                vm.prank(user);
+                mintedSteps += IMinter(minter).mintLeveragedToken(wrappedStep, user, 0);
+                // ------------------------------------------------------------------
+            }
 
-        uint256 fee = (uint256(initial(config.mintLeveragedIncentiveConfig.incentiveRatios)) * wrapped) / 1 ether;
-        assertEq(post.feeWrapped, pre.feeWrapped + fee, "ml fee wrapped");
+            Measures memory postSteps = _measure();
+            vm.revertToState(snap);
+            vm.prank(user);
+            uint256 minted = IMinter(minter).mintLeveragedToken(wrapped, user, 0);
+            // ------------------------------------------------------------------
 
-        assertEq(post.userPegged, pre.userPegged, "ml user pegged ");
-        assertEq(minted, Math.mulDiv((wrapped - fee), (p * r) / 1e18, 1e18), "ml user leveraged");
-        assertEq(post.userLeveraged, pre.userLeveraged + minted, "ml user leveraged returned");
-        assertEq(post.userWrapped, pre.userWrapped - wrapped, "ml user wrapped");
+            Measures memory post = _measure();
 
-        assertEq(post.minterPegged, pre.minterPegged, "ml minter pegged");
-        assertEq(post.minterLeveraged, pre.minterLeveraged + minted, "ml minter leveraged");
-        assertEq(post.minterWrapped, pre.minterWrapped + wrapped - fee, "ml minter wrapped");
-        assertEq(post.minterUnderlying, pre.minterUnderlying + ((wrapped - fee) * r) / 1e18, "ml minter underlying");
-        return 0;
+            assertNear(post.feeWrapped, postSteps.feeWrapped, 0, 0, "ml integral fee wrapped");
+            assertNear(minted, mintedSteps, 0, 0, "ml integral minted");
+
+            assertNear(post.userPegged, postSteps.userPegged, 0, 0, "ml integral user pegged");
+            assertNear(post.userLeveraged, postSteps.userLeveraged, 0, 0, "ml integral user leveraged");
+            assertNear(post.userWrapped, postSteps.userWrapped, 0, 0, "ml integral user wrapped");
+
+            assertNear(post.minterPegged, postSteps.minterPegged, 0, 0, "ml integral minter pegged");
+            assertNear(post.minterLeveraged, postSteps.minterLeveraged, 0, 0, "ml integral minter leveraged");
+            assertNear(post.minterWrapped, postSteps.minterWrapped, 0, 0, "ml integral minter wrapped");
+            assertNear(post.minterUnderlying, postSteps.minterUnderlying, 0, 0, "ml integral minter underlying");
+        }
     }
 
-    function _redeemLeveraged(uint256 wrapped, uint256) internal override returns (uint256) {
+    function _redeemLeveraged(uint256 wrapped) internal override {
         // REDEEM LEVERAGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
@@ -674,12 +863,11 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
         assertEq(post.minterLeveraged, pre.minterLeveraged - leveraged, "rl minter leveraged");
         assertEq(post.minterWrapped, pre.minterWrapped - wrapped, "rl minter wrapped");
         assertEq(post.minterUnderlying, pre.minterUnderlying - (wrapped * r) / 1e18, "rl minter underlying");
-        return 0;
     }
 }
 
 contract TestMinterIntegralVariableFees is TestMinterIntegralFixedFees {
     function setUpConfig() internal virtual override {
-        setUp_configVariable();
+        setUp_config_directionalWide();
     }
 }

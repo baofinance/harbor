@@ -342,7 +342,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // 2 -------------------------------------------------------------
         assertEq(IERC20(leveragedToken).balanceOf(receiver), 0);
 
-        // some input, when infinite collateral ratio
+        // some input, when low collateral ratio
         vm.expectRevert(abi.encodeWithSelector(IMinter.ActionPaused.selector));
         vm.prank(sender);
         IMinter(minter).mintLeveragedToken(1 ether, receiver, 0);

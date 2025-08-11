@@ -50,11 +50,7 @@ contract EverythingTest is TestStabilityPoolManagerSetUp {
 
     function test_leverageRatio() public view {
         uint256 leverageRatio = IMinter(minter).leverageRatio();
-        assertEq(
-            leverageRatio,
-            isDepegged ? 20 ether /* the cap */ : 3.499999999999999991 ether,
-            "leverageRatio wrong"
-        );
+        assertEq(leverageRatio, isDepegged ? 20 ether /* the cap */ : 3.5 ether, "leverageRatio wrong");
     }
 
     /*
