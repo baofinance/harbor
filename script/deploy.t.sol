@@ -35,8 +35,9 @@ contract TestDeployedLeveragedToken is TestLeveragedToken, TestDeployed {
         setUp_fork();
         owner = addr("owner");
         minter = addr("minter");
-        name = "Bao Zhenglong steamed stETH-BaoUSD";
-        symbol = "steamedstETH-BaoUSD";
+        // Align expected leveraged token metadata with deploy script
+        name = "Zhenglong governance steamedPBxstETH";
+        symbol = "steamedPBxstETH";
     }
 
     function setUpContract() internal override {

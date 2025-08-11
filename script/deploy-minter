@@ -321,8 +321,10 @@ for liquidation in Collateral Steamed; do
   # stability pool
   deploy_stemmed stabilityPool${liquidation}
   BaoOwnables+=("stabilityPool${liquidation}")
+  # constructor(minter, liquidationToken, stabilityPoolToken, steam, earlyFee, feeAddress, startDelay, endWindow)
   deploy_contract StabilityPool_v1${liquidation} "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
-    --constructor-args minter ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}Stake STEAM
+    --constructor-args minter ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}Stake STEAM \
+    25000000000000000 0x3dFc49e5112005179Da613BdE5973229082dAc35 3600 90000
   upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address)" owner
 
   # mint the stake token to the stability pool
