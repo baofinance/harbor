@@ -166,10 +166,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         vm.startPrank(owner);
         IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
         IStabilityPool(stabilityPoolCollateral).setFeeAddress(FEE_ADDRESS);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(
-            WITHDRAWAL_START_DELAY,
-            WITHDRAWAL_END_WINDOW
-        );
+        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
         vm.stopPrank();
 
         user1 = vm.createWallet("user1").addr;

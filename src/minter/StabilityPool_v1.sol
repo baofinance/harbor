@@ -329,7 +329,10 @@ contract StabilityPool_v1 is
         // If depositing before the end of a withdrawal window, cancel the request
         WithdrawalRequest memory request = $.withdrawalRequests[sender];
         if (request.start != 0 && block.timestamp <= request.end) {
-            $.withdrawalRequests[sender] = WithdrawalRequest({start: uint64(block.timestamp - 1), end: uint64(block.timestamp - 1)});
+            $.withdrawalRequests[sender] = WithdrawalRequest({
+                start: uint64(block.timestamp - 1),
+                end: uint64(block.timestamp - 1)
+            });
             emit WithdrawalRequestCancelled(sender);
         }
 

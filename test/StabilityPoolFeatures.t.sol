@@ -17,10 +17,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.startPrank(owner);
         IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
         IStabilityPool(stabilityPoolCollateral).setFeeAddress(FEE_ADDRESS);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(
-            WITHDRAWAL_START_DELAY,
-            WITHDRAWAL_END_WINDOW
-        );
+        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
         vm.stopPrank();
     }
 
@@ -162,7 +159,9 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
     function test_setters_invalidParams_revert() public {
         vm.startPrank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 0, WITHDRAWAL_END_WINDOW));
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 0, WITHDRAWAL_END_WINDOW)
+        );
         IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(0, WITHDRAWAL_END_WINDOW);
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 1000, 1000));
         IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(1000, 1000);
@@ -215,4 +214,3 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(FEE_ADDRESS), feeReceiverBefore + expectedFee);
     }
 }
-
