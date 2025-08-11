@@ -60,7 +60,7 @@ contract StabilityPool_v1 is
 
     uint256 public constant REWARDER_ROLE = _ROLE_2;
 
-    uint256 private constant MAX_EARLY_WITHDRAWAL_FEE = 1 ether;
+    uint256 private constant _MAX_EARLY_WITHDRAWAL_FEE = 1 ether;
 
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
@@ -92,10 +92,10 @@ contract StabilityPool_v1 is
     address public feeAddress;
 
     /// @dev The delay before a withdrawal can be executed without a fee
-    uint256 public WITHDRAWAL_START_DELAY;
+    uint256 public withdrawalStartDelay;
 
     /// @dev The duration of the withdrawal window
-    uint256 public WITHDRAWAL_END_WINDOW;
+    uint256 public withdrawalEndWindow;
 
     /***********
      * Structs *
@@ -223,15 +223,15 @@ contract StabilityPool_v1 is
         GAUGE_REWARD_TOKEN = gaugeRewardToken_;
 
         // early withdrawal settings
-        if (earlyWithdrawalFee_ > MAX_EARLY_WITHDRAWAL_FEE) revert InvalidFee(earlyWithdrawalFee_);
+        if (earlyWithdrawalFee_ > _MAX_EARLY_WITHDRAWAL_FEE) revert InvalidFee(earlyWithdrawalFee_);
         earlyWithdrawalFee = earlyWithdrawalFee_;
         if (feeAddress_ == address(0)) revert InvalidFeeAddress(feeAddress_);
         feeAddress = feeAddress_;
         if (withdrawalStartDelay_ == 0 || withdrawalEndWindow_ <= withdrawalStartDelay_) {
             revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
         }
-        WITHDRAWAL_START_DELAY = withdrawalStartDelay_;
-        WITHDRAWAL_END_WINDOW = withdrawalEndWindow_;
+        withdrawalStartDelay = withdrawalStartDelay_;
+        withdrawalEndWindow = withdrawalEndWindow_;
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -440,8 +440,8 @@ contract StabilityPool_v1 is
     function requestWithdrawal() external nonReentrant {
         address sender = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        uint64 start = uint64(block.timestamp + WITHDRAWAL_START_DELAY);
-        uint64 end = uint64(block.timestamp + WITHDRAWAL_END_WINDOW);
+        uint64 start = uint64(block.timestamp + withdrawalStartDelay);
+        uint64 end = uint64(block.timestamp + withdrawalEndWindow);
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
         emit WithdrawalRequested(sender, start, end);
     }
@@ -449,7 +449,7 @@ contract StabilityPool_v1 is
     /// @inheritdoc IStabilityPool
     /// @notice Updates the early withdrawal fee ratio (scaled by 1e18).
     function setEarlyWithdrawalFee(uint256 newFee) external onlyOwner {
-        if (newFee > MAX_EARLY_WITHDRAWAL_FEE) revert InvalidFee(newFee);
+        if (newFee > _MAX_EARLY_WITHDRAWAL_FEE) revert InvalidFee(newFee);
         earlyWithdrawalFee = newFee;
         emit EarlyWithdrawalFeeUpdated(newFee);
     }
@@ -469,8 +469,8 @@ contract StabilityPool_v1 is
         if (newStartDelay == 0 || newEndWindow <= newStartDelay) {
             revert InvalidWithdrawalWindow(newStartDelay, newEndWindow);
         }
-        WITHDRAWAL_START_DELAY = newStartDelay;
-        WITHDRAWAL_END_WINDOW = newEndWindow;
+        withdrawalStartDelay = newStartDelay;
+        withdrawalEndWindow = newEndWindow;
         emit WithdrawalWindowUpdated(newStartDelay, newEndWindow);
     }
 

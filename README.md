@@ -46,7 +46,7 @@ Fees can be queried up front by so-called dry-run view functions, answering the 
 - Configuration:
   - `earlyWithdrawalFee` (scaled by 1e18, e.g., `0.025 ether` = 2.5%)
   - `feeAddress` (recipient of early-withdrawal fees)
-  - `WITHDRAWAL_START_DELAY` and `WITHDRAWAL_END_WINDOW` (must satisfy `endWindow > startDelay > 0`)
+  - `withdrawalStartDelay` and `withdrawalEndWindow` (must satisfy `endWindow > startDelay > 0`)
 
 ### Rebalancing
 
