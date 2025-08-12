@@ -605,21 +605,14 @@ contract Minter_v1 is
         OracleData memory oracle = _fetchMid($.priceOracle);
         price = oracle.price;
         rate = oracle.rate;
-        uint256 underlyingFee;
-        uint256 underlyingCollateralReturned;
-        (underlyingFee, leveragedRedeemed, underlyingCollateralReturned) = _redeemLeveragedAdjustments(
+        (wrappedFee, leveragedRedeemed, wrappedCollateralReturned, ) = _redeemLeveragedAdjustments(
             $.redeemLeveragedIncentiveConfig,
             leveragedIn,
-            $.underlyingCollateral,
-            price,
-            $.peggedTokenBalance,
-            _leveragedTokenBalance()
+            CollateralRatioData($.underlyingCollateral, price, rate, $.peggedTokenBalance)
         );
-        wrappedCollateralReturned = _wrappedValueOf(underlyingCollateralReturned, rate);
-        wrappedFee = _wrappedValueOf(underlyingFee, rate);
         // slither-disable-next-line incorrect-equality
         incentiveRatio = int256(
-            underlyingCollateralReturned == 0 ? 1 ether : (wrappedFee * 1 ether) / wrappedCollateralReturned
+            wrappedCollateralReturned == 0 ? 1 ether : (wrappedFee * 1 ether) / wrappedCollateralReturned
         );
     }
 
@@ -841,9 +834,6 @@ contract Minter_v1 is
                 IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
             );
         // slither-disable-next-line incorrect-equality
-        if (leveragedOut == 0) {
-            revert ReturnZeroAmount(LEVERAGED_TOKEN);
-        }
         if (wrappedDiscount > 0) {
             // it's a discount, so collect the extra collateral, if available
             // wake-disable-next-line reentrancy // reservePool is trusted
@@ -883,37 +873,32 @@ contract Minter_v1 is
         leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
         OracleData memory oracle = _fetchMin($.priceOracle);
 
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = $.underlyingCollateral;
 
-        uint256 underlyingFee;
+        uint256 wrappedFee;
         uint256 underlyingCollateralOut;
-        (underlyingFee, leveragedIn, underlyingCollateralOut) = _redeemLeveragedAdjustments(
+        (wrappedFee, leveragedIn, wrappedCollateralOut, underlyingCollateralOut) = _redeemLeveragedAdjustments(
             $.redeemLeveragedIncentiveConfig,
             leveragedIn,
-            underlyingCollateral_,
-            oracle.price,
-            peggedTokenBalance_,
-            leveragedTokenBalance_
+            CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, $.peggedTokenBalance)
         );
         // slither-disable-next-line incorrect-equality
         if (leveragedIn == 0) {
             revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
         }
-        wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
         if (wrappedCollateralOut < minWrappedCollateralOut) {
             revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
         }
 
         _redeemLeveragedToken(leveragedIn, wrappedCollateralOut, receiver);
 
-        if (underlyingFee > 0) {
+        if (wrappedFee > 0) {
             // send the fee
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, _wrappedValueOf(underlyingFee, oracle.rate));
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, wrappedFee);
         }
 
         // update our records
-        $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut - underlyingFee;
+        $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
     }
 
     //////////////////////////////////
@@ -1181,6 +1166,9 @@ contract Minter_v1 is
     /// @param receiver The address of the receiver.
 
     function _mintLeveragedToken(uint256 wrappedCollateralIn, uint256 leveragedOut, address receiver) private {
+        if (leveragedOut == 0) {
+            revert ReturnZeroAmount(LEVERAGED_TOKEN);
+        }
         // tell the world
         emit MintLeveragedToken(_msgSender(), receiver, wrappedCollateralIn, leveragedOut);
         // mint the tokens to the receiver
@@ -1437,7 +1425,7 @@ contract Minter_v1 is
         uint256 peggedPrice$;
         uint256 peggedInLeft$;
         uint256 underlyingCollateralHeld$;
-        uint256 peggedHeld$;
+        uint256 peggedTokenHeld$;
         uint256 underlyingFee$;
         uint256 underlyingDiscount$;
         uint256 redeemed$;
@@ -1505,8 +1493,8 @@ contract Minter_v1 is
         // console2.log("w.peggedInLeft$=%s", w.peggedInLeft$);
         w.underlyingCollateralHeld$ = cr.underlyingCollateral * 1 ether; // scaled to 1e36
         // console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
-        w.peggedHeld$ = cr.peggedTokenBalance * 1 ether;
-        // console2.log("w.peggedHeld$=%s", w.peggedHeld$);
+        w.peggedTokenHeld$ = cr.peggedTokenBalance * 1 ether;
+        // console2.log("w.peggedTokenHeld$=%s", w.peggedTokenHeld$);
         w.underlyingFee$ = 0;
         w.underlyingDiscount$ = 0;
         w.redeemed$ = 0;
@@ -1515,7 +1503,7 @@ contract Minter_v1 is
             // console2.log("w.band=%s", w.band);
             // console2.log(
             //     "collateral ratio=%s",
-            //     _collateralRatio(w.underlyingCollateralHeld$ / 1 ether, cr.price, w.peggedHeld$ / 1 ether)
+            //     _collateralRatio(w.underlyingCollateralHeld$ / 1 ether, cr.price, w.peggedTokenHeld$ / 1 ether)
             // );
 
             uint256 peggedInBand$;
@@ -1535,7 +1523,7 @@ contract Minter_v1 is
                     } else {
                         // note the bandUpperBound cannot be == 1 ether so this is safe below
                         peggedInBand$ =
-                            (bandUpperBound * w.peggedHeld$ - w.underlyingCollateralHeld$ * cr.price) /
+                            (bandUpperBound * w.peggedTokenHeld$ - w.underlyingCollateralHeld$ * cr.price) /
                             (bandUpperBound - 1 ether);
                         // console2.log("peggedInBand$=%s", peggedInBand$);
                         peggedInBand$ = Math.min(w.peggedInLeft$, peggedInBand$);
@@ -1548,8 +1536,8 @@ contract Minter_v1 is
             // console2.log("w.peggedInLeft$=%s", w.peggedInLeft$);
             w.redeemed$ += peggedInBand$;
             // console2.log("w.redeemed$=%s", w.redeemed$);
-            w.peggedHeld$ -= peggedInBand$;
-            // console2.log("w.peggedHeld$=%s", w.peggedHeld$);
+            w.peggedTokenHeld$ -= peggedInBand$;
+            // console2.log("w.peggedTokenHeld$=%s", w.peggedTokenHeld$);
 
             {
                 // we now switch to calculations in collateral
@@ -1617,17 +1605,43 @@ contract Minter_v1 is
         // console2.log("wrappedCollateralReturned=%s", wrappedCollateralReturned);
     }
 
+    function _roundHalfEven(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
+        unchecked {
+            result = numerator / denominator;
+            uint256 remainder = numerator % denominator;
+
+            if (remainder == 0) return result;
+
+            uint256 halfDenominator = denominator >> 1;
+
+            if (remainder > halfDenominator) return result + 1;
+            if (remainder < halfDenominator) return result;
+
+            // exactly half - banker's rounding: round to even
+            return (result & 1) == 1 ? result + 1 : result;
+        }
+    }
+
     struct MintLeveragedWorkspace {
         uint band;
-        uint256 collateralInBand$;
+        uint256 bandCount;
+        uint256 userRemaining$;
+        uint256 reserveCapacity$;
+        uint256 initialReserveCapacity$;
         uint256 underlyingCollateralHeld$;
         uint256 peggedTokenHeld$;
-        uint256 underlyingCollateralInLeft$;
-        uint256 underlyingCollateralAdded$;
         uint256 underlyingFee$;
         uint256 underlyingDiscount$;
-        int256 feeError$$;
-        int256 discountError$$;
+        uint256 grossConsumed$;
+        // Reused per-iteration temporaries (all optional to pre-init)
+        uint256 feeRatio;
+        uint256 discountRatio;
+        uint256 grossSegment$;
+        uint256 discountApplied$;
+        uint256 netNeeded$;
+        uint256 grossTarget$;
+        uint256 discountUnlimited$;
+        uint256 grossCapped$;
     }
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
@@ -1682,14 +1696,9 @@ contract Minter_v1 is
                 cr.underlyingCollateral,
                 cr.price
             );
-            // console2.log("collateralValue$=%s", collateralValue$);
-            // console2.log("peggedValue$=%s", peggedValue$);
-
+            console2.log("collateralValue$=%s", collateralValue$);
+            console2.log("peggedValue$    =%s", peggedValue$);
             // console2.log("_leverageRatio=%s", _leverageRatio(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price));
-            // console2.log(
-            //     "_collateralRatio=%s",
-            //     _collateralRatio(cr.underlyingCollateral, cr.price, cr.peggedTokenBalance)
-            // );
 
             // leveraged tokens have no value (we haven't quite depegged, though)
             if (collateralValue$ <= peggedValue$) {
@@ -1697,211 +1706,343 @@ contract Minter_v1 is
             }
         }
 
-        // simulate minting leveaged tokens from current collateral ratio upwards,
-        // applying the incentive at the correct ratio as we go.
-        // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
-        // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
-        // we multiply the resulting ratios by the collateral for the final fee
         MintLeveragedWorkspace memory w;
-        w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true); // solhint-disable-line explicit-types
-        w.underlyingCollateralInLeft$ = wrappedCollateralIn * cr.rate; // scaled to 1e36
-        // console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
+        w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
+        w.userRemaining$ = wrappedCollateralIn * cr.rate;
+        console2.log("w.userRemaining$=%s", w.userRemaining$);
+        w.reserveCapacity$ = reserveWrappedCapacity * cr.rate;
+        console2.log("w.reserveCapacity$=%s", w.reserveCapacity$);
+        w.initialReserveCapacity$ = w.reserveCapacity$;
+        console2.log("w.initialReserveCapacity$=%s", w.initialReserveCapacity$);
         w.underlyingCollateralHeld$ = cr.underlyingCollateral * 1e18;
+        console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
         w.peggedTokenHeld$ = cr.peggedTokenBalance * 1e18;
+        console2.log("w.peggedTokenHeld$=%s", w.peggedTokenHeld$);
+        w.bandCount = ConfigIncentiveLib._collateralRatioBandCount(config_);
+        console2.log("w.bandCount=%s", w.bandCount);
 
-        // simulate minting until we run out of collateral, adding the fee & bonus as we go
-        while (true) {
-            // console2.log("w.band=%s", w.band);
-            int256 bandIncentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, w.band);
-            // console2.log("bandIncentiveRatio=%s", bandIncentiveRatio);
-            if (w.band == ConfigIncentiveLib._collateralRatioBandCount(config_) - 1) {
-                // the last band has no upper bound and there are at least 2 bands
-                w.collateralInBand$ = w.underlyingCollateralInLeft$;
-                // console2.log("last w.collateralInBand$=%s", w.collateralInBand$);
-            } else {
-                // the collateral needed to be deposited to reach the upper bound of the band taking fees into account
-                // The fee is deducted because it goes to the fee receiver
-                // The discount is added later because it ends up in the collateral balance and more leveraged tokens go to the receiver
-                // note that 1 - bandIncentiveRatio must always be positive, which it is as:
-                //   * fees < 1 ether. if is was = 1 ether then this would be a disallow band.
-                //   * discount are removed
-                // here we can assume pegged tokens are not de-pegged
-                // we have collateral ratio R = C.p / Z
-                // where p = price of collateral in pegged tokens, C = collateral balance and Z = pegged token balance
-                // adding fee ratio, f, change in collateral, dC, and no change in pegged we have
-                //   R = ((C + dC - dC * f) * p) / Z
-                // captures the changes in collateral in order of R to be the lower bound, for a given constant fee ratio, f
-                // solving for dC gives us
-                //   dC = (R * Z - C * p) / (p * (1 - f))
-                w.collateralInBand$ = Math.mulDiv(
-                    ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band) * w.peggedTokenHeld$ -
-                        w.underlyingCollateralHeld$ * cr.price,
-                    1e18,
-                    cr.price * (1 ether - uint256(SignedMath.max(0, bandIncentiveRatio)))
-                );
-                // console2.log("w.collateralInBand$=%s", w.collateralInBand$);
-                // can't have more collateral in the band that there is collateralIn left
-                w.collateralInBand$ = Math.min(w.underlyingCollateralInLeft$, w.collateralInBand$);
-                // console2.log("w.collateralInBand$=%s", w.collateralInBand$);
-            }
-            w.underlyingCollateralInLeft$ -= w.collateralInBand$; // includes the fee at this point
-            // console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
-            w.underlyingCollateralAdded$ += w.collateralInBand$;
-            // console2.log("w.underlyingCollateralAdded$=%s", w.underlyingCollateralAdded$);
-            w.underlyingCollateralHeld$ += w.collateralInBand$;
+        while (w.userRemaining$ > 0) {
+            console2.log("w.band=%s", w.band);
+            int256 inc = ConfigIncentiveLib._incentiveRatio(config_, w.band);
+            console2.log("inc=%s", inc);
 
-            if (bandIncentiveRatio < 0) {
-                uint256 bandDiscountRatio = uint256(-bandIncentiveRatio);
-                // console2.log("bandDiscountRatio=%s", bandDiscountRatio);
-                uint256 bandDiscount$ = (w.collateralInBand$ * bandDiscountRatio) / 1 ether;
-                // console2.log("bandDiscount$=%s", bandDiscount$);
-                w.discountError$$ += int256(w.collateralInBand$ * bandDiscountRatio) % 1 ether;
-                // console2.log("w.discountError$$=%s", w.discountError$$);
-                // perform a rounding to nearest
-                if (w.discountError$$ >= 0.5 ether) {
-                    bandDiscount$ += 1; // rounding up, which is the nearest
-                    w.discountError$$ -= 1 ether; // remove that correction
+            w.feeRatio = inc > 0 ? uint256(inc) : 0;
+            console2.log("w.feeRatio=%s", w.feeRatio);
+            w.discountRatio = inc < 0 ? uint256(-inc) : 0;
+            console2.log("w.discountRatio=%s", w.discountRatio);
+
+            bool lastBand = (w.band + 1 == w.bandCount);
+            console2.log("lastBand=%s", lastBand);
+
+            if (lastBand) {
+                w.grossSegment$ = w.userRemaining$;
+                console2.log("w.grossSegment$=%s", w.grossSegment$);
+                if (w.discountRatio != 0) {
+                    uint256 potential$ = (w.grossSegment$ * w.discountRatio) / 1e18;
+                    console2.log("potential$=%s", potential$);
+                    w.discountApplied$ = potential$ > w.reserveCapacity$ ? w.reserveCapacity$ : potential$;
+                    console2.log("w.discountApplied$=%s", w.discountApplied$);
+                    if (w.discountApplied$ > 0) {
+                        w.underlyingDiscount$ += w.grossSegment$ * w.discountRatio;
+                        console2.log("w.underlyingDiscount$=%s", w.underlyingDiscount$);
+                        w.reserveCapacity$ -= w.discountApplied$;
+                        console2.log("w.reserveCapacity$=%s", w.reserveCapacity$);
+                    }
                 }
-                w.underlyingDiscount$ += bandDiscount$;
-            } else {
-                uint256 bandFeeRatio = uint256(bandIncentiveRatio);
-                // console2.log("bandFeeRatio=%s", bandFeeRatio);
-                uint256 bandFee$ = (w.collateralInBand$ * bandFeeRatio) / 1 ether; // scaled to 1e36
-                // console2.log("bandFee$=%s", bandFee$);
-                w.feeError$$ += int256((w.collateralInBand$ * bandFeeRatio) % 1 ether);
-                // console2.log("w.feeError$$=%s", w.feeError$$);
-                // perform a rounding to nearest
-                if (w.feeError$$ >= 0.5 ether) {
-                    bandFee$ += 1; // rounding up, which is the nearest
-                    // console2.log("bandFee$=%s (rounded up)", bandFee$);
-                    w.feeError$$ -= 1 ether; // remove that correction
+                if (w.feeRatio != 0) {
+                    w.underlyingFee$ += w.grossSegment$ * w.feeRatio;
+                    console2.log("w.underlyingFee$=%s", w.underlyingFee$);
                 }
-                w.underlyingFee$ += bandFee$;
-                // console2.log("w.underlyingFee$=%s", w.underlyingFee$);
-                w.underlyingCollateralAdded$ -= bandFee$;
-                // console2.log("w.underlyingCollateralAdded$=%s", w.underlyingCollateralAdded$);
-                w.underlyingCollateralHeld$ -= bandFee$;
-                // console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
-            }
-
-            // slither-disable-next-line incorrect-equality
-            if (w.underlyingCollateralInLeft$ == 0) {
-                // we have run out of collateral for the simulation
-                // collateralTokenBalance_ += collateralInBand - bandFee + extraCollateralInBand;
+                w.grossConsumed$ += w.grossSegment$;
+                console2.log("w.grossConsumed$=%s", w.grossConsumed$);
                 break;
             }
-            w.band++;
+
+            // Distance to next upper bound
+            uint256 upper = ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band);
+            {
+                uint256 lhs = upper * w.peggedTokenHeld$;
+                console2.log("lhs=%s", lhs);
+                uint256 rhs = w.underlyingCollateralHeld$ * cr.price;
+                console2.log("rhs=%s", rhs);
+                if (lhs <= rhs) {
+                    w.band++;
+                    console2.log("w.band=%s", w.band);
+                    continue;
+                }
+                w.netNeeded$ = lhs - rhs;
+                console2.log("w.netNeeded$=%s", w.netNeeded$);
+            }
+
+            // Gross target if discount fully available:
+            // netNeeded$ = gross*(1 - feeRatio + discountRatio)/1e18 * price
+            w.grossTarget$ = Math.mulDiv(w.netNeeded$, 1e18, cr.price * (1e18 - w.feeRatio + w.discountRatio));
+            console2.log("w.grossTarget$=%s", w.grossTarget$);
+
+            bool discountCapped = false;
+            console2.log("discountCapped=%s", discountCapped);
+            w.discountApplied$ = 0;
+            console2.log("w.discountApplied$=%s", w.discountApplied$);
+
+            if (w.discountRatio == 0) {
+                w.grossSegment$ = w.grossTarget$ <= w.userRemaining$ ? w.grossTarget$ : w.userRemaining$;
+                console2.log("w.grossSegment$=%s", w.grossSegment$);
+            } else {
+                w.discountUnlimited$ = (w.grossTarget$ * w.discountRatio) / 1e18;
+                console2.log("w.discountUnlimited$=%s", w.discountUnlimited$);
+                if (w.discountUnlimited$ <= w.reserveCapacity$) {
+                    // Not capped
+                    w.grossSegment$ = w.grossTarget$ <= w.userRemaining$ ? w.grossTarget$ : w.userRemaining$;
+                    console2.log("w.grossSegment$=%s", w.grossSegment$);
+                    w.discountApplied$ = (w.grossSegment$ * w.discountRatio) / 1e18;
+                    console2.log("w.discountApplied$=%s", w.discountApplied$);
+                    if (w.discountApplied$ > w.reserveCapacity$) {
+                        w.discountApplied$ = w.reserveCapacity$; // guard
+                        console2.log("w.discountApplied$=%s", w.discountApplied$);
+                    }
+                } else {
+                    // Capacity limit
+                    discountCapped = true;
+                    console2.log("discountCapped=%s", discountCapped);
+                    // netNeeded$ = gross*(1 - feeRatio)/1e18 * price + reserveCapacity$
+                    w.grossCapped$ = Math.mulDiv(
+                        w.netNeeded$ - w.reserveCapacity$,
+                        1e18,
+                        cr.price * (1e18 - w.feeRatio)
+                    );
+                    console2.log("w.grossCapped$=%s", w.grossCapped$);
+                    if (w.grossCapped$ == 0) {
+                        w.grossCapped$ = w.userRemaining$ < 1 ? w.userRemaining$ : 1;
+                        console2.log("w.grossCapped$=%s", w.grossCapped$);
+                    }
+                    w.grossSegment$ = w.grossCapped$ <= w.userRemaining$ ? w.grossCapped$ : w.userRemaining$;
+                    console2.log("w.grossSegment$=%s", w.grossSegment$);
+                    uint256 theoretical$ = (w.grossSegment$ * w.discountRatio) / 1e18;
+                    console2.log("theoretical$=%s", theoretical$);
+                    w.discountApplied$ = theoretical$ > w.reserveCapacity$ ? w.reserveCapacity$ : theoretical$;
+                    console2.log("w.discountApplied$=%s", w.discountApplied$);
+
+                    if (w.userRemaining$ > w.grossSegment$ && w.grossSegment$ == w.grossCapped$) {
+                        w.band++;
+                        console2.log("w.band=%s", w.band);
+                    }
+                }
+            }
+
+            if (w.feeRatio != 0) {
+                w.underlyingFee$ += w.grossSegment$ * w.feeRatio;
+                console2.log("w.underlyingFee$=%s", w.underlyingFee$);
+            }
+            if (w.discountApplied$ > 0) {
+                w.underlyingDiscount$ += w.grossSegment$ * w.discountRatio;
+                console2.log("w.underlyingDiscount$=%s", w.underlyingDiscount$);
+                w.reserveCapacity$ -= w.discountApplied$;
+                console2.log("w.reserveCapacity$=%s", w.reserveCapacity$);
+            }
+
+            w.grossConsumed$ += w.grossSegment$;
+            console2.log("w.grossConsumed$=%s", w.grossConsumed$);
+            w.userRemaining$ -= w.grossSegment$;
+            console2.log("w.userRemaining$=%s", w.userRemaining$);
+
+            // Provisional CR update (fee floor)
+            if (w.feeRatio != 0) {
+                uint256 feeFloor$ = (w.grossSegment$ * w.feeRatio) / 1e18;
+                console2.log("feeFloor$=%s", feeFloor$);
+                w.underlyingCollateralHeld$ += w.grossSegment$ + w.discountApplied$ - feeFloor$;
+                console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
+            } else {
+                w.underlyingCollateralHeld$ += w.grossSegment$ + w.discountApplied$;
+                console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
+            }
+
+            if (!discountCapped && w.userRemaining$ > 0 && w.grossSegment$ == w.grossTarget$) {
+                w.band++;
+                console2.log("w.band=%s", w.band);
+            }
         }
-        maxWrappedCollateralIn = wrappedCollateralIn;
-        // console2.log("maxWrappedCollateralIn=%s", maxWrappedCollateralIn);
-        wrappedFee = w.underlyingFee$ / cr.rate;
-        // console2.log("wrappedFee=%s", wrappedFee);
-        wrappedDiscount = Math.min(reserveWrappedCapacity, w.underlyingDiscount$ / cr.rate); // amount requested from reserve pool
-        // console2.log("wrappedDiscount=%s", wrappedDiscount);
-        underlyingCollateralAdded = (w.underlyingCollateralAdded$ + w.underlyingDiscount$) / 1 ether;
-        // console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
+
+        uint256 underlyingFee$ = _roundHalfEven(w.underlyingFee$, 1e18);
+        console2.log("underlyingFee$=%s", underlyingFee$);
+        uint256 underlyingDiscount$ = _roundHalfEven(w.underlyingDiscount$, 1e18);
+        console2.log("underlyingDiscount$=%s", underlyingDiscount$);
+        if (underlyingDiscount$ > w.initialReserveCapacity$) {
+            underlyingDiscount$ = w.initialReserveCapacity$;
+            console2.log("underlyingDiscount$=%s", underlyingDiscount$);
+        }
+
+        uint256 netUnderlyingAdded$ = w.grossConsumed$ + underlyingDiscount$ - underlyingFee$;
+        console2.log("netUnderlyingAdded$=%s", netUnderlyingAdded$);
+        underlyingCollateralAdded = netUnderlyingAdded$ / 1e18;
+        console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
+
+        wrappedFee = underlyingFee$ / cr.rate;
+        console2.log("wrappedFee=%s", wrappedFee);
+        wrappedDiscount = underlyingDiscount$ / cr.rate;
+        console2.log("wrappedDiscount=%s", wrappedDiscount);
+        maxWrappedCollateralIn = w.grossConsumed$ / cr.rate;
+        console2.log("maxWrappedCollateralIn=%s", maxWrappedCollateralIn);
+
         leveragedMinted = _leveragedTokensForCollateral(
-            underlyingCollateralAdded, // the fee is already subtracted and discount already added
+            underlyingCollateralAdded,
             _leveragedTokenBalance(),
             cr.peggedTokenBalance,
             cr.underlyingCollateral,
             cr.price
         );
-        // console2.log("leveragedMinted=%s", leveragedMinted);
+        console2.log("leveragedMinted=%s", leveragedMinted);
+    }
+
+    struct RedeemLeveragedWorkspace {
+        uint256 band;
+        uint256 underlyingCollateralInLeft$; // remaining underlying collateral to process (underlying * 1e18)
+        uint256 underlyingFee$$; // Σ(collateralInBand$ * feeRatio)
+        uint256 underlyingCollateralRemoved$; // Σ(collateralInBand$) (underlying * 1e18, pre-fee)
+        uint256 underlyingCollateralHeld$; // provisional collateral balance (underlying * 1e18)
+        uint256 leveragedTokenBalance_; // total leveraged token supply (for invariant mapping)
+        uint256 netRemovalError$; // accumulates (collateralInBand$ * (1e18 - feeRatio)) % 1e18
     }
 
     /// @notice Perform a dry run of a redeem leveraged to calculate the various transfers of tokens
-    /// Fees, discounts and disallows relating to the different incentiveRatios values are calculated as sum, weighted
+    /// Fees and disallows relating to the different incentiveRatios values are calculated as sum, weighted
     /// in proportion, in collateral space, to the amount spent within each collateral ratio boundary.
     /// It essentially performs a definite integral of the fee function.
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for redeeming leveraged tokens.
     /// @param leveragedIn The given amount of leveraged tokens.
-    /// @param underlyingCollateral_ The amount of collateral held.
-    /// @param price The value in pegged of each collateral token.
-    /// @param peggedTokenBalance_ The balance of pegged tokens managed.
-    /// @param leveragedTokenBalance_ The current balance of the reserve pool.
-    /// @return fee the fee charged in collateral tokens.
+    /// @param cr contains:
+    ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
+    ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
+    ///    peggedTokenBalance The amount of pegged tokens issued. This is used to calculate collateral ratios.
+    /// @return wrappedFee the fee charged in collateral tokens.
     /// @return leveragedRedeemed the leveraged tokens to be burned.
-    /// @return collateralOut the collateral returned to the receiver in exchange for the `leveragedRedeemed`
+    /// @return wrappedCollateralOut the collateral returned to the receiver in exchange for the `leveragedRedeemed`
+    /// @return underlyingCollateralRemoved the collateral removed from the system
 
     function _redeemLeveragedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 leveragedIn,
-        // CollateralRatioData memory cr
-        uint256 underlyingCollateral_,
-        uint256 price,
-        uint256 peggedTokenBalance_,
-        uint256 leveragedTokenBalance_
-    ) private pure returns (uint256 fee, uint256 leveragedRedeemed, uint256 collateralOut) {
-        // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        if (peggedTokenBalance_ == 0) {
+        CollateralRatioData memory cr
+    )
+        private
+        view
+        returns (
+            uint256 wrappedFee,
+            uint256 leveragedRedeemed,
+            uint256 wrappedCollateralOut,
+            uint256 underlyingCollateralRemoved
+        )
+    {
+        if (cr.peggedTokenBalance == 0) {
             revert ActionPaused();
         }
+        RedeemLeveragedWorkspace memory w;
+
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         // and we an do this once, here, and not in the loop below, because redeeming leveraged tokens, will never cause a re-peg.
 
-        fee = 0;
-        leveragedRedeemed = 0;
-        collateralOut = 0;
-        {
-            (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
-                peggedTokenBalance_,
-                underlyingCollateral_,
-                price
-            );
-            // leveraged tokens have no value (we haven't quite depegged, though)
-            if (collateralValue$ <= peggedValue$) {
-                return (fee, leveragedRedeemed, collateralOut);
-            }
+        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
+            cr.peggedTokenBalance,
+            cr.underlyingCollateral,
+            cr.price
+        );
+        console2.log("collateralValue$=%s", collateralValue$);
+        console2.log("peggedValue$=%s", peggedValue$);
+        console2.log("cr.price=%s", cr.price);
+
+        if (collateralValue$ <= peggedValue$) {
+            return (0, 0, 0, 0);
         }
 
-        uint256 underlyingCollateralIn = _underlyingCollateralForLeveragedTokens(
-            leveragedIn,
-            leveragedTokenBalance_,
-            peggedTokenBalance_,
-            underlyingCollateral_,
-            price
+        // we know leveraged token balance is > 0
+        w.leveragedTokenBalance_ = _leveragedTokenBalance();
+        console2.log("w.leveragedTokenBalance_=%s", w.leveragedTokenBalance_);
+        w.underlyingCollateralInLeft$ = Math.mulDiv(
+            leveragedIn * 1e18,
+            collateralValue$ - peggedValue$,
+            cr.price * w.leveragedTokenBalance_
         );
-        // find the band and it's lower bound where the current collateral ratio is
-        // (note we treat the disallow band as any other here, except that it is the terminal band)
-        uint band = _findBand(config_, underlyingCollateral_, price, peggedTokenBalance_, false); // solhint-disable-line explicit-types
-        // simulate redeeming until we run out of leveraged tokens, adding the fee as we go
+        console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
 
-        uint256 collateralTokenBalance_ = underlyingCollateral_;
+        // uint256 underlyingCollateralIn = _underlyingCollateralForLeveragedTokens(
+        //     leveragedIn,
+        //     w.leveragedTokenBalance_,
+        //     cr.peggedTokenBalance,
+        //     cr.underlyingCollateral,
+        //     cr.price
+        // );
+
+        w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
+
+        w.underlyingCollateralHeld$ = cr.underlyingCollateral * 1e18;
+        console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
+        console2.log("cr.peggedTokenBalance=%s", cr.peggedTokenBalance);
+
         while (true) {
-            int256 bandFeeRatio = ConfigIncentiveLib._incentiveRatio(config_, band); // no discounts for this action
+            console2.log("w.band=%s", w.band);
+            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, w.band)); // no discounts for this action
+            console2.log("bandFeeRatio=%s", bandFeeRatio);
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
-            uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, band);
-            // slither-disable-next-line divide-before-multiply
-            uint256 collateralInBand = (collateralTokenBalance_ * price - bandLowerBound * peggedTokenBalance_) / price;
-            collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
-            // slither-disable-next-line divide-before-multiply
-            uint256 bandFee = (collateralInBand * uint256(bandFeeRatio)) / 1 ether;
-            collateralOut += collateralInBand - bandFee;
-            fee += bandFee;
-            underlyingCollateralIn -= collateralInBand;
-            // slither-disable-next-line incorrect-equality
-            if (underlyingCollateralIn == 0 || band == 0) {
-                // we have run out of collateral
-                // or we are now in the lowest band, so exit
+            uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, w.band);
+            console2.log("bandLowerBound=%s", bandLowerBound);
+            uint256 collateralInBand$;
+            {
+                // segment pre-fee underlying (1e18 scale):
+                // netValue = (segment - fee)*price = segment*(1 - f/1e18)*price/1e18
+                // => segment = valueToLowerBound$ * 1e18 / (price * (1 - f))
+                collateralInBand$ =
+                    w.underlyingCollateralHeld$ - Math.mulDiv(bandLowerBound * 1e18, cr.peggedTokenBalance, cr.price);
+                console2.log("collateralInBand$ =%s", collateralInBand$);
+                collateralInBand$ = Math.min(collateralInBand$, w.underlyingCollateralInLeft$);
+                console2.log("collateralInBand$=%s", collateralInBand$);
+            }
+
+            w.underlyingFee$$ += collateralInBand$ * bandFeeRatio;
+            console2.log("w.underlyingFee$$=%s", w.underlyingFee$$);
+            w.underlyingCollateralRemoved$ += collateralInBand$;
+            console2.log("w.underlyingCollateralRemoved$=%s", w.underlyingCollateralRemoved$);
+            w.underlyingCollateralInLeft$ -= collateralInBand$;
+            console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
+
+            // If we fully traversed this band's remaining distance (collateralInBand$ == segmentTarget$) descend one band.
+            if (w.underlyingCollateralInLeft$ == 0 || w.band == 0 || bandLowerBound == 1 ether) {
                 break;
             }
-            // still some collateral left and we're allowed to mint or redeem, so simulate
-            // TODO: change + to - below as we're taking collateral out
-            collateralTokenBalance_ += collateralInBand;
-            band--;
+            w.underlyingCollateralHeld$ -= collateralInBand$;
+            console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
+            w.band--;
         }
-        leveragedRedeemed = _leveragedTokensForCollateral(
-            collateralOut + fee,
-            leveragedTokenBalance_,
-            peggedTokenBalance_,
-            underlyingCollateral_,
-            price
-        );
+
+        underlyingCollateralRemoved = _roundHalfEven(w.underlyingCollateralRemoved$, 1e18);
+        console2.log("underlyingCollateralRemoved=%s", underlyingCollateralRemoved);
+
+        //
+        // leveragedRedeemed = _leveragedTokensForCollateral(
+        //     underlyingCollateralRemoved,
+        //     w.leveragedTokenBalance_,
+        //     cr.peggedTokenBalance,
+        //     cr.underlyingCollateral,
+        //     cr.price
+        // );
+        leveragedRedeemed =
+            Math.mulDiv(
+                w.underlyingCollateralRemoved$ * cr.price,
+                w.leveragedTokenBalance_,
+                (collateralValue$ - peggedValue$)
+            ) / 1e18;
+        console2.log("leveragedRedeemed=%s", leveragedRedeemed);
+        if (leveragedRedeemed > leveragedIn) {
+            leveragedRedeemed = leveragedIn; // rounding guard
+            console2.log("leveragedRedeemed=%s", leveragedRedeemed);
+        }
+
+        wrappedFee = w.underlyingFee$$ / (cr.rate * 1e18);
+        console2.log("wrappedFee=%s", wrappedFee);
+        wrappedCollateralOut = w.underlyingCollateralRemoved$ / cr.rate - wrappedFee;
+        console2.log("wrappedCollateralOut=%s", wrappedCollateralOut);
     }
 
     /// @notice Returns the collateral ratio band given `collateralTokenBalance_`, `collateralPrice`, and
@@ -1999,6 +2140,9 @@ contract Minter_v1 is
             underlyingCollateral_,
             price
         );
+        console2.log("collateralValue$=%s", collateralValue$);
+        console2.log("peggedValue$=%s", peggedValue$);
+
         // uint256 leveragedPrice_ = (leveragedTokenBalance_ > 0)
         //     ? (collateralValue$ - peggedValue$) / leveragedTokenBalance_
         //     : 1 ether; // TODO: this initial value is set in two places
@@ -2011,17 +2155,27 @@ contract Minter_v1 is
         //     leveragedPrice_;
 
         if (leveragedTokenBalance_ > 0) {
-            uint256 deltaC$ = underlyingCollateralIn * price;
-            uint256 D = collateralValue$ - peggedValue$; // > 0 here
-            uint256 q = Math.mulDiv(deltaC$, leveragedTokenBalance_, D); // floor
-            uint256 r = mulmod(deltaC$, leveragedTokenBalance_, D); // remainder (0 if D == 0, but here D > 0)
-            if (r * 2 >= D) {
-                // rounding half up
-                unchecked {
-                    q += 1;
-                }
-            }
-            leveragedTokens = q;
+            if (collateralValue$ == peggedValue$) return 0;
+            // the below is just a simple L = Cin * price / leveragedPrice, but with the divides at the end
+            leveragedTokens = Math.mulDiv(
+                underlyingCollateralIn * price,
+                leveragedTokenBalance_,
+                collateralValue$ - peggedValue$
+            );
+
+            // uint256 underlyingCollateralInValue$ = underlyingCollateralIn * price;
+            // console2.log("underlyingCollateralInValue$=%s", underlyingCollateralInValue$);
+            // uint256 leveragedValue$ = collateralValue$ - peggedValue$; // > 0 here
+            // console2.log("leveragedValue$=%s", leveragedValue$);
+            // leveragedTokens = Math.mulDiv(underlyingCollateralInValue$, leveragedTokenBalance_, leveragedValue$); // floor
+            // console2.log("leveragedTokens=%s", leveragedTokens);
+            // uint256 twiceRemainder = mulmod(underlyingCollateralInValue$, leveragedTokenBalance_ << 1, leveragedValue$); // twice remainder
+            // if (twiceRemainder >= leveragedValue$) {
+            //     // rounding half up
+            //     unchecked {
+            //         leveragedTokens++;
+            //     }
+            // }
         } else {
             uint256 newCollateralValue$ = (underlyingCollateral_ + underlyingCollateralIn) * price;
             leveragedTokens = (newCollateralValue$ - peggedValue$) / 1 ether; // TODO: the initial leverage price is set here
@@ -2102,7 +2256,7 @@ contract Minter_v1 is
             return 0;
         }
         if (leveragedTokenBalance_ == 0) {
-            collateral = forLeveraged * collateralPrice;
+            collateral = (forLeveraged * collateralPrice) / 1e18;
         } else {
             collateral = Math.mulDiv(
                 forLeveraged,
