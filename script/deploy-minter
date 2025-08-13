@@ -19,7 +19,7 @@ DEVELOPER="$PUBLIC_KEY"
 # e.g.
 #   --developer-roles "minter.HARVESTER_ROLE,stabilityPoolCollateral.REBALANCER_ROLE"
 DEVELOPER_ROLES=""
-PEGGED_SYMBOL="PB" # pork bellies
+PEGGED_SYMBOL="Bao"
 
 # BURN_SIG can be one of
 # - "burn(uint256)"
@@ -161,7 +161,7 @@ upgrade_proxy peggedToken PeggedToken_v1 \
 # leveraged token
 # ---------------
 deploy_contract LeveragedToken_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
-LEVERAGED_SYMBOL="steamed${PEGGED_SYMBOL}x${COLLATERAL_SYMBOL}"
+LEVERAGED_SYMBOL="steamed${PEGGED_SYMBOL}-${COLLATERAL_SYMBOL}"
 record leveragedToken.symbol "${LEVERAGED_SYMBOL}"
 record leveragedToken.name "Zhenglong governance ${LEVERAGED_SYMBOL}"
 
@@ -321,7 +321,7 @@ for liquidation in Collateral Steamed; do
   # stability pool
   deploy_stemmed stabilityPool${liquidation}
   BaoOwnables+=("stabilityPool${liquidation}")
-  # constructor(minter, liquidationToken, stabilityPoolToken, steam, earlyFee, feeAddress, startDelay, endWindow)
+  # constructor(minter, liquidationToken, stabilityPoolToken, steam, earlyFee, feeAddress, startDelay, windowPeriod)
   deploy_contract StabilityPool_v1${liquidation} "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
     --constructor-args minter ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}Stake STEAM \
     25000000000000000 0x3dFc49e5112005179Da613BdE5973229082dAc35 3600 90000

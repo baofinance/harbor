@@ -71,8 +71,8 @@ interface IStabilityPool {
     event FeeAddressUpdated(address newFeeAddress);
 
     /// @notice Emitted when the withdrawal window parameters are updated
-    /// @param newStartDelay The new start delay
-    /// @param newEndWindow The new end window
+    /// @param newStartDelay The new start delay (seconds from now to start)
+    /// @param newEndWindow The window period (seconds duration after start)
     event WithdrawalWindowUpdated(uint256 newStartDelay, uint256 newEndWindow);
 
     /*//////////////////////////////////////////////////////////////
@@ -194,9 +194,9 @@ interface IStabilityPool {
     function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesBurned);
 
     /// @notice Create or update a withdrawal request for msg.sender.
-    /// @dev Sets a window: [block.timestamp + startDelay, block.timestamp + endWindow].
-    /// - A deposit made during an active window cancels the request (both start and end set to past).
-    /// - A successful withdraw ends the window immediately (end set to now - 1).
+    /// @dev Sets a window: start = now + startDelay; end = start + endWindow (window period).
+    /// - A deposit made during an active window cancels the request (start and end are zeroed).
+    /// - A successful withdraw clears the request immediately (start and end are zeroed).
     function requestWithdrawal() external;
 
     /// @notice Update early withdrawal fee ratio.
@@ -207,7 +207,7 @@ interface IStabilityPool {
     function setFeeAddress(address newFeeAddress) external;
 
     /// @notice Update withdrawal window configuration.
-    /// @dev Must satisfy newStartDelay > 0 and newEndWindow > newStartDelay.
+    /// @dev Must satisfy newEndWindow > 0. newStartDelay may be zero for an immediate window.
     function setWithdrawalWindow(uint256 newStartDelay, uint256 newEndWindow) external;
 
     /// @notice perform a liquidation of the amount

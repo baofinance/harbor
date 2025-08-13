@@ -37,6 +37,7 @@ import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
 import {Steam_v1} from "src/reward/steam/Steam_v1.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
+import {MockGauge} from "test/mock/MockGauge.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
@@ -409,5 +410,31 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
 
     function test_depositWithdraw2() private {
         _depositWithdraw(user2);
+    }
+
+    function test_updateGauge_withdraws_old_and_deposits_new() public {
+        // set a mock gauge and assert calls don't revert
+        address gauge = address(new MockGauge());
+        vm.prank(owner);
+        IStabilityPool(stabilityPoolCollateral).updateGauge(gauge);
+        assertEq(IStabilityPool(stabilityPoolCollateral).gauge(), gauge);
+
+        // update to another mock to cover withdraw path
+        address gauge2 = address(new MockGauge());
+        vm.prank(owner);
+        IStabilityPool(stabilityPoolCollateral).updateGauge(gauge2);
+        assertEq(IStabilityPool(stabilityPoolCollateral).gauge(), gauge2);
+    }
+
+    function test_requestWithdrawal_immediate_window_when_startDelay_zero() public {
+        // Allow startDelay=0, windowPeriod>0
+        vm.startPrank(owner);
+        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(0, 100);
+        vm.stopPrank();
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        assertEq(start, uint64(block.timestamp)); // start = now + 0
+        assertEq(end, start + 100);
     }
 }

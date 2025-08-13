@@ -36,17 +36,17 @@ Fees can be queried up front by so-called dry-run view functions, answering the 
 
 #### Withdrawal requests (StabilityPool)
 
-- Requesting: `requestWithdrawal()` creates an account window `[now + WITHDRAWAL_START_DELAY, now + WITHDRAWAL_END_WINDOW]`.
+- Requesting: `requestWithdrawal()` creates an account window with `start = now + WITHDRAWAL_START_DELAY` and `end = start + WITHDRAWAL_END_WINDOW` (window period).
 - Withdrawing:
   - Before start: allowed, early-withdrawal fee applies.
   - During the window [start, end]: allowed, no fee.
   - After end: allowed, early-withdrawal fee applies.
-  - A successful withdraw ends the window immediately (end is set to `now - 1`).
-- Depositing during an active window cancels the request (start and end moved to the past).
+- A successful withdraw clears the request immediately (both `start` and `end` set to `0`).
+- Depositing during an active window cancels the request (both `start` and `end` set to `0`).
 - Configuration:
   - `earlyWithdrawalFee` (scaled by 1e18, e.g., `0.025 ether` = 2.5%)
   - `feeAddress` (recipient of early-withdrawal fees)
-  - `withdrawalStartDelay` and `withdrawalEndWindow` (must satisfy `endWindow > startDelay > 0`)
+- `withdrawalStartDelay` and `withdrawalEndWindow` (window period). Must satisfy `withdrawalEndWindow > 0`; `withdrawalStartDelay` may be `0`.
 
 ### Rebalancing
 

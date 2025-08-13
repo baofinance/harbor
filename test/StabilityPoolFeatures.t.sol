@@ -28,6 +28,9 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertGt(start, 0);
         assertGt(end, start);
+        // ensure end - start equals configured period
+        // Note: WITHDRAWAL_END_WINDOW is the period
+        assertEq(end - start, WITHDRAWAL_END_WINDOW);
     }
 
     function test_withdraw_beforeStart_chargedFee() public {
@@ -82,6 +85,68 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         // Window should be closed after withdrawal
         (, uint64 newEnd) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertTrue(newEnd <= start);
+    }
+
+    function test_withdraw_withoutRequest_reverts() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.NoActiveWithdrawalRequest.selector, user1));
+        IStabilityPool(stabilityPoolCollateral).withdraw(1 * price, user1, 0);
+    }
+
+    function test_withdraw_zeroAmount_reverts() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+
+        vm.prank(user1);
+        vm.expectRevert(IStabilityPool.WithdrawZeroAmount.selector);
+        IStabilityPool(stabilityPoolCollateral).withdraw(0, user1, 0);
+    }
+
+    function test_withdraw_amountLessThanMin_reverts() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
+
+        vm.prank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPool.WithdrawAmountLessThanMinimum.selector, 1 * price, 2 * price)
+        );
+        IStabilityPool(stabilityPoolCollateral).withdraw(1 * price, user1, 2 * price);
+    }
+
+    function test_deposit_afterWindow_doesNotCancelRequest() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 10 * price);
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(end + 1); // after window end
+        IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+        vm.stopPrank();
+        (uint64 start2, uint64 end2) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        assertEq(start2, start);
+        assertEq(end2, end);
     }
 
     function test_deposit_duringWindow_cancelsRequest() public {
@@ -154,17 +219,17 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
         (uint64 startNew, uint64 endNew) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertEq(startNew, uint64(block.timestamp + 100));
-        assertEq(endNew, uint64(block.timestamp + 200));
+        // end is start + windowPeriod (200)
+        assertEq(endNew, startNew + 200);
     }
 
     function test_setters_invalidParams_revert() public {
         vm.startPrank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 0, WITHDRAWAL_END_WINDOW)
-        );
+        // startDelay can be zero now; should NOT revert
         IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(0, WITHDRAWAL_END_WINDOW);
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 1000, 1000));
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(1000, 1000);
+        // invalid only when window period is zero
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 1000, 0));
+        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(1000, 0);
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
         IStabilityPool(stabilityPoolCollateral).setFeeAddress(address(0));
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
