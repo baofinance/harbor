@@ -518,6 +518,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 post.leveragedPrice,
                 pre.leveragedPrice,
                 IERC20(leveragedToken).totalSupply() > 1e9 ? 15 : 0,
+                0,
                 "ml leveraged price"
             );
         } else {

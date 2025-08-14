@@ -1625,13 +1625,13 @@ contract Minter_v1 is
     struct MintLeveragedWorkspace {
         uint band;
         uint256 bandCount;
-        uint256 userRemaining$;
-        uint256 reserveCapacity$;
+        uint256 underlyingCollateralInLeft$;
+        uint256 underlyingReserveCapacity$;
         uint256 initialReserveCapacity$;
         uint256 underlyingCollateralHeld$;
         uint256 peggedTokenHeld$;
-        uint256 underlyingFee$;
-        uint256 underlyingDiscount$;
+        uint256 underlyingFee$$;
+        uint256 underlyingDiscount$$;
         uint256 grossConsumed$;
         // Reused per-iteration temporaries (all optional to pre-init)
         uint256 feeRatio;
@@ -1706,13 +1706,18 @@ contract Minter_v1 is
             }
         }
 
+        // simulate minting leveaged tokens from current collateral ratio upwards,
+        // applying the incentive at the correct ratio as we go.
+        // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
+        // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
+        // we multiply the resulting ratios by the collateral for the final fee
         MintLeveragedWorkspace memory w;
         w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
-        w.userRemaining$ = wrappedCollateralIn * cr.rate;
-        console2.log("w.userRemaining$=%s", w.userRemaining$);
-        w.reserveCapacity$ = reserveWrappedCapacity * cr.rate;
-        console2.log("w.reserveCapacity$=%s", w.reserveCapacity$);
-        w.initialReserveCapacity$ = w.reserveCapacity$;
+        w.underlyingCollateralInLeft$ = wrappedCollateralIn * cr.rate; // scaled to 1e36
+        console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
+        w.underlyingReserveCapacity$ = reserveWrappedCapacity * cr.rate;
+        console2.log("w.underlyingReserveCapacity$=%s", w.underlyingReserveCapacity$);
+        w.initialReserveCapacity$ = w.underlyingReserveCapacity$;
         console2.log("w.initialReserveCapacity$=%s", w.initialReserveCapacity$);
         w.underlyingCollateralHeld$ = cr.underlyingCollateral * 1e18;
         console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
@@ -1721,37 +1726,37 @@ contract Minter_v1 is
         w.bandCount = ConfigIncentiveLib._collateralRatioBandCount(config_);
         console2.log("w.bandCount=%s", w.bandCount);
 
-        while (w.userRemaining$ > 0) {
+        while (w.underlyingCollateralInLeft$ > 0) {
             console2.log("w.band=%s", w.band);
-            int256 inc = ConfigIncentiveLib._incentiveRatio(config_, w.band);
-            console2.log("inc=%s", inc);
+            int256 incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, w.band);
+            console2.log("incentiveRationc=%s", incentiveRatio);
 
-            w.feeRatio = inc > 0 ? uint256(inc) : 0;
+            w.feeRatio = incentiveRatio > 0 ? uint256(incentiveRatio) : 0;
             console2.log("w.feeRatio=%s", w.feeRatio);
-            w.discountRatio = inc < 0 ? uint256(-inc) : 0;
+            w.discountRatio = incentiveRatio < 0 ? uint256(-incentiveRatio) : 0;
             console2.log("w.discountRatio=%s", w.discountRatio);
 
-            bool lastBand = (w.band + 1 == w.bandCount);
-            console2.log("lastBand=%s", lastBand);
-
-            if (lastBand) {
-                w.grossSegment$ = w.userRemaining$;
+            if (w.band + 1 == w.bandCount) {
+                // the last band has no upper bound and there are at least 2 bands
+                w.grossSegment$ = w.underlyingCollateralInLeft$;
                 console2.log("w.grossSegment$=%s", w.grossSegment$);
                 if (w.discountRatio != 0) {
                     uint256 potential$ = (w.grossSegment$ * w.discountRatio) / 1e18;
                     console2.log("potential$=%s", potential$);
-                    w.discountApplied$ = potential$ > w.reserveCapacity$ ? w.reserveCapacity$ : potential$;
+                    w.discountApplied$ = potential$ > w.underlyingReserveCapacity$
+                        ? w.underlyingReserveCapacity$
+                        : potential$;
                     console2.log("w.discountApplied$=%s", w.discountApplied$);
                     if (w.discountApplied$ > 0) {
-                        w.underlyingDiscount$ += w.grossSegment$ * w.discountRatio;
-                        console2.log("w.underlyingDiscount$=%s", w.underlyingDiscount$);
-                        w.reserveCapacity$ -= w.discountApplied$;
-                        console2.log("w.reserveCapacity$=%s", w.reserveCapacity$);
+                        w.underlyingDiscount$$ += w.grossSegment$ * w.discountRatio;
+                        console2.log("w.underlyingDiscount$$=%s", w.underlyingDiscount$$);
+                        w.underlyingReserveCapacity$ -= w.discountApplied$;
+                        console2.log("w.underlyingReserveCapacity$=%s", w.underlyingReserveCapacity$);
                     }
                 }
                 if (w.feeRatio != 0) {
-                    w.underlyingFee$ += w.grossSegment$ * w.feeRatio;
-                    console2.log("w.underlyingFee$=%s", w.underlyingFee$);
+                    w.underlyingFee$$ += w.grossSegment$ * w.feeRatio;
+                    console2.log("w.underlyingFee$$=%s", w.underlyingFee$$);
                 }
                 w.grossConsumed$ += w.grossSegment$;
                 console2.log("w.grossConsumed$=%s", w.grossConsumed$);
@@ -1785,44 +1790,52 @@ contract Minter_v1 is
             console2.log("w.discountApplied$=%s", w.discountApplied$);
 
             if (w.discountRatio == 0) {
-                w.grossSegment$ = w.grossTarget$ <= w.userRemaining$ ? w.grossTarget$ : w.userRemaining$;
+                w.grossSegment$ = w.grossTarget$ <= w.underlyingCollateralInLeft$
+                    ? w.grossTarget$
+                    : w.underlyingCollateralInLeft$;
                 console2.log("w.grossSegment$=%s", w.grossSegment$);
             } else {
                 w.discountUnlimited$ = (w.grossTarget$ * w.discountRatio) / 1e18;
                 console2.log("w.discountUnlimited$=%s", w.discountUnlimited$);
-                if (w.discountUnlimited$ <= w.reserveCapacity$) {
+                if (w.discountUnlimited$ <= w.underlyingReserveCapacity$) {
                     // Not capped
-                    w.grossSegment$ = w.grossTarget$ <= w.userRemaining$ ? w.grossTarget$ : w.userRemaining$;
+                    w.grossSegment$ = w.grossTarget$ <= w.underlyingCollateralInLeft$
+                        ? w.grossTarget$
+                        : w.underlyingCollateralInLeft$;
                     console2.log("w.grossSegment$=%s", w.grossSegment$);
                     w.discountApplied$ = (w.grossSegment$ * w.discountRatio) / 1e18;
                     console2.log("w.discountApplied$=%s", w.discountApplied$);
-                    if (w.discountApplied$ > w.reserveCapacity$) {
-                        w.discountApplied$ = w.reserveCapacity$; // guard
+                    if (w.discountApplied$ > w.underlyingReserveCapacity$) {
+                        w.discountApplied$ = w.underlyingReserveCapacity$; // guard
                         console2.log("w.discountApplied$=%s", w.discountApplied$);
                     }
                 } else {
                     // Capacity limit
                     discountCapped = true;
                     console2.log("discountCapped=%s", discountCapped);
-                    // netNeeded$ = gross*(1 - feeRatio)/1e18 * price + reserveCapacity$
+                    // netNeeded$ = gross*(1 - feeRatio)/1e18 * price + underlyingReserveCapacity$
                     w.grossCapped$ = Math.mulDiv(
-                        w.netNeeded$ - w.reserveCapacity$,
+                        w.netNeeded$ - w.underlyingReserveCapacity$,
                         1e18,
                         cr.price * (1e18 - w.feeRatio)
                     );
                     console2.log("w.grossCapped$=%s", w.grossCapped$);
                     if (w.grossCapped$ == 0) {
-                        w.grossCapped$ = w.userRemaining$ < 1 ? w.userRemaining$ : 1;
+                        w.grossCapped$ = w.underlyingCollateralInLeft$ < 1 ? w.underlyingCollateralInLeft$ : 1;
                         console2.log("w.grossCapped$=%s", w.grossCapped$);
                     }
-                    w.grossSegment$ = w.grossCapped$ <= w.userRemaining$ ? w.grossCapped$ : w.userRemaining$;
+                    w.grossSegment$ = w.grossCapped$ <= w.underlyingCollateralInLeft$
+                        ? w.grossCapped$
+                        : w.underlyingCollateralInLeft$;
                     console2.log("w.grossSegment$=%s", w.grossSegment$);
                     uint256 theoretical$ = (w.grossSegment$ * w.discountRatio) / 1e18;
                     console2.log("theoretical$=%s", theoretical$);
-                    w.discountApplied$ = theoretical$ > w.reserveCapacity$ ? w.reserveCapacity$ : theoretical$;
+                    w.discountApplied$ = theoretical$ > w.underlyingReserveCapacity$
+                        ? w.underlyingReserveCapacity$
+                        : theoretical$;
                     console2.log("w.discountApplied$=%s", w.discountApplied$);
 
-                    if (w.userRemaining$ > w.grossSegment$ && w.grossSegment$ == w.grossCapped$) {
+                    if (w.underlyingCollateralInLeft$ > w.grossSegment$ && w.grossSegment$ == w.grossCapped$) {
                         w.band++;
                         console2.log("w.band=%s", w.band);
                     }
@@ -1830,20 +1843,20 @@ contract Minter_v1 is
             }
 
             if (w.feeRatio != 0) {
-                w.underlyingFee$ += w.grossSegment$ * w.feeRatio;
-                console2.log("w.underlyingFee$=%s", w.underlyingFee$);
+                w.underlyingFee$$ += w.grossSegment$ * w.feeRatio;
+                console2.log("w.underlyingFee$$=%s", w.underlyingFee$$);
             }
             if (w.discountApplied$ > 0) {
-                w.underlyingDiscount$ += w.grossSegment$ * w.discountRatio;
-                console2.log("w.underlyingDiscount$=%s", w.underlyingDiscount$);
-                w.reserveCapacity$ -= w.discountApplied$;
-                console2.log("w.reserveCapacity$=%s", w.reserveCapacity$);
+                w.underlyingDiscount$$ += w.grossSegment$ * w.discountRatio;
+                console2.log("w.underlyingDiscount$$=%s", w.underlyingDiscount$$);
+                w.underlyingReserveCapacity$ -= w.discountApplied$;
+                console2.log("w.underlyingReserveCapacity$=%s", w.underlyingReserveCapacity$);
             }
 
             w.grossConsumed$ += w.grossSegment$;
             console2.log("w.grossConsumed$=%s", w.grossConsumed$);
-            w.userRemaining$ -= w.grossSegment$;
-            console2.log("w.userRemaining$=%s", w.userRemaining$);
+            w.underlyingCollateralInLeft$ -= w.grossSegment$;
+            console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
 
             // Provisional CR update (fee floor)
             if (w.feeRatio != 0) {
@@ -1856,15 +1869,15 @@ contract Minter_v1 is
                 console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
             }
 
-            if (!discountCapped && w.userRemaining$ > 0 && w.grossSegment$ == w.grossTarget$) {
+            if (!discountCapped && w.underlyingCollateralInLeft$ > 0 && w.grossSegment$ == w.grossTarget$) {
                 w.band++;
                 console2.log("w.band=%s", w.band);
             }
         }
 
-        uint256 underlyingFee$ = _roundHalfEven(w.underlyingFee$, 1e18);
+        uint256 underlyingFee$ = _roundHalfEven(w.underlyingFee$$, 1e18);
         console2.log("underlyingFee$=%s", underlyingFee$);
-        uint256 underlyingDiscount$ = _roundHalfEven(w.underlyingDiscount$, 1e18);
+        uint256 underlyingDiscount$ = _roundHalfEven(w.underlyingDiscount$$, 1e18);
         console2.log("underlyingDiscount$=%s", underlyingDiscount$);
         if (underlyingDiscount$ > w.initialReserveCapacity$) {
             underlyingDiscount$ = w.initialReserveCapacity$;
