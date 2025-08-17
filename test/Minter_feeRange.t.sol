@@ -118,13 +118,15 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
 
     function test_redeemPeggedRange_() public virtual {
         uint256 snap = vm.snapshotState();
+        uint256 iteration = 0;
         for (uint256 p = minCollateral; p < maxCollateral; p *= factorCollateral) {
             for (uint256 l = minCollateral; l < maxCollateral; l *= factorCollateral) {
                 for (uint256 w = minToken; w <= maxToken; w *= factorToken) {
                     setUp_collateral(p, l, user);
                     MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-                    _redeemPegged(w);
+                    _redeemPegged(w, iteration);
                     vm.revertToState(snap);
+                    ++iteration;
                 }
             }
         }
@@ -382,7 +384,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     }
 
     function _mintPegged(uint256 wrapped) internal virtual;
-    function _redeemPegged(uint256 wrapped) internal virtual;
+    function _redeemPegged(uint256 wrapped, uint256 iteration) internal virtual;
     function _mintLeveraged(uint256 wrapped) internal virtual;
     function _redeemLeveraged(uint256 wrapped) internal virtual;
 }
@@ -446,7 +448,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // assertNear(post.leveragedPrice, pre.leveragedPrice, 1, 1000, "mp leveraged price");
     }
 
-    function _redeemPegged(uint256 wrapped) internal override {
+    function _redeemPegged(uint256 wrapped, uint256 iteration) internal override {
         // REDEEM PEGGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         Measures memory pre = _measure();
@@ -740,7 +742,7 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
         assertNear(post.minterUnderlying, postSteps.minterUnderlying, 2, colTolRel, "mp integral minter underlying");
     }
 
-    function _redeemPegged(uint256 wrapped) internal override {
+    function _redeemPegged(uint256 wrapped, uint256 iteration) internal override {
         // REDEEM PEGGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         uint256 snap = vm.snapshotState();
