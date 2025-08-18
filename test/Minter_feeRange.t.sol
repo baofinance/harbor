@@ -457,7 +457,16 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         Measures memory post = _measure();
 
         // adjust wrapped value for de-pegged situation
-        wrapped = (wrapped * pre.peggedPrice) / 1e18;
+        if (pre.collateralRatio < 1 ether) {
+            // on depeg
+            // wrapped = ((pegged * pre.peggedPrice) / p) * r / 1 ether; -> original
+            wrapped = (pegged * pre.peggedPrice * r) / p / 1 ether; // rearranged to improve precision
+        } else {
+            // general calculation
+            wrapped = pegged * 1e36 / (r * p);
+        }
+        console2.log("adjusted wrapped: ", wrapped);
+
         uint256 fee = (uint256(initial(config.redeemPeggedIncentiveConfig.incentiveRatios)) * wrapped) / 1e18;
         assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 1, "rp fee wrapped");
 
