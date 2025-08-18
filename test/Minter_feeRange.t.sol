@@ -480,7 +480,16 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         assertNear(post.minterWrapped, pre.minterWrapped - wrapped, 1, 0, "rp minter wrapped");
         assertNear(post.minterUnderlying, pre.minterUnderlying - (wrapped * r) / 1e18, 1, 0, "rp minter underlying");
 
-        assertNear(post.peggedPrice, pre.peggedPrice, 1e12, "rp pegged price");
+        if (pre.collateralRatio >= 1 ether) {
+            // In normal scenarios (CR>=1) pegged token price doesn't change
+            assertEq(post.peggedPrice, pre.peggedPrice, "rp pegged price");
+        } else if (pre.peggedPrice == post.peggedPrice) {
+            // There was a depeg, but redeem amount wasn't big enough to change the pegged token price
+        }
+        else {
+            // The tests redeem all pegged tokens which brings CR to 1
+            assertGe(post.peggedPrice, 1 ether, "depeg rp pegged price");
+        }
         // assertEq(post.leveragedPrice, pre.leveragedPrice, 1, "rp leveraged price");
     }
 
