@@ -485,10 +485,12 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertEq(post.peggedPrice, pre.peggedPrice, "rp pegged price");
         } else if (pre.peggedPrice == post.peggedPrice) {
             // There was a depeg, but redeem amount wasn't big enough to change the pegged token price
+            assertLt(post.collateralRatio, 1 ether, "depeg rp cr no change");
         }
         else {
-            // The tests redeem all pegged tokens which brings CR to 1
+            // Enough pegged tokens were redeemed to restore the peg
             assertGe(post.peggedPrice, 1 ether, "depeg rp pegged price");
+            assertGe(post.collateralRatio, 1 ether, "depeg rp cr");
         }
         // assertEq(post.leveragedPrice, pre.leveragedPrice, 1, "rp leveraged price");
     }
