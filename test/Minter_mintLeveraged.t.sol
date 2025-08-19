@@ -133,7 +133,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
         // zero input, when none
         assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
-        // vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, IMinter(minter).LEVERAGED_TOKEN()));
         vm.prank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(0, receiver);
         // 2 ----------------------------------------------
@@ -156,7 +156,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         IERC20(Deployed.wstETH).approve(minter, 10 ether);
 
         // zero input, when some
-        // vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, Deployed.wstETH));
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, IMinter(minter).LEVERAGED_TOKEN()));
         vm.prank(zeroFee);
         IMinter(minter).freeMintLeveragedToken(0, receiver);
         // 4 ----------------------------------------------
