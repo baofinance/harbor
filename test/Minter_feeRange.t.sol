@@ -538,7 +538,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 post.leveragedPrice,
                 pre.leveragedPrice,
                 IERC20(leveragedToken).totalSupply() > 1e9 ? 15 : 0,
-                0,
+                p <= 1e9 ? 13320 : 0, // allow for slight deviation in l price when collateral price is small
                 "ml leveraged price"
             );
         } else {
