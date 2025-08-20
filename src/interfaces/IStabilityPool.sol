@@ -185,7 +185,7 @@ interface IStabilityPool {
     ///   - Before start: allowed, early-withdrawal fee applies.
     ///   - During [start, end]: allowed, no fee applies.
     ///   - After end: allowed, early-withdrawal fee applies.
-    /// - Calling withdraw ends the request window immediately (request end is set to now - 1).
+    /// - Calling withdraw ends the request window immediately (both start and end are zeroed).
     /// - Use `assetAmount=type(uint256).max` to withdraw full balance.
     /// @param assetAmount The amount of asset to withdraw.
     /// @param receiver The address of recipient for the withdrawn asset.
@@ -207,7 +207,8 @@ interface IStabilityPool {
     function setFeeAddress(address newFeeAddress) external;
 
     /// @notice Update withdrawal window configuration.
-    /// @dev Must satisfy newEndWindow > 0. newStartDelay may be zero for an immediate window.
+    /// @dev Must satisfy newEndWindow > 0. `newStartDelay` may be zero for an immediate window.
+    /// Example/default: `newEndWindow = 86400` (1 day).
     function setWithdrawalWindow(uint256 newStartDelay, uint256 newEndWindow) external;
 
     /// @notice perform a liquidation of the amount

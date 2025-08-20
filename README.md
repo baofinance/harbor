@@ -44,9 +44,11 @@ Fees can be queried up front by so-called dry-run view functions, answering the 
 - A successful withdraw clears the request immediately (both `start` and `end` set to `0`).
 - Depositing during an active window cancels the request (both `start` and `end` set to `0`).
 - Configuration:
-  - `earlyWithdrawalFee` (scaled by 1e18, e.g., `0.025 ether` = 2.5%)
+  - `earlyWithdrawalFee` (scaled by 1e18, e.g., `0.025 ether` = 2.5%; must be <= 1e18)
   - `feeAddress` (recipient of early-withdrawal fees)
-- `withdrawalStartDelay` and `withdrawalEndWindow` (window period). Must satisfy `withdrawalEndWindow > 0`; `withdrawalStartDelay` may be `0`.
+  - `withdrawalStartDelay` (seconds; may be 0; recommended <= 1 week)
+  - `withdrawalEndWindow` (seconds; must be > 0; recommended <= 1 week; example/default: `86400` for 1 day)
+  - Implementation detail: these four values are internally packed into two storage slots for gas efficiency (no ABI change).
 
 ### Rebalancing
 
