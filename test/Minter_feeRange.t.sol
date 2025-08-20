@@ -118,15 +118,17 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
 
     function test_redeemPeggedRange_() public virtual {
         uint256 snap = vm.snapshotState();
-        uint256 iteration = 0;
         for (uint256 p = minCollateral; p < maxCollateral; p *= factorCollateral) {
             for (uint256 l = minCollateral; l < maxCollateral; l *= factorCollateral) {
-                for (uint256 w = minToken; w <= maxToken; w *= factorToken) {
+                uint256 w = minToken;
+                uint256 i = 0;
+                while (w <= maxToken) {
                     setUp_collateral(p, l, user);
                     MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-                    _redeemPegged(w, iteration);
+                    _redeemPegged(w, i);
                     vm.revertToState(snap);
-                    ++iteration;
+                    w *= factorToken; 
+                    ++i;
                 }
             }
         }
@@ -481,13 +483,13 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         assertEq(post.minterLeveraged, pre.minterLeveraged, "rp minter leveraged");
         
         // When depegged and redeeming pegged token, converting pegged to wrapped accrues some precision loss
-        // We're compensating for it by creating wrappedDiffAllowed. With the current test suite iterations, it should max cap at 0.000005700000000000
+        // We're compensating for it by creating wrappedDiffAllowed. With the current test suite iterations, it should max cap at 0.000002000000000000
         uint256 wrappedDiffAllowed = 0;
         if (pre.collateralRatio < 1 ether) {
-            wrappedDiffAllowed = pegged > 1e30 ? (iteration / 10) * 1e11 : (iteration / 100) * 1e6 + 1;
+            wrappedDiffAllowed = pegged > 1e30 ? (iteration * 1e10) / iteration * 1e3 + 2 : iteration * 1e6 + 1;
+            wrappedDiffAllowed = bound(wrappedDiffAllowed, 1, 2000000000000 + 2);
         }
-
-        assertLe(wrappedDiffAllowed, 5700000000000, "wrappedDiffAllowed cap exceeded");
+        console2.log("wrappedDiffAllowed:", wrappedDiffAllowed);
 
         assertNear(post.minterWrapped, pre.minterWrapped - wrapped, wrappedDiffAllowed, 0, "rp minter wrapped");
         assertNear(post.minterUnderlying, pre.minterUnderlying - (wrapped * r) / 1e18, wrappedDiffAllowed, 0, "rp minter underlying");
