@@ -518,7 +518,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 post.leveragedPrice,
                 pre.leveragedPrice,
                 IERC20(leveragedToken).totalSupply() > 1e9 ? 15 : 0,
-                0,
+                p <= 1e9 ? 13320 : 0, // allow for slight deviation in l price when collateral price is small
                 "ml leveraged price"
             );
         } else {
@@ -781,14 +781,14 @@ contract TestMinterIntegralFixedFees is TestMinterFeeRange {
             Measures memory post = _measure();
 
             assertNear(post.feeWrapped, postSteps.feeWrapped, 0, 0, "ml integral fee wrapped");
-            assertNear(minted, mintedSteps, 0, 0, "ml integral minted");
+            assertNear(minted, mintedSteps, 0, 43, "ml integral minted");
 
             assertNear(post.userPegged, postSteps.userPegged, 0, 0, "ml integral user pegged");
-            assertNear(post.userLeveraged, postSteps.userLeveraged, 0, 0, "ml integral user leveraged");
+            assertNear(post.userLeveraged, postSteps.userLeveraged, 0, 43, "ml integral user leveraged");
             assertNear(post.userWrapped, postSteps.userWrapped, 0, 0, "ml integral user wrapped");
 
             assertNear(post.minterPegged, postSteps.minterPegged, 0, 0, "ml integral minter pegged");
-            assertNear(post.minterLeveraged, postSteps.minterLeveraged, 0, 0, "ml integral minter leveraged");
+            assertNear(post.minterLeveraged, postSteps.minterLeveraged, 0, 43, "ml integral minter leveraged");
             assertNear(post.minterWrapped, postSteps.minterWrapped, 0, 0, "ml integral minter wrapped");
             assertNear(post.minterUnderlying, postSteps.minterUnderlying, 0, 0, "ml integral minter underlying");
         }

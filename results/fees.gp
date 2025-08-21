@@ -7,7 +7,7 @@ set terminal svg enhanced size 600 500 background rgb "gray90"
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0.6:1.6]
-set yrange [-0.01:.02]
+set yrange [-0.01:.025]
 max_value = 0.0195 # make it NaN for the lines to disappear
 
 depeg = 1
