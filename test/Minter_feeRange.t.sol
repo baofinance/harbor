@@ -463,7 +463,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             wrapped = (pegged * pre.peggedPrice * r) / p / 1 ether; // rearranged to improve precision
         } else {
             // general calculation
-            wrapped = pegged * 1e36 / (r * p);
+            wrapped = (pegged * 1e36) / (r * p);
         }
         console2.log("adjusted wrapped: ", wrapped);
 
@@ -486,8 +486,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         } else if (pre.peggedPrice == post.peggedPrice) {
             // There was a depeg, but redeem amount wasn't big enough to change the pegged token price
             assertLt(post.collateralRatio, 1 ether, "depeg rp cr no change");
-        }
-        else {
+        } else {
             // Enough pegged tokens were redeemed to restore the peg
             assertEq(post.peggedPrice, 1 ether, "depeg rp pegged price");
             assertGe(post.collateralRatio, 1 ether, "depeg rp cr");
@@ -569,6 +568,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
                     uint256 fee = (uint256(initial(config.redeemLeveragedIncentiveConfig.incentiveRatios)) * wrapped) /
                         1 ether;
+                    console2.log("fee=%s", fee);
                     assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 3, "rl fee wrapped");
 
                     assertEq(post.userPegged, pre.userPegged, "rl user pegged");

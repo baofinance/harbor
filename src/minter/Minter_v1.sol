@@ -387,8 +387,8 @@ contract Minter_v1 is
         if (leveragedTokenBalance_ == 0) {
             nav$ = 1e36;
         } else {
-            // by definition the leveraged token value is the difference
-            nav$ = ((collateralValue$ - peggedValue$) * 1e18) / leveragedTokenBalance_;
+            // by definition the leveraged token value is the difference between the collateral value and pegged value
+            nav$ = Math.mulDiv(collateralValue$ - peggedValue$, 1e18, leveragedTokenBalance_);
         }
     }
 
@@ -620,7 +620,7 @@ contract Minter_v1 is
         );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = int256(
-            wrappedCollateralReturned == 0 ? 1 ether : (wrappedFee * 1 ether) / wrappedCollateralReturned
+            wrappedCollateralReturned == 0 ? 1 ether : (wrappedFee * 1 ether) / (wrappedCollateralReturned + wrappedFee)
         );
     }
 
@@ -1744,14 +1744,15 @@ contract Minter_v1 is
             w.bandDiscountRatio = incentiveRatio < 0 ? uint256(-incentiveRatio) : 0;
             console2.log("w.bandDiscountRatio=%s", w.bandDiscountRatio);
 
-            // now get the collateral and the corresponding discount in the next band.
+            // now get:
+            // the collateral in the band,
+            // the corresponding discount
             // This is complex because both are dependent on the reservePool capacity which limits the discount which, in turn, inflences the collateral
 
             if (w.band + 1 == ConfigIncentiveLib._collateralRatioBandCount(config_)) {
                 // the last band has no upper bound and there are at least 2 bands
                 // gross collateral includes fees and discounts
                 collateralInBand$ = w.underlyingCollateralInLeft$;
-                console2.log("last collateralInBand$=%s", collateralInBand$);
                 if (w.bandDiscountRatio > 0) {
                     // theoretical
                     bandDiscount$ = (collateralInBand$ * w.bandDiscountRatio) / 1e18;
@@ -1760,42 +1761,44 @@ contract Minter_v1 is
                     bandDiscount$ = Math.min(bandDiscount$, w.underlyingReserveCapacity$);
                     console2.log("bandDiscount$=%s", bandDiscount$);
                 }
-            } else {
-                if (w.bandDiscountRatio > 0) {
-                    // we calculate the collateralInBand assuming there is no reserve pool capacity limit (for this band)
-                    collateralInBand$ = Math.mulDiv(
-                        ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band) * w.peggedTokenHeld$ -
-                            w.underlyingCollateralHeld$ * cr.price,
-                        1e18,
-                        cr.price * (1e18 + w.bandDiscountRatio)
-                    );
-                    console2.log("discount collateralInBand$=%s", collateralInBand$);
-                    // user limits how much of the band collateral is used
-                    collateralInBand$ = Math.min(collateralInBand$, w.underlyingCollateralInLeft$);
-                    console2.log("collateralInBand$=%s", collateralInBand$);
+            } else if (w.bandDiscountRatio > 0) {
+                // discount
+                // we calculate the collateralInBand assuming there is no reserve pool capacity limit (for this band)
+                collateralInBand$ = Math.mulDiv(
+                    ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band) * w.peggedTokenHeld$ -
+                        w.underlyingCollateralHeld$ * cr.price,
+                    1e18,
+                    cr.price * (1e18 + w.bandDiscountRatio)
+                );
+                console2.log("discount collateralInBand$=%s", collateralInBand$);
+                // user limits how much of the band collateral is used (and the discount)
+                collateralInBand$ = Math.min(collateralInBand$, w.underlyingCollateralInLeft$);
+                console2.log("collateralInBand$=%s", collateralInBand$);
 
-                    // now check that the reserve pool can do it's corresponding bit
-                    bandDiscount$ = (collateralInBand$ * w.bandDiscountRatio) / 1e18;
-                    console2.log("bandDiscount$=%s", bandDiscount$);
-                    if (bandDiscount$ > w.underlyingReserveCapacity$) {
-                        // Reserve pool has a capacity limit after all and wont be able to supply it's part of the collateralInBand,
-                        // so we shift the onus on reaching the upper bound to the supplied collateral
-                        collateralInBand$ += bandDiscount$ - w.underlyingReserveCapacity$;
-                        console2.log("collateralInBand$=%s", collateralInBand$);
-                        collateralInBand$ = Math.min(collateralInBand$, w.underlyingCollateralInLeft$);
-                        console2.log("collateralInBand$=%s", collateralInBand$);
-                    }
-                } else {
-                    collateralInBand$ = Math.mulDiv(
-                        ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band) * w.peggedTokenHeld$ -
-                            w.underlyingCollateralHeld$ * cr.price,
-                        1e18,
-                        cr.price * (1e18 - w.bandFeeRatio)
-                    );
-                    console2.log("fee collateralInBand$=%s", collateralInBand$);
+                // now check that the reserve pool can do it's corresponding bit
+                bandDiscount$ = (collateralInBand$ * w.bandDiscountRatio) / 1e18;
+                console2.log("bandDiscount$=%s", bandDiscount$);
+                if (bandDiscount$ > w.underlyingReserveCapacity$) {
+                    // Reserve pool has a capacity limit and wont be able to supply it's part of the collateralInBand,
+                    // so we shift the onus on reaching the upper bound to the supplied collateral
+                    collateralInBand$ += bandDiscount$ - w.underlyingReserveCapacity$;
+                    console2.log("collateralInBand$=%s", collateralInBand$);
                     collateralInBand$ = Math.min(collateralInBand$, w.underlyingCollateralInLeft$);
                     console2.log("collateralInBand$=%s", collateralInBand$);
+                    bandDiscount$ = w.underlyingReserveCapacity$;
+                    console2.log("bandDiscount$=%s", bandDiscount$);
                 }
+            } else {
+                // no discount
+                collateralInBand$ = Math.mulDiv(
+                    ConfigIncentiveLib._collateralRatioUpperBounds(config_, w.band) * w.peggedTokenHeld$ -
+                        w.underlyingCollateralHeld$ * cr.price,
+                    1e18,
+                    cr.price * (1e18 - w.bandFeeRatio)
+                );
+                console2.log("fee collateralInBand$=%s", collateralInBand$);
+                collateralInBand$ = Math.min(collateralInBand$, w.underlyingCollateralInLeft$);
+                console2.log("collateralInBand$=%s", collateralInBand$);
             }
 
             // we have, for the band the user collateral needed, and the band discount
@@ -1811,6 +1814,7 @@ contract Minter_v1 is
 
             if (w.bandFeeRatio > 0) {
                 uint256 bandFee$ = (collateralInBand$ * w.bandFeeRatio) / 1e18;
+                console2.log("bandFee$=%s", bandFee$);
                 w.underlyingFee$ += bandFee$;
                 console2.log("w.underlyingFee$=%s", w.underlyingFee$);
                 w.underlyingCollateralHeld$ -= bandFee$;
@@ -1819,6 +1823,7 @@ contract Minter_v1 is
                 console2.log("w.underlyingCollateralAdded$=%s", w.underlyingCollateralAdded$);
             } else if (bandDiscount$ > 0) {
                 w.underlyingDiscount$ += bandDiscount$;
+                console2.log("w.underlyingDiscount$=%s", w.underlyingDiscount$);
                 w.underlyingReserveCapacity$ -= bandDiscount$;
                 console2.log("w.underlyingReserveCapacity$=%s", w.underlyingReserveCapacity$);
                 w.underlyingCollateralHeld$ += bandDiscount$;
@@ -1846,8 +1851,8 @@ contract Minter_v1 is
         uint256 underlyingFee$$; // Σ(collateralInBand$ * feeRatio)
         uint256 underlyingCollateralRemoved$; // Σ(collateralInBand$) (underlying * 1e18, pre-fee)
         uint256 underlyingCollateralHeld$; // provisional collateral balance (underlying * 1e18)
-        uint256 leveragedTokenBalance_; // total leveraged token supply (for invariant mapping)
-        uint256 netRemovalError$; // accumulates (collateralInBand$ * (1e18 - feeRatio)) % 1e18
+        // uint256 leveragedTokenBalance_; // total leveraged token supply (for invariant mapping)
+        // uint256 netRemovalError$; // accumulates (collateralInBand$ * (1e18 - feeRatio)) % 1e18
     }
 
     /// @notice Perform a dry run of a redeem leveraged to calculate the various transfers of tokens
@@ -1897,18 +1902,19 @@ contract Minter_v1 is
         console2.log("peggedValue$=%s", peggedValue$);
         console2.log("cr.price=%s", cr.price);
 
-        if (collateralValue$ <= peggedValue$) {
+        // we know leveraged token balance is > 0
+        uint256 leveragedPrice$ = _leveragedTokenPrice$(collateralValue$, peggedValue$, _leveragedTokenBalance());
+        console2.log("leveragedPrice$=%s", leveragedPrice$);
+        if (leveragedPrice$ == 0) {
             return (0, 0, 0, 0);
         }
+        // w.underlyingCollateralInLeft$ = Math.mulDiv(
+        //     leveragedIn * 1e18,
+        //     collateralValue$ - peggedValue$,
+        //     cr.price * w.leveragedTokenBalance_
+        // );
+        w.underlyingCollateralInLeft$ = Math.mulDiv(leveragedIn, leveragedPrice$, cr.price);
 
-        // we know leveraged token balance is > 0
-        w.leveragedTokenBalance_ = _leveragedTokenBalance();
-        console2.log("w.leveragedTokenBalance_=%s", w.leveragedTokenBalance_);
-        w.underlyingCollateralInLeft$ = Math.mulDiv(
-            leveragedIn * 1e18,
-            collateralValue$ - peggedValue$,
-            cr.price * w.leveragedTokenBalance_
-        );
         console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
 
         // uint256 underlyingCollateralIn = _underlyingCollateralForLeveragedTokens(
@@ -1934,19 +1940,28 @@ contract Minter_v1 is
                 break;
             }
             uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, w.band);
+            if (bandLowerBound < 1 ether) {
+                // depegged (as there is always a CR = 1 boundary) means we disallow redeeming leveraged
+                // because the price has become 0
+                break;
+            }
             console2.log("bandLowerBound=%s", bandLowerBound);
             uint256 collateralInBand$;
             {
                 // segment pre-fee underlying (1e18 scale):
                 // netValue = (segment - fee)*price = segment*(1 - f/1e18)*price/1e18
                 // => segment = valueToLowerBound$ * 1e18 / (price * (1 - f))
+                // the fee is taken from the returned collateral not the input
                 collateralInBand$ =
                     w.underlyingCollateralHeld$ - Math.mulDiv(bandLowerBound * 1e18, cr.peggedTokenBalance, cr.price);
-                console2.log("collateralInBand$ =%s", collateralInBand$);
+                // collateralInBand$ =
+                //     (w.underlyingCollateralHeld$ * cr.price - bandLowerBound * cr.peggedTokenBalance) /
+                //     (cr.price * (1e18 - bandFeeRatio));
+                console2.log("collateralInBand$=%s", collateralInBand$);
                 collateralInBand$ = Math.min(collateralInBand$, w.underlyingCollateralInLeft$);
                 console2.log("collateralInBand$=%s", collateralInBand$);
             }
-
+            console2.log("w.bandFee$$=%s", collateralInBand$ * bandFeeRatio);
             w.underlyingFee$$ += collateralInBand$ * bandFeeRatio;
             console2.log("w.underlyingFee$$=%s", w.underlyingFee$$);
             w.underlyingCollateralRemoved$ += collateralInBand$;
@@ -1974,13 +1989,7 @@ contract Minter_v1 is
         //     cr.underlyingCollateral,
         //     cr.price
         // );
-        // TODO: what if there aren't any leveraged tokens!
-        leveragedRedeemed =
-            Math.mulDiv(
-                w.underlyingCollateralRemoved$ * cr.price,
-                w.leveragedTokenBalance_,
-                (collateralValue$ - peggedValue$)
-            ) / 1e18;
+        leveragedRedeemed = (w.underlyingCollateralRemoved$ * cr.price) / leveragedPrice$;
         console2.log("leveragedRedeemed=%s", leveragedRedeemed);
         if (leveragedRedeemed > leveragedIn) {
             leveragedRedeemed = leveragedIn; // rounding guard
