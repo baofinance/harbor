@@ -376,19 +376,19 @@ contract Minter_v1 is
             $.underlyingCollateral,
             oracle.price
         );
-        nav = _leveragedTokenPrice(collateralValue$, peggedValue$, _leveragedTokenBalance());
+        nav = _leveragedTokenPrice$(collateralValue$, peggedValue$, _leveragedTokenBalance()) / 1 ether;
     }
 
-    function _leveragedTokenPrice(
+    function _leveragedTokenPrice$(
         uint256 collateralValue$,
         uint256 peggedValue$,
         uint256 leveragedTokenBalance_
-    ) internal pure returns (uint256 nav) {
+    ) internal pure returns (uint256 nav$) {
         if (leveragedTokenBalance_ == 0) {
-            nav = 1 ether;
+            nav$ = 1e36;
         } else {
             // by definition the leveraged token value is the difference
-            nav = (collateralValue$ - peggedValue$) / leveragedTokenBalance_;
+            nav$ = ((collateralValue$ - peggedValue$) * 1e18) / leveragedTokenBalance_;
         }
     }
 
@@ -1637,6 +1637,7 @@ contract Minter_v1 is
         uint256 underlyingDiscount$;
         uint256 bandFeeRatio;
         uint256 bandDiscountRatio;
+        uint256 leveragedPrice$;
         // uint256 grossConsumed$;
         // Reused per-iteration temporaries (all optional to pre-init)
         // uint256 feeRatio;
@@ -1693,7 +1694,7 @@ contract Minter_v1 is
         if (cr.peggedTokenBalance == 0) {
             revert ActionPaused();
         }
-        uint256 leveragedPrice;
+        MintLeveragedWorkspace memory w;
         {
             (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
                 cr.peggedTokenBalance,
@@ -1708,8 +1709,8 @@ contract Minter_v1 is
             if (collateralValue$ <= peggedValue$) {
                 return (0, 0, 0, 0);
             }
-            leveragedPrice = _leveragedTokenPrice(collateralValue$, peggedValue$, _leveragedTokenBalance());
-            console2.log("leveragedPrice=%s", leveragedPrice);
+            w.leveragedPrice$ = _leveragedTokenPrice$(collateralValue$, peggedValue$, _leveragedTokenBalance());
+            console2.log("leveragedPrice$=%s", w.leveragedPrice$);
         }
 
         // simulate minting leveaged tokens from current collateral ratio upwards,
@@ -1717,7 +1718,6 @@ contract Minter_v1 is
         // We do this band at a time, pro-rating the resulting fee according to how much collateral was needed in
         // each band entered. We use collateral to pro-rate, rather than collateral ratio which would be simpler, because
         // we multiply the resulting ratios by the collateral for the final fee
-        MintLeveragedWorkspace memory w;
         w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
         w.underlyingCollateralInLeft$ = wrappedCollateralIn * cr.rate; // scaled to 1e36
         console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingCollateralInLeft$);
@@ -1834,42 +1834,10 @@ contract Minter_v1 is
         console2.log("wrappedFee=%s", wrappedFee);
         wrappedDiscount = _roundHalfEven(w.underlyingDiscount$, cr.rate);
         console2.log("wrappedDiscount=%s", wrappedDiscount);
-
-        // leveragedMinted =
-        //     _leveragedTokensForCollateral(
-        //         w.underlyingCollateralAdded$,
-        //         _leveragedTokenBalance(),
-        //         cr.peggedTokenBalance,
-        //         cr.underlyingCollateral,
-        //         cr.price
-        //     ) / 1e18;
-        // {
-        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
-            cr.peggedTokenBalance,
-            cr.underlyingCollateral,
-            cr.price
-        );
-
-        // leveragedMinted =
-        //     (collateralValue$ * 1e18 +
-        //         (w.underlyingCollateralAdded$ * cr.price) -
-        //         peggedValue$ * 1e18 -
-        //         leveragedTokenBalance_ * 1e18 * leveragedPrice) / (leveragedPrice * 1e18);
-        leveragedMinted = (w.underlyingCollateralAdded$ * cr.price) / (leveragedPrice * 1e18);
-
-        // leveragedMinted = Math.mulDiv(
-        //     w.underlyingCollateralAdded$ * cr.price,
-        //     leveragedTokenBalance_,
-        //     (collateralValue$ - peggedValue$) * 1e18
-        // );
-
+        leveragedMinted = (w.underlyingCollateralAdded$ * cr.price) / w.leveragedPrice$;
         console2.log("leveragedMinted=%s", leveragedMinted);
         underlyingCollateralAdded = _roundHalfEven(w.underlyingCollateralAdded$, 1e18);
         console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
-
-        cr.underlyingCollateral += underlyingCollateralAdded;
-
-        // }
     }
 
     struct RedeemLeveragedWorkspace {
