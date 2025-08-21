@@ -60,8 +60,9 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
     }
 
     function test_harvestPriceChange(uint256 startPrice, uint256 startRate) public {
-        startPrice = bound(startPrice, 0, 10000 ether);
-        startRate = bound(startRate, 0, 5 ether);
+        // We need reasonable min amounts for rate & price, otherwise minting pegged tokens rounds down to 0
+        startPrice = bound(startPrice, 1e8, 10000 ether);
+        startRate = bound(startRate, 1e8, 5 ether);
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, startRate);
         setUp_collateral(50 ether, 50 ether); // 100 collateral
@@ -85,8 +86,10 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
     }
 
     function test_harvestRateChange(uint256 startPrice, uint256 startRate) public {
-        startPrice = bound(startPrice, 0, 10000 ether);
-        startRate = bound(startRate, 0, 5 ether); // 1.102235739966061915
+        // We need reasonable min amounts for rate & price, otherwise minting pegged tokens rounds down to 0
+        startPrice = bound(startPrice, 1e8, 10000 ether);
+        startRate = bound(startRate, 1e8, 5 ether);
+
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, startRate);
         {
             (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();

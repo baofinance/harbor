@@ -457,7 +457,16 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         Measures memory post = _measure();
 
         // adjust wrapped value for de-pegged situation
-        wrapped = (wrapped * pre.peggedPrice) / 1e18;
+        if (pre.collateralRatio < 1 ether) {
+            // on depeg
+            // wrapped = ((pegged * pre.peggedPrice) / p) * r / 1 ether; -> original
+            wrapped = (pegged * pre.peggedPrice * r) / p / 1 ether; // rearranged to improve precision
+        } else {
+            // general calculation
+            wrapped = pegged * 1e36 / (r * p);
+        }
+        console2.log("adjusted wrapped: ", wrapped);
+
         uint256 fee = (uint256(initial(config.redeemPeggedIncentiveConfig.incentiveRatios)) * wrapped) / 1e18;
         assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 1, "rp fee wrapped");
 
@@ -471,7 +480,18 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         assertNear(post.minterWrapped, pre.minterWrapped - wrapped, 1, 0, "rp minter wrapped");
         assertNear(post.minterUnderlying, pre.minterUnderlying - (wrapped * r) / 1e18, 1, 0, "rp minter underlying");
 
-        assertNear(post.peggedPrice, pre.peggedPrice, 1e12, "rp pegged price");
+        if (pre.collateralRatio >= 1 ether) {
+            // In normal scenarios (CR>=1) pegged token price doesn't change
+            assertEq(post.peggedPrice, pre.peggedPrice, "rp pegged price");
+        } else if (pre.peggedPrice == post.peggedPrice) {
+            // There was a depeg, but redeem amount wasn't big enough to change the pegged token price
+            assertLt(post.collateralRatio, 1 ether, "depeg rp cr no change");
+        }
+        else {
+            // Enough pegged tokens were redeemed to restore the peg
+            assertEq(post.peggedPrice, 1 ether, "depeg rp pegged price");
+            assertGe(post.collateralRatio, 1 ether, "depeg rp cr");
+        }
         // assertEq(post.leveragedPrice, pre.leveragedPrice, 1, "rp leveraged price");
     }
 
