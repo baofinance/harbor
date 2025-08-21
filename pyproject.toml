@@ -4,7 +4,4 @@ version = "0.1.0"
 description = "vyper for Bao Minter"
 readme = "README.md"
 requires-python = "==3.10.*"
-dependencies = [
-    "black>=25.1.0",
-    "vyper==0.3.10",
-]
+dependencies = ["black>=25.1.0", "vyper==0.3.10", "semgrep>=1.85,<2"]
