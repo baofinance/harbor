@@ -1003,20 +1003,48 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         OracleData memory oracle = _fetchMid($.priceOracle);
-        uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, oracle.rate);
+        // uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, oracle.rate);
         // mint the tokens to the receiver
-        leveragedOut = _leveragedTokensForCollateral(
-            underlyingCollateralIn,
-            _leveragedTokenBalance(),
+        // leveragedOut = _leveragedTokensForCollateral(
+        //     underlyingCollateralIn,
+        //     _leveragedTokenBalance(),
+        //     $.peggedTokenBalance,
+        //     $.underlyingCollateral,
+        //     oracle.price
+        // );
+        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
             $.peggedTokenBalance,
             $.underlyingCollateral,
             oracle.price
         );
+        uint256 underlyingCollateralIn$ = wrappedCollateralIn * oracle.rate;
+        uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
+        if (leveragedTokenBalance_ > 0) {
+            leveragedOut =
+                (underlyingCollateralIn$ * oracle.price) /
+                _leveragedTokenPrice$(collateralValue$, peggedValue$, leveragedTokenBalance_);
+        } else {
+            // console2.log("collateralValue$ * 1e18=%s", collateralValue$ * 1e18);
+            // console2.log("underlyingCollateralIn$=%s", underlyingCollateralIn$);
+            // console2.log("oracle.price=%s", oracle.price);
+            // console2.log("underlyingCollateralIn$ * oracle.price=%s", underlyingCollateralIn$ * oracle.price);
+            // console2.log("peggedTokenBalance * 1e36=%s", $.peggedTokenBalance * 1e36);
+            // leveragedOut =
+            //     (collateralValue$ * 1e18 + underlyingCollateralIn$ * oracle.price - $.peggedTokenBalance * 1e36) / 1e36;
+            leveragedOut = collateralValue$; // First term
+            console2.log("leveragedOut=%s", leveragedOut);
+            leveragedOut += Math.mulDiv(underlyingCollateralIn$, oracle.price, 1e18); // Second term
+            console2.log("leveragedOut=%s", leveragedOut);
+            leveragedOut -= $.peggedTokenBalance * 1e18;
+            console2.log("leveragedOut=%s", leveragedOut);
+            leveragedOut /= 1e18;
+            console2.log("leveragedOut=%s", leveragedOut);
+        }
 
         _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);
 
         // update our records
-        $.underlyingCollateral += underlyingCollateralIn;
+        $.underlyingCollateral += underlyingCollateralIn$ / 1e18;
     }
 
     // @inheritdoc IMinter
@@ -1638,6 +1666,8 @@ contract Minter_v1 is
         uint256 bandFeeRatio;
         uint256 bandDiscountRatio;
         uint256 leveragedPrice$;
+        uint256 leveragedTokenBalance;
+        uint256 initialLeveragedValue$;
         // uint256 grossConsumed$;
         // Reused per-iteration temporaries (all optional to pre-init)
         // uint256 feeRatio;
@@ -1694,6 +1724,7 @@ contract Minter_v1 is
         if (cr.peggedTokenBalance == 0) {
             revert ActionPaused();
         }
+
         MintLeveragedWorkspace memory w;
         {
             (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
@@ -1709,7 +1740,11 @@ contract Minter_v1 is
             if (collateralValue$ <= peggedValue$) {
                 return (0, 0, 0, 0);
             }
-            w.leveragedPrice$ = _leveragedTokenPrice$(collateralValue$, peggedValue$, _leveragedTokenBalance());
+            w.initialLeveragedValue$ = collateralValue$ - peggedValue$;
+            console2.log("w.initialLeveragedValue$=%s", w.initialLeveragedValue$);
+            w.leveragedTokenBalance = _leveragedTokenBalance();
+            console2.log("w.leveragedTokenBalance=%s", w.leveragedTokenBalance);
+            w.leveragedPrice$ = _leveragedTokenPrice$(collateralValue$, peggedValue$, w.leveragedTokenBalance);
             console2.log("leveragedPrice$=%s", w.leveragedPrice$);
         }
 
@@ -1837,12 +1872,30 @@ contract Minter_v1 is
 
         wrappedFee = _roundHalfEven(w.underlyingFee$, cr.rate);
         console2.log("wrappedFee=%s", wrappedFee);
-        wrappedDiscount = _roundHalfEven(w.underlyingDiscount$, cr.rate);
+        wrappedDiscount = w.underlyingDiscount$ / cr.rate; // we don't round this as it may overflow the reserve pool
         console2.log("wrappedDiscount=%s", wrappedDiscount);
-        leveragedMinted = (w.underlyingCollateralAdded$ * cr.price) / w.leveragedPrice$;
+        if (w.leveragedTokenBalance > 0) {
+            leveragedMinted = (w.underlyingCollateralAdded$ * cr.price) / w.leveragedPrice$;
+        } else {
+            leveragedMinted = (w.underlyingCollateralHeld$ * cr.price - cr.peggedTokenBalance * 1e36) / 1e36;
+        }
+        // leveragedMinted = Math.mulDiv(
+        //     w.underlyingCollateralAdded$ * cr.price,
+        //     w.leveragedTokenBalance,
+        //     w.initialLeveragedValue$ * 1e18
+        // );
         console2.log("leveragedMinted=%s", leveragedMinted);
         underlyingCollateralAdded = _roundHalfEven(w.underlyingCollateralAdded$, 1e18);
         console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
+
+        console2.log(
+            "new leveragedPrice$=%s",
+            _leveragedTokenPrice$(
+                (w.underlyingCollateralHeld$ * cr.price) / 1e18,
+                cr.peggedTokenBalance * 1e18,
+                w.leveragedTokenBalance + leveragedMinted
+            )
+        );
     }
 
     struct RedeemLeveragedWorkspace {
@@ -1862,7 +1915,8 @@ contract Minter_v1 is
     /// @param config_ The collateral ratio boundaries and the incentive ratios within each boundary,
     /// for redeeming leveraged tokens.
     /// @param leveragedIn The given amount of leveraged tokens.
-    /// @param cr contains:
+    /// @param cr contains:        underlyingCollateralAdded = _roundHalfEven(w.underlyingCollateralAdded$, 1e18);
+
     ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
     ///    peggedTokenBalance The amount of pegged tokens issued. This is used to calculate collateral ratios.
@@ -2070,74 +2124,74 @@ contract Minter_v1 is
         }
     }
 
-    /// @notice Calculates the number of leveraged tokens that must be minted to maintain the system invariant
-    /// when adding new collateral. The system maintains the invariant: collateral_value = pegged_value + leveraged_value.
-    /// This function determines how many leveraged tokens are needed at the current leveraged token price to absorb
-    /// the excess value created by the additional collateral.
-    /// @dev Implementation uses the derivative of the invariant equation. The leveraged token price is calculated
-    /// as the current excess value per leveraged token: (collateral_value - pegged_value) / leveraged_token_count.
-    /// The formula calculates: (new_total_collateral_value - pegged_value - existing_leveraged_value) / leveraged_price,
-    /// which simplifies to the additional collateral value divided by the current leveraged token price.
-    /// This preserves the leveraged token price while absorbing exactly the required excess value.
-    /// @param underlyingCollateralIn The amount of new underlying collateral being added to the system
-    /// @param leveragedTokenBalance_ The current total supply of leveraged tokens
-    /// @param peggedTokenBalance_ The current total supply of pegged tokens managed by this contract
-    /// @param underlyingCollateral_ The current amount of underlying collateral held by the system
-    /// @param price The current price of one unit of collateral in terms of pegged token value
-    /// @return leveragedTokens The number of leveraged tokens that should be minted to maintain the invariant
-    function _leveragedTokensForCollateral(
-        uint256 underlyingCollateralIn,
-        uint256 leveragedTokenBalance_,
-        uint256 peggedTokenBalance_,
-        uint256 underlyingCollateral_,
-        uint256 price
-    ) private pure returns (uint256 leveragedTokens) {
-        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
-            peggedTokenBalance_,
-            underlyingCollateral_,
-            price
-        );
-        console2.log("collateralValue$=%s", collateralValue$);
-        console2.log("peggedValue$=%s", peggedValue$);
+    // /// @notice Calculates the number of leveraged tokens that must be minted to maintain the system invariant
+    // /// when adding new collateral. The system maintains the invariant: collateral_value = pegged_value + leveraged_value.
+    // /// This function determines how many leveraged tokens are needed at the current leveraged token price to absorb
+    // /// the excess value created by the additional collateral.
+    // /// @dev Implementation uses the derivative of the invariant equation. The leveraged token price is calculated
+    // /// as the current excess value per leveraged token: (collateral_value - pegged_value) / leveraged_token_count.
+    // /// The formula calculates: (new_total_collateral_value - pegged_value - existing_leveraged_value) / leveraged_price,
+    // /// which simplifies to the additional collateral value divided by the current leveraged token price.
+    // /// This preserves the leveraged token price while absorbing exactly the required excess value.
+    // /// @param underlyingCollateralIn The amount of new underlying collateral being added to the system
+    // /// @param leveragedTokenBalance_ The current total supply of leveraged tokens
+    // /// @param peggedTokenBalance_ The current total supply of pegged tokens managed by this contract
+    // /// @param underlyingCollateral_ The current amount of underlying collateral held by the system
+    // /// @param price The current price of one unit of collateral in terms of pegged token value
+    // /// @return leveragedTokens The number of leveraged tokens that should be minted to maintain the invariant
+    // function _leveragedTokensForCollateral(
+    //     uint256 underlyingCollateralIn,
+    //     uint256 leveragedTokenBalance_,
+    //     uint256 peggedTokenBalance_,
+    //     uint256 underlyingCollateral_,
+    //     uint256 price
+    // ) private pure returns (uint256 leveragedTokens) {
+    //     (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
+    //         peggedTokenBalance_,
+    //         underlyingCollateral_,
+    //         price
+    //     );
+    //     console2.log("collateralValue$=%s", collateralValue$);
+    //     console2.log("peggedValue$=%s", peggedValue$);
 
-        // uint256 leveragedPrice_ = (leveragedTokenBalance_ > 0)
-        //     ? (collateralValue$ - peggedValue$) / leveragedTokenBalance_
-        //     : 1 ether; // TODO: this initial value is set in two places
-        // leveragedTokens =
-        //     ((underlyingCollateral_ + underlyingCollateralIn) *
-        //         price -
-        //         peggedValue$ -
-        //         leveragedTokenBalance_ *
-        //         leveragedPrice_) /
-        //     leveragedPrice_;
+    //     // uint256 leveragedPrice_ = (leveragedTokenBalance_ > 0)
+    //     //     ? (collateralValue$ - peggedValue$) / leveragedTokenBalance_
+    //     //     : 1 ether; // TODO: this initial value is set in two places
+    //     // leveragedTokens =
+    //     //     ((underlyingCollateral_ + underlyingCollateralIn) *
+    //     //         price -
+    //     //         peggedValue$ -
+    //     //         leveragedTokenBalance_ *
+    //     //         leveragedPrice_) /
+    //     //     leveragedPrice_;
 
-        if (leveragedTokenBalance_ > 0) {
-            if (collateralValue$ == peggedValue$) return 0;
-            // the below is just a simple L = Cin * price / leveragedPrice, but with the divides at the end
-            leveragedTokens = Math.mulDiv(
-                underlyingCollateralIn * price,
-                leveragedTokenBalance_,
-                collateralValue$ - peggedValue$
-            );
+    //     if (leveragedTokenBalance_ > 0) {
+    //         if (collateralValue$ == peggedValue$) return 0;
+    //         // the below is just a simple L = Cin * price / leveragedPrice, but with the divides at the end
+    //         leveragedTokens = Math.mulDiv(
+    //             underlyingCollateralIn * price,
+    //             leveragedTokenBalance_,
+    //             collateralValue$ - peggedValue$
+    //         );
 
-            // uint256 underlyingCollateralInValue$ = underlyingCollateralIn * price;
-            // console2.log("underlyingCollateralInValue$=%s", underlyingCollateralInValue$);
-            // uint256 leveragedValue$ = collateralValue$ - peggedValue$; // > 0 here
-            // console2.log("leveragedValue$=%s", leveragedValue$);
-            // leveragedTokens = Math.mulDiv(underlyingCollateralInValue$, leveragedTokenBalance_, leveragedValue$); // floor
-            // console2.log("leveragedTokens=%s", leveragedTokens);
-            // uint256 twiceRemainder = mulmod(underlyingCollateralInValue$, leveragedTokenBalance_ << 1, leveragedValue$); // twice remainder
-            // if (twiceRemainder >= leveragedValue$) {
-            //     // rounding half up
-            //     unchecked {
-            //         leveragedTokens++;
-            //     }
-            // }
-        } else {
-            uint256 newCollateralValue$ = (underlyingCollateral_ + underlyingCollateralIn) * price;
-            leveragedTokens = (newCollateralValue$ - peggedValue$) / 1 ether; // TODO: the initial leverage price is set here
-        }
-    }
+    //         // uint256 underlyingCollateralInValue$ = underlyingCollateralIn * price;
+    //         // console2.log("underlyingCollateralInValue$=%s", underlyingCollateralInValue$);
+    //         // uint256 leveragedValue$ = collateralValue$ - peggedValue$; // > 0 here
+    //         // console2.log("leveragedValue$=%s", leveragedValue$);
+    //         // leveragedTokens = Math.mulDiv(underlyingCollateralInValue$, leveragedTokenBalance_, leveragedValue$); // floor
+    //         // console2.log("leveragedTokens=%s", leveragedTokens);
+    //         // uint256 twiceRemainder = mulmod(underlyingCollateralInValue$, leveragedTokenBalance_ << 1, leveragedValue$); // twice remainder
+    //         // if (twiceRemainder >= leveragedValue$) {
+    //         //     // rounding half up
+    //         //     unchecked {
+    //         //         leveragedTokens++;
+    //         //     }
+    //         // }
+    //     } else {
+    //         uint256 newCollateralValue$ = (underlyingCollateral_ + underlyingCollateralIn) * price;
+    //         leveragedTokens = (newCollateralValue$ - peggedValue$) / 1 ether; // TODO: the initial leverage price is set here
+    //     }
+    // }
 
     function _leverageRatio(
         uint256 peggedTokenBalance_,

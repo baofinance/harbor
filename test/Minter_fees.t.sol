@@ -350,7 +350,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             0,
             string.concat("collateral used calc in step", Useful.toString(step))
         );
-        assertEq(all.leveragedMinted, leveragedMinted, "leveragedMinted: all = sigma one");
+        assertNear(all.leveragedMinted, leveragedMinted, 0, 0, "leveragedMinted: all = sigma one");
         assertApproxEqAbs(
             IERC20(leveragedToken).balanceOf(user) - beforeAll.userLeveraged,
             leveragedMinted,
