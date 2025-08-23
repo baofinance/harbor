@@ -351,9 +351,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
             string.concat("collateral used calc in step", Useful.toString(step))
         );
         assertNear(all.leveragedMinted, leveragedMinted, 0, 0, "leveragedMinted: all = sigma one");
-        assertApproxEqAbs(
+        assertNear(
             IERC20(leveragedToken).balanceOf(user) - beforeAll.userLeveraged,
             leveragedMinted,
+            0,
             0,
             string.concat("leveraged minted calc in step ", Useful.toString(step))
         );
@@ -448,9 +449,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual fee")
             );
-            assertApproxEqAbs(
+            assertNear(
                 IERC20(leveragedToken).balanceOf(user) - before.userLeveraged,
                 total.leveragedMinted,
+                0,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual minted")
             );
