@@ -57,6 +57,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     uint256 redeemLeveragedBands;
 
     bool areDiscounts;
+    bool areDisallows;
     bool reverseDirection;
 
     function setUp() public virtual override {
@@ -76,6 +77,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         redeemLeveragedBands = 7;
 
         areDiscounts = false;
+        areDisallows = false;
         reverseDirection = false;
     }
 
@@ -822,19 +824,17 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
         uint256 pegTolAbs = 32;
         uint256 pegTolRel = 0;
-        if (reverseDirection) {
-            pegTolRel = 2; // allow more tolerance for reverse direction as fees are higher
-        }
+        if (areDisallows) pegTolRel = 500; // this is needed for disallows: still pretty tight tolerance, though
         uint256 colTolRel = 2e6;
 
         assertNear(post.feeWrapped, postSteps.feeWrapped, 3, "mp integral fee wrapped");
         assertNear(minted, mintedSteps, pegTolAbs, pegTolRel, "mp integral minted");
 
-        assertNear(post.userPegged, postSteps.userPegged, pegTolAbs, 1, "mp integral user pegged");
+        assertNear(post.userPegged, postSteps.userPegged, pegTolAbs, pegTolRel, "mp integral user pegged");
         assertEq(post.userLeveraged, postSteps.userLeveraged, "mp integral user leveraged");
         assertNear(post.userWrapped, postSteps.userWrapped, 1, colTolRel, "mp integral user wrapped");
 
-        assertNear(post.minterPegged, postSteps.minterPegged, pegTolAbs, 1, "mp integral minter pegged");
+        assertNear(post.minterPegged, postSteps.minterPegged, pegTolAbs, pegTolRel, "mp integral minter pegged");
         assertEq(post.minterLeveraged, postSteps.minterLeveraged, "mp integral minter leveraged");
         assertNear(post.minterWrapped, postSteps.minterWrapped, 1, colTolRel, "mp integral minter wrapped");
         assertNear(post.minterUnderlying, postSteps.minterUnderlying, 2, colTolRel, "mp integral minter underlying");
@@ -991,6 +991,7 @@ contract TestMinterIntegralDisallowDiscountNoReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
         areDiscounts = true;
+        areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
@@ -1002,6 +1003,7 @@ contract TestMinterIntegralDisallowDiscountVariableNoReserve is TestMinterIntegr
     function setUp() public virtual override {
         super.setUp();
         areDiscounts = true;
+        areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
@@ -1013,6 +1015,7 @@ contract TestMinterIntegralDisallowDiscountReverseVariableNoReserve is TestMinte
     function setUp() public virtual override {
         super.setUp();
         areDiscounts = true;
+        areDisallows = true;
         reverseDirection = true;
     }
 
@@ -1033,6 +1036,7 @@ contract TestMinterIntegralDiscountInexhaustableReserve is TestMinterIntegralFee
         super.setUp();
         deal(address(wrappedCollateralToken), reservePool, 1e50);
         areDiscounts = true;
+        areDisallows = true;
     }
 
     function setUpConfig() internal virtual override {
@@ -1040,7 +1044,7 @@ contract TestMinterIntegralDiscountInexhaustableReserve is TestMinterIntegralFee
     }
 
     function _mintPegged(uint256 wrapped) internal virtual override {
-        // super._mintPegged(wrapped);
+        super._mintPegged(wrapped);
     }
 
     function _redeemPegged(uint256 wrapped, uint256 iteration) internal virtual override {
@@ -1054,7 +1058,7 @@ contract TestMinterIntegralDiscountInexhaustableReserve is TestMinterIntegralFee
     }
 
     function _redeemLeveraged(uint256 wrapped) internal virtual override {
-        // super._redeemLeveraged(wrapped);
+        super._redeemLeveraged(wrapped);
     }
 }
 

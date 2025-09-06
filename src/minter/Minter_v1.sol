@@ -551,6 +551,7 @@ contract Minter_v1 is
         price = oracle.price;
         rate = oracle.rate;
         peggedRedeemed = peggedIn;
+        // TODO: add redeemable check here - same for other dryrun functions
         (wrappedFee, wrappedDiscount, wrappedCollateralReturned, ) = _redeemPeggedAdjustments(
             $.redeemPeggedIncentiveConfig,
             peggedIn,
@@ -1419,7 +1420,7 @@ contract Minter_v1 is
         console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingFee$);
 
         // return the results
-        peggedMinted = _roundHalfEven(w.minted$, 1 ether);
+        peggedMinted = w.minted$ / 1 ether;
         console2.log("peggedMinted=%s", peggedMinted);
         // first do calculations in underlying collateral
         underlyingCollateralAdded = _roundHalfEven(w.underlyingCollateralAdded$, 1 ether);
@@ -1499,11 +1500,6 @@ contract Minter_v1 is
         // console2.log("   cr.price=%s, .rate=%s", cr.price, cr.rate);
         // console2.log("   peggedTokenBalance_=%s", cr.peggedTokenBalance);
         // console2.log("   reserveWrappedCapacity=%s)...", reserveWrappedCapacity);
-
-        // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        if (cr.peggedTokenBalance == 0) {
-            revert ActionPaused();
-        }
 
         RedeemPeggedWorkspace memory w;
         w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
@@ -1626,7 +1622,7 @@ contract Minter_v1 is
         // console2.log("wrappedDiscount=%s", wrappedDiscount);
         uint256 underlyingCollateralRemoved$ = cr.underlyingCollateral * 1 ether - w.underlyingCollateralHeld$;
         // console2.log("underlyingCollateralRemoved$=%s", underlyingCollateralRemoved$);
-        underlyingCollateralRemoved = underlyingCollateralRemoved$ / 1 ether;
+        underlyingCollateralRemoved = _roundHalfEven(underlyingCollateralRemoved$, 1 ether);
         // console2.log("underlyingCollateralRemoved=%s", underlyingCollateralRemoved);
         wrappedCollateralReturned = underlyingCollateralRemoved$ / cr.rate + wrappedDiscount - wrappedFee;
         // console2.log("wrappedCollateralReturned=%s", wrappedCollateralReturned);
