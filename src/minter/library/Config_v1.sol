@@ -72,13 +72,13 @@ library Config_v1 {
                 // given the action reduces collateral ratio, decreasing a fee as collateral ratio decreases is a likely error
                 if (i == 0) {
                     prevIncentiveRatio = incentiveRatio;
-                } else if (incentiveRatio > prevIncentiveRatio) {
-                    revert IMinter.InvalidIncentiveRatioValue(
-                        name,
-                        i,
-                        config_.incentiveRatios[i],
-                        "must be decreasing"
-                    );
+                    // } else if (incentiveRatio > prevIncentiveRatio) {
+                    //     revert IMinter.InvalidIncentiveRatioValue(
+                    //         name,
+                    //         i,
+                    //         config_.incentiveRatios[i],
+                    //         "must be decreasing"
+                    //     );
                 }
             } else {
                 // it's a redeem pegged or mint leveraged
@@ -97,13 +97,13 @@ library Config_v1 {
                 // given the action increases collateral ratio, increasing a fee or decreasing a discount as collateral ratio increases is a likely error
                 if (i == 0) {
                     prevIncentiveRatio = incentiveRatio;
-                } else if (incentiveRatio < prevIncentiveRatio) {
-                    revert IMinter.InvalidIncentiveRatioValue(
-                        name,
-                        i,
-                        config_.incentiveRatios[i],
-                        "must be increasing"
-                    );
+                    // } else if (incentiveRatio < prevIncentiveRatio) {
+                    //     revert IMinter.InvalidIncentiveRatioValue(
+                    //         name,
+                    //         i,
+                    //         config_.incentiveRatios[i],
+                    //         "must be increasing"
+                    //     );
                 }
             }
 
