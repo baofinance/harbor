@@ -432,6 +432,21 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         m.leveragedPrice = IMinter(minter).leveragedTokenPrice();
     }
 
+    function _dump(Measures memory m) internal pure {
+        console2.log("userPegged:        ", m.userPegged);
+        console2.log("userLeveraged:     ", m.userLeveraged);
+        console2.log("userWrapped:       ", m.userWrapped);
+        console2.log("minterPegged:      ", m.minterPegged);
+        console2.log("minterLeveraged:   ", m.minterLeveraged);
+        console2.log("minterWrapped:     ", m.minterWrapped);
+        console2.log("minterUnderlying:  ", m.minterUnderlying);
+        console2.log("feeWrapped:        ", m.feeWrapped);
+        console2.log("reservePoolWrapped:", m.reservePoolWrapped);
+        console2.log("collateralRatio:   ", m.collateralRatio);
+        console2.log("peggedPrice:       ", m.peggedPrice);
+        console2.log("leveragedPrice:    ", m.leveragedPrice);
+    }
+
     function _mintPegged(uint256 wrapped) internal virtual;
     function _redeemPegged(uint256 wrapped, uint256 iteration) internal virtual;
     function _mintLeveraged(uint256 wrapped) internal virtual;
@@ -778,23 +793,31 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
     function _mintPegged(uint256 wrapped) internal virtual override {
         // MINT PEGGED
+        _dump(_measure());
         uint256 snap = vm.snapshotState();
         uint256 mintedSteps = 0;
         uint256 wrappedStep = wrapped / steps;
         assertNear(wrapped, wrappedStep * steps, steps, "mp passed in the correct wrapped");
         for (uint i = 0; i < steps; i++) {
+            console2.log("vvv step %s", i);
             vm.prank(user);
             // mintedSteps += IMinter(minter).mintPeggedToken(wrappedStep, user, 0);
-            mintedSteps += mintPeggedIgnoreMintZeroAmount(wrappedStep, user);
-            // -----------------------------------------------------------------
+            uint256 minted1 = mintPeggedIgnoreMintZeroAmount(wrappedStep, user);
+            // ----------------------------------------------------------------
+            mintedSteps += minted1;
+
+            console2.log("^^^ step %s, minted=%s, mintedSteps=%s", i, minted1, mintedSteps);
         }
         Measures memory postSteps = _measure();
         vm.revertToState(snap);
-        vm.prank(user);
+        _dump(_measure());
+
         // uint256 minted = IMinter(minter).mintPeggedToken(wrapped, user, 0);
+        console2.log("vvv all");
+        vm.prank(user);
         uint256 minted = mintPeggedIgnoreMintZeroAmount(wrapped, user);
         // ---------------------------------------------------------------
-        console2.log("minted=%s", minted);
+        console2.log("^^^ minted=%s", minted);
         Measures memory post = _measure();
 
         uint256 pegTolAbs = 32;
@@ -895,7 +918,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         try IMinter(minter).redeemLeveragedToken(wrapped, user, 0) returns (uint256 m) {
             minted = m;
         } catch (bytes memory reason) {
-            console2.log("mp revert");
+            console2.log("rl revert");
             console2.logBytes(reason);
             (int256 feeRatio, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(0);
             require(

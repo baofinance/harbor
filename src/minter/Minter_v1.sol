@@ -1367,7 +1367,7 @@ contract Minter_v1 is
                 collateralInBand$ = Math.mulDiv(
                     w.underlyingCollateralHeld$ * cr.price - bandLowerBound * w.peggedTokenHeld$,
                     1e36,
-                    (cr.price * phi$)
+                    cr.price * phi$
                 );
                 console2.log("collateralInBand$=%s", collateralInBand$);
 
@@ -1419,10 +1419,10 @@ contract Minter_v1 is
         console2.log("w.underlyingCollateralInLeft$=%s", w.underlyingFee$);
 
         // return the results
-        peggedMinted = w.minted$ / 1 ether;
+        peggedMinted = _roundHalfEven(w.minted$, 1 ether);
         console2.log("peggedMinted=%s", peggedMinted);
         // first do calculations in underlying collateral
-        underlyingCollateralAdded = w.underlyingCollateralAdded$ / 1 ether;
+        underlyingCollateralAdded = _roundHalfEven(w.underlyingCollateralAdded$, 1 ether);
         console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
         // then wrapped collateral based on the underlying collateral numbers
         wrappedFee = w.underlyingFee$ / cr.rate;
@@ -1630,23 +1630,6 @@ contract Minter_v1 is
         // console2.log("underlyingCollateralRemoved=%s", underlyingCollateralRemoved);
         wrappedCollateralReturned = underlyingCollateralRemoved$ / cr.rate + wrappedDiscount - wrappedFee;
         // console2.log("wrappedCollateralReturned=%s", wrappedCollateralReturned);
-    }
-
-    function _roundHalfEven(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
-        unchecked {
-            result = numerator / denominator;
-            uint256 remainder = numerator % denominator;
-
-            if (remainder == 0) return result;
-
-            uint256 halfDenominator = denominator >> 1;
-
-            if (remainder > halfDenominator) return result + 1;
-            if (remainder < halfDenominator) return result;
-
-            // exactly half - banker's rounding: round to even
-            return (result & 1) == 1 ? result + 1 : result;
-        }
     }
 
     struct MintLeveragedWorkspace {
@@ -2208,6 +2191,23 @@ contract Minter_v1 is
             if (ratio > _LEVERAGE_RATIO_CAP) {
                 ratio = _LEVERAGE_RATIO_CAP;
             }
+        }
+    }
+
+    function _roundHalfEven(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
+        unchecked {
+            result = numerator / denominator;
+            uint256 remainder = numerator % denominator;
+
+            if (remainder == 0) return result;
+
+            uint256 halfDenominator = denominator >> 1;
+
+            if (remainder > halfDenominator) return result + 1;
+            if (remainder < halfDenominator) return result;
+
+            // exactly half - banker's rounding: round to even
+            return (result & 1) == 1 ? result + 1 : result;
         }
     }
 
