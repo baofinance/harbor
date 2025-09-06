@@ -97,7 +97,7 @@ import {Config_v1} from "src/minter/library/Config_v1.sol";
 /// Harvesting becomes available to be executed, transferring to the stability pools the value accrued by holding wrapped collateral
 /// instead of underlying collateral. A portion of that is handed to the caller of the harvest function as a reward.
 /// @dev Uses UUPS proxy, erc7201 storage
-/// @dev As openzeppelin's validator doesn't currently suppoprt external libraries
+/// @dev As openzeppelin's validator doesn't currently support external libraries
 /// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
 /// we add this:
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
@@ -129,8 +129,8 @@ contract Minter_v1 is
     /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
     uint256 private constant _LEVERAGE_RATIO_CAP = 20 ether;
 
-    uint256 public constant MAX_TOKEN_AMOUNT = 1e36; // 1e36 is the maximum amount of tokens that can be minted or redeemed
-    uint256 public constant MIN_TOKEN_AMOUNT = 1e3; // 1e9 is the minimum amount of tokens that can be minted or redeemed
+    // uint256 public constant MAX_TOKEN_AMOUNT = 1e36; // 1e36 is the maximum amount of tokens that can be minted or redeemed
+    // uint256 public constant MIN_TOKEN_AMOUNT = 1e3; // 1e9 is the minimum amount of tokens that can be minted or redeemed
 
     ////////////////
     // Immutables //
@@ -314,7 +314,7 @@ contract Minter_v1 is
     }
 
     /// @inheritdoc IMinter
-    function config() public view returns (Config memory config_) {
+    function config() external view returns (Config memory config_) {
         MinterStorage storage $ = _getMinterStorage();
         config_.mintPeggedIncentiveConfig = Config_v1.copyBandsBack($.mintPeggedIncentiveConfig);
         config_.redeemPeggedIncentiveConfig = Config_v1.copyBandsBack($.redeemPeggedIncentiveConfig);
@@ -438,45 +438,77 @@ contract Minter_v1 is
     // incentive ratios
     // ----------------
 
-    /// @inheritdoc IMinter
-    function mintPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
+    enum ActionType {
+        MintPegged,
+        RedeemPegged,
+        MintLeveraged,
+        RedeemLeveraged
+    }
+
+    function lookupIncentiveRatio(ActionType action) internal view returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
-        ConfigIncentiveLib.ActionIncentive memory config_ = $.mintPeggedIncentiveConfig;
         // solhint-disable-next-line explicit-types
         OracleData memory oracle = _fetchMid($.priceOracle);
-        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
+        uint256 collateralTokenBalance_ = $.underlyingCollateral;
+        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+
+        ConfigIncentiveLib.ActionIncentive memory config_;
+        if (action == ActionType.MintPegged) {
+            config_ = $.mintPeggedIncentiveConfig;
+        } else if (action == ActionType.RedeemPegged) {
+            config_ = $.redeemPeggedIncentiveConfig;
+        } else if (action == ActionType.MintLeveraged) {
+            config_ = $.mintLeveragedIncentiveConfig;
+        } else if (action == ActionType.RedeemLeveraged) {
+            config_ = $.redeemLeveragedIncentiveConfig;
+        }
+        uint band = _findBand(config_, collateralTokenBalance_, oracle.price, peggedTokenBalance_, false);
         incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+    }
+
+    /// @inheritdoc IMinter
+    function mintPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
+        // MinterStorage storage $ = _getMinterStorage();
+        // ConfigIncentiveLib.ActionIncentive memory config_ = $.mintPeggedIncentiveConfig;
+        // // solhint-disable-next-line explicit-types
+        // OracleData memory oracle = _fetchMid($.priceOracle);
+        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
+        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+        incentiveRatio = lookupIncentiveRatio(ActionType.MintPegged);
     }
 
     /// @inheritdoc IMinter
     function redeemPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        MinterStorage storage $ = _getMinterStorage();
-        ConfigIncentiveLib.ActionIncentive memory config_ = $.redeemPeggedIncentiveConfig;
-        // solhint-disable-next-line explicit-types
-        OracleData memory oracle = _fetchMax($.priceOracle);
-        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
-        incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+        // MinterStorage storage $ = _getMinterStorage();
+        // ConfigIncentiveLib.ActionIncentive memory config_ = $.redeemPeggedIncentiveConfig;
+        // // solhint-disable-next-line explicit-types
+        // OracleData memory oracle = _fetchMax($.priceOracle);
+        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
+        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+        incentiveRatio = lookupIncentiveRatio(ActionType.RedeemPegged);
     }
 
     /// @inheritdoc IMinter
     function mintLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        MinterStorage storage $ = _getMinterStorage();
-        ConfigIncentiveLib.ActionIncentive memory config_ = $.mintLeveragedIncentiveConfig;
-        // just want the fee/bonus at the current collateral
-        OracleData memory oracle = _fetchMid($.priceOracle);
-        // solhint-disable-next-line explicit-types
-        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
-        incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+        // MinterStorage storage $ = _getMinterStorage();
+        // ConfigIncentiveLib.ActionIncentive memory config_ = $.mintLeveragedIncentiveConfig;
+        // // just want the fee/bonus at the current collateral
+        // OracleData memory oracle = _fetchMid($.priceOracle);
+        // // solhint-disable-next-line explicit-types
+        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
+        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+        incentiveRatio = lookupIncentiveRatio(ActionType.MintLeveraged);
     }
 
     /// @inheritdoc IMinter
     function redeemLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        MinterStorage storage $ = _getMinterStorage();
-        ConfigIncentiveLib.ActionIncentive memory config_ = $.redeemLeveragedIncentiveConfig;
-        OracleData memory oracle = _fetchMin($.priceOracle);
-        // solhint-disable-next-line explicit-types
-        uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
-        incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+        // MinterStorage storage $ = _getMinterStorage();
+        // ConfigIncentiveLib.ActionIncentive memory config_ = $.redeemLeveragedIncentiveConfig;
+        // OracleData memory oracle = _fetchMin($.priceOracle);
+        // // solhint-disable-next-line explicit-types
+        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
+        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
+        incentiveRatio = lookupIncentiveRatio(ActionType.RedeemLeveraged);
     }
 
     // dry run functions
@@ -515,7 +547,7 @@ contract Minter_v1 is
     function redeemPeggedTokenDryRun(
         uint256 peggedIn
     )
-        public
+        external
         view
         returns (
             int256 incentiveRatio,
@@ -923,7 +955,7 @@ contract Minter_v1 is
         uint256 peggedForCollateral,
         uint256 peggedForLeveraged,
         address receiver
-    ) public nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
+    ) external nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
         if (peggedForCollateral + peggedForLeveraged > 0) {
             MinterStorage storage $ = _getMinterStorage();
             uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -2028,28 +2060,31 @@ contract Minter_v1 is
         }
     }
 
+    // function _roundHalfEven(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
+    //     unchecked {
+    //         result = numerator / denominator;
+    //         uint256 remainder = numerator % denominator;
+
+    //         if (remainder == 0) return result;
+
+    //         uint256 halfDenominator = denominator >> 1;
+
+    //         if (remainder > halfDenominator) return result + 1;
+    //         if (remainder < halfDenominator) return result;
+
+    //         // exactly half - banker's rounding: round to even
+    //         return (result & 1) == 1 ? result + 1 : result;
+    //     }
+    // }
+
     function _roundHalfEven(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
         unchecked {
             result = numerator / denominator;
             uint256 remainder = numerator % denominator;
 
-            if (remainder == 0) return result;
-
             uint256 halfDenominator = denominator >> 1;
 
-            if (remainder > halfDenominator) return result + 1;
-            if (remainder < halfDenominator) return result;
-
-            // exactly half - banker's rounding: round to even
-            return (result & 1) == 1 ? result + 1 : result;
-        }
-    }
-
-    function _roundHalfUp(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
-        unchecked {
-            result = numerator / denominator;
-            uint256 remainder = numerator % denominator;
-            if (remainder > denominator >> 1) result += 1;
+            if (remainder >= halfDenominator) result += 1;
         }
     }
 
