@@ -581,12 +581,12 @@ contract VotingEscrow_v1 is
             lastPoint.slope += dslope;
 
             // Handle underflow
-            if (lastPoint.bias < 0) // This can happen
-            {
+            if (lastPoint.bias < 0) {
+                // This can happen
                 lastPoint.bias = 0;
             }
-            if (lastPoint.slope < 0) // This cannot happen - just in case
-            {
+            if (lastPoint.slope < 0) {
+                // This cannot happen - just in case
                 lastPoint.slope = 0;
             }
 

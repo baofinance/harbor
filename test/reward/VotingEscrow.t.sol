@@ -1210,7 +1210,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
     function test_RevertWhen_DoubleInitialization() public {
         vyper
             ? vm.expectRevert("already initialized")
-            : vm.expectRevert /*Initializable.InvalidInitialization.selector*/();
+            : vm.expectRevert/*Initializable.InvalidInitialization.selector*/ ();
         vm.prank(admin, admin);
         _initialize(admin, governanceToken, "Test", "TEST", "1.0.0");
     }

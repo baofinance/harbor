@@ -1216,10 +1216,8 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
             "harvester should get bounty"
         );
         uint256 remaining = harvestableAmount -
-            (harvestableAmount * cut) /
-            1 ether -
-            (harvestableAmount * bounty) /
-            1 ether;
+            (harvestableAmount * cut) / 1 ether -
+            (harvestableAmount * bounty) / 1 ether;
         assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
             (remaining * 3) / 5,

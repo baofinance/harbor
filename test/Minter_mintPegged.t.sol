@@ -429,8 +429,7 @@ contract TestMinterMintPegged is TestMinterMint {
 
         // mint from all of balance
         mintPeggedFee =
-            (int256(senderCollateralBefore) * ultimate(config.mintPeggedIncentiveConfig.incentiveRatios)) /
-            1 ether;
+            (int256(senderCollateralBefore) * ultimate(config.mintPeggedIncentiveConfig.incentiveRatios)) / 1 ether;
         expectedPeggedTokenOut = uint256((int256(senderCollateralBefore) - mintPeggedFee) * int256(price)) / 1 ether;
         _mintPeggedToken(type(uint256).max);
         // 5 ------------------------------
