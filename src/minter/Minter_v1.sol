@@ -326,6 +326,7 @@ contract Minter_v1 is
                 // and we're not going to use uint(-1) because that is often used for something else.
                 // in 256 bits we have up to 77 digits (before and after the poinyt) to represent big numbers
                 // BUT, there are two possibilities:
+                // slither-disable-next-line incorrect-equality
                 if (oracle.price == 0) {
                     // 1) there is collateral, but the price is 0,
                     //    so we get 0 / 0 which we are defining to be a very big number, in this case
@@ -476,6 +477,7 @@ contract Minter_v1 is
             wrappedCollateralIn,
             CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance)
         );
+        // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralTaken == 0
             ? int256(1 ether)
             : int256(wrappedFee * 1 ether) / int256(wrappedCollateralTaken);
@@ -1129,6 +1131,7 @@ contract Minter_v1 is
     /// @param receiver The address of the receiver.
 
     function _mintLeveragedToken(uint256 wrappedCollateralIn, uint256 leveragedOut, address receiver) private {
+        // slither-disable-next-line incorrect-equality
         if (leveragedOut == 0) {
             revert ReturnZeroAmount(LEVERAGED_TOKEN);
         }
@@ -1239,11 +1242,13 @@ contract Minter_v1 is
         )
     {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
+        // slither-disable-next-line incorrect-equality
         if (cr.peggedTokenBalance == 0) {
             revert ActionPaused();
         }
         // find the band and it's lower bound where the current collateral ratio is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
+        // slither-disable-next-line uninitialized-local
         MintPeggedWorkspace memory w;
         uint band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false); // solhint-disable-line explicit-types
         uint256 peggedTokenPrice$ = _peggedTokenPrice$(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
@@ -1362,6 +1367,7 @@ contract Minter_v1 is
             uint256 underlyingCollateralRemoved
         )
     {
+        // slither-disable-next-line uninitialized-local
         RedeemPeggedWorkspace memory w;
         uint band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, true);
         // simulate redeeming until we run out of pegged tokens, adding the fee & bonus as we go
@@ -1473,6 +1479,7 @@ contract Minter_v1 is
     /// @return leveragedMinted The amount of leveraged tokens minted, after fees and discounts are taken into account.
     /// @return underlyingCollateralAdded the collateral added to the balance to return the wrappedCollateralIn.
 
+    // slither-disable-next-line cyclomatic-complexity
     function _mintLeveragedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 wrappedCollateralIn,
@@ -1494,6 +1501,7 @@ contract Minter_v1 is
             revert ActionPaused();
         }
 
+        // slither-disable-next-line uninitialized-local
         MintLeveragedWorkspace memory w;
         {
             (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
@@ -1523,7 +1531,7 @@ contract Minter_v1 is
         while (w.underlyingCollateralInLeft$ > 0) {
             // we calculate the collateral and discount for the current band
             uint256 collateralInBand$;
-            uint256 bandDiscount$;
+            uint256 bandDiscount$ = 0;
             {
                 int256 incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
                 // get the fee and discount ratios
@@ -1645,9 +1653,11 @@ contract Minter_v1 is
             uint256 underlyingCollateralRemoved
         )
     {
+        // slither-disable-next-line incorrect-equality
         if (cr.peggedTokenBalance == 0) {
             revert ActionPaused();
         }
+        // slither-disable-next-line uninitialized-local
         RedeemLeveragedWorkspace memory w;
 
         // we can't meaningfully do anything with leveraged tokens as their value is zero
@@ -1660,6 +1670,7 @@ contract Minter_v1 is
         );
         // we know leveraged token balance is > 0
         uint256 leveragedPrice$ = _leveragedTokenPrice$(collateralValue$, peggedValue$, _leveragedTokenBalance());
+        // slither-disable-next-line incorrect-equality
         if (leveragedPrice$ == 0) {
             return (0, 0, 0, 0);
         }
@@ -1697,6 +1708,7 @@ contract Minter_v1 is
             w.underlyingCollateralInLeft$ -= collateralInBand$;
 
             // If we fully traversed this band's remaining distance (collateralInBand$ == segmentTarget$) descend one band.
+            // slither-disable-next-line incorrect-equality
             if (w.underlyingCollateralInLeft$ == 0 || band == 0 || bandLowerBound == 1 ether) {
                 break;
             }
