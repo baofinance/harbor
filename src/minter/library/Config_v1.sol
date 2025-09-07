@@ -13,6 +13,11 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 library Config_v1 {
     using ConfigIncentiveLib for ConfigIncentiveLib.ActionIncentive;
 
+    uint constant MintPegged = 0;
+    uint constant RedeemPegged = 1;
+    uint constant MintLeveraged = 2;
+    uint constant RedeemLeveraged = 3;
+
     /// @notice Checks a given incentive config for errors and returns it ready for storage
     /// @param name Label for error messages
     /// @param config_ The user friendly config being checked and copied
@@ -22,10 +27,10 @@ library Config_v1 {
     /// @return out the storage efficient config
     // slither-disable-next-line cyclomatic-complexity as this code is simple in what it tries to do, it's just that there are a few checks
     function checkAndCopyBands(
-        string calldata name,
+        string memory name,
         IMinter.IncentiveConfig calldata config_,
         bool disallowNotDiscount
-    ) external pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
+    ) internal pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
         // check the array sizes match
         if (config_.incentiveRatios.length < 1) {
             revert IMinter.TooFewIncentiveRatios(name, config_.incentiveRatios.length, 1);
@@ -141,12 +146,26 @@ library Config_v1 {
         return out;
     }
 
+    function checkAndCopyIncentives(
+        IMinter.Config calldata config_,
+        ConfigIncentiveLib.ActionIncentive[4] storage out
+    ) external {
+        out[MintPegged] = Config_v1.checkAndCopyBands("mint pegged", config_.mintPeggedIncentiveConfig, true);
+        out[RedeemPegged] = Config_v1.checkAndCopyBands("redeem pegged", config_.redeemPeggedIncentiveConfig, false);
+        out[MintLeveraged] = Config_v1.checkAndCopyBands("mint leveraged", config_.mintLeveragedIncentiveConfig, false);
+        out[RedeemLeveraged] = Config_v1.checkAndCopyBands(
+            "redeem leveraged",
+            config_.redeemLeveragedIncentiveConfig,
+            true
+        );
+    }
+
     /// @notice Converts the compact storage format back to the full IncentiveConfig
     /// @param config_ The storage-efficient configuration to convert back
     /// @return out The user-friendly config structure
     function copyBandsBack(
         ConfigIncentiveLib.ActionIncentive memory config_
-    ) external pure returns (IMinter.IncentiveConfig memory out) {
+    ) internal pure returns (IMinter.IncentiveConfig memory out) {
         uint iOut = 0; // solhint-disable-line explicit-types
         uint outBands = ConfigIncentiveLib._collateralRatioBandCount(config_); // solhint-disable-line explicit-types
         uint outBounds = outBands - 1; // solhint-disable-line explicit-types
@@ -166,7 +185,16 @@ library Config_v1 {
         return out;
     }
 
-    function defaultActionIncentive() external pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
+    function copyIncentivesBack(
+        ConfigIncentiveLib.ActionIncentive[4] memory config_
+    ) internal pure returns (IMinter.Config memory out) {
+        out.mintPeggedIncentiveConfig = copyBandsBack(config_[MintPegged]);
+        out.redeemPeggedIncentiveConfig = copyBandsBack(config_[RedeemPegged]);
+        out.mintLeveragedIncentiveConfig = copyBandsBack(config_[MintLeveraged]);
+        out.redeemLeveragedIncentiveConfig = copyBandsBack(config_[RedeemLeveraged]);
+    }
+
+    function defaultActionIncentive() internal pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
         // default config is a single band with no fees, discounts or disallows
         // we need the mandatory depeg boundary at 1 ether
 
@@ -176,5 +204,12 @@ library Config_v1 {
         ConfigIncentiveLib._setCollateralRatioBandCount(out, 2); // two bands: de-pegged and pegged
 
         return out;
+    }
+
+    function defaultIncentive(ConfigIncentiveLib.ActionIncentive[4] storage out) external {
+        out[0] = defaultActionIncentive(); // mint pegged
+        out[1] = defaultActionIncentive(); // redeem pegged
+        out[2] = defaultActionIncentive(); // mint leveraged
+        out[3] = defaultActionIncentive(); // redeem leveraged
     }
 }

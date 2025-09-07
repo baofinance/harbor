@@ -190,14 +190,8 @@ contract Minter_v1 is
         address feeReceiver; //                         160
         //                                             slot
         address priceOracle; //                         160
-        //                                             slot*2
-        ConfigIncentiveLib.ActionIncentive mintPeggedIncentiveConfig;
-        //                                             slot*2
-        ConfigIncentiveLib.ActionIncentive redeemPeggedIncentiveConfig;
-        //                                             slot*2
-        ConfigIncentiveLib.ActionIncentive mintLeveragedIncentiveConfig;
-        //                                             slot*2
-        ConfigIncentiveLib.ActionIncentive redeemLeveragedIncentiveConfig;
+        //                                             slot*2*4
+        ConfigIncentiveLib.ActionIncentive[4] incentiveConfig;
     }
 
     ////////////////////
@@ -218,11 +212,7 @@ contract Minter_v1 is
         $.underlyingCollateral = 0;
 
         // initialise the config to something that works
-        ConfigIncentiveLib.ActionIncentive memory zeroFee = Config_v1.defaultActionIncentive();
-        $.mintPeggedIncentiveConfig = zeroFee;
-        $.redeemPeggedIncentiveConfig = zeroFee;
-        $.mintLeveragedIncentiveConfig = zeroFee;
-        $.redeemLeveragedIncentiveConfig = zeroFee;
+        Config_v1.defaultIncentive($.incentiveConfig);
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -316,10 +306,7 @@ contract Minter_v1 is
     /// @inheritdoc IMinter
     function config() external view returns (Config memory config_) {
         MinterStorage storage $ = _getMinterStorage();
-        config_.mintPeggedIncentiveConfig = Config_v1.copyBandsBack($.mintPeggedIncentiveConfig);
-        config_.redeemPeggedIncentiveConfig = Config_v1.copyBandsBack($.redeemPeggedIncentiveConfig);
-        config_.mintLeveragedIncentiveConfig = Config_v1.copyBandsBack($.mintLeveragedIncentiveConfig);
-        config_.redeemLeveragedIncentiveConfig = Config_v1.copyBandsBack($.redeemLeveragedIncentiveConfig);
+        config_ = Config_v1.copyIncentivesBack($.incentiveConfig);
     }
 
     /// @inheritdoc IMinter
@@ -438,77 +425,36 @@ contract Minter_v1 is
     // incentive ratios
     // ----------------
 
-    enum ActionType {
-        MintPegged,
-        RedeemPegged,
-        MintLeveraged,
-        RedeemLeveraged
-    }
-
-    function lookupIncentiveRatio(ActionType action) internal view returns (int256 incentiveRatio) {
+    function lookupIncentiveRatio(uint action) internal view returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
         // solhint-disable-next-line explicit-types
         OracleData memory oracle = _fetchMid($.priceOracle);
         uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
-        ConfigIncentiveLib.ActionIncentive memory config_;
-        if (action == ActionType.MintPegged) {
-            config_ = $.mintPeggedIncentiveConfig;
-        } else if (action == ActionType.RedeemPegged) {
-            config_ = $.redeemPeggedIncentiveConfig;
-        } else if (action == ActionType.MintLeveraged) {
-            config_ = $.mintLeveragedIncentiveConfig;
-        } else if (action == ActionType.RedeemLeveraged) {
-            config_ = $.redeemLeveragedIncentiveConfig;
-        }
+        ConfigIncentiveLib.ActionIncentive memory config_ = $.incentiveConfig[action];
         uint band = _findBand(config_, collateralTokenBalance_, oracle.price, peggedTokenBalance_, false);
         incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
     }
 
     /// @inheritdoc IMinter
     function mintPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        // MinterStorage storage $ = _getMinterStorage();
-        // ConfigIncentiveLib.ActionIncentive memory config_ = $.mintPeggedIncentiveConfig;
-        // // solhint-disable-next-line explicit-types
-        // OracleData memory oracle = _fetchMid($.priceOracle);
-        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
-        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
-        incentiveRatio = lookupIncentiveRatio(ActionType.MintPegged);
+        incentiveRatio = lookupIncentiveRatio(Config_v1.MintPegged);
     }
 
     /// @inheritdoc IMinter
     function redeemPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        // MinterStorage storage $ = _getMinterStorage();
-        // ConfigIncentiveLib.ActionIncentive memory config_ = $.redeemPeggedIncentiveConfig;
-        // // solhint-disable-next-line explicit-types
-        // OracleData memory oracle = _fetchMax($.priceOracle);
-        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false); // solhint-disable-line explicit-types
-        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
-        incentiveRatio = lookupIncentiveRatio(ActionType.RedeemPegged);
+        incentiveRatio = lookupIncentiveRatio(Config_v1.RedeemPegged);
     }
 
     /// @inheritdoc IMinter
     function mintLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        // MinterStorage storage $ = _getMinterStorage();
-        // ConfigIncentiveLib.ActionIncentive memory config_ = $.mintLeveragedIncentiveConfig;
-        // // just want the fee/bonus at the current collateral
-        // OracleData memory oracle = _fetchMid($.priceOracle);
-        // // solhint-disable-next-line explicit-types
-        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
-        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
-        incentiveRatio = lookupIncentiveRatio(ActionType.MintLeveraged);
+        incentiveRatio = lookupIncentiveRatio(Config_v1.MintLeveraged);
     }
 
     /// @inheritdoc IMinter
     function redeemLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
-        // MinterStorage storage $ = _getMinterStorage();
-        // ConfigIncentiveLib.ActionIncentive memory config_ = $.redeemLeveragedIncentiveConfig;
-        // OracleData memory oracle = _fetchMin($.priceOracle);
-        // // solhint-disable-next-line explicit-types
-        // uint band = _findBand(config_, $.underlyingCollateral, oracle.price, $.peggedTokenBalance, false);
-        // incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
-        incentiveRatio = lookupIncentiveRatio(ActionType.RedeemLeveraged);
+        incentiveRatio = lookupIncentiveRatio(Config_v1.RedeemLeveraged);
     }
 
     // dry run functions
@@ -534,7 +480,7 @@ contract Minter_v1 is
         rate = oracle.rate;
         uint256 underlyingCollateralAdded;
         (wrappedFee, peggedMinted, wrappedCollateralTaken, underlyingCollateralAdded) = _mintPeggedAdjustments(
-            $.mintPeggedIncentiveConfig,
+            $.incentiveConfig[Config_v1.MintPegged],
             wrappedCollateralIn,
             CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance)
         );
@@ -566,7 +512,7 @@ contract Minter_v1 is
         peggedRedeemed = peggedIn;
         // TODO: add redeemable check here - same for other dryrun functions
         (wrappedFee, wrappedDiscount, wrappedCollateralReturned, ) = _redeemPeggedAdjustments(
-            $.redeemPeggedIncentiveConfig,
+            $.incentiveConfig[Config_v1.RedeemPegged],
             peggedIn,
             CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance),
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
@@ -599,7 +545,7 @@ contract Minter_v1 is
         rate = oracle.rate;
         wrappedCollateralUsed = wrappedCollateralIn;
         (wrappedFee, wrappedDiscount, leveragedMinted, ) = _mintLeveragedAdjustments(
-            $.mintLeveragedIncentiveConfig,
+            $.incentiveConfig[Config_v1.MintLeveraged],
             wrappedCollateralIn,
             CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance),
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
@@ -628,7 +574,7 @@ contract Minter_v1 is
         price = oracle.price;
         rate = oracle.rate;
         (wrappedFee, leveragedRedeemed, wrappedCollateralReturned, ) = _redeemLeveragedAdjustments(
-            $.redeemLeveragedIncentiveConfig,
+            $.incentiveConfig[Config_v1.RedeemLeveraged],
             leveragedIn,
             CollateralRatioData($.underlyingCollateral, price, rate, $.peggedTokenBalance)
         );
@@ -676,26 +622,8 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
 
         // incentive config
-        $.mintPeggedIncentiveConfig = Config_v1.checkAndCopyBands(
-            "mint pegged",
-            config_.mintPeggedIncentiveConfig,
-            true
-        );
-        $.redeemPeggedIncentiveConfig = Config_v1.checkAndCopyBands(
-            "redeem pegged",
-            config_.redeemPeggedIncentiveConfig,
-            false
-        );
-        $.mintLeveragedIncentiveConfig = Config_v1.checkAndCopyBands(
-            "mint leveraged",
-            config_.mintLeveragedIncentiveConfig,
-            false
-        );
-        $.redeemLeveragedIncentiveConfig = Config_v1.checkAndCopyBands(
-            "redeem leveraged",
-            config_.redeemLeveragedIncentiveConfig,
-            true
-        );
+
+        Config_v1.checkAndCopyIncentives(config_, $.incentiveConfig);
     }
 
     /// @inheritdoc IMinter
@@ -734,7 +662,7 @@ contract Minter_v1 is
         uint256 wrappedFee;
         uint256 underlyingCollateralAdded;
         (wrappedFee, peggedOut, wrappedCollateralIn, underlyingCollateralAdded) = _mintPeggedAdjustments(
-            $.mintPeggedIncentiveConfig,
+            $.incentiveConfig[Config_v1.MintPegged],
             wrappedCollateralIn,
             CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, peggedTokenBalance_)
         );
@@ -790,7 +718,7 @@ contract Minter_v1 is
         uint256 wrappedDiscount;
         uint256 underlyingCollateralRemoved;
         (wrappedFee, wrappedDiscount, wrappedCollateralOut, underlyingCollateralRemoved) = _redeemPeggedAdjustments(
-            $.redeemPeggedIncentiveConfig,
+            $.incentiveConfig[Config_v1.RedeemPegged],
             peggedIn,
             CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, peggedTokenBalance_),
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
@@ -846,7 +774,7 @@ contract Minter_v1 is
         uint256 underlyingCollateralAdded;
         address reservePool_ = $.reservePool;
         (wrappedFee, wrappedDiscount, leveragedOut, underlyingCollateralAdded) = _mintLeveragedAdjustments(
-            $.mintLeveragedIncentiveConfig,
+            $.incentiveConfig[Config_v1.MintLeveraged],
             wrappedCollateralIn,
             CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, $.peggedTokenBalance),
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
@@ -896,7 +824,7 @@ contract Minter_v1 is
         uint256 wrappedFee;
         uint256 underlyingCollateralOut;
         (wrappedFee, leveragedIn, wrappedCollateralOut, underlyingCollateralOut) = _redeemLeveragedAdjustments(
-            $.redeemLeveragedIncentiveConfig,
+            $.incentiveConfig[Config_v1.RedeemLeveraged],
             leveragedIn,
             CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, $.peggedTokenBalance)
         );
@@ -1598,7 +1526,7 @@ contract Minter_v1 is
                     );
                     w.underlyingDiscount$ += bandDiscount$;
                 } else {
-                    uint256 bandFeeRatio = uint256(bandIncentiveRatio);
+                    // uint256 bandFeeRatio = uint256(bandIncentiveRatio);
                     // console2.log("bandFeeRatio=%s", bandFeeRatio);
                     // uint256 bandFee$$ = (collateralInBand$ * bandFeeRatio);
                     // uint256 bandFee$;
@@ -2122,30 +2050,10 @@ contract Minter_v1 is
         unchecked {
             postDivide$ = preDivide$$ / 1 ether; // scaled to 1e36
             newError$$ = error$$ + (int256(preDivide$$) % 1 ether);
-            // console2.log("w.discountError$$=%s", w.discountError$$);
             // perform a rounding to nearest
             if (newError$$ >= 0.5 ether) {
-                postDivide$ += 1; // rounding up, which is the nearest
-                newError$$ -= 1 ether; // remove that correction
-            }
-        }
-    }
-
-    /// @dev function to accumulate an error term from a divide by 1 ether
-    function _mulDivAccumulateError(
-        uint256 a,
-        uint256 b,
-        uint256 c,
-        int256 error$
-    ) private pure returns (uint256 result, int256 newError$) {
-        unchecked {
-            result = Math.mulDiv(a, b, c);
-            newError$ = error$ + int256(mulmod(a, b, c));
-            // console2.log("w.discountError$$=%s", w.discountError$$);
-            // perform a rounding to nearest
-            if (newError$ >= 0.5 ether) {
-                result += 1; // rounding up, which is the nearest
-                newError$ -= 1 ether; // remove that correction
+                postDivide$ += 1; // rounding up, which is the nearest in this case
+                newError$$ -= 1 ether; // remove the above correction
             }
         }
     }
