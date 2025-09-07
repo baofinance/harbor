@@ -1250,7 +1250,7 @@ contract Minter_v1 is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         // slither-disable-next-line uninitialized-local
         MintPeggedWorkspace memory w;
-        uint band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false); // solhint-disable-line explicit-types
+        w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false); // solhint-disable-line explicit-types
         uint256 peggedTokenPrice$ = _peggedTokenPrice$(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
 
         w.underlyingCollateralInLeft$ = wrappedCollateralIn * cr.rate; // scaled to 1e36
@@ -1260,14 +1260,14 @@ contract Minter_v1 is
         w.minted$ = 0;
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
-            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, band)); // no discounts for this action
+            uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, w.band)); // no discounts for this action
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
             }
 
             uint256 collateralInBand$; // includes the fee
-            uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, band);
+            uint256 bandLowerBound = ConfigIncentiveLib._collateralRatioLowerBounds(config_, w.band);
             if (bandLowerBound <= 1 ether) {
                 // We can never mint enough pegged tokens such that we de-peg and
                 // if we have already de-pegged, we can use all the collateral given
@@ -1304,7 +1304,7 @@ contract Minter_v1 is
             w.minted$ += peggedMintedInBand$;
 
             // slither-disable-next-line incorrect-equality
-            if (w.underlyingCollateralInLeft$ == 0 || band == 0) {
+            if (w.underlyingCollateralInLeft$ == 0 || w.band == 0) {
                 // we have run out of collateral for the simulation
                 // or we are in the lowest band, so no more, so exit
                 break;
@@ -1312,7 +1312,7 @@ contract Minter_v1 is
             // still some collateral left and we're allowed to mint, so simulate
             w.underlyingCollateralHeld$ += collateralAddedInBand$;
             w.peggedTokenHeld$ += peggedMintedInBand$;
-            band--;
+            w.band--;
         }
         // return the results
         peggedMinted = w.minted$ / 1 ether;
