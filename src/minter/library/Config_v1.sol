@@ -13,10 +13,10 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 library Config_v1 {
     using ConfigIncentiveLib for ConfigIncentiveLib.ActionIncentive;
 
-    uint constant MintPegged = 0;
-    uint constant RedeemPegged = 1;
-    uint constant MintLeveraged = 2;
-    uint constant RedeemLeveraged = 3;
+    uint public constant MINT_PEGGED = 0; // solhint-disable-line explicit-types
+    uint public constant REDEEM_PEGGED = 1; // solhint-disable-line explicit-types
+    uint public constant MINT_LEVERAGED = 2; // solhint-disable-line explicit-types
+    uint public constant REDEEM_LEVERAGED = 3; // solhint-disable-line explicit-types
 
     /// @notice Checks a given incentive config for errors and returns it ready for storage
     /// @param name Label for error messages
@@ -150,10 +150,14 @@ library Config_v1 {
         IMinter.Config calldata config_,
         ConfigIncentiveLib.ActionIncentive[4] storage out
     ) external {
-        out[MintPegged] = Config_v1.checkAndCopyBands("mint pegged", config_.mintPeggedIncentiveConfig, true);
-        out[RedeemPegged] = Config_v1.checkAndCopyBands("redeem pegged", config_.redeemPeggedIncentiveConfig, false);
-        out[MintLeveraged] = Config_v1.checkAndCopyBands("mint leveraged", config_.mintLeveragedIncentiveConfig, false);
-        out[RedeemLeveraged] = Config_v1.checkAndCopyBands(
+        out[MINT_PEGGED] = Config_v1.checkAndCopyBands("mint pegged", config_.mintPeggedIncentiveConfig, true);
+        out[REDEEM_PEGGED] = Config_v1.checkAndCopyBands("redeem pegged", config_.redeemPeggedIncentiveConfig, false);
+        out[MINT_LEVERAGED] = Config_v1.checkAndCopyBands(
+            "mint leveraged",
+            config_.mintLeveragedIncentiveConfig,
+            false
+        );
+        out[REDEEM_LEVERAGED] = Config_v1.checkAndCopyBands(
             "redeem leveraged",
             config_.redeemLeveragedIncentiveConfig,
             true
@@ -188,10 +192,10 @@ library Config_v1 {
     function copyIncentivesBack(
         ConfigIncentiveLib.ActionIncentive[4] memory config_
     ) internal pure returns (IMinter.Config memory out) {
-        out.mintPeggedIncentiveConfig = copyBandsBack(config_[MintPegged]);
-        out.redeemPeggedIncentiveConfig = copyBandsBack(config_[RedeemPegged]);
-        out.mintLeveragedIncentiveConfig = copyBandsBack(config_[MintLeveraged]);
-        out.redeemLeveragedIncentiveConfig = copyBandsBack(config_[RedeemLeveraged]);
+        out.mintPeggedIncentiveConfig = copyBandsBack(config_[MINT_PEGGED]);
+        out.redeemPeggedIncentiveConfig = copyBandsBack(config_[REDEEM_PEGGED]);
+        out.mintLeveragedIncentiveConfig = copyBandsBack(config_[MINT_LEVERAGED]);
+        out.redeemLeveragedIncentiveConfig = copyBandsBack(config_[REDEEM_LEVERAGED]);
     }
 
     function defaultActionIncentive() internal pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
