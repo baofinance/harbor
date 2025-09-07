@@ -1261,6 +1261,7 @@ contract Minter_v1 is
         // simulate minting until we run out of collateral, adding the fee & collateral as we go
         while (true) {
             uint256 bandFeeRatio = uint256(ConfigIncentiveLib._incentiveRatio(config_, w.band)); // no discounts for this action
+            // slither-disable-next-line incorrect-equality, the vaule 1 ether corresponds to a specific meaning
             if (bandFeeRatio == 1 ether) {
                 // fee ratio of 100% means the action is disallowed, and in the lowest band
                 break;
