@@ -37,6 +37,29 @@ import {Array} from "test/Array.sol";
 import {ConfigFile} from "test/Config.sol";
 
 abstract contract TestExtras is Test {
+    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff, uint256 maxRelDiff) internal pure returns (bool near) {
+        uint256 absDiff = a > b ? a - b : b - a;
+        if (isNear(a, b, maxAbsDiff)) {
+            return true;
+        }
+
+        uint256 relDiff;
+        uint256 larger = a > b ? a : b;
+        if (larger > 0) {
+            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
+            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
+            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
+        }
+        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
+
+        return (relDiff <= maxRelDiff);
+    }
+
+    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff) internal pure returns (bool near) {
+        uint256 absDiff = a > b ? a - b : b - a;
+        return (absDiff <= maxAbsDiff);
+    }
+
     /**
      * @dev Asserts that two values are within acceptable proximity using either absolute or relative tolerance
      * @param a First value

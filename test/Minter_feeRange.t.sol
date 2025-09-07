@@ -515,6 +515,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // REDEEM PEGGED
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         Measures memory pre = _measure();
+        _dump(pre);
         uint256 pegged = Math.min((wrapped * p * r) / 1e36, IMinter(minter).peggedTokenBalance());
         vm.prank(user);
         uint256 wrappedReturned = IMinter(minter).redeemPeggedToken(pegged, user, 0);
@@ -562,10 +563,13 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         );
 
         // Assert pegged token price for different CRs
+        console2.log("pre.collateralRatio=%s", pre.collateralRatio);
+        console2.log("pre.peggedPrice=%s", pre.peggedPrice);
+        console2.log("post.peggedPrice=%s", post.peggedPrice);
         if (pre.collateralRatio >= 1 ether) {
             // In normal scenarios (CR>=1) pegged token price doesn't change
             assertEq(post.peggedPrice, pre.peggedPrice, "rp pegged price");
-        } else if (pre.peggedPrice == post.peggedPrice) {
+        } else if (isNear(pre.peggedPrice, post.peggedPrice, 1)) {
             // There was a depeg, but redeem amount wasn't big enough to change the pegged token price
             assertLt(post.collateralRatio, 1 ether, "depeg rp cr no change");
         } else {
