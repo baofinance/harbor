@@ -1382,20 +1382,21 @@ contract Minter_v1 is
                 collateralInBand$ = Math.min(w.underlyingCollateralInLeft$, collateralInBand$);
                 // console2.log("collateralInBand$=%s", collateralInBand$);
             }
-            uint256 bandFee$ = (collateralInBand$ * bandFeeRatio) / 1 ether; // scaled to 1e36
-            // console2.log("bandFee$=%s", bandFee$);
-            unchecked {
-                w.feeError$$ += int256((collateralInBand$ * bandFeeRatio) % 1 ether);
-                // console2.log("w.feeError$$=%s", w.feeError$$);
-                // perform a rounding to nearest
-                if (w.feeError$$ >= 0.5 ether) {
-                    bandFee$ += 1; // rounding up, which is the nearest
-                    // console2.log("bandFee$=%s (rounded up)", bandFee$);
-                    w.feeError$$ -= 1 ether; // remove that correction
-                }
-            }
-            // uint256 bandFee$;
+            // uint256 bandFee$ = (collateralInBand$ * bandFeeRatio) / 1 ether; // scaled to 1e36
+            // // console2.log("bandFee$=%s", bandFee$);
+            // unchecked {
+            //     w.feeError$$ += int256((collateralInBand$ * bandFeeRatio) % 1 ether);
+            //     // console2.log("w.feeError$$=%s", w.feeError$$);
+            //     // perform a rounding to nearest
+            //     if (w.feeError$$ >= 0.5 ether) {
+            //         bandFee$ += 1; // rounding up, which is the nearest
+            //         // console2.log("bandFee$=%s (rounded up)", bandFee$);
+            //         w.feeError$$ -= 1 ether; // remove that correction
+            //     }
+            // }
+            uint256 bandFee$;
             // (bandFee$, w.feeError$$) = _mulDivAccumulateError(collateralInBand$, bandFeeRatio, 1 ether, w.feeError$$);
+            (bandFee$, w.feeError$$) = _divAccumulateError(collateralInBand$ * bandFeeRatio, w.feeError$$);
             w.underlyingFee$ += bandFee$;
             // console2.log("w.underlyingFee$=%s", w.underlyingFee$);
             uint256 collateralAddedInBand$ = collateralInBand$ - bandFee$;
@@ -1440,42 +1441,6 @@ contract Minter_v1 is
         // console2.log("wrappedFee=%s", wrappedFee);
         maxWrappedCollateralIn = (w.underlyingCollateralAdded$ + w.underlyingFee$) / cr.rate;
         // console2.log("maxWrappedCollateralIn=%s", maxWrappedCollateralIn);
-    }
-
-    /// @dev function to accumulate an error term from a divide by 1 ether
-    function _divAccumulateError(
-        uint256 preDivide$$,
-        int256 error$$
-    ) private pure returns (uint256 postDivide$, int256 newError$$) {
-        unchecked {
-            postDivide$ = preDivide$$ / 1 ether; // scaled to 1e36
-            newError$$ = error$$ + (int256(preDivide$$) % 1 ether);
-            // console2.log("w.discountError$$=%s", w.discountError$$);
-            // perform a rounding to nearest
-            if (newError$$ >= 0.5 ether) {
-                postDivide$ += 1; // rounding up, which is the nearest
-                newError$$ -= 1 ether; // remove that correction
-            }
-        }
-    }
-
-    /// @dev function to accumulate an error term from a divide by 1 ether
-    function _mulDivAccumulateError(
-        uint256 a,
-        uint256 b,
-        uint256 c,
-        int256 error$
-    ) private pure returns (uint256 result, int256 newError$) {
-        unchecked {
-            result = Math.mulDiv(a, b, c);
-            newError$ = error$ + int256(mulmod(a, b, c));
-            // console2.log("w.discountError$$=%s", w.discountError$$);
-            // perform a rounding to nearest
-            if (newError$ >= 0.5 ether) {
-                result += 1; // rounding up, which is the nearest
-                newError$ -= 1 ether; // remove that correction
-            }
-        }
     }
 
     struct RedeemPeggedWorkspace {
@@ -1588,24 +1553,22 @@ contract Minter_v1 is
 
             {
                 // we now switch to calculations in collateral
-                uint256 collateralInBand$$ = Math.mulDiv(peggedInBand$, peggedPrice$, cr.price);
-                uint256 collateralInBand$;
-                unchecked {
-                    collateralInBand$ = collateralInBand$$ / 1 ether;
-                    w.collateralHeldError$$ += int256(collateralInBand$$) % 1 ether;
-                    if (w.collateralHeldError$$ >= 0.5 ether) {
-                        collateralInBand$ += 1; // rounding up, which is the nearest
-                        w.collateralHeldError$$ -= 1 ether; // remove that correction
-                    }
-                }
-
+                // uint256 collateralInBand$$ = Math.mulDiv(peggedInBand$, peggedPrice$, cr.price);
                 // uint256 collateralInBand$;
-                // (collateralInBand$, w.collateralHeldError$$) = _mulDivAccumulateError(
-                //     peggedInBand$,
-                //     peggedPrice$,
-                //     cr.price,
-                //     w.collateralHeldError$$
-                // );
+                // unchecked {
+                //     collateralInBand$ = collateralInBand$$ / 1 ether;
+                //     w.collateralHeldError$$ += int256(collateralInBand$$) % 1 ether;
+                //     if (w.collateralHeldError$$ >= 0.5 ether) {
+                //         collateralInBand$ += 1; // rounding up, which is the nearest
+                //         w.collateralHeldError$$ -= 1 ether; // remove that correction
+                //     }
+                // }
+
+                uint256 collateralInBand$;
+                (collateralInBand$, w.collateralHeldError$$) = _divAccumulateError(
+                    Math.mulDiv(peggedInBand$, peggedPrice$, cr.price),
+                    w.collateralHeldError$$
+                );
                 // console2.log("collateralInBand$=%s", collateralInBand$);
 
                 // tally the fee or discount - these values have no effect at the moment:
@@ -1615,51 +1578,47 @@ contract Minter_v1 is
                 if (bandIncentiveRatio < 0) {
                     uint256 bandDiscountRatio = uint256(-bandIncentiveRatio);
                     // console2.log("bandDiscountRatio=%s", bandDiscountRatio);
-                    uint256 bandDiscount$$ = (collateralInBand$ * bandDiscountRatio);
-                    uint256 bandDiscount$;
-                    // console2.log("bandDiscount$=%s", bandDiscount$);
-                    unchecked {
-                        bandDiscount$ = bandDiscount$$ / 1 ether; // scaled to 1e36
-                        w.discountError$$ += int256(bandDiscount$$) % 1 ether;
-                        // console2.log("w.discountError$$=%s", w.discountError$$);
-                        // perform a rounding to nearest
-                        if (w.discountError$$ >= 0.5 ether) {
-                            bandDiscount$ += 1; // rounding up, which is the nearest
-                            w.discountError$$ -= 1 ether; // remove that correction
-                        }
-                    }
+                    // uint256 bandDiscount$$ = (collateralInBand$ * bandDiscountRatio);
                     // uint256 bandDiscount$;
-                    // (bandDiscount$, w.discountError$$) = _mulDivAccumulateError(
-                    //     collateralInBand$,
-                    //     bandDiscountRatio,
-                    //     1 ether,
-                    //     w.discountError$$
-                    // );
+                    // // console2.log("bandDiscount$=%s", bandDiscount$);
+                    // unchecked {
+                    //     bandDiscount$ = bandDiscount$$ / 1 ether; // scaled to 1e36
+                    //     w.discountError$$ += int256(bandDiscount$$) % 1 ether;
+                    //     // console2.log("w.discountError$$=%s", w.discountError$$);
+                    //     // perform a rounding to nearest
+                    //     if (w.discountError$$ >= 0.5 ether) {
+                    //         bandDiscount$ += 1; // rounding up, which is the nearest
+                    //         w.discountError$$ -= 1 ether; // remove that correction
+                    //     }
+                    // }
+                    uint256 bandDiscount$;
+                    (bandDiscount$, w.discountError$$) = _divAccumulateError(
+                        collateralInBand$ * bandDiscountRatio,
+                        w.discountError$$
+                    );
                     w.underlyingDiscount$ += bandDiscount$;
                 } else {
                     uint256 bandFeeRatio = uint256(bandIncentiveRatio);
                     // console2.log("bandFeeRatio=%s", bandFeeRatio);
-                    uint256 bandFee$$ = (collateralInBand$ * bandFeeRatio);
-                    uint256 bandFee$;
-                    // console2.log("bandFee$=%s", bandFee$);
-                    unchecked {
-                        bandFee$ = bandFee$$ / 1 ether; // scaled to 1e36
-                        w.feeError$$ += int256(bandFee$$ % 1 ether);
-                        // console2.log("w.feeError$$=%s", w.feeError$$);
-                        // perform a rounding to nearest
-                        if (w.feeError$$ >= 0.5 ether) {
-                            bandFee$ += 1; // rounding up, which is the nearest
-                            // console2.log("bandFee$=%s (rounded up)", bandFee$);
-                            w.feeError$$ -= 1 ether; // remove that correction
-                        }
-                    }
+                    // uint256 bandFee$$ = (collateralInBand$ * bandFeeRatio);
                     // uint256 bandFee$;
-                    // (bandFee$, w.feeError$$) = _mulDivAccumulateError(
-                    //     collateralInBand$,
-                    //     uint256(bandIncentiveRatio),
-                    //     1 ether,
-                    //     w.feeError$$
-                    // );
+                    // // console2.log("bandFee$=%s", bandFee$);
+                    // unchecked {
+                    //     bandFee$ = bandFee$$ / 1 ether; // scaled to 1e36
+                    //     w.feeError$$ += int256(bandFee$$ % 1 ether);
+                    //     // console2.log("w.feeError$$=%s", w.feeError$$);
+                    //     // perform a rounding to nearest
+                    //     if (w.feeError$$ >= 0.5 ether) {
+                    //         bandFee$ += 1; // rounding up, which is the nearest
+                    //         // console2.log("bandFee$=%s (rounded up)", bandFee$);
+                    //         w.feeError$$ -= 1 ether; // remove that correction
+                    //     }
+                    // }
+                    uint256 bandFee$;
+                    (bandFee$, w.feeError$$) = _divAccumulateError(
+                        collateralInBand$ * uint256(bandIncentiveRatio),
+                        w.feeError$$
+                    );
                     w.underlyingFee$ += bandFee$;
                     // console2.log("w.underlyingFee$=%s", w.underlyingFee$);
                 }
@@ -2152,6 +2111,42 @@ contract Minter_v1 is
             uint256 halfDenominator = denominator >> 1;
 
             if (remainder >= halfDenominator) result += 1;
+        }
+    }
+
+    /// @dev function to accumulate an error term from a divide by 1 ether
+    function _divAccumulateError(
+        uint256 preDivide$$,
+        int256 error$$
+    ) private pure returns (uint256 postDivide$, int256 newError$$) {
+        unchecked {
+            postDivide$ = preDivide$$ / 1 ether; // scaled to 1e36
+            newError$$ = error$$ + (int256(preDivide$$) % 1 ether);
+            // console2.log("w.discountError$$=%s", w.discountError$$);
+            // perform a rounding to nearest
+            if (newError$$ >= 0.5 ether) {
+                postDivide$ += 1; // rounding up, which is the nearest
+                newError$$ -= 1 ether; // remove that correction
+            }
+        }
+    }
+
+    /// @dev function to accumulate an error term from a divide by 1 ether
+    function _mulDivAccumulateError(
+        uint256 a,
+        uint256 b,
+        uint256 c,
+        int256 error$
+    ) private pure returns (uint256 result, int256 newError$) {
+        unchecked {
+            result = Math.mulDiv(a, b, c);
+            newError$ = error$ + int256(mulmod(a, b, c));
+            // console2.log("w.discountError$$=%s", w.discountError$$);
+            // perform a rounding to nearest
+            if (newError$ >= 0.5 ether) {
+                result += 1; // rounding up, which is the nearest
+                newError$ -= 1 ether; // remove that correction
+            }
         }
     }
 
