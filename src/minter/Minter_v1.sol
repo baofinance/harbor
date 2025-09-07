@@ -660,7 +660,10 @@ contract Minter_v1 is
         uint256 underlying = $.underlyingCollateral;
         uint256 wrapped = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
         OracleData memory oracle = _fetchMid($.priceOracle);
-        wrapped = (wrapped * oracle.rate) / 1 ether;
+        wrapped = (wrapped * oracle.rate);
+        unchecked {
+            wrapped /= 1 ether;
+        }
         emit Reset(underlying, wrapped);
         $.underlyingCollateral = wrapped;
     }
@@ -758,7 +761,6 @@ contract Minter_v1 is
         // update our records
         $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralAdded;
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
-        // console2.log("$.peggedTokenBalance=%s", $.peggedTokenBalance);
     }
 
     /// @inheritdoc IMinter
@@ -947,7 +949,10 @@ contract Minter_v1 is
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
-        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralIn$ / 1 ether;
+        unchecked {
+            underlyingCollateralIn$ /= 1 ether;
+        }
+        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralIn$;
     }
 
     // @inheritdoc IMinter
@@ -971,12 +976,18 @@ contract Minter_v1 is
             OracleData memory oracle = _fetchMax($.priceOracle);
             if (peggedForCollateral > 0) {
                 uint256 underlyingCollateral_ = $.underlyingCollateral;
-                uint256 underlyingCollateralOut$ = (peggedForCollateral *
-                    _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price)) / oracle.price;
+                uint256 underlyingCollateralOut$ = Math.mulDiv(
+                    peggedForCollateral,
+                    _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price),
+                    oracle.price
+                );
                 wrappedCollateralOut = underlyingCollateralOut$ / oracle.rate;
                 // return the collateral
                 IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
-                $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut$ / 1 ether;
+                unchecked {
+                    underlyingCollateralOut$ /= 1 ether;
+                }
+                $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut$;
             }
 
             if (peggedForLeveraged > 0) {
@@ -1082,7 +1093,10 @@ contract Minter_v1 is
             _redeemLeveragedToken(leveragedIn, collateralOut, receiver);
 
             // update our records
-            $.underlyingCollateral -= underlyingCollateralOut$ / 1 ether;
+            unchecked {
+                underlyingCollateralOut$ /= 1 ether;
+            }
+            $.underlyingCollateral -= underlyingCollateralOut$;
         }
     }
 
@@ -1346,11 +1360,6 @@ contract Minter_v1 is
                 // We can never mint enough pegged tokens such that we de-peg and
                 // if we have already de-pegged, we can use all the collateral given
                 collateralInBand$ = w.underlyingCollateralInLeft$;
-                // console2.log(
-                //     "last possible band collateralInBand$=%s (CR=%s)",
-                //     collateralInBand$,
-                //     _collateralRatio(w.underlyingCollateralHeld$ / 1 ether, cr.price, w.peggedTokenHeld$ / 1 ether)
-                // );
             } else {
                 // here we can assume pegged tokens are not de-pegged
                 // we have collateral ratio R = C.p / Z
@@ -1385,6 +1394,8 @@ contract Minter_v1 is
                     w.feeError$$ -= 1 ether; // remove that correction
                 }
             }
+            // uint256 bandFee$;
+            // (bandFee$, w.feeError$$) = _mulDivAccumulateError(collateralInBand$, bandFeeRatio, 1 ether, w.feeError$$);
             w.underlyingFee$ += bandFee$;
             // console2.log("w.underlyingFee$=%s", w.underlyingFee$);
             uint256 collateralAddedInBand$ = collateralInBand$ - bandFee$;
@@ -1422,18 +1433,49 @@ contract Minter_v1 is
         peggedMinted = w.minted$ / 1 ether;
         // console2.log("peggedMinted=%s", peggedMinted);
         // first do calculations in underlying collateral
-        underlyingCollateralAdded = _roundHalfEven(w.underlyingCollateralAdded$, 1 ether);
+        underlyingCollateralAdded = _round(w.underlyingCollateralAdded$, 1 ether);
         // console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
         // then wrapped collateral based on the underlying collateral numbers
         wrappedFee = w.underlyingFee$ / cr.rate;
         // console2.log("wrappedFee=%s", wrappedFee);
         maxWrappedCollateralIn = (w.underlyingCollateralAdded$ + w.underlyingFee$) / cr.rate;
         // console2.log("maxWrappedCollateralIn=%s", maxWrappedCollateralIn);
-        // console2.log("maxWrappedCollateralIn=%s (was)", wrappedCollateralIn - w.underlyingCollateralInLeft$ / cr.rate);
-        // console2.log(
-        //     "underlyingCollateralAdded=%s (was)",
-        //     (((wrappedCollateralIn - w.underlyingCollateralInLeft$ / cr.rate) - wrappedFee) * cr.rate) / 1 ether
-        // );
+    }
+
+    /// @dev function to accumulate an error term from a divide by 1 ether
+    function _divAccumulateError(
+        uint256 preDivide$$,
+        int256 error$$
+    ) private pure returns (uint256 postDivide$, int256 newError$$) {
+        unchecked {
+            postDivide$ = preDivide$$ / 1 ether; // scaled to 1e36
+            newError$$ = error$$ + (int256(preDivide$$) % 1 ether);
+            // console2.log("w.discountError$$=%s", w.discountError$$);
+            // perform a rounding to nearest
+            if (newError$$ >= 0.5 ether) {
+                postDivide$ += 1; // rounding up, which is the nearest
+                newError$$ -= 1 ether; // remove that correction
+            }
+        }
+    }
+
+    /// @dev function to accumulate an error term from a divide by 1 ether
+    function _mulDivAccumulateError(
+        uint256 a,
+        uint256 b,
+        uint256 c,
+        int256 error$
+    ) private pure returns (uint256 result, int256 newError$) {
+        unchecked {
+            result = Math.mulDiv(a, b, c);
+            newError$ = error$ + int256(mulmod(a, b, c));
+            // console2.log("w.discountError$$=%s", w.discountError$$);
+            // perform a rounding to nearest
+            if (newError$ >= 0.5 ether) {
+                result += 1; // rounding up, which is the nearest
+                newError$ -= 1 ether; // remove that correction
+            }
+        }
     }
 
     struct RedeemPeggedWorkspace {
@@ -1547,14 +1589,23 @@ contract Minter_v1 is
             {
                 // we now switch to calculations in collateral
                 uint256 collateralInBand$$ = Math.mulDiv(peggedInBand$, peggedPrice$, cr.price);
-                uint256 collateralInBand$ = collateralInBand$$ / 1 ether;
+                uint256 collateralInBand$;
                 unchecked {
+                    collateralInBand$ = collateralInBand$$ / 1 ether;
                     w.collateralHeldError$$ += int256(collateralInBand$$) % 1 ether;
                     if (w.collateralHeldError$$ >= 0.5 ether) {
                         collateralInBand$ += 1; // rounding up, which is the nearest
                         w.collateralHeldError$$ -= 1 ether; // remove that correction
                     }
                 }
+
+                // uint256 collateralInBand$;
+                // (collateralInBand$, w.collateralHeldError$$) = _mulDivAccumulateError(
+                //     peggedInBand$,
+                //     peggedPrice$,
+                //     cr.price,
+                //     w.collateralHeldError$$
+                // );
                 // console2.log("collateralInBand$=%s", collateralInBand$);
 
                 // tally the fee or discount - these values have no effect at the moment:
@@ -1564,10 +1615,12 @@ contract Minter_v1 is
                 if (bandIncentiveRatio < 0) {
                     uint256 bandDiscountRatio = uint256(-bandIncentiveRatio);
                     // console2.log("bandDiscountRatio=%s", bandDiscountRatio);
-                    uint256 bandDiscount$ = (collateralInBand$ * bandDiscountRatio) / 1 ether;
+                    uint256 bandDiscount$$ = (collateralInBand$ * bandDiscountRatio);
+                    uint256 bandDiscount$;
                     // console2.log("bandDiscount$=%s", bandDiscount$);
                     unchecked {
-                        w.discountError$$ += int256(collateralInBand$ * bandDiscountRatio) % 1 ether;
+                        bandDiscount$ = bandDiscount$$ / 1 ether; // scaled to 1e36
+                        w.discountError$$ += int256(bandDiscount$$) % 1 ether;
                         // console2.log("w.discountError$$=%s", w.discountError$$);
                         // perform a rounding to nearest
                         if (w.discountError$$ >= 0.5 ether) {
@@ -1575,14 +1628,23 @@ contract Minter_v1 is
                             w.discountError$$ -= 1 ether; // remove that correction
                         }
                     }
+                    // uint256 bandDiscount$;
+                    // (bandDiscount$, w.discountError$$) = _mulDivAccumulateError(
+                    //     collateralInBand$,
+                    //     bandDiscountRatio,
+                    //     1 ether,
+                    //     w.discountError$$
+                    // );
                     w.underlyingDiscount$ += bandDiscount$;
                 } else {
                     uint256 bandFeeRatio = uint256(bandIncentiveRatio);
                     // console2.log("bandFeeRatio=%s", bandFeeRatio);
-                    uint256 bandFee$ = (collateralInBand$ * bandFeeRatio) / 1 ether; // scaled to 1e36
+                    uint256 bandFee$$ = (collateralInBand$ * bandFeeRatio);
+                    uint256 bandFee$;
                     // console2.log("bandFee$=%s", bandFee$);
                     unchecked {
-                        w.feeError$$ += int256((collateralInBand$ * bandFeeRatio) % 1 ether);
+                        bandFee$ = bandFee$$ / 1 ether; // scaled to 1e36
+                        w.feeError$$ += int256(bandFee$$ % 1 ether);
                         // console2.log("w.feeError$$=%s", w.feeError$$);
                         // perform a rounding to nearest
                         if (w.feeError$$ >= 0.5 ether) {
@@ -1591,6 +1653,13 @@ contract Minter_v1 is
                             w.feeError$$ -= 1 ether; // remove that correction
                         }
                     }
+                    // uint256 bandFee$;
+                    // (bandFee$, w.feeError$$) = _mulDivAccumulateError(
+                    //     collateralInBand$,
+                    //     uint256(bandIncentiveRatio),
+                    //     1 ether,
+                    //     w.feeError$$
+                    // );
                     w.underlyingFee$ += bandFee$;
                     // console2.log("w.underlyingFee$=%s", w.underlyingFee$);
                 }
@@ -1606,7 +1675,7 @@ contract Minter_v1 is
         // console2.log("wrappedDiscount=%s", wrappedDiscount);
         uint256 underlyingCollateralRemoved$ = cr.underlyingCollateral * 1 ether - w.underlyingCollateralHeld$;
         // console2.log("underlyingCollateralRemoved$=%s", underlyingCollateralRemoved$);
-        underlyingCollateralRemoved = _roundHalfEven(underlyingCollateralRemoved$, 1 ether);
+        underlyingCollateralRemoved = _round(underlyingCollateralRemoved$, 1 ether);
         // console2.log("underlyingCollateralRemoved=%s", underlyingCollateralRemoved);
         wrappedCollateralReturned = underlyingCollateralRemoved$ / cr.rate + wrappedDiscount - wrappedFee;
         // console2.log("wrappedCollateralReturned=%s", wrappedCollateralReturned);
@@ -1784,8 +1853,6 @@ contract Minter_v1 is
 
             // we have, for the band the user collateral needed, and the band discount
 
-            // TODO: make sure the "this band only" variables are zero'd or set, better, try making them locals
-
             w.underlyingCollateralHeld$ += collateralInBand$;
             // console2.log("w.underlyingCollateralHeld$=%s", w.underlyingCollateralHeld$);
             w.underlyingCollateralInLeft$ -= collateralInBand$;
@@ -1816,16 +1883,16 @@ contract Minter_v1 is
             band++;
         }
 
-        wrappedFee = _roundHalfEven(w.underlyingFee$, cr.rate);
-        // console2.log("wrappedFee=%s", wrappedFee);
         wrappedDiscount = w.underlyingDiscount$ / cr.rate; // we don't round this as it may overflow the reserve pool
         // console2.log("wrappedDiscount=%s", wrappedDiscount);
+        wrappedFee = _round(w.underlyingFee$, cr.rate);
+        // console2.log("wrappedFee=%s", wrappedFee);
         if (w.leveragedTokenBalance > 0) {
             leveragedMinted = Math.mulDiv(w.underlyingCollateralAdded$, cr.price, w.leveragedPrice$);
         } else {
             leveragedMinted = Math.mulDiv(w.underlyingCollateralHeld$, cr.price, 1e36) - cr.peggedTokenBalance;
         }
-        underlyingCollateralAdded = _roundHalfEven(w.underlyingCollateralAdded$, 1e18);
+        underlyingCollateralAdded = _round(w.underlyingCollateralAdded$, 1e18);
         // console2.log("underlyingCollateralAdded=%s", underlyingCollateralAdded);
     }
 
@@ -1953,7 +2020,7 @@ contract Minter_v1 is
             band--;
         }
 
-        underlyingCollateralRemoved = _roundHalfEven(w.underlyingCollateralRemoved$, 1e18);
+        underlyingCollateralRemoved = _round(w.underlyingCollateralRemoved$, 1e18);
         // console2.log("underlyingCollateralRemoved=%s", underlyingCollateralRemoved);
 
         // calculate the leveraged for the collateral assuming constant leveraged price.
@@ -2077,7 +2144,7 @@ contract Minter_v1 is
     //     }
     // }
 
-    function _roundHalfEven(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
+    function _round(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
         unchecked {
             result = numerator / denominator;
             uint256 remainder = numerator % denominator;
@@ -2101,7 +2168,10 @@ contract Minter_v1 is
             // slither-disable-next-line incorrect-equality
             if (leverageRatio_ == _LEVERAGE_RATIO_CAP) {
                 // cap the amount returned
-                leveragedTokens = (peggedIn * _LEVERAGE_RATIO_CAP) / 1 ether;
+                leveragedTokens = (peggedIn * _LEVERAGE_RATIO_CAP);
+                unchecked {
+                    leveragedTokens /= 1 ether;
+                }
             } else {
                 // Convert using leverage ratio approach as this is only called in a rebalance context
                 leveragedTokens = Math.mulDiv(
@@ -2150,7 +2220,7 @@ contract Minter_v1 is
     function _fetchMid(address priceOracle_) private view returns (OracleData memory) {
         (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(priceOracle_)
             .latestAnswer();
-        return OracleData((minPrice + maxPrice) / 2, (minRate + maxRate) / 2); // TODO: this should be rounded
+        return OracleData(_round(minPrice + maxPrice, 2), _round(minRate + maxRate, 2));
     }
 
     /// @notice Returns the min price for the collateral token.

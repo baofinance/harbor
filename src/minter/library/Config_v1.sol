@@ -39,8 +39,6 @@ library Config_v1 {
         }
         out = ConfigIncentiveLib.ActionIncentive(0, 0);
         uint256 prevUpperBound = 0;
-        // slither-disable-next-line uninitialized-local // this variable is initialised in the loop when i=0
-        int256 prevIncentiveRatio;
         uint iOut = 0; // solhint-disable-line explicit-types
         // solhint-disable-next-line explicit-types
         for (uint i = 0; i < config_.incentiveRatios.length; i++) {
@@ -67,19 +65,6 @@ library Config_v1 {
                         "disallow (1) must be at index 0"
                     );
                 }
-                // fees are the same or decreasing with collateral ratio
-                // this is not necessary for mathematical reasons
-                // given the action reduces collateral ratio, decreasing a fee as collateral ratio decreases is a likely error
-                if (i == 0) {
-                    prevIncentiveRatio = incentiveRatio;
-                    // } else if (incentiveRatio > prevIncentiveRatio) {
-                    //     revert IMinter.InvalidIncentiveRatioValue(
-                    //         name,
-                    //         i,
-                    //         config_.incentiveRatios[i],
-                    //         "must be decreasing"
-                    //     );
-                }
             } else {
                 // it's a redeem pegged or mint leveraged
                 // check against interval (-1, 1) i.e. some discount; to zero; to some fees
@@ -91,22 +76,7 @@ library Config_v1 {
                         "must be in (-1, 1)"
                     );
                 }
-                // fees are the same or decreasing with collateral ratio
-                // this *is* necessary for mathematical reasons - given the reserve pool can be exhausted we must ensure that discounts applied
-                // are path independent - i.e. dollar-by-dollar actions results in the same total discount as a single action of the same total value.
-                // given the action increases collateral ratio, increasing a fee or decreasing a discount as collateral ratio increases is a likely error
-                if (i == 0) {
-                    prevIncentiveRatio = incentiveRatio;
-                    // } else if (incentiveRatio < prevIncentiveRatio) {
-                    //     revert IMinter.InvalidIncentiveRatioValue(
-                    //         name,
-                    //         i,
-                    //         config_.incentiveRatios[i],
-                    //         "must be increasing"
-                    //     );
-                }
             }
-
             // check collateral ratio upper bounds are strictly increasing and then copy
             uint256 currentUpperBound;
             if (i < config_.collateralRatioBandUpperBounds.length) {
@@ -197,7 +167,7 @@ library Config_v1 {
     }
 
     function defaultActionIncentive() external pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
-        // default config is a single band with no fees
+        // default config is a single band with no fees, discounts or disallows
         // we need the mandatory depeg boundary at 1 ether
 
         ConfigIncentiveLib._setIncentiveRatio(out, 0, 0); // in depeg
