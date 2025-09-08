@@ -420,10 +420,10 @@ test/StabilityPoolManager_v1.t.sol:MockStabilityPool
 | function name         |       max |
 |-----------------------|-----------|
 | REBALANCER_ROLE       | 2.020e+02 |
-| grantRoles            | 2.193e+04 |
-| setEarlyWithdrawalFee | 2.154e+04 |
-| setFeeAddress         | 2.177e+04 |
-| setWithdrawalWindow   | 2.164e+04 |
+| grantRoles            | 2.243e+04 |
+| setEarlyWithdrawalFee | 2.166e+04 |
+| setFeeAddress         | 2.208e+04 |
+| setWithdrawalWindow   | 2.195e+04 |
 
 test/StabilityPoolManager_v1.t.sol:MockStabilityPoolManagerUpgraded
 | function name            |       max |
