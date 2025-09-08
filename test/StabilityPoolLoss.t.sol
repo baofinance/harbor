@@ -22,6 +22,11 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
     uint256 constant TOLERANCE_SMALL = 1000; // 1000 wei absolute tolerance for small amounts
     uint256 constant TOLERANCE_LARGE = 10000; // 10000 wei absolute tolerance for large amounts
 
+    function _assertTotalSupplyDust(address pool) internal view {
+        uint256 tas = IStabilityPool(pool).totalAssetSupply();
+        assertLe(tas, TOLERANCE_SMALL);
+    }
+
     /// @notice Helper function to simulate loss on a stability pool
     /// @param pool The stability pool address
     /// @param amount The amount of loss to apply
@@ -167,6 +172,10 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
         vm.prank(user1);
+        IStabilityPool(pool).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
+        vm.prank(user1);
         IStabilityPool(pool).withdraw(withdrawAmount, user1, 0);
 
         // Assert correct withdrawal with tolerance
@@ -215,6 +224,10 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         if (remainingBalance > 0) {
             uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
+            vm.prank(user1);
+            IStabilityPool(pool).requestWithdrawal();
+            (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(user1);
+            vm.warp(uint256(start) + 1);
             vm.prank(user1);
             IStabilityPool(pool).withdraw(remainingBalance, user1, 0);
 
@@ -355,6 +368,9 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 user1WithdrawAmount = user1RemainingBalance / 2;
 
         vm.prank(user1);
+        IStabilityPool(pool).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(user1);
         IStabilityPool(pool).withdraw(user1WithdrawAmount, user1, 0);
 
         // User3 deposits
@@ -370,12 +386,10 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         // Check final balances
         uint256 totalAssetsAfterAll = IStabilityPool(pool).totalAssetSupply();
-        uint256 expectedTotalAssets = user1Deposit +
-            user2Deposit +
-            user3Deposit -
-            firstLoss -
-            secondLoss -
-            user1WithdrawAmount;
+        uint256 expectedTotalAssets = user1Deposit + user2Deposit + user3Deposit;
+        expectedTotalAssets -= firstLoss;
+        expectedTotalAssets -= secondLoss;
+        expectedTotalAssets -= user1WithdrawAmount;
 
         assertApproxEqAbs(totalAssetsAfterAll, expectedTotalAssets, TOLERANCE_LARGE);
 
@@ -385,16 +399,25 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 user3FinalBalance = IStabilityPool(pool).assetBalanceOf(user3);
 
         vm.prank(user1);
+        IStabilityPool(pool).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(user1);
         IStabilityPool(pool).withdraw(user1FinalBalance, user1, 0);
 
+        vm.prank(user2);
+        IStabilityPool(pool).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
         vm.prank(user2);
         IStabilityPool(pool).withdraw(user2FinalBalance, user2, 0);
 
         vm.prank(user3);
+        IStabilityPool(pool).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(user3);
         IStabilityPool(pool).withdraw(user3FinalBalance, user3, 0);
 
         // There might be some dust left due to rounding
-        assertLe(IStabilityPool(pool).totalAssetSupply(), TOLERANCE_SMALL);
+        _assertTotalSupplyDust(pool);
     }
 
     /// @notice Test the error correction mechanism in loss calculation

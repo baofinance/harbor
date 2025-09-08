@@ -585,6 +585,10 @@ contract MockStabilityPool {
         totalAssetSupply += amount;
         IERC20(ASSET_TOKEN).transferFrom(msg.sender, address(this), amount);
     }
+    // No-op configurators to satisfy parent setup that configures withdrawal params on real pools
+    function setEarlyWithdrawalFee(uint256) external {}
+    function setFeeAddress(address) external {}
+    function setWithdrawalWindow(uint256, uint256) external {}
     function sweep(address token, uint256 amount, address receiver) external {
         IERC20(token).transfer(receiver, amount);
     }

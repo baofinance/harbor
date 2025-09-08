@@ -139,6 +139,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
 
         // User2 withdraws half their deposit
         vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.warp(start + 1);
+        vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
 
         // Distribute more rewards - should be split proportionally to current deposits
@@ -202,6 +206,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         uint256 user3Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
 
         // User2 withdraws half their deposit
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.warp(uint256(start) + 1);
         vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
 
@@ -442,6 +450,10 @@ contract TestStabilityPoolClaimable is TestStabilityPoolSetUp {
         _distributeRewards(address(rewardToken1), 300 ether);
 
         // User 1 withdraws half
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1);
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
 

@@ -18,6 +18,8 @@ import {TestTokenDistributor} from "test/TokenDistributor.t.sol";
 import {TestMinterBasics} from "test/Minter_base.t.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
 
+using stdJson for string;
+
 contract TestDeployed is Test, DeployState {
     string network;
 
@@ -35,8 +37,10 @@ contract TestDeployedLeveragedToken is TestLeveragedToken, TestDeployed {
         setUp_fork();
         owner = addr("owner");
         minter = addr("minter");
-        name = "Bao Zhenglong steamed stETH-BaoUSD";
-        symbol = "steamedstETH-BaoUSD";
+        // Read leveraged token metadata from deploy state log
+        string memory json = vm.readFile(filename);
+        name = json.readString(".leveragedToken.name");
+        symbol = json.readString(".leveragedToken.symbol");
     }
 
     function setUpContract() internal override {

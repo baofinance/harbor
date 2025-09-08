@@ -60,6 +60,8 @@ contract StabilityPool_v1 is
 
     uint256 public constant REWARDER_ROLE = _ROLE_2;
 
+    uint256 private constant _MAX_EARLY_WITHDRAWAL_FEE = 1 ether;
+
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
 
@@ -107,6 +109,28 @@ contract StabilityPool_v1 is
         uint96 claimedAt;
     }
 
+    /// @dev The withdrawal request window for an account
+    struct WithdrawalRequest {
+        uint64 start;
+        uint64 end;
+    }
+
+    /// @dev Packed fee payment configuration: fits in one 256-bit slot
+    /// @param feeAddress The address that receives early withdrawal fees (160 bits)
+    /// @param earlyWithdrawalFee The fee ratio scaled by 1e18 (uint96)
+    struct FeePayment {
+        address feeAddress;
+        uint96 earlyWithdrawalFee;
+    }
+
+    /// @dev Packed withdrawal window configuration: fits in one 256-bit slot
+    /// @param startDelay The delay before fee-free withdrawals (seconds, uint64)
+    /// @param endWindow The duration of the withdrawal window (seconds, uint64)
+    struct WithdrawalWindow {
+        uint64 startDelay;
+        uint64 endWindow;
+    }
+
     /*************
      * Variables *
      *************/
@@ -130,6 +154,12 @@ contract StabilityPool_v1 is
         // address wrapper;
         /// @notice Error trackers for the error correction in the loss calculation.
         uint256 lastAssetLossError;
+        /// @notice Mapping from account to withdrawal request
+        mapping(address => WithdrawalRequest) withdrawalRequests;
+        /// @dev Packed fee configuration (address + uint96)
+        FeePayment feePayment;
+        /// @dev Packed withdrawal window configuration (two uint64 values)
+        WithdrawalWindow withdrawalWindow;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -172,7 +202,11 @@ contract StabilityPool_v1 is
         address minter_,
         address liquidationToken_,
         address gaugeStakeToken_,
-        address gaugeRewardToken_
+        address gaugeRewardToken_,
+        uint256 earlyWithdrawalFee_,
+        address feeAddress_,
+        uint256 withdrawalStartDelay_,
+        uint256 withdrawalEndWindow_
     ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, 1 weeks) {
         _disableInitializers();
         address asset = IMinter(minter_).PEGGED_TOKEN();
@@ -195,6 +229,24 @@ contract StabilityPool_v1 is
         Token.sanityCheckERC20Token(gaugeStakeToken_);
         // slither-disable-next-line missing-zero-check
         GAUGE_REWARD_TOKEN = gaugeRewardToken_;
+
+        // early withdrawal settings
+        if (earlyWithdrawalFee_ > _MAX_EARLY_WITHDRAWAL_FEE) {
+            revert InvalidFee(earlyWithdrawalFee_);
+        }
+        if (feeAddress_ == address(0)) {
+            revert InvalidFeeAddress(feeAddress_);
+        }
+        if (withdrawalEndWindow_ == 0) {
+            revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
+        }
+
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        $.feePayment = FeePayment({feeAddress: feeAddress_, earlyWithdrawalFee: uint96(earlyWithdrawalFee_)});
+        $.withdrawalWindow = WithdrawalWindow({
+            startDelay: uint64(withdrawalStartDelay_),
+            endWindow: uint64(withdrawalEndWindow_)
+        });
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -244,6 +296,29 @@ contract StabilityPool_v1 is
         earned = _claimable(account, token);
     }
 
+    /// @inheritdoc IStabilityPool
+    /// @notice Returns the configured withdrawal request window for an account.
+    function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        WithdrawalRequest memory request = $.withdrawalRequests[account];
+        start = request.start;
+        end = request.end;
+    }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice Returns the current early withdrawal fee ratio (scaled by 1e18).
+    function getEarlyWithdrawalFee() external view returns (uint256) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        return uint256($.feePayment.earlyWithdrawalFee);
+    }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice Returns the current fee recipient address for early withdrawal fees.
+    function getFeeAddress() external view returns (address) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        return $.feePayment.feeAddress;
+    }
+
     /****************************
      * Public Mutator Functions *
      ****************************/
@@ -265,15 +340,22 @@ contract StabilityPool_v1 is
             revert DepositAmountLessThanMinimum(assetsDeposited, minAmount);
         }
 
-        // tell the world
-        emit Deposit(sender, receiver, assetsDeposited);
         // Required for ERC20 compatibility - we're actually minting ourselves
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+
+        // If depositing before the end of a valid withdrawal window, cancel the request
+        WithdrawalRequest memory request = $.withdrawalRequests[sender];
+        if (request.start != 0 && request.end > request.start && block.timestamp <= request.end) {
+            $.withdrawalRequests[sender] = WithdrawalRequest({start: 0, end: 0});
+            emit WithdrawalRequestCancelled(sender);
+        }
+
+        // tell the world
+        emit Deposit(sender, receiver, assetsDeposited);
 
         // get the assets from the sender
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetsDeposited);
         // send their representative to the gauge, if one
-
         _checkpoint(receiver);
 
         // do the deposit
@@ -308,6 +390,12 @@ contract StabilityPool_v1 is
         address sender = _msgSender();
         _checkpoint(sender);
 
+        // Require an existing, valid withdrawal request; fee rules apply outside [start, end]
+        WithdrawalRequest memory request = $.withdrawalRequests[sender];
+        if (request.start == 0 || request.end <= request.start) {
+            revert NoActiveWithdrawalRequest(sender);
+        }
+
         TokenBalance memory balance = $.assetBalances[sender];
         if (assetAmount == type(uint256).max) {
             assetsWithdrawn = balance.amount;
@@ -322,25 +410,89 @@ contract StabilityPool_v1 is
         if (assetsWithdrawn < minAmount) {
             revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
+
+        // Handle withdrawal fee if outside the request window
+        uint256 feeAmount = 0;
+        if (block.timestamp < request.start || block.timestamp > request.end) {
+            feeAmount = (assetsWithdrawn * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
+            assetsWithdrawn -= feeAmount;
+        }
+
+        // Close the withdrawal request by zeroing both fields (simpler active-check; preserves history via events)
+        $.withdrawalRequests[sender] = WithdrawalRequest({start: 0, end: 0});
+        emit WithdrawalRequestUpdated(sender, request.start, 0);
         emit Withdraw(sender, receiver, assetsWithdrawn);
 
         // update the global record
         TokenBalance memory supply = $.totalAssetSupply;
         unchecked {
-            supply.amount -= uint104(assetsWithdrawn);
+            supply.amount -= uint104(assetsWithdrawn + feeAmount);
             supply.updatedAt = uint40(block.timestamp);
         }
         _recordTotalSupply(supply);
 
         // update the user record
         unchecked {
-            balance.amount -= uint104(assetsWithdrawn);
+            balance.amount -= uint104(assetsWithdrawn + feeAmount);
         }
         $.assetBalances[sender] = balance;
 
         emit UserDepositChange(sender, balance.amount, 0);
 
         IERC20(ASSET_TOKEN).safeTransfer(receiver, assetsWithdrawn);
+
+        // Transfer fee if applicable
+        if (feeAmount > 0) {
+            IERC20(ASSET_TOKEN).safeTransfer($.feePayment.feeAddress, feeAmount);
+            emit EarlyWithdrawalFee(sender, feeAmount);
+        }
+    }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice Creates or updates the withdrawal request window for msg.sender.
+    /// @dev Window is [start, end] where start = now + WITHDRAWAL_START_DELAY and end = start + WITHDRAWAL_END_WINDOW.
+    function requestWithdrawal() external nonReentrant {
+        address sender = _msgSender();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        uint64 start = uint64(block.timestamp + $.withdrawalWindow.startDelay);
+        uint64 end = uint64(start + $.withdrawalWindow.endWindow);
+        $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
+        emit WithdrawalRequested(sender, start, end);
+    }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice Updates the early withdrawal fee ratio (scaled by 1e18).
+    function setEarlyWithdrawalFee(uint256 newFee) external onlyOwner {
+        if (newFee > _MAX_EARLY_WITHDRAWAL_FEE) {
+            revert InvalidFee(newFee);
+        }
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        $.feePayment.earlyWithdrawalFee = uint96(newFee);
+        emit EarlyWithdrawalFeeUpdated(newFee);
+    }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice Updates the fee recipient address for early withdrawal fees.
+    function setFeeAddress(address newFeeAddress) external onlyOwner {
+        if (newFeeAddress == address(0)) {
+            revert InvalidFeeAddress(newFeeAddress);
+        }
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        $.feePayment.feeAddress = newFeeAddress;
+        emit FeeAddressUpdated(newFeeAddress);
+    }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice Updates the withdrawal window configuration.
+    /// @dev Requires newEndWindow > 0. `newStartDelay` may be zero for immediate windows.
+    function setWithdrawalWindow(uint256 newStartDelay, uint256 newEndWindow) external onlyOwner {
+        if (newEndWindow == 0) {
+            revert InvalidWithdrawalWindow(newStartDelay, newEndWindow);
+        }
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        $.withdrawalWindow.startDelay = uint64(newStartDelay);
+        $.withdrawalWindow.endWindow = uint64(newEndWindow);
+        emit WithdrawalWindowUpdated(newStartDelay, newEndWindow);
     }
 
     /// protected public functions

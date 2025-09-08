@@ -2,6 +2,7 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+evm_version = "cancun"
 
 auto_detect_remappings = false # remappings seem to cause problems
 optimizer = true
@@ -27,16 +28,20 @@ fs_permissions = [
   { access = "read-write", path = "./log" },
 ]
 
+gas_limit = "18446744073709551615"
+
 # slither building profile - removes vyper
 [profile.novyper]
 skip = ["**/*.vy"]
 
 [vyper]
-version = "0.3.10"
+path = ".venv/bin/vyper"
+# version = "0.3.10"
+# evm_version = "shanghai" # or "london", "cancun" depending on your target
 optimize = "gas"
-optimize_runs = 700
-via_ir = false           # you can enable this later if needed
-evm_version = "shanghai" # or "london", "cancun" depending on your target
+# optimize_runs = 700
+# via_ir = false           # you can enable this later if needed
+
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }
