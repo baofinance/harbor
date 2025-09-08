@@ -22,6 +22,7 @@ lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 lib/bao-base/src/Stem_v1.sol:Stem_v1
 | function name             |       max |
 |---------------------------|-----------|
+| INITIAL_RATE              | 2.660e+02 |
 | UPGRADE_INTERFACE_VERSION | 4.350e+02 |
 | fallback                  | 2.660e+02 |
 | owner                     | 3.120e+02 |
@@ -410,7 +411,7 @@ test/StabilityPoolManager_v1.t.sol:MockMinter
 | PEGGED_TOKEN             | 2.150e+02 |
 | WRAPPED_COLLATERAL_TOKEN | 2.590e+02 |
 | ZERO_FEE_ROLE            | 2.360e+02 |
-| grantRoles               | 2.192e+04 |
+| grantRoles               | 2.243e+04 |
 | harvestable              | 2.337e+03 |
 | setHarvestable           | 4.360e+04 |
 
@@ -418,10 +419,10 @@ test/StabilityPoolManager_v1.t.sol:MockStabilityPool
 | function name         |       max |
 |-----------------------|-----------|
 | REBALANCER_ROLE       | 2.020e+02 |
-| grantRoles            | 2.193e+04 |
-| setEarlyWithdrawalFee | 2.154e+04 |
-| setFeeAddress         | 2.177e+04 |
-| setWithdrawalWindow   | 2.164e+04 |
+| grantRoles            | 2.243e+04 |
+| setEarlyWithdrawalFee | 2.166e+04 |
+| setFeeAddress         | 2.208e+04 |
+| setWithdrawalWindow   | 2.195e+04 |
 
 test/StabilityPoolManager_v1.t.sol:MockStabilityPoolManagerUpgraded
 | function name            |       max |
