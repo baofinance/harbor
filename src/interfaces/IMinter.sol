@@ -106,7 +106,11 @@ interface IMinter {
         uint256 collateralOut
     );
 
-    event UpdateConfig(Config config);
+    /// @notice Emitted when there's been a slashing event and Zhenglong responds by calling reset.
+    event Reset(uint256 oldCollateral, uint256 newCollateral);
+
+    /// @notice Emitted whenever the config is updated.
+    event UpdateConfig(Config newConfig);
 
     /// @notice Emitted when the fee receiving contract is updated.
     /// @param oldFeeReceiver The address of previous fee receiving contract.
@@ -458,6 +462,11 @@ interface IMinter {
     /*//////////////////////////////////////////////////////////////
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Resets the underlying collateral count to equal the value of the held wrapped collateral
+    /// This is anticipation of a slashing event for the wrapped collateral which could
+    /// leave the whole system with overvalued collateral which would prevent a rebalancing
+    function reset() external;
 
     /// @notice Updates the config to the given config
     /// @param config_ The new config
