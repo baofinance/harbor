@@ -60,13 +60,35 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
 
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam)),
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    wrappedCollateralToken,
+                    stabilityPoolToken,
+                    steam,
+                    0.025 ether,
+                    0x3dFc49e5112005179Da613BdE5973229082dAc35,
+                    3600,
+                    90000
+                )
+            ),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
 
         stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken, stabilityPoolToken, steam)),
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    leveragedToken,
+                    stabilityPoolToken,
+                    steam,
+                    0.025 ether,
+                    0x3dFc49e5112005179Da613BdE5973229082dAc35,
+                    3600,
+                    90000
+                )
+            ),
             abi.encodeCall(StabilityPool_v1.initialize, owner)
         );
         IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);
