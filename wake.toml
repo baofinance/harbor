@@ -35,7 +35,7 @@ enable = true
 [detectors]
 # ignore_paths = ["test"]
 # exclude_paths = ["node_modules", "lib", "script"]
-# only = []
+only = []
 exclude = [
   #  "abi-encode-with-signature",
   #  "axelar-proxy-contract-id",
@@ -49,7 +49,7 @@ exclude = [
 ]
 
 [printers]
-# only = []
+only = []
 exclude = [
   #   "control-flow-graph",
   #   "imports-graph",

@@ -20,10 +20,19 @@ import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import "test/Useful.sol";
 import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 import {Array} from "test/Array.sol";
+import {TestGraphs} from "test/Graphs.t.sol";
 
-contract TestGraphs is TestStabilityPool2SetUp {
-    int256 NaN = type(int256).max;
-    uint256 uNaN = type(uint256).max;
+contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
+    // TODO: collateral ratio
+    // TODO: leveraged Ratio
+    // TODO: pegged price on depeg
+    // under scenrios of
+    // price change
+    // redeem all pegged
+    // redeem all leveraged
+    // price drops and we redeem all pegged
+    // price drops and we redeem all leveraged
+    uint256 iterations = 400;
 
     function setUp() public virtual override {
         super.setUp();
@@ -42,52 +51,6 @@ contract TestGraphs is TestStabilityPool2SetUp {
         setUp_config_likely();
     }
 
-    function context() internal pure virtual returns (string memory) {
-        return "";
-    }
-
-    function openFile(string memory name, string[] memory header) internal returns (string memory file) {
-        file = string.concat("./results/", string.concat(name, context()), ".csv");
-        if (vm.exists(file)) vm.removeFile(file);
-        vm.writeLine(file, Useful.join(header, ","));
-    }
-
-    function writeLine(string memory file, int[] memory data) internal {
-        string[] memory strData = new string[](data.length);
-        for (uint i = 0; i < data.length; i++) {
-            strData[i] = data[i] == NaN ? "NaN" : Useful.toStringScaled(data[i], 18);
-        }
-        vm.writeLine(file, Useful.join(strData, ","));
-    }
-
-    function writeLine(string memory file, uint[] memory data) internal {
-        string[] memory strData = new string[](data.length);
-        for (uint i = 0; i < data.length; i++) {
-            strData[i] = data[i] == uNaN ? "NaN" : Useful.toStringScaled(data[i], 18);
-        }
-        vm.writeLine(file, Useful.join(strData, ","));
-    }
-}
-
-contract TestGraphsBasicCalculations is TestGraphs {
-    // TODO: collateral ratio
-    // TODO: leveraged Ratio
-    // TODO: pegged price on depeg
-    // under scenrios of
-    // price change
-    // redeem all pegged
-    // redeem all leveraged
-    // price drops and we redeem all pegged
-    // price drops and we redeem all leveraged
-    uint256 iterations = 400;
-
-    function setUp() public override {
-        super.setUp();
-        deal(address(wrappedCollateralToken), reservePool, 1000 ether);
-        vm.prank(owner);
-        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
-    }
-
     function redeem(
         uint256 amountOfPegged,
         uint256 amoutOfLeveraged,
@@ -95,7 +58,7 @@ contract TestGraphsBasicCalculations is TestGraphs {
     ) internal returns (uint256 collateralForPegged, uint256 collateralForLeveraged) {
         // recipient must have the amount of tokens being redeemed
         if (amountOfPegged > 0) {
-            collateralForPegged = IMinter(minter).freeRedeemPeggedToken(amountOfPegged, recipient);
+            (collateralForPegged, ) = IMinter(minter).freeRedeemPeggedToken(amountOfPegged, 0, recipient);
         }
         if (amoutOfLeveraged > 0) {
             collateralForLeveraged = IMinter(minter).freeMintLeveragedToken(amoutOfLeveraged, recipient);
@@ -281,7 +244,7 @@ contract TestGraphsBasicCalculations is TestGraphs {
         for (uint256 i = 0; i <= iterations; i++) {
             writeOneLine(file, commandStatus);
             if (IMinter(minter).peggedTokenBalance() > 0) {
-                try IMinter(minter).freeRedeemPeggedToken(price * 1 ether, address(this)) {
+                try IMinter(minter).freeRedeemPeggedToken(price * 1 ether, 0, address(this)) {
                     commandStatus = 0; // 0 = success
                 } catch {
                     // unexpected revert

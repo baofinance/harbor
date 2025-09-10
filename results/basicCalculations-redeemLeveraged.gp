@@ -1,14 +1,14 @@
 datafile = "basicCalculations-redeemLeveraged.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
-set terminal svg enhanced size 600 400 background rgb "gray90"
+set terminal svg enhanced size 600 600 background rgb "gray90"
 #set terminal pngcairo size 500 300
 set autoscale
 set xlabel "Collateral Tokens"
 set xrange [0:80]
 
 set ylabel "Invariant / LeverageRatio / CollateralRatio"
-set yrange [-1:3]
+set yrange [-1:25]
 set ytics nomirror
 
 set y2label "Leveraged Tokens"

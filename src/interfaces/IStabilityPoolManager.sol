@@ -16,6 +16,7 @@ interface IStabilityPoolManager {
     /// @param forWrappedCollateral The resulting collateral.
     /// @param forLeveraged The resulting leveraged tokens.
     event Rebalanced(uint256 liquidated, uint256 forWrappedCollateral, uint256 forLeveraged);
+    /// @notice Emitted when harvest happens.
     event Harvested(uint256 amount);
     /// @notice Emitted when the fee receiving contract is updated.
     /// @param oldFeeReceiver The address of previous fee receiving contract.
@@ -76,6 +77,9 @@ interface IStabilityPoolManager {
     //////////////////////////////////////////////////////////////*/
     function updateRebalanceBountyRatio(uint256 rebalanceRatio) external;
     function updateHarvestBountyRatio(uint256 harvestRatio) external;
+    /// @notice Updates the collateral ratio threshold below which rebalances may happen
+    /// This form the target collateral ration when a rebalance is performed
+    /// @param newRatio The new collateral ratio threshold, must be >= 1
     function updateRebalanceThreshold(uint256 newRatio) external;
     /// @notice Updates the fee receiver to the given address
     /// @param feeReceiver_ The new fee receiver
