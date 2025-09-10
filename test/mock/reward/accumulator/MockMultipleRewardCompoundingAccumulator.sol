@@ -16,11 +16,11 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
     event AccumulateReward(address token, uint256 amount);
 
     uint256 public totalPoolShare;
-    uint112 public product;
+    uint128 public product;
     uint256 public userPoolShare;
-    uint112 public userProduct;
+    uint128 public userProduct;
 
-    constructor(uint40 period) MultipleRewardCompoundingAccumulator(_ROLE_0, period) {}
+    constructor(uint40 period) MultipleRewardCompoundingAccumulator(_ROLE_0, _ROLE_1, period) {}
 
     function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
@@ -30,12 +30,12 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
 
     // function _authorizeUpgrade(address newImplementation) internal virtual override {}
 
-    function setTotalPoolShare(uint256 _totalPoolShare, uint112 _product) external {
+    function setTotalPoolShare(uint256 _totalPoolShare, uint128 _product) external {
         totalPoolShare = _totalPoolShare;
         product = _product;
     }
 
-    function setUserPoolShare(uint256 _userPoolShare, uint112 _userProduct) external {
+    function setUserPoolShare(uint256 _userPoolShare, uint128 _userProduct) external {
         userPoolShare = _userPoolShare;
         userProduct = _userProduct;
     }
@@ -54,20 +54,17 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
         }
     }
 
-    function _getTotalPoolShare() internal view virtual override returns (uint112, uint256) {
+    function _getTotalPoolShare() internal view virtual override returns (uint128, uint256) {
         return (product, totalPoolShare);
     }
 
-    function _getUserPoolShare(address) internal view virtual override returns (uint112, uint256) {
+    function _getUserPoolShare(address) internal view virtual override returns (uint128, uint256) {
         return (userProduct, userPoolShare);
     }
 
     // expose some internal functions for testing
-    function tokenToEpochExponentToIntegral(
-        address token,
-        uint48 epochExponent
-    ) public view returns (uint192 globalIntegral) {
-        globalIntegral = _tokenToEpochExponentToIntegral(token, epochExponent);
+    function tokenToExponentToIntegral(address token, uint8 exponent) public view returns (uint192 globalIntegral) {
+        globalIntegral = _tokenToExponentToIntegral(token, exponent);
     }
 
     /// @notice Get the user reward snapshot for a specific account and token.

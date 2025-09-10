@@ -34,9 +34,6 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
     address user3;
     address user4;
-    address rewarder;
-    address rebalancer;
-    address rewardManager;
     MockERC20 rewardToken;
 
     // Constants for testing
@@ -50,35 +47,19 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         // Create additional users
         user3 = vm.createWallet("user3").addr;
         user4 = vm.createWallet("user4").addr;
-        rewarder = vm.createWallet("rewarder").addr;
-        rebalancer = vm.createWallet("rebalancer").addr;
-        rewardManager = vm.createWallet("rewardManager").addr;
 
         // Create a reward token
         rewardToken = new MockERC20("Reward Token", "RWD", 18);
 
-        // Setup roles
-        uint256 rewarderRole = IStabilityPool(stabilityPoolCollateral).REWARDER_ROLE();
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 rewardManagerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-
-        vm.startPrank(owner);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewarder, rewarderRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rebalancer, rebalancerRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(rewardManager, rewardManagerRole);
-
+        vm.prank(rewardManager);
         // Register reward token
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(
-            address(rewardToken),
-            stabilityPoolCollateral
-        );
-        vm.stopPrank();
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(rewardToken));
 
         // Mint reward tokens
-        rewardToken.mint(rewarder, 1000 ether);
+        rewardToken.mint(rewardDepositor, 1000 ether);
 
         // Approve the stabilityPool to spend reward tokens
-        vm.prank(rewarder);
+        vm.prank(rewardDepositor);
         rewardToken.approve(stabilityPoolCollateral, type(uint256).max);
 
         // Give users tokens for deposits
@@ -152,8 +133,8 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Try to accumulate zero rewards
-        vm.prank(rewarder);
-        IStabilityPool(stabilityPoolCollateral).accumulateReward(address(rewardToken), 0);
+        vm.prank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), 0);
 
         // Verify zero rewards were accumulated
         assertEq(
@@ -172,15 +153,37 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         // Get exact balance
         uint256 exactBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
 
-        // Withdraw exactly that amount
+        // Calculate maximum withdrawable amount considering MIN_TOTAL_ASSET_SUPPLY protection
+        uint256 MIN_TOTAL_ASSET_SUPPLY = 1 ether;
+        uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 maxWithdrawable = totalSupply > MIN_TOTAL_ASSET_SUPPLY ? totalSupply - MIN_TOTAL_ASSET_SUPPLY : 0;
+
+        // When trying to withdraw the exact balance, the pool will limit it to maxWithdrawable
+        uint256 expectedWithdrawal = exactBalance > maxWithdrawable ? maxWithdrawable : exactBalance;
+
+        // Withdraw exactly the user's balance (but expect it to be limited by protection)
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(exactBalance, user1, 0);
 
-        assertEq(withdrawn, exactBalance, "Should withdraw exact balance amount");
+        assertEq(
+            withdrawn,
+            expectedWithdrawal,
+            "Should withdraw maximum allowed amount considering MIN_TOTAL_ASSET_SUPPLY protection"
+        );
+
+        // The remaining balance should be the original balance minus what was actually withdrawn
+        uint256 expectedRemainingBalance = exactBalance - expectedWithdrawal;
         assertEq(
             IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            0,
-            "Balance should be 0 after exact withdrawal"
+            expectedRemainingBalance,
+            "Balance should reflect actual withdrawal amount"
+        );
+
+        // Pool total supply should not go below MIN_TOTAL_ASSET_SUPPLY
+        assertGe(
+            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            MIN_TOTAL_ASSET_SUPPLY,
+            "Pool should maintain minimum total asset supply"
         );
     }
 

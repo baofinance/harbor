@@ -24,7 +24,7 @@ contract TestMinterMint is TestMinterSetUp {
     address sender;
     address receiver;
 
-    function setUpConfig() internal override {
+    function setUpConfig() internal virtual override {
         setUp_config_basicWithDisallow();
     }
 
@@ -173,5 +173,47 @@ contract TestMinterMintMechanics is TestMinterMint {
         // expect emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 1000000000000000000 [1e18], leveragedOut: 1986000000000000002000 [1.986e21])
         // actual emit MintLeveragedToken(sender: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], receiver: sender: [0xCD1722F3947DEf4Cf144679Da39c4c32BDC35681], collateralIn: 1000000000000000000 [1e18], leveragedOut: 1759428571428571432433 [1.759e21])
         _mintLeveraged(1 ether);
+    }
+}
+
+contract TestMinterOverflow is TestMinterMint {
+    uint256 amount = 1e31; // 100T
+    uint256 collateralFor100T;
+
+    function setUpConfig() internal virtual override {
+        setUp_config(ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)), ic(ua(100), ia(0, 0)));
+    }
+
+    function setUp() public virtual override {
+        super.setUp();
+        // simple no disallow, etc. fee structure
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        collateralFor100T = (amount * 1 ether) / price; // 100T pegged
+        setUp_collateral(collateralFor100T, collateralFor100T); // CR=2
+
+        deal(address(Deployed.wstETH), address(this), amount * 10);
+        IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+    }
+
+    function test_mintPeggedOverflow() public {
+        uint256 minted1 = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        uint256 minted100T = IMinter(minter).mintPeggedToken(collateralFor100T, address(this), 0);
+
+        uint256 returned100T = IMinter(minter).redeemPeggedToken(minted100T, address(this), 0);
+        assertEq(returned100T, collateralFor100T, "returned 100T");
+        uint256 returned1 = IMinter(minter).redeemPeggedToken(minted1, address(this), 0);
+        assertEq(returned1, 1 ether, "returned 1");
+    }
+
+    function test_mintLeveragedOverflow() public {
+        uint256 minted1 = IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+        uint256 minted100T = IMinter(minter).mintLeveragedToken(collateralFor100T, address(this), 0);
+
+        uint256 returned100T = IMinter(minter).redeemLeveragedToken(minted100T, address(this), 0);
+        assertEq(returned100T, collateralFor100T, "returned 100T");
+        uint256 returned1 = IMinter(minter).redeemLeveragedToken(minted1, address(this), 0);
+        assertEq(returned1, 1 ether, "returned 1");
     }
 }
