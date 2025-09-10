@@ -5,7 +5,7 @@
 | src/minter/Minter_v1.sol                                        | X  97% (576/595) | X  97% (638/658) | X  88% (84/95) | X  97% (67/69) |
 | src/minter/ReservePool_v1.sol                                   | X  94% (15/16)   | ✓ 100% (15/15)   | ✓ 100% (3/3)   | X  80% (4/5)   |
 | src/minter/StabilityPoolManager_v1.sol                          | X  99% (165/166) | X  99% (176/177) | X  95% (20/21) | ✓ 100% (24/24) |
-| src/minter/StabilityPool_v1.sol                                 | X  95% (163/171) | X  93% (170/182) | X  88% (21/24) | ✓ 100% (19/19) |
+| src/minter/StabilityPool_v1.sol                                 | X  96% (164/171) | X  94% (171/182) | X  92% (22/24) | ✓ 100% (19/19) |
 | src/minter/TokenDistributor_v1.sol                              | X  96% (93/97)   | X  97% (112/115) | X  77% (10/13) | X  93% (14/15) |
 | src/minter/library/ConfigIncentiveLib.sol                       | ✓ 100% (22/22)   | ✓ 100% (14/14)   | ✓ 100% (1/1)   | ✓ 100% (9/9)   |
 | src/minter/library/Config_v1.sol                                | X  93% (68/73)   | X  95% (87/92)   | X  73% (19/26) | ✓ 100% (3/3)   |
