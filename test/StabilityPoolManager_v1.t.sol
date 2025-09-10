@@ -22,8 +22,10 @@ import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
+
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
@@ -580,6 +582,104 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, 1010101010101010101);
         uint256 harvestableAmount = IMinter(minter).harvestable();
         assertApproxEqAbs(harvestableAmount, 10 ether, 10, "harvestable should be 10 ether");
+    }
+
+    function _claimable(address user) internal returns (uint256 claimable) {
+        claimable = IERC20(wrappedCollateralToken).balanceOf(user);
+        uint256 snap = vm.snapshotState();
+        vm.prank(user);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        claimable = IERC20(wrappedCollateralToken).balanceOf(user) - claimable;
+        vm.revertToState(snap);
+
+        assertApproxEqAbs(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user, wrappedCollateralToken),
+            claimable,
+            1,
+            string.concat(vm.getLabel(user), "claimable(), vs claim()")
+        );
+    }
+
+    function _part(
+        uint256 reward,
+        uint256 balance,
+        uint256 total,
+        uint256 durationRatio
+    ) internal pure returns (uint256) {
+        return (balance * reward * durationRatio) / (total * 1 ether);
+    }
+
+    function test_harvestFrontRun_() public {
+        // user1 & user2 do deposits
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user1, 0);
+
+        skip(100 weeks);
+
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(800 ether, user2, 0);
+
+        assertEq(_claimable(user1), 0, "user1 claimable=0");
+        assertEq(_claimable(user2), 0, "user2 claimable=0");
+
+        uint256 snap = vm.snapshotState();
+
+        //////////////////////////////////////////////////
+        // SCENARIO 1 - simple harvest: distribution of harvest on basis of current balance
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        assertEq(_claimable(user1), 0, "user1 claimable=0");
+        assertEq(_claimable(user2), 0, "user2 claimable=0");
+        assertEq(_claimable(user3), 0, "user3 claimable=0");
+
+        skip(1 weeks); // claimable is 0 even after a week, but that week is worth
+
+        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 1000e18, 1e18), 1e6, "user1 claimable=2 eth");
+        assertApproxEqAbs(_claimable(user2), _part(10e18, 800e18, 1000e18, 1e18), 1e6, "user2 claimable=0");
+        assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
+
+        vm.revertToState(snap);
+
+        //////////////////////////////////////////////////
+        // SCENARIO 2 - user2 withdraws half way through: time-weighted reward distribution on current balance
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+
+        skip(3.5 days); // claimable is 0 even after a week, but that week is worth
+
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).withdraw(400 ether, user2, 0);
+
+        skip(3.5 days);
+
+        assertApproxEqAbs(
+            _claimable(user1),
+            _part(10e18, 200e18, 1000e18, 0.5e18) + _part(10e18, 200e18, 600e18, 0.5e18),
+            1e6,
+            "user1 claimable=2+ eth"
+        );
+        assertApproxEqAbs(
+            _claimable(user2),
+            _part(10e18, 800e18, 1000e18, 0.5e18) + _part(10e18, 400e18, 600e18, 0.5e18),
+            1e6,
+            "user2 claimable=6 ish eth"
+        );
+        assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
+
+        vm.revertToState(snap);
+
+        //////////////////////////////////////////////////
+        // SCENARIO 3 - user3 decides to front-run a harvest
+        vm.prank(user3);
+        IStabilityPool(stabilityPoolCollateral).deposit(1000 ether, user3, 0); // doubles the total shares
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0); // get the harvest going
+        // but wait...
+        assertApproxEqAbs(_claimable(user1), 0, 0, "user1 claimable=0");
+        assertApproxEqAbs(_claimable(user2), 0, 0, "user2 claimable=0");
+        assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
+        // hang on...
+        skip(1 weeks);
+        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 2000e18, 1e18), 1e6, "user1 1 eth");
+        assertApproxEqAbs(_claimable(user2), _part(10e18, 800e18, 2000e18, 1e18), 1e6, "user2 4 eth");
+        assertApproxEqAbs(_claimable(user3), _part(10e18, 1000e18, 2000e18, 1e18), 1e6, "user3 5 eth");
     }
 
     function test_harvest0_() public {

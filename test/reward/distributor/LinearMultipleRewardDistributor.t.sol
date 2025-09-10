@@ -481,7 +481,8 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     /// @notice Test the edge case where queued rewards are very small and trigger the rounding error logic
-    /// This test exposes the type mismatch bug: comparing uint96 (token amount) with uint40 (time in seconds)
+    /// This test validates the corrected comparison logic: queued rewards (uint96, token amount) are compared with
+    /// the token equivalent of the reward period length (uint40, time in seconds).
     function test_unregisterRewardToken_WithSmallQueuedAmount_TypeMismatch() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
         MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
@@ -515,10 +516,8 @@ contract LinearMultipleRewardDistributorTest is Test {
         // 2. Queued should equal the full deposit amount since rate = 0
         assertEq(rd.queued, verySmallAmount, "Queued should equal deposit amount when rate is 0");
         // 3. Queued (1000 wei) should be much less than REWARD_PERIOD_LENGTH (86400 seconds)
-        assertTrue(
-            rd.queued < REWARD_PERIOD_LENGTH,
-            "Queued amount should be less than period length (this triggers the bug)"
-        );
+        assertEq(rd.rate, 0, "the rate is now 0");
+        assertLe(rd.queued, 1e3, "Queued amount should be small - it's the error in calculating the rate");
 
         // Wait for the period to finish so distribution is considered complete
         vm.warp(rd.finishAt + 1);
