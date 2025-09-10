@@ -22,6 +22,7 @@ lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 lib/bao-base/src/Stem_v1.sol:Stem_v1
 | function name             |       max |
 |---------------------------|-----------|
+| INITIAL_RATE              | 2.660e+02 |
 | UPGRADE_INTERFACE_VERSION | 4.350e+02 |
 | fallback                  | 2.660e+02 |
 | owner                     | 3.120e+02 |
