@@ -464,7 +464,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         );
         IBaoOwnable(unconfigured).transferOwnership(owner);
 
-        vm.expectRevert(IStabilityPool.InvalidWithdrawalWindow.selector);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 0, 0));
         IStabilityPool(unconfigured).requestWithdrawal();
     }
 }
