@@ -437,4 +437,34 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(start, uint64(block.timestamp)); // start = now + 0
         assertEq(end, start + 100);
     }
+
+    function test_getWithdrawalWindow_matches_config() public {
+        vm.startPrank(owner);
+        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
+        IStabilityPool(stabilityPoolCollateral).setFeeAddress(FEE_ADDRESS);
+        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
+        vm.stopPrank();
+
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool(stabilityPoolCollateral).getWithdrawalWindow();
+        assertEq(startDelay, uint64(WITHDRAWAL_START_DELAY));
+        assertEq(endWindow, uint64(WITHDRAWAL_END_WINDOW));
+    }
+
+    function test_requestWithdrawal_reverts_when_window_unconfigured() public {
+        // Deploy a fresh pool proxy but skip configuring window/fee
+        address spToken = address(
+            UnsafeUpgrades.deployUUPSProxy(
+                address(new MintableBurnableERC20_v1()),
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "SP Token", "spTkn"))
+            )
+        );
+        address unconfigured = UnsafeUpgrades.deployUUPSProxy(
+            address(new MockStabilityPool(minter, wrappedCollateralToken, spToken, steam, veSteam)),
+            abi.encodeCall(StabilityPool_v1.initialize, (owner))
+        );
+        IBaoOwnable(unconfigured).transferOwnership(owner);
+
+        vm.expectRevert(IStabilityPool.InvalidWithdrawalWindow.selector);
+        IStabilityPool(unconfigured).requestWithdrawal();
+    }
 }

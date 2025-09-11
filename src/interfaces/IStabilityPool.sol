@@ -166,6 +166,11 @@ interface IStabilityPool {
     /// @notice The address that receives early withdrawal fees
     function getFeeAddress() external view returns (address);
 
+    /// @notice Get the global withdrawal window configuration
+    /// @return startDelay The delay in seconds before a window starts after a request
+    /// @return endWindow The window duration in seconds (must be > 0)
+    function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
+
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/

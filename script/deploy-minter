@@ -327,6 +327,11 @@ for liquidation in Collateral Steamed; do
     25000000000000000 0x3dFc49e5112005179Da613BdE5973229082dAc35 3600 90000
   upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address)" owner
 
+  # initialize fee settings and withdrawal window on the proxy
+  send_transaction stabilityPool${liquidation} "setEarlyWithdrawalFee(uint256)" 25000000000000000
+  send_transaction stabilityPool${liquidation} "setFeeAddress(address)" 0x3dFc49e5112005179Da613BdE5973229082dAc35
+  send_transaction stabilityPool${liquidation} "setWithdrawalWindow(uint256,uint256)" 3600 90000
+
   # mint the stake token to the stability pool
   grantRoles deployer stabilityPool${liquidation}Stake.MINTER_ROLE
   send_transaction stabilityPool${liquidation}Stake "mint(address,uint256)" stabilityPool${liquidation} 1000000000000000000

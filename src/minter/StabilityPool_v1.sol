@@ -240,13 +240,6 @@ contract StabilityPool_v1 is
         if (withdrawalEndWindow_ == 0) {
             revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
         }
-
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        $.feePayment = FeePayment({feeAddress: feeAddress_, earlyWithdrawalFee: uint96(earlyWithdrawalFee_)});
-        $.withdrawalWindow = WithdrawalWindow({
-            startDelay: uint64(withdrawalStartDelay_),
-            endWindow: uint64(withdrawalEndWindow_)
-        });
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -317,6 +310,14 @@ contract StabilityPool_v1 is
     function getFeeAddress() external view returns (address) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.feePayment.feeAddress;
+    }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice Returns the global withdrawal window configuration.
+    function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        startDelay = $.withdrawalWindow.startDelay;
+        endWindow = $.withdrawalWindow.endWindow;
     }
 
     /****************************
@@ -454,6 +455,10 @@ contract StabilityPool_v1 is
     function requestWithdrawal() external nonReentrant {
         address sender = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        // Guard against unconfigured withdrawal window on the proxy
+        if ($.withdrawalWindow.endWindow == 0) {
+            revert InvalidWithdrawalWindow($.withdrawalWindow.startDelay, $.withdrawalWindow.endWindow);
+        }
         uint64 start = uint64(block.timestamp + $.withdrawalWindow.startDelay);
         uint64 end = uint64(start + $.withdrawalWindow.endWindow);
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
