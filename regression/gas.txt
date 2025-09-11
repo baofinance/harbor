@@ -151,11 +151,11 @@ src/minter/StabilityPool_v1.sol:StabilityPool_v1
 | GAUGE_REWARD_TOKEN | 3.270e+02 |
 | GAUGE_STAKE_TOKEN  | 3.250e+02 |
 | LIQUIDATION_TOKEN  | 3.060e+02 |
-| gauge              | 2.493e+03 |
+| gauge              | 2.427e+03 |
 | grantRoles         | 2.640e+04 |
 | initialize         | 1.388e+05 |
-| owner              | 2.402e+03 |
-| totalAssetSupply   | 2.438e+03 |
+| owner              | 2.424e+03 |
+| totalAssetSupply   | 2.460e+03 |
 | transferOwnership  | 1.209e+04 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
@@ -359,10 +359,10 @@ test/StabilityPool.t.sol:MockStabilityPool
 | function name           |       max |
 |-------------------------|-----------|
 | ASSET_TOKEN             | 3.480e+02 |
-| GAUGE_REWARD_TOKEN      | 3.270e+02 |
+| GAUGE_REWARD_TOKEN      | 3.050e+02 |
 | GAUGE_STAKE_TOKEN       | 3.250e+02 |
 | LIQUIDATION_TOKEN       | 3.060e+02 |
-| REBALANCER_ROLE         | 3.070e+02 |
+| REBALANCER_ROLE         | 2.850e+02 |
 | REWARDER_ROLE           | 3.070e+02 |
 | REWARD_MANAGER_ROLE     | 2.610e+02 |
 | __totalSupply           | 2.784e+03 |
@@ -374,16 +374,17 @@ test/StabilityPool.t.sol:MockStabilityPool
 | claimable               | 1.306e+04 |
 | deposit                 | 2.777e+05 |
 | gauge                   | 2.427e+03 |
-| getEarlyWithdrawalFee   | 2.416e+03 |
-| getFeeAddress           | 2.442e+03 |
+| getEarlyWithdrawalFee   | 2.394e+03 |
+| getFeeAddress           | 2.420e+03 |
 | getWithdrawalRequest    | 2.767e+03 |
+| getWithdrawalWindow     | 2.419e+03 |
 | grantRoles              | 2.640e+04 |
 | initialize              | 1.388e+05 |
 | isActiveRewardToken     | 2.722e+03 |
 | lastAssetLossError      | 2.380e+03 |
 | owner                   | 2.424e+03 |
 | registerRewardToken     | 9.790e+04 |
-| requestWithdrawal       | 2.726e+04 |
+| requestWithdrawal       | 2.741e+04 |
 | setEarlyWithdrawalFee   | 2.575e+04 |
 | setFeeAddress           | 8.709e+03 |
 | setRewardReceiver       | 2.457e+04 |
@@ -394,7 +395,7 @@ test/StabilityPool.t.sol:MockStabilityPool
 | transferOwnership       | 1.209e+04 |
 | unregisterRewardToken   | 9.434e+04 |
 | updateGauge             | 4.130e+05 |
-| upgradeToAndCall        | 1.100e+04 |
+| upgradeToAndCall        | 1.098e+04 |
 | withdraw                | 1.702e+05 |
 
 test/StabilityPool.t.sol:StabilityPool_v2
