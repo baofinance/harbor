@@ -407,7 +407,8 @@ contract Minter_v1 is
                     (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * oracle.price) /
                     (targetCollateralRatio - 1 ether);
             }
-            peggedForLeveraged = peggedTokenBalance_ - (collateralTokenBalance_ * oracle.price) / targetCollateralRatio;
+            peggedForLeveraged =
+                peggedTokenBalance_ - Math.mulDiv(collateralTokenBalance_, oracle.price, targetCollateralRatio);
         } else {
             peggedForCollateral = 0;
             peggedForLeveraged = 0;
@@ -478,9 +479,9 @@ contract Minter_v1 is
             CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance)
         );
         // slither-disable-next-line incorrect-equality
-        incentiveRatio = wrappedCollateralTaken == 0
-            ? int256(1 ether)
-            : int256(wrappedFee * 1 ether) / int256(wrappedCollateralTaken);
+        incentiveRatio = int256(
+            wrappedCollateralTaken == 0 ? 1 ether : Math.mulDiv(wrappedFee, 1 ether, wrappedCollateralTaken)
+        );
     }
 
     /// @inheritdoc IMinter
@@ -557,7 +558,20 @@ contract Minter_v1 is
             CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance),
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
         );
-        incentiveRatio = ((int256(wrappedFee) - int256(wrappedDiscount)) * 1 ether) / int256(wrappedCollateralUsed);
+        if (wrappedCollateralUsed == 0) {
+            incentiveRatio = 1 ether;
+        } else {
+            uint256 incentive;
+            int256 sign;
+            if (wrappedFee > wrappedDiscount) {
+                incentive = wrappedFee - wrappedDiscount;
+                sign = 1;
+            } else {
+                incentive = wrappedDiscount - wrappedFee;
+                sign = -1;
+            }
+            incentiveRatio = sign * int256(Math.mulDiv(incentive, 1 ether, wrappedCollateralUsed));
+        }
     }
 
     /// @inheritdoc IMinter
@@ -587,7 +601,9 @@ contract Minter_v1 is
         );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = int256(
-            wrappedCollateralReturned == 0 ? 1 ether : (wrappedFee * 1 ether) / (wrappedCollateralReturned + wrappedFee)
+            wrappedCollateralReturned == 0
+                ? 1 ether
+                : Math.mulDiv(wrappedFee, 1 ether, wrappedCollateralReturned + wrappedFee)
         );
     }
 
@@ -598,7 +614,7 @@ contract Minter_v1 is
         wrappedAmount = 0;
         if (rate > 0) {
             uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
-            uint256 value = ($.underlyingCollateral * 1 ether) / rate;
+            uint256 value = Math.mulDiv($.underlyingCollateral, 1 ether, rate);
             wrappedAmount = (balance > value) ? balance - value : 0;
         }
     }
@@ -613,10 +629,7 @@ contract Minter_v1 is
         uint256 underlying = $.underlyingCollateral;
         uint256 wrapped = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
         OracleData memory oracle = _fetchMid($.priceOracle);
-        wrapped = (wrapped * oracle.rate);
-        unchecked {
-            wrapped /= 1 ether;
-        }
+        wrapped = Math.mulDiv(wrapped, oracle.rate, 1 ether);
         emit Reset(underlying, wrapped);
         $.underlyingCollateral = wrapped;
     }
@@ -884,10 +897,7 @@ contract Minter_v1 is
 
         // update our records
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
-        unchecked {
-            underlyingCollateralInE36 /= 1 ether;
-        }
-        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralInE36;
+        $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralInE36 / 1 ether;
     }
 
     // @inheritdoc IMinter
@@ -919,10 +929,7 @@ contract Minter_v1 is
                 wrappedCollateralOut = underlyingCollateralOutE36 / oracle.rate;
                 // return the collateral
                 IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
-                unchecked {
-                    underlyingCollateralOutE36 /= 1 ether;
-                }
-                $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOutE36;
+                $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOutE36 / 1 ether;
             }
 
             if (peggedForLeveraged > 0) {
@@ -1028,10 +1035,7 @@ contract Minter_v1 is
             _redeemLeveragedToken(leveragedIn, collateralOut, receiver);
 
             // update our records
-            unchecked {
-                underlyingCollateralOutE36 /= 1 ether;
-            }
-            $.underlyingCollateral -= underlyingCollateralOutE36;
+            $.underlyingCollateral -= underlyingCollateralOutE36 / 1 ether;
         }
     }
 
@@ -1586,7 +1590,7 @@ contract Minter_v1 is
                 collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
 
                 // now check that the reserve pool can do it's corresponding bit
-                bandDiscountE36 = (collateralInBandE36 * w.bandDiscountRatio) / 1e18;
+                bandDiscountE36 = Math.mulDiv(collateralInBandE36, w.bandDiscountRatio, 1e18);
                 if (bandDiscountE36 > w.underlyingReserveCapacityE36) {
                     // Reserve pool has a capacity limit and wont be able to supply it's part of the collateralInBand,
                     // so we shift the onus on reaching the upper bound to the supplied collateral
@@ -1612,7 +1616,7 @@ contract Minter_v1 is
             w.underlyingCollateralAddedE36 += collateralInBandE36;
 
             if (w.bandFeeRatio > 0) {
-                uint256 bandFeeE36 = (collateralInBandE36 * w.bandFeeRatio) / 1e18;
+                uint256 bandFeeE36 = Math.mulDiv(collateralInBandE36, w.bandFeeRatio, 1e18);
                 w.underlyingFeeE36 += bandFeeE36;
                 w.underlyingCollateralHeldE36 -= bandFeeE36;
                 w.underlyingCollateralAddedE36 -= bandFeeE36;
@@ -1743,7 +1747,7 @@ contract Minter_v1 is
 
         underlyingCollateralRemoved = w.underlyingCollateralRemovedE36 / 1e18;
         // calculate the leveraged for the collateral assuming constant leveraged price.
-        leveragedRedeemed = (w.underlyingCollateralRemovedE36 * cr.price) / leveragedPriceE36;
+        leveragedRedeemed = Math.mulDiv(w.underlyingCollateralRemovedE36, cr.price, leveragedPriceE36);
         if (leveragedRedeemed > leveragedIn) {
             leveragedRedeemed = leveragedIn; // rounding guard
         }
@@ -1801,7 +1805,7 @@ contract Minter_v1 is
     ) private pure returns (uint256 navE36) {
         if (peggedTokenBalance_ > 0) {
             (, navE36) = _tokenValuesE36(peggedTokenBalance_, collateralTokenBalance_, collateralPrice);
-            navE36 = (navE36 * 1 ether) / peggedTokenBalance_;
+            navE36 = Math.mulDiv(navE36, 1 ether, peggedTokenBalance_);
         } else {
             navE36 = 1 ether * 1 ether;
         }
@@ -1882,10 +1886,7 @@ contract Minter_v1 is
             // slither-disable-next-line incorrect-equality
             if (leverageRatio_ == _LEVERAGE_RATIO_CAP) {
                 // cap the amount returned
-                leveragedTokens = (peggedIn * _LEVERAGE_RATIO_CAP);
-                unchecked {
-                    leveragedTokens /= 1 ether;
-                }
+                leveragedTokens = Math.mulDiv(peggedIn, _LEVERAGE_RATIO_CAP, 1 ether);
             } else {
                 // Convert using leverage ratio approach as this is only called in a rebalance context
                 leveragedTokens = Math.mulDiv(
@@ -1911,7 +1912,7 @@ contract Minter_v1 is
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 collateralRatio_) {
-        collateralRatio_ = (collateralTokenBalance_ * collateralPrice) / peggedTokenBalance_;
+        collateralRatio_ = Math.mulDiv(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
     }
 
     /// @notice Returns the amount of leveraged tokens being managed
