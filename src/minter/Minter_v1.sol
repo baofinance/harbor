@@ -504,17 +504,30 @@ contract Minter_v1 is
         price = oracle.price;
         rate = oracle.rate;
         peggedRedeemed = peggedIn;
+        uint256 peggedPriceE36; // TODO: consider adding this to the output
         // TODO: add redeemable check here - same for other dryrun functions
-        (wrappedFee, wrappedDiscount, wrappedCollateralReturned, ) = _redeemPeggedAdjustments(
+        (wrappedFee, wrappedDiscount, wrappedCollateralReturned, , peggedPriceE36) = _redeemPeggedAdjustments(
             $.incentiveConfig[Config_v1.REDEEM_PEGGED],
             peggedIn,
-            CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance),
+            CollateralRatioData($.underlyingCollateral, price, rate, $.peggedTokenBalance),
             IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
         );
         // slither-disable-next-line incorrect-equality
-        incentiveRatio = peggedRedeemed == 0
-            ? int256(1 ether)
-            : ((int256(wrappedFee) - int256(wrappedDiscount)) * int256(price)) / int256(peggedRedeemed);
+        if (peggedRedeemed == 0) {
+            incentiveRatio = 1 ether;
+        } else {
+            uint256 incentive;
+            int256 sign;
+            if (wrappedFee > wrappedDiscount) {
+                incentive = wrappedFee - wrappedDiscount;
+                sign = 1;
+            } else {
+                incentive = wrappedDiscount - wrappedFee;
+                sign = -1;
+            }
+            incentiveRatio =
+                sign * int256(Math.mulDiv(incentive * 1e18, price * rate, peggedRedeemed * peggedPriceE36));
+        }
     }
 
     /// @inheritdoc IMinter
@@ -711,7 +724,7 @@ contract Minter_v1 is
         uint256 wrappedFee;
         uint256 wrappedDiscount;
         uint256 underlyingCollateralRemoved;
-        (wrappedFee, wrappedDiscount, wrappedCollateralOut, underlyingCollateralRemoved) = _redeemPeggedAdjustments(
+        (wrappedFee, wrappedDiscount, wrappedCollateralOut, underlyingCollateralRemoved, ) = _redeemPeggedAdjustments(
             $.incentiveConfig[Config_v1.REDEEM_PEGGED],
             peggedIn,
             CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, peggedTokenBalance_),
@@ -1250,7 +1263,7 @@ contract Minter_v1 is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         // slither-disable-next-line uninitialized-local
         MintPeggedWorkspace memory w;
-        w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false); // solhint-disable-line explicit-types
+        w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
         uint256 peggedTokenPriceE36 = _peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
 
         w.underlyingCollateralInLeftE36 = wrappedCollateralIn * cr.rate; // scaled to 1e36
@@ -1284,7 +1297,6 @@ contract Minter_v1 is
                 //   dC = (C * p - R * Z) / (p * phi)
                 // where phi = R * (1 - f) - 1 + f = (R - 1) * (1 - f)
                 uint256 phiE36 = (bandLowerBound - 1e18) * (1e18 - bandFeeRatio);
-                // console2.log("phiE36=%s", phiE36);
                 collateralInBandE36 = Math.mulDiv(
                     w.underlyingCollateralHeldE36 * cr.price - bandLowerBound * w.peggedTokenHeldE36,
                     1e36,
@@ -1369,7 +1381,8 @@ contract Minter_v1 is
             uint256 wrappedFee,
             uint256 wrappedDiscount, // amount requested from reserve pool
             uint256 wrappedCollateralReturned, // this includes the discount
-            uint256 underlyingCollateralRemoved
+            uint256 underlyingCollateralRemoved,
+            uint256 peggedPriceE36
         )
     {
         // slither-disable-next-line uninitialized-local
@@ -1382,7 +1395,7 @@ contract Minter_v1 is
         // we multiply the resulting ratios by the collateral for the final fee
 
         // we capture the pegged price now as it doesn't change throughout the process, even if depegged
-        uint256 peggedPriceE36 = _peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
+        peggedPriceE36 = _peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
 
         w.peggedInLeftE36 = peggedIn * 1 ether; // scaled to 1e36
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1 ether; // scaled to 1e36
@@ -1450,7 +1463,7 @@ contract Minter_v1 is
         wrappedFee = w.underlyingFeeE36 / cr.rate;
         wrappedDiscount = Math.min(reserveWrappedCapacity, w.underlyingDiscountE36 / cr.rate); // amount requested from reserve pool
         uint256 underlyingCollateralRemovedE36 = cr.underlyingCollateral * 1 ether - w.underlyingCollateralHeldE36;
-        underlyingCollateralRemoved = _round(underlyingCollateralRemovedE36, 1 ether);
+        underlyingCollateralRemoved = underlyingCollateralRemovedE36 / 1 ether; // don't round this as it may pusg CR the wrong way
         wrappedCollateralReturned = underlyingCollateralRemovedE36 / cr.rate + wrappedDiscount - wrappedFee;
     }
 
@@ -1556,7 +1569,7 @@ contract Minter_v1 is
                 collateralInBandE36 = w.underlyingCollateralInLeftE36;
                 if (w.bandDiscountRatio > 0) {
                     // theoretical
-                    bandDiscountE36 = (collateralInBandE36 * w.bandDiscountRatio) / 1e18;
+                    bandDiscountE36 = Math.mulDiv(collateralInBandE36, w.bandDiscountRatio, 1e18);
                     // actual
                     bandDiscountE36 = Math.min(bandDiscountE36, w.underlyingReserveCapacityE36);
                 }
@@ -1728,7 +1741,7 @@ contract Minter_v1 is
             band--;
         }
 
-        underlyingCollateralRemoved = _round(w.underlyingCollateralRemovedE36, 1e18);
+        underlyingCollateralRemoved = w.underlyingCollateralRemovedE36 / 1e18;
         // calculate the leveraged for the collateral assuming constant leveraged price.
         leveragedRedeemed = (w.underlyingCollateralRemovedE36 * cr.price) / leveragedPriceE36;
         if (leveragedRedeemed > leveragedIn) {

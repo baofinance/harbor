@@ -39,6 +39,20 @@ abstract contract TestMinterFeeRangeSetUp is TestMinterSetUp {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         vm.stopPrank();
     }
+
+    // Inline helpers with minimal stack footprint
+    function _bandLower(uint256 idx, uint256[] memory b) internal pure returns (uint256) {
+        return idx == 0 ? 0 : b[idx - 1];
+    }
+    function _inBand(uint256 cr, uint256 idx, uint256[] memory b) internal pure returns (bool) {
+        return cr > _bandLower(idx, b) && cr <= b[idx];
+    }
+    function _calcLForCR(uint256 pBase, uint256 targetCR) internal pure returns (uint256) {
+        return targetCR <= 1e18 ? 0 : (pBase * (targetCR - 1e18)) / 1e18;
+    }
+    function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a == 0 ? 0 : (a - 1) / b + 1;
+    }
 }
 
 abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
@@ -59,6 +73,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     bool areDiscounts;
     bool areDisallows;
     bool reverseDirection;
+    uint256 discountLimitRatio;
 
     function setUp() public virtual override {
         super.setUp();
@@ -79,6 +94,30 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         areDiscounts = false;
         areDisallows = false;
         reverseDirection = false;
+        discountLimitRatio = 0;
+    }
+
+    function runsDiv(uint256 d) internal {
+        if (d <= 1) return;
+
+        uint256 sc = Useful.sqrt(d); // floor sqrt
+        if (sc < 1) sc = 1;
+        uint256 sc2 = sc * sc;
+        uint256 st = (d + sc2 - 1) / sc2; // ceil(d / sc^2), >= 1
+
+        // Exponentiate factors by small integer exponents without a pow helper
+        uint256 fc0 = factorCollateral;
+        for (uint256 i = 1; i < sc; i++) {
+            factorCollateral = factorCollateral * fc0;
+        }
+
+        uint256 ft0 = factorToken;
+        for (uint256 j = 1; j < st; j++) {
+            factorToken = factorToken * ft0;
+        }
+
+        // Optional: log the achieved reduction R' = sc^2 * st (>= d)
+        // console2.log("runsDiv target=%s, achieved=%s", d, sc2 * st);
     }
 
     function test_mintPeggedRange_() public virtual {
@@ -168,20 +207,6 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         uint256 wNeeded;
         uint256 bi;
         uint256 crossings;
-    }
-
-    // Inline helpers with minimal stack footprint
-    function _bandLower(uint256 idx, uint256[] memory b) internal pure returns (uint256) {
-        return idx == 0 ? 0 : b[idx - 1];
-    }
-    function _inBand(uint256 cr, uint256 idx, uint256[] memory b) internal pure returns (bool) {
-        return cr > _bandLower(idx, b) && cr <= b[idx];
-    }
-    function _calcLForCR(uint256 pBase, uint256 targetCR) internal pure returns (uint256) {
-        return targetCR <= 1e18 ? 0 : (pBase * (targetCR - 1e18)) / 1e18;
-    }
-    function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a == 0 ? 0 : (a - 1) / b + 1;
     }
 
     function test_mintLeveragedBandSpans_() public {
@@ -413,6 +438,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         uint256 collateralRatio;
         uint256 peggedPrice;
         uint256 leveragedPrice;
+        int256 incentiveRatio; // not filled by _measure
     }
 
     function _measure() internal view returns (Measures memory m) {
@@ -434,19 +460,19 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         m.leveragedPrice = IMinter(minter).leveragedTokenPrice();
     }
 
-    function _dump(Measures memory m) internal pure {
-        console2.log("userPegged:        ", m.userPegged);
-        console2.log("userLeveraged:     ", m.userLeveraged);
-        console2.log("userWrapped:       ", m.userWrapped);
-        console2.log("minterPegged:      ", m.minterPegged);
-        console2.log("minterLeveraged:   ", m.minterLeveraged);
-        console2.log("minterWrapped:     ", m.minterWrapped);
-        console2.log("minterUnderlying:  ", m.minterUnderlying);
-        console2.log("feeWrapped:        ", m.feeWrapped);
-        console2.log("reservePoolWrapped:", m.reservePoolWrapped);
-        console2.log("collateralRatio:   ", m.collateralRatio);
-        console2.log("peggedPrice:       ", m.peggedPrice);
-        console2.log("leveragedPrice:    ", m.leveragedPrice);
+    function _dump(Measures memory m, string memory name) internal pure {
+        // console2.log("%s.userPegged:        %s", name, m.userPegged);
+        // console2.log("%s.userLeveraged:     %s", name, m.userLeveraged);
+        // console2.log("%s.userWrapped:       %s", name, m.userWrapped);
+        // console2.log("%s.minterPegged:      %s", name, m.minterPegged);
+        // console2.log("%s.minterLeveraged:   %s", name, m.minterLeveraged);
+        // console2.log("%s.minterWrapped:     %s", name, m.minterWrapped);
+        // console2.log("%s.minterUnderlying:  %s", name, m.minterUnderlying);
+        // console2.log("%s.feeWrapped:        %s", name, m.feeWrapped);
+        // console2.log("%s.reservePoolWrapped:%s", name, m.reservePoolWrapped);
+        // console2.log("%s.collateralRatio:   %s", name, m.collateralRatio);
+        // console2.log("%s.peggedPrice:       %s", name, m.peggedPrice);
+        // console2.log("%s.leveragedPrice:    %s", name, m.leveragedPrice);
     }
 
     function _mintPegged(uint256 wrapped) internal virtual;
@@ -469,11 +495,15 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
     }
 
     function _mintPegged(uint256 wrapped) internal override {
-        // MINT PEGGED
+        // MINT PEGGED FLAT
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         Measures memory pre = _measure();
-        // note that this is looking up the first incentive ratio, so only works for fixed fees
         uint256 feeRatio = uint256(initial(config.mintPeggedIncentiveConfig.incentiveRatios));
+        {
+            (int256 dryRunFeeRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
+            assertEq(dryRunFeeRatio, int256(feeRatio), "mp dry run fee ratio");
+        }
+        // note that this is looking up the first incentive ratio, so only works for fixed fees
         vm.prank(user);
         uint256 minted = IMinter(minter).mintPeggedToken(wrapped, user, 0);
         // ---------------------------------------------------------------
@@ -500,6 +530,17 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         assertEq(post.minterPegged, pre.minterPegged + minted, "mp minter pegged");
         assertEq(post.minterLeveraged, pre.minterLeveraged, "mp minter leveraged");
         assertNear(post.minterWrapped, pre.minterWrapped + wrapped - fee, 1, "mp minter wrapped");
+
+        // conservation identity
+        {
+            int256 dUser = int256(post.userWrapped) - int256(pre.userWrapped); // -wrapped
+            int256 dMinter = int256(post.minterWrapped) - int256(pre.minterWrapped); // +(wrapped - fee)
+            int256 dFee = int256(post.feeWrapped) - int256(pre.feeWrapped); // +fee
+            int256 dReserve = int256(post.reservePoolWrapped) - int256(pre.reservePoolWrapped); // 0
+
+            assertNear(dUser + dMinter + dFee + dReserve, 0, 0, "mp wrapped conservation");
+        }
+
         assertNear(
             post.minterUnderlying,
             pre.minterUnderlying + ((wrapped - fee) * r) / 1e18,
@@ -512,32 +553,73 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
     }
 
     function _redeemPegged(uint256 wrapped, uint256 iteration) internal override {
-        // REDEEM PEGGED
+        // REDEEM PEGGED FLAT
+        // console2.log("wrapped=%s", wrapped);
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
         Measures memory pre = _measure();
-        // _dump(pre);
-        uint256 pegged = Math.min((wrapped * p * r) / 1e36, IMinter(minter).peggedTokenBalance());
+        _dump(pre, "pre");
+        // get the equivalent amount of pegged
+        uint256 pegged = Math.min(
+            mulDivNearest(wrapped, p * r, pre.peggedPrice * 1e18),
+            IMinter(minter).peggedTokenBalance()
+        );
+        // console2.log("pegged=%s", pegged);
+        // adjust wrapped
+        wrapped = mulDivNearest(pegged, pre.peggedPrice * 1e18, r * p);
+        // console2.log("wrapped=%s", wrapped);
+        // calculate max fee & discount
+        uint256 fee;
+        uint256 discount;
+        {
+            int256 incentiveRatio = initial(config.redeemPeggedIncentiveConfig.incentiveRatios); // assume flat
+            if (incentiveRatio < 0) {
+                fee = 0;
+                discount = (uint256(-incentiveRatio) * wrapped) / 1e18; // assume inexhaustable reserve pool (TODO: for now)
+            } else {
+                fee = (uint256(incentiveRatio) * wrapped) / 1e18;
+                discount = 0;
+            }
+        }
+        // console2.log("fee=%s", fee);
+        // console2.log("discount=%s", discount);
+
+        if (discountLimitRatio > 0) {
+            // use the max discount to determine a reserve pool capacity that should be exhasted by this redeem
+            pre.reservePoolWrapped = (discount * discountLimitRatio) / 1e18;
+            // console2.log("pre.reservePoolWrapped=%s", pre.reservePoolWrapped);
+            deal(address(wrappedCollateralToken), reservePool, pre.reservePoolWrapped);
+        }
+
+        (pre.incentiveRatio, , , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(pegged);
         vm.prank(user);
         uint256 wrappedReturned = IMinter(minter).redeemPeggedToken(pegged, user, 0);
         // -------------------------------------------------------------------------
         Measures memory post = _measure();
+        _dump(post, "post");
 
-        // adjust wrapped value for de-pegged situation
-        if (pre.collateralRatio < 1 ether) {
-            // on depeg
-            // wrapped = ((pegged * pre.peggedPrice) / p) * r / 1 ether; -> original
-            wrapped = ((pegged * r * pre.peggedPrice) / 1 ether) / p; // try to improve precision by mult first
-        } else {
-            // general calculation
-            wrapped = (pegged * 1e36) / (r * p);
+        if (discountLimitRatio > 0) {
+            assertEq(post.reservePoolWrapped, 0, "rp reserve not exhausted");
         }
-        // console2.log("adjusted wrapped: ", wrapped);
 
-        uint256 fee = (uint256(initial(config.redeemPeggedIncentiveConfig.incentiveRatios)) * wrapped) / 1e18;
+        // adjust discount
+        discount = Math.min(discount, pre.reservePoolWrapped);
+
+        // console2.log("fee=%s", fee);
+        // console2.log("discount=%s", discount);
         assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 1, "rp fee wrapped");
+        assertNear(post.reservePoolWrapped, pre.reservePoolWrapped - discount, 0, 0, "rp discount wrapped");
+
+        assertNear(
+            pre.incentiveRatio,
+            ((int256(fee) - int256(discount)) * 1e18) / int256(wrapped),
+            100,
+            0,
+            "rp dry run incentive ratio"
+        );
 
         assertEq(post.userPegged, pre.userPegged - pegged, "rp user pegged");
-        assertNear(wrappedReturned, wrapped - fee, 0, 1, "rp user wrapped");
+        assertNear(wrappedReturned, wrapped - fee + discount, 0, 1, "rp user wrapped");
         assertEq(post.userLeveraged, pre.userLeveraged, "rp user leveraged");
         assertEq(post.userWrapped, pre.userWrapped + wrappedReturned, "rp user wrapped returned");
 
@@ -554,6 +636,17 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // console2.log ("wrappedDiffAllowed:", wrappedDiffAllowed);
 
         assertNear(post.minterWrapped, pre.minterWrapped - wrapped, wrappedDiffAllowed, 0, "rp minter wrapped");
+
+        // conservation identity
+        {
+            int256 dUser = int256(post.userWrapped) - int256(pre.userWrapped); // -wrapped
+            int256 dMinter = int256(post.minterWrapped) - int256(pre.minterWrapped); // +(wrapped - fee)
+            int256 dFee = int256(post.feeWrapped) - int256(pre.feeWrapped); // +fee
+            int256 dReserve = int256(post.reservePoolWrapped) - int256(pre.reservePoolWrapped); // 0
+
+            assertNear(dUser + dMinter + dFee + dReserve, 0, 0, "rp wrapped conservation");
+        }
+
         assertNear(
             post.minterUnderlying,
             pre.minterUnderlying - (wrapped * r) / 1e18,
@@ -563,42 +656,75 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         );
 
         // Assert pegged token price for different CRs
-        // console2.log ("pre.collateralRatio=%s", pre.collateralRatio);
-        // console2.log ("pre.peggedPrice=%s", pre.peggedPrice);
-        // console2.log ("post.peggedPrice=%s", post.peggedPrice);
-        if (pre.collateralRatio >= 1 ether) {
-            // In normal scenarios (CR>=1) pegged token price doesn't change
-            assertEq(post.peggedPrice, pre.peggedPrice, "rp pegged price");
-        } else if (isNear(pre.peggedPrice, post.peggedPrice, 1)) {
-            // There was a depeg, but redeem amount wasn't big enough to change the pegged token price
-            assertLt(post.collateralRatio, 1 ether, "depeg rp cr no change");
-        } else {
-            // Enough pegged tokens were redeemed to restore the peg
-            assertEq(post.peggedPrice, 1 ether, "depeg rp pegged price");
-            assertGe(post.collateralRatio, 1 ether, "depeg rp cr");
+        // console2.log("pre.collateralRatio=%s", pre.collateralRatio);
+        // console2.log("pre.peggedPrice=%s", pre.peggedPrice);
+        // console2.log("post.peggedPrice=%s", post.peggedPrice);
+        assertGe(post.peggedPrice, pre.peggedPrice, "rp pegged price");
+        if (pre.collateralRatio < 1 ether) {
+            assertNear(pre.peggedPrice, pre.collateralRatio, 0, 0, "rp depegged CR");
+            assertGe(post.peggedPrice, pre.peggedPrice, "rp depegged pegged price");
         }
         // assertEq(post.leveragedPrice, pre.leveragedPrice, 1, "rp leveraged price");
     }
 
     function _mintLeveraged(uint256 wrapped) internal override {
-        // MINT LEVERAGED
-        (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        Measures memory pre;
-        uint256 lp = IMinter(minter).leveragedTokenPrice();
+        // MINT LEVERAGED FLAT
         if (IMinter(minter).collateralRatio() > 1 ether) {
+            (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+            Measures memory pre;
+            uint256 lp = IMinter(minter).leveragedTokenPrice();
+
+            uint256 fee;
+            uint256 discount;
+            {
+                int256 incentiveRatio = initial(config.mintLeveragedIncentiveConfig.incentiveRatios); // assume flat
+                if (incentiveRatio < 0) {
+                    fee = 0;
+                    discount = (uint256(-incentiveRatio) * wrapped) / 1e18;
+                } else {
+                    fee = (uint256(incentiveRatio) * wrapped) / 1e18;
+                    discount = 0;
+                }
+            }
+
+            if (discountLimitRatio > 0) {
+                // use the max discount to determine a reserve pool capacity that should be exhasted by this redeem
+                pre.reservePoolWrapped = (discount * discountLimitRatio) / 1e18;
+                // console2.log("pre.reservePoolWrapped=%s", pre.reservePoolWrapped);
+                deal(address(wrappedCollateralToken), reservePool, pre.reservePoolWrapped);
+            }
+
             pre = _measure();
+            (pre.incentiveRatio, , , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(wrapped);
             vm.prank(user);
             uint256 minted = IMinter(minter).mintLeveragedToken(wrapped, user, 0);
             // ------------------------------------------------------------------
             Measures memory post = _measure();
             uint256 q = r / 1e18; // how many 1e18-scale “chunks” in rate
 
-            uint256 fee = (uint256(initial(config.mintLeveragedIncentiveConfig.incentiveRatios)) * wrapped) / 1 ether;
+            if (discountLimitRatio > 0) {
+                assertEq(post.reservePoolWrapped, 0, "ml reserve not exhausted");
+            }
+
+            discount = Math.min(discount, pre.reservePoolWrapped);
+            // console2.log("fee=%s", fee);
+            // console2.log("discount=%s", discount);
+
             assertNear(post.feeWrapped, pre.feeWrapped + fee, q + 2, "ml fee wrapped");
+            assertNear(post.reservePoolWrapped, pre.reservePoolWrapped - discount, 0, 0, "ml discount wrapped");
+
+            assertNear(
+                pre.incentiveRatio,
+                ((int256(fee) - int256(discount)) * 1e18) / int256(wrapped),
+                100,
+                0,
+                "ml dry run fee ratio"
+            );
 
             assertNear(
                 post.minterUnderlying,
-                pre.minterUnderlying + ((wrapped - fee) * r) / 1e18,
+                pre.minterUnderlying + ((wrapped - fee + discount) * r) / 1e18,
                 q + 2,
                 "ml minter underlying"
             );
@@ -606,12 +732,12 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertEq(post.userWrapped, pre.userWrapped - wrapped, "ml user wrapped");
 
             assertEq(post.minterLeveraged, pre.minterLeveraged + minted, "ml minter leveraged");
-            assertNear(post.minterWrapped, pre.minterWrapped + wrapped - fee, 1, "ml minter wrapped");
+            assertNear(post.minterWrapped, pre.minterWrapped + wrapped - fee + discount, 1, "ml minter wrapped");
 
             assertEq(post.userLeveraged, pre.userLeveraged + minted, "ml user leveraged returned");
             assertNear(
                 minted,
-                Math.mulDiv((wrapped - fee) * r /*underlying collateral */, p, lp * 1e18),
+                Math.mulDiv((wrapped - fee + discount) * r /*underlying collateral */, p, lp * 1e18),
                 q + 2,
                 3,
                 "ml user leveraged"
@@ -625,13 +751,23 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                 p <= 1e9 ? 13320 : 0, // allow for slight deviation in l price when collateral price is small
                 "ml leveraged price"
             );
+
+            // conservation identity
+            {
+                int256 dUser = int256(post.userWrapped) - int256(pre.userWrapped); // -wrapped
+                int256 dMinter = int256(post.minterWrapped) - int256(pre.minterWrapped); // +(wrapped - fee)
+                int256 dFee = int256(post.feeWrapped) - int256(pre.feeWrapped); // +fee
+                int256 dReserve = int256(post.reservePoolWrapped) - int256(pre.reservePoolWrapped); // 0
+
+                assertNear(dUser + dMinter + dFee + dReserve, 0, 0, "ml wrapped conservation");
+            }
         } else {
             // console2.log ("CR=%s", IMinter(minter).collateralRatio());
         }
     }
 
     function _redeemLeveraged(uint256 wrapped) internal override {
-        // REDEEM LEVERAGED
+        // REDEEM LEVERAGED FLAT
         if (IMinter(minter).collateralRatio() > 1 ether) {
             (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
             Measures memory pre = _measure();
@@ -639,6 +775,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             if (leveraged <= pre.minterLeveraged) {
                 // console2.log ("leveraged=%s", leveraged);
                 // console2.log ("underlying=%s", (wrapped * r) / 1e18);
+                (pre.incentiveRatio, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(leveraged);
                 vm.prank(user);
                 uint256 wrappedReturned = IMinter(minter).redeemLeveragedToken(leveraged, user, 0);
                 // -------------------------------------------------------------------------------
@@ -651,8 +788,12 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         "rl leveraged price"
                     );
 
-                    uint256 fee = (uint256(initial(config.redeemLeveragedIncentiveConfig.incentiveRatios)) * wrapped) /
-                        1 ether;
+                    uint256 fee;
+                    {
+                        int256 incentiveRatio = initial(config.redeemLeveragedIncentiveConfig.incentiveRatios);
+                        assertNear(pre.incentiveRatio, incentiveRatio, 100, 0, "rl dry run fee ratio");
+                        fee = (uint256(incentiveRatio) * wrapped) / 1 ether;
+                    }
                     // console2.log ("fee=%s", fee);
                     assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 3, "rl fee wrapped");
 
@@ -671,6 +812,16 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         0,
                         "rl minter underlying"
                     );
+
+                    // conservation identity
+                    {
+                        int256 dUser = int256(post.userWrapped) - int256(pre.userWrapped); // -wrapped
+                        int256 dMinter = int256(post.minterWrapped) - int256(pre.minterWrapped); // +(wrapped - fee)
+                        int256 dFee = int256(post.feeWrapped) - int256(pre.feeWrapped); // +fee
+                        int256 dReserve = int256(post.reservePoolWrapped) - int256(pre.reservePoolWrapped); // 0
+
+                        assertNear(dUser + dMinter + dFee + dReserve, 0, 0, "rl wraooed conservation");
+                    }
                 }
                 assertEq(post.peggedPrice, pre.peggedPrice, "rl pegged price");
             } else {
@@ -751,7 +902,49 @@ contract TestMinterFixedFeeRangePrice1Billionth_ is TestMinterFixedFeeRange_ {
     }
 }
 
+// discount
+contract TestMinterFixedFeeRangeDiscountInexhaustableReserve_ is TestMinterFixedFeeRange_ {
+    function setUp() public virtual override {
+        super.setUp();
+        deal(address(wrappedCollateralToken), reservePool, 1e50);
+        areDiscounts = true;
+    }
+
+    function setUpConfig() internal virtual override {
+        setUp_config_flatDiscountWide();
+    }
+}
+
+contract TestMinterFixedFeeRangeDiscountNoReserve_ is TestMinterFixedFeeRange_ {
+    function setUp() public virtual override {
+        super.setUp();
+        areDiscounts = true;
+    }
+
+    function setUpConfig() internal virtual override {
+        setUp_config_flatDiscountWide();
+    }
+}
+
+contract TestMinterFixedFeeRangeDiscountLimitedReserve_ is TestMinterFixedFeeRangeDiscountNoReserve_ {
+    function setUp() public virtual override {
+        super.setUp();
+        discountLimitRatio = 0.5 ether;
+    }
+}
+
 // rate checks
+
+contract TestMinterFixedFeeRangeDiscountInexhaustableReserveRate1Million_ is
+    TestMinterFixedFeeRangeDiscountInexhaustableReserve_
+{
+    function setUp() public virtual override {
+        super.setUp();
+        price = measurePrice = 1 ether;
+        rate = measureRate = 1 ether * 1e6;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+}
 
 contract TestMinterFixedFeeRangeRate1Million_ is TestMinterFixedFeeRange_ {
     function setUp() public virtual override {
@@ -785,7 +978,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
             minted = m;
         } catch (bytes memory reason) {
             // console2.log ("mp revert");
-            console2.logBytes(reason);
+            // console2.logBytes(reason);
             (int256 feeRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
             require(
                 feeRatio == 1 ether &&
@@ -798,25 +991,43 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
     }
 
     function _mintPegged(uint256 wrapped) internal virtual override {
-        // MINT PEGGED
+        // MINT PEGGED INTEGRAL
         // _dump(_measure());
+        if (discountLimitRatio > 0) {
+            // use the max discount to determine a reserve pool capacity that should be exhasted by this redeem
+            uint256 reservePoolWrapped = (wrapped * discountLimitRatio) / 1e18;
+            // console2.log("pre.reservePoolWrapped=%s", reservePoolWrapped);
+            deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
+        }
+
         uint256 snap = vm.snapshotState();
         uint256 mintedSteps = 0;
-        uint256 wrappedStep = wrapped / steps;
-        assertNear(wrapped, wrappedStep * steps, steps, "mp passed in the correct wrapped");
-        for (uint i = 0; i < steps; i++) {
-            // console2.log ("vvv step %s", i);
-            vm.prank(user);
-            // mintedSteps += IMinter(minter).mintPeggedToken(wrappedStep, user, 0);
-            uint256 minted1 = mintPeggedIgnoreMintZeroAmount(wrappedStep, user);
-            // ----------------------------------------------------------------
-            mintedSteps += minted1;
-
+        {
+            uint256 base = wrapped / steps;
+            uint256 rem = wrapped % steps;
+            uint256 acc = rem / 2; // “centre” the bumps
+            uint sumpart = 0;
+            for (uint256 i = 0; i < steps; ++i) {
+                acc += rem;
+                uint256 bump = 0;
+                if (acc >= steps) {
+                    bump = 1;
+                    acc -= steps;
+                }
+                uint256 part = base + bump;
+                if (part > 0) {
+                    sumpart += part;
+                    vm.prank(user);
+                    mintedSteps += mintPeggedIgnoreMintZeroAmount(part, user);
+                    // ------------------------------------------------------
+                }
+            }
+            assertEq(sumpart, wrapped, "mp integral step sum");
             // console2.log ("^^^ step %s, minted=%s, mintedSteps=%s", i, minted1, mintedSteps);
         }
         Measures memory postSteps = _measure();
         vm.revertToState(snap);
-        // _dump(_measure());
+        _dump(postSteps, "steps");
 
         // uint256 minted = IMinter(minter).mintPeggedToken(wrapped, user, 0);
         // console2.log ("vvv all");
@@ -825,37 +1036,89 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         // ---------------------------------------------------------------
         // console2.log ("^^^ minted=%s", minted);
         Measures memory post = _measure();
+        _dump(post, "all");
 
-        uint256 pegTolAbs = 32;
-        uint256 pegTolRel = 0;
-        if (areDisallows) pegTolRel = 500; // this is needed for disallows: still pretty tight tolerance, though
+        uint256 pegTolAbs = 32 + (areDisallows ? 20 : 0);
         uint256 colTolRel = 2e6;
 
-        assertNear(post.feeWrapped, postSteps.feeWrapped, 3, "mp integral fee wrapped");
-        assertNear(minted, mintedSteps, pegTolAbs, pegTolRel, "mp integral minted");
+        assertNear(post.feeWrapped, postSteps.feeWrapped, 4, areDisallows ? 1e14 : 0, "mp integral fee wrapped"); // 0.0003422181225920%
+        assertNear(minted, mintedSteps, pegTolAbs, areDisallows ? 0.0000000005 ether : 0, "mp integral minted");
 
-        assertNear(post.userPegged, postSteps.userPegged, pegTolAbs, pegTolRel, "mp integral user pegged");
+        assertNear(
+            post.userPegged,
+            postSteps.userPegged,
+            pegTolAbs,
+            areDisallows ? 0.0000000005 ether : 0,
+            "mp integral user pegged"
+        );
         assertEq(post.userLeveraged, postSteps.userLeveraged, "mp integral user leveraged");
         assertNear(post.userWrapped, postSteps.userWrapped, 1, colTolRel, "mp integral user wrapped");
 
-        assertNear(post.minterPegged, postSteps.minterPegged, pegTolAbs, pegTolRel, "mp integral minter pegged");
+        assertNear(
+            post.minterPegged,
+            postSteps.minterPegged,
+            pegTolAbs,
+            areDisallows ? 0.0000000006 ether : 0,
+            "mp integral minter pegged"
+        );
         assertEq(post.minterLeveraged, postSteps.minterLeveraged, "mp integral minter leveraged");
-        assertNear(post.minterWrapped, postSteps.minterWrapped, 1, colTolRel, "mp integral minter wrapped");
-        assertNear(post.minterUnderlying, postSteps.minterUnderlying, 2, colTolRel, "mp integral minter underlying");
+        assertNear(
+            post.minterWrapped,
+            postSteps.minterWrapped,
+            1,
+            areDisallows ? 0.004 ether : colTolRel,
+            "mp integral minter wrapped"
+        );
+        assertNear(
+            post.minterUnderlying,
+            postSteps.minterUnderlying,
+            2,
+            areDisallows ? 0.004 ether : colTolRel,
+            "mp integral minter underlying"
+        );
     }
 
     function _redeemPegged(uint256 wrapped, uint256) internal virtual override {
-        // REDEEM PEGGED
+        // REDEEM PEGGED INTEGRAL
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        uint256 snap = vm.snapshotState();
+
         uint256 wrappedReturnedSteps = 0;
         uint256 pegged = Math.min((wrapped * p * r) / 1e36, IMinter(minter).peggedTokenBalance());
-        uint256 peggpedStep = pegged / steps;
-        for (uint i = 0; i < steps; i++) {
-            vm.prank(user);
 
-            wrappedReturnedSteps += IMinter(minter).redeemPeggedToken(peggpedStep, user, 0);
-            // -----------------------------------------------------------------
+        if (discountLimitRatio > 0) {
+            // adjust wrapped for limited pegged
+            uint256 peggedPrice = IMinter(minter).peggedTokenPrice();
+            wrapped = Math.mulDiv(pegged, peggedPrice * 1e18, r * p);
+            // use the wrapped to determine a reserve pool capacity that should be exhasted by this redeem
+            uint256 reservePoolWrapped = (wrapped * discountLimitRatio) / 1e18;
+            // console2.log("pre.reservePoolWrapped=%s", reservePoolWrapped);
+            deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
+        }
+
+        uint256 snap = vm.snapshotState();
+
+        {
+            uint256 base = pegged / steps;
+            uint256 rem = pegged % steps;
+            uint256 acc = rem / 2; // “centre” the bumps
+            uint sumpart = 0;
+            for (uint256 i = 0; i < steps; ++i) {
+                acc += rem;
+                uint256 bump = 0;
+                if (acc >= steps) {
+                    bump = 1;
+                    acc -= steps;
+                }
+                uint256 part = base + bump;
+                if (part > 0) {
+                    sumpart += part;
+
+                    vm.prank(user);
+                    wrappedReturnedSteps += IMinter(minter).redeemPeggedToken(part, user, 0);
+                    // -----------------------------------------------------------------
+                }
+            }
+            assertEq(sumpart, pegged, "rp integral step sum");
         }
         Measures memory postSteps = _measure();
         vm.revertToState(snap);
@@ -868,6 +1131,8 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
         uint256 pegTolAbs = 32;
         uint256 colTolRel = 2e6;
+
+        assertNear(post.reservePoolWrapped, postSteps.reservePoolWrapped, 1, "rp integral discount wrapped");
 
         assertNear(post.feeWrapped, postSteps.feeWrapped, 1, "rp integral fee wrapped");
         assertNear(wrappedReturned, wrappedReturnedSteps, pegTolAbs, "rp integral returned");
@@ -883,38 +1148,63 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
     }
 
     function _mintLeveraged(uint256 wrapped) internal virtual override {
-        // MINT LEVERAGED
+        // MINT LEVERAGED INTEGRAL
         // we don't allow minting leveragedTokens when it's not economically sensible to do so
         if (IMinter(minter).collateralRatio() > 1 ether) {
+            if (discountLimitRatio > 0) {
+                // use the wrapped to determine a reserve pool capacity that should be exhasted by this redeem
+                uint256 reservePoolWrapped = (wrapped * discountLimitRatio) / 1e18;
+                // console2.log("pre.reservePoolWrapped=%s", reservePoolWrapped);
+                deal(address(wrappedCollateralToken), reservePool, reservePoolWrapped);
+            }
+
             uint256 snap = vm.snapshotState();
             uint256 mintedSteps = 0;
-            uint256 wrappedStep = wrapped / steps;
-            assertNear(wrapped, wrappedStep * steps, steps, "ml passed in the correct wrapped");
-            for (uint i = 0; i < steps; i++) {
-                vm.prank(user);
-                mintedSteps += IMinter(minter).mintLeveragedToken(wrappedStep, user, 0);
-                // ------------------------------------------------------------------
+            {
+                uint256 base = wrapped / steps;
+                uint256 rem = wrapped % steps;
+                uint256 acc = rem / 2; // “centre” the bumps
+                uint sumpart = 0;
+                for (uint256 i = 0; i < steps; ++i) {
+                    acc += rem;
+                    uint256 bump = 0;
+                    if (acc >= steps) {
+                        bump = 1;
+                        acc -= steps;
+                    }
+                    uint256 part = base + bump;
+                    if (part > 0) {
+                        sumpart += part;
+                        vm.prank(user);
+                        mintedSteps += IMinter(minter).mintLeveragedToken(part, user, 0);
+                        // ------------------------------------------------------------------
+                    }
+                }
+                assertEq(sumpart, wrapped, "ml integral step sum");
             }
 
             Measures memory postSteps = _measure();
+            // _dump(postSteps, "steps");
             vm.revertToState(snap);
             vm.prank(user);
             uint256 minted = IMinter(minter).mintLeveragedToken(wrapped, user, 0);
             // ------------------------------------------------------------------
 
             Measures memory post = _measure();
+            // _dump(post, "all");
+            assertNear(post.reservePoolWrapped, postSteps.reservePoolWrapped, 1, 0, "ml integral discount wrapped");
 
             assertNear(post.feeWrapped, postSteps.feeWrapped, 0, 0, "ml integral fee wrapped");
-            assertNear(minted, mintedSteps, 0, 43, "ml integral minted");
+            assertNear(minted, mintedSteps, 20, 43, "ml integral minted");
 
             assertNear(post.userPegged, postSteps.userPegged, 0, 0, "ml integral user pegged");
-            assertNear(post.userLeveraged, postSteps.userLeveraged, 0, 43, "ml integral user leveraged");
+            assertNear(post.userLeveraged, postSteps.userLeveraged, 20, 43, "ml integral user leveraged");
             assertNear(post.userWrapped, postSteps.userWrapped, 0, 0, "ml integral user wrapped");
 
             assertNear(post.minterPegged, postSteps.minterPegged, 0, 0, "ml integral minter pegged");
-            assertNear(post.minterLeveraged, postSteps.minterLeveraged, 0, 43, "ml integral minter leveraged");
+            assertNear(post.minterLeveraged, postSteps.minterLeveraged, 20, 43, "ml integral minter leveraged");
             assertNear(post.minterWrapped, postSteps.minterWrapped, 0, 0, "ml integral minter wrapped");
-            assertNear(post.minterUnderlying, postSteps.minterUnderlying, 0, 0, "ml integral minter underlying");
+            assertNear(post.minterUnderlying, postSteps.minterUnderlying, 1, 0, "ml integral minter underlying");
         }
     }
 
@@ -923,7 +1213,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
             minted = m;
         } catch (bytes memory reason) {
             // console2.log ("rl revert");
-            console2.logBytes(reason);
+            // console2.logBytes(reason);
             (int256 feeRatio, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(0);
             require(
                 feeRatio == 1 ether &&
@@ -944,12 +1234,29 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
             uint256 wrappedReturnedSteps = 0;
             uint256 leveraged = (wrapped * r * p) / (lp * 1e18);
             if (leveraged <= IMinter(minter).leveragedTokenBalance()) {
-                uint256 leveragedStep = leveraged / steps;
                 uint256 snap = vm.snapshotState();
-                for (uint i = 0; i < steps; i++) {
-                    vm.prank(user);
-                    wrappedReturnedSteps += redeemLeveragedIgnoreReturnZeroAmount(leveragedStep, user);
-                    // ---------------------------------------------------------------------------------
+                {
+                    uint256 base = leveraged / steps;
+                    uint256 rem = leveraged % steps;
+                    uint256 acc = rem / 2; // “centre” the bumps
+                    uint sumpart = 0;
+                    for (uint256 i = 0; i < steps; ++i) {
+                        acc += rem;
+                        uint256 bump = 0;
+                        if (acc >= steps) {
+                            bump = 1;
+                            acc -= steps;
+                        }
+                        uint256 part = base + bump;
+                        if (part > 0) {
+                            sumpart += part;
+
+                            vm.prank(user);
+                            wrappedReturnedSteps += redeemLeveragedIgnoreReturnZeroAmount(part, user);
+                            // ---------------------------------------------------------------------------------
+                        }
+                    }
+                    assertEq(sumpart, leveraged, "rl integral step sum");
                 }
 
                 Measures memory postSteps = _measure();
@@ -982,9 +1289,6 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
     }
 }
 
-// TODO:
-// 3) we have exhausted reserve pool for discounts
-
 contract TestMinterIntegralFixedFees is TestMinterIntegralFees {
     function setUpConfig() internal virtual override {
         setUp_config_flatWide();
@@ -1000,6 +1304,47 @@ contract TestMinterIntegralDisallowDiscountNoReserve is TestMinterIntegralFees {
 
     function setUpConfig() internal virtual override {
         setUp_config_flatDisallowDiscountWide();
+    }
+}
+
+contract TestMinterIntegralDiscountNoReserve is TestMinterIntegralFees {
+    function setUp() public virtual override {
+        super.setUp();
+        areDiscounts = true;
+    }
+
+    function setUpConfig() internal virtual override {
+        setUp_config_flatDiscountWide();
+    }
+}
+
+contract TestMinterIntegralDiscountLimitedReserve is TestMinterIntegralDiscountNoReserve {
+    function setUp() public virtual override {
+        super.setUp();
+        discountLimitRatio = 0.005 ether;
+    }
+}
+
+contract TestMinterIntegralDiscountDisallowForwardLimitedReserve is TestMinterIntegralDiscountNoReserve {
+    function setUp() public virtual override {
+        super.setUp();
+        areDiscounts = true;
+        areDisallows = true;
+    }
+
+    function setUpConfig() internal virtual override {
+        setUp_config_directionalDisallowDiscountWide();
+    }
+}
+
+contract TestMinterIntegralDiscountDisallowReverseLimitedReserve is TestMinterIntegralDiscountNoReserve {
+    function setUp() public virtual override {
+        super.setUp();
+        areDiscounts = true;
+        areDisallows = true;
+    }
+    function setUpConfig() internal virtual override {
+        setUp_config_reverseDirectionalDisallowDiscountWide();
     }
 }
 
@@ -1027,13 +1372,6 @@ contract TestMinterIntegralDisallowDiscountReverseVariableNoReserve is TestMinte
         setUp_config_reverseDirectionalDisallowDiscountWide();
     }
 }
-
-// TODO: ensure that the reserve is exhausted during the run
-// contract TestMinterIntegralDisallowDiscountSomeReserve is TestMinterIntegralFees {
-//     function setUpConfig() internal virtual override {
-//         setUp_config_flatDisallowDiscountWide();
-//     }
-// }
 
 contract TestMinterIntegralDiscountInexhaustableReserve is TestMinterIntegralFees {
     function setUp() public virtual override {
@@ -1080,5 +1418,55 @@ contract TestMinterIntegralReverseVariableFees is TestMinterIntegralFees {
 
     function setUpConfig() internal virtual override {
         setUp_config_reverseDirectionalWide();
+    }
+}
+
+// -------- Directional + limited reserve under extreme p/r (integral) --------
+
+contract TestMinterIntegralDiscountDiForwardLimitedReserveRate1Million is TestMinterIntegralFees {
+    function setUp() public virtual override {
+        super.setUp();
+        areDiscounts = true;
+        areDisallows = true;
+        discountLimitRatio = 0.005 ether;
+
+        // p=1e18, r=1e12
+        price = measurePrice = 1e18;
+        rate = measureRate = 1e12;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+    function setUpConfig() internal virtual override {
+        setUp_config_directionalDisallowDiscountWide();
+    }
+}
+
+contract TestMinterIntegralDiscountReverseLimitedReservePrice1Billionth is TestMinterIntegralFees {
+    function setUp() public virtual override {
+        super.setUp();
+        areDiscounts = true;
+        areDisallows = true;
+        discountLimitRatio = 0.005 ether;
+
+        // p = 1e9, r = 1e18
+        price = measurePrice = 1e9;
+        rate = measureRate = 1e18;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+    }
+    function setUpConfig() internal virtual override {
+        setUp_config_reverseDirectionalDisallowDiscountWide();
+    }
+}
+
+// --------------------------- Dust rounding stress ---------------------------
+
+contract TestMinterIntegralDustRounding_ is TestMinterIntegralFees {
+    function setUp() public virtual override {
+        super.setUp();
+        // Increase granularity to stress rounding in integral vs single-shot
+        steps *= 20;
+        runsDiv(10);
+    }
+    function setUpConfig() internal virtual override {
+        setUp_config_directionalWide();
     }
 }

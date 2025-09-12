@@ -102,9 +102,46 @@ abstract contract TestExtras is Test {
         vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " (outside both abs & rel tolerances)"));
     }
 
+    function assertNear(
+        int256 a,
+        int256 b,
+        uint256 maxAbsDiff,
+        uint256 maxRelDiff,
+        string memory message
+    ) internal pure {
+        uint256 absDiff = SignedMath.abs(a - b);
+        if (absDiff <= maxAbsDiff) {
+            // SUCCESS (abs): Log and exit.
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " (within abs tolerance)"));
+            return;
+        }
+
+        // Use magnitudes for relative comparison
+        uint256 magA = SignedMath.abs(a);
+        uint256 magB = SignedMath.abs(b);
+        uint256 denom = magA > magB ? magA : magB;
+
+        if (denom > 0) {
+            // relDiff = ceil(absDiff / denom) in 1e18 scale
+            uint256 relDiff = Math.mulDiv(absDiff, 1e18, denom, Math.Rounding.Ceil);
+            if (relDiff <= maxRelDiff) {
+                // SUCCESS (rel)
+                vm.assertApproxEqRel(a, b, relDiff, string.concat(message, " (within rel tolerance)"));
+                return;
+            }
+        }
+
+        // FAILURE: outside both tolerances
+        vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " (outside both abs & rel tolerances)"));
+    }
+
     /// @dev Overload for just checking absolute tolerance - its just an alias for existing vm call
     /// we prefer this as it's shorter text to type
     function assertNear(uint256 a, uint256 b, uint256 maxAbsDiff, string memory message) internal pure {
+        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
+    }
+
+    function assertNear(int256 a, int256 b, uint256 maxAbsDiff, string memory message) internal pure {
         vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
     }
 }
@@ -175,6 +212,15 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(80, 80, 80, 80, 80, 80, 80, 80)),
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(70, 70, 70, 70, 70, 70, 70, 70)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
+        );
+    }
+
+    function setUp_config_flatDiscountWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, -70)),
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
         );
     }
