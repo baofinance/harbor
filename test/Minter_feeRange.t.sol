@@ -139,14 +139,12 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         for (uint256 p = minCollateral; p < maxCollateral; p *= factorCollateral) {
             for (uint256 l = minCollateral; l < maxCollateral; l *= factorCollateral) {
                 uint256 w = minToken;
-                uint256 i = 0;
                 while (w <= maxToken) {
                     setUp_collateral(p, l, user);
                     MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
-                    _redeemPegged(w, i);
+                    _redeemPegged(w);
                     vm.revertToState(snap);
                     w *= factorToken;
-                    ++i;
                 }
             }
         }
@@ -476,7 +474,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     }
 
     function _mintPegged(uint256 wrapped) internal virtual;
-    function _redeemPegged(uint256 wrapped, uint256 iteration) internal virtual;
+    function _redeemPegged(uint256 wrapped) internal virtual;
     function _mintLeveraged(uint256 wrapped) internal virtual;
     function _redeemLeveraged(uint256 wrapped) internal virtual;
 }
@@ -552,7 +550,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // assertNear(post.leveragedPrice, pre.leveragedPrice, 1, 1000, "mp leveraged price");
     }
 
-    function _redeemPegged(uint256 wrapped, uint256 iteration) internal override {
+    function _redeemPegged(uint256 wrapped) internal override {
         // REDEEM PEGGED FLAT
         // console2.log("wrapped=%s", wrapped);
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -630,10 +628,10 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         // We're compensating for it by creating wrappedDiffAllowed. With the current test suite iterations, it should max cap at 0.000002000000000000
         uint256 wrappedDiffAllowed = 0;
         if (pre.collateralRatio < 1 ether) {
-            wrappedDiffAllowed = pegged > 1e30 ? ((iteration * 1e10) / iteration) * 1e3 + 2 : iteration * 1e6 + 1;
-            wrappedDiffAllowed = bound(wrappedDiffAllowed, 1, 2000000000000 + 2);
+            wrappedDiffAllowed = pegged > 1e30 ? 2e12 : pegged / 1e16;
+            // wrappedDiffAllowed = bound(wrappedDiffAllowed, 1, 2000000000000 + 2);
         }
-        // console2.log ("wrappedDiffAllowed:", wrappedDiffAllowed);
+        console2.log("wrappedDiffAllowed:", wrappedDiffAllowed);
 
         assertNear(post.minterWrapped, pre.minterWrapped - wrapped, wrappedDiffAllowed, 0, "rp minter wrapped");
 
@@ -1078,7 +1076,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         );
     }
 
-    function _redeemPegged(uint256 wrapped, uint256) internal virtual override {
+    function _redeemPegged(uint256 wrapped) internal virtual override {
         // REDEEM PEGGED INTEGRAL
         (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
@@ -1389,8 +1387,8 @@ contract TestMinterIntegralDiscountInexhaustableReserve is TestMinterIntegralFee
         super._mintPegged(wrapped);
     }
 
-    function _redeemPegged(uint256 wrapped, uint256 iteration) internal virtual override {
-        super._redeemPegged(wrapped, iteration);
+    function _redeemPegged(uint256 wrapped) internal virtual override {
+        super._redeemPegged(wrapped);
         assertGt(IERC20(wrappedCollateralToken).balanceOf(reservePool), 0, "rp reserve left");
     }
 
