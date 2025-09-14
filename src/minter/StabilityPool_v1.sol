@@ -299,11 +299,7 @@ contract StabilityPool_v1 is
         return $.lastAssetLossError;
     }
 
-<<<<<<< HEAD
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claimable(address account, address token) public view virtual override returns (uint256 earned) {
-        earned = _claimable(account, token);
-    }
+    // expose claimable from parent via interface
 
     /// @inheritdoc IStabilityPool
     /// @notice Returns the configured withdrawal request window for an account.
@@ -335,9 +331,6 @@ contract StabilityPool_v1 is
         startDelay = $.withdrawalWindow.startDelay;
         endWindow = $.withdrawalWindow.endWindow;
     }
-
-=======
->>>>>>> fix-review
     /****************************
      * Public Mutator Functions *
      ****************************/
@@ -414,11 +407,8 @@ contract StabilityPool_v1 is
         address sender = _msgSender();
         _checkpoint(sender);
 
-        // Require an existing, valid withdrawal request; fee rules apply outside [start, end]
+        // Read any existing withdrawal request (optional)
         WithdrawalRequest memory request = $.withdrawalRequests[sender];
-        if (request.start == 0 || request.end <= request.start) {
-            revert NoActiveWithdrawalRequest(sender);
-        }
 
         TokenBalance memory balance = $.assetBalances[sender];
         if (assetAmount == type(uint256).max) {
@@ -435,27 +425,33 @@ contract StabilityPool_v1 is
             revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
 
-<<<<<<< HEAD
-        // Handle withdrawal fee if outside the request window
+        // Determine fee policy
+        // - If no request: fee applies
+        // - If request exists: fee applies outside [start, end]; no fee during window
         uint256 feeAmount = 0;
-        if (block.timestamp < request.start || block.timestamp > request.end) {
+        bool hasRequest = (request.start != 0 && request.end > request.start);
+        bool inWindow = hasRequest && block.timestamp >= request.start && block.timestamp <= request.end;
+        if (!inWindow) {
             feeAmount = (assetsWithdrawn * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
             assetsWithdrawn -= feeAmount;
         }
 
-        // Close the withdrawal request by zeroing both fields (simpler active-check; preserves history via events)
-        $.withdrawalRequests[sender] = WithdrawalRequest({start: 0, end: 0});
-        emit WithdrawalRequestUpdated(sender, request.start, 0);
-=======
-        // floor the total supply ar the minimum
-        // we do this silently as the lesser of two evils because its a small amount (1$) and most
-        // users would rather lose a $ than resubmitting the withdrawal transaction
-        // besides the user could have passed a -1 in meaning all my balance.
+        // floor the total supply at the minimum
         TokenBalance memory supply = $.totalAssetSupply;
         if (supply.amount - assetsWithdrawn < MIN_TOTAL_ASSET_SUPPLY) {
             assetsWithdrawn = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
+            // if fee pushed us below min, trim fee as well
+            if (supply.amount - assetsWithdrawn - feeAmount < MIN_TOTAL_ASSET_SUPPLY) {
+                uint256 maxFee = supply.amount - MIN_TOTAL_ASSET_SUPPLY - assetsWithdrawn;
+                if (feeAmount > maxFee) feeAmount = maxFee;
+            }
         }
->>>>>>> fix-review
+
+        // Close any existing withdrawal request after successful withdrawal
+        if (hasRequest) {
+            $.withdrawalRequests[sender] = WithdrawalRequest({start: 0, end: 0});
+            emit WithdrawalRequestUpdated(sender, request.start, 0);
+        }
         emit Withdraw(sender, receiver, assetsWithdrawn);
 
         // update the global record

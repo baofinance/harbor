@@ -144,16 +144,16 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 src/minter/StabilityPool_v1.sol:StabilityPool_v1
 | function name      |       max |
 |--------------------|-----------|
-| ASSET_TOKEN        | 3.050e+02 |
+| ASSET_TOKEN        | 2.830e+02 |
 | GAUGE_REWARD_TOKEN | 3.270e+02 |
 | GAUGE_STAKE_TOKEN  | 3.470e+02 |
 | LIQUIDATION_TOKEN  | 3.060e+02 |
 | gauge              | 2.449e+03 |
-| grantRoles         | 2.633e+04 |
+| grantRoles         | 2.640e+04 |
 | initialize         | 1.818e+05 |
-| owner              | 2.402e+03 |
-| totalAssetSupply   | 2.438e+03 |
-| transferOwnership  | 1.204e+04 |
+| owner              | 2.424e+03 |
+| totalAssetSupply   | 2.460e+03 |
+| transferOwnership  | 1.202e+04 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name     |       max |
@@ -355,42 +355,50 @@ src/reward/voting-escrow/VotingEscrow_v1.sol:VotingEscrow_v1
 test/StabilityPool.t.sol:MockStabilityPool
 | function name           |       max |
 |-------------------------|-----------|
-| ASSET_TOKEN             | 3.270e+02 |
-| GAUGE_REWARD_TOKEN      | 3.050e+02 |
+| ASSET_TOKEN             | 3.050e+02 |
+| GAUGE_REWARD_TOKEN      | 2.830e+02 |
 | GAUGE_STAKE_TOKEN       | 3.470e+02 |
-| LIQUIDATION_TOKEN       | 3.060e+02 |
-| MIN_TOTAL_ASSET_SUPPLY  | 3.270e+02 |
-| REBALANCER_ROLE         | 2.620e+02 |
+| LIQUIDATION_TOKEN       | 2.840e+02 |
+| MIN_TOTAL_ASSET_SUPPLY  | 3.050e+02 |
+| REBALANCER_ROLE         | 3.070e+02 |
 | REWARD_DEPOSITOR_ROLE   | 2.840e+02 |
-| REWARD_MANAGER_ROLE     | 3.050e+02 |
-| __getCompoundedBalance  | 1.897e+03 |
-| __totalSupply           | 4.749e+03 |
+| REWARD_MANAGER_ROLE     | 2.830e+02 |
+| __getCompoundedBalance  | 1.875e+03 |
+| __totalSupply           | 4.813e+03 |
 | activeRewardTokens      | 1.423e+04 |
-| approve                 | 2.130e+02 |
+| approve                 | 2.350e+02 |
 | assetBalanceOf          | 8.032e+03 |
 | claim                   | 2.685e+05 |
-| claimable               | 2.153e+04 |
-| deposit                 | 4.404e+05 |
+| claimable               | 2.151e+04 |
+| deposit                 | 4.428e+05 |
 | depositReward           | 1.178e+05 |
 | gauge                   | 2.471e+03 |
-| grantRoles              | 2.640e+04 |
-| initialize              | 1.817e+05 |
-| isActiveRewardToken     | 2.766e+03 |
-| lastAssetLossError      | 2.357e+03 |
+| getEarlyWithdrawalFee   | 2.461e+03 |
+| getFeeAddress           | 2.442e+03 |
+| getWithdrawalRequest    | 2.745e+03 |
+| getWithdrawalWindow     | 2.441e+03 |
+| grantRoles              | 2.638e+04 |
+| initialize              | 1.818e+05 |
+| isActiveRewardToken     | 2.744e+03 |
+| lastAssetLossError      | 2.424e+03 |
 | notifyLiquidation       | 1.842e+05 |
 | owner                   | 2.424e+03 |
-| pendingRewards          | 3.470e+03 |
+| pendingRewards          | 3.535e+03 |
 | registerRewardToken     | 7.290e+04 |
-| rewardData              | 2.958e+03 |
-| setRewardReceiver       | 2.455e+04 |
-| sweep                   | 4.018e+04 |
+| requestWithdrawal       | 2.737e+04 |
+| rewardData              | 2.936e+03 |
+| setEarlyWithdrawalFee   | 2.577e+04 |
+| setFeeAddress           | 8.764e+03 |
+| setRewardReceiver       | 2.460e+04 |
+| setWithdrawalWindow     | 2.606e+04 |
+| sweep                   | 4.015e+04 |
 | totalAssetSupply        | 2.460e+03 |
-| totalAssetSupplyHistory | 4.839e+03 |
-| transferOwnership       | 1.204e+04 |
-| unregisterRewardToken   | 8.921e+04 |
+| totalAssetSupplyHistory | 4.817e+03 |
+| transferOwnership       | 1.202e+04 |
+| unregisterRewardToken   | 8.925e+04 |
 | updateGauge             | 4.130e+05 |
-| upgradeToAndCall        | 1.092e+04 |
-| withdraw                | 2.600e+05 |
+| upgradeToAndCall        | 1.099e+04 |
+| withdraw                | 2.676e+05 |
 
 test/StabilityPool.t.sol:StabilityPool_v2
 | function name   |       max |

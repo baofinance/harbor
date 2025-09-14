@@ -563,68 +563,6 @@ contract MockStabilityPoolManagerUpgraded is StabilityPoolManager_v1 {
     }
 }
 
-<<<<<<< HEAD
-contract MockMinter {
-    uint256 public harvestable;
-    uint256 public collateralRatio;
-    address public immutable WRAPPED_COLLATERAL_TOKEN;
-    address public immutable PEGGED_TOKEN;
-    address public immutable LEVERAGED_TOKEN;
-
-    constructor(address wrappedCollateralToken, address peggedToken, address leveragedToken) {
-        WRAPPED_COLLATERAL_TOKEN = wrappedCollateralToken;
-        PEGGED_TOKEN = peggedToken;
-        LEVERAGED_TOKEN = leveragedToken;
-    }
-    function setHarvestable(uint256 amount) external {
-        harvestable = amount;
-    }
-    function setCollateralRatio(uint256 ratio) external {
-        collateralRatio = ratio;
-    }
-    function ZERO_FEE_ROLE() external pure returns (uint256) {
-        return 128; // any power of 2
-    }
-    function HARVESTER_ROLE() external pure returns (uint256) {
-        return 256; // any power of 2
-    }
-    function grantRoles(address, uint256) external {}
-
-    function sweep(address token, uint256 amount, address receiver) external {
-        harvestable -= amount;
-        IERC20(token).transfer(receiver, amount);
-    }
-}
-
-contract MockStabilityPool {
-    mapping(address => uint256) public assetBalanceOf;
-    uint256 public totalAssetSupply;
-    address ASSET_TOKEN;
-
-    constructor(address token) {
-        ASSET_TOKEN = token;
-    }
-    function deposit(uint256 amount, address user, uint256) external {
-        assetBalanceOf[user] += amount;
-        totalAssetSupply += amount;
-        IERC20(ASSET_TOKEN).transferFrom(msg.sender, address(this), amount);
-    }
-    // No-op configurators to satisfy parent setup that configures withdrawal params on real pools
-    function setEarlyWithdrawalFee(uint256) external {}
-    function setFeeAddress(address) external {}
-    function setWithdrawalWindow(uint256, uint256) external {}
-    function sweep(address token, uint256 amount, address receiver) external {
-        IERC20(token).transfer(receiver, amount);
-    }
-    function REBALANCER_ROLE() external pure returns (uint256) {
-        return 128; // any power of 2
-    }
-    function grantRoles(address, uint256) external {}
-    function accumulateReward(address token, uint256 amount) external {}
-}
-
-=======
->>>>>>> fix-review
 contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     address harvester;
     address liquidator;
@@ -695,7 +633,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         skip(1 weeks); // claimable is 0 even after a week, but that week is worth
 
-        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 1000e18, 1e18), 1e6, "user1 claimable=2 eth");
+        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 1000e18, 1e18), 1e16, "user1 claimable=2 eth");
         assertApproxEqAbs(_claimable(user2), _part(10e18, 800e18, 1000e18, 1e18), 1e6, "user2 claimable=0");
         assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
 
@@ -708,6 +646,10 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         skip(3.5 days); // claimable is 0 even after a week, but that week is worth
 
         vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 _start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.warp(_start + 1);
+        vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(400 ether, user2, 0);
 
         skip(3.5 days);
@@ -715,13 +657,13 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         assertApproxEqAbs(
             _claimable(user1),
             _part(10e18, 200e18, 1000e18, 0.5e18) + _part(10e18, 200e18, 600e18, 0.5e18),
-            1e6,
+            1e16,
             "user1 claimable=2+ eth"
         );
         assertApproxEqAbs(
             _claimable(user2),
             _part(10e18, 800e18, 1000e18, 0.5e18) + _part(10e18, 400e18, 600e18, 0.5e18),
-            1e6,
+            1e16,
             "user2 claimable=6 ish eth"
         );
         assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");

@@ -336,13 +336,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
                 1 ether
             )
         );
-=======
-        address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam, 1 ether));
-    }
-
-    function test_initEvents(address liquidateTo) internal {
-        address sp = address(new StabilityPool_v1(minter, liquidateTo, stabilityPoolToken, steam, 1 ether));
->>>>>>> fix-review
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();

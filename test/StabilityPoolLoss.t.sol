@@ -28,10 +28,6 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
     uint256 constant user1Deposit = 100 ether;
     uint256 constant user2Deposit = 200 ether;
->>>>>>> fix-review
-    uint256 constant user1Deposit = 100 ether;
-    uint256 constant user2Deposit = 200 ether;
->>>>>>> fix-review
 
     /// @notice Basic loss notification test with parameterized deposit and loss amounts
     function testBasicLoss(uint256 depositAmount, uint256 lossAmount) public {
@@ -213,15 +209,11 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
             vm.prank(user1);
-<<<<<<< HEAD
             IStabilityPool(pool).requestWithdrawal();
             (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(user1);
-            vm.warp(uint256(start) + 1);
+            vm.warp(start + 1);
             vm.prank(user1);
-            IStabilityPool(pool).withdraw(remainingBalance, user1, 0);
-=======
             IStabilityPool(pool).withdraw(withdrawableAmount, user1, 0);
->>>>>>> fix-review
 
             // Allow for some rounding in the withdrawal
             assertApproxEqAbs(
@@ -354,14 +346,10 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 user1WithdrawAmount = user1RemainingBalance / 2;
 
         vm.prank(user1);
-<<<<<<< HEAD
-        IStabilityPool(pool).requestWithdrawal();
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
         vm.warp(block.timestamp + 2 hours);
         vm.prank(user1);
-        IStabilityPool(pool).withdraw(user1WithdrawAmount, user1, 0);
-=======
         IStabilityPool(stabilityPoolCollateral).withdraw(user1WithdrawAmount, user1, 0);
->>>>>>> fix-review
 
         // User3 deposits
         uint256 user3Deposit = 50 ether;
@@ -375,13 +363,6 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         _liquidate(stabilityPoolCollateral, secondLoss);
 
         // Check final balances
-<<<<<<< HEAD
-        uint256 totalAssetsAfterAll = IStabilityPool(pool).totalAssetSupply();
-        uint256 expectedTotalAssets = user1Deposit + user2Deposit + user3Deposit;
-        expectedTotalAssets -= firstLoss;
-        expectedTotalAssets -= secondLoss;
-        expectedTotalAssets -= user1WithdrawAmount;
-=======
         uint256 totalAssetsAfterAll = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
         uint256 expectedTotalAssets = user1Deposit +
             user2Deposit +
@@ -389,7 +370,6 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             firstLoss -
             secondLoss -
             user1WithdrawAmount;
->>>>>>> fix-review
 
         assertApproxEqAbs(totalAssetsAfterAll, expectedTotalAssets, TOLERANCE_LARGE);
 
@@ -398,29 +378,6 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 user2FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
         uint256 user3FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
 
-<<<<<<< HEAD
-        vm.prank(user1);
-        IStabilityPool(pool).requestWithdrawal();
-        vm.warp(block.timestamp + 2 hours);
-        vm.prank(user1);
-        IStabilityPool(pool).withdraw(user1FinalBalance, user1, 0);
-
-        vm.prank(user2);
-        IStabilityPool(pool).requestWithdrawal();
-        vm.warp(block.timestamp + 2 hours);
-        vm.prank(user2);
-        IStabilityPool(pool).withdraw(user2FinalBalance, user2, 0);
-
-        vm.prank(user3);
-        IStabilityPool(pool).requestWithdrawal();
-        vm.warp(block.timestamp + 2 hours);
-        vm.prank(user3);
-        IStabilityPool(pool).withdraw(user3FinalBalance, user3, 0);
-
-        // There might be some dust left due to rounding
-        _assertTotalSupplyDust(pool);
-    }
-=======
         // Calculate total withdrawable amount (total balances minus MIN_TOTAL_ASSET_SUPPLY protection)
         uint256 totalUserBalances = user1FinalBalance + user2FinalBalance + user3FinalBalance;
         uint256 totalWithdrawable = totalUserBalances > MIN_TOTAL_ASSET_SUPPLY
@@ -435,16 +392,24 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
             if (user1Withdrawable > 0) {
                 vm.prank(user1);
+                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.warp(block.timestamp + 2 hours);
+                vm.prank(user1);
                 IStabilityPool(stabilityPoolCollateral).withdraw(user1Withdrawable, user1, 0);
             }
 
             if (user2Withdrawable > 0) {
                 vm.prank(user2);
+                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.warp(block.timestamp + 2 hours);
+                vm.prank(user2);
                 IStabilityPool(stabilityPoolCollateral).withdraw(user2Withdrawable, user2, 0);
             }
->>>>>>> fix-review
 
             if (user3Withdrawable > 0) {
+                vm.prank(user3);
+                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.warp(block.timestamp + 2 hours);
                 vm.prank(user3);
                 IStabilityPool(stabilityPoolCollateral).withdraw(user3Withdrawable, user3, 0);
             }
