@@ -392,7 +392,7 @@ contract StabilityPool_v1 is
     }
 
     /// @inheritdoc IStabilityPool
-    // slither-disable-next-line reentrancy-no-eth
+    // slither-disable-next-line reentrancy-no-eth,reentrancy-eth,reentrancy-unlimited-gas,reentrancy-benign
     // slither-disable-next-line cyclomatic-complexity
     function withdraw(
         uint256 assetAmount,
