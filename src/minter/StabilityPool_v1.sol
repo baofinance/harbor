@@ -406,6 +406,7 @@ contract StabilityPool_v1 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         address sender = _msgSender();
+        // slither-disable-next-line reentrancy-no-eth
         _checkpoint(sender);
 
         // Read any existing withdrawal request (optional)
