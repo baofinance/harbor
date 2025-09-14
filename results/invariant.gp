@@ -1,14 +1,14 @@
 datafile = "invariant.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
-set terminal svg enhanced size 600 400 background rgb "gray90"
+set terminal svg enhanced size 600 600 background rgb "gray90"
 #set terminal pngcairo size 500 300
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
-set xrange [0.7:1.6]
+set xrange [0.4:1.6]
 
 set ylabel "Pegged NAV / Leveraged NAV"
-set yrange [-1:10]
+set yrange [-1:21]
 set ytics nomirror
 
 set y2label "Collateral NAV / Leverage Ratio"
@@ -29,6 +29,6 @@ set colorsequence default
 plot \
      datafile using ($1):($3) axes x1y1 with lines linewidth 1 linetype 2, \
      datafile using ($1):($4) axes x1y1 with lines linewidth 1 linetype 4, \
-     datafile using ($1):(($2 > max_value) ? max_value : $2) axes x1y2 with lines linewidth 1 linetype 1 title "> Leverage Ratio", \
+     datafile using ($1):($2) axes x1y2 with lines linewidth 1 linetype 1 title "> Leverage Ratio", \
      datafile using ($1):($5) axes x1y2 with lines linewidth 1 linetype 6, \
-     datafile using ($1):(($2 > 10) ? 10 : $2) axes x1y1 with lines linewidth 1 dashtype 2 linetype 1 title "< Leverage Ratio"
+     datafile using ($1):($2) axes x1y1 with lines linewidth 1 dashtype 2 linetype 1 title "< Leverage Ratio"

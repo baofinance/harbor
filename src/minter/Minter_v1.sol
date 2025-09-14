@@ -123,6 +123,9 @@ contract Minter_v1 is
     /// @notice The role that allows access to the sweep function.
     uint256 public constant HARVESTER_ROLE = _ROLE_1;
 
+    /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
+    uint256 private constant _LEVERAGE_RATIO_CAP = 20 ether;
+
     ////////////////
     // Immutables //
     ////////////////
@@ -357,22 +360,7 @@ contract Minter_v1 is
 
         // slither-disable-next-line unused-return we don't need the leveraged value here
         OracleData memory oracle = _fetchMid($.priceOracle);
-        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
-            $.peggedTokenBalance,
-            $.underlyingCollateral,
-            oracle.price
-        );
-        if (peggedValue$ >= collateralValue$) {
-            // it divides by 0 or goes negative!
-            ratio = 100 ether;
-        } else {
-            // we have collateral and it's worth something
-            // ratio = (1 ether * 1 ether) / (1 ether - (peggedValue$ / (collateralValue$ / 1 ether)));
-            ratio = (1 ether * 1 ether) / (1 ether - ((peggedValue$ * 1 ether) / collateralValue$));
-            if (ratio > 100 ether) {
-                ratio = 100 ether;
-            }
-        }
+        ratio = _leverageRatio($.peggedTokenBalance, $.underlyingCollateral, oracle.price);
     }
 
     /// @inheritdoc IMinter
@@ -407,72 +395,31 @@ contract Minter_v1 is
     }
 
     /// @inheritdoc IMinter
-    function leveragedTokensForCollateral(
-        uint256 forWrappedCollateral
-    ) external view override returns (uint256 leveragedTokens) {
-        MinterStorage storage $ = _getMinterStorage();
-        OracleData memory oracle = _fetchMid($.priceOracle);
-        leveragedTokens = _leveragedTokensForCollateral(
-            _underlyingValueOf(forWrappedCollateral, oracle.rate),
-            _leveragedTokenBalance(),
-            $.peggedTokenBalance,
-            $.underlyingCollateral,
-            oracle.price
-        );
-    }
-
-    /// @inheritdoc IMinter
-    function collateralForLeverageTokens(
-        uint256 forLeveragedTokens
-    ) external view override returns (uint256 wrappedCollateral) {
-        MinterStorage storage $ = _getMinterStorage();
-        OracleData memory oracle = _fetchMid($.priceOracle);
-        // TODO: add check for being depegged here and remove it from the below function
-        wrappedCollateral = _wrappedValueOf(
-            _underlyingCollateralForLeveragedTokens(
-                forLeveragedTokens,
-                _leveragedTokenBalance(),
-                $.peggedTokenBalance,
-                $.underlyingCollateral,
-                oracle.price
-            ),
-            oracle.rate
-        );
-    }
-
-    /// @inheritdoc IMinter
     function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedTokens) {
+    ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
         MinterStorage storage $ = _getMinterStorage();
         OracleData memory oracle = _fetchMax($.priceOracle);
         uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_)) {
-            peggedTokens = _redeemPeggedForCollateralRatio(
-                targetCollateralRatio,
-                collateralTokenBalance_,
-                oracle.price,
-                peggedTokenBalance_
-            );
+        uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_);
+        if (targetCollateralRatio > currentCollateralRatio) {
+            if (currentCollateralRatio < 1 ether) {
+                // we're depegged, so all we can do is redeem them all
+                peggedForCollateral = peggedTokenBalance_;
+            } else {
+                peggedForCollateral = _redeemPeggedForCollateralRatio(
+                    targetCollateralRatio,
+                    collateralTokenBalance_,
+                    oracle.price,
+                    peggedTokenBalance_
+                );
+            }
+            peggedForLeveraged =
+                peggedTokenBalance_ -
+                Math.mulDiv(collateralTokenBalance_, oracle.price, targetCollateralRatio);
         } else {
-            peggedTokens = 0;
-        }
-    }
-
-    /// @inheritdoc IMinter
-    function swapPeggedForLeveragedForCollateralRatio(
-        uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedTokens) {
-        MinterStorage storage $ = _getMinterStorage();
-        OracleData memory oracle = _fetchMax($.priceOracle);
-        uint256 collateralTokenBalance_ = $.underlyingCollateral;
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        if (targetCollateralRatio > _collateralRatio(collateralTokenBalance_, oracle.price, peggedTokenBalance_)) {
-            // from the definition of collateral ratio with no change in collateral only change in pegged
-            peggedTokens = peggedTokenBalance_ - (collateralTokenBalance_ * oracle.price) / targetCollateralRatio;
-        } else {
-            peggedTokens = 0;
+            peggedForCollateral = 0;
         }
     }
 
@@ -708,6 +655,17 @@ contract Minter_v1 is
     //////////////////////////////
 
     /// @inheritdoc IMinter
+    function reset() external onlyOwner {
+        MinterStorage storage $ = _getMinterStorage();
+        uint256 underlying = $.underlyingCollateral;
+        uint256 wrapped = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
+        OracleData memory oracle = _fetchMid($.priceOracle);
+        wrapped = _underlyingValueOf(wrapped, oracle.rate);
+        emit Reset(underlying, wrapped);
+        $.underlyingCollateral = wrapped;
+    }
+
+    /// @inheritdoc IMinter
     function updateConfig(Config calldata config_) external override onlyOwner {
         // or is this handled by the fact that the CR for discount is much lower than the rebalance CR
         emit UpdateConfig(config_); // the code below may alter the config so emit it soon
@@ -788,7 +746,7 @@ contract Minter_v1 is
         // check the amounts involved
         // slither-disable-next-line incorrect-equality        if (peggedOut == 0) revert MintZeroAmount(PEGGED_TOKEN);
         if (peggedOut < minPeggedOut) {
-            revert MintInsufficientAmount(PEGGED_TOKEN, minPeggedOut, peggedOut);
+            revert MintInsufficientAmount(PEGGED_TOKEN, peggedOut, minPeggedOut);
         }
 
         // do the mint for collateral
@@ -876,7 +834,7 @@ contract Minter_v1 is
         }
 
         if (wrappedCollateralOut < minWrappedCollateralOut) {
-            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, minWrappedCollateralOut, wrappedCollateralOut);
+            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
         }
 
         // redeem pegged tokens and send the remainder of the collateral
@@ -931,7 +889,7 @@ contract Minter_v1 is
         }
         // make sure it meets the minimum requirements
         if (leveragedOut < minLeveragedOut) {
-            revert MintInsufficientAmount(LEVERAGED_TOKEN, minLeveragedOut, leveragedOut);
+            revert MintInsufficientAmount(LEVERAGED_TOKEN, leveragedOut, minLeveragedOut);
         }
         // mint the leveraged tokens and take wrappedCollateralIn
         _mintLeveragedToken(wrappedCollateralIn, leveragedOut, receiver);
@@ -979,7 +937,7 @@ contract Minter_v1 is
         }
         wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
         if (wrappedCollateralOut < minWrappedCollateralOut) {
-            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, minWrappedCollateralOut, wrappedCollateralOut);
+            revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
         }
 
         _redeemLeveragedToken(leveragedIn, wrappedCollateralOut, receiver);
@@ -1006,17 +964,14 @@ contract Minter_v1 is
         address receiver
     ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
         MinterStorage storage $ = _getMinterStorage();
-        // how much collateral to use
-        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
         // TODO: should this be the mid price/rate?
         OracleData memory oracle = _fetchMid($.priceOracle);
         uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, oracle.rate);
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = $.underlyingCollateral;
-        // transfer and mint
 
-        // TODO: should this use the actual price not the 1 ether price, i.e. mint them at the depegged amount
+        // transfer and mint
         peggedOut =
             (underlyingCollateralIn * oracle.price * 1 ether) /
             _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price);
@@ -1029,54 +984,60 @@ contract Minter_v1 is
 
     // @inheritdoc IMinter
     function freeRedeemPeggedToken(
-        uint256 peggedIn,
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged,
         address receiver
-    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut) {
-        MinterStorage storage $ = _getMinterStorage();
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 underlyingCollateral_ = $.underlyingCollateral;
-        peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
-        peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
+    ) public nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
+        if (peggedForCollateral + peggedForLeveraged > 0) {
+            MinterStorage storage $ = _getMinterStorage();
+            uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
-        OracleData memory oracle = _fetchMax($.priceOracle);
-        uint256 underlyingCollateralOut = (peggedIn *
-            _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price)) / (oracle.price * 1 ether);
-        wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
+            if ((peggedForCollateral + peggedForLeveraged) > peggedTokenBalance_) {
+                revert InsufficientRedeemableTokens(
+                    PEGGED_TOKEN,
+                    peggedTokenBalance_,
+                    peggedForCollateral + peggedForLeveraged
+                );
+            }
 
-        // burn pegged tokens and send the collateral to the receiver
-        _redeemPeggedToken(peggedIn, wrappedCollateralOut, receiver);
+            OracleData memory oracle = _fetchMax($.priceOracle);
+            if (peggedForCollateral > 0) {
+                uint256 underlyingCollateral_ = $.underlyingCollateral;
+                uint256 underlyingCollateralOut = (peggedForCollateral *
+                    _peggedTokenPrice$(peggedTokenBalance_, underlyingCollateral_, oracle.price)) /
+                    (oracle.price * 1 ether);
+                wrappedCollateralOut = _wrappedValueOf(underlyingCollateralOut, oracle.rate);
+                // return the collateral
+                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
+                $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
+            }
 
-        // update our records
-        $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
-        $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOut;
-    }
+            if (peggedForLeveraged > 0) {
+                leveragedOut = _leveragedTokensForPegged(
+                    peggedForLeveraged,
+                    _leveragedTokenBalance(),
+                    peggedTokenBalance_,
+                    $.underlyingCollateral,
+                    oracle.price
+                );
+                // mint the tokens to the receiver
+                // wake-disable-next-line reentrancy
+                IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
+            }
 
-    /// @inheritdoc IMinter
-    function freeSwapPeggedForLeveraged(
-        uint256 peggedIn,
-        address receiver
-    ) external override nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 leveragedOut) {
-        MinterStorage storage $ = _getMinterStorage();
-        uint256 peggedTokenBalance_ = $.peggedTokenBalance;
+            emit RedeemPeggedToken(
+                _msgSender(),
+                receiver,
+                peggedForLeveraged + peggedForCollateral,
+                wrappedCollateralOut,
+                leveragedOut
+            );
 
-        peggedIn = Token.allOf(_msgSender(), PEGGED_TOKEN, peggedIn);
-        peggedIn = _redeemable(PEGGED_TOKEN, peggedIn, peggedTokenBalance_);
-
-        OracleData memory oracle = _fetchMid($.priceOracle);
-
-        leveragedOut = _leveragedTokensForPegged(
-            peggedIn,
-            _leveragedTokenBalance(),
-            peggedTokenBalance_,
-            $.underlyingCollateral,
-            oracle.price
-        );
-
-        // burn pegged tokens and send the collateral
-        _swapPeggedForLeveraged(peggedIn, leveragedOut, receiver);
-
-        // update our records (collateral doesn't change)
-        $.peggedTokenBalance = peggedTokenBalance_ - peggedIn;
+            // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
+            _burnPeggedToken(peggedForCollateral + peggedForLeveraged);
+            // update our records
+            $.peggedTokenBalance = peggedTokenBalance_ - (peggedForCollateral + peggedForLeveraged);
+        }
     }
 
     // @inheritdoc IMinter
@@ -1086,7 +1047,6 @@ contract Minter_v1 is
     ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
-        wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
         OracleData memory oracle = _fetchMid($.priceOracle);
         uint256 underlyingCollateralIn = _underlyingValueOf(wrappedCollateralIn, oracle.rate);
         // mint the tokens to the receiver
@@ -1110,8 +1070,6 @@ contract Minter_v1 is
         address receiver
     ) external override onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
-        // how much collateral to use
-        leveragedIn = Token.allOf(_msgSender(), LEVERAGED_TOKEN, leveragedIn);
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
         leveragedIn = _redeemable(LEVERAGED_TOKEN, leveragedIn, leveragedTokenBalance_);
@@ -1234,32 +1192,13 @@ contract Minter_v1 is
 
     function _redeemPeggedToken(uint256 peggedIn, uint256 wrappedCollateralOut, address receiver) private {
         // tell the world
-        emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut);
+        emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut, 0);
 
         // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
         _burnPeggedToken(peggedIn);
 
         // return the collateral
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
-    }
-
-    /// @notice Perform the transfers and event emissions for redeeming pegged tokens for leveraged tokens
-    /// Fees and discounts transfers and event emissions are not handled here.
-    /// @dev no checks for zeros values are performed.
-    /// @param peggedIn The amount of pegged tokens to be taken from the sender.
-    /// @param leveragedOut The amount of leveraged to be transferred to the `receiver`.
-    /// @param receiver The address of the receiver.
-
-    function _swapPeggedForLeveraged(uint256 peggedIn, uint256 leveragedOut, address receiver) private {
-        // tell the world
-        emit SwapPeggedForLeveraged(_msgSender(), receiver, peggedIn, leveragedOut);
-
-        // burn the tokens from the sender - get them first then burn them
-        _burnPeggedToken(peggedIn);
-
-        // mint the tokens to the receiver
-        // wake-disable-next-line reentrancy
-        IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
     }
 
     /// @notice Perform the transfers and event emissions for minting leveraged tokens
@@ -1364,12 +1303,14 @@ contract Minter_v1 is
                 // all the requested collateral can be consumed
                 collateralInBand = underlyingCollateralIn;
             } else {
-                uint256 phi = (bandLowerBound * (1 ether - bandFeeRatio)) +
+                uint256 phi$ = (bandLowerBound * (1 ether - bandFeeRatio)) +
                     (bandFeeRatio * 1 ether) -
                     (1 ether * 1 ether);
-                collateralInBand =
-                    ((underlyingCollateral_ * 1 ether * 1 ether) / phi) -
-                    (((bandLowerBound * peggedTokenBalance_) * 1 ether * 1 ether) / (price * phi));
+                collateralInBand = Math.mulDiv(
+                    underlyingCollateral_ * price - bandLowerBound * peggedTokenBalance_,
+                    1e36,
+                    price * phi$
+                );
 
                 collateralInBand = Math.min(underlyingCollateralIn, collateralInBand);
             }
@@ -1450,6 +1391,7 @@ contract Minter_v1 is
                         // this applies to the collateral too
                         collateralInBand$ = (peggedIn * underlyingCollateral_ * 1 ether) / peggedTokenBalance_;
                     } else {
+                        // note the bandUpperBound cannot be == 1 ether so this is safe below
                         peggedInBand = _redeemPeggedForCollateralRatio(
                             bandUpperBound,
                             underlyingCollateral_,
@@ -1651,7 +1593,7 @@ contract Minter_v1 is
         uint256 leveragedTokenBalance_
     ) private pure returns (uint256 fee, uint256 leveragedRedeemed, uint256 collateralOut) {
         // we cannot calculate collateral ratio when there are no pegged tokens as it's infinite i.e. (/0)
-        if (peggedTokenBalance_ == 0 || _isDepegged(underlyingCollateral_, price, peggedTokenBalance_)) {
+        if (peggedTokenBalance_ == 0) {
             revert ActionPaused();
         }
         // we can't meaningfully do anything with leveraged tokens as their value is zero
@@ -1787,8 +1729,21 @@ contract Minter_v1 is
         }
     }
 
-    /// @dev pegged value must not be greater than collateral value, i.e. it's depegged
-
+    /// @notice Calculates the number of leveraged tokens that must be minted to maintain the system invariant
+    /// when adding new collateral. The system maintains the invariant: collateral_value = pegged_value + leveraged_value.
+    /// This function determines how many leveraged tokens are needed at the current leveraged token price to absorb
+    /// the excess value created by the additional collateral.
+    /// @dev Implementation uses the derivative of the invariant equation. The leveraged token price is calculated
+    /// as the current excess value per leveraged token: (collateral_value - pegged_value) / leveraged_token_count.
+    /// The formula calculates: (new_total_collateral_value - pegged_value - existing_leveraged_value) / leveraged_price,
+    /// which simplifies to the additional collateral value divided by the current leveraged token price.
+    /// This preserves the leveraged token price while absorbing exactly the required excess value.
+    /// @param underlyingCollateralIn The amount of new underlying collateral being added to the system
+    /// @param leveragedTokenBalance_ The current total supply of leveraged tokens
+    /// @param peggedTokenBalance_ The current total supply of pegged tokens managed by this contract
+    /// @param underlyingCollateral_ The current amount of underlying collateral held by the system
+    /// @param price The current price of one unit of collateral in terms of pegged token value
+    /// @return leveragedTokens The number of leveraged tokens that should be minted to maintain the invariant
     function _leveragedTokensForCollateral(
         uint256 underlyingCollateralIn,
         uint256 leveragedTokenBalance_,
@@ -1801,7 +1756,6 @@ contract Minter_v1 is
             underlyingCollateral_,
             price
         );
-        // TODO: check what happens when the leverage price tracks the collateral rather than pegged
         uint256 leveragedPrice_ = (leveragedTokenBalance_ > 0)
             ? (collateralValue$ - peggedValue$) / leveragedTokenBalance_
             : 1 ether; // TODO: this initial value is set in two places
@@ -1814,6 +1768,29 @@ contract Minter_v1 is
             leveragedPrice_;
     }
 
+    function _leverageRatio(
+        uint256 peggedTokenBalance_,
+        uint256 underlyingCollateral_,
+        uint256 price
+    ) internal pure returns (uint256 ratio) {
+        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
+            peggedTokenBalance_,
+            underlyingCollateral_,
+            price
+        );
+        if (peggedValue$ >= collateralValue$) {
+            // it divides by 0 or goes negative!
+            ratio = _LEVERAGE_RATIO_CAP;
+        } else {
+            // we have collateral and it's worth something
+            // ratio = (1 ether * 1 ether) / (1 ether - (peggedValue$ / (collateralValue$ / 1 ether)));
+            ratio = (1 ether * 1 ether) / (1 ether - ((peggedValue$ * 1 ether) / collateralValue$));
+            if (ratio > _LEVERAGE_RATIO_CAP) {
+                ratio = _LEVERAGE_RATIO_CAP;
+            }
+        }
+    }
+
     function _leveragedTokensForPegged(
         uint256 peggedIn,
         uint256 leveragedTokenBalance_,
@@ -1821,15 +1798,20 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 leveragedTokens) {
-        // this is the first derivative of the legeraged balance with respect to the collateral balance
-        // in the invariant: collateral value = leveraged value + pegged value.
+        // we use leverage ratio for this calculation as it is capped
         if (leveragedTokenBalance_ > 0) {
-            uint256 collateralValue = collateralTokenBalance_ * collateralPrice;
-            uint256 peggedValue = peggedTokenBalance_ * 1 ether;
-            if (peggedValue >= collateralValue) {
-                leveragedTokens = 0;
+            uint256 leverageRatio_ = _leverageRatio(peggedTokenBalance_, collateralTokenBalance_, collateralPrice);
+            // slither-disable-next-line incorrect-equality
+            if (leverageRatio_ == _LEVERAGE_RATIO_CAP) {
+                // cap the amount returned
+                leveragedTokens = (peggedIn * _LEVERAGE_RATIO_CAP) / 1 ether;
             } else {
-                leveragedTokens = (peggedIn * 1 ether * leveragedTokenBalance_) / (collateralValue - peggedValue);
+                // Convert using leverage ratio approach as this is only called in a rebalance context
+                leveragedTokens = Math.mulDiv(
+                    peggedIn * leveragedTokenBalance_,
+                    leverageRatio_,
+                    collateralTokenBalance_ * collateralPrice
+                );
             }
         } else {
             leveragedTokens = peggedIn; // TODO: the third place initial price of 1 ether is assumed
@@ -1852,18 +1834,34 @@ contract Minter_v1 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
     ) private pure returns (uint256 collateral) {
-        if (_isDepegged(collateralTokenBalance_, collateralPrice, peggedTokenBalance_)) {
+        (uint256 collateralValue$, uint256 peggedValue$) = _tokenValues$(
+            peggedTokenBalance_,
+            collateralTokenBalance_,
+            collateralPrice
+        );
+        if (collateralValue$ <= peggedValue$) {
             return 0;
         }
         if (leveragedTokenBalance_ == 0) {
             collateral = forLeveraged * collateralPrice;
         } else {
-            collateral =
-                (forLeveraged * (collateralTokenBalance_ * collateralPrice - peggedTokenBalance_ * 1 ether)) /
-                (collateralPrice * leveragedTokenBalance_);
+            collateral = Math.mulDiv(
+                forLeveraged,
+                collateralValue$ - peggedValue$,
+                collateralPrice * leveragedTokenBalance_
+            );
         }
     }
 
+    /**
+     * @notice Calculate how many pegged tokens need to be redeemed to achieve a target collateral ratio
+     * @dev This function assumed pegged price == 1 and so does not handle a depegged state (CR < 1)
+     * @param targetCollateralRatio The target collateral ratio to achieve, must be > 1
+     * @param collateralTokenBalance_ The current collateral token balance
+     * @param price The price of the collateral token in terms of the pegged token
+     * @param peggedTokenBalance_ The current pegged token balance
+     * @return peggedTokens The number of pegged tokens that need to be redeemed
+     */
     function _redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio,
         uint256 collateralTokenBalance_,
@@ -1875,18 +1873,13 @@ contract Minter_v1 is
             (targetCollateralRatio - 1 ether);
     }
 
-    function _isDepegged(
-        uint256 collateralTokenBalance_,
-        uint256 collateralPrice,
-        uint256 peggedTokenBalance_
-    ) private pure returns (bool) {
-        return (collateralTokenBalance_ * collateralPrice) < (peggedTokenBalance_ * 1 ether);
-    }
-
-    /// @notice Returns a modified collateral ratio.
-    /// The real collateral ratio (collateral value / pegged value) floors at 1
-    /// We want to be able to have a similar value that doesn't recognise a de-peg and assumes the pegged token has value 1
-    /// @dev this is a modified theoretical collateral ratio
+    /// @notice Calculates the raw collateral ratio without any flooring.
+    /// @dev This returns the actual mathematical ratio (collateralValue / peggedValue) which may be < 1
+    /// in depegged scenarios. No special casing is done in this function - edge cases must be handled by the caller.
+    /// @param collateralTokenBalance_ The amount of collateral tokens
+    /// @param collateralPrice The price of collateral in terms of the pegged token
+    /// @param peggedTokenBalance_ The amount of pegged tokens
+    /// @return collateralRatio_ The raw collateral ratio with 18 decimals
     function _collateralRatio(
         uint256 collateralTokenBalance_,
         uint256 collateralPrice,

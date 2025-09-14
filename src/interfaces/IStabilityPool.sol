@@ -9,9 +9,9 @@ interface IStabilityPool {
 
     /// @notice Emitted when user deposit asset into this contract.
     /// @param owner The address of asset owner.
-    /// @param reciever The address of receiver of the asset in this contract.
+    /// @param receiver The address of receiver of the asset in this contract.
     /// @param amount The amount of asset deposited.
-    event Deposit(address indexed owner, address indexed reciever, uint256 amount);
+    event Deposit(address indexed owner, address indexed receiver, uint256 amount);
 
     /// @notice Emitted when the amount of deposited asset changed due to liquidation or deposit or unlock.
     /// @param owner The address of asset owner.
@@ -124,9 +124,6 @@ interface IStabilityPool {
     /// @notice The role used for notifying rebalancing.
     function REBALANCER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
-    /// @notice The role used for notifying rewards (including when rebalancing).
-    function REWARDER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
-
     /// @notice Return the address of token used to collect some rewards from the gauge.
     function GAUGE_STAKE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
@@ -135,6 +132,12 @@ interface IStabilityPool {
 
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
     function LIQUIDATION_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Return the minimum the amount of assets the pool can hold if non-zero.
+    function MIN_TOTAL_ASSET_SUPPLY() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
+
+    /// @notice Return the minimum the amount of assets that can be deposited in one call.
+    function MIN_DEPOSIT() external view returns (uint256 token); // solhint-disable-line func-name-mixedcase
 
     /// @notice Return the address of underlying token of this contract.
     function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
@@ -223,10 +226,10 @@ interface IStabilityPool {
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Account for an increase in rewards
-    /// This is used for liquidation, where the liquidator contract calls liquidate then returns the reward with this.
-    /// Other reward tokens can also be added using this function
-    function accumulateReward(address rewardToken, uint256 rewardAmount) external;
+    /// @notice Notify the stability pool of a liquidation event.
+    function notifyLiquidation(uint256 liquidated, uint256 returned) external;
 
+    /// @notice Update the gauge address, used for rewards
+    /// This also removes the deposit from the previous gauge (if any) and deposits into the 'newGauge'.
     function updateGauge(address newGauge) external;
 }

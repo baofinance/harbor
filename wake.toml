@@ -1,5 +1,5 @@
 [lsp]
-compilation_delay = 0.1
+compilation_delay = 0.5
 
 [compiler.solc.optimizer]
 enabled = false # unset = let the compiler decide
@@ -13,6 +13,7 @@ include_paths = []
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
+  "openzeppelin-contracts/contracts=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
@@ -30,37 +31,37 @@ remappings = [
 enable = true
 
 [lsp.detectors]
-enable = true
+enable = false
 
 [detectors]
 # ignore_paths = ["test"]
 # exclude_paths = ["node_modules", "lib", "script"]
-# only = []
-exclude = [
-  #  "abi-encode-with-signature",
-  #  "axelar-proxy-contract-id",
-  #  "balance-relied-on",
-  #  "calldata-tuple-reencoding-head-overflow-bug",
-  #  "call-options-not-called",
-  #  "empty-byte-array-copy-bug",
-  #  "msg-value-nonpayable-function",
-  #  "unused-contract",
-  #  "unchecked-return-value"
-]
+only = []
+#exclude = [
+#  "abi-encode-with-signature",
+#  "axelar-proxy-contract-id",
+#  "balance-relied-on",
+#  "calldata-tuple-reencoding-head-overflow-bug",
+#  "call-options-not-called",
+#  "empty-byte-array-copy-bug",
+#  "msg-value-nonpayable-function",
+#  "unused-contract",
+#  "unchecked-return-value"
+#]
 
 [printers]
-# only = []
-exclude = [
-  #   "control-flow-graph",
-  #   "imports-graph",
-  #   "inheritance-graph",
-  #   "inheritance-tree",
-  #   "lsp-control-flow-graph",
-  #   "lsp-inheritance-graph",
-  #   "lsp-linearized-inheritance-graph",
-  #   "lsp-selectors",
-  #   "modifiers",
-  #   "state-changes",
-  #   "storage-layout",
-  #   "tokens",
-]
+only = []
+#exclude = [
+#   "control-flow-graph",
+#   "imports-graph",
+#   "inheritance-graph",
+#   "inheritance-tree",
+#   "lsp-control-flow-graph",
+#   "lsp-inheritance-graph",
+#   "lsp-linearized-inheritance-graph",
+#   "lsp-selectors",
+#   "modifiers",
+#   "state-changes",
+#   "storage-layout",
+#   "tokens",
+#]

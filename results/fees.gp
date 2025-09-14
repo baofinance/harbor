@@ -2,11 +2,11 @@ datafile = "fees.csv"
 datafile1 = "fees1.csv"
 set datafile separator comma
 set key autotitle columnheader noenhanced below title " "
-set terminal svg enhanced size 600 400 background rgb "gray90"
+set terminal svg enhanced size 600 500 background rgb "gray90"
 #set terminal pngcairo size 500 300
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
-set xrange [0.8:1.6]
+set xrange [0.6:1.6]
 set yrange [-0.01:.02]
 max_value = 0.0195 # make it NaN for the lines to disappear
 
