@@ -594,10 +594,12 @@ contract Minter_v1 is
         OracleData memory oracle = _fetchMid($.priceOracle);
         price = oracle.price;
         rate = oracle.rate;
+        uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
         (wrappedFee, leveragedRedeemed, wrappedCollateralReturned, ) = _redeemLeveragedAdjustments(
             $.incentiveConfig[Config_v1.REDEEM_LEVERAGED],
             leveragedIn,
-            CollateralRatioData($.underlyingCollateral, price, rate, $.peggedTokenBalance)
+            CollateralRatioData($.underlyingCollateral, price, rate, $.peggedTokenBalance),
+            leveragedTokenBalance_
         );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = int256(
@@ -846,10 +848,11 @@ contract Minter_v1 is
         (wrappedFee, leveragedIn, wrappedCollateralOut, underlyingCollateralOut) = _redeemLeveragedAdjustments(
             $.incentiveConfig[Config_v1.REDEEM_LEVERAGED],
             leveragedIn,
-            CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, $.peggedTokenBalance)
+            CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, $.peggedTokenBalance),
+            leveragedTokenBalance_
         );
         // slither-disable-next-line incorrect-equality
-        if (leveragedIn == 0) {
+        if (wrappedCollateralOut == 0) {
             revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
         }
         if (wrappedCollateralOut < minWrappedCollateralOut) {
@@ -1483,6 +1486,8 @@ contract Minter_v1 is
         uint256 bandDiscountRatio;
         uint256 leveragedPriceE36;
         uint256 leveragedTokenBalance;
+        uint256 collateralValueE36;
+        uint256 peggedValueE36;
     }
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
@@ -1526,19 +1531,16 @@ contract Minter_v1 is
 
         // slither-disable-next-line uninitialized-local
         MintLeveragedWorkspace memory w;
-        {
-            (uint256 collateralValueE36, uint256 peggedValueE36) = _tokenValuesE36(
-                cr.peggedTokenBalance,
-                cr.underlyingCollateral,
-                cr.price
-            );
-            // leveraged tokens have no value (we may not have quite depegged, though)
-            if (collateralValueE36 <= peggedValueE36) {
-                return (0, 0, 0, 0);
-            }
-            w.leveragedTokenBalance = _leveragedTokenBalance();
-            w.leveragedPriceE36 = _leveragedTokenPriceE36(collateralValueE36, peggedValueE36, w.leveragedTokenBalance);
+        (w.collateralValueE36, w.peggedValueE36) = _tokenValuesE36(
+            cr.peggedTokenBalance,
+            cr.underlyingCollateral,
+            cr.price
+        );
+        // leveraged tokens have no value (we may not have quite depegged, though)
+        if (w.collateralValueE36 <= w.peggedValueE36) {
+            return (0, 0, 0, 0);
         }
+        w.leveragedTokenBalance = _leveragedTokenBalance();
 
         // simulate minting leveaged tokens from current collateral ratio upwards,
         // applying the incentive at the correct ratio as we go.
@@ -1629,11 +1631,15 @@ contract Minter_v1 is
 
             band++;
         }
-
         wrappedDiscount = w.underlyingDiscountE36 / cr.rate; // we don't round this as it may overflow the reserve pool
         wrappedFee = _round(w.underlyingFeeE36, cr.rate);
         if (w.leveragedTokenBalance > 0) {
-            leveragedMinted = Math.mulDiv(w.underlyingCollateralAddedE36, cr.price, w.leveragedPriceE36);
+            leveragedMinted = Math.mulDiv(
+                w.underlyingCollateralAddedE36,
+                cr.price * w.leveragedTokenBalance,
+                w.collateralValueE36 - w.peggedValueE36
+            );
+            leveragedMinted = _round(leveragedMinted, 1e18);
         } else {
             leveragedMinted = Math.mulDiv(w.underlyingCollateralHeldE36, cr.price, 1e36) - cr.peggedTokenBalance;
         }
@@ -1641,6 +1647,7 @@ contract Minter_v1 is
     }
 
     struct RedeemLeveragedWorkspace {
+        uint256 underlyingCollateralInE36;
         uint256 underlyingCollateralInLeftE36; // remaining underlying collateral to process (underlying * 1e18)
         uint256 underlyingFeeE54; // Σ(collateralInBandE36 * feeRatio)
         uint256 underlyingCollateralRemovedE36; // Σ(collateralInBandE36) (underlying * 1e18, pre-fee)
@@ -1658,6 +1665,7 @@ contract Minter_v1 is
     ///    UnderlyingCollateral The amount of collateral held. This is used to calculate collateral ratios.
     ///    The price value of a collateral token in terms of the pegged token, and the rate of wrapped collateral to underlying collateral.
     ///    peggedTokenBalance The amount of pegged tokens issued. This is used to calculate collateral ratios.
+    /// @param leveragedTokenBalance_ the current supply of leveraged tokens, assumed to be > 0.
     /// @return wrappedFee the fee charged in collateral tokens.
     /// @return leveragedRedeemed the leveraged tokens to be burned.
     /// @return wrappedCollateralOut the collateral returned to the receiver in exchange for the `leveragedRedeemed`
@@ -1666,10 +1674,11 @@ contract Minter_v1 is
     function _redeemLeveragedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 leveragedIn,
-        CollateralRatioData memory cr
+        CollateralRatioData memory cr,
+        uint256 leveragedTokenBalance_
     )
         private
-        view
+        pure
         returns (
             uint256 wrappedFee,
             uint256 leveragedRedeemed,
@@ -1686,23 +1695,25 @@ contract Minter_v1 is
 
         // we can't meaningfully do anything with leveraged tokens as their value is zero
         // and we an do this once, here, and not in the loop below, because redeeming leveraged tokens, will never cause a re-peg.
+        {
+            (uint256 collateralValueE36, uint256 peggedValueE36) = _tokenValuesE36(
+                cr.peggedTokenBalance,
+                cr.underlyingCollateral,
+                cr.price
+            );
+            if (collateralValueE36 <= peggedValueE36 || leveragedTokenBalance_ == 0 || leveragedIn == 0) {
+                // there is no value in the leveraged being offered
+                return (0, 0, 0, 0);
+            }
 
-        (uint256 collateralValueE36, uint256 peggedValueE36) = _tokenValuesE36(
-            cr.peggedTokenBalance,
-            cr.underlyingCollateral,
-            cr.price
-        );
-        // we know leveraged token balance is > 0
-        uint256 leveragedPriceE36 = _leveragedTokenPriceE36(
-            collateralValueE36,
-            peggedValueE36,
-            _leveragedTokenBalance()
-        );
-        // slither-disable-next-line incorrect-equality
-        if (leveragedPriceE36 == 0) {
-            return (0, 0, 0, 0);
+            // we know leveraged token balance is > 0
+            w.underlyingCollateralInE36 = Math.mulDiv(
+                collateralValueE36 - peggedValueE36,
+                leveragedIn * 1e18,
+                cr.price * leveragedTokenBalance_
+            );
+            w.underlyingCollateralInLeftE36 = w.underlyingCollateralInE36;
         }
-        w.underlyingCollateralInLeftE36 = Math.mulDiv(leveragedIn, leveragedPriceE36, cr.price);
         // solhint-disable-next-line explicit-types
         uint band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1e18;
@@ -1727,9 +1738,6 @@ contract Minter_v1 is
                 // the fee is taken from the returned collateral not the input
                 collateralInBandE36 =
                     w.underlyingCollateralHeldE36 - Math.mulDiv(bandLowerBound * 1e18, cr.peggedTokenBalance, cr.price);
-                // collateralInBandE36 =
-                //     (w.underlyingCollateralHeldE36 * cr.price - bandLowerBound * cr.peggedTokenBalance) /
-                //     (cr.price * (1e18 - bandFeeRatio));
                 collateralInBandE36 = Math.min(collateralInBandE36, w.underlyingCollateralInLeftE36);
             }
             w.underlyingFeeE54 += collateralInBandE36 * bandFeeRatio;
@@ -1744,13 +1752,9 @@ contract Minter_v1 is
             w.underlyingCollateralHeldE36 -= collateralInBandE36;
             band--;
         }
-
-        underlyingCollateralRemoved = w.underlyingCollateralRemovedE36 / 1e18;
+        underlyingCollateralRemoved = _round(w.underlyingCollateralRemovedE36, 1e18);
         // calculate the leveraged for the collateral assuming constant leveraged price.
-        leveragedRedeemed = Math.mulDiv(w.underlyingCollateralRemovedE36, cr.price, leveragedPriceE36);
-        if (leveragedRedeemed > leveragedIn) {
-            leveragedRedeemed = leveragedIn; // rounding guard
-        }
+        leveragedRedeemed = Math.mulDiv(leveragedIn, w.underlyingCollateralRemovedE36, w.underlyingCollateralInE36);
 
         wrappedFee = w.underlyingFeeE54 / (cr.rate * 1e18);
         wrappedCollateralOut = w.underlyingCollateralRemovedE36 / cr.rate - wrappedFee;

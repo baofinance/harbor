@@ -78,7 +78,7 @@ abstract contract TestExtras is Test {
         uint256 absDiff = a > b ? a - b : b - a;
         if (absDiff <= maxAbsDiff) {
             // SUCCESS (abs): Log and exit.
-            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " (within abs tolerance)"));
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
             return;
         }
 
@@ -93,13 +93,25 @@ abstract contract TestExtras is Test {
 
         if (relDiff <= maxRelDiff) {
             // SUCCESS (rel): Log and exit.
-            vm.assertApproxEqRel(a, b, relDiff, string.concat(message, " (within rel tolerance)"));
+            vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
             return;
         }
 
         // FAILURE: Both checks failed. Revert with a clear message.
         // We use assertApproxEqRel as it's generally more informative for large numbers.
-        vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " (outside both abs & rel tolerances)"));
+        vm.assertApproxEqRel(
+            a,
+            b,
+            maxRelDiff,
+            string.concat(
+                message,
+                " (outside both abs (max: ",
+                Useful.toString(maxAbsDiff),
+                ", real: ",
+                Useful.toString(absDiff),
+                "} & rel tolerances)"
+            )
+        );
     }
 
     function assertNear(
@@ -112,7 +124,7 @@ abstract contract TestExtras is Test {
         uint256 absDiff = SignedMath.abs(a - b);
         if (absDiff <= maxAbsDiff) {
             // SUCCESS (abs): Log and exit.
-            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " (within abs tolerance)"));
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
             return;
         }
 
@@ -126,13 +138,25 @@ abstract contract TestExtras is Test {
             uint256 relDiff = Math.mulDiv(absDiff, 1e18, denom, Math.Rounding.Ceil);
             if (relDiff <= maxRelDiff) {
                 // SUCCESS (rel)
-                vm.assertApproxEqRel(a, b, relDiff, string.concat(message, " (within rel tolerance)"));
+                vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
                 return;
             }
         }
 
         // FAILURE: outside both tolerances
-        vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " (outside both abs & rel tolerances)"));
+        vm.assertApproxEqRel(
+            a,
+            b,
+            maxRelDiff,
+            string.concat(
+                message,
+                " (outside both abs (max: ",
+                Useful.toString(maxAbsDiff),
+                ", real: ",
+                Useful.toString(absDiff),
+                "} & rel tolerances)"
+            )
+        );
     }
 
     /// @dev Overload for just checking absolute tolerance - its just an alias for existing vm call
