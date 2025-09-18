@@ -1,523 +1,523 @@
 lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
-| function name     |       max |
-|-------------------|-----------|
-| BURNER_ROLE       | 2.620e+02 |
-| MINTER_ROLE       | 2.600e+02 |
-| allowance         | 2.810e+03 |
-| approve           | 2.480e+04 |
-| balanceOf         | 2.683e+03 |
-| burnFrom          | 1.850e+04 |
-| decimals          | 2.880e+02 |
-| grantRoles        | 2.636e+04 |
-| initialize        | 1.663e+05 |
-| mint              | 4.907e+04 |
-| name              | 3.217e+03 |
-| owner             | 2.411e+03 |
-| symbol            | 3.207e+03 |
-| totalSupply       | 2.326e+03 |
-| transfer          | 2.999e+04 |
-| transferFrom      | 3.084e+04 |
-| transferOwnership | 1.207e+04 |
+| function name     |      max |
+|-------------------|----------|
+| BURNER_ROLE       | 2.62e+02 |
+| MINTER_ROLE       | 2.60e+02 |
+| allowance         | 2.81e+03 |
+| approve           | 2.48e+04 |
+| balanceOf         | 2.68e+03 |
+| burnFrom          | 1.85e+04 |
+| decimals          | 2.88e+02 |
+| grantRoles        | 2.64e+04 |
+| initialize        | 1.66e+05 |
+| mint              | 4.91e+04 |
+| name              | 3.22e+03 |
+| owner             | 2.41e+03 |
+| symbol            | 3.21e+03 |
+| totalSupply       | 2.33e+03 |
+| transfer          | 3.00e+04 |
+| transferFrom      | 3.08e+04 |
+| transferOwnership | 1.21e+04 |
 
 lib/bao-base/src/Stem_v1.sol:Stem_v1
-| function name             |       max |
-|---------------------------|-----------|
-| INITIAL_RATE              | 2.660e+02 |
-| UPGRADE_INTERFACE_VERSION | 4.350e+02 |
-| fallback                  | 2.660e+02 |
-| owner                     | 3.120e+02 |
-| proxiableUUID             | 2.740e+02 |
-| upgradeToAndCall          | 2.911e+05 |
+| function name             |      max |
+|---------------------------|----------|
+| INITIAL_RATE              | 2.66e+02 |
+| UPGRADE_INTERFACE_VERSION | 4.35e+02 |
+| fallback                  | 2.66e+02 |
+| owner                     | 3.12e+02 |
+| proxiableUUID             | 2.74e+02 |
+| upgradeToAndCall          | 2.91e+05 |
 
 lib/bao-base/src/Token.sol:Token
-| function name                       |       max |
-|-------------------------------------|-----------|
-| hasNonMutatingParameterlessFunction | 1.508e+03 |
+| function name                       |      max |
+|-------------------------------------|----------|
+| hasNonMutatingParameterlessFunction | 1.51e+03 |
 
 src/minter/Genesis_v1.sol:Genesis_v1
-| function name            |       max |
-|--------------------------|-----------|
-| LEVERAGED_TOKEN          | 2.820e+02 |
-| MINTER                   | 3.030e+02 |
-| PEGGED_TOKEN             | 2.830e+02 |
-| WRAPPED_COLLATERAL_TOKEN | 2.820e+02 |
-| balanceOf                | 2.591e+03 |
-| claim                    | 8.751e+04 |
-| claimable                | 1.161e+04 |
-| deposit                  | 6.747e+04 |
-| endGenesis               | 3.495e+05 |
-| genesisIsEnded           | 2.349e+03 |
-| initialize               | 7.146e+04 |
-| owner                    | 2.401e+03 |
-| transferOwnership        | 1.202e+04 |
-| withdraw                 | 4.335e+04 |
+| function name            |      max |
+|--------------------------|----------|
+| LEVERAGED_TOKEN          | 2.82e+02 |
+| MINTER                   | 3.03e+02 |
+| PEGGED_TOKEN             | 2.83e+02 |
+| WRAPPED_COLLATERAL_TOKEN | 2.82e+02 |
+| balanceOf                | 2.59e+03 |
+| claim                    | 8.75e+04 |
+| claimable                | 1.16e+04 |
+| deposit                  | 6.75e+04 |
+| endGenesis               | 3.49e+05 |
+| genesisIsEnded           | 2.35e+03 |
+| initialize               | 7.15e+04 |
+| owner                    | 2.40e+03 |
+| transferOwnership        | 1.20e+04 |
+| withdraw                 | 4.34e+04 |
 
 src/minter/Minter_v1.sol:Minter_v1
-| function name                      |       max |
-|------------------------------------|-----------|
-| HARVESTER_ROLE                     | 2.830e+02 |
-| LEVERAGED_TOKEN                    | 2.830e+02 |
-| PEGGED_TOKEN                       | 2.830e+02 |
-| WRAPPED_COLLATERAL_TOKEN           | 3.280e+02 |
-| ZERO_FEE_ROLE                      | 2.850e+02 |
-| collateralRatio                    | 1.913e+04 |
-| collateralTokenBalance             | 2.358e+03 |
-| config                             | 4.895e+04 |
-| feeReceiver                        | 2.442e+03 |
-| freeMintLeveragedToken             | 1.438e+05 |
-| freeMintPeggedToken                | 1.549e+05 |
-| freeRedeemLeveragedToken           | 8.663e+04 |
-| freeRedeemPeggedToken              | 1.079e+05 |
-| grantRoles                         | 2.633e+04 |
-| harvestable                        | 2.254e+04 |
-| hasAllRoles                        | 2.637e+03 |
-| hasAnyRole                         | 2.636e+03 |
-| initialize                         | 1.844e+05 |
-| leverageRatio                      | 1.957e+04 |
-| leveragedTokenBalance              | 1.042e+04 |
-| leveragedTokenPrice                | 2.997e+04 |
-| mintLeveragedToken                 | 1.491e+05 |
-| mintLeveragedTokenDryRun           | 7.289e+04 |
-| mintLeveragedTokenIncentiveRatio   | 3.086e+04 |
-| mintPeggedToken                    | 1.388e+05 |
-| mintPeggedTokenDryRun              | 6.327e+04 |
-| mintPeggedTokenIncentiveRatio      | 3.084e+04 |
-| owner                              | 2.380e+03 |
-| peggedTokenBalance                 | 2.409e+03 |
-| peggedTokenPrice                   | 1.923e+04 |
-| priceOracle                        | 2.427e+03 |
-| redeemLeveragedToken               | 1.276e+05 |
-| redeemLeveragedTokenDryRun         | 6.298e+04 |
-| redeemLeveragedTokenIncentiveRatio | 3.088e+04 |
-| redeemPeggedForCollateralRatio     | 1.955e+04 |
-| redeemPeggedToken                  | 1.322e+05 |
-| redeemPeggedTokenDryRun            | 6.148e+04 |
-| redeemPeggedTokenIncentiveRatio    | 3.082e+04 |
-| reservePool                        | 2.411e+03 |
-| reset                              | 2.869e+04 |
-| supportsInterface                  | 9.430e+02 |
-| sweep                              | 4.031e+04 |
-| transferOwnership                  | 1.207e+04 |
-| updateConfig                       | 2.950e+05 |
-| updateFeeReceiver                  | 2.635e+04 |
-| updatePriceOracle                  | 2.636e+04 |
-| updateReservePool                  | 2.631e+04 |
+| function name                      |      max |
+|------------------------------------|----------|
+| HARVESTER_ROLE                     | 2.83e+02 |
+| LEVERAGED_TOKEN                    | 2.83e+02 |
+| PEGGED_TOKEN                       | 2.83e+02 |
+| WRAPPED_COLLATERAL_TOKEN           | 3.28e+02 |
+| ZERO_FEE_ROLE                      | 2.85e+02 |
+| collateralRatio                    | 1.91e+04 |
+| collateralTokenBalance             | 2.36e+03 |
+| config                             | 4.89e+04 |
+| feeReceiver                        | 2.44e+03 |
+| freeMintLeveragedToken             | 1.44e+05 |
+| freeMintPeggedToken                | 1.55e+05 |
+| freeRedeemLeveragedToken           | 8.66e+04 |
+| freeRedeemPeggedToken              | 1.08e+05 |
+| grantRoles                         | 2.63e+04 |
+| harvestable                        | 2.25e+04 |
+| hasAllRoles                        | 2.64e+03 |
+| hasAnyRole                         | 2.64e+03 |
+| initialize                         | 1.84e+05 |
+| leverageRatio                      | 1.96e+04 |
+| leveragedTokenBalance              | 1.04e+04 |
+| leveragedTokenPrice                | 3.00e+04 |
+| mintLeveragedToken                 | 1.49e+05 |
+| mintLeveragedTokenDryRun           | 7.29e+04 |
+| mintLeveragedTokenIncentiveRatio   | 3.09e+04 |
+| mintPeggedToken                    | 1.39e+05 |
+| mintPeggedTokenDryRun              | 6.33e+04 |
+| mintPeggedTokenIncentiveRatio      | 3.08e+04 |
+| owner                              | 2.38e+03 |
+| peggedTokenBalance                 | 2.41e+03 |
+| peggedTokenPrice                   | 1.92e+04 |
+| priceOracle                        | 2.43e+03 |
+| redeemLeveragedToken               | 1.28e+05 |
+| redeemLeveragedTokenDryRun         | 6.30e+04 |
+| redeemLeveragedTokenIncentiveRatio | 3.09e+04 |
+| redeemPeggedForCollateralRatio     | 1.96e+04 |
+| redeemPeggedToken                  | 1.32e+05 |
+| redeemPeggedTokenDryRun            | 6.15e+04 |
+| redeemPeggedTokenIncentiveRatio    | 3.08e+04 |
+| reservePool                        | 2.41e+03 |
+| reset                              | 2.87e+04 |
+| supportsInterface                  | 9.43e+02 |
+| sweep                              | 4.03e+04 |
+| transferOwnership                  | 1.21e+04 |
+| updateConfig                       | 2.95e+05 |
+| updateFeeReceiver                  | 2.64e+04 |
+| updatePriceOracle                  | 2.64e+04 |
+| updateReservePool                  | 2.63e+04 |
 
 src/minter/ReservePool_v1.sol:ReservePool_v1
-| function name     |       max |
-|-------------------|-----------|
-| REQUESTER_ROLE    | 2.390e+02 |
-| grantRoles        | 2.633e+04 |
-| hasAnyRole        | 2.569e+03 |
-| initialize        | 7.031e+04 |
-| owner             | 2.389e+03 |
-| requestBonus      | 3.934e+04 |
-| supportsInterface | 8.420e+02 |
-| sweep             | 2.642e+03 |
-| transferOwnership | 1.204e+04 |
+| function name     |      max |
+|-------------------|----------|
+| REQUESTER_ROLE    | 2.39e+02 |
+| grantRoles        | 2.63e+04 |
+| hasAnyRole        | 2.57e+03 |
+| initialize        | 7.03e+04 |
+| owner             | 2.39e+03 |
+| requestBonus      | 3.93e+04 |
+| supportsInterface | 8.42e+02 |
+| sweep             | 2.64e+03 |
+| transferOwnership | 1.20e+04 |
 
 src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
-| function name              |       max |
-|----------------------------|-----------|
-| feeReceiver                | 2.441e+03 |
-| harvest                    | 4.441e+05 |
-| harvestBountyRatio         | 2.369e+03 |
-| harvestCutRatio            | 2.371e+03 |
-| harvestable                | 3.052e+04 |
-| hasStabilityPool           | 5.370e+02 |
-| initialize                 | 7.069e+04 |
-| owner                      | 2.423e+03 |
-| rebalance                  | 5.234e+05 |
-| rebalanceBountyRatio       | 2.354e+03 |
-| rebalanceThreshold         | 2.347e+03 |
-| rebalanceable              | 2.927e+04 |
-| stabilityPools             | 9.030e+02 |
-| supportsInterface          | 5.690e+02 |
-| transferOwnership          | 1.204e+04 |
-| updateFeeReceiver          | 2.627e+04 |
-| updateHarvestBountyRatio   | 2.568e+04 |
-| updateHarvestCutRatio      | 2.572e+04 |
-| updateRebalanceBountyRatio | 2.565e+04 |
-| updateRebalanceThreshold   | 2.571e+04 |
-| upgradeToAndCall           | 1.087e+04 |
+| function name              |      max |
+|----------------------------|----------|
+| feeReceiver                | 2.44e+03 |
+| harvest                    | 4.44e+05 |
+| harvestBountyRatio         | 2.37e+03 |
+| harvestCutRatio            | 2.37e+03 |
+| harvestable                | 3.05e+04 |
+| hasStabilityPool           | 5.37e+02 |
+| initialize                 | 7.07e+04 |
+| owner                      | 2.42e+03 |
+| rebalance                  | 5.23e+05 |
+| rebalanceBountyRatio       | 2.35e+03 |
+| rebalanceThreshold         | 2.35e+03 |
+| rebalanceable              | 2.93e+04 |
+| stabilityPools             | 9.03e+02 |
+| supportsInterface          | 5.69e+02 |
+| transferOwnership          | 1.20e+04 |
+| updateFeeReceiver          | 2.63e+04 |
+| updateHarvestBountyRatio   | 2.57e+04 |
+| updateHarvestCutRatio      | 2.57e+04 |
+| updateRebalanceBountyRatio | 2.56e+04 |
+| updateRebalanceThreshold   | 2.57e+04 |
+| upgradeToAndCall           | 1.09e+04 |
 
 src/minter/StabilityPool_v1.sol:StabilityPool_v1
-| function name      |       max |
-|--------------------|-----------|
-| ASSET_TOKEN        | 3.050e+02 |
-| GAUGE_REWARD_TOKEN | 3.270e+02 |
-| GAUGE_STAKE_TOKEN  | 3.470e+02 |
-| LIQUIDATION_TOKEN  | 3.060e+02 |
-| gauge              | 2.449e+03 |
-| grantRoles         | 2.633e+04 |
-| initialize         | 1.818e+05 |
-| owner              | 2.402e+03 |
-| totalAssetSupply   | 2.438e+03 |
-| transferOwnership  | 1.204e+04 |
+| function name      |      max |
+|--------------------|----------|
+| ASSET_TOKEN        | 3.05e+02 |
+| GAUGE_REWARD_TOKEN | 3.27e+02 |
+| GAUGE_STAKE_TOKEN  | 3.47e+02 |
+| LIQUIDATION_TOKEN  | 3.06e+02 |
+| gauge              | 2.45e+03 |
+| grantRoles         | 2.63e+04 |
+| initialize         | 1.82e+05 |
+| owner              | 2.40e+03 |
+| totalAssetSupply   | 2.44e+03 |
+| transferOwnership  | 1.20e+04 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
-| function name     |       max |
-|-------------------|-----------|
-| CLAIMER_ROLE      | 2.820e+02 |
-| addRecipient      | 6.951e+04 |
-| addToken          | 8.823e+04 |
-| distribute        | 1.792e+05 |
-| distribution      | 1.451e+04 |
-| grantRoles        | 2.633e+04 |
-| hasAnyRole        | 2.613e+03 |
-| initialize        | 9.337e+04 |
-| name              | 3.197e+03 |
-| owner             | 2.390e+03 |
-| removeRecipient   | 2.496e+04 |
-| removeToken       | 1.826e+04 |
-| setDistribution   | 7.615e+04 |
-| supportsInterface | 8.650e+02 |
-| sweep             | 4.106e+04 |
-| tokens            | 7.426e+03 |
-| transferOwnership | 1.205e+04 |
+| function name     |      max |
+|-------------------|----------|
+| CLAIMER_ROLE      | 2.82e+02 |
+| addRecipient      | 6.95e+04 |
+| addToken          | 8.82e+04 |
+| distribute        | 1.79e+05 |
+| distribution      | 1.45e+04 |
+| grantRoles        | 2.63e+04 |
+| hasAnyRole        | 2.61e+03 |
+| initialize        | 9.34e+04 |
+| name              | 3.20e+03 |
+| owner             | 2.39e+03 |
+| removeRecipient   | 2.50e+04 |
+| removeToken       | 1.83e+04 |
+| setDistribution   | 7.62e+04 |
+| supportsInterface | 8.65e+02 |
+| sweep             | 4.11e+04 |
+| tokens            | 7.43e+03 |
+| transferOwnership | 1.20e+04 |
 
 src/reward/gauge/GaugeController.vy:GaugeController
-| function name      |       max |
-|--------------------|-----------|
-| add_gauge          | 2.488e+05 |
-| add_type           | 1.721e+05 |
-| change_type_weight | 5.563e+04 |
-| checkpoint_gauge   | 5.734e+06 |
-| gauge_types        | 2.437e+03 |
-| is_gauge           | 2.333e+03 |
+| function name      |      max |
+|--------------------|----------|
+| add_gauge          | 2.49e+05 |
+| add_type           | 1.72e+05 |
+| change_type_weight | 5.56e+04 |
+| checkpoint_gauge   | 5.73e+06 |
+| gauge_types        | 2.44e+03 |
+| is_gauge           | 2.33e+03 |
 
 src/reward/gauge/LiquidityGaugeV6.vy:LiquidityGaugeV6
-| function name        |       max |
-|----------------------|-----------|
-| add_reward           | 9.072e+04 |
-| balanceOf            | 2.333e+03 |
-| claimable_reward     | 1.826e+04 |
-| deposit_reward_token | 1.356e+05 |
-| integrate_fraction   | 3.330e+02 |
-| is_killed            | 2.221e+03 |
-| lp_token             | 2.221e+03 |
-| manager              | 2.221e+03 |
-| name                 | 4.718e+03 |
-| period               | 2.221e+03 |
-| reward_count         | 2.244e+03 |
-| symbol               | 4.718e+03 |
-| totalSupply          | 2.221e+03 |
-| user_checkpoint      | 3.454e+05 |
-| working_balances     | 2.333e+03 |
-| working_supply       | 2.244e+03 |
+| function name        |      max |
+|----------------------|----------|
+| add_reward           | 9.07e+04 |
+| balanceOf            | 2.33e+03 |
+| claimable_reward     | 1.83e+04 |
+| deposit_reward_token | 1.36e+05 |
+| integrate_fraction   | 3.33e+02 |
+| is_killed            | 2.22e+03 |
+| lp_token             | 2.22e+03 |
+| manager              | 2.22e+03 |
+| name                 | 4.72e+03 |
+| period               | 2.22e+03 |
+| reward_count         | 2.24e+03 |
+| symbol               | 4.72e+03 |
+| totalSupply          | 2.22e+03 |
+| user_checkpoint      | 3.45e+05 |
+| working_balances     | 2.33e+03 |
+| working_supply       | 2.24e+03 |
 
 src/reward/steam/ERC20STEAM.vy:ERC20STEAM
-| function name              |       max |
-|----------------------------|-----------|
-| INITIAL_RATE               | 2.244e+03 |
-| RATE_REDUCTION_COEFFICIENT | 2.221e+03 |
-| admin                      | 2.221e+03 |
-| allowance                  | 2.442e+03 |
-| approve                    | 4.634e+04 |
-| available_supply           | 6.603e+03 |
-| balanceOf                  | 2.333e+03 |
-| burn                       | 2.860e+04 |
-| decimals                   | 2.221e+03 |
-| future_epoch_time_write    | 2.345e+04 |
-| initialize                 | 3.151e+05 |
-| mining_epoch               | 2.221e+03 |
-| mint                       | 5.978e+04 |
-| mintable_in_timeframe      | 1.013e+04 |
-| minter                     | 2.221e+03 |
-| name                       | 4.705e+03 |
-| rate                       | 2.221e+03 |
-| set_minter                 | 4.686e+04 |
-| start_epoch_time           | 2.221e+03 |
-| start_epoch_time_write     | 2.338e+04 |
-| symbol                     | 4.453e+03 |
-| totalSupply                | 2.221e+03 |
-| transfer                   | 5.101e+04 |
-| transferFrom               | 5.659e+04 |
-| update_mining_parameters   | 6.249e+04 |
+| function name              |      max |
+|----------------------------|----------|
+| INITIAL_RATE               | 2.24e+03 |
+| RATE_REDUCTION_COEFFICIENT | 2.22e+03 |
+| admin                      | 2.22e+03 |
+| allowance                  | 2.44e+03 |
+| approve                    | 4.63e+04 |
+| available_supply           | 6.60e+03 |
+| balanceOf                  | 2.33e+03 |
+| burn                       | 2.86e+04 |
+| decimals                   | 2.22e+03 |
+| future_epoch_time_write    | 2.34e+04 |
+| initialize                 | 3.15e+05 |
+| mining_epoch               | 2.22e+03 |
+| mint                       | 5.98e+04 |
+| mintable_in_timeframe      | 1.01e+04 |
+| minter                     | 2.22e+03 |
+| name                       | 4.70e+03 |
+| rate                       | 2.22e+03 |
+| set_minter                 | 4.69e+04 |
+| start_epoch_time           | 2.22e+03 |
+| start_epoch_time_write     | 2.34e+04 |
+| symbol                     | 4.45e+03 |
+| totalSupply                | 2.22e+03 |
+| transfer                   | 5.10e+04 |
+| transferFrom               | 5.66e+04 |
+| update_mining_parameters   | 6.25e+04 |
 
 src/reward/steam/SteamMinter.vy:SteamMinter
-| function name       |       max |
-|---------------------|-----------|
-| allowed_to_mint_for | 2.440e+03 |
-| mint_for            | 9.253e+05 |
-| toggle_approve_mint | 4.398e+04 |
+| function name       |      max |
+|---------------------|----------|
+| allowed_to_mint_for | 2.44e+03 |
+| mint_for            | 9.25e+05 |
+| toggle_approve_mint | 4.40e+04 |
 
 src/reward/steam/Steam_v1.sol:Steam_v1
-| function name              |       max |
-|----------------------------|-----------|
-| INITIAL_RATE               | 2.830e+02 |
-| MINTER_ROLE                | 2.610e+02 |
-| RATE_REDUCTION_COEFFICIENT | 2.840e+02 |
-| UPGRADE_INTERFACE_VERSION  | 5.030e+02 |
-| admin                      | 2.437e+03 |
-| allowance                  | 2.833e+03 |
-| approve                    | 2.478e+04 |
-| available_supply           | 6.937e+03 |
-| balanceOf                  | 2.639e+03 |
-| burn                       | 1.268e+04 |
-| decimals                   | 2.660e+02 |
-| future_epoch_time_write    | 2.620e+03 |
-| grantRoles                 | 2.636e+04 |
-| hasAnyRole                 | 2.615e+03 |
-| mining_epoch               | 2.432e+03 |
-| mint                       | 3.919e+04 |
-| mintable_in_timeframe      | 6.602e+03 |
-| name                       | 3.240e+03 |
-| owner                      | 2.391e+03 |
-| proxiableUUID              | 3.650e+02 |
-| rate                       | 2.382e+03 |
-| start_epoch_time           | 2.410e+03 |
-| start_epoch_time_write     | 2.553e+03 |
-| symbol                     | 3.229e+03 |
-| totalSupply                | 2.393e+03 |
-| transfer                   | 3.002e+04 |
-| transferFrom               | 3.571e+04 |
-| transferOwnership          | 1.202e+04 |
-| update_mining_parameters   | 4.012e+04 |
-| upgradeToAndCall           | 1.088e+04 |
+| function name              |      max |
+|----------------------------|----------|
+| INITIAL_RATE               | 2.83e+02 |
+| MINTER_ROLE                | 2.61e+02 |
+| RATE_REDUCTION_COEFFICIENT | 2.84e+02 |
+| UPGRADE_INTERFACE_VERSION  | 5.03e+02 |
+| admin                      | 2.44e+03 |
+| allowance                  | 2.83e+03 |
+| approve                    | 2.48e+04 |
+| available_supply           | 6.94e+03 |
+| balanceOf                  | 2.64e+03 |
+| burn                       | 1.27e+04 |
+| decimals                   | 2.66e+02 |
+| future_epoch_time_write    | 2.62e+03 |
+| grantRoles                 | 2.64e+04 |
+| hasAnyRole                 | 2.62e+03 |
+| mining_epoch               | 2.43e+03 |
+| mint                       | 3.92e+04 |
+| mintable_in_timeframe      | 6.60e+03 |
+| name                       | 3.24e+03 |
+| owner                      | 2.39e+03 |
+| proxiableUUID              | 3.65e+02 |
+| rate                       | 2.38e+03 |
+| start_epoch_time           | 2.41e+03 |
+| start_epoch_time_write     | 2.55e+03 |
+| symbol                     | 3.23e+03 |
+| totalSupply                | 2.39e+03 |
+| transfer                   | 3.00e+04 |
+| transferFrom               | 3.57e+04 |
+| transferOwnership          | 1.20e+04 |
+| update_mining_parameters   | 4.01e+04 |
+| upgradeToAndCall           | 1.09e+04 |
 
 src/reward/voting-escrow/VotingEscrow.vy:VotingEscrow
-| function name               |       max |
-|-----------------------------|-----------|
-| adjusted_balance_of         | 1.121e+04 |
-| admin                       | 2.221e+03 |
-| apply_smart_wallet_checker  | 4.751e+04 |
-| apply_transfer_ownership    | 2.936e+04 |
-| balanceOfAt                 | 3.721e+04 |
-| checkpoint                  | 2.820e+06 |
-| commit_smart_wallet_checker | 4.584e+04 |
-| commit_transfer_ownership   | 4.684e+04 |
-| controller                  | 2.244e+03 |
-| create_lock                 | 1.248e+06 |
-| decimals                    | 2.221e+03 |
-| deposit_for                 | 2.655e+05 |
-| epoch                       | 2.221e+03 |
-| future_admin                | 2.221e+03 |
-| future_smart_wallet_checker | 2.221e+03 |
-| get_last_user_slope         | 4.591e+03 |
-| increase_amount             | 6.306e+05 |
-| increase_unlock_time        | 2.684e+05 |
-| initialize                  | 2.994e+05 |
-| locked                      | 4.456e+03 |
-| locked__end                 | 2.393e+03 |
-| name                        | 4.741e+03 |
-| point_history               | 8.628e+03 |
-| slope_changes               | 2.296e+03 |
-| smart_wallet_checker        | 2.244e+03 |
-| supply                      | 2.221e+03 |
-| symbol                      | 4.453e+03 |
-| token                       | 2.221e+03 |
-| totalSupplyAt               | 2.369e+04 |
-| transfersEnabled            | 2.221e+03 |
-| user_point_epoch            | 2.333e+03 |
-| user_point_history          | 8.737e+03 |
-| user_point_history__ts      | 2.392e+03 |
-| version                     | 4.453e+03 |
-| withdraw                    | 4.921e+06 |
+| function name               |      max |
+|-----------------------------|----------|
+| adjusted_balance_of         | 1.12e+04 |
+| admin                       | 2.22e+03 |
+| apply_smart_wallet_checker  | 4.75e+04 |
+| apply_transfer_ownership    | 2.94e+04 |
+| balanceOfAt                 | 3.72e+04 |
+| checkpoint                  | 2.82e+06 |
+| commit_smart_wallet_checker | 4.58e+04 |
+| commit_transfer_ownership   | 4.68e+04 |
+| controller                  | 2.24e+03 |
+| create_lock                 | 1.25e+06 |
+| decimals                    | 2.22e+03 |
+| deposit_for                 | 2.66e+05 |
+| epoch                       | 2.22e+03 |
+| future_admin                | 2.22e+03 |
+| future_smart_wallet_checker | 2.22e+03 |
+| get_last_user_slope         | 4.59e+03 |
+| increase_amount             | 6.31e+05 |
+| increase_unlock_time        | 2.68e+05 |
+| initialize                  | 2.99e+05 |
+| locked                      | 4.46e+03 |
+| locked__end                 | 2.39e+03 |
+| name                        | 4.74e+03 |
+| point_history               | 8.63e+03 |
+| slope_changes               | 2.30e+03 |
+| smart_wallet_checker        | 2.24e+03 |
+| supply                      | 2.22e+03 |
+| symbol                      | 4.45e+03 |
+| token                       | 2.22e+03 |
+| totalSupplyAt               | 2.37e+04 |
+| transfersEnabled            | 2.22e+03 |
+| user_point_epoch            | 2.33e+03 |
+| user_point_history          | 8.74e+03 |
+| user_point_history__ts      | 2.39e+03 |
+| version                     | 4.45e+03 |
+| withdraw                    | 4.92e+06 |
 
 src/reward/voting-escrow/VotingEscrow_v1.sol:VotingEscrow_v1
-| function name          |       max |
-|------------------------|-----------|
-| adjusted_balance_of    | 9.789e+03 |
-| admin                  | 2.459e+03 |
-| balanceOfAt            | 3.280e+04 |
-| checkpoint             | 2.712e+06 |
-| controller             | 2.437e+03 |
-| create_lock            | 9.724e+05 |
-| decimals               | 3.150e+02 |
-| deposit_for            | 2.000e+05 |
-| epoch                  | 2.421e+03 |
-| get_last_user_slope    | 4.871e+03 |
-| increase_amount        | 4.799e+05 |
-| increase_unlock_time   | 1.983e+05 |
-| locked                 | 4.898e+03 |
-| locked__end            | 2.600e+03 |
-| name                   | 3.216e+03 |
-| point_history          | 7.126e+03 |
-| slope_changes          | 2.548e+03 |
-| supply                 | 2.349e+03 |
-| symbol                 | 3.193e+03 |
-| token                  | 3.470e+02 |
-| totalSupplyAt          | 2.114e+04 |
-| transferOwnership      | 1.203e+04 |
-| transfersEnabled       | 2.393e+03 |
-| user_point_epoch       | 2.619e+03 |
-| user_point_history     | 7.299e+03 |
-| user_point_history__ts | 2.694e+03 |
-| version                | 3.214e+03 |
-| withdraw               | 3.815e+06 |
+| function name          |      max |
+|------------------------|----------|
+| adjusted_balance_of    | 9.79e+03 |
+| admin                  | 2.46e+03 |
+| balanceOfAt            | 3.28e+04 |
+| checkpoint             | 2.71e+06 |
+| controller             | 2.44e+03 |
+| create_lock            | 9.72e+05 |
+| decimals               | 3.15e+02 |
+| deposit_for            | 2.00e+05 |
+| epoch                  | 2.42e+03 |
+| get_last_user_slope    | 4.87e+03 |
+| increase_amount        | 4.80e+05 |
+| increase_unlock_time   | 1.98e+05 |
+| locked                 | 4.90e+03 |
+| locked__end            | 2.60e+03 |
+| name                   | 3.22e+03 |
+| point_history          | 7.13e+03 |
+| slope_changes          | 2.55e+03 |
+| supply                 | 2.35e+03 |
+| symbol                 | 3.19e+03 |
+| token                  | 3.47e+02 |
+| totalSupplyAt          | 2.11e+04 |
+| transferOwnership      | 1.20e+04 |
+| transfersEnabled       | 2.39e+03 |
+| user_point_epoch       | 2.62e+03 |
+| user_point_history     | 7.30e+03 |
+| user_point_history__ts | 2.69e+03 |
+| version                | 3.21e+03 |
+| withdraw               | 3.82e+06 |
 
 test/StabilityPool.t.sol:MockStabilityPool
-| function name           |       max |
-|-------------------------|-----------|
-| ASSET_TOKEN             | 3.270e+02 |
-| GAUGE_REWARD_TOKEN      | 3.050e+02 |
-| GAUGE_STAKE_TOKEN       | 3.470e+02 |
-| LIQUIDATION_TOKEN       | 3.060e+02 |
-| MIN_TOTAL_ASSET_SUPPLY  | 3.270e+02 |
-| REBALANCER_ROLE         | 2.620e+02 |
-| REWARD_DEPOSITOR_ROLE   | 2.840e+02 |
-| REWARD_MANAGER_ROLE     | 3.050e+02 |
-| __getCompoundedBalance  | 1.897e+03 |
-| __totalSupply           | 4.749e+03 |
-| activeRewardTokens      | 1.423e+04 |
-| approve                 | 2.130e+02 |
-| assetBalanceOf          | 8.032e+03 |
-| claim                   | 2.684e+05 |
-| claimable               | 2.154e+04 |
-| deposit                 | 4.381e+05 |
-| depositReward           | 1.178e+05 |
-| gauge                   | 2.471e+03 |
-| grantRoles              | 2.640e+04 |
-| initialize              | 1.817e+05 |
-| isActiveRewardToken     | 2.766e+03 |
-| lastAssetLossError      | 2.357e+03 |
-| notifyLiquidation       | 1.842e+05 |
-| owner                   | 2.424e+03 |
-| pendingRewards          | 3.470e+03 |
-| registerRewardToken     | 7.290e+04 |
-| rewardData              | 2.958e+03 |
-| setRewardReceiver       | 2.455e+04 |
-| sweep                   | 4.018e+04 |
-| totalAssetSupply        | 2.460e+03 |
-| totalAssetSupplyHistory | 4.839e+03 |
-| transferOwnership       | 1.204e+04 |
-| unregisterRewardToken   | 8.921e+04 |
-| updateGauge             | 4.130e+05 |
-| upgradeToAndCall        | 1.092e+04 |
-| withdraw                | 2.599e+05 |
+| function name           |      max |
+|-------------------------|----------|
+| ASSET_TOKEN             | 3.27e+02 |
+| GAUGE_REWARD_TOKEN      | 3.05e+02 |
+| GAUGE_STAKE_TOKEN       | 3.47e+02 |
+| LIQUIDATION_TOKEN       | 3.06e+02 |
+| MIN_TOTAL_ASSET_SUPPLY  | 3.27e+02 |
+| REBALANCER_ROLE         | 2.62e+02 |
+| REWARD_DEPOSITOR_ROLE   | 2.84e+02 |
+| REWARD_MANAGER_ROLE     | 3.05e+02 |
+| __getCompoundedBalance  | 1.90e+03 |
+| __totalSupply           | 4.75e+03 |
+| activeRewardTokens      | 1.42e+04 |
+| approve                 | 2.13e+02 |
+| assetBalanceOf          | 8.03e+03 |
+| claim                   | 2.68e+05 |
+| claimable               | 2.15e+04 |
+| deposit                 | 4.38e+05 |
+| depositReward           | 1.18e+05 |
+| gauge                   | 2.47e+03 |
+| grantRoles              | 2.64e+04 |
+| initialize              | 1.82e+05 |
+| isActiveRewardToken     | 2.77e+03 |
+| lastAssetLossError      | 2.36e+03 |
+| notifyLiquidation       | 1.84e+05 |
+| owner                   | 2.42e+03 |
+| pendingRewards          | 3.47e+03 |
+| registerRewardToken     | 7.29e+04 |
+| rewardData              | 2.96e+03 |
+| setRewardReceiver       | 2.46e+04 |
+| sweep                   | 4.02e+04 |
+| totalAssetSupply        | 2.46e+03 |
+| totalAssetSupplyHistory | 4.84e+03 |
+| transferOwnership       | 1.20e+04 |
+| unregisterRewardToken   | 8.92e+04 |
+| updateGauge             | 4.13e+05 |
+| upgradeToAndCall        | 1.09e+04 |
+| withdraw                | 2.60e+05 |
 
 test/StabilityPool.t.sol:StabilityPool_v2
-| function name   |       max |
-|-----------------|-----------|
-| proxiableUUID   | 3.640e+02 |
-| version         | 4.900e+02 |
+| function name   |      max |
+|-----------------|----------|
+| proxiableUUID   | 3.64e+02 |
+| version         | 4.90e+02 |
 
 test/StabilityPoolManager_v1.t.sol:MockStabilityPoolManagerUpgraded
-| function name            |       max |
-|--------------------------|-----------|
-| MINTER                   | 3.250e+02 |
-| harvestBountyRatio       | 2.369e+03 |
-| isUpgraded               | 3.080e+02 |
-| newFunctionOnlyInUpgrade | 2.640e+02 |
-| proxiableUUID            | 3.530e+02 |
-| updateHarvestBountyRatio | 2.568e+04 |
+| function name            |      max |
+|--------------------------|----------|
+| MINTER                   | 3.25e+02 |
+| harvestBountyRatio       | 2.37e+03 |
+| isUpgraded               | 3.08e+02 |
+| newFunctionOnlyInUpgrade | 2.64e+02 |
+| proxiableUUID            | 3.53e+02 |
+| updateHarvestBountyRatio | 2.57e+04 |
 
 test/math/DecrementalFloatingPoint.t.sol:MockDecrementalFloatingPoint
-| function name   |       max |
-|-----------------|-----------|
-| encode          | 4.860e+02 |
-| exponent        | 4.010e+02 |
-| magnitude       | 3.420e+02 |
-| mul             | 7.100e+02 |
+| function name   |      max |
+|-----------------|----------|
+| encode          | 4.86e+02 |
+| exponent        | 4.01e+02 |
+| magnitude       | 3.42e+02 |
+| mul             | 7.10e+02 |
 
 test/mock/MockERC20.sol:MockERC20
-| function name   |       max |
-|-----------------|-----------|
-| allowance       | 2.788e+03 |
-| approve         | 4.670e+04 |
-| balanceOf       | 2.582e+03 |
-| decimals        | 2.333e+03 |
-| mint            | 6.851e+04 |
-| name            | 3.109e+03 |
-| operator        | 1.890e+02 |
-| symbol          | 3.107e+03 |
-| totalSupply     | 2.348e+03 |
-| transfer        | 5.160e+04 |
+| function name   |      max |
+|-----------------|----------|
+| allowance       | 2.79e+03 |
+| approve         | 4.67e+04 |
+| balanceOf       | 2.58e+03 |
+| decimals        | 2.33e+03 |
+| mint            | 6.85e+04 |
+| name            | 3.11e+03 |
+| operator        | 1.89e+02 |
+| symbol          | 3.11e+03 |
+| totalSupply     | 2.35e+03 |
+| transfer        | 5.16e+04 |
 
 test/mock/MockERC20.sol:MockERC20Burn1Arg
-| function name   |       max |
-|-----------------|-----------|
-| approve         | 4.670e+04 |
-| balanceOf       | 2.582e+03 |
-| burnSignature   | 4.490e+02 |
-| decimals        | 2.333e+03 |
-| name            | 3.109e+03 |
-| symbol          | 3.152e+03 |
-| totalSupply     | 2.348e+03 |
+| function name   |      max |
+|-----------------|----------|
+| approve         | 4.67e+04 |
+| balanceOf       | 2.58e+03 |
+| burnSignature   | 4.49e+02 |
+| decimals        | 2.33e+03 |
+| name            | 3.11e+03 |
+| symbol          | 3.15e+03 |
+| totalSupply     | 2.35e+03 |
 
 test/mock/MockERC20.sol:MockERC20Burn2Arg
-| function name   |       max |
-|-----------------|-----------|
-| approve         | 4.670e+04 |
-| balanceOf       | 2.560e+03 |
-| burnSignature   | 4.490e+02 |
-| decimals        | 2.333e+03 |
-| name            | 3.109e+03 |
-| symbol          | 3.130e+03 |
-| totalSupply     | 2.348e+03 |
+| function name   |      max |
+|-----------------|----------|
+| approve         | 4.67e+04 |
+| balanceOf       | 2.56e+03 |
+| burnSignature   | 4.49e+02 |
+| decimals        | 2.33e+03 |
+| name            | 3.11e+03 |
+| symbol          | 3.13e+03 |
+| totalSupply     | 2.35e+03 |
 
 test/mock/MockERC20.sol:MockERC20BurnFrom
-| function name   |       max |
-|-----------------|-----------|
-| approve         | 4.670e+04 |
-| balanceOf       | 2.560e+03 |
-| burnSignature   | 4.490e+02 |
-| decimals        | 2.333e+03 |
-| name            | 3.109e+03 |
-| symbol          | 3.152e+03 |
-| totalSupply     | 2.348e+03 |
+| function name   |      max |
+|-----------------|----------|
+| approve         | 4.67e+04 |
+| balanceOf       | 2.56e+03 |
+| burnSignature   | 4.49e+02 |
+| decimals        | 2.33e+03 |
+| name            | 3.11e+03 |
+| symbol          | 3.15e+03 |
+| totalSupply     | 2.35e+03 |
 
 test/mock/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockMultipleRewardCompoundingAccumulator
-| function name             |       max |
-|---------------------------|-----------|
-| REWARD_MANAGER_ROLE       | 2.830e+02 |
-| REWARD_PERIOD_LENGTH      | 2.710e+02 |
-| activeRewardTokens        | 9.672e+03 |
-| checkpoint                | 2.793e+05 |
-| claimable                 | 1.983e+04 |
-| claimed                   | 2.848e+03 |
-| depositReward             | 1.442e+05 |
-| grantRoles                | 4.791e+04 |
-| historicalRewardTokens    | 2.833e+03 |
-| initialize                | 9.180e+04 |
-| owner                     | 2.380e+03 |
-| reentrantCall             | 2.400e+04 |
-| registerRewardToken       | 9.651e+04 |
-| rewardReceiver            | 2.683e+03 |
-| setRewardReceiver         | 4.601e+04 |
-| setTotalPoolShare         | 6.614e+04 |
-| setUserPoolShare          | 6.614e+04 |
-| tokenToExponentToIntegral | 2.804e+03 |
-| unregisterRewardToken     | 1.137e+05 |
-| userRewardSnapshot        | 5.481e+03 |
+| function name             |      max |
+|---------------------------|----------|
+| REWARD_MANAGER_ROLE       | 2.83e+02 |
+| REWARD_PERIOD_LENGTH      | 2.71e+02 |
+| activeRewardTokens        | 9.67e+03 |
+| checkpoint                | 2.79e+05 |
+| claimable                 | 1.98e+04 |
+| claimed                   | 2.85e+03 |
+| depositReward             | 1.44e+05 |
+| grantRoles                | 4.79e+04 |
+| historicalRewardTokens    | 2.83e+03 |
+| initialize                | 9.18e+04 |
+| owner                     | 2.38e+03 |
+| reentrantCall             | 2.40e+04 |
+| registerRewardToken       | 9.65e+04 |
+| rewardReceiver            | 2.68e+03 |
+| setRewardReceiver         | 4.60e+04 |
+| setTotalPoolShare         | 6.61e+04 |
+| setUserPoolShare          | 6.61e+04 |
+| tokenToExponentToIntegral | 2.80e+03 |
+| unregisterRewardToken     | 1.14e+05 |
+| userRewardSnapshot        | 5.48e+03 |
 
 test/mock/reward/distributor/MockLinearMultipleRewardDistributor.sol:MockLinearMultipleRewardDistributor
-| function name          |       max |
-|------------------------|-----------|
-| activeRewardTokens     | 9.672e+03 |
-| depositReward          | 1.208e+05 |
-| grantRoles             | 4.790e+04 |
-| hasAnyRole             | 2.592e+03 |
-| historicalRewardTokens | 9.647e+03 |
-| initialize             | 9.158e+04 |
-| owner                  | 2.345e+03 |
-| pendingRewards         | 3.446e+03 |
-| registerRewardToken    | 9.649e+04 |
-| rewardData             | 2.912e+03 |
-| transferOwnership      | 2.868e+04 |
-| unregisterRewardToken  | 1.138e+05 |
+| function name          |      max |
+|------------------------|----------|
+| activeRewardTokens     | 9.67e+03 |
+| depositReward          | 1.21e+05 |
+| grantRoles             | 4.79e+04 |
+| hasAnyRole             | 2.59e+03 |
+| historicalRewardTokens | 9.65e+03 |
+| initialize             | 9.16e+04 |
+| owner                  | 2.34e+03 |
+| pendingRewards         | 3.45e+03 |
+| registerRewardToken    | 9.65e+04 |
+| rewardData             | 2.91e+03 |
+| transferOwnership      | 2.87e+04 |
+| unregisterRewardToken  | 1.14e+05 |
 
 test/reward/VotingEscrow.t.sol:MockSmartWalletChecker
-| function name   |       max |
-|-----------------|-----------|
-| setWhitelisted  | 4.411e+04 |
+| function name   |      max |
+|-----------------|----------|
+| setWhitelisted  | 4.41e+04 |
 
 test/reward/VotingEscrow_v1.t.sol:MockVotingEscrowUpgrade
-| function name   |       max |
-|-----------------|-----------|
-| proxiableUUID   | 3.300e+02 |
-| version         | 4.780e+02 |
+| function name   |      max |
+|-----------------|----------|
+| proxiableUUID   | 3.30e+02 |
+| version         | 4.78e+02 |
 
 test/reward/VotingEscrow_v1.t.sol:MockVotingEscrow_v1
-| function name     |       max |
-|-------------------|-----------|
-| balanceOf         | 9.769e+03 |
-| create_lock       | 3.199e+05 |
-| find_block_epoch  | 1.812e+04 |
-| grantRoles        | 2.636e+04 |
-| increase_amount   | 8.965e+05 |
-| initialize        | 1.883e+05 |
-| revokeRoles       | 9.271e+03 |
-| transferOwnership | 1.203e+04 |
-| upgradeToAndCall  | 1.091e+04 |
+| function name     |      max |
+|-------------------|----------|
+| balanceOf         | 9.77e+03 |
+| create_lock       | 3.20e+05 |
+| find_block_epoch  | 1.81e+04 |
+| grantRoles        | 2.64e+04 |
+| increase_amount   | 8.97e+05 |
+| initialize        | 1.88e+05 |
+| revokeRoles       | 9.27e+03 |
+| transferOwnership | 1.20e+04 |
+| upgradeToAndCall  | 1.09e+04 |
