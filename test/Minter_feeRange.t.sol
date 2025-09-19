@@ -1528,6 +1528,8 @@ contract TestMinterIntegralDisallowDiscountReverseLimitedReservePrice1Billionth 
 
 // --------------------------- Dust rounding stress ---------------------------
 
+// reduce the runs for those as they have loops of 20 * 20 = 400 each
+/// forge-config: default.fuzz.runs = 32
 contract TestMinterIntegralDustRounding_ is TestMinterIntegralFees {
     function setUp() public virtual override {
         super.setUp();
