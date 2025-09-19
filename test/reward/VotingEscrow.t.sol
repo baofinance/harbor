@@ -216,7 +216,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         assertEq(_symbol(), "veSTEAM", "Symbol should match");
         assertEq(_version(), "1.0.0", "Version should match");
         assertEq(_decimals(), 18, "Decimals should match token");
-        assertFalse(_transfersEnabled(), "Transfers should not be enabled");
+        assertTrue(_transfersEnabled(), "Transfers should be enabled");
     }
 
     function test_InitialPointHistory() public view {
@@ -1196,7 +1196,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
         assertEq(_symbol(), "veSTEAM", "Symbol should match");
         assertEq(_version(), "1.0.0", "Version should match");
         assertEq(_decimals(), 18, "Decimals should match token");
-        assertFalse(_transfersEnabled(), "Transfers should not be enabled");
+        assertTrue(_transfersEnabled(), "Transfers should be enabled");
         assertEq(_controller(), admin, "Controller should be admin");
 
         // Check initial point history
@@ -1210,7 +1210,7 @@ contract VotingEscrowAbstractTest is VotingEscrowTestSetUp {
     function test_RevertWhen_DoubleInitialization() public {
         vyper
             ? vm.expectRevert("already initialized")
-            : vm.expectRevert/*Initializable.InvalidInitialization.selector*/ ();
+            : vm.expectRevert /*Initializable.InvalidInitialization.selector*/();
         vm.prank(admin, admin);
         _initialize(admin, governanceToken, "Test", "TEST", "1.0.0");
     }

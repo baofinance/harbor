@@ -190,22 +190,6 @@ interface IMinter {
     // solhint-disable-next-line func-name-mixedcase
     function LEVERAGED_TOKEN() external view returns (address);
 
-    // /// @notice Return the minimum amount of collateral, pegged or leveraged tokens that
-    // /// can be accounted for by this contract.
-    // /// This affects minting and redeeming of pegged or leveraged tokens, either by the amount of collateral or
-    // /// by the amount of the token being minted or redeemed.
-    // /// This puts a lower bound on the amount of tokens that can be transferred in any one transaction.
-    // // solhint-disable-next-line func-name-mixedcase
-    // function MIN_TOKEN_AMOUNT() external view returns (uint256);
-
-    // /// @notice Return the maximum amount of collateral, pegged, or leveraged token that
-    // /// can be accounted for by this contract
-    // /// This affects minting and redeeming of pegged or leveraged tokens, either by the amount of collateral or
-    // /// by the amount of the token being minted or redeemed.
-    // /// This puts an upper bound on the amount of tokens that can be transferred in any one transaction.
-    // // solhint-disable-next-line func-name-mixedcase
-    // function MAX_TOKEN_AMOUNT() external view returns (uint256);
-
     /// @notice Return the current config.
     function config() external view returns (Config memory);
 

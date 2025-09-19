@@ -125,9 +125,6 @@ contract Minter_v1 is
     /// @dev the maximum leverage ratio - used to calculate the leverage return on redeeming pegged tokens for leveraged
     uint256 private constant _LEVERAGE_RATIO_CAP = 20 ether;
 
-    // uint256 public constant MAX_TOKEN_AMOUNT = 1e36; // 1e36 is the maximum amount of tokens that can be minted or redeemed
-    // uint256 public constant MIN_TOKEN_AMOUNT = 1e3; // 1e9 is the minimum amount of tokens that can be minted or redeemed
-
     ////////////////
     // Immutables //
     ////////////////
@@ -590,7 +587,6 @@ contract Minter_v1 is
         )
     {
         MinterStorage storage $ = _getMinterStorage();
-        // TODO: what to do if leveragedTokenBalance_ == 0
         OracleData memory oracle = _fetchMid($.priceOracle);
         price = oracle.price;
         rate = oracle.rate;
@@ -971,13 +967,6 @@ contract Minter_v1 is
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         OracleData memory oracle = _fetchMid($.priceOracle);
-        // leveragedOut = _leveragedTokensForCollateral(
-        //     underlyingCollateralIn,
-        //     _leveragedTokenBalance(),
-        //     $.peggedTokenBalance,
-        //     $.underlyingCollateral,
-        //     oracle.price
-        // );
         (uint256 collateralValueE36, uint256 peggedValueE36) = _tokenValuesE36(
             $.peggedTokenBalance,
             $.underlyingCollateral,
