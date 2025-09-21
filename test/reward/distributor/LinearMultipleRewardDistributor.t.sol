@@ -471,8 +471,7 @@ contract LinearMultipleRewardDistributorTest is Test {
 
         uint256 expectedRate2 = (depositAmount1 +
             depositAmount2 +
-            expectedRate0 *
-            (timestamp0 + rewardPeriodLength - timestamp2)) / rewardPeriodLength;
+            expectedRate0 * (timestamp0 + rewardPeriodLength - timestamp2)) / rewardPeriodLength;
 
         assertEq(rd.lastUpdate, timestamp2);
         assertEq(rd.finishAt, timestamp2 + rewardPeriodLength);

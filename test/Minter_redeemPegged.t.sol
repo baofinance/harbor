@@ -440,7 +440,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // some input, when none
         setUp_collateral(1 ether, 0); // collateral ratio == 1.0
-        vm.expectRevert /*"ERC20: transfer amount exceeds balance"*/(); // BaoUSD just reverts with a subtraction underflow
+        vm.expectRevert/*"ERC20: transfer amount exceeds balance"*/ (); // BaoUSD just reverts with a subtraction underflow
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
         // 4 -------------------------------------------------------------
@@ -459,7 +459,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // redeem no allowance
         assertEq(IERC20(peggedToken).allowance(sender, minter), 0);
-        vm.expectRevert /*"ERC20: transfer amount exceeds allowance"*/();
+        vm.expectRevert/*"ERC20: transfer amount exceeds allowance"*/ ();
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
         // 6 --------------------------------------------------
@@ -572,8 +572,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // mint from all of balance
         redeemPeggedFee =
-            (senderPeggedBefore * uint256(ultimate(config.redeemPeggedIncentiveConfig.incentiveRatios))) /
-            price;
+            (senderPeggedBefore * uint256(ultimate(config.redeemPeggedIncentiveConfig.incentiveRatios))) / price;
         expectedCollateralOut = collateral - redeemPeggedFee;
 
         _redeemPeggedToken(type(uint256).max);

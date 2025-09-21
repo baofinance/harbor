@@ -1216,10 +1216,8 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
             "harvester should get bounty"
         );
         uint256 remaining = harvestableAmount -
-            (harvestableAmount * cut) /
-            1 ether -
-            (harvestableAmount * bounty) /
-            1 ether;
+            (harvestableAmount * cut) / 1 ether -
+            (harvestableAmount * bounty) / 1 ether;
         assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
             (remaining * 3) / 5,
@@ -1473,12 +1471,12 @@ contract Gist_2 is TestStabilityPoolManagerSetUp {
         IStabilityPool(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
         vm.stopPrank();
 
-        console.log(
-            "stabilityPoolCollateral pegged balance: %e",
-            IERC20(peggedToken).balanceOf(stabilityPoolCollateral)
-        );
-        console.log("stabilityPoolLeveraged pegged balance: %e", IERC20(peggedToken).balanceOf(stabilityPoolLeveraged));
-        console.log();
+        // console.log(
+        //     "stabilityPoolCollateral pegged balance: %e",
+        //     IERC20(peggedToken).balanceOf(stabilityPoolCollateral)
+        // );
+        // console.log("stabilityPoolLeveraged pegged balance: %e", IERC20(peggedToken).balanceOf(stabilityPoolLeveraged));
+        // console.log();
 
         // Execute rebalance as liquidator
         assertEq(IERC20(leveragedToken).balanceOf(stabilityPoolCollateral), 0, "pool1 has no leveraged");

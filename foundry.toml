@@ -12,6 +12,7 @@ optimizer_runs = 700 # 500 builds & tests but 200 deploys
 # via_ir = true        # makes the compiler run 7-10 times slower, is good at reducing code size or lower gas usage
 deny_warnings = false # enable to stop compilations if there are warnings
 
+fuzz.gas_report_samples = 64 # gas report doesn't need so many test cases
 gas_reports_ignore = [
   "ERC20Mock",
   "ERC1967Proxy",

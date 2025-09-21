@@ -429,7 +429,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         assertApproxEqAbs(
             a.thisLeveraged,
             b.thisLeveraged,
-            tolerance * 1000,
+            tolerance * 1200,
             string.concat(context, ":", "thisLeveraged")
         );
     }

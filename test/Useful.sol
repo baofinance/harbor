@@ -303,4 +303,10 @@ library Useful {
         }
         return result;
     }
+
+    // used to determine if a muldiv is needed
+    function mulDiv(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
+        if (c == 0) revert("Division by zero");
+        return (a * b) / c;
+    }
 }

@@ -11,6 +11,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -35,7 +36,141 @@ import {Array} from "test/Array.sol";
 
 import {ConfigFile} from "test/Config.sol";
 
-contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
+abstract contract TestExtras is Test {
+    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff, uint256 maxRelDiff) internal pure returns (bool near) {
+        uint256 absDiff = a > b ? a - b : b - a;
+        if (isNear(a, b, maxAbsDiff)) {
+            return true;
+        }
+
+        uint256 relDiff;
+        uint256 larger = a > b ? a : b;
+        if (larger > 0) {
+            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
+            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
+            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
+        }
+        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
+
+        return (relDiff <= maxRelDiff);
+    }
+
+    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff) internal pure returns (bool near) {
+        uint256 absDiff = a > b ? a - b : b - a;
+        return (absDiff <= maxAbsDiff);
+    }
+
+    /**
+     * @dev Asserts that two values are within acceptable proximity using either absolute or relative tolerance
+     * @param a First value
+     * @param b Second value
+     * @param maxAbsDiff Maximum absolute difference allowed
+     * @param maxRelDiff Maximum relative difference allowed (in 1e18 format where 1e18 = 100%)
+     * @param message Error message on failure
+     */
+    function assertNear(
+        uint256 a,
+        uint256 b,
+        uint256 maxAbsDiff,
+        uint256 maxRelDiff,
+        string memory message
+    ) internal pure {
+        uint256 absDiff = a > b ? a - b : b - a;
+        if (absDiff <= maxAbsDiff) {
+            // SUCCESS (abs): Log and exit.
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
+            return;
+        }
+
+        uint256 relDiff;
+        uint256 larger = a > b ? a : b;
+        if (larger > 0) {
+            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
+            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
+            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
+        }
+        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
+
+        if (relDiff <= maxRelDiff) {
+            // SUCCESS (rel): Log and exit.
+            vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
+            return;
+        }
+
+        // FAILURE: Both checks failed. Revert with a clear message.
+        // We use assertApproxEqRel as it's generally more informative for large numbers.
+        vm.assertApproxEqRel(
+            a,
+            b,
+            maxRelDiff,
+            string.concat(
+                message,
+                " (outside both abs (max: ",
+                Useful.toString(maxAbsDiff),
+                ", real: ",
+                Useful.toString(absDiff),
+                "} & rel tolerances)"
+            )
+        );
+    }
+
+    function assertNear(
+        int256 a,
+        int256 b,
+        uint256 maxAbsDiff,
+        uint256 maxRelDiff,
+        string memory message
+    ) internal pure {
+        uint256 absDiff = SignedMath.abs(a - b);
+        if (absDiff <= maxAbsDiff) {
+            // SUCCESS (abs): Log and exit.
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
+            return;
+        }
+
+        // Use magnitudes for relative comparison
+        uint256 magA = SignedMath.abs(a);
+        uint256 magB = SignedMath.abs(b);
+        uint256 denom = magA > magB ? magA : magB;
+
+        if (denom > 0) {
+            // relDiff = ceil(absDiff / denom) in 1e18 scale
+            uint256 relDiff = Math.mulDiv(absDiff, 1e18, denom, Math.Rounding.Ceil);
+            if (relDiff <= maxRelDiff) {
+                // SUCCESS (rel)
+                vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
+                return;
+            }
+        }
+
+        // FAILURE: outside both tolerances
+        vm.assertApproxEqRel(
+            a,
+            b,
+            maxRelDiff,
+            string.concat(
+                message,
+                " (outside both abs (max: ",
+                Useful.toString(maxAbsDiff),
+                ", real: ",
+                Useful.toString(absDiff),
+                "} & rel tolerances)"
+            )
+        );
+    }
+
+    /// @dev Overload for just checking absolute tolerance - its just an alias for existing vm call
+    /// we prefer this as it's shorter text to type
+    function assertNear(uint256 a, uint256 b, uint256 maxAbsDiff, string memory message) internal pure {
+        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
+    }
+
+    function assertNear(int256 a, int256 b, uint256 maxAbsDiff, string memory message) internal pure {
+        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
+    }
+}
+
+contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
     address minter;
     IMinter.Config config;
     bool isConfigSet = false;
@@ -94,6 +229,69 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         for (uint i = 0; i < amountBasisPoints.length; i++) {
             band.incentiveRatios[i] = _basisPointToEther(amountBasisPoints[i]);
         }
+    }
+
+    function setUp_config_flatWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(80, 80, 80, 80, 80, 80, 80, 80)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(70, 70, 70, 70, 70, 70, 70, 70)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
+        );
+    }
+
+    function setUp_config_flatDiscountWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, -70)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
+        );
+    }
+
+    function setUp_config_flatDisallowDiscountWide() internal {
+        setUp_config(
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, -70)),
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 120, 120, 120, 120, 120, 120))
+        );
+    }
+
+    function setUp_config_directionalWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)), // mint pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // redeem pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // mint leveraged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)) // redeem leveraged
+        );
+    }
+
+    function setUp_config_reverseDirectionalWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // mint pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)), // redeem pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)), // mint leveraged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)) // redeem leveraged
+        );
+    }
+
+    function setUp_config_directionalDisallowDiscountWide() internal {
+        setUp_config(
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 110, 100, 90, 80, 70, 60)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, -50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, -50)),
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 110, 100, 90, 80, 70, 60))
+        );
+    }
+
+    function setUp_config_reverseDirectionalDisallowDiscountWide() internal {
+        setUp_config(
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 60, 70, 80, 90, 100, 110)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, -120)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, -120)),
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 60, 70, 80, 90, 100, 110))
+        );
     }
 
     function setUp_config_free() internal {
@@ -232,6 +430,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)), // "Minter_v1.sol",
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
+        vm.label(minter, "minter");
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
         IMinter(minter).updatePriceOracle(priceOracle);
@@ -249,9 +448,11 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         owner = vm.createWallet("owner").addr;
 
         priceOracle = address(new MockWrappedPriceOracle());
+        vm.label(priceOracle, "priceOracle");
 
         setUp_leveragedToken();
         peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
+        vm.label(peggedToken, "pegged");
         peggedTokenBurnSig = "burnFrom(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
         collateralToken = Deployed.stETH;

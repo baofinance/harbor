@@ -136,7 +136,6 @@ contract TestGraphsDisallow is TestGraphs, TestCollateralRatioRangeSetUp {
             );
             mintLeveragedIncentive = 0;
         }
-
         try IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether) returns (
             int256 redeemLeveraged,
             uint256,
@@ -210,5 +209,15 @@ contract TestGraphsNoDisallow is TestGraphsDisallow {
 
     function context() internal pure override returns (string memory) {
         return "_noDisallow";
+    }
+}
+
+contract TestGraphsFlat is TestGraphsDisallow {
+    function setUpConfig() internal override {
+        setUp_config_flatWide();
+    }
+
+    function context() internal pure override returns (string memory) {
+        return "_flat";
     }
 }

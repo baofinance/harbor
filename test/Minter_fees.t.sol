@@ -47,7 +47,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             "mint pegged incentive config"
         );
 
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        // (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(2 ether, 1 ether); // CR = 3/2 = 1.5
         assertEq(IMinter(minter).collateralRatio(), 15 ether / 10);
         assertLt(
@@ -80,23 +80,18 @@ contract TestMinterFees is TestMinterFeeSetUp {
         assertGt(incentiveRatioPlus, incentiveRatio, "the more in danger the higher the fee");
 
         // check that the fees match the reported value, both emit and that transferred
-        int256 expectedFees = (incentiveRatio * int256(collateral)) / 1 ether;
+        int256 expectedFees$ = (incentiveRatio * int256(collateral));
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         vm.expectEmit(minter);
         // emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
-        emit IMinter.MintPeggedToken(
-            user,
-            user,
-            collateral,
-            uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether
-        );
+        emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
         vm.prank(user);
         uint256 minted = IMinter(minter).mintPeggedToken(collateral, user, 0);
         assertEq(minted, peggedMinted, "pegged minted");
         // assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + fee);
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver),
-            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
+            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees$ / 1 ether)
         );
 
         // we are now in danger (CR=1.33), so check the fee here
@@ -355,10 +350,11 @@ contract TestMinterFees is TestMinterFeeSetUp {
             0,
             string.concat("collateral used calc in step", Useful.toString(step))
         );
-        assertEq(all.leveragedMinted, leveragedMinted, "leveragedMinted: all = sigma one");
-        assertApproxEqAbs(
+        assertNear(all.leveragedMinted, leveragedMinted, 0, 0, "leveragedMinted: all = sigma one");
+        assertNear(
             IERC20(leveragedToken).balanceOf(user) - beforeAll.userLeveraged,
             leveragedMinted,
+            0,
             0,
             string.concat("leveraged minted calc in step ", Useful.toString(step))
         );
@@ -453,9 +449,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual fee")
             );
-            assertApproxEqAbs(
+            assertNear(
                 IERC20(leveragedToken).balanceOf(user) - before.userLeveraged,
                 total.leveragedMinted,
+                0,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual minted")
             );
@@ -978,5 +975,44 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
+    }
+}
+
+contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
+    uint256 price;
+
+    function setUpConfig() internal virtual override {
+        setUp_config_flat();
+    }
+
+    function setUp() public virtual override(TestMinterFeeSetUp) {
+        super.setUp();
+        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        deal(address(wrappedCollateralToken), address(this), 1_000_000_000_000 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+    }
+
+    function test_mintPeggedLargeDeposit() public {
+        uint256 amount = 1_000_000_000_000 ether;
+        uint256 snap = vm.snapshotState();
+
+        for (uint256 p = 1e9; p < amount; p += amount / 10) {
+            for (uint256 l = 1e9; l < amount; l += amount / 10) {
+                for (uint256 d = 1e9; d < amount; d += amount / 10) {
+                    setUp_collateral(p, l);
+                    uint256 snap2 = vm.snapshotState();
+                    uint256 minted = IMinter(minter).mintPeggedToken(d, address(this), 0);
+                    IMinter(minter).redeemPeggedToken(minted, address(this), 0);
+                    vm.revertToState(snap2);
+
+                    minted = IMinter(minter).mintLeveragedToken(d, address(this), 0);
+                    IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
+
+                    vm.revertToState(snap);
+                }
+            }
+        }
     }
 }

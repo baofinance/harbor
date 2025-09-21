@@ -326,10 +326,11 @@ abstract contract MultipleRewardCompoundingAccumulator is
      * Internal Functions *
      **********************/
 
+    // @dev like a mulDiv, but for product factors
     function _scaleAdjustedValue(
         uint256 baseValue,
-        uint128 fromProd,
-        uint128 toProd
+        uint128 toProd,
+        uint128 fromProd
     ) internal pure returns (uint256 adjusted) {
         uint8 fromExp = fromProd.exponent();
         uint8 toExp = toProd.exponent();
@@ -356,7 +357,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint128 initialProduct,
         uint128 currentProduct
     ) internal pure returns (uint256 compoundedBalance) {
-        return _scaleAdjustedValue(initialBalance, initialProduct, currentProduct);
+        return _scaleAdjustedValue(initialBalance, currentProduct, initialProduct);
     }
 
     function _claimable(
@@ -368,10 +369,10 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
         claimable_ = uint256($.userRewardSnapshot[account][token].rewards.pending);
         (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
-        (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
 
-        if (shares > 0 && totalShare > 0) {
+        if (shares > 0) {
             uint8 userExponent = userProd.exponent();
+            (uint128 currentProd, uint256 totalShares) = _getTotalPoolShare();
             uint8 maxExponentsToCheck = uint8(
                 Math.min(DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
             );
@@ -389,15 +390,18 @@ abstract contract MultipleRewardCompoundingAccumulator is
             // Get user's checkpoint integral
             uint192 userCheckpointIntegral = $.userRewardSnapshot[account][token].checkpoint.integral;
             if (integral > userCheckpointIntegral) {
-                claimable_ +=
-                    (shares * (integral - userCheckpointIntegral)) /
-                    (userProd.magnitude() * _REWARD_PRECISION);
+                claimable_ += Math.mulDiv(
+                    shares,
+                    integral - userCheckpointIntegral,
+                    userProd.magnitude() * _REWARD_PRECISION
+                );
             }
-        }
-        if (includeTemporalPending) {
-            (uint256 amount, ) = _pendingRewards(token);
-            // if exponents are the same the degenerates to (amount * shares) / totalShare
-            claimable_ += _scaleAdjustedValue(amount * shares, userProd, currentProd) / totalShare;
+
+            if (includeTemporalPending && totalShares > 0) {
+                (uint256 amount, ) = _pendingRewards(token);
+                // if exponents are the same this degenerates to (amount * shares) / totalShares
+                claimable_ += _scaleAdjustedValue(amount * shares, currentProd, userProd) / totalShares;
+            }
         }
     }
 
