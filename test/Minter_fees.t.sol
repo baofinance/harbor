@@ -930,6 +930,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
 contract TestMinterNoneMinted is TestMinterFeeSetUp {
     function setUp() public virtual override(TestMinterFeeSetUp) {
         super.setUp();
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+    }
+    function setUpConfig() internal virtual override {
+        setUp_config_feeIsCR();
     }
 
     function test_all() public {
@@ -939,11 +943,16 @@ contract TestMinterNoneMinted is TestMinterFeeSetUp {
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
 
-        vm.expectRevert(IMinter.ActionPaused.selector);
-        IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        // vm.expectRevert(IMinter.ActionPaused.selector);
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some pegged minted");
 
-        vm.expectRevert(IMinter.ActionPaused.selector);
+        // uint256 minted = vm.expectRevert(IMinter.ActionPaused.selector);
+        // there is no value in leveraged tokens so none are minted
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some leveraged minted");
     }
 }
 

@@ -107,10 +107,11 @@ library Config_v1 {
             }
 
             if (i == 0) {
-                // add a depeg boundary as the first band one unless there is already one or it is a disallow band
+                // check first band covers depeg territory or is a disallow band
+                // this allows the different math involved in a depeg scenario doesn't straddle a band
                 // if we didn't do it here, we would have to do it in each of the fee calculation functions
-                // this makes the check against band == 0 the same as a check for depegged
-                // it also makes the math simpler: i.e. how, otherwise, do we manage multiple incentive ratios for the depegged situation?
+                // there is also at most one depegged band and you determine if you are in the band by checking the boundary against 1 ether
+                // it makes the math simpler: i.e. how, otherwise, do we manage multiple incentive ratios for the depegged situation?
                 // especially as the actual collateral ratio (not the one we calculate as _collateralRatio()) never goes below 1 ether
                 if (currentUpperBound != 1 ether && incentiveRatio != 1 ether) {
                     revert IMinter.NoDepegBoundaryOrDisallow(name);

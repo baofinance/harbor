@@ -1006,9 +1006,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         } catch (bytes memory reason) {
             // console2.log ("mp revert");
             // console2.logBytes(reason);
-            (int256 feeRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
+            (, , , uint256 minted_, , ) = IMinter(minter).mintPeggedTokenDryRun(0);
             require(
-                feeRatio == 1 ether &&
+                minted_ == 0 &&
                     keccak256(reason) ==
                         keccak256(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, peggedToken)),
                 "MintZeroAmount when mint pegged is disallowed is the only permitted revert"

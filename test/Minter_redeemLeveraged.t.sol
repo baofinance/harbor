@@ -117,15 +117,16 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
         // 1 ----------------------------------------------------
 
-        // // zero input, when none
-        // assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
-        // vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
-        // vm.prank(zeroFee);
-        // IMinter(minter).freeRedeemLeveragedToken(0, receiver);
-        // // 2 ------------------------------------------------
+        // zero input, when none
+        assertEq(IERC20(Deployed.wstETH).balanceOf(zeroFee), 0);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
+        vm.prank(zeroFee);
+        IMinter(minter).freeRedeemLeveragedToken(0, receiver);
+        // 2 ------------------------------------------------
 
+        // no longer support -1
         // // all input, when none
-        // vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, leveragedToken));
+        // vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
         // vm.prank(zeroFee);
         // IMinter(minter).freeRedeemLeveragedToken(type(uint256).max, receiver);
         // // 3 ----------------------------------------------------------------
