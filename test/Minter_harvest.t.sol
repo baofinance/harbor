@@ -36,8 +36,8 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
 
     function setUp() public virtual override(TestMinterHarvestSetUp) {
         super.setUp();
-        harvestReceiver = vm.createWallet("harvestReceiver").addr;
-        harvester = vm.createWallet("harvester").addr;
+        harvestReceiver = makeAddr("harvestReceiver");
+        harvester = makeAddr("harvester");
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(harvester, harvesterRole);

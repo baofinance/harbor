@@ -45,9 +45,9 @@ contract TestLiquidate is TestStabilityPool2SetUp {
     function setUp() public override {
         super.setUp();
 
-        treasury = vm.createWallet("treasury").addr;
-        bountyReceiver = vm.createWallet("bountyReceiver").addr;
-        user = vm.createWallet("user").addr;
+        treasury = makeAddr("treasury");
+        bountyReceiver = makeAddr("bountyReceiver");
+        user = makeAddr("user");
         vm.deal(user, 100 ether);
         vm.prank(user);
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);

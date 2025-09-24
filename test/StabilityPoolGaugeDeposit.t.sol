@@ -78,7 +78,7 @@ contract TestStabilityPoolWithSteam is TestStabilityPoolSetUp {
         steam2.set_minter(address(minter2));
 
         // Create actors
-        user3 = vm.createWallet("user3").addr;
+        user3 = makeAddr("user3");
 
         // Create mock reward & liquidation tokens
         rewardToken = new MockERC20("Reward Token", "RWD", 18);

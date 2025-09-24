@@ -63,9 +63,9 @@ contract Test_GenesisBase is TestMinterSetUp {
         vm.prank(owner);
         IMinter(minter).updateConfig(config);
 
-        user1 = vm.createWallet("user1").addr;
-        user2 = vm.createWallet("user2").addr;
-        user3 = vm.createWallet("user3").addr;
+        user1 = makeAddr("user1");
+        user2 = makeAddr("user2");
+        user3 = makeAddr("user3");
 
         // substitute the wct for better errors
         // wrappedCollateralToken = address(new MockERC20("Collateral", "COLL", 18));

@@ -48,8 +48,8 @@ contract TestTokenDistributorSetUp is Test, Array {
     function setUpFork() internal virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
-        owner = vm.createWallet("owner").addr;
-        claimer = vm.createWallet("claimer").addr;
+        owner = makeAddr("owner");
+        claimer = makeAddr("claimer");
     }
 
     function setUpContract() internal virtual {
@@ -69,9 +69,9 @@ contract TestTokenDistributorSetUp is Test, Array {
         setUpFork();
         setUpContract();
 
-        recipient1 = vm.createWallet("recipient1").addr;
-        recipient2 = vm.createWallet("recipient2").addr;
-        recipient3 = vm.createWallet("recipient3").addr;
+        recipient1 = makeAddr("recipient1");
+        recipient2 = makeAddr("recipient2");
+        recipient3 = makeAddr("recipient3");
 
         token1 = Deployed.wstETH;
         token2 = Deployed.BaoUSD;

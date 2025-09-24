@@ -43,9 +43,9 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
     function setUp() public virtual override(TestStabilityPool2SetUp) {
         super.setUp();
 
-        treasury = vm.createWallet("treasury").addr;
-        bountyReceiver = vm.createWallet("bountyReceiver").addr;
-        user = vm.createWallet("user").addr;
+        treasury = makeAddr("treasury");
+        bountyReceiver = makeAddr("bountyReceiver");
+        user = makeAddr("user");
         // deal(peggedToken, user, 10000 ether);
         // vm.prank(user);
         // IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
@@ -1157,7 +1157,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         );
 
         // Update to a new address and verify event is emitted with correct old address
-        address newFeeReceiver = vm.createWallet("newFeeReceiver").addr;
+        address newFeeReceiver = makeAddr("newFeeReceiver");
         vm.prank(owner);
         vm.expectEmit(true, true, false, false);
         emit IStabilityPoolManager.UpdateFeeReceiver(feeReceiver, newFeeReceiver);
@@ -1245,7 +1245,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
 
         // Set up harvester role
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
-        address harvester = vm.createWallet("harvester").addr;
+        address harvester = makeAddr("harvester");
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(harvester, harvesterRole);
 
