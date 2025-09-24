@@ -118,40 +118,8 @@ contract TestGraphsDisallow is TestGraphs, TestCollateralRatioRangeSetUp {
         // collect the data and check against actuals
         (mintPeggedIncentive, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(multiplier * 1 ether);
         (redeemPeggedIncentive, , , , , , ) = IMinter(minter).redeemPeggedTokenDryRun(multiplier * 1000 ether);
-
-        try IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether) returns (
-            int256 mintLeveraged,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256
-        ) {
-            mintLeveragedIncentive = mintLeveraged;
-        } catch (bytes memory reason) {
-            require(
-                keccak256(reason) == keccak256(abi.encodeWithSelector(IMinter.ActionPaused.selector)),
-                "unexpected error"
-            );
-            mintLeveragedIncentive = 0;
-        }
-        try IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether) returns (
-            int256 redeemLeveraged,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256
-        ) {
-            redeemLeveragedIncentive = redeemLeveraged;
-        } catch (bytes memory reason) {
-            require(
-                keccak256(reason) == keccak256(abi.encodeWithSelector(IMinter.ActionPaused.selector)),
-                "unexpected error"
-            );
-            redeemLeveragedIncentive = 0;
-        }
+        (mintLeveragedIncentive, , , , , , ) = IMinter(minter).mintLeveragedTokenDryRun(multiplier * 1 ether);
+        (redeemLeveragedIncentive, , , , , ) = IMinter(minter).redeemLeveragedTokenDryRun(multiplier * 1000 ether);
     }
 
     function doOneCollateralRatio() internal override {

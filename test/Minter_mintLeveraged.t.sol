@@ -182,7 +182,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         // collateral ratio is undefined for just minting leveraged tokens
         assertEq(
             IMinter(minter).collateralRatio(),
-            1 ether * 1 ether * 1 ether,
+            1 ether * 1 ether,
             unicode"now we have collateral but no pegged, collateral ratio = x/0 = ∞"
         );
         assertEq(IERC20(leveragedToken).balanceOf(receiver), price);
@@ -335,7 +335,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
     }
 
     function _testMintLeveragedDryRun(uint256 collateralIn, DryRunResults memory expected, address sender_) internal {
-        console.log("expected.incentiveRatio = %s", expected.incentiveRatio);
+        // console.log("expected.incentiveRatio = %s", expected.incentiveRatio);
         DryRunResults memory r;
         vm.prank(sender_);
         (
@@ -348,7 +348,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             r.rate
         ) = IMinter(minter).mintLeveragedTokenDryRun(collateralIn);
         console.log("r,incentiveRatio = %s", r.incentiveRatio);
-        console.log("expected.incentiveRatio = %s", expected.incentiveRatio);
+        // console.log("expected.incentiveRatio = %s", expected.incentiveRatio);
         assertEq(r.incentiveRatio, expected.incentiveRatio, "incentiveRatio");
         assertEq(r.wrappedFee, expected.wrappedFee, "wrappedFee");
         assertEq(r.wrappedDiscount, expected.wrappedDiscount, "wrappedDiscount");

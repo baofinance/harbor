@@ -160,7 +160,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         IBaoOwnable(stabilityPool).transferOwnership(owner);
     }
 
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
 
         uint256 _init_supply = 200_000 ether;

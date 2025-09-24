@@ -21,7 +21,7 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
     using SafeERC20 for IERC20;
     uint256 price;
 
-    function setUp() public override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         vm.prank(zeroFee);
