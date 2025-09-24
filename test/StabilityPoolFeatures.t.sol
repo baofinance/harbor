@@ -13,12 +13,7 @@ import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     function setUp() public override(TestStabilityPoolSetUp) {
         super.setUp();
-        // ensure the proxy has correct runtime config
-        vm.startPrank(owner);
-        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
-        IStabilityPool(stabilityPoolCollateral).setFeeAddress(FEE_ADDRESS);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
-        vm.stopPrank();
+        // fee settings are now initialized via initialize(owner, fee, address)
     }
 
     function test_requestWithdrawal_setsWindow() public {
@@ -28,8 +23,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertGt(start, 0);
         assertGt(end, start);
-        // ensure end - start equals configured period
-        // Note: WITHDRAWAL_END_WINDOW is the period
+        // ensure end - start equals configured period (immutables)
         assertEq(end - start, WITHDRAWAL_END_WINDOW);
     }
 
@@ -51,10 +45,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         uint256 balBefore = IERC20(peggedToken).balanceOf(user1);
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(1 * price, user1, 0);
-        // We allow early withdrawals before window with fee. However, withdraw requires an active request.
-        // Because request exists and now < start, fee should apply, but our current implementation reverts without active request only after end.
-        // To make test consistent with implementation, assert full amount returned (current logic doesn't deduct fee at proxy-initialized values until set via owner).
-        // 2.5% fee is applied only after setUp() applied config above.
+        // Early withdrawals before window apply fee; config initialized via initialize
         // Calculate expected net: 97.5%
         uint256 expectedNet = (1 * price * 975) / 1000;
         if (withdrawn != expectedNet) {
@@ -86,6 +77,28 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         (, uint64 newEnd) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertTrue(newEnd <= start);
     }
+
+    function test_withdraw_duringWindow_clearsRequestToZero() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
+
+        // Withdraw inside window, request should be cleared
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).withdraw(1 * price, user1, 0);
+        (uint64 clearedStart, uint64 clearedEnd) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        assertEq(clearedStart, 0);
+        assertEq(clearedEnd, 0);
+    }
+
+    
 
     function test_withdraw_withoutRequest_appliesFee() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
@@ -199,47 +212,19 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).getFeeAddress(), FEE_ADDRESS);
     }
 
-    function test_ownerOnly_setters_and_updates() public {
-        // non-owner cannot update
-        vm.startPrank(user1);
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(0.01 ether);
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPool(stabilityPoolCollateral).setFeeAddress(user1);
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(100, 200);
-        vm.stopPrank();
+    function test_getWithdrawalWindow_immutables_match_constructor() public view {
+        (uint64 startDelay, uint64 endWindow) = IStabilityPool(stabilityPoolCollateral).getWithdrawalWindow();
+        assertEq(startDelay, uint64(WITHDRAWAL_START_DELAY));
+        assertEq(endWindow, uint64(WITHDRAWAL_END_WINDOW));
+    }
 
-        // owner can update
-        vm.startPrank(owner);
-        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(0.01 ether);
-        IStabilityPool(stabilityPoolCollateral).setFeeAddress(user2);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(100, 200);
-        vm.stopPrank();
-
-        assertEq(IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee(), 0.01 ether);
-        assertEq(IStabilityPool(stabilityPoolCollateral).getFeeAddress(), user2);
-        // request and check window reflects new values
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 startNew, uint64 endNew) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(startNew, uint64(block.timestamp + 100));
-        // end is start + windowPeriod (200)
-        assertEq(endNew, startNew + 200);
+    function test_ownerOnly_setters_and_updates() public pure {
+        // setters removed; nothing to test here
+        assert(true);
     }
 
     function test_setters_invalidParams_revert() public {
-        vm.startPrank(owner);
-        // startDelay can be zero now; should NOT revert
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(0, WITHDRAWAL_END_WINDOW);
-        // invalid only when window period is zero
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 1000, 0));
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(1000, 0);
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
-        IStabilityPool(stabilityPoolCollateral).setFeeAddress(address(0));
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
-        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(1 ether + 1);
-        vm.stopPrank();
+        // setters removed; invalid-params tests no longer applicable
     }
 
     function test_withdraw_afterEnd_appliesFee() public {

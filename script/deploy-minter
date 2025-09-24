@@ -325,12 +325,9 @@ for liquidation in Collateral Steamed; do
   deploy_contract StabilityPool_v1${liquidation} "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
     --constructor-args minter ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}Stake STEAM \
     25000000000000000 0x3dFc49e5112005179Da613BdE5973229082dAc35 3600 90000
-  upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address)" owner
+  upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address,uint256,address)" owner 25000000000000000 0x3dFc49e5112005179Da613BdE5973229082dAc35
 
-  # initialize fee settings and withdrawal window on the proxy
-  send_transaction stabilityPool${liquidation} "setEarlyWithdrawalFee(uint256)" 25000000000000000
-  send_transaction stabilityPool${liquidation} "setFeeAddress(address)" 0x3dFc49e5112005179Da613BdE5973229082dAc35
-  send_transaction stabilityPool${liquidation} "setWithdrawalWindow(uint256,uint256)" 3600 90000
+  # fee settings initialized in the proxy upgrade call above
 
   # mint the stake token to the stability pool
   grantRoles deployer stabilityPool${liquidation}Stake.MINTER_ROLE

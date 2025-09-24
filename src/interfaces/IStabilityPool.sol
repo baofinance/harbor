@@ -207,17 +207,9 @@ interface IStabilityPool {
     /// - A successful withdraw clears the request immediately (start and end are zeroed).
     function requestWithdrawal() external;
 
-    /// @notice Update early withdrawal fee ratio.
-    /// @dev Ratio is scaled by 1e18 (e.g., 0.025 ether = 2.5%).
-    function setEarlyWithdrawalFee(uint256 newFee) external;
+    // setEarlyWithdrawalFee and setFeeAddress removed: fee config initialized in initialize
 
-    /// @notice Update fee recipient address.
-    function setFeeAddress(address newFeeAddress) external;
-
-    /// @notice Update withdrawal window configuration.
-    /// @dev Must satisfy newEndWindow > 0. `newStartDelay` may be zero for an immediate window.
-    /// Example/default: `newEndWindow = 86400` (1 day).
-    function setWithdrawalWindow(uint256 newStartDelay, uint256 newEndWindow) external;
+    // setWithdrawalWindow removed: window configuration is immutable and set at deployment
 
     /// @notice perform a liquidation of the amount
     // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);

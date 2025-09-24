@@ -162,7 +162,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, steam, veSteam)), // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, (owner))
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         vm.label(stabilityPool, SPName);
 
@@ -214,12 +214,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         rebalancer = makeAddr("rebalancer");
 
         stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
-        // configure withdrawal settings on the proxy (constructor values are on implementation only)
-        vm.startPrank(owner);
-        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
-        IStabilityPool(stabilityPoolCollateral).setFeeAddress(FEE_ADDRESS);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
-        vm.stopPrank();
+        // fee settings are now initialized via initialize(owner, fee, address)
 
         user1 = vm.createWallet("user1").addr;
         vm.prank(user1);
@@ -345,7 +340,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(spProxy).transferOwnership(owner);
 
@@ -358,6 +353,48 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initEventsLeveraged() public {
         test_initEvents(leveragedToken);
+    }
+
+    function test_initialize_invalidFee_reverts() public {
+        address spImpl = address(
+            new StabilityPool_v1(
+                minter,
+                wrappedCollateralToken,
+                stabilityPoolToken,
+                steam,
+                EARLY_WITHDRAWAL_FEE,
+                FEE_ADDRESS,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW,
+                1 ether
+            )
+        );
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
+        UnsafeUpgrades.deployUUPSProxy(
+            spImpl,
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, 1 ether + 1, FEE_ADDRESS))
+        );
+    }
+
+    function test_initialize_invalidFeeAddress_reverts() public {
+        address spImpl = address(
+            new StabilityPool_v1(
+                minter,
+                wrappedCollateralToken,
+                stabilityPoolToken,
+                steam,
+                EARLY_WITHDRAWAL_FEE,
+                FEE_ADDRESS,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW,
+                1 ether
+            )
+        );
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
+        UnsafeUpgrades.deployUUPSProxy(
+            spImpl,
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, address(0)))
+        );
     }
 
     // function test_initEventsBad() public {
@@ -479,24 +516,17 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).gauge(), gauge2);
     }
 
-    function test_requestWithdrawal_immediate_window_when_startDelay_zero() public {
-        // Allow startDelay=0, windowPeriod>0
-        vm.startPrank(owner);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(0, 100);
-        vm.stopPrank();
+    function test_requestWithdrawal_applies_startDelay_and_window() public {
         vm.prank(user1);
+        uint256 nowTs = block.timestamp;
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
         (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        assertEq(start, uint64(block.timestamp)); // start = now + 0
-        assertEq(end, start + 100);
+        assertEq(start, uint64(nowTs + WITHDRAWAL_START_DELAY));
+        assertEq(end, start + uint64(WITHDRAWAL_END_WINDOW));
     }
 
     function test_getWithdrawalWindow_matches_config() public {
-        vm.startPrank(owner);
-        IStabilityPool(stabilityPoolCollateral).setEarlyWithdrawalFee(EARLY_WITHDRAWAL_FEE);
-        IStabilityPool(stabilityPoolCollateral).setFeeAddress(FEE_ADDRESS);
-        IStabilityPool(stabilityPoolCollateral).setWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
-        vm.stopPrank();
+        // window immutables set in constructor; fee and address already configured in setUp()
 
         (uint64 startDelay, uint64 endWindow) = IStabilityPool(stabilityPoolCollateral).getWithdrawalWindow();
         assertEq(startDelay, uint64(WITHDRAWAL_START_DELAY));
@@ -513,12 +543,12 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         );
         address unconfigured = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, wrappedCollateralToken, spToken, steam, veSteam)),
-            abi.encodeCall(StabilityPool_v1.initialize, (owner))
+            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(unconfigured).transferOwnership(owner);
 
-        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 0, 0));
-        IStabilityPool(unconfigured).requestWithdrawal();
+        // With immutables defaulting to constructor values, proxy cannot change window; this scenario no longer applies
+        // Request should succeed if implementation had valid immutables; skip this legacy negative test
     }
 }
 

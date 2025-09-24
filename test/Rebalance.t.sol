@@ -73,7 +73,10 @@ contract TestLiquidate is TestStabilityPool2SetUp {
                     1 ether
                 )
             ),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
+            abi.encodeCall(
+                StabilityPool_v1.initialize,
+                (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+            )
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
 
@@ -91,7 +94,10 @@ contract TestLiquidate is TestStabilityPool2SetUp {
                     1 ether
                 )
             ),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
+            abi.encodeCall(
+                StabilityPool_v1.initialize,
+                (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+            )
         );
         IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);
 

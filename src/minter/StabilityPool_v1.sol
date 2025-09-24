@@ -94,6 +94,12 @@ contract StabilityPool_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MIN_DEPOSIT; // = MIN_TOTAL_ASSET_SUPPLY;
 
+    /// @dev immutable withdrawal window configuration
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint64 public immutable WITHDRAWAL_START_DELAY;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint64 public immutable WITHDRAWAL_END_WINDOW;
+
     /***********
      * Structs *
      ***********/
@@ -187,12 +193,21 @@ contract StabilityPool_v1 is
      * Constructor *
      ***************/
 
-    function initialize(address owner_) external initializer {
+    function initialize(address owner_, uint256 earlyWithdrawalFee_, address feeAddress_) external initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+
+        // initialize fee configuration on the proxy
+        if (earlyWithdrawalFee_ > _MAX_EARLY_WITHDRAWAL_FEE) {
+            revert InvalidFee(earlyWithdrawalFee_);
+        }
+        if (feeAddress_ == address(0)) {
+            revert InvalidFeeAddress(feeAddress_);
+        }
+        $.feePayment = FeePayment({feeAddress: feeAddress_, earlyWithdrawalFee: uint96(earlyWithdrawalFee_)});
 
         TokenBalance memory initialSupply = TokenBalance({
             product: DecrementalFloatingPoint.init(),
@@ -255,6 +270,10 @@ contract StabilityPool_v1 is
         // their purpose is the same thing - preventing a complete emptying of a non-empty pool
         MIN_TOTAL_ASSET_SUPPLY = minTotalAssetSupply;
         MIN_DEPOSIT = minTotalAssetSupply;
+
+        // set immutable withdrawal window params
+        WITHDRAWAL_START_DELAY = uint64(withdrawalStartDelay_);
+        WITHDRAWAL_END_WINDOW = uint64(withdrawalEndWindow_);
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -327,9 +346,8 @@ contract StabilityPool_v1 is
     /// @inheritdoc IStabilityPool
     /// @notice Returns the global withdrawal window configuration.
     function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        startDelay = $.withdrawalWindow.startDelay;
-        endWindow = $.withdrawalWindow.endWindow;
+        startDelay = WITHDRAWAL_START_DELAY;
+        endWindow = WITHDRAWAL_END_WINDOW;
     }
     /****************************
      * Public Mutator Functions *
@@ -486,50 +504,19 @@ contract StabilityPool_v1 is
     function requestWithdrawal() external nonReentrant {
         address sender = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // Guard against unconfigured withdrawal window on the proxy
-        if ($.withdrawalWindow.endWindow == 0) {
-            revert InvalidWithdrawalWindow($.withdrawalWindow.startDelay, $.withdrawalWindow.endWindow);
+        // Guard against unconfigured window in implementation (constructor ensures > 0)
+        if (WITHDRAWAL_END_WINDOW == 0) {
+            revert InvalidWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
         }
-        uint64 start = uint64(block.timestamp + $.withdrawalWindow.startDelay);
-        uint64 end = uint64(start + $.withdrawalWindow.endWindow);
+        uint64 start = uint64(block.timestamp + WITHDRAWAL_START_DELAY);
+        uint64 end = uint64(start + WITHDRAWAL_END_WINDOW);
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
         emit WithdrawalRequested(sender, start, end);
     }
 
-    /// @inheritdoc IStabilityPool
-    /// @notice Updates the early withdrawal fee ratio (scaled by 1e18).
-    function setEarlyWithdrawalFee(uint256 newFee) external onlyOwner {
-        if (newFee > _MAX_EARLY_WITHDRAWAL_FEE) {
-            revert InvalidFee(newFee);
-        }
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        $.feePayment.earlyWithdrawalFee = uint96(newFee);
-        emit EarlyWithdrawalFeeUpdated(newFee);
-    }
+    // setEarlyWithdrawalFee and setFeeAddress removed: fee config is initialized once via initialize
 
-    /// @inheritdoc IStabilityPool
-    /// @notice Updates the fee recipient address for early withdrawal fees.
-    function setFeeAddress(address newFeeAddress) external onlyOwner {
-        if (newFeeAddress == address(0)) {
-            revert InvalidFeeAddress(newFeeAddress);
-        }
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        $.feePayment.feeAddress = newFeeAddress;
-        emit FeeAddressUpdated(newFeeAddress);
-    }
-
-    /// @inheritdoc IStabilityPool
-    /// @notice Updates the withdrawal window configuration.
-    /// @dev Requires newEndWindow > 0. `newStartDelay` may be zero for immediate windows.
-    function setWithdrawalWindow(uint256 newStartDelay, uint256 newEndWindow) external onlyOwner {
-        if (newEndWindow == 0) {
-            revert InvalidWithdrawalWindow(newStartDelay, newEndWindow);
-        }
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        $.withdrawalWindow.startDelay = uint64(newStartDelay);
-        $.withdrawalWindow.endWindow = uint64(newEndWindow);
-        emit WithdrawalWindowUpdated(newStartDelay, newEndWindow);
-    }
+    // setWithdrawalWindow removed: withdrawal window params are immutable and set at deployment
 
     /// @inheritdoc IStabilityPool
     function updateGauge(address newGauge) external nonReentrant onlyOwner {
