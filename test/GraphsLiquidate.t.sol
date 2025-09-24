@@ -50,8 +50,8 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
         IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
 
-        bountyReceiver = vm.createWallet("bountyReceiver").addr;
-        treasury = vm.createWallet("treasury").addr;
+        bountyReceiver = makeAddr("bountyReceiver");
+        treasury = makeAddr("treasury");
 
         address stabilityPoolCollateralEmpty = _setupStabilityPool(wrappedCollateralToken);
         address stabilityPoolLeveragedEmpty = _setupStabilityPool(leveragedToken);
@@ -202,8 +202,8 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
             IStabilityPool(stabilityPoolLeveraged).deposit(peggedForSPL, address(this), 0);
         }
         user = address(this);
-        bountyReceiver = vm.createWallet("bountyReceiver").addr;
-        treasury = vm.createWallet("treasury").addr;
+        bountyReceiver = makeAddr("bountyReceiver");
+        treasury = makeAddr("treasury");
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();

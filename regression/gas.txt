@@ -80,7 +80,7 @@ src/minter/Minter_v1.sol:Minter_v1
 | mintLeveragedTokenDryRun           | 7.337e+04 |
 | mintLeveragedTokenIncentiveRatio   | 3.089e+04 |
 | mintPeggedToken                    | 1.909e+05 |
-| mintPeggedTokenDryRun              | 6.335e+04 |
+| mintPeggedTokenDryRun              | 6.337e+04 |
 | mintPeggedTokenIncentiveRatio      | 3.087e+04 |
 | owner                              | 2.380e+03 |
 | peggedTokenBalance                 | 2.409e+03 |
@@ -156,25 +156,25 @@ src/minter/StabilityPool_v1.sol:StabilityPool_v1
 | transferOwnership  | 1.204e+04 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
-| function name     |       max |
-|-------------------|-----------|
-| CLAIMER_ROLE      | 2.820e+02 |
-| addRecipient      | 6.951e+04 |
-| addToken          | 8.823e+04 |
-| distribute        | 1.792e+05 |
-| distribution      | 1.451e+04 |
-| grantRoles        | 2.633e+04 |
-| hasAnyRole        | 2.613e+03 |
-| initialize        | 9.337e+04 |
-| name              | 3.197e+03 |
-| owner             | 2.390e+03 |
-| removeRecipient   | 2.496e+04 |
-| removeToken       | 1.826e+04 |
-| setDistribution   | 7.615e+04 |
-| supportsInterface | 8.650e+02 |
-| sweep             | 4.106e+04 |
-| tokens            | 7.426e+03 |
-| transferOwnership | 1.205e+04 |
+| function name        |       max |
+|----------------------|-----------|
+| CLAIMER_ROLE         | 2.820e+02 |
+| addOrUpdateRecipient | 6.949e+04 |
+| addToken             | 8.818e+04 |
+| distribute           | 1.792e+05 |
+| distribution         | 1.454e+04 |
+| grantRoles           | 2.633e+04 |
+| hasAnyRole           | 2.635e+03 |
+| initialize           | 9.339e+04 |
+| name                 | 3.197e+03 |
+| owner                | 2.345e+03 |
+| removeRecipient      | 2.482e+04 |
+| removeToken          | 1.829e+04 |
+| setDistribution      | 7.611e+04 |
+| supportsInterface    | 8.650e+02 |
+| sweep                | 4.108e+04 |
+| tokens               | 7.448e+03 |
+| transferOwnership    | 1.200e+04 |
 
 src/reward/gauge/GaugeController.vy:GaugeController
 | function name      |       max |

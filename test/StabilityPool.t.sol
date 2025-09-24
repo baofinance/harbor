@@ -186,11 +186,11 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
         stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
 
-        user1 = vm.createWallet("user1").addr;
+        user1 = makeAddr("user1");
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
-        user2 = vm.createWallet("user2").addr;
+        user2 = makeAddr("user2");
         vm.prank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
     }

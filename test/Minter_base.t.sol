@@ -455,8 +455,8 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
     function setUpFork() internal virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
-        feeReceiver = vm.createWallet("feeReceiver").addr;
-        owner = vm.createWallet("owner").addr;
+        feeReceiver = makeAddr("feeReceiver");
+        owner = makeAddr("owner");
 
         priceOracle = address(new MockWrappedPriceOracle());
         vm.label(priceOracle, "priceOracle");
@@ -482,7 +482,7 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
 
         vm.prank(owner);
         ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
-        zeroFee = vm.createWallet("zeroFee").addr;
+        zeroFee = makeAddr("zeroFee");
 
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(zeroFee, zeroFeeRole);
@@ -716,7 +716,7 @@ contract TestMinterBasics is TestMinterSetUp {
 
     function setUp() public virtual override(TestMinterSetUp) {
         super.setUp();
-        user = vm.createWallet("user").addr;
+        user = makeAddr("user");
     }
 
     function test_introspection() public view {

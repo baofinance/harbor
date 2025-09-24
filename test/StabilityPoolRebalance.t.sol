@@ -40,8 +40,8 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
         super.setUp();
 
         // Create additional users
-        user3 = vm.createWallet("user3").addr;
-        user4 = vm.createWallet("user4").addr;
+        user3 = makeAddr("user3");
+        user4 = makeAddr("user4");
 
         // Create a reward token
         rewardToken = new MockERC20("Reward Token", "RWD", 18);

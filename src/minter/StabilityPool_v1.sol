@@ -264,7 +264,7 @@ contract StabilityPool_v1 is
         uint256 assetAmount,
         address receiver,
         uint256 minAmount
-    ) external override nonReentrant returns (uint256 assetsDeposited) {
+    ) external nonReentrant returns (uint256 assetsDeposited) {
         if (receiver == address(0)) {
             revert InvalidReceiver(address(0));
         }
@@ -313,7 +313,7 @@ contract StabilityPool_v1 is
         uint256 assetAmount,
         address receiver,
         uint256 minAmount
-    ) external virtual override nonReentrant returns (uint256 assetsWithdrawn) {
+    ) external virtual nonReentrant returns (uint256 assetsWithdrawn) {
         if (receiver == address(0)) {
             revert InvalidReceiver(address(0));
         }

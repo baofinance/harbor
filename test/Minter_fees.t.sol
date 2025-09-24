@@ -74,7 +74,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        user = vm.createWallet("user").addr;
+        user = makeAddr("user");
         deal(address(Deployed.wstETH), user, 100 ether);
         vm.prank(user);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
