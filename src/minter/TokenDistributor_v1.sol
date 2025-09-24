@@ -227,7 +227,7 @@ contract TokenDistributor_v1 is
     }
 
     /// @inheritdoc ITokenDistributor
-    function addRecipient(address recipient, uint256 share) public onlyOwner {
+    function addOrUpdateRecipient(address recipient, uint256 share) public onlyOwner {
         Token.ensureNonZeroAddress(recipient);
 
         if (share == 0) {
@@ -270,6 +270,8 @@ contract TokenDistributor_v1 is
                 }
                 // remove the last one
                 $.distribution.pop();
+                // we ensure that there are no duplicates elsewhere so we can stop iterating
+                return;
             }
         }
     }
@@ -278,7 +280,7 @@ contract TokenDistributor_v1 is
     // it is protected for now, as it is trivial to write a contract that
     // has an unprotected distribute function
     // has the correct role to call this function
-    // @inheritdoc ITokenDistributor
+    /// @inheritdoc ITokenDistributor
     function distribute() public nonReentrant onlyOwnerOrRoles(CLAIMER_ROLE) {
         TokenDistributorStorage storage $ = _getTokenDistributorStorage();
 

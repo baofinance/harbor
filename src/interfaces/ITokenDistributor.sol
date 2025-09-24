@@ -83,7 +83,7 @@ interface ITokenDistributor {
     ///        call to set the shares to 0.
     /// @dev The share of every other recipient remains the same value but the `totalShares` is decreased, effectively
     /// increasing the calculated share of each remaining recipient.
-    function addRecipient(address recipient, uint256 share) external;
+    function addOrUpdateRecipient(address recipient, uint256 share) external;
 
     /// @notice Removes a recipient from the list of recipients
     /// @param recipient The address of the recipient to be removed.

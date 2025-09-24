@@ -164,7 +164,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         ITokenDistributor(tokenDistributor).setDistribution(aa(), ua());
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        ITokenDistributor(tokenDistributor).addRecipient(address(0), 0);
+        ITokenDistributor(tokenDistributor).addOrUpdateRecipient(address(0), 0);
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         ITokenDistributor(tokenDistributor).removeRecipient(address(0));
@@ -273,7 +273,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(shares.length, recipients.length);
         assertEq(totalShares, 0);
 
-        ITokenDistributor(tokenDistributor).addRecipient(recipient1, 10);
+        ITokenDistributor(tokenDistributor).addOrUpdateRecipient(recipient1, 10);
         (recipients, shares, totalShares) = ITokenDistributor(tokenDistributor).distribution();
         assertEq(recipients.length, 1);
         assertEq(shares.length, recipients.length);
@@ -287,7 +287,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(shares.length, recipients.length);
         assertEq(totalShares, 0);
 
-        ITokenDistributor(tokenDistributor).addRecipient(recipient1, 10);
+        ITokenDistributor(tokenDistributor).addOrUpdateRecipient(recipient1, 10);
         (recipients, shares, totalShares) = ITokenDistributor(tokenDistributor).distribution();
         assertEq(recipients.length, 1);
         assertEq(shares.length, recipients.length);
@@ -295,7 +295,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(shares[0], 10);
         assertEq(totalShares, 10);
 
-        ITokenDistributor(tokenDistributor).addRecipient(recipient2, 20);
+        ITokenDistributor(tokenDistributor).addOrUpdateRecipient(recipient2, 20);
         (recipients, shares, totalShares) = ITokenDistributor(tokenDistributor).distribution();
         assertEq(recipients.length, 2);
         assertEq(shares.length, recipients.length);
@@ -305,7 +305,7 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         assertEq(shares[1], 20);
         assertEq(totalShares, 30);
 
-        ITokenDistributor(tokenDistributor).addRecipient(recipient2, 200);
+        ITokenDistributor(tokenDistributor).addOrUpdateRecipient(recipient2, 200);
         (recipients, shares, totalShares) = ITokenDistributor(tokenDistributor).distribution();
         assertEq(recipients.length, 2);
         assertEq(shares.length, recipients.length);
@@ -406,8 +406,8 @@ contract TestTokenDistributor is TestTokenDistributorSetUp {
         IERC20(token2).safeTransfer(address(tokenDistributor), 12 ether);
         vm.startPrank(owner);
         ITokenDistributor(tokenDistributor).addToken(token2);
-        ITokenDistributor(tokenDistributor).addRecipient(recipient2, 2);
-        ITokenDistributor(tokenDistributor).addRecipient(recipient3, 3);
+        ITokenDistributor(tokenDistributor).addOrUpdateRecipient(recipient2, 2);
+        ITokenDistributor(tokenDistributor).addOrUpdateRecipient(recipient3, 3);
         vm.stopPrank();
         assertEq(IERC20(token1).balanceOf(address(tokenDistributor)), 6 ether);
         assertEq(IERC20(token2).balanceOf(address(tokenDistributor)), 12 ether);

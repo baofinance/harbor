@@ -6,7 +6,7 @@
 | src/minter/ReservePool_v1.sol                                   | X  94% (15/16)   | ✓ 100% (15/15)   | ✓ 100% (3/3)    | X  80% (4/5)   |
 | src/minter/StabilityPoolManager_v1.sol                          | X  99% (165/166) | X  99% (176/177) | X  95% (20/21)  | ✓ 100% (24/24) |
 | src/minter/StabilityPool_v1.sol                                 | X  96% (164/171) | X  94% (171/182) | X  92% (22/24)  | ✓ 100% (19/19) |
-| src/minter/TokenDistributor_v1.sol                              | X  96% (93/97)   | X  97% (112/115) | X  77% (10/13)  | X  93% (14/15) |
+| src/minter/TokenDistributor_v1.sol                              | X  96% (94/98)   | X  97% (112/116) | X  77% (10/13)  | X  93% (14/15) |
 | src/minter/library/ConfigIncentiveLib.sol                       | ✓ 100% (24/24)   | ✓ 100% (17/17)   | ✓ 100% (2/2)    | ✓ 100% (9/9)   |
 | src/minter/library/Config_v1.sol                                | X  96% (76/79)   | X  97% (92/95)   | X  90% (18/20)  | ✓ 100% (6/6)   |
 | src/price/PriceOracle_v1.sol                                    | X  97% (31/32)   | X  97% (36/37)   | X  85% (11/13)  | ✓ 100% (3/3)   |
