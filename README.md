@@ -50,6 +50,20 @@ Fees can be queried up front by so-called dry-run view functions, answering the 
   - `withdrawalEndWindow` (seconds; must be > 0; recommended <= 1 week; example/default: `86400` for 1 day)
   - Implementation detail: these four values are internally packed into two storage slots for gas efficiency (no ABI change).
 
+#### Fee exemption (StabilityPool)
+
+- Addresses granted the `EXEMPT_WITHDRAWAL_FEE_ROLE` are exempt from early-withdrawal fees when withdrawing outside the request window.
+- This is intended for whitelisted contracts (e.g. treasury, ops) or EOAs as needed.
+- Role management (owner-only):
+
+```solidity
+// Grant exemption
+IBaoRoles(stabilityPool).grantRoles(account, StabilityPool_v1.EXEMPT_WITHDRAWAL_FEE_ROLE());
+
+// Revoke exemption
+IBaoRoles(stabilityPool).revokeRoles(account, StabilityPool_v1.EXEMPT_WITHDRAWAL_FEE_ROLE());
+```
+
 ### Rebalancing
 
 Rebalancing is when collateral ratio reaches a certain level, configurable in the StabilityPoolManager. Anyone can call the rebalance() function there and receive a bounty for doing so. If the collateral ratio of the system is not below the configured threshold, no rebalancing is performed.
