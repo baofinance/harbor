@@ -189,7 +189,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         IBaoOwnable(stabilityPool).transferOwnership(owner);
     }
 
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
 
         uint256 _init_supply = 200_000 ether;
@@ -216,11 +216,11 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
         // fee settings are now initialized via initialize(owner, fee, address)
 
-        user1 = vm.createWallet("user1").addr;
+        user1 = makeAddr("user1");
         vm.prank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
 
-        user2 = vm.createWallet("user2").addr;
+        user2 = makeAddr("user2");
         vm.prank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
     }

@@ -410,13 +410,66 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertGe(IMinter(minter).collateralRatio(), collateralRatioBefore, "collateral ratio <= before");
     }
 
+    struct DryRunResults {
+        int256 incentiveRatio;
+        uint256 wrappedFee;
+        uint256 wrappedDiscount;
+        uint256 peggedRedeemed;
+        uint256 wrappedCollateralReturned;
+        uint256 price;
+        uint256 rate;
+    }
+
+    function _testRedeemPeggedDryRun(uint256 collateralIn, DryRunResults memory expected, address sender_) internal {
+        DryRunResults memory r;
+        vm.prank(sender_);
+        (
+            r.incentiveRatio,
+            r.wrappedFee,
+            r.wrappedDiscount,
+            r.peggedRedeemed,
+            r.wrappedCollateralReturned,
+            r.price,
+            r.rate
+        ) = IMinter(minter).redeemPeggedTokenDryRun(collateralIn);
+        assertEq(r.incentiveRatio, expected.incentiveRatio, "incentiveRatio");
+        assertEq(r.wrappedFee, expected.wrappedFee, "wrappedFee");
+        assertEq(r.wrappedDiscount, expected.wrappedDiscount, "wrappedDiscount");
+        assertEq(r.peggedRedeemed, expected.peggedRedeemed, "peggedRedeemed");
+        assertEq(r.wrappedCollateralReturned, expected.wrappedCollateralReturned, "  wrappedCollateralReturned");
+        assertEq(r.price, expected.price, "price");
+        assertEq(r.rate, expected.rate, "rate");
+    }
+
+    function zeros() internal view returns (DryRunResults memory) {
+        (uint256 price_, , uint256 rate_, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        return
+            DryRunResults({
+                incentiveRatio: 0,
+                wrappedFee: 0,
+                wrappedDiscount: 0,
+                peggedRedeemed: 0,
+                wrappedCollateralReturned: 0,
+                price: price_,
+                rate: rate_
+            });
+    }
+
     function test_redeemPeggedBasic() public {
+        // ic(ua(100), ia(80, 80)),
+
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         assertEq(IMinter(minter).collateralRatio(), 1 ether);
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
+        DryRunResults memory expected;
+
         // zero input, when none
         assertEq(IERC20(peggedToken).balanceOf(sender), 0);
+        expected = zeros();
+        expected.incentiveRatio = 0.008 ether;
+        _testRedeemPeggedDryRun(0, expected, sender);
+
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(0, receiver, 0);
@@ -424,6 +477,10 @@ contract TestMinterRedeemPegged is TestMinterMint {
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // all input, when none
+        expected = zeros();
+        expected.incentiveRatio = 0.008 ether;
+        _testRedeemPeggedDryRun(type(uint256).max, expected, sender);
+
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(type(uint256).max, receiver, 0);
@@ -432,6 +489,10 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // some input, when no leveraged Tokens
         assertEq(IMinter(minter).peggedTokenBalance(), 0);
+        expected = zeros();
+        expected.incentiveRatio = 0.008 ether;
+        _testRedeemPeggedDryRun(1 ether, expected, sender);
+
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
@@ -440,13 +501,25 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // some input, when none
         setUp_collateral(1 ether, 0); // collateral ratio == 1.0
-        vm.expectRevert /*"ERC20: transfer amount exceeds balance"*/(); // BaoUSD just reverts with a subtraction underflow
+        expected = zeros();
+        expected.incentiveRatio = 0.008 ether;
+        expected.wrappedFee = (1 ether * 0.008 ether) / price;
+        expected.peggedRedeemed = 1 ether;
+        expected.wrappedCollateralReturned = (1 ether * 1 ether) / price - expected.wrappedFee;
+        _testRedeemPeggedDryRun(1 ether, expected, sender);
+
+        vm.expectRevert/*"ERC20: transfer amount exceeds balance"*/ (); // BaoUSD just reverts with a subtraction underflow
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
         // 4 -------------------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // all input, when none
+        expected = zeros();
+        // no actual balance
+        expected.incentiveRatio = 0.008 ether;
+        _testRedeemPeggedDryRun(type(uint256).max, expected, sender);
+
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(type(uint256).max, receiver, 0);
@@ -459,13 +532,24 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // redeem no allowance
         assertEq(IERC20(peggedToken).allowance(sender, minter), 0);
-        vm.expectRevert /*"ERC20: transfer amount exceeds allowance"*/();
+        expected = zeros();
+        expected.incentiveRatio = 0.008 ether;
+        expected.wrappedFee = (1 ether * 0.008 ether) / price;
+        expected.peggedRedeemed = 1 ether;
+        expected.wrappedCollateralReturned = (1 ether * 1 ether) / price - expected.wrappedFee;
+        _testRedeemPeggedDryRun(1 ether, expected, sender);
+
+        vm.expectRevert/*"ERC20: transfer amount exceeds allowance"*/ ();
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(1 ether, receiver, 0);
         // 6 --------------------------------------------------
         assertEq(IERC20(Deployed.wstETH).balanceOf(receiver), 0);
 
         // zero input, when some
+        expected = zeros();
+        expected.incentiveRatio = 0.008 ether;
+        _testRedeemPeggedDryRun(0, expected, sender);
+
         vm.expectRevert(abi.encodeWithSelector(IMinter.ZeroInputBalance.selector, peggedToken));
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(0, receiver, 0);
@@ -490,6 +574,13 @@ contract TestMinterRedeemPegged is TestMinterMint {
             IERC20(address(Deployed.wstETH)).balanceOf(minter),
             "collaterals balance after freeMint"
         );
+        expected = zeros();
+        expected.incentiveRatio = 0.008 ether;
+        expected.wrappedFee = (2 * 0.008 ether);
+        expected.peggedRedeemed = 2 * price;
+        expected.wrappedCollateralReturned = (2 ether) - expected.wrappedFee;
+        _testRedeemPeggedDryRun(2 * price, expected, sender);
+
         vm.prank(sender);
         IMinter(minter).redeemPeggedToken(2 * price, receiver, 0);
         // 8 ------------------------------------------------
@@ -572,8 +663,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
 
         // mint from all of balance
         redeemPeggedFee =
-            (senderPeggedBefore * uint256(ultimate(config.redeemPeggedIncentiveConfig.incentiveRatios))) /
-            price;
+            (senderPeggedBefore * uint256(ultimate(config.redeemPeggedIncentiveConfig.incentiveRatios))) / price;
         expectedCollateralOut = collateral - redeemPeggedFee;
 
         _redeemPeggedToken(type(uint256).max);

@@ -163,9 +163,6 @@ interface IMinter {
     /// @notice Thrown when the burn interface does not match one known by this contract
     error UnsupportedBurnInterface(bytes4 interfaceId);
 
-    /// @dev thrown when an action is paused, for example if the protocol is not initialised
-    error ActionPaused();
-
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -273,9 +270,11 @@ interface IMinter {
     /// was to be called.
     ///
     /// ┌──────┐                         ┌────────┐                      ┌──────────┐
-    /// │ user │ ─── collateralTaken ──► │ minter │ ─── feeDiscount ───► │ fee      │
+    /// │ user │ ─── collateralTaken ──► │ minter │ ─────── fee ───────► │ fee      │
     /// │      │ ◀════ peggedMinted ════ │        │ (only +ve, i.e. fee) │ receiver │
     /// └──────┘                         └────────┘                      └──────────┘
+    ///                                       │
+    ///                       collateral held += collateralTaken - fee
     ///
     /// @param collateralIn The amount of wrapped collateral to be exchanged for pegged tokens.
     /// @return incentiveRatio the effective incentive ratio for `collateralIn` collateral tokens. A positive number is
@@ -307,7 +306,9 @@ interface IMinter {
     /// │ user │ ════ peggedRedeemed ════▶ │ minter │ ───── fee ────┘   └──────────────┘
     /// │      │ ◄── collateralReturned ── │        │ ◄── discount ─┐   ┌──────────────┐
     /// └──────┘  (including any discount) └────────┘               └── │ reserve pool │
-    ///                                                                 └──────────────┘
+    ///                                         │                       └──────────────┘
+    ///            collateral held -= collateral value of peggedRedeemed - fee
+    ///
     /// @param peggedIn The amount of pegged token to be redeemed.
     /// @return incentiveRatio the effective incentive ratio for `peggedIn` pegged tokens.  A positive number is a fee
     /// ratio; a negative number indicates a discount. This is the theoretic value.

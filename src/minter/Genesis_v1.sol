@@ -114,6 +114,8 @@ contract Genesis_v1 is
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address minter_) {
+        _disableInitializers();
+
         Token.ensureContract(minter_);
         // slither-disable-next-line missing-zero-check
         MINTER = minter_;
@@ -123,8 +125,6 @@ contract Genesis_v1 is
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
         // slither-disable-next-line missing-zero-check
         LEVERAGED_TOKEN = IMinter(minter_).LEVERAGED_TOKEN();
-
-        _disableInitializers();
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -267,11 +267,15 @@ contract Genesis_v1 is
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IGenesis
-    function endGenesis() external onlyOwner nonReentrant {
+    function endGenesis() external onlyOwner {
         GenesisStorage storage $ = _getGenesisStorage();
         if ($.genesisEnded) {
             revert GenesisIsEnded();
         }
+        // minted tokens can be claimed by the depositor, or collateral withdrawn
+        emit GenesisEnds();
+        $.genesisEnded = true;
+
         // record the total shares now so all further share calculations are based on this number
         uint256 totalCollateral = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
         $.totalSharesAtGenesisEnd = totalCollateral;
@@ -281,18 +285,12 @@ contract Genesis_v1 is
         // into this contract.
         uint256 peggedAmount = totalCollateral / 2;
         uint256 leveragedAmount = totalCollateral - peggedAmount;
-        // wake-disable-next-line reentrancy // nonReentrant on this function
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeIncreaseAllowance(MINTER, totalCollateral);
-        // wake-disable-next-line reentrancy // minter is trusted and we have nonReentrant on this function
         if (peggedAmount > 0) {
             $.totalPeggedAtGenesisEnd = IMinter(MINTER).freeMintPeggedToken(peggedAmount, address(this));
         }
         if (leveragedAmount > 0) {
             $.totalLeveragedAtGenesisEnd = IMinter(MINTER).freeMintLeveragedToken(leveragedAmount, address(this));
         }
-        // minted tokens can now be claimed by the depositor, or collateral withdrawn
-        $.genesisEnded = true;
-
-        emit GenesisEnds();
     }
 }

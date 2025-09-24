@@ -1,6 +1,7 @@
 {
   "license": "MIT",
   "scripts": {
+    "uv": "uv sync; echo \"to enable vyper builds, run:\n   source ./.venv/bin/activate\"",
     "foundryup": "curl -L https://foundry.paradigm.xyz | bash && foundryup",
     "CI": "./lib/bao-base/run CI",
     "clean": "./lib/bao-base/run clean",
@@ -35,6 +36,7 @@
     "sizes": "./lib/bao-base/run regression-of sizes",
     "lint": "solhint 'src/**/*.sol' --config ./lib/bao-base/.solhint.json --disc",
     "lint:bash": "./lib/bao-base/run lint-bash --lint script",
+    "regression": "yarn sizes; yarn gas; yarn coverage",
     "wtf": "grep -rn NaN results/*.csv | awk -F: '!a[$1]++'",
     "mermaid": "mmdc"
   },
@@ -43,8 +45,8 @@
     "@mermaid-js/mermaid-cli": "^11.4.2",
     "@openzeppelin/upgrades-core": "^1.42.2",
     "@solidity-parser/parser": "^0.20.1",
-    "prettier": "^3.2.5",
-    "prettier-plugin-solidity": "^1.3.1",
+    "prettier": "^3.6.2",
+    "prettier-plugin-solidity": "^2.1.0",
     "puppeteer": "^24.10.0",
     "solhint": "^5.0.3"
   },

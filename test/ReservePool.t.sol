@@ -27,7 +27,7 @@ import {Deployed} from "@bao/Deployed.sol";
 contract TestReservePoolSetUp is Test {
     address token1 = Deployed.BaoUSD;
     address token2 = Deployed.wstETH;
-    address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
+    address tokenNotERC20 = makeAddr("tokenNotERC20"); // not an ERC20 token
 
     address bonusReceiver;
     address owner;
@@ -38,10 +38,10 @@ contract TestReservePoolSetUp is Test {
 
     function setUpFork() internal virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
-        owner = vm.createWallet("owner").addr;
-        minter = vm.createWallet("minter").addr;
-        bonusReceiver = vm.createWallet("bonusReceiver").addr;
-        treasury = vm.createWallet("treasury").addr;
+        owner = makeAddr("owner");
+        minter = makeAddr("minter");
+        bonusReceiver = makeAddr("bonusReceiver");
+        treasury = makeAddr("treasury");
     }
 
     function setUp_impl() internal {

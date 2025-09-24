@@ -23,18 +23,58 @@ contract TestMinterFeeSetUp is TestMinterSetUp {
     function setUpConfig() internal virtual override {
         setUp_config_likely();
     }
+}
+
+contract TestMinterFeeNoDisallow is TestMinterSetUp {
+    function setUpConfig() internal virtual override {
+        setUp_config_likelyNoDisallow();
+    }
 
     function setUp() public virtual override {
         super.setUp();
+        deal(address(Deployed.wstETH), address(this), 1 ether);
+        IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+    }
+
+    function test_minRedeemPegged() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
+
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some pegged minted");
+        assertEq(IMinter(minter).peggedTokenBalance(), minted, "some pegged");
+
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IMinter(minter).redeemPeggedToken(minted, address(this), 0);
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "some pegged gone");
+    }
+
+    function test_minRedeemLeveraged() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
+
+        // can't mint leveraged tokens as the CR = 1 and they have no value
+        // uint256 minted = IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+        // assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some leveraged minted");
+        // assertEq(IMinter(minter).leveragedTokenBalance(), 1 ether, "some leveraged");
+        setUp_collateral(0, 1 ether, address(this));
+        assertGt(IMinter(minter).collateralRatio(), 1 ether, "CR > 1");
+        uint256 minted = IERC20(leveragedToken).totalSupply();
+        assertEq(minted, (1 ether * price) / 1e18, "some leveraged");
+
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "some leveraged gone");
     }
 }
 
 contract TestMinterFees is TestMinterFeeSetUp {
     address user;
 
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
-        user = vm.createWallet("user").addr;
+        user = makeAddr("user");
         deal(address(Deployed.wstETH), user, 100 ether);
         vm.prank(user);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
@@ -47,7 +87,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
             "mint pegged incentive config"
         );
 
-        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        // (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(2 ether, 1 ether); // CR = 3/2 = 1.5
         assertEq(IMinter(minter).collateralRatio(), 15 ether / 10);
         assertLt(
@@ -80,23 +120,18 @@ contract TestMinterFees is TestMinterFeeSetUp {
         assertGt(incentiveRatioPlus, incentiveRatio, "the more in danger the higher the fee");
 
         // check that the fees match the reported value, both emit and that transferred
-        int256 expectedFees = (incentiveRatio * int256(collateral)) / 1 ether;
+        int256 expectedFees$ = (incentiveRatio * int256(collateral));
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         vm.expectEmit(minter);
         // emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
-        emit IMinter.MintPeggedToken(
-            user,
-            user,
-            collateral,
-            uint256((int256(price) * (int256(collateral) - expectedFees))) / 1 ether
-        );
+        emit IMinter.MintPeggedToken(user, user, collateral, peggedMinted);
         vm.prank(user);
         uint256 minted = IMinter(minter).mintPeggedToken(collateral, user, 0);
         assertEq(minted, peggedMinted, "pegged minted");
         // assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + fee);
         assertEq(
             IERC20(Deployed.wstETH).balanceOf(feeReceiver),
-            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees)
+            uint256(int256(feeReceiverCollateralBalanceBefore) + expectedFees$ / 1 ether)
         );
 
         // we are now in danger (CR=1.33), so check the fee here
@@ -355,10 +390,11 @@ contract TestMinterFees is TestMinterFeeSetUp {
             0,
             string.concat("collateral used calc in step", Useful.toString(step))
         );
-        assertEq(all.leveragedMinted, leveragedMinted, "leveragedMinted: all = sigma one");
-        assertApproxEqAbs(
+        assertNear(all.leveragedMinted, leveragedMinted, 0, 0, "leveragedMinted: all = sigma one");
+        assertNear(
             IERC20(leveragedToken).balanceOf(user) - beforeAll.userLeveraged,
             leveragedMinted,
+            0,
             0,
             string.concat("leveraged minted calc in step ", Useful.toString(step))
         );
@@ -453,9 +489,10 @@ contract TestMinterFees is TestMinterFeeSetUp {
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual fee")
             );
-            assertApproxEqAbs(
+            assertNear(
                 IERC20(leveragedToken).balanceOf(user) - before.userLeveraged,
                 total.leveragedMinted,
+                0,
                 0,
                 string.concat("step ", Useful.toString(i + 1), ", actual minted")
             );
@@ -931,8 +968,12 @@ contract TestMinterFees is TestMinterFeeSetUp {
 }
 
 contract TestMinterNoneMinted is TestMinterFeeSetUp {
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+    }
+    function setUpConfig() internal virtual override {
+        setUp_config_feeIsCR();
     }
 
     function test_all() public {
@@ -942,16 +983,18 @@ contract TestMinterNoneMinted is TestMinterFeeSetUp {
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
 
-        vm.expectRevert(IMinter.ActionPaused.selector);
-        IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some pegged minted");
 
-        vm.expectRevert(IMinter.ActionPaused.selector);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some leveraged minted");
     }
 }
 
 contract TestMinterDepeg is TestMinterFeeSetUp {
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
         setUp_collateral(10 ether, 10 ether);
         deal(address(wrappedCollateralToken), address(this), 100 ether);
@@ -978,5 +1021,44 @@ contract TestMinterDepeg is TestMinterFeeSetUp {
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, wrappedCollateralToken));
         IMinter(minter).redeemLeveragedToken(1000 ether, address(this), 0);
+    }
+}
+
+contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
+    uint256 price;
+
+    function setUpConfig() internal virtual override {
+        setUp_config_flat();
+    }
+
+    function setUp() public virtual override {
+        super.setUp();
+        (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        deal(address(wrappedCollateralToken), address(this), 1_000_000_000_000 ether);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+    }
+
+    function test_mintPeggedLargeDeposit() public {
+        uint256 amount = 1_000_000_000_000 ether;
+        uint256 snap = vm.snapshotState();
+
+        for (uint256 p = 1e9; p < amount; p += amount / 10) {
+            for (uint256 l = 1e9; l < amount; l += amount / 10) {
+                for (uint256 d = 1e9; d < amount; d += amount / 10) {
+                    setUp_collateral(p, l);
+                    uint256 snap2 = vm.snapshotState();
+                    uint256 minted = IMinter(minter).mintPeggedToken(d, address(this), 0);
+                    IMinter(minter).redeemPeggedToken(minted, address(this), 0);
+                    vm.revertToState(snap2);
+
+                    minted = IMinter(minter).mintLeveragedToken(d, address(this), 0);
+                    IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
+
+                    vm.revertToState(snap);
+                }
+            }
+        }
     }
 }

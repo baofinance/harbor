@@ -11,6 +11,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -35,7 +36,141 @@ import {Array} from "test/Array.sol";
 
 import {ConfigFile} from "test/Config.sol";
 
-contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
+abstract contract TestExtras is Test {
+    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff, uint256 maxRelDiff) internal pure returns (bool near) {
+        uint256 absDiff = a > b ? a - b : b - a;
+        if (isNear(a, b, maxAbsDiff)) {
+            return true;
+        }
+
+        uint256 relDiff;
+        uint256 larger = a > b ? a : b;
+        if (larger > 0) {
+            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
+            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
+            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
+        }
+        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
+
+        return (relDiff <= maxRelDiff);
+    }
+
+    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff) internal pure returns (bool near) {
+        uint256 absDiff = a > b ? a - b : b - a;
+        return (absDiff <= maxAbsDiff);
+    }
+
+    /**
+     * @dev Asserts that two values are within acceptable proximity using either absolute or relative tolerance
+     * @param a First value
+     * @param b Second value
+     * @param maxAbsDiff Maximum absolute difference allowed
+     * @param maxRelDiff Maximum relative difference allowed (in 1e18 format where 1e18 = 100%)
+     * @param message Error message on failure
+     */
+    function assertNear(
+        uint256 a,
+        uint256 b,
+        uint256 maxAbsDiff,
+        uint256 maxRelDiff,
+        string memory message
+    ) internal pure {
+        uint256 absDiff = a > b ? a - b : b - a;
+        if (absDiff <= maxAbsDiff) {
+            // SUCCESS (abs): Log and exit.
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
+            return;
+        }
+
+        uint256 relDiff;
+        uint256 larger = a > b ? a : b;
+        if (larger > 0) {
+            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
+            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
+            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
+        }
+        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
+
+        if (relDiff <= maxRelDiff) {
+            // SUCCESS (rel): Log and exit.
+            vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
+            return;
+        }
+
+        // FAILURE: Both checks failed. Revert with a clear message.
+        // We use assertApproxEqRel as it's generally more informative for large numbers.
+        vm.assertApproxEqRel(
+            a,
+            b,
+            maxRelDiff,
+            string.concat(
+                message,
+                " (outside both abs (max: ",
+                Useful.toString(maxAbsDiff),
+                ", real: ",
+                Useful.toString(absDiff),
+                "} & rel tolerances)"
+            )
+        );
+    }
+
+    function assertNear(
+        int256 a,
+        int256 b,
+        uint256 maxAbsDiff,
+        uint256 maxRelDiff,
+        string memory message
+    ) internal pure {
+        uint256 absDiff = SignedMath.abs(a - b);
+        if (absDiff <= maxAbsDiff) {
+            // SUCCESS (abs): Log and exit.
+            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
+            return;
+        }
+
+        // Use magnitudes for relative comparison
+        uint256 magA = SignedMath.abs(a);
+        uint256 magB = SignedMath.abs(b);
+        uint256 denom = magA > magB ? magA : magB;
+
+        if (denom > 0) {
+            // relDiff = ceil(absDiff / denom) in 1e18 scale
+            uint256 relDiff = Math.mulDiv(absDiff, 1e18, denom, Math.Rounding.Ceil);
+            if (relDiff <= maxRelDiff) {
+                // SUCCESS (rel)
+                vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
+                return;
+            }
+        }
+
+        // FAILURE: outside both tolerances
+        vm.assertApproxEqRel(
+            a,
+            b,
+            maxRelDiff,
+            string.concat(
+                message,
+                " (outside both abs (max: ",
+                Useful.toString(maxAbsDiff),
+                ", real: ",
+                Useful.toString(absDiff),
+                "} & rel tolerances)"
+            )
+        );
+    }
+
+    /// @dev Overload for just checking absolute tolerance - its just an alias for existing vm call
+    /// we prefer this as it's shorter text to type
+    function assertNear(uint256 a, uint256 b, uint256 maxAbsDiff, string memory message) internal pure {
+        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
+    }
+
+    function assertNear(int256 a, int256 b, uint256 maxAbsDiff, string memory message) internal pure {
+        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
+    }
+}
+
+contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
     address minter;
     IMinter.Config config;
     bool isConfigSet = false;
@@ -68,6 +203,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             vm.prank(owner);
             IMintable(peggedToken).mint(receiver, amount);
         }
+        vm.label(peggedToken, "peggedToken");
     }
 
     function _percentToEther(uint amount) internal pure returns (uint256) {
@@ -94,6 +230,78 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
         for (uint i = 0; i < amountBasisPoints.length; i++) {
             band.incentiveRatios[i] = _basisPointToEther(amountBasisPoints[i]);
         }
+    }
+
+    function setUp_config_flatWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(80, 80, 80, 80, 80, 80, 80, 80)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(70, 70, 70, 70, 70, 70, 70, 70)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
+        );
+    }
+
+    function setUp_config_flatDiscountWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 50, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, -70)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 120, 120, 120, 120, 120, 120, 120))
+        );
+    }
+
+    function setUp_config_flatDisallowDiscountWide() internal {
+        setUp_config(
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 50, 50, 50, 50, 50, 50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-80, -80, -80, -80, -80, -80, -80, -80)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-70, -70, -70, -70, -70, -70, -70, -70)),
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 120, 120, 120, 120, 120, 120))
+        );
+    }
+
+    function setUp_config_directionalWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)), // mint pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // redeem pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // mint leveraged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)) // redeem leveraged
+        );
+    }
+
+    function setUp_config_feeIsCR() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)), // mint pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)), // redeem pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)), // mint leveraged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)) // redeem leveraged
+        );
+    }
+
+    function setUp_config_reverseDirectionalWide() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // mint pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)), // redeem pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)), // mint leveraged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)) // redeem leveraged
+        );
+    }
+
+    function setUp_config_directionalDisallowDiscountWide() internal {
+        setUp_config(
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 110, 100, 90, 80, 70, 60)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, -50)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-120, -110, -100, -90, -80, -70, -60, -50)),
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 110, 100, 90, 80, 70, 60))
+        );
+    }
+
+    function setUp_config_reverseDirectionalDisallowDiscountWide() internal {
+        setUp_config(
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 60, 70, 80, 90, 100, 110)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, -120)),
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(-50, -60, -70, -80, -90, -100, -110, -120)),
+            ic(ua(110, 120, 130, 140, 150, 160), ia(disallow, 60, 70, 80, 90, 100, 110))
+        );
     }
 
     function setUp_config_free() internal {
@@ -214,6 +422,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
             abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
         );
+        vm.label(leveragedToken, "leveragedToken");
         IBaoOwnable(leveragedToken).transferOwnership(owner);
         minterRole = MintableBurnableERC20_v1(leveragedToken).MINTER_ROLE();
         burnerRole = MintableBurnableERC20_v1(leveragedToken).BURNER_ROLE();
@@ -232,6 +441,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
             address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)), // "Minter_v1.sol",
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
+        vm.label(minter, "minter");
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
         IMinter(minter).updatePriceOracle(priceOracle);
@@ -245,13 +455,15 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
     function setUpFork() internal virtual {
         vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
 
-        feeReceiver = vm.createWallet("feeReceiver").addr;
-        owner = vm.createWallet("owner").addr;
+        feeReceiver = makeAddr("feeReceiver");
+        owner = makeAddr("owner");
 
         priceOracle = address(new MockWrappedPriceOracle());
+        vm.label(priceOracle, "priceOracle");
 
         setUp_leveragedToken();
         peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
+        vm.label(peggedToken, "pegged");
         peggedTokenBurnSig = "burnFrom(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
         collateralToken = Deployed.stETH;
@@ -270,7 +482,7 @@ contract TestMinterSetUp is Test, Clog, Array, ConfigFile {
 
         vm.prank(owner);
         ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
-        zeroFee = vm.createWallet("zeroFee").addr;
+        zeroFee = makeAddr("zeroFee");
 
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(zeroFee, zeroFeeRole);
@@ -504,7 +716,7 @@ contract TestMinterBasics is TestMinterSetUp {
 
     function setUp() public virtual override(TestMinterSetUp) {
         super.setUp();
-        user = vm.createWallet("user").addr;
+        user = makeAddr("user");
     }
 
     function test_introspection() public view {
@@ -554,7 +766,12 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);
     }
 
-    function test_firstMintRedeem() public {
+    function test_firstMintRedeem1() public {
+        setUp_config_feeIsCR();
+        vm.prank(owner);
+        IMinter(minter).updateConfig(config);
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
 
@@ -562,18 +779,51 @@ contract TestMinterBasics is TestMinterSetUp {
         deal(wrappedCollateralToken, address(this), 10 ether);
         deal(peggedToken, address(this), 10 ether);
         deal(leveragedToken, address(this), 10 ether);
-
-        vm.expectRevert(IMinter.ActionPaused.selector);
-        IMinter(minter).mintPeggedToken(1 ether, user, 0);
-
-        vm.expectRevert(IMinter.ActionPaused.selector);
-        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).redeemPeggedToken(1 ether, user, 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
         IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
+
+        IMinter(minter).mintPeggedToken(1 ether, user, 0);
+        assertEq(IMinter(minter).peggedTokenBalance(), ((1 ether - 0.01 ether) * price) / 1e18, "pegged minted");
+
+        // even though there are pegged tokens, leveraged tokens are worthless
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+
+        // shift the price a tad to make them have some value, also only mint a toaty amount of leveraged
+        // if we minted 1 ether that would shift CR from 1 to 2 passing all the bands
+        price = (price * 1000) / 999;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price);
+        IMinter(minter).mintLeveragedToken(0.001 ether, user, 0);
+        assertNear(IMinter(minter).leveragedTokenBalance(), 4 ether, 0, 0.1 ether, "leveraged minted");
+    }
+
+    function test_firstMintRedeem2() public {
+        setUp_config_feeIsCR();
+        vm.prank(owner);
+        IMinter(minter).updateConfig(config);
+
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
+
+        // make sure we have it all
+        deal(wrappedCollateralToken, address(this), 10 ether);
+        deal(peggedToken, address(this), 10 ether);
+        deal(leveragedToken, address(this), 10 ether);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+
+        // at this point leveraged tokens are worthless, so we don't retuen any
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        // assertEq(IMinter(minter).leveragedTokenBalance(), ((1 ether - 0.01 ether) * price) / 1e18, "leveraged minted");
     }
 
     // TODO: test that if the config is set up for no fees or discounts then free mint/redeem = normal mint/redeem

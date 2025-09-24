@@ -30,9 +30,9 @@ contract TestMinterMint is TestMinterSetUp {
 
     function setUp() public virtual override {
         super.setUp();
-        system = vm.createWallet("system").addr;
-        sender = vm.createWallet("sender").addr;
-        receiver = vm.createWallet("receiver").addr;
+        system = makeAddr("system");
+        sender = makeAddr("sender");
+        receiver = makeAddr("receiver");
     }
 }
 
