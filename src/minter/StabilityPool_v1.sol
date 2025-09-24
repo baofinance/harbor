@@ -138,14 +138,6 @@ contract StabilityPool_v1 is
         uint96 earlyWithdrawalFee;
     }
 
-    /// @dev Packed withdrawal window configuration: fits in one 256-bit slot
-    /// @param startDelay The delay before fee-free withdrawals (seconds, uint64)
-    /// @param endWindow The duration of the withdrawal window (seconds, uint64)
-    struct WithdrawalWindow {
-        uint64 startDelay;
-        uint64 endWindow;
-    }
-
     /*************
      * Variables *
      *************/
@@ -173,8 +165,6 @@ contract StabilityPool_v1 is
         mapping(address => WithdrawalRequest) withdrawalRequests;
         /// @dev Packed fee configuration (address + uint96)
         FeePayment feePayment;
-        /// @dev Packed withdrawal window configuration (two uint64 values)
-        WithdrawalWindow withdrawalWindow;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -385,7 +375,7 @@ contract StabilityPool_v1 is
             emit WithdrawalRequestCancelled(sender);
         }
 
-        // tell the world
+        // Emit deposit event for off-chain indexers and auditing
         emit Deposit(sender, receiver, assetsDeposited);
 
         // get the assets from the sender
@@ -513,10 +503,6 @@ contract StabilityPool_v1 is
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
         emit WithdrawalRequested(sender, start, end);
     }
-
-    // setEarlyWithdrawalFee and setFeeAddress removed: fee config is initialized once via initialize
-
-    // setWithdrawalWindow removed: withdrawal window params are immutable and set at deployment
 
     /// @inheritdoc IStabilityPool
     function updateGauge(address newGauge) external nonReentrant onlyOwner {
@@ -679,7 +665,7 @@ contract StabilityPool_v1 is
     /// @inheritdoc IStabilityPool
     // slither-disable-next-line reentrancy-no-eth,reentrancy-benign should only ever called from nonReentrant functions
     function notifyLiquidation(uint256 liquidated, uint256 returned) external onlyRoles(REBALANCER_ROLE) {
-        // tell the world
+        // Emit liquidation event to record loss and conversion details
         emit Liquidated(ASSET_TOKEN, liquidated, LIQUIDATION_TOKEN, returned);
         // recalculate balances and
         // make sure rewards in-flight rewards are distributed on the pre-loss balances

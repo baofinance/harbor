@@ -207,10 +207,6 @@ interface IStabilityPool {
     /// - A successful withdraw clears the request immediately (start and end are zeroed).
     function requestWithdrawal() external;
 
-    // setEarlyWithdrawalFee and setFeeAddress removed: fee config initialized in initialize
-
-    // setWithdrawalWindow removed: window configuration is immutable and set at deployment
-
     /// @notice perform a liquidation of the amount
     // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);
 
