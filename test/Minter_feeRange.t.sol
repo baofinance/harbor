@@ -610,7 +610,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         if (pre.collateralRatio < 1 ether) {
             wrappedDiffAllowed = pegged / 1e16;
         }
-        console2.log("wrappedDiffAllowed:", wrappedDiffAllowed);
+        // console2.log("wrappedDiffAllowed:", wrappedDiffAllowed);
 
         assertNear(post.minterWrapped, pre.minterWrapped - wrapped, wrappedDiffAllowed + qPR, 200, "rp minter wrapped");
         assertNear(
@@ -806,7 +806,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         // console2.log ("fee=%s", fee);
                         // Calculate tolerance based on leveraged price fractional error exactly as contract does
                         uint256 q = 0;
-                        console2.log("q = %s", q);
+                        // console2.log("q = %s", q);
                         // console2.log("qPR = %s", qPR);
                         assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 0, "rl fee wrapped"); // fee won't be more that 10%
 
@@ -1006,9 +1006,9 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         } catch (bytes memory reason) {
             // console2.log ("mp revert");
             // console2.logBytes(reason);
-            (int256 feeRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(0);
+            (, , , uint256 minted_, , ) = IMinter(minter).mintPeggedTokenDryRun(0);
             require(
-                feeRatio == 1 ether &&
+                minted_ == 0 &&
                     keccak256(reason) ==
                         keccak256(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, peggedToken)),
                 "MintZeroAmount when mint pegged is disallowed is the only permitted revert"
@@ -1281,7 +1281,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         if (IMinter(minter).collateralRatio() > 1 ether) {
             (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
             uint256 lp = IMinter(minter).leveragedTokenPrice();
-            console2.log("lp = %s", lp);
+            // console2.log("lp = %s", lp);
 
             uint256 wrappedReturnedSteps = 0;
             uint256 leveraged = (wrapped * r * p) / (lp * 1e18);
@@ -1306,7 +1306,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                             vm.prank(user);
                             wrappedReturnedSteps += redeemLeveragedIgnoreReturnZeroAmount(part, user);
                             // ---------------------------------------------------------------------------------
-                            console2.log("lp (after step %s) = %s", i, IMinter(minter).leveragedTokenPrice());
+                            // console2.log("lp (after step %s) = %s", i, IMinter(minter).leveragedTokenPrice());
                         }
                     }
                     assertNear(sumpart, leveraged, 0, 0, "rl integral step sum");
@@ -1317,7 +1317,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
                 vm.prank(user);
                 uint256 wrappedReturned = redeemLeveragedIgnoreReturnZeroAmount(leveraged, user);
                 // -----------------------------------------------------------------------------
-                console2.log("lp (after single step) = %s", IMinter(minter).leveragedTokenPrice());
+                // console2.log("lp (after single step) = %s", IMinter(minter).leveragedTokenPrice());
 
                 Measures memory post = _measure();
 

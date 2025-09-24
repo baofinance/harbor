@@ -23,16 +23,56 @@ contract TestMinterFeeSetUp is TestMinterSetUp {
     function setUpConfig() internal virtual override {
         setUp_config_likely();
     }
+}
+
+contract TestMinterFeeNoDisallow is TestMinterSetUp {
+    function setUpConfig() internal virtual override {
+        setUp_config_likelyNoDisallow();
+    }
 
     function setUp() public virtual override {
         super.setUp();
+        deal(address(Deployed.wstETH), address(this), 1 ether);
+        IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+    }
+
+    function test_minRedeemPegged() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
+
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some pegged minted");
+        assertEq(IMinter(minter).peggedTokenBalance(), minted, "some pegged");
+
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IMinter(minter).redeemPeggedToken(minted, address(this), 0);
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "some pegged gone");
+    }
+
+    function test_minRedeemLeveraged() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
+
+        // can't mint leveraged tokens as the CR = 1 and they have no value
+        // uint256 minted = IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+        // assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some leveraged minted");
+        // assertEq(IMinter(minter).leveragedTokenBalance(), 1 ether, "some leveraged");
+        setUp_collateral(0, 1 ether, address(this));
+        assertGt(IMinter(minter).collateralRatio(), 1 ether, "CR > 1");
+        uint256 minted = IERC20(leveragedToken).totalSupply();
+        assertEq(minted, (1 ether * price) / 1e18, "some leveraged");
+
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        IMinter(minter).redeemLeveragedToken(minted, address(this), 0);
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "some leveraged gone");
     }
 }
 
 contract TestMinterFees is TestMinterFeeSetUp {
     address user;
 
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
         user = vm.createWallet("user").addr;
         deal(address(Deployed.wstETH), user, 100 ether);
@@ -928,8 +968,12 @@ contract TestMinterFees is TestMinterFeeSetUp {
 }
 
 contract TestMinterNoneMinted is TestMinterFeeSetUp {
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+    }
+    function setUpConfig() internal virtual override {
+        setUp_config_feeIsCR();
     }
 
     function test_all() public {
@@ -939,16 +983,18 @@ contract TestMinterNoneMinted is TestMinterFeeSetUp {
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).redeemPeggedToken(1000 ether, address(this), 0);
 
-        vm.expectRevert(IMinter.ActionPaused.selector);
-        IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some pegged minted");
 
-        vm.expectRevert(IMinter.ActionPaused.selector);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).mintLeveragedToken(1 ether, address(this), 0);
+        assertEq(minted, ((1 ether - 0.01 ether) * price) / 1e18, "some leveraged minted");
     }
 }
 
 contract TestMinterDepeg is TestMinterFeeSetUp {
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
         setUp_collateral(10 ether, 10 ether);
         deal(address(wrappedCollateralToken), address(this), 100 ether);
@@ -985,7 +1031,7 @@ contract TestMinterLargeMintAndRedeem is TestMinterFeeSetUp {
         setUp_config_flat();
     }
 
-    function setUp() public virtual override(TestMinterFeeSetUp) {
+    function setUp() public virtual override {
         super.setUp();
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         deal(address(wrappedCollateralToken), address(this), 1_000_000_000_000 ether);

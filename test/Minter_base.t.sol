@@ -203,6 +203,7 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
             vm.prank(owner);
             IMintable(peggedToken).mint(receiver, amount);
         }
+        vm.label(peggedToken, "peggedToken");
     }
 
     function _percentToEther(uint amount) internal pure returns (uint256) {
@@ -264,6 +265,15 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // redeem pegged
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(50, 60, 70, 80, 90, 100, 110, 120)), // mint leveraged
             ic(ua(100, 110, 120, 130, 140, 150, 160), ia(120, 110, 100, 90, 80, 70, 60, 50)) // redeem leveraged
+        );
+    }
+
+    function setUp_config_feeIsCR() internal {
+        setUp_config(
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)), // mint pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)), // redeem pegged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)), // mint leveraged
+            ic(ua(100, 110, 120, 130, 140, 150, 160), ia(90, 100, 110, 120, 130, 140, 150, 160)) // redeem leveraged
         );
     }
 
@@ -412,6 +422,7 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
             address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
             abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "Leveraged Token", "BaoUSDLwstETH"))
         );
+        vm.label(leveragedToken, "leveragedToken");
         IBaoOwnable(leveragedToken).transferOwnership(owner);
         minterRole = MintableBurnableERC20_v1(leveragedToken).MINTER_ROLE();
         burnerRole = MintableBurnableERC20_v1(leveragedToken).BURNER_ROLE();
@@ -755,7 +766,12 @@ contract TestMinterBasics is TestMinterSetUp {
         assertEq(IMinter(minter).peggedTokenPrice(), 1 ether);
     }
 
-    function test_firstMintRedeem() public {
+    function test_firstMintRedeem1() public {
+        setUp_config_feeIsCR();
+        vm.prank(owner);
+        IMinter(minter).updateConfig(config);
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
 
@@ -763,18 +779,51 @@ contract TestMinterBasics is TestMinterSetUp {
         deal(wrappedCollateralToken, address(this), 10 ether);
         deal(peggedToken, address(this), 10 ether);
         deal(leveragedToken, address(this), 10 ether);
-
-        vm.expectRevert(IMinter.ActionPaused.selector);
-        IMinter(minter).mintPeggedToken(1 ether, user, 0);
-
-        vm.expectRevert(IMinter.ActionPaused.selector);
-        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, peggedToken));
         IMinter(minter).redeemPeggedToken(1 ether, user, 0);
 
         vm.expectRevert(abi.encodeWithSelector(IMinter.NoRedeemableTokens.selector, leveragedToken));
         IMinter(minter).redeemLeveragedToken(1 ether, user, 0);
+
+        IMinter(minter).mintPeggedToken(1 ether, user, 0);
+        assertEq(IMinter(minter).peggedTokenBalance(), ((1 ether - 0.01 ether) * price) / 1e18, "pegged minted");
+
+        // even though there are pegged tokens, leveraged tokens are worthless
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+
+        // shift the price a tad to make them have some value, also only mint a toaty amount of leveraged
+        // if we minted 1 ether that would shift CR from 1 to 2 passing all the bands
+        price = (price * 1000) / 999;
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price);
+        IMinter(minter).mintLeveragedToken(0.001 ether, user, 0);
+        assertNear(IMinter(minter).leveragedTokenBalance(), 4 ether, 0, 0.1 ether, "leveraged minted");
+    }
+
+    function test_firstMintRedeem2() public {
+        setUp_config_feeIsCR();
+        vm.prank(owner);
+        IMinter(minter).updateConfig(config);
+
+        assertEq(IMinter(minter).peggedTokenBalance(), 0, "no pegged");
+        assertEq(IMinter(minter).leveragedTokenBalance(), 0, "no leveraged");
+
+        // make sure we have it all
+        deal(wrappedCollateralToken, address(this), 10 ether);
+        deal(peggedToken, address(this), 10 ether);
+        deal(leveragedToken, address(this), 10 ether);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        IERC20(leveragedToken).approve(minter, type(uint256).max);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+
+        // at this point leveraged tokens are worthless, so we don't retuen any
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, leveragedToken));
+        IMinter(minter).mintLeveragedToken(1 ether, user, 0);
+        // assertEq(IMinter(minter).leveragedTokenBalance(), ((1 ether - 0.01 ether) * price) / 1e18, "leveraged minted");
     }
 
     // TODO: test that if the config is set up for no fees or discounts then free mint/redeem = normal mint/redeem

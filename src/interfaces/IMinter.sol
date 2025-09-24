@@ -163,9 +163,6 @@ interface IMinter {
     /// @notice Thrown when the burn interface does not match one known by this contract
     error UnsupportedBurnInterface(bytes4 interfaceId);
 
-    /// @dev thrown when an action is paused, for example if the protocol is not initialised
-    error ActionPaused();
-
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
     //////////////////////////////////////////////////////////////*/
