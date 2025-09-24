@@ -98,8 +98,6 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         assertEq(clearedEnd, 0);
     }
 
-    
-
     function test_withdraw_withoutRequest_appliesFee() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(1 ether, 0 ether, user1);
