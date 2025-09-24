@@ -59,6 +59,9 @@ contract StabilityPool_v1 is
 
     uint256 private constant _REWARD_DEPOSITOR_ROLE = _ROLE_2;
 
+    /// @notice Role that exempts an account from early-withdrawal fees
+    uint256 public constant EXEMPT_WITHDRAWAL_FEE_ROLE = _ROLE_3;
+
     uint256 private constant _MAX_EARLY_WITHDRAWAL_FEE = 1 ether;
 
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
@@ -441,7 +444,9 @@ contract StabilityPool_v1 is
         uint256 feeAmount = 0;
         bool hasRequest = (request.start != 0 && request.end > request.start);
         bool inWindow = hasRequest && block.timestamp >= request.start && block.timestamp <= request.end;
-        if (!inWindow) {
+        // Role-based fee exemption: addresses with EXEMPT_WITHDRAWAL_FEE_ROLE never pay early-withdrawal fees
+        bool isExempt = hasAnyRole(sender, EXEMPT_WITHDRAWAL_FEE_ROLE);
+        if (!inWindow && !isExempt) {
             feeAmount = (assetsWithdrawn * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
             assetsWithdrawn -= feeAmount;
         }

@@ -8,6 +8,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 contract StabilityPoolFeatures is TestStabilityPoolSetUp {
@@ -96,6 +98,39 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         (uint64 clearedStart, uint64 clearedEnd) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         assertEq(clearedStart, 0);
         assertEq(clearedEnd, 0);
+    }
+
+    function test_withdraw_exemptFeeRole_noFee_beforeStart() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(1 ether, 0 ether, user1);
+        deal(peggedToken, user1, 5 * price);
+
+        // Deposit funds
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(2 * price, user1, 0);
+
+        // Grant exemption role to user1 (owner-only)
+        uint256 exemptRole = StabilityPool_v1(stabilityPoolCollateral).EXEMPT_WITHDRAWAL_FEE_ROLE();
+        vm.prank(owner);
+        IBaoRoles(stabilityPoolCollateral).grantRoles(user1, exemptRole);
+
+        // Create a withdrawal request and withdraw before the window start (fee would normally apply)
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start - 10);
+
+        uint256 userBefore = IERC20(peggedToken).balanceOf(user1);
+        uint256 feeBefore = IERC20(peggedToken).balanceOf(FEE_ADDRESS);
+
+        vm.prank(user1);
+        uint256 amount = 1 * price;
+        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(amount, user1, 0);
+
+        // Exempt role: no fee should be charged even before the window
+        assertEq(withdrawn, amount);
+        assertEq(IERC20(peggedToken).balanceOf(user1), userBefore + amount);
+        assertEq(IERC20(peggedToken).balanceOf(FEE_ADDRESS), feeBefore);
     }
 
     function test_withdraw_withoutRequest_appliesFee() public {

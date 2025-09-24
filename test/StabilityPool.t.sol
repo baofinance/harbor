@@ -525,7 +525,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(end, start + uint64(WITHDRAWAL_END_WINDOW));
     }
 
-    function test_getWithdrawalWindow_matches_config() public {
+    function test_getWithdrawalWindow_matches_config() public view {
         // window immutables set in constructor; fee and address already configured in setUp()
 
         (uint64 startDelay, uint64 endWindow) = IStabilityPool(stabilityPoolCollateral).getWithdrawalWindow();
