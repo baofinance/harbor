@@ -9,8 +9,6 @@ import "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
-import {Useful} from "test/Useful.sol";
-
 contract LinearMultipleRewardDistributorTest is Test {
     address owner;
     address manager;

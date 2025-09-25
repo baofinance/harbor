@@ -5,7 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 import "forge-std/Test.sol";
 import "test/mock/MockERC20.sol";

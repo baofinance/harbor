@@ -3,26 +3,18 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {Test} from "forge-std/Test.sol";
-import {console2 as console} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
-
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
-import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
-
-import {Token} from "@bao/Token.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
@@ -34,14 +26,7 @@ import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistribu
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 
-import {Deployed} from "@bao/Deployed.sol";
-import {MockGauge} from "test/mock/MockGauge.sol";
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
-import {IBaoUSD} from "test/IBaoUSD.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
-import {MockERC20} from "test/mock/MockERC20.sol";
-
-import {console2} from "forge-std/console2.sol";
 
 // New version for testing upgrades
 contract StabilityPool_v2 is StabilityPool_v1 {

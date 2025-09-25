@@ -11,7 +11,6 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {TokenHolder} from "@bao/TokenHolder.sol";
 
 contract FakeUUPSUpgradeable is UUPSUpgradeable, AccessControlUpgradeable {
     function initialize() external initializer {

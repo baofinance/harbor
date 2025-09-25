@@ -5,7 +5,6 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
@@ -15,7 +14,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 
 import {Minter_v1} from "src/minter/Minter_v1.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
@@ -24,7 +22,6 @@ import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {IReservePool} from "src/interfaces/IReservePool.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";

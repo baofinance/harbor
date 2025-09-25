@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {PriceOracle_v1} from "src/price/PriceOracle_v1.sol";
-import {AggregatorV3Interface} from "@chainlink/contracts/shared/interfaces/AggregatorV3Interface.sol";
 import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
 import {MockAggregator} from "test/mock/MockAggregator.sol";
 

@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 //import { Test } from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -12,7 +11,6 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";

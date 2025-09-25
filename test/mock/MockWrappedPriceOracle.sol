@@ -3,8 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 contract MockWrappedPriceOracle is IWrappedPriceOracle {
     // Errors specific to implementation details
     error InconsistentRoundData(uint80 roundId, uint80 prevRoundId);

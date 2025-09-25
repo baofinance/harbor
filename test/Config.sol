@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-
 import {stdJson} from "forge-std/StdJson.sol";
-import {console2} from "forge-std/console2.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
