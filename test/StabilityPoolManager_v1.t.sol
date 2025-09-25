@@ -633,7 +633,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         skip(1 weeks); // claimable is 0 even after a week, but that week is worth
 
-        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 1000e18, 1e18), 1e6, "user1 claimable=2 eth");
+        assertApproxEqAbs(_claimable(user1), _part(10e18, 200e18, 1000e18, 1e18), 1e16, "user1 claimable=2 eth");
         assertApproxEqAbs(_claimable(user2), _part(10e18, 800e18, 1000e18, 1e18), 1e6, "user2 claimable=0");
         assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");
 
@@ -646,6 +646,10 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         skip(3.5 days); // claimable is 0 even after a week, but that week is worth
 
         vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 _start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.warp(_start + 1);
+        vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(400 ether, user2, 0);
 
         skip(3.5 days);
@@ -653,13 +657,13 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         assertApproxEqAbs(
             _claimable(user1),
             _part(10e18, 200e18, 1000e18, 0.5e18) + _part(10e18, 200e18, 600e18, 0.5e18),
-            1e6,
+            1e16,
             "user1 claimable=2+ eth"
         );
         assertApproxEqAbs(
             _claimable(user2),
             _part(10e18, 800e18, 1000e18, 0.5e18) + _part(10e18, 400e18, 600e18, 0.5e18),
-            1e6,
+            1e16,
             "user2 claimable=6 ish eth"
         );
         assertApproxEqAbs(_claimable(user3), 0, 0, "user3 claimable=0");

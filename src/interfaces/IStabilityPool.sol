@@ -41,6 +41,40 @@ interface IStabilityPool {
         uint256 liquidatedToAmount
     );
 
+    /// @notice Emitted when a withdrawal request is created
+    /// @param owner The address creating the request
+    /// @param start The timestamp when withdrawal without fee starts
+    /// @param end The timestamp when the withdrawal window ends
+    event WithdrawalRequested(address indexed owner, uint64 start, uint64 end);
+
+    /// @notice Emitted when a withdrawal request is updated (typically ended early after a withdraw)
+    /// @param owner The address whose request was updated
+    /// @param start The original/unchanged start timestamp
+    /// @param end The new end timestamp (often current time - 1)
+    event WithdrawalRequestUpdated(address indexed owner, uint64 start, uint64 end);
+
+    /// @notice Emitted when a withdrawal request is cancelled due to a deposit
+    /// @param owner The address whose request was cancelled
+    event WithdrawalRequestCancelled(address indexed owner);
+
+    /// @notice Emitted when an early withdrawal fee is charged
+    /// @param owner The address paying the fee
+    /// @param amount The fee amount
+    event EarlyWithdrawalFee(address indexed owner, uint256 amount);
+
+    /// @notice Emitted when the early withdrawal fee is updated
+    /// @param newFee The new fee ratio (scaled by 1e18)
+    event EarlyWithdrawalFeeUpdated(uint256 newFee);
+
+    /// @notice Emitted when the fee address is updated
+    /// @param newFeeAddress The new fee address
+    event FeeAddressUpdated(address newFeeAddress);
+
+    /// @notice Emitted when the withdrawal window parameters are updated
+    /// @param newStartDelay The new start delay (seconds from now to start)
+    /// @param newEndWindow The window period (seconds duration after start)
+    event WithdrawalWindowUpdated(uint256 newStartDelay, uint256 newEndWindow);
+
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -70,6 +104,18 @@ interface IStabilityPool {
     /// @dev Thrown when a the voting escrow is being not ready
     /// it must be set up and going before the stability pool is
     error VotingEscrowNotReady();
+
+    /// @dev Thrown when a provided fee is invalid
+    error InvalidFee(uint256 fee);
+
+    /// @dev Thrown when the fee address is invalid (zero address)
+    error InvalidFeeAddress(address feeAddress);
+
+    /// @dev Thrown when withdrawal window parameters are invalid
+    error InvalidWithdrawalWindow(uint256 startDelay, uint256 endWindow);
+
+    /// @dev Thrown when attempting to withdraw without an active request or after it ended
+    error NoActiveWithdrawalRequest(address owner);
 
     /*//////////////////////////////////////////////////////////////
                          PUBLIC READ FUNCTIONS
@@ -112,6 +158,22 @@ interface IStabilityPool {
     /// @notice Error trackers for the error correction in the loss calculation.
     function lastAssetLossError() external view returns (uint256);
 
+    /// @notice Get the withdrawal request window for an account
+    /// @return start The timestamp when fee-free withdrawal starts
+    /// @return end The timestamp when the withdrawal window ends
+    function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end);
+
+    /// @notice The current early withdrawal fee ratio (scaled by 1e18)
+    function getEarlyWithdrawalFee() external view returns (uint256);
+
+    /// @notice The address that receives early withdrawal fees
+    function getFeeAddress() external view returns (address);
+
+    /// @notice Get the global withdrawal window configuration
+    /// @return startDelay The delay in seconds before a window starts after a request
+    /// @return endWindow The window duration in seconds (must be > 0)
+    function getWithdrawalWindow() external view returns (uint64 startDelay, uint64 endWindow);
+
     /*//////////////////////////////////////////////////////////////
                         PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -125,12 +187,25 @@ interface IStabilityPool {
     function deposit(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesMinted);
 
     /// @notice Withdraw asset from this contract.
-    /// @dev Use `amount=uint256(-1)` if you want to withdraw all asset held.
+    /// @dev
+    /// - Requires an existing withdrawal request (created via requestWithdrawal()).
+    /// - Fee rules:
+    ///   - Before start: allowed, early-withdrawal fee applies.
+    ///   - During [start, end]: allowed, no fee applies.
+    ///   - After end: allowed, early-withdrawal fee applies.
+    /// - Calling withdraw ends the request window immediately (both start and end are zeroed).
+    /// - Use `assetAmount=type(uint256).max` to withdraw full balance.
     /// @param assetAmount The amount of asset to withdraw.
     /// @param receiver The address of recipient for the withdrawn asset.
-    /// @param minAmount The minimum amount to withdraw
+    /// @param minAmount The minimum acceptable withdrawn amount (post-fee), to protect against slippage/fee changes.
     /// @return sharesBurned the amount of shares sent to 'receiver'
     function withdraw(uint256 assetAmount, address receiver, uint256 minAmount) external returns (uint256 sharesBurned);
+
+    /// @notice Create or update a withdrawal request for msg.sender.
+    /// @dev Sets a window: start = now + startDelay; end = start + endWindow (window period).
+    /// - A deposit made during an active window cancels the request (start and end are zeroed).
+    /// - A successful withdraw clears the request immediately (start and end are zeroed).
+    function requestWithdrawal() external;
 
     /// @notice perform a liquidation of the amount
     // function liquidate(uint256 liquidatedAmount) external returns (uint256 returnedAmount);

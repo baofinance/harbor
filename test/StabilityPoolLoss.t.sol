@@ -142,6 +142,10 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
         vm.prank(user1);
+        IStabilityPool(pool).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
+        vm.prank(user1);
         IStabilityPool(pool).withdraw(withdrawAmount, user1, 0);
 
         // Assert correct withdrawal with tolerance
@@ -204,6 +208,10 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             uint256 withdrawableAmount = remainingBalance - MIN_TOTAL_ASSET_SUPPLY;
             uint256 initialAssetBalance = IERC20(peggedToken).balanceOf(user1);
 
+            vm.prank(user1);
+            IStabilityPool(pool).requestWithdrawal();
+            (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(user1);
+            vm.warp(start + 1);
             vm.prank(user1);
             IStabilityPool(pool).withdraw(withdrawableAmount, user1, 0);
 
@@ -338,6 +346,9 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 user1WithdrawAmount = user1RemainingBalance / 2;
 
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(user1WithdrawAmount, user1, 0);
 
         // User3 deposits
@@ -381,15 +392,24 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
             if (user1Withdrawable > 0) {
                 vm.prank(user1);
+                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.warp(block.timestamp + 2 hours);
+                vm.prank(user1);
                 IStabilityPool(stabilityPoolCollateral).withdraw(user1Withdrawable, user1, 0);
             }
 
             if (user2Withdrawable > 0) {
                 vm.prank(user2);
+                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.warp(block.timestamp + 2 hours);
+                vm.prank(user2);
                 IStabilityPool(stabilityPoolCollateral).withdraw(user2Withdrawable, user2, 0);
             }
 
             if (user3Withdrawable > 0) {
+                vm.prank(user3);
+                IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+                vm.warp(block.timestamp + 2 hours);
                 vm.prank(user3);
                 IStabilityPool(stabilityPoolCollateral).withdraw(user3Withdrawable, user3, 0);
             }

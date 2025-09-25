@@ -34,6 +34,36 @@ If fees are set to 100%, this is interpreted as "disallowed" in that if your min
 
 Fees can be queried up front by so-called dry-run view functions, answering the question: What fees/discounts will I be charged/receive if I were to carry out this action. Obviously this is only true for the instant the dry-run function is called and if someone else moves the collateral ratio enough you may not get the result in reality.
 
+#### Withdrawal requests (StabilityPool)
+
+- Requesting: `requestWithdrawal()` creates an account window with `start = now + WITHDRAWAL_START_DELAY` and `end = start + WITHDRAWAL_END_WINDOW` (window period).
+- Withdrawing:
+  - Before start: allowed, early-withdrawal fee applies.
+  - During the window [start, end]: allowed, no fee.
+  - After end: allowed, early-withdrawal fee applies.
+- A successful withdraw clears the request immediately (both `start` and `end` set to `0`).
+- Depositing during an active window cancels the request (both `start` and `end` set to `0`).
+- Configuration:
+  - `earlyWithdrawalFee` (scaled by 1e18, e.g., `0.025 ether` = 2.5%; must be <= 1e18)
+  - `feeAddress` (recipient of early-withdrawal fees)
+  - `withdrawalStartDelay` (seconds; may be 0; recommended <= 1 week)
+  - `withdrawalEndWindow` (seconds; must be > 0; recommended <= 1 week; example/default: `86400` for 1 day)
+  - Implementation detail: these four values are internally packed into two storage slots for gas efficiency (no ABI change).
+
+#### Fee exemption (StabilityPool)
+
+- Addresses granted the `EXEMPT_WITHDRAWAL_FEE_ROLE` are exempt from early-withdrawal fees when withdrawing outside the request window.
+- This is intended for whitelisted contracts (e.g. treasury, ops) or EOAs as needed.
+- Role management (owner-only):
+
+```solidity
+// Grant exemption
+IBaoRoles(stabilityPool).grantRoles(account, StabilityPool_v1.EXEMPT_WITHDRAWAL_FEE_ROLE());
+
+// Revoke exemption
+IBaoRoles(stabilityPool).revokeRoles(account, StabilityPool_v1.EXEMPT_WITHDRAWAL_FEE_ROLE());
+```
+
 ### Rebalancing
 
 Rebalancing is when collateral ratio reaches a certain level, configurable in the StabilityPoolManager. Anyone can call the rebalance() function there and receive a bounty for doing so. If the collateral ratio of the system is not below the configured threshold, no rebalancing is performed.

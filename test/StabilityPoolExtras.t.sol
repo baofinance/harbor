@@ -232,10 +232,14 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Make a withdrawal in the same timestamp
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        // Keep within same block to test same-timestamp behavior
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, 0);
 
         // Check history is updated correctly
         (uint40 atDay2, uint256 amount2) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(1);
+        // 2 deposits and then a withdraw of half a deposit: 2*D - D/2 = 1.5*D
         assertEq(amount2, (DEPOSIT_AMOUNT * 3) / 2, "History should update for same timestamp operations");
         assertEq(
             uint256(atDay2),
@@ -342,7 +346,11 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Test zero amount withdraw
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
         vm.expectRevert(IStabilityPool.WithdrawZeroAmount.selector);
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(0, user1, 0);
 
         // Test withdraw with minAmount > amount
@@ -350,6 +358,9 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IStabilityPool.WithdrawAmountLessThanMinimum.selector,
@@ -357,10 +368,14 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
                 DEPOSIT_AMOUNT
             )
         );
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user1, DEPOSIT_AMOUNT);
 
         // Test withdraw exceeding balance
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(start + 1);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IStabilityPool.WithdrawAmountExceedsBalance.selector,
@@ -368,6 +383,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
                 DEPOSIT_AMOUNT
             )
         );
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT * 2, user1, 0);
     }
 

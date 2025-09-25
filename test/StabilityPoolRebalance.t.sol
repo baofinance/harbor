@@ -162,6 +162,9 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // User1 withdraws DEPOSIT_AMOUNT/4
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 4, user1, 0);
 
         // After withdrawal, user1's balance should be reduced by DEPOSIT_AMOUNT/4
@@ -190,6 +193,9 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         _liquidate(DEPOSIT_AMOUNT * 2);
 
         // User2 withdraws DEPOSIT_AMOUNT/2
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
         vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
 
@@ -281,6 +287,10 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
 
         // User1 withdraws portion of their balance
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 s1, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(s1) + 1);
+        vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 4, user1, 0);
 
         // Capture actual values after withdrawal
@@ -292,6 +302,10 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         _liquidate(DEPOSIT_AMOUNT * 2);
 
         // User2 withdraws
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 s2, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
+        vm.warp(uint256(s2) + 1);
         vm.prank(user2);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
 
@@ -659,6 +673,10 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // User1 tries to withdraw more than their actual balance (should fail)
         uint256 withdrawAmount = actualUser1Balance + 1; // One wei more than actual
         vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        (uint64 s3, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(s3) + 1);
+        vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(
                 IStabilityPool.WithdrawAmountExceedsBalance.selector,
@@ -911,6 +929,9 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
 
         // 10. Test withdrawal after liquidation
+        vm.prank(user3);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.warp(block.timestamp + 2 hours);
         vm.prank(user3);
         IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, owner, 0);
         assertEq(

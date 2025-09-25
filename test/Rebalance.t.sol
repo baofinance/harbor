@@ -60,14 +60,44 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         );
 
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, wrappedCollateralToken, stabilityPoolToken, steam, 1 ether)),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    wrappedCollateralToken,
+                    stabilityPoolToken,
+                    steam,
+                    0.025 ether,
+                    0x3dFc49e5112005179Da613BdE5973229082dAc35,
+                    3600,
+                    90000,
+                    1 ether
+                )
+            ),
+            abi.encodeCall(
+                StabilityPool_v1.initialize,
+                (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+            )
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
 
         stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPool_v1(minter, leveragedToken, stabilityPoolToken, steam, 1 ether)),
-            abi.encodeCall(StabilityPool_v1.initialize, owner)
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    leveragedToken,
+                    stabilityPoolToken,
+                    steam,
+                    0.025 ether,
+                    0x3dFc49e5112005179Da613BdE5973229082dAc35,
+                    3600,
+                    90000,
+                    1 ether
+                )
+            ),
+            abi.encodeCall(
+                StabilityPool_v1.initialize,
+                (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+            )
         );
         IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);
 
