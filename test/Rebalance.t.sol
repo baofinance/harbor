@@ -52,20 +52,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         vm.prank(user);
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);
 
-        address stabilityPoolToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
-            )
-        );
-
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
             address(
                 new StabilityPool_v1(
                     minter,
                     wrappedCollateralToken,
-                    stabilityPoolToken,
-                    steam,
                     0.025 ether,
                     0x3dFc49e5112005179Da613BdE5973229082dAc35,
                     3600,
@@ -85,8 +76,6 @@ contract TestLiquidate is TestStabilityPool2SetUp {
                 new StabilityPool_v1(
                     minter,
                     leveragedToken,
-                    stabilityPoolToken,
-                    steam,
                     0.025 ether,
                     0x3dFc49e5112005179Da613BdE5973229082dAc35,
                     3600,

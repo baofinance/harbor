@@ -24,7 +24,6 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 
 import {Token} from "@bao/Token.sol";
 
-import {IVotingEscrow} from "src/interfaces/IVotingEscrow.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
@@ -34,8 +33,6 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {VotingEscrow_v1} from "src/reward/voting-escrow/VotingEscrow_v1.sol";
-import {Steam_v1} from "src/reward/steam/Steam_v1.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {MockGauge} from "test/mock/MockGauge.sol";
@@ -51,16 +48,11 @@ contract StabilityPool_v2 is StabilityPool_v1 {
     // Keep the same constructor signature
     constructor(
         address minter_,
-        address liquidationToken_,
-        address stabilityPoolToken_,
-        address steam_,
-        address veSteam_
+        address liquidationToken_
     )
         StabilityPool_v1(
             minter_,
             liquidationToken_,
-            stabilityPoolToken_,
-            steam_,
             0.025 ether,
             0x3dFc49e5112005179Da613BdE5973229082dAc35,
             3600,
@@ -79,16 +71,11 @@ contract StabilityPool_v2 is StabilityPool_v1 {
 contract MockStabilityPool is StabilityPool_v1 {
     constructor(
         address minter_,
-        address liquidationToken_,
-        address stabilityPoolToken_,
-        address steam_,
-        address veSteam_
+        address liquidationToken_
     )
         StabilityPool_v1(
             minter_,
             liquidationToken_,
-            stabilityPoolToken_,
-            steam_,
             0.025 ether,
             0x3dFc49e5112005179Da613BdE5973229082dAc35,
             3600,
@@ -134,8 +121,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     uint256 internal constant WITHDRAWAL_START_DELAY = 3600;
     uint256 internal constant WITHDRAWAL_END_WINDOW = 90000;
     address stabilityPoolCollateral;
-    address steam;
-    address veSteam;
+    address steam; // the reward token formerly known as STEAM
     address user1;
     address user2;
     address rewardDepositor;
@@ -161,7 +147,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, liquidationToken, stabilityPoolToken, steam, veSteam)), // "StabilityPool_v1.sol",
+            address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v1.sol",
             abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         vm.label(stabilityPool, SPName);
@@ -192,23 +178,8 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     function setUp() public virtual override {
         super.setUp();
 
-        uint256 _init_supply = 200_000 ether;
-        uint256 _init_rate = uint256(1000 ether) / 356 days; // emissions per second
-        uint256 _rate_reduction_coefficient = 2 ether; // rate halves every year
-
-        steam = UnsafeUpgrades.deployUUPSProxy(
-            address(new Steam_v1(_init_rate, _rate_reduction_coefficient)),
-            abi.encodeCall(Steam_v1.initialize, (owner, _init_supply, "Zhenglong Steam", "STEAM"))
-        );
+        steam = address(new MockSTEAM());
         vm.label(steam, "STEAM");
-        IBaoOwnable(steam).transferOwnership(owner);
-
-        veSteam = UnsafeUpgrades.deployUUPSProxy(
-            address(new VotingEscrow_v1(address(steam))),
-            abi.encodeCall(VotingEscrow_v1.initialize, (owner, "Zhenglong Voting Escrow", "veSTEAM", "1"))
-        );
-        vm.label(veSteam, "veSTEAM");
-        IBaoOwnable(veSteam).transferOwnership(owner);
 
         rewardDepositor = makeAddr("rewardDepositor");
         rebalancer = makeAddr("rebalancer");
@@ -236,9 +207,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         assertEq(StabilityPool_v1(sp).owner(), owner);
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
-        assertNotEq(IStabilityPool(sp).GAUGE_STAKE_TOKEN(), address(0)); // make sure it has something
-        assertEq(IStabilityPool(sp).GAUGE_REWARD_TOKEN(), steam); // make sure it has something
-        assertEq(IStabilityPool(sp).gauge(), address(0));
         assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
     }
 }
@@ -257,21 +225,8 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
 
-        address stabilityPoolToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
-            )
-        );
-
         // Create the V2 implementation
-        StabilityPool_v2 implementationV2 = new StabilityPool_v2(
-            minter,
-            wrappedCollateralToken,
-            stabilityPoolToken,
-            steam,
-            veSteam
-        );
+        StabilityPool_v2 implementationV2 = new StabilityPool_v2(minter, wrappedCollateralToken);
 
         // Perform the upgrade as the owner
         vm.prank(owner);
@@ -306,8 +261,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
             new StabilityPool_v1(
                 minter,
                 wrappedCollateralToken,
-                stabilityPoolToken,
-                steam,
                 EARLY_WITHDRAWAL_FEE,
                 FEE_ADDRESS,
                 WITHDRAWAL_START_DELAY,
@@ -322,8 +275,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
             new StabilityPool_v1(
                 minter,
                 liquidateTo,
-                stabilityPoolToken,
-                steam,
                 EARLY_WITHDRAWAL_FEE,
                 FEE_ADDRESS,
                 WITHDRAWAL_START_DELAY,
@@ -360,8 +311,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
             new StabilityPool_v1(
                 minter,
                 wrappedCollateralToken,
-                stabilityPoolToken,
-                steam,
                 EARLY_WITHDRAWAL_FEE,
                 FEE_ADDRESS,
                 WITHDRAWAL_START_DELAY,
@@ -381,8 +330,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
             new StabilityPool_v1(
                 minter,
                 wrappedCollateralToken,
-                stabilityPoolToken,
-                steam,
                 EARLY_WITHDRAWAL_FEE,
                 FEE_ADDRESS,
                 WITHDRAWAL_START_DELAY,
@@ -396,14 +343,6 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
             abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, address(0)))
         );
     }
-
-    // function test_initEventsBad() public {
-    //     vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidLiquidationToken.selector, peggedToken));
-    //     new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam);
-
-    //     vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector));
-    //     new StabilityPool_v1(minter, peggedToken, stabilityPoolToken, steam);
-    // }
 }
 
 contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
@@ -502,20 +441,6 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         _depositWithdraw(user2);
     }
 
-    function test_updateGauge_withdraws_old_and_deposits_new() public {
-        // set a mock gauge and assert calls don't revert
-        address gauge = address(new MockGauge());
-        vm.prank(owner);
-        IStabilityPool(stabilityPoolCollateral).updateGauge(gauge);
-        assertEq(IStabilityPool(stabilityPoolCollateral).gauge(), gauge);
-
-        // update to another mock to cover withdraw path
-        address gauge2 = address(new MockGauge());
-        vm.prank(owner);
-        IStabilityPool(stabilityPoolCollateral).updateGauge(gauge2);
-        assertEq(IStabilityPool(stabilityPoolCollateral).gauge(), gauge2);
-    }
-
     function test_requestWithdrawal_applies_startDelay_and_window() public {
         vm.prank(user1);
         uint256 nowTs = block.timestamp;
@@ -535,14 +460,8 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
 
     function test_requestWithdrawal_reverts_when_window_unconfigured() public {
         // Deploy a fresh pool proxy but skip configuring window/fee
-        address spToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()),
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "SP Token", "spTkn"))
-            )
-        );
         address unconfigured = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, wrappedCollateralToken, spToken, steam, veSteam)),
+            address(new MockStabilityPool(minter, wrappedCollateralToken)),
             abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(unconfigured).transferOwnership(owner);

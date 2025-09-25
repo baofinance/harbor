@@ -30,10 +30,6 @@ interface IStabilityPool {
     /// @param rewardAmount The amount of token gained.
     event RewardReceived(address rewardToken, uint256 rewardAmount);
 
-    /// @notice Emitted when the gauge is updated.
-    /// @param newGauge address of the new gauge
-    event GaugeUpdated(address newGauge);
-
     event Liquidated(
         address liquidatedToken,
         uint256 liquidatedAmount,
@@ -101,10 +97,6 @@ interface IStabilityPool {
     /// @dev Thrown when a receiver address is not valid
     error InvalidReceiver(address receiver);
 
-    /// @dev Thrown when a the voting escrow is being not ready
-    /// it must be set up and going before the stability pool is
-    error VotingEscrowNotReady();
-
     /// @dev Thrown when a provided fee is invalid
     error InvalidFee(uint256 fee);
 
@@ -124,12 +116,6 @@ interface IStabilityPool {
     /// @notice The role used for notifying rebalancing.
     function REBALANCER_ROLE() external view returns (uint256 role); // solhint-disable-line func-name-mixedcase
 
-    /// @notice Return the address of token used to collect some rewards from the gauge.
-    function GAUGE_STAKE_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
-
-    /// @notice Return the address of token used to collect some rewards from the gauge.
-    function GAUGE_REWARD_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
-
     /// @notice Return the address of token the asset token is liquidated to when needed and requested.
     function LIQUIDATION_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
 
@@ -141,9 +127,6 @@ interface IStabilityPool {
 
     /// @notice Return the address of underlying token of this contract.
     function ASSET_TOKEN() external view returns (address token); // solhint-disable-line func-name-mixedcase
-
-    /// @notice Return the address of the gauge used for staking
-    function gauge() external view returns (address gauge_);
 
     /// @notice Return the total amount of asset deposited to this contract.
     function totalAssetSupply() external view returns (uint256 amount);
@@ -216,8 +199,4 @@ interface IStabilityPool {
 
     /// @notice Notify the stability pool of a liquidation event.
     function notifyLiquidation(uint256 liquidated, uint256 returned) external;
-
-    /// @notice Update the gauge address, used for rewards
-    /// This also removes the deposit from the previous gauge (if any) and deposits into the 'newGauge'.
-    function updateGauge(address newGauge) external;
 }

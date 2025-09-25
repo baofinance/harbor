@@ -66,7 +66,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start + 1);
 
         uint256 balBefore = IERC20(peggedToken).balanceOf(user1);
@@ -209,7 +209,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start + 1);
 
         // Deposit during window should cancel request
@@ -229,7 +229,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start - 10); // before start
 
         // Deposit before window should also cancel request (since it's before end)

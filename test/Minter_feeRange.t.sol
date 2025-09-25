@@ -803,11 +803,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         int256 incentiveRatio = initial(config.redeemLeveragedIncentiveConfig.incentiveRatios);
                         assertNear(pre.incentiveRatio, incentiveRatio, 100, 0, "rl dry run fee ratio");
                         fee = (uint256(incentiveRatio) * wrapped) / 1 ether;
-                        // console2.log ("fee=%s", fee);
-                        // Calculate tolerance based on leveraged price fractional error exactly as contract does
-                        uint256 q = 0;
-                        // console2.log("q = %s", q);
-                        // console2.log("qPR = %s", qPR);
                         assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 0, "rl fee wrapped"); // fee won't be more that 10%
 
                         assertEq(post.userPegged, pre.userPegged, "rl user pegged");
