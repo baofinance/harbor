@@ -3,8 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {console2 as console} from "forge-std/console2.sol";
-
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
