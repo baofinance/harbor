@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {Test} from "forge-std/Test.sol";
-import {Vm} from "forge-std/Vm.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
@@ -66,7 +63,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start + 1);
 
         uint256 balBefore = IERC20(peggedToken).balanceOf(user1);
@@ -209,7 +206,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start + 1);
 
         // Deposit during window should cancel request
@@ -229,7 +226,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 start, uint64 end) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start - 10); // before start
 
         // Deposit before window should also cancel request (since it's before end)

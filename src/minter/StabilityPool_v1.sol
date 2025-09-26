@@ -15,7 +15,6 @@ import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/Multi
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -24,13 +23,11 @@ import {ILiquidityGaugeV6} from "src/interfaces/ILiquidityGaugeV6.sol";
 /// @notice This contract hold asset minted as pegged tokens by the Minter contract.
 /// Depositing pegged assets here results in:
 /// * wrapped collateral being deposited here automatically from the minter when wrapped collateral's value increases
-/// * this contract can be deposited in a gauge that returns STEAM tokens as an additional reward
 /// In the event of a rebalance, which occurs automatically, when the collateral ration held by the Minter contract
 /// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
 /// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
 ///
 /// This contract also mints an ERC20 that can:
-/// * be deposited in a gauge for further rewards
 /// * represent ownership of the assets deposited here in a wallet.
 ///
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
@@ -75,18 +72,6 @@ contract StabilityPool_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LIQUIDATION_TOKEN;
 
-    /// @inheritdoc IStabilityPool
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable GAUGE_STAKE_TOKEN;
-
-    /// @inheritdoc IStabilityPool
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable GAUGE_REWARD_TOKEN;
-
-    /// @dev timestamp of the start point for the VE_TOKEN
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint256 internal immutable _VE_START;
-
     /// @dev the pool cannot have less than this supply once it has reached that supply
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MIN_TOTAL_ASSET_SUPPLY;
@@ -118,15 +103,6 @@ contract StabilityPool_v1 is
         uint40 updatedAt; // TODO: this could be days rather than seconds requiring fewer bits
     }
 
-    /// @dev The gauge data struct. The compiler will pack this into single `uint256`.
-    ///
-    /// @param gauge The address of the gauge.
-    /// @param lastClaimTimestamp The timestamp in second when last claim happened.
-    struct Gauge {
-        address gauge;
-        uint96 claimedAt;
-    }
-
     /// @dev The withdrawal request window for an account
     struct WithdrawalRequest {
         uint64 start;
@@ -149,9 +125,6 @@ contract StabilityPool_v1 is
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
     struct StabilityPoolStorage {
-        /// @notice The gauge that this token received some of it's rewards from.
-        /// @dev as such this contract will inform the gauge of all deposits, withdrawals and losses
-        Gauge gauge;
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
         /// @dev Mapping account address to TokenBalance struct. Accessed via assetBalanceOf
@@ -218,8 +191,6 @@ contract StabilityPool_v1 is
     constructor(
         address minter_,
         address liquidationToken_,
-        address gaugeStakeToken_,
-        address gaugeRewardToken_,
         uint256 earlyWithdrawalFee_,
         address feeAddress_,
         uint256 withdrawalStartDelay_,
@@ -239,14 +210,6 @@ contract StabilityPool_v1 is
             revert InvalidLiquidationToken(liquidationToken_);
         }
         LIQUIDATION_TOKEN = liquidationToken_;
-
-        Token.sanityCheckERC20Token(gaugeStakeToken_);
-        // slither-disable-next-line missing-zero-check
-        GAUGE_STAKE_TOKEN = gaugeStakeToken_;
-
-        Token.sanityCheckERC20Token(gaugeStakeToken_);
-        // slither-disable-next-line missing-zero-check
-        GAUGE_REWARD_TOKEN = gaugeRewardToken_;
 
         // early withdrawal settings validations (for implementation construct-only tests)
         if (earlyWithdrawalFee_ > _MAX_EARLY_WITHDRAWAL_FEE) {
@@ -276,12 +239,6 @@ contract StabilityPool_v1 is
     /*************************
      * Public View Functions *
      *************************/
-
-    /// @inheritdoc IStabilityPool
-    function gauge() external view returns (address gauge_) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        gauge_ = $.gauge.gauge;
-    }
 
     /// @inheritdoc IStabilityPool
     function totalAssetSupply() external view returns (uint256 totalSupply_) {
@@ -509,33 +466,6 @@ contract StabilityPool_v1 is
         emit WithdrawalRequested(sender, start, end);
     }
 
-    /// @inheritdoc IStabilityPool
-    function updateGauge(address newGauge) external nonReentrant onlyOwner {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        address oldGauge = $.gauge.gauge;
-
-        emit GaugeUpdated(newGauge);
-
-        // Step 1: Withdraw from old gauge if exists
-        if (oldGauge != address(0)) {
-            ILiquidityGaugeV6(oldGauge).withdraw(1 ether); //wake-disable-line reentrancy all callers are nonReentrant
-        }
-
-        // Step 2: Update internal storage
-        $.gauge = Gauge({gauge: newGauge, claimedAt: uint96(block.timestamp)});
-
-        // Step 3: If new gauge exists, approve and deposit
-        if (newGauge != address(0)) {
-            // Use forceApprove for full compatibility (OZ v5+)
-            SafeERC20.forceApprove(IERC20(GAUGE_STAKE_TOKEN), newGauge, 1 ether);
-
-            ILiquidityGaugeV6(newGauge).deposit(1 ether); //wake-disable-line reentrancy all callers are nonReentrant
-
-            // Reset approval to 0 for safety
-            SafeERC20.forceApprove(IERC20(GAUGE_STAKE_TOKEN), newGauge, 0);
-        }
-    }
-
     /**********************
      * Internal Functions *
      **********************/
@@ -544,16 +474,6 @@ contract StabilityPool_v1 is
     // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-
-        // fetch STEAM from gauge no more frequently than every 24h
-        Gauge memory gauge_ = $.gauge;
-        if (gauge_.gauge != address(0) && block.timestamp > uint256(gauge_.claimedAt) + 1 days) {
-            uint256 balanceBefore = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this));
-            ILiquidityGaugeV6(gauge_.gauge).claim_rewards(); // wake-disable-line reentrancy all callers are nonReentrant
-            uint256 rewards = IERC20(GAUGE_REWARD_TOKEN).balanceOf(address(this)) - balanceBefore;
-            $.gauge.claimedAt = uint64(block.timestamp);
-            _notifyReward(GAUGE_REWARD_TOKEN, rewards);
-        }
 
         super._checkpoint(account);
 

@@ -1,28 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-//import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-// import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
-import {MockERC20} from "test/mock/MockERC20.sol";
-
-import {Test} from "forge-std/Test.sol";
-import {console2 as console} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
-import {Minter_v1} from "src/minter/Minter_v1.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
 import {IGenesis} from "src/interfaces/IGenesis.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
@@ -30,9 +17,6 @@ import {Genesis_v1} from "src/minter/Genesis_v1.sol";
 
 import {TestMinterSetUp} from "test/Minter_base.t.sol";
 import {Token} from "@bao/Token.sol";
-
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
-import {Array} from "test/Array.sol";
 
 contract Test_GenesisBase is TestMinterSetUp {
     address genesisImpl;

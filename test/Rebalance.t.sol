@@ -3,31 +3,19 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {Test} from "forge-std/Test.sol";
-import {console2 as console} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
-
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {Token} from "@bao/Token.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
-import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
-import {IBaoUSD} from "test/IBaoUSD.sol";
 import "test/Useful.sol";
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
@@ -52,20 +40,11 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         vm.prank(user);
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);
 
-        address stabilityPoolToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
-            )
-        );
-
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
             address(
                 new StabilityPool_v1(
                     minter,
                     wrappedCollateralToken,
-                    stabilityPoolToken,
-                    steam,
                     0.025 ether,
                     0x3dFc49e5112005179Da613BdE5973229082dAc35,
                     3600,
@@ -85,8 +64,6 @@ contract TestLiquidate is TestStabilityPool2SetUp {
                 new StabilityPool_v1(
                     minter,
                     leveragedToken,
-                    stabilityPoolToken,
-                    steam,
                     0.025 ether,
                     0x3dFc49e5112005179Da613BdE5973229082dAc35,
                     3600,

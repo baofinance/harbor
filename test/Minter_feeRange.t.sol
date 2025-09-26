@@ -3,15 +3,12 @@ pragma solidity >=0.8.28 <0.9.0;
 
 //import { Test } from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 
@@ -803,11 +800,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         int256 incentiveRatio = initial(config.redeemLeveragedIncentiveConfig.incentiveRatios);
                         assertNear(pre.incentiveRatio, incentiveRatio, 100, 0, "rl dry run fee ratio");
                         fee = (uint256(incentiveRatio) * wrapped) / 1 ether;
-                        // console2.log ("fee=%s", fee);
-                        // Calculate tolerance based on leveraged price fractional error exactly as contract does
-                        uint256 q = 0;
-                        // console2.log("q = %s", q);
-                        // console2.log("qPR = %s", qPR);
                         assertNear(post.feeWrapped, pre.feeWrapped + fee, 1, 0, "rl fee wrapped"); // fee won't be more that 10%
 
                         assertEq(post.userPegged, pre.userPegged, "rl user pegged");
