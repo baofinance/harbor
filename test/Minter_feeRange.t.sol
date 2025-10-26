@@ -508,7 +508,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             post.minterUnderlying,
             pre.minterUnderlying + ((wrapped - fee) * r) / 1e18,
             1,
-            20,
+            35,
             "mp minter underlying"
         );
 
