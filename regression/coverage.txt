@@ -10,7 +10,7 @@
 | src/minter/library/ConfigIncentiveLib.sol                       | ✓ 100% (24/24)   | ✓ 100% (17/17)   | ✓ 100% (2/2)    | ✓ 100% (9/9)   |
 | src/minter/library/Config_v1.sol                                | X  96% (76/79)   | X  97% (92/95)   | X  90% (18/20)  | ✓ 100% (6/6)   |
 | src/price/PriceOracle_v1.sol                                    | X  97% (31/32)   | X  97% (36/37)   | X  85% (11/13)  | ✓ 100% (3/3)   |
-| src/price/StakedETHWrappedPriceOracle_v1.sol                    | X   0% (0/29)    | X   0% (0/25)    | X   0% (0/5)    | X   0% (0/4)   |
+| src/price/StakedETHWrappedPriceOracle_v1.sol                    | X   0% (0/29)    | X   0% (0/27)    | X   0% (0/5)    | X   0% (0/4)   |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol | X  96% (131/136) | X  97% (166/171) | X  88% (14/16)  | X  95% (20/21) |
 | src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (77/77)   | ✓ 100% (86/86)   | ✓ 100% (12/12)  | ✓ 100% (14/14) |
 | src/reward/distributor/LinearReward.sol                         | ✓ 100% (25/25)   | ✓ 100% (27/27)   | ✓ 100% (6/6)    | ✓ 100% (2/2)   |
