@@ -7,6 +7,6 @@ solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils
 dummy/=/lib/dummy
 @chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/
 @solady/=lib/solady/src/
-@bao/=lib/bao-base/src/
+@bao/=lib/bao-base-audit-2025-07/src/
 src/=src/
 test/=test/

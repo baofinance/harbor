@@ -35,6 +35,22 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify audited sources unchanged
+        shell: bash
+        run: |
+          AUDIT_TAG="audit-2025-07"
+
+          # verify the audited src code
+          git fetch --tags
+          git rev-parse --verify "${AUDIT_TAG}^{commit}" >/dev/null
+          git diff --exit-code --stat "${AUDIT_TAG}" -- src
+
+          # Verify bao-base's src
+          cd lib/bao-base-${AUDIT_TAG}
+          git fetch --tags
+          git diff --exit-code --stat "${AUDIT_TAG}" -- src
 
       - name: Run Bao-base CI actions
         uses: ./lib/bao-base/.github/actions/test-foundry
