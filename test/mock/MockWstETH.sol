@@ -78,4 +78,30 @@ contract MockWstETH is
     function burnFrom(address from, uint256 amount) public override {
         _burn(from, amount);
     }
+
+    IERC20 public stETH; // stETH token address for wrapping
+
+    /// @notice Set stETH address (for testing)
+    function setStETH(address stETH_) external {
+        stETH = IERC20(stETH_);
+    }
+
+    /// @notice Wrap stETH to wstETH (for testing)
+    /// @param stETHAmount Amount of stETH to wrap
+    /// @return wstETHAmount Amount of wstETH received
+    function wrap(uint256 stETHAmount) external returns (uint256 wstETHAmount) {
+        // For testing, we'll accept stETH and mint wstETH 1:1
+        // In reality, this would use the stETH/wstETH exchange rate
+        require(address(stETH) != address(0), "stETH not set");
+        stETH.safeTransferFrom(msg.sender, address(this), stETHAmount);
+        wstETHAmount = stETHAmount; // 1:1 for testing simplicity
+        _mint(msg.sender, wstETHAmount);
+    }
+
+    /// @notice Get stETH amount for given wstETH (for testing)
+    /// @param wstETHAmount Amount of wstETH
+    /// @return stETHAmount Amount of stETH
+    function getStETHByWstETH(uint256 wstETHAmount) external pure returns (uint256 stETHAmount) {
+        return wstETHAmount; // 1:1 for testing
+    }
 }
