@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
+import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
+import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
+
+/**
+ * @title StabilityPoolManagerDeployer
+ * @notice Library for deploying StabilityPoolManager
+ */
+library StabilityPoolManagerDeployer {
+    /**
+     * @notice Deploy StabilityPoolManager from config
+     * @param deployment The deployment registry
+     * @param admin Admin address
+     * @param minter Minter address
+     * @param treasury Treasury address
+     * @param stabilityPoolCollateral Collateral stability pool address
+     * @param stabilityPoolLeveraged Leveraged stability pool address
+     * @param feeReceiver Fee receiver address
+     * @return Address of deployed stability pool manager proxy
+     */
+    function deploy(
+        Deployment deployment,
+        address admin,
+        address minter,
+        address treasury,
+        address stabilityPoolCollateral,
+        address stabilityPoolLeveraged,
+        address feeReceiver
+    ) external returns (address) {
+        // StabilityPoolManager constructor requires addresses
+        StabilityPoolManager_v1 impl = new StabilityPoolManager_v1(
+            minter,
+            treasury,
+            stabilityPoolCollateral,
+            stabilityPoolLeveraged
+        );
+
+        address stabilityPoolManager = deployment.deployProxy(
+            HarborKeys.STABILITY_POOL_MANAGER,
+            address(impl),
+            abi.encodeCall(StabilityPoolManager_v1.initialize, (admin)),
+            "stability-pool-manager-v1"
+        );
+
+        // Configure fee receiver
+        StabilityPoolManager_v1(stabilityPoolManager).updateFeeReceiver(feeReceiver);
+
+        // Grant HARVESTER_ROLE on minter
+        IBaoRoles(minter).grantRoles(stabilityPoolManager, Minter_v1(minter).HARVESTER_ROLE());
+
+        // Grant roles on collateral stability pool
+        IBaoRoles(stabilityPoolCollateral).grantRoles(
+            stabilityPoolManager,
+            StabilityPool_v1(stabilityPoolCollateral).REBALANCER_ROLE()
+        );
+        IBaoRoles(stabilityPoolCollateral).grantRoles(
+            stabilityPoolManager,
+            IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE()
+        );
+
+        // Grant roles on leveraged stability pool
+        IBaoRoles(stabilityPoolLeveraged).grantRoles(
+            stabilityPoolManager,
+            StabilityPool_v1(stabilityPoolLeveraged).REBALANCER_ROLE()
+        );
+        IBaoRoles(stabilityPoolLeveraged).grantRoles(
+            stabilityPoolManager,
+            IMultipleRewardDistributor(stabilityPoolLeveraged).REWARD_MANAGER_ROLE()
+        );
+
+        return stabilityPoolManager;
+    }
+}

@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+
+/**
+ * @title BaseStabilityPoolDeployer
+ * @notice Base library for deploying stability pools (collateral or leveraged)
+ */
+library BaseStabilityPoolDeployer {
+    struct DeployParams {
+        string registryKey;
+        string admin;
+        string minter;
+        string wrappedCollateral;
+        string liquidationToken;
+        string earlyWithdrawalFee;
+        string feeReceiver;
+        string rewardManager;
+        string rewardDepositor;
+        string rebalancer;
+    }
+
+    /**
+     * @notice Deploy a stability pool
+     * @param deployment The deployment registry
+     * @param params Deployment parameters
+     * @return Address of deployed stability pool
+     */
+    function deploy(Deployment deployment, DeployParams memory params) external returns (address) {
+        // Deploy StabilityPool with constructor parameters
+
+        StabilityPool_v1 impl = new StabilityPool_v1(
+            params.minter,
+            params.liquidationToken,
+            params.earlyWithdrawalFee,
+            params.feeReceiver,
+            3600, // WITHDRAWAL_START_DELAY (1 hour)
+            90000, // WITHDRAWAL_END_WINDOW (25 hours)
+            1 ether // MIN_TOTAL_ASSET_SUPPLY
+        );
+
+        string memory implKey = string(abi.encodePacked(params.registryKey, "_impl"));
+        deployment.deployContract(implKey, );
+
+        address stabilityPool = deployment.deployProxy(
+            params.registryKey,
+            address(impl),
+            abi.encodeCall(StabilityPool_v1.initialize, (params.admin, params.earlyWithdrawalFee, params.feeReceiver)),
+        );
+
+        // Grant roles
+        IBaoRoles(stabilityPool).grantRoles(
+            params.rewardManager,
+            IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE()
+        );
+        IBaoRoles(stabilityPool).grantRoles(
+            params.rewardDepositor,
+            IMultipleRewardDistributor(stabilityPool).REWARD_DEPOSITOR_ROLE()
+        );
+        IBaoRoles(stabilityPool).grantRoles(params.rebalancer, IStabilityPool(stabilityPool).REBALANCER_ROLE());
+
+        // Register reward tokens
+        IMultipleRewardDistributor(stabilityPool).registerRewardToken(params.liquidationToken);
+        if (params.liquidationToken != params.wrappedCollateral) {
+            IMultipleRewardDistributor(stabilityPool).registerRewardToken(params.wrappedCollateral);
+        }
+
+        return stabilityPool;
+    }
+}

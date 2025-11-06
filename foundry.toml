@@ -27,6 +27,7 @@ fs_permissions = [
   { access = "read", path = "./" },
   { access = "read-write", path = "./results" },
   { access = "read-write", path = "./log" },
+  { access = "read-write", path = "./deployments" },
 ]
 
 gas_limit = "18446744073709551615"

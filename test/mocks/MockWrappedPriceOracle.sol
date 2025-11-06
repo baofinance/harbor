@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 contract MockWrappedPriceOracle is IWrappedPriceOracle {
     // Errors specific to implementation details
     error InconsistentRoundData(uint80 roundId, uint80 prevRoundId);
 
-    uint256 minUnderlyingPrice;
-    uint256 maxUnderlyingPrice;
-    uint256 minWrappedRate;
-    uint256 maxWrappedRate;
+    uint256 private _minUnderlyingPrice;
+    uint256 private _maxUnderlyingPrice;
+    uint256 private _minWrappedRate;
+    uint256 private _maxWrappedRate;
 
     constructor() {
-        minUnderlyingPrice = maxUnderlyingPrice = 2000 ether;
-        minWrappedRate = maxWrappedRate = 10e17; // 1.0
+        _minUnderlyingPrice = _maxUnderlyingPrice = 2000 ether;
+        _minWrappedRate = _maxWrappedRate = 10e17; // 1.0
     }
 
     function latestAnswer()
@@ -27,10 +27,10 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
             uint256 maxWrappedRate_
         )
     {
-        minUnderlyingPrice_ = minUnderlyingPrice;
-        maxUnderlyingPrice_ = maxUnderlyingPrice;
-        minWrappedRate_ = minWrappedRate;
-        maxWrappedRate_ = maxWrappedRate;
+        minUnderlyingPrice_ = _minUnderlyingPrice;
+        maxUnderlyingPrice_ = _maxUnderlyingPrice;
+        minWrappedRate_ = _minWrappedRate;
+        maxWrappedRate_ = _maxWrappedRate;
         // console2.log("MockWrappedPriceOracle.latestAnswer() -> (%s, , %s, )", minUnderlyingPrice_, minWrappedRate_);
     }
 
@@ -40,10 +40,10 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
         uint256 minWrappedRate_,
         uint256 maxWrappedRate_
     ) internal {
-        minUnderlyingPrice = minUnderlyingPrice_;
-        maxUnderlyingPrice = maxUnderlyingPrice_;
-        minWrappedRate = minWrappedRate_;
-        maxWrappedRate = maxWrappedRate_;
+        _minUnderlyingPrice = minUnderlyingPrice_;
+        _maxUnderlyingPrice = maxUnderlyingPrice_;
+        _minWrappedRate = minWrappedRate_;
+        _maxWrappedRate = maxWrappedRate_;
         // console2.log("MockWrappedPriceOracle.setLatestAnswer(%s, , %s, )", minUnderlyingPrice_, minWrappedRate_);
     }
 
@@ -61,6 +61,6 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
     }
 
     function setLatestAnswer(uint256 price) external {
-        _setLatestAnswer(price, price, minWrappedRate, maxWrappedRate);
+        _setLatestAnswer(price, price, _minWrappedRate, _maxWrappedRate);
     }
 }

@@ -12,7 +12,7 @@ import {Deployed} from "@bao/Deployed.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestMinterSetUp} from "test/Minter_base.t.sol";

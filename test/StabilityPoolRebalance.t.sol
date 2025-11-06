@@ -12,7 +12,7 @@ import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 
-import {MockERC20} from "test/mock/MockERC20.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolSetUp, MockStabilityPool} from "test/StabilityPool.t.sol";
 
 abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {

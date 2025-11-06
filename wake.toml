@@ -7,9 +7,8 @@ enabled = false # unset = let the compiler decide
 
 [compiler.solc]
 # Exclude paths define locations of Solidity files that should not be compiled unless imported from another non-excluded file.
-exclude_paths = ["node_modules", "venv", "lib", "fx"]
+exclude_paths = ["node_modules", "venv", "lib", "doc"]
 # include paths are for import resolution
-include_paths = []
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
@@ -21,11 +20,17 @@ remappings = [
   "dummy/=/lib/dummy",
   "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
   "@solady/=lib/solady/src/",
-  "@bao/=lib/bao-base/src/",
+  "@bao/=lib/bao-base-audit-2025-07/src/",
+  "@bao-script/=lib/bao-base/script/",
+  "@bao-test/=lib/bao-base/test/",
+  "@harbor/=src/",
+  "@harbor-script/=script/",
+  "@harbor-test/=test/",
   "src/=src/",
   "test/=test/",
 ]
 
+include_paths = []
 
 [lsp.code_lens]
 enable = true

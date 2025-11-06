@@ -7,8 +7,8 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
 import "forge-std/Test.sol";
-import "test/mock/MockERC20.sol";
-import "test/mock/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol";
+import "@bao-test/mocks/MockERC20.sol";
+import "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol";
 
 contract MultipleRewardCompoundingAccumulatorTest is Test {
     // Addresses
