@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
+import {HarborAutoDeploymentFoundry} from "@harbor-test/deployment/HarborAutoDeployment.sol";
 
 import {Stem_v1} from "@bao/Stem_v1.sol";
 
@@ -11,14 +11,15 @@ import {Stem_v1} from "@bao/Stem_v1.sol";
  * @title HarborParameterExample
  * @notice Example showing how to use parameters with Harbor deployment
  * @dev This demonstrates setting configuration values before deploying contracts
- *      Uses HarborDeploymentFoundry (non-auto) to test explicit parameter requirements
+ *      Uses HarborAutoDeploymentFoundry (non-auto) to test explicit parameter requirements
  */
 contract HarborParameterExample is Test {
-    HarborDeploymentFoundry public harbor;
+    HarborAutoDeploymentFoundry public harbor;
 
     function setUp() public {
-        harbor = new HarborDeploymentFoundry();
-        harbor.start(address(this), "mainnet", "v1.0.0", "HarborParameterExample");
+        harbor = new HarborAutoDeploymentFoundry();
+        // TODO: Migrate to config-driven start
+        // harbor.start(jsonConfig);
     }
 
     function test_UseParametersForTokenDeployment() public {
@@ -62,39 +63,6 @@ contract HarborParameterExample is Test {
 
         // Verify parameter was set correctly
         assertEq(minDeposit, 0.01 ether);
-    }
-
-    function test_SaveParametersToJson() public {
-        // Setup admin
-        harbor.useAdmin(address(this));
-
-        // Set various parameters
-        harbor.setPeggedName("Bao USD");
-        harbor.setPeggedSymbol("BAOUSD");
-        harbor.setPeggedDecimals(18);
-        harbor.setInitialExchangeRate(1e18);
-        harbor.setFeePercentage(50); // 0.5%
-
-        // Deploy some contracts using config
-        harbor.deployPeggedTokenFromConfig();
-
-        // Save everything to JSON
-        string memory filepath = "results/deployment/harbor-with-params.json";
-        harbor.toJsonFile(filepath);
-
-        // Load into new deployment
-        HarborDeploymentFoundry newHarbor = new HarborDeploymentFoundry();
-        newHarbor.fromJsonFile(filepath);
-
-        // Verify parameters were saved and loaded
-        assertEq(newHarbor.getPeggedName(), "Bao USD");
-        assertEq(newHarbor.getPeggedSymbol(), "BAOUSD");
-        assertEq(newHarbor.getPeggedDecimals(), 18);
-        assertEq(newHarbor.getInitialExchangeRate(), 1e18);
-        assertEq(newHarbor.getFeePercentage(), 50);
-
-        // Verify contract was also saved
-        assertTrue(newHarbor.hasPeggedToken());
     }
 
     function test_ParametersAsDependencies() public {

@@ -1,16 +1,22 @@
+# Dotenv file
+.env
+
+# put your personal stuff in your personal vscode settings file
+.vscode/settings.json
 
 # libraries
 node_modules
-# put your personal stuff in your personal vscode settings file
-.vscode/settings.json
+venv
+
 # wake
-.wake
+.wake/
 
 # generated files
 cache/
 out/
 lcov.info
 log/
+tmp/
 
 # yarn files (see https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored)
 .pnp.*
@@ -21,8 +27,9 @@ log/
 !.yarn/sdks
 !.yarn/versions
 
-# wake
-.wake/build/
+# python generated files
+__pycache__/
+*.pyc
 
 # generated results not used for regression testing
 results/*.svg
@@ -36,9 +43,6 @@ results/*.png
 
 # Docs
 docs/
-
-# Dotenv file
-.env
 
 # log files
 *.log

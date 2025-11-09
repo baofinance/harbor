@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
-import {HarborAutoDeploymentFoundry} from "@harbor-test/deployment/HarborAutoDeployment.sol";
+import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
+import {HarborAutoDeploymentFoundryTest} from "@harbor-test/deployment/HarborAutoDeployment.sol";
 
 /**
  * @title HarborAutoDeployTest
  * @notice Demonstrates auto-deploy functionality with recursive dependencies
  */
-contract HarborAutoDeployTest is Test {
+contract HarborAutoDeployTest is BaoDeploymentTest {
+    function setUp() public override {
+        super.setUp();
+    }
+
     /**
      * @notice Test one-line deployment with all dependencies
      */
@@ -26,7 +29,7 @@ contract HarborAutoDeployTest is Test {
         // - MINTER (deployed)
         // - REWARD_MANAGER/DEPOSITOR/REBALANCER (mocked)
         // - STABILITY_POOL_COLLATERAL (deployed)
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
         address pool = harbor.deployStabilityPoolCollateralFromConfig();
 
         // Verify deployment
@@ -47,7 +50,7 @@ contract HarborAutoDeployTest is Test {
      * @notice Test auto-deploy with custom parameters
      */
     function test_autoDeployWithCustomParams() public {
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
 
         // Set custom parameters before deployment
         harbor.setPeggedName("Custom USD");
@@ -67,7 +70,7 @@ contract HarborAutoDeployTest is Test {
      * @notice Test auto-deploy of full system (STABILITY_POOL_MANAGER)
      */
     function test_autoDeployFullSystem() public {
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
 
         // Deploy stability pool manager - this needs EVERYTHING
         address manager = harbor.deployStabilityPoolManagerFromConfig();
@@ -81,7 +84,7 @@ contract HarborAutoDeployTest is Test {
     }
 
     function test_autoDeployCreatesDerivedAddresses() public {
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
 
         harbor.deployStabilityPoolManagerFromConfig();
 
@@ -107,7 +110,7 @@ contract HarborAutoDeployTest is Test {
      * @notice Test that defaults are used when params not set
      */
     function test_autoDeployUsesDefaults() public {
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
 
         // Don't set any params - should use defaults
         harbor.deployFeeReceiverFromConfig();
@@ -123,7 +126,7 @@ contract HarborAutoDeployTest is Test {
         vm.assume(fee <= 1 ether); // Max 100% fee
 
         // Fresh deployment per fuzz iteration
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
 
         // Set fuzzed fee
         harbor.setStabilityPoolEarlyWithdrawalFee(fee);
@@ -141,19 +144,19 @@ contract HarborAutoDeployTest is Test {
      */
     function test_baseClassWorksWithoutVm() public {
         // This would work in Wake or other frameworks too
-        HarborAutoDeploymentFoundry harbor = new HarborAutoDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
 
-        address pool = harbor.deployStabilityPoolCollateralFromConfig();
+        address pool = harbor2.deployStabilityPoolCollateralFromConfig();
 
         assertNotEq(pool, address(0));
-        assertTrue(harbor.hasMinter());
+        assertTrue(harbor2.hasMinter());
     }
 
     /**
      * @notice Test mixing useExisting with auto-deploy
      */
     function test_mixUseExistingWithAutoDeploy() public {
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
 
         // Manually set admin first
         address customAdmin = makeAddr("customAdmin");

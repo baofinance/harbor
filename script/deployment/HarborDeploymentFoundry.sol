@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Vm} from "forge-std/Vm.sol";
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentFoundry, DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
 
 /**
@@ -35,17 +36,16 @@ import {DeploymentFoundry, DeploymentFoundryTest} from "@bao-script/deployment/D
  *        }
  */
 contract HarborDeploymentFoundry is HarborDeployment, DeploymentFoundry {
-    // TODO: get rid of these - we should be using start or resume
-    function toJsonFile(string memory filepath) public {
-        super._toJsonFile(filepath);
-    }
-
-    function fromJsonFile(string memory filepath) public {
-        super._fromJsonFile(filepath);
+    function _getBaseDirPrefix() internal view virtual override(DeploymentRegistry, DeploymentFoundry) returns (string memory) {
+        return DeploymentFoundry._getBaseDirPrefix();
     }
 }
 
 contract HarborDeploymentFoundryTest is HarborDeploymentFoundry, DeploymentFoundryTest {
+    function _getBaseDirPrefix() internal view virtual override(HarborDeploymentFoundry, DeploymentFoundryTest) returns (string memory) {
+        return DeploymentFoundryTest._getBaseDirPrefix();
+    }
+
     function _ensureBaoDeployerOperator() internal override(DeploymentFoundryTest, Deployment) {
         DeploymentFoundryTest._ensureBaoDeployerOperator();
     }

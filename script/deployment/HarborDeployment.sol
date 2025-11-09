@@ -6,6 +6,7 @@ import {CREATE3} from "@solady/utils/CREATE3.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
+import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {FeeReceiverDeployer} from "@harbor-script/deployment/deployers/FeeReceiverDeployer.sol";
 // TODO: Re-enable as deployers are migrated
 // import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
@@ -34,6 +35,98 @@ abstract contract HarborDeployment is Deployment {
 
     /// @notice Shared Stem_v1 implementation (deployed once, reused for all proxies)
     address private _stemImplementation;
+
+    // ============================================================================
+    // Errors
+    // ============================================================================
+
+    error ConfigVersionMismatch(string configVersion, string registryVersion);
+    error ConfigMissingField(string field);
+
+    // ============================================================================
+    // Lifecycle Overrides
+    // ============================================================================
+
+    /// @notice Start a fresh deployment session from JSON config
+    /// @param jsonConfig JSON configuration string
+    function start(string memory jsonConfig) public virtual {
+        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
+        
+        // Extract required fields
+        address owner = DeploymentConfig.get(config, "", "owner");
+        string memory version = DeploymentConfig.getString(config, "", "version");
+        
+        // Derive system salt from pegged and collateral registry keys
+        string memory peggedKey = DeploymentConfig.getString(config, "pegged", "registryKey");
+        string memory collateralKey = DeploymentConfig.getString(config, "collateral", "registryKey");
+        string memory systemSaltString = string.concat(peggedKey, ":", collateralKey, ":");
+        
+        // Call base start with empty network
+        Deployment.start(owner, "", version, systemSaltString);
+        
+        // Apply configuration
+        _applyDeploymentConfig(config);
+    }
+
+    /// @notice Resume deployment from JSON config
+    /// @param jsonConfig JSON configuration string
+    function resume(string memory jsonConfig) public virtual {
+        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
+        
+        // Extract required fields
+        string memory version = DeploymentConfig.getString(config, "", "version");
+        
+        // Derive system salt from pegged and collateral registry keys
+        string memory peggedKey = DeploymentConfig.getString(config, "pegged", "registryKey");
+        string memory collateralKey = DeploymentConfig.getString(config, "collateral", "registryKey");
+        string memory systemSaltString = string.concat(peggedKey, ":", collateralKey, ":");
+        
+        // Call base resume with empty network
+        Deployment.resume("", systemSaltString);
+        
+        // Validate version matches
+        if (keccak256(bytes(_metadata.version)) != keccak256(bytes(version))) {
+            revert ConfigVersionMismatch(version, _metadata.version);
+        }
+        
+        // Apply configuration
+        _applyDeploymentConfig(config);
+    }
+
+    // ============================================================================
+    // Configuration
+    // ============================================================================
+
+    function _applyDeploymentConfig(DeploymentConfig.SourceJson memory config) internal virtual {
+        _applyTreasuryConfig(config);
+        _applyPeggedConfig(config);
+        _applyCollateralConfig(config);
+    }
+
+    function _applyTreasuryConfig(DeploymentConfig.SourceJson memory config) internal {
+        if (!hasTreasury() && DeploymentConfig.has(config, "", "treasury")) {
+            useTreasury(DeploymentConfig.get(config, "", "treasury"));
+        }
+    }
+
+    function _applyPeggedConfig(DeploymentConfig.SourceJson memory config) internal {
+        if (!hasPeggedName() && DeploymentConfig.has(config, "pegged", "name")) {
+            setPeggedName(DeploymentConfig.getString(config, "pegged", "name"));
+        }
+        if (!hasPeggedSymbol() && DeploymentConfig.has(config, "pegged", "symbol")) {
+            setPeggedSymbol(DeploymentConfig.getString(config, "pegged", "symbol"));
+        }
+        if (!hasPeggedDecimals() && DeploymentConfig.has(config, "pegged", "decimals")) {
+            setPeggedDecimals(DeploymentConfig.getUint(config, "pegged", "decimals"));
+        }
+    }
+
+    function _applyCollateralConfig(DeploymentConfig.SourceJson memory config) internal {
+        if (!hasCollateralToken() && DeploymentConfig.has(config, "collateral", "address")) {
+            address collateralAddr = DeploymentConfig.get(config, "collateral", "address");
+            useCollateralToken(collateralAddr);
+        }
+    }
 
     // ============================================================================
     // Parameter Helpers
@@ -73,6 +166,10 @@ abstract contract HarborDeployment is Deployment {
 
     function getPeggedSymbol() public view virtual returns (string memory) {
         return getString(HarborKeys.PEGGED_SYMBOL);
+    }
+
+    function hasPeggedDecimals() public view returns (bool) {
+        return has(HarborKeys.PEGGED_DECIMALS);
     }
 
     function setPeggedDecimals(uint256 value) public {

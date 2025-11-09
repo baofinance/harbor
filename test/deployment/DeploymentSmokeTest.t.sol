@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborDeploymentFoundryTest} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
+import {HarborAutoDeploymentFoundryTest} from "@harbor-test/deployment/HarborAutoDeployment.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
 import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,13 +18,14 @@ import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
  * @dev Tests both full and partial deployments, verifying contracts are properly connected
  */
 contract DeploymentSmokeTest is BaoDeploymentTest {
-    HarborDeploymentFoundryTest public harbor;
+    HarborAutoDeploymentFoundryTest public harbor;
 
     function setUp() public override {
         super.setUp();
 
-        harbor = new HarborDeploymentFoundryTest();
-        harbor.start(address(this), "test", "v1.0.0", "DeploymentSmokeTest");
+        harbor = new HarborAutoDeploymentFoundryTest();
+        // TODO: Migrate to config-driven start
+        // harbor.start(jsonConfig);
     }
 
     // ============================================================================

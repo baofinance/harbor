@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Vm} from "forge-std/Vm.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
+import {DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
 import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
@@ -181,4 +185,42 @@ abstract contract HarborAutoDeployment is HarborDeployment {
     }
 }
 
-contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistryJson {}
+/**
+ * @title HarborAutoDeploymentFoundry
+ * @notice Foundry-specific deployment WITHOUT test infrastructure
+ * @dev For scripts that need VM but don't auto-deploy BaoDeployer
+ *      Writes to deployments/ directory (production)
+ */
+contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistryJson {
+    Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    function _getBaseDirPrefix() internal view virtual override(DeploymentRegistry, DeploymentRegistryJson) returns (string memory) {
+        if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
+            return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
+        }
+        return "results";
+    }
+}
+
+/**
+ * @title HarborAutoDeploymentFoundryTest
+ * @notice Foundry test deployment with auto-deploy infrastructure
+ * @dev For use in forge test files
+ *      Auto-deploys BaoDeployer, writes to results/ directory
+ *      Inherits from DeploymentFoundryTest for test infrastructure
+ */
+contract HarborAutoDeploymentFoundryTest is HarborAutoDeployment, DeploymentFoundryTest {
+    function _ensureBaoDeployerOperator() internal virtual override(Deployment, DeploymentFoundryTest) {
+        DeploymentFoundryTest._ensureBaoDeployerOperator();
+    }
+
+    function _getBaseDirPrefix()
+        internal
+        view
+        virtual
+        override(DeploymentFoundryTest, DeploymentRegistry)
+        returns (string memory)
+    {
+        return DeploymentFoundryTest._getBaseDirPrefix();
+    }
+}
