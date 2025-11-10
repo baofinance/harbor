@@ -8,40 +8,43 @@ config:
   layout: elk
 ---
 flowchart TB
-    %% Base Layer
-    DeploymentRegistry["DeploymentRegistry<br/>(abstract)<br/>Registry storage"]
+    subgraph base["Base Layer"]
+        DeploymentRegistry["DeploymentRegistry<br/>(abstract)<br/>Registry storage"]
+    end
 
-    %% Persistence Layer
-    DeploymentRegistryJson["DeploymentRegistryJson<br/>(mixin)<br/>JSON save/load"]
+    subgraph persistence["Persistence Layer (Mixin)"]
+        DeploymentRegistryJson["DeploymentRegistryJson<br/>(mixin)<br/>JSON save/load"]
+    end
 
-    %% Core Layer
-    Deployment["Deployment<br/>(abstract)<br/>Core operations"]
+    subgraph core["Core Layer"]
+        Deployment["Deployment<br/>(abstract)<br/>Core operations"]
+    end
 
-    %% Foundry Layers
-    DeploymentFoundry["DeploymentFoundry<br/>(abstract)<br/>✅ Production Scripts"]
-    DeploymentFoundryTest["DeploymentFoundryTest<br/>(abstract)<br/>✅ Test Base"]
+    subgraph foundry["Foundry Layer"]
+        DeploymentFoundry["DeploymentFoundry<br/>(abstract)<br/>✅ Production Scripts"]
+        DeploymentFoundryTest["DeploymentFoundryTest<br/>(abstract)<br/>✅ Test Base"]
+    end
 
-    %% Harbor Layers
-    HarborDeployment["HarborDeployment<br/>(abstract)<br/>Harbor deployment logic"]
-    HarborAutoDeployment["HarborAutoDeployment<br/>(abstract)<br/>Lazy defaults + mocking"]
-    HarborAutoDeploymentFoundry["HarborAutoDeploymentFoundry<br/>Foundry scripts (no auto-deploy)"]
-    HarborAutoDeploymentFoundryTest["HarborAutoDeploymentFoundryTest<br/>✅ Use in Tests"]
+    subgraph harbor["Harbor Layer"]
+        HarborDeployment["HarborDeployment<br/>(abstract)<br/>Harbor deployment logic"]
+        HarborAutoDeployment["HarborAutoDeployment<br/>(abstract)<br/>Lazy defaults + mocking"]
+        HarborAutoDeploymentFoundry["HarborAutoDeploymentFoundry<br/>Foundry scripts (no auto-deploy)"]
+        HarborAutoDeploymentFoundryTest["HarborAutoDeploymentFoundryTest<br/>✅ Use in Tests"]
+    end
 
-    %% Inheritance arrows
-    DeploymentRegistry --> Deployment
-    DeploymentRegistry --> DeploymentRegistryJson
-    Deployment --> DeploymentFoundry
-    Deployment --> HarborDeployment
-    DeploymentFoundry --> DeploymentFoundryTest
-    DeploymentFoundry -.->|mixin| DeploymentRegistryJson
-    HarborDeployment --> HarborAutoDeployment
-    HarborAutoDeployment --> HarborAutoDeploymentFoundry
-    HarborAutoDeployment --> HarborAutoDeploymentFoundryTest
-    DeploymentRegistryJson -.->|mixin| HarborAutoDeploymentFoundry
-    DeploymentFoundryTest --> HarborAutoDeploymentFoundryTest
+    %% Inheritance arrows (child --> parent)
+    Deployment --> DeploymentRegistry
+    DeploymentRegistryJson -.->|uses| DeploymentRegistry
+    DeploymentFoundry --> Deployment
+    DeploymentFoundryTest --> DeploymentFoundry
+    HarborDeployment --> Deployment
+    HarborAutoDeployment --> HarborDeployment
+    HarborAutoDeploymentFoundry --> HarborAutoDeployment
+    HarborAutoDeploymentFoundry -.->|mixin| DeploymentRegistryJson
+    HarborAutoDeploymentFoundryTest --> HarborAutoDeployment
+    HarborAutoDeploymentFoundryTest --> DeploymentFoundryTest
 
     %% Styling
-
     classDef useInProd fill:#90EE90,stroke:#333,stroke-width:2px
     classDef useInTest fill:#87CEEB,stroke:#333,stroke-width:2px
     classDef abstract fill:#FFE4B5,stroke:#333,stroke-width:2px

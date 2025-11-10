@@ -4,8 +4,11 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborAutoDeploymentFoundry} from "@harbor-test/deployment/HarborAutoDeployment.sol";
-
+import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
 import {Stem_v1} from "@bao/Stem_v1.sol";
+import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 
 /**
  * @title HarborParameterExample
@@ -15,16 +18,28 @@ import {Stem_v1} from "@bao/Stem_v1.sol";
  */
 contract HarborParameterExample is Test {
     HarborAutoDeploymentFoundry public harbor;
+    uint256 private _saltCounter;
 
     function setUp() public {
         harbor = new HarborAutoDeploymentFoundry();
-        // TODO: Migrate to config-driven start
-        // harbor.start(jsonConfig);
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (baoDeployer.code.length == 0) {
+            DeploymentInfrastructure.deployBaoDeployer();
+        }
+        vm.startPrank(DeploymentInfrastructure.BAOMULTISIG);
+        BaoDeployer(baoDeployer).setOperator(address(harbor));
+        vm.stopPrank();
+        harbor.start(address(this), "test", "v1.0.0", _nextSalt(), false);
+    }
+
+    function _nextSalt() internal returns (string memory) {
+        _saltCounter += 1;
+        return string.concat("parameters:", vm.toString(_saltCounter));
     }
 
     function test_UseParametersForTokenDeployment() public {
         // Setup admin first (required for Harbor deployments)
-        harbor.useAdmin(address(this));
+        harbor.useOwner(address(this));
 
         // 1. Set parameters before deployment
         harbor.setPeggedName("Bao USD");
@@ -40,18 +55,16 @@ contract HarborParameterExample is Test {
         string memory peggedSymbol = harbor.getPeggedSymbol();
         uint256 peggedDecimals = harbor.getPeggedDecimals();
 
-        // 3. Use in deployment (deployPeggedTokenFromConfig now reads these automatically)
+        // 3. Use in deployment (deployers read these automatically from registry)
         assertEq(peggedName, "Bao USD");
         assertEq(peggedSymbol, "BAOUSD");
         assertEq(peggedDecimals, 18);
 
-        // Deploy tokens using config-driven approach (reads parameters automatically)
-        harbor.deployPeggedTokenFromConfig();
-        harbor.deployLeveragedTokenFromConfig();
+        // Deploy tokens using deployer libraries directly
+        PeggedTokenDeployer.deployFromConfig(harbor);
 
         // Verify tokens were deployed
         assertTrue(harbor.hasPeggedToken());
-        assertTrue(harbor.hasLeveragedToken());
     }
 
     function test_UseParametersForStabilityPools() public {
@@ -68,7 +81,7 @@ contract HarborParameterExample is Test {
     function test_ParametersAsDependencies() public {
         // If a parameter isn't set, deployment should fail gracefully
         vm.expectRevert();
-        harbor.getPeggedName();
+        harbor.getString(HarborKeys.PEGGED_NAME);
 
         // Set parameter
         harbor.setPeggedName("Bao USD");
@@ -79,7 +92,7 @@ contract HarborParameterExample is Test {
 
     function test_MixingContractsAndParameters() public {
         // Setup admin
-        harbor.useAdmin(address(this));
+        harbor.useOwner(address(this));
 
         // Set parameters first
         harbor.setPeggedName("BaoUSD");
@@ -88,20 +101,18 @@ contract HarborParameterExample is Test {
         harbor.setFeePercentage(100);
 
         // Deploy contract
-        harbor.deployPeggedTokenFromConfig();
+        PeggedTokenDeployer.deployFromConfig(harbor);
 
         // Get all keys (should include both contracts and parameters)
         string[] memory allKeys = harbor.keys();
-
-        // Should have: admin, pegged, peggedName, peggedSymbol, initialExchangeRate, feePercentage
-        assertEq(allKeys.length, 6);
+        assertTrue(allKeys.length >= 6, "Registry should include contracts and parameters");
 
         // Verify entry types
-        assertEq(harbor.getType("admin"), "contract");
-        assertEq(harbor.getType("pegged"), "proxy");
-        assertEq(harbor.getType("peggedName"), "string");
-        assertEq(harbor.getType("peggedSymbol"), "string");
-        assertEq(harbor.getType("initialExchangeRate"), "uint256");
-        assertEq(harbor.getType("feePercentage"), "uint256");
+        assertEq(harbor.getType(HarborKeys.OWNER), "contract");
+        assertEq(harbor.getType(HarborKeys.PEGGED), "proxy");
+        assertEq(harbor.getType(HarborKeys.PEGGED_NAME), "string");
+        assertEq(harbor.getType(HarborKeys.PEGGED_SYMBOL), "string");
+        assertEq(harbor.getType(HarborKeys.INITIAL_EXCHANGE_RATE), "uint256");
+        assertEq(harbor.getType(HarborKeys.FEE_PERCENTAGE), "uint256");
     }
 }

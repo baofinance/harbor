@@ -11,7 +11,7 @@ library HarborKeys {
     // Contract Keys
     // =========================================================================
 
-    string internal constant ADMIN = "admin";
+    string internal constant OWNER = "owner";
     string internal constant FEE_RECEIVER = "feeReceiver";
     string internal constant TREASURY = "treasury";
     string internal constant WRAPPED_COLLATERAL = "wrappedCollateral";

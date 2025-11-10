@@ -89,7 +89,7 @@ contract DeploymentSmokeTest is BaoDeploymentTest {
         assertTrue(harbor.hasMinter(), "Minter should be registered");
         assertTrue(harbor.hasPeggedToken(), "Pegged should be registered");
         assertTrue(harbor.hasCollateralToken(), "Collateral should be registered");
-        assertTrue(harbor.hasAdmin(), "Admin should be registered");
+        assertTrue(harbor.hasOwner(), "Admin should be registered");
         console.log("   [OK] All contracts are registered");
 
         console.log("\n=== Full Deployment Test PASSED [OK] ===\n");
@@ -104,10 +104,10 @@ contract DeploymentSmokeTest is BaoDeploymentTest {
 
         // Check all expected contracts exist
         console.log("\n2. Verifying all expected contracts exist...");
-        address admin = harbor.getAdmin();
-        console.log("   [Admin]", admin);
-        assertTrue(harbor.hasAdmin(), "Admin should be registered");
-        assertNotEq(admin, address(0), "Admin should be non-zero");
+        address owner = harbor.getOwner();
+        console.log("   [Owner]", owner);
+        assertTrue(harbor.hasOwner(), "Admin should be registered");
+        assertNotEq(owner, address(0), "Admin should be non-zero");
 
         address wrappedCollateral = harbor.getCollateralToken();
         console.log("   [Wrapped Collateral]", wrappedCollateral);

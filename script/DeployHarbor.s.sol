@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
+import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
 
 /**
  * @title DeployHarbor
@@ -19,7 +20,6 @@ import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymen
  *   - COLLATERAL_TOKEN: Address of wrapped collateral (e.g., wstETH)
  *   - PEGGED_TOKEN: Address of pegged token (e.g., baoUSD) or 0x0 to deploy
  *   - ORACLE_ADDRESS: Address of price oracle
- *   - ADMIN_ADDRESS: Admin address for ownership
  *   - TREASURY: Treasury address (optional, defaults to admin)
  *   - REWARD_MANAGER: Reward manager address
  *   - REWARD_DEPOSITOR: Reward depositor address
@@ -48,7 +48,7 @@ contract DeployHarbor is Script {
         console.log("\n=== Deploying Harbor System ===");
         console.log("Network:", block.chainid);
         console.log("Deployer:", vm.addr(deployerKey));
-        console.log("Admin:", baomultisig);
+        console.log("Owner:", baomultisig);
         console.log("Treasury:", treasuryAddress);
 
         // Create HarborDeployment contract BEFORE broadcast (script-only, not deployed on-chain)
@@ -60,7 +60,7 @@ contract DeployHarbor is Script {
 
         // Now broadcast the actual Harbor contract deployments
         console.log("\n--- Deploying contracts on-chain ---");
-        harbor.useAdmin(baomultisig);
+        harbor.useOwner(baomultisig);
         harbor.useCollateralToken(collateralToken);
 
         // Handle pegged token - use existing or will deploy
@@ -88,26 +88,26 @@ contract DeployHarbor is Script {
         // string memory filename = string.concat("harbor-", vm.toString(block.chainid), ".json");
         // string memory filepath = string.concat("results/deployments/", filename);
         // TODO: how are we going to handle chainid's v meaningful names
-        harbor.start(baomultisig, "eek", "v1.0.0", "Bao.Harbor");
+        harbor.start(baomultisig, "eek", "v1.0.0", "Bao`.Harbor", false);
 
         // Print summary
         console.log("\n=== Deployment Summary ===");
-        console.log("Admin:", harbor.getAdmin());
-        console.log("Fee Receiver:", harbor.getFeeReceiver());
-        console.log("Treasury:", harbor.getTreasury());
-        console.log("Wrapped Collateral:", harbor.getCollateralToken());
-        console.log("Pegged:", harbor.getPeggedToken());
-        console.log("Leveraged:", harbor.getLeveragedToken());
-        console.log("Oracle:", harbor.getOracle());
-        console.log("Reserve Pool:", harbor.getReservePool());
-        console.log("Minter:", harbor.getMinter());
-        console.log("Stability Pool (Collateral):", harbor.getStabilityPoolCollateral());
-        console.log("Stability Pool (Leveraged):", harbor.getStabilityPoolLeveraged());
-        console.log("Stability Pool Manager:", harbor.getStabilityPoolManager());
-        console.log("Genesis:", harbor.getGenesis());
-        console.log("Reward Manager:", harbor.getRewardManager());
-        console.log("Reward Depositor:", harbor.getRewardDepositor());
-        console.log("Rebalancer:", harbor.getRebalancer());
+        console.log("Owner:", harbor.get(HarborKeys.OWNER));
+        console.log("Fee Receiver:", harbor.get(HarborKeys.FEE_RECEIVER));
+        console.log("Treasury:", harbor.get(HarborKeys.TREASURY));
+        console.log("Wrapped Collateral:", harbor.get(HarborKeys.WRAPPED_COLLATERAL));
+        console.log("Pegged:", harbor.get(HarborKeys.PEGGED));
+        console.log("Leveraged:", harbor.get(HarborKeys.LEVERAGED));
+        console.log("Oracle:", harbor.get(HarborKeys.ORACLE));
+        console.log("Reserve Pool:", harbor.get(HarborKeys.RESERVE_POOL));
+        console.log("Minter:", harbor.get(HarborKeys.MINTER));
+        console.log("Stability Pool (Collateral):", harbor.get(HarborKeys.STABILITY_POOL_COLLATERAL));
+        console.log("Stability Pool (Leveraged):", harbor.get(HarborKeys.STABILITY_POOL_LEVERAGED));
+        console.log("Stability Pool Manager:", harbor.get(HarborKeys.STABILITY_POOL_MANAGER));
+        console.log("Genesis:", harbor.get(HarborKeys.GENESIS));
+        console.log("Reward Manager:", harbor.get(HarborKeys.REWARD_MANAGER));
+        console.log("Reward Depositor:", harbor.get(HarborKeys.REWARD_DEPOSITOR));
+        console.log("Rebalancer:", harbor.get(HarborKeys.REBALANCER));
 
         console.log("\n=== Deployment Complete ===");
     }

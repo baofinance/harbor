@@ -35,12 +35,16 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
      */
     function test_startFromJsonConfig() public {
         string memory json = _loadFixture();
-        
+
         harbor.start(json);
 
         // Verify system salt derived from pegged:collateral:
-        assertEq(harbor.getSystemSaltString(), "pegged:wrappedCollateral:", "System salt should be derived from config");
-        
+        assertEq(
+            harbor.getSystemSaltString(),
+            "pegged:wrappedCollateral:",
+            "System salt should be derived from config"
+        );
+
         // Verify owner applied from config
         DeploymentRegistry.DeploymentMetadata memory metadata = harbor.getMetadata();
         assertEq(metadata.owner, CONFIG_OWNER, "Owner should come from config");
@@ -53,7 +57,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
      */
     function test_configAppliedAfterStart() public {
         string memory json = _loadFixture();
-        
+
         harbor.start(json);
 
         // Verify treasury applied
@@ -76,7 +80,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
      */
     function test_resumeValidatesVersion() public {
         string memory json = _loadFixture();
-        
+
         // Start and finish initial deployment
         harbor.start(json);
         harbor.finish();
@@ -95,14 +99,15 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
      */
     function test_revertWhen_resumeVersionMismatch() public {
         string memory json = _loadFixture();
-        
+
         // Start and finish initial deployment
         harbor.start(json);
         harbor.finish();
 
         // Try to resume with different version
-        string memory badJson = '{"schemaVersion":1,"version":"v2.0.0","owner":"0x000000000000000000000000000000000000a002","treasury":"0x000000000000000000000000000000000000a003","pegged":{"registryKey":"pegged","id":"fxSAVE","name":"Bao USD","symbol":"BAOUSD","decimals":18},"collateral":{"registryKey":"wrappedCollateral","address":"0x0000000000000000000000000000000000000001"}}';
-        
+        string
+            memory badJson = '{"schemaVersion":1,"version":"v2.0.0","owner":"0x000000000000000000000000000000000000a002","treasury":"0x000000000000000000000000000000000000a003","pegged":{"registryKey":"pegged","id":"fxSAVE","name":"Bao USD","symbol":"BAOUSD","decimals":18},"collateral":{"registryKey":"wrappedCollateral","address":"0x0000000000000000000000000000000000000001"}}';
+
         HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
         vm.expectRevert();
         harbor2.resume(badJson);

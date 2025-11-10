@@ -8,8 +8,8 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
 import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {FeeReceiverDeployer} from "@harbor-script/deployment/deployers/FeeReceiverDeployer.sol";
+import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
 // TODO: Re-enable as deployers are migrated
-// import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
 // import {LeveragedTokenDeployer} from "@harbor-script/deployment/deployers/LeveragedTokenDeployer.sol";
 // import {ReservePoolDeployer} from "@harbor-script/deployment/deployers/ReservePoolDeployer.sol";
 // import {MinterDeployer} from "@harbor-script/deployment/deployers/MinterDeployer.sol";
@@ -51,19 +51,19 @@ abstract contract HarborDeployment is Deployment {
     /// @param jsonConfig JSON configuration string
     function start(string memory jsonConfig) public virtual {
         DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
-        
+
         // Extract required fields
         address owner = DeploymentConfig.get(config, "", "owner");
         string memory version = DeploymentConfig.getString(config, "", "version");
-        
+
         // Derive system salt from pegged and collateral registry keys
         string memory peggedKey = DeploymentConfig.getString(config, "pegged", "registryKey");
         string memory collateralKey = DeploymentConfig.getString(config, "collateral", "registryKey");
         string memory systemSaltString = string.concat(peggedKey, ":", collateralKey, ":");
-        
+
         // Call base start with empty network
-        Deployment.start(owner, "", version, systemSaltString);
-        
+        Deployment.start(owner, "", version, systemSaltString, false);
+
         // Apply configuration
         _applyDeploymentConfig(config);
     }
@@ -72,23 +72,23 @@ abstract contract HarborDeployment is Deployment {
     /// @param jsonConfig JSON configuration string
     function resume(string memory jsonConfig) public virtual {
         DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
-        
+
         // Extract required fields
         string memory version = DeploymentConfig.getString(config, "", "version");
-        
+
         // Derive system salt from pegged and collateral registry keys
         string memory peggedKey = DeploymentConfig.getString(config, "pegged", "registryKey");
         string memory collateralKey = DeploymentConfig.getString(config, "collateral", "registryKey");
         string memory systemSaltString = string.concat(peggedKey, ":", collateralKey, ":");
-        
+
         // Call base resume with empty network
-        Deployment.resume("", systemSaltString);
-        
+        Deployment.resume("", systemSaltString, false);
+
         // Validate version matches
         if (keccak256(bytes(_metadata.version)) != keccak256(bytes(version))) {
             revert ConfigVersionMismatch(version, _metadata.version);
         }
-        
+
         // Apply configuration
         _applyDeploymentConfig(config);
     }
@@ -257,19 +257,19 @@ abstract contract HarborDeployment is Deployment {
     // ============================================================================
 
     // ============================================================================
-    // Admin
+    // Owner
     // ============================================================================
 
-    function getAdmin() public view virtual returns (address) {
-        return get(HarborKeys.ADMIN);
+    function getOwner() public view virtual returns (address) {
+        return get(HarborKeys.OWNER);
     }
 
-    function hasAdmin() public view returns (bool) {
-        return has(HarborKeys.ADMIN);
+    function hasOwner() public view returns (bool) {
+        return has(HarborKeys.OWNER);
     }
 
-    function useAdmin(address admin) public virtual {
-        useExisting(HarborKeys.ADMIN, admin);
+    function useOwner(address admin) public virtual {
+        useExisting(HarborKeys.OWNER, admin);
     }
 
     // ============================================================================
@@ -290,7 +290,7 @@ abstract contract HarborDeployment is Deployment {
 
     function deployFeeReceiverFromConfig() public virtual returns (address) {
         string memory name = getFeeReceiverName();
-        address admin = getAdmin();
+        address admin = getOwner();
 
         return FeeReceiverDeployer.deploy(this, admin, name);
     }
@@ -353,15 +353,6 @@ abstract contract HarborDeployment is Deployment {
 
     function hasPeggedToken() public view returns (bool) {
         return has(HarborKeys.PEGGED);
-    }
-
-    function deployPeggedTokenFromConfig() public virtual returns (address) {
-        // TODO: Re-enable when PeggedTokenDeployer is migrated
-        revert("deployPeggedTokenFromConfig: not yet migrated");
-        // string memory name = getPeggedName();
-        // string memory symbol = getPeggedSymbol();
-        // address admin = _resolveAdmin();
-        // return PeggedTokenDeployer.deploy(this, admin, name, symbol);
     }
 
     function usePeggedToken(address token) public virtual {

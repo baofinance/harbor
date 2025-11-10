@@ -36,13 +36,25 @@ import {DeploymentFoundry, DeploymentFoundryTest} from "@bao-script/deployment/D
  *        }
  */
 contract HarborDeploymentFoundry is HarborDeployment, DeploymentFoundry {
-    function _getBaseDirPrefix() internal view virtual override(DeploymentRegistry, DeploymentFoundry) returns (string memory) {
+    function _getBaseDirPrefix()
+        internal
+        view
+        virtual
+        override(DeploymentRegistry, DeploymentFoundry)
+        returns (string memory)
+    {
         return DeploymentFoundry._getBaseDirPrefix();
     }
 }
 
 contract HarborDeploymentFoundryTest is HarborDeploymentFoundry, DeploymentFoundryTest {
-    function _getBaseDirPrefix() internal view virtual override(HarborDeploymentFoundry, DeploymentFoundryTest) returns (string memory) {
+    function _getBaseDirPrefix()
+        internal
+        view
+        virtual
+        override(HarborDeploymentFoundry, DeploymentFoundryTest)
+        returns (string memory)
+    {
         return DeploymentFoundryTest._getBaseDirPrefix();
     }
 

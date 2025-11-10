@@ -194,7 +194,13 @@ abstract contract HarborAutoDeployment is HarborDeployment {
 contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistryJson {
     Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    function _getBaseDirPrefix() internal view virtual override(DeploymentRegistry, DeploymentRegistryJson) returns (string memory) {
+    function _getBaseDirPrefix()
+        internal
+        view
+        virtual
+        override(DeploymentRegistry, DeploymentRegistryJson)
+        returns (string memory)
+    {
         if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
             return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
         }

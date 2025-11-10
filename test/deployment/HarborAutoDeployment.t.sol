@@ -9,8 +9,17 @@ import {HarborAutoDeploymentFoundryTest} from "@harbor-test/deployment/HarborAut
  * @notice Demonstrates auto-deploy functionality with recursive dependencies
  */
 contract HarborAutoDeployTest is BaoDeploymentTest {
+    uint256 private _saltCounter;
+
     function setUp() public override {
         super.setUp();
+    }
+
+    function _newHarbor() internal returns (HarborAutoDeploymentFoundryTest harbor) {
+        harbor = new HarborAutoDeploymentFoundryTest();
+        _saltCounter += 1;
+        string memory salt = string.concat("auto:", vm.toString(_saltCounter));
+        harbor.start(address(this), "test", "v1.0.0", salt, false);
     }
 
     /**
@@ -29,7 +38,8 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
         // - MINTER (deployed)
         // - REWARD_MANAGER/DEPOSITOR/REBALANCER (mocked)
         // - STABILITY_POOL_COLLATERAL (deployed)
-        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor = _newHarbor();
+        harbor.useOwner(makeAddr("collateral-owner"));
         address pool = harbor.deployStabilityPoolCollateralFromConfig();
 
         // Verify deployment
@@ -37,7 +47,7 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
         assertTrue(harbor.hasStabilityPoolCollateral(), "Should have pool");
 
         // Verify dependencies were auto-deployed
-        assertTrue(harbor.hasAdmin(), "Should have admin");
+        assertTrue(harbor.hasOwner(), "Should have admin");
         assertTrue(harbor.hasOracle(), "Should have oracle");
         assertTrue(harbor.hasCollateralToken(), "Should have collateral");
         assertTrue(harbor.hasFeeReceiver(), "Should have fee receiver");
@@ -50,7 +60,8 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
      * @notice Test auto-deploy with custom parameters
      */
     function test_autoDeployWithCustomParams() public {
-        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor = _newHarbor();
+        harbor.useOwner(makeAddr("customParams-owner"));
 
         // Set custom parameters before deployment
         harbor.setPeggedName("Custom USD");
@@ -70,7 +81,8 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
      * @notice Test auto-deploy of full system (STABILITY_POOL_MANAGER)
      */
     function test_autoDeployFullSystem() public {
-        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor = _newHarbor();
+        harbor.useOwner(makeAddr("fullSystem-owner"));
 
         // Deploy stability pool manager - this needs EVERYTHING
         address manager = harbor.deployStabilityPoolManagerFromConfig();
@@ -84,11 +96,12 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
     }
 
     function test_autoDeployCreatesDerivedAddresses() public {
-        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor = _newHarbor();
+        harbor.useOwner(makeAddr("derived-owner"));
 
         harbor.deployStabilityPoolManagerFromConfig();
 
-        address admin = harbor.getAdmin();
+        address admin = harbor.getOwner();
         address treasury = harbor.getTreasury();
         address rewardManager = harbor.getRewardManager();
         address rewardDepositor = harbor.getRewardDepositor();
@@ -110,7 +123,10 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
      * @notice Test that defaults are used when params not set
      */
     function test_autoDeployUsesDefaults() public {
-        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor = _newHarbor();
+
+        // Owner required for deployment inputs
+        harbor.useOwner(makeAddr("autoDeploy-owner"));
 
         // Don't set any params - should use defaults
         harbor.deployFeeReceiverFromConfig();
@@ -126,7 +142,9 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
         vm.assume(fee <= 1 ether); // Max 100% fee
 
         // Fresh deployment per fuzz iteration
-        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor = _newHarbor();
+
+        harbor.useOwner(makeAddr(string.concat("fuzz-owner-", vm.toString(fee))));
 
         // Set fuzzed fee
         harbor.setStabilityPoolEarlyWithdrawalFee(fee);
@@ -144,7 +162,9 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
      */
     function test_baseClassWorksWithoutVm() public {
         // This would work in Wake or other frameworks too
-        HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor2 = _newHarbor();
+
+        harbor2.useOwner(makeAddr("baseClass-owner"));
 
         address pool = harbor2.deployStabilityPoolCollateralFromConfig();
 
@@ -156,16 +176,16 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
      * @notice Test mixing useExisting with auto-deploy
      */
     function test_mixUseExistingWithAutoDeploy() public {
-        HarborAutoDeploymentFoundryTest harbor = new HarborAutoDeploymentFoundryTest();
+        HarborAutoDeploymentFoundryTest harbor = _newHarbor();
 
         // Manually set admin first
         address customAdmin = makeAddr("customAdmin");
-        harbor.useAdmin(customAdmin);
+        harbor.useOwner(customAdmin);
 
         // Auto-deploy still works, uses our custom admin
         address pool = harbor.deployStabilityPoolCollateralFromConfig();
 
         assertNotEq(pool, address(0));
-        assertEq(harbor.getAdmin(), customAdmin, "Should use custom admin");
+        assertEq(harbor.getOwner(), customAdmin, "Should use custom admin");
     }
 }

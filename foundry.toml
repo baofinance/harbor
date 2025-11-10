@@ -25,9 +25,9 @@ gas_reports_ignore = [
 
 fs_permissions = [
   { access = "read", path = "./" },
-  { access = "read-write", path = "./results" },
-  { access = "read-write", path = "./log" },
-  { access = "read-write", path = "./deployments" },
+  { access = "read-write", path = "./results" },     # regression files
+  { access = "read-write", path = "./deployments" }, # deployment logs
+  { access = "read-write", path = "./tmp" },         # temp files - can be removed
 ]
 
 gas_limit = "18446744073709551615"

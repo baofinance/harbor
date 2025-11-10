@@ -1,34 +1,28 @@
 {
   "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
   "deployment": {
-    "peggedDecimals": {
-      "type": "uint256",
-      "value": 18
+    "owner": {
+      "address": "0x535119B652d2021c87eE8A7924Ba1752b8f7Ac8d",
+      "blockNumber": 1,
+      "category": "existing",
+      "dryRun": false
     },
     "peggedName": {
       "type": "string",
-      "value": "Bao USD"
+      "value": "Custom USD"
     },
     "peggedSymbol": {
       "type": "string",
-      "value": "BAOUSD"
+      "value": "cUSD"
     },
-    "treasury": {
-      "address": "0x000000000000000000000000000000000000a003",
-      "blockNumber": 1,
-      "category": "existing",
-      "dryRun": false
-    },
-    "wrappedCollateral": {
-      "address": "0x0000000000000000000000000000000000000001",
-      "blockNumber": 1,
-      "category": "existing",
-      "dryRun": false
+    "stabilityPoolEarlyWithdrawalFee": {
+      "type": "uint256",
+      "value": 50000000000000000
     }
   },
-  "network": "",
-  "owner": "0x000000000000000000000000000000000000A002",
-  "saltString": "pegged:wrappedCollateral:",
+  "network": "test",
+  "owner": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
+  "saltString": "auto:1",
   "schemaVersion": 1,
   "version": "v1.0.0",
   "runs": [
