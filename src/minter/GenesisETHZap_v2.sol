@@ -4,24 +4,25 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "src/util/ReentrancyGuard.sol";
 import {IGenesis} from "src/interfaces/IGenesis.sol";
 
 /// @notice Interface for stETH submit function
-interface ISTETH {
+interface ISTETHV2 {
     function submit(address referral) external payable returns (uint256);
 }
 
 /// @notice Interface for wstETH wrap function (not included in IWstETH view-only interface)
-interface IWstETHWrap {
-    function wrap(uint256 _stETHAmount) external returns (uint256);
+interface IWstETHWrapV2 {
+    function wrap(uint256 stEthAmount) external returns (uint256);
 }
 
-/// @title GenesisETHZap
+/// @title GenesisETHZapV2
 /// @notice One-click zapper for depositing ETH into Genesis contracts via wstETH
 /// @dev Enables users to deposit ETH in a single transaction
 /// @dev Flow: ETH → stETH → wstETH → Genesis deposit
 /// @author Harbor Yield Protocol
-contract GenesisETHZap_v1 {
+contract GenesisETHZapV2 is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ============ Constants ============
@@ -32,10 +33,18 @@ contract GenesisETHZap_v1 {
     /// @notice Lido wstETH address (mainnet)
     address public constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
 
+    /// @notice Default referral address for Lido deposits
+    address public constant DEFAULT_REFERRAL = 0x3dFc49e5112005179Da613BdE5973229082dAc35;
+
     // ============ Immutables ============
 
     /// @notice Genesis contract address
     address public immutable GENESIS;
+
+    // ============ Configurable ============
+
+    address public owner;
+    address public referral;
 
     // ============ Events ============
 
@@ -44,16 +53,19 @@ contract GenesisETHZap_v1 {
     /// @param genesis Address of the Genesis contract
     /// @param receiver Address that will receive the Genesis shares
     /// @param ethAmount Amount of ETH deposited
-    /// @param wstETHAmount Amount of wstETH received
+    /// @param wstEthAmount Amount of wstETH received
     /// @param collateralAmount Amount of collateral deposited to Genesis
     event ETHZappedToGenesis(
         address indexed user,
         address indexed genesis,
         address indexed receiver,
         uint256 ethAmount,
-        uint256 wstETHAmount,
+        uint256 wstEthAmount,
         uint256 collateralAmount
     );
+
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event ReferralUpdated(address indexed oldReferral, address indexed newReferral);
 
     // ============ Errors ============
 
@@ -66,11 +78,15 @@ contract GenesisETHZap_v1 {
     /// @notice Thrown when wstETH address doesn't match Genesis collateral token
     error WstETHMismatch(address expected, address provided);
 
+    error Unauthorized();
+    error FunctionNotFound();
+
     // ============ Constructor ============
 
     /// @notice Constructor sets the Genesis address
     /// @param genesis_ Address of the Genesis contract (must accept wstETH as collateral)
-    constructor(address genesis_) {
+    /// @param referral_ Lido referral address (or address(0))
+    constructor(address genesis_, address referral_) {
         if (genesis_ == address(0)) revert InvalidAddress();
 
         // Verify that wstETH matches the Genesis collateral token
@@ -80,6 +96,24 @@ contract GenesisETHZap_v1 {
         }
 
         GENESIS = genesis_;
+        owner = msg.sender;
+
+        address initialReferral = referral_ == address(0) ? DEFAULT_REFERRAL : referral_;
+        referral = initialReferral;
+
+        emit OwnershipTransferred(address(0), msg.sender);
+        emit ReferralUpdated(address(0), initialReferral);
+    }
+
+    // ============ Modifiers ============
+
+    modifier onlyOwner() {
+        _checkOwner();
+        _;
+    }
+
+    function _checkOwner() internal view {
+        if (msg.sender != owner) revert Unauthorized();
     }
 
     // ============ External Functions ============
@@ -88,40 +122,60 @@ contract GenesisETHZap_v1 {
     /// @dev Flow: ETH → stETH → wstETH → Genesis deposit
     /// @param receiver Address that will receive the Genesis shares
     /// @return collateralAmount Amount of collateral deposited to Genesis
-    function zapETHtoGenesis(address receiver) external payable returns (uint256 collateralAmount) {
+    function zapEthToGenesis(address receiver) external payable nonReentrant returns (uint256 collateralAmount) {
         if (msg.value == 0) revert ZeroAmount();
         if (receiver == address(0)) revert InvalidAddress();
 
         uint256 ethAmount = msg.value;
 
         // 1. ETH → stETH via Lido
-        ISTETH stETH = ISTETH(STETH);
-        uint256 stETHReceived = stETH.submit{value: ethAmount}(address(0));
+        uint256 stEthReceived = ISTETHV2(STETH).submit{value: ethAmount}(referral);
 
         // 2. stETH → wstETH
-        IERC20 stETHToken = IERC20(STETH);
-        stETHToken.forceApprove(WSTETH, stETHReceived);
-        uint256 wstETHAmount = IWstETHWrap(WSTETH).wrap(stETHReceived);
+        IERC20(STETH).forceApprove(WSTETH, stEthReceived);
+        uint256 wstEthAmount = IWstETHWrapV2(WSTETH).wrap(stEthReceived);
 
         // 3. wstETH → Genesis deposit
-        IERC20 wstETHToken = IERC20(WSTETH);
-        wstETHToken.forceApprove(GENESIS, wstETHAmount);
-        IGenesis(GENESIS).deposit(wstETHAmount, receiver);
-        collateralAmount = wstETHAmount;
+        IERC20(WSTETH).forceApprove(GENESIS, wstEthAmount);
+        IGenesis(GENESIS).deposit(wstEthAmount, receiver);
 
-        emit ETHZappedToGenesis(msg.sender, GENESIS, receiver, ethAmount, wstETHAmount, collateralAmount);
+        collateralAmount = wstEthAmount;
+
+        emit ETHZappedToGenesis(msg.sender, GENESIS, receiver, ethAmount, wstEthAmount, collateralAmount);
+
+        // Reset allowances after interactions
+        IERC20(STETH).forceApprove(WSTETH, 0);
+        IERC20(WSTETH).forceApprove(GENESIS, 0);
+    }
+
+    // ============ Owner Functions ============
+
+    function setReferral(address newReferral) external onlyOwner {
+        emit ReferralUpdated(referral, newReferral);
+        referral = newReferral;
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert InvalidAddress();
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+
+    function rescueEth() external onlyOwner {
+        payable(owner).transfer(address(this).balance);
+    }
+
+    function rescueToken(address token) external onlyOwner {
+        IERC20(token).safeTransfer(owner, IERC20(token).balanceOf(address(this)));
     }
 
     // ============ Safety Functions ============
 
-    /// @notice Allow contract to receive ETH
     receive() external payable {
-        // Allow receiving ETH for zapETHtoGenesis() function
+        // Allow receiving ETH for zapEthToGenesis() function
     }
 
-    /// @notice Fallback function
     fallback() external payable {
-        revert("Function not found");
+        revert FunctionNotFound();
     }
 }
-

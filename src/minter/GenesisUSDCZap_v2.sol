@@ -4,10 +4,11 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "src/util/ReentrancyGuard.sol";
 import {IGenesis} from "src/interfaces/IGenesis.sol";
 
 /// @notice Interface for the diamond contract's depositToFxSave function
-interface IFxUSDDiamond {
+interface IFxUSDDiamondV2 {
     struct ConvertInParams {
         address tokenIn;
         uint256 amount;
@@ -16,7 +17,7 @@ interface IFxUSDDiamond {
         uint256 minOut;
         bytes signature;
     }
-    
+
     function depositToFxSave(
         ConvertInParams memory params,
         address tokenOut,
@@ -25,12 +26,12 @@ interface IFxUSDDiamond {
     ) external payable;
 }
 
-/// @title GenesisUSDCZap
+/// @title GenesisUSDCZapV2
 /// @notice One-click zapper for depositing USDC into Genesis contracts via fxSAVE
 /// @dev Enables users to deposit USDC in a single transaction
 /// @dev Flow: USDC → fxSAVE → Genesis deposit
 /// @author Harbor Yield Protocol
-contract GenesisUSDCZap_v1 {
+contract GenesisUSDCZapV2 is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ============ Constants ============
@@ -52,6 +53,10 @@ contract GenesisUSDCZap_v1 {
     /// @notice Genesis contract address
     address public immutable GENESIS;
 
+    // ============ Configurable ============
+
+    address public owner;
+
     // ============ Events ============
 
     /// @notice Emitted when USDC is zapped into Genesis
@@ -59,16 +64,18 @@ contract GenesisUSDCZap_v1 {
     /// @param genesis Address of the Genesis contract
     /// @param receiver Address that will receive the Genesis shares
     /// @param usdcAmount Amount of USDC deposited
-    /// @param fxSAVEAmount Amount of fxSAVE received
+    /// @param fxSaveAmount Amount of fxSAVE received
     /// @param collateralAmount Amount of collateral deposited to Genesis
     event USDCZappedToGenesis(
         address indexed user,
         address indexed genesis,
         address indexed receiver,
         uint256 usdcAmount,
-        uint256 fxSAVEAmount,
+        uint256 fxSaveAmount,
         uint256 collateralAmount
     );
+
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     // ============ Errors ============
 
@@ -80,6 +87,9 @@ contract GenesisUSDCZap_v1 {
 
     /// @notice Thrown when fxSAVE address doesn't match Genesis collateral token
     error CollateralMismatch(address expected, address provided);
+
+    error Unauthorized();
+    error FunctionNotFound();
 
     // ============ Constructor ============
 
@@ -95,6 +105,20 @@ contract GenesisUSDCZap_v1 {
         }
 
         GENESIS = genesis_;
+        owner = msg.sender;
+
+        emit OwnershipTransferred(address(0), msg.sender);
+    }
+
+    // ============ Modifiers ============
+
+    modifier onlyOwner() {
+        _checkOwner();
+        _;
+    }
+
+    function _checkOwner() internal view {
+        if (msg.sender != owner) revert Unauthorized();
     }
 
     // ============ External Functions ============
@@ -104,7 +128,10 @@ contract GenesisUSDCZap_v1 {
     /// @param usdcAmount Amount of USDC to zap
     /// @param receiver Address that will receive the Genesis shares
     /// @return collateralAmount Amount of collateral deposited to Genesis
-    function zapUSDCtoGenesis(uint256 usdcAmount, address receiver) external returns (uint256 collateralAmount) {
+    function zapUsdcToGenesis(
+        uint256 usdcAmount,
+        address receiver
+    ) external nonReentrant returns (uint256 collateralAmount) {
         if (usdcAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert InvalidAddress();
 
@@ -112,56 +139,66 @@ contract GenesisUSDCZap_v1 {
         IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
 
         // 2. USDC → fxSAVE via diamond contract
-        // Approve diamond contract to spend USDC
         IERC20 usdcToken = IERC20(USDC);
-        // Reset allowance to 0 first (required for some tokens like USDC)
+
         if (usdcToken.allowance(address(this), FXUSD_DIAMOND) > 0) {
             usdcToken.forceApprove(FXUSD_DIAMOND, 0);
         }
         usdcToken.forceApprove(FXUSD_DIAMOND, usdcAmount);
-        
-        // Call depositToFxSave on the diamond contract
-        // Based on working transaction, target must be the swap router address
-        // The data field contains encoded swap parameters
-        bytes memory swapData = abi.encodeWithSelector(
-            0xed52d54c, // swap function selector
-            USDC, // tokenIn
-            usdcAmount, // amountIn
-            uint256(0), // amountOutMin (0 for no slippage protection)
-            "" // path (empty for direct USDC)
-        );
-        
-        IFxUSDDiamond.ConvertInParams memory params = IFxUSDDiamond.ConvertInParams({
+
+        bytes memory swapData = abi.encodeWithSelector(0xed52d54c, USDC, usdcAmount, uint256(0), "");
+
+        IFxUSDDiamondV2.ConvertInParams memory params = IFxUSDDiamondV2.ConvertInParams({
             tokenIn: USDC,
             amount: usdcAmount,
-            target: FXUSD_SWAP_ROUTER, // Swap router address (required for conversion)
-            data: swapData, // Swap data for converting USDC
-            minOut: 0, // No minimum output
-            signature: "" // No signature needed
+            target: FXUSD_SWAP_ROUTER,
+            data: swapData,
+            minOut: 0,
+            signature: ""
         });
-        
-        // Get fxSAVE balance before deposit
-        uint256 fxSAVEBalanceBefore = IERC20(FXSAVE).balanceOf(address(this));
-        
-        // Deposit via diamond contract
-        // tokenOut is USDC (as shown in the example transaction data)
-        IFxUSDDiamond(FXUSD_DIAMOND).depositToFxSave{value: 0}(
-            params,
-            USDC, // tokenOut: USDC (as per the example transaction)
-            0, // minShares: 0 (no slippage protection for now)
-            address(this) // receiver: zap contract receives fxSAVE shares
-        );
-        
-        // Calculate fxSAVE amount received
-        uint256 fxSAVEAmount = IERC20(FXSAVE).balanceOf(address(this)) - fxSAVEBalanceBefore;
+
+        uint256 fxSaveBalanceBefore = IERC20(FXSAVE).balanceOf(address(this));
+
+        IFxUSDDiamondV2(FXUSD_DIAMOND).depositToFxSave{value: 0}(params, USDC, 0, address(this));
+
+        uint256 fxSaveAmount = IERC20(FXSAVE).balanceOf(address(this)) - fxSaveBalanceBefore;
 
         // 3. fxSAVE → Genesis deposit
-        IERC20 fxsaveToken = IERC20(FXSAVE);
-        fxsaveToken.forceApprove(GENESIS, fxSAVEAmount);
-        IGenesis(GENESIS).deposit(fxSAVEAmount, receiver);
-        collateralAmount = fxSAVEAmount;
+        IERC20(FXSAVE).forceApprove(GENESIS, fxSaveAmount);
+        IGenesis(GENESIS).deposit(fxSaveAmount, receiver);
 
-        emit USDCZappedToGenesis(msg.sender, GENESIS, receiver, usdcAmount, fxSAVEAmount, collateralAmount);
+        collateralAmount = fxSaveAmount;
+
+        emit USDCZappedToGenesis(msg.sender, GENESIS, receiver, usdcAmount, fxSaveAmount, collateralAmount);
+
+        // Reset allowances to limit exposure
+        usdcToken.forceApprove(FXUSD_DIAMOND, 0);
+        IERC20(FXSAVE).forceApprove(GENESIS, 0);
+    }
+
+    // ============ Owner Functions ============
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert InvalidAddress();
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+
+    function rescueEth() external onlyOwner {
+        payable(owner).transfer(address(this).balance);
+    }
+
+    function rescueToken(address token) external onlyOwner {
+        IERC20(token).safeTransfer(owner, IERC20(token).balanceOf(address(this)));
+    }
+
+    // ============ Safety Functions ============
+
+    receive() external payable {
+        // Allow contract to receive ETH for recovery
+    }
+
+    fallback() external payable {
+        revert FunctionNotFound();
     }
 }
-

@@ -20,4 +20,3 @@ contract MockStETH is ERC20 {
     /// @notice Allow contract to receive ETH
     receive() external payable {}
 }
-

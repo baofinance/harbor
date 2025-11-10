@@ -1,147 +1,144 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {UnsafeUpgrades} from "../lib/openzeppelin-foundry-upgrades/src/Upgrades.sol";
 
-import {GenesisETHZap_v1} from "src/minter/GenesisETHZap_v1.sol";
+import {GenesisETHZapV2} from "src/minter/GenesisETHZap_v2.sol";
 import {Genesis_v1} from "src/minter/Genesis_v1.sol";
 import {IGenesis} from "src/interfaces/IGenesis.sol";
 
 import {TestMinterSetUp} from "test/Minter_base.t.sol";
+import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {MockERC20} from "test/mock/MockERC20.sol";
 
-contract GenesisETHZapTest is TestMinterSetUp {
-    GenesisETHZap_v1 zap;
+contract GenesisETHZapForkTest is TestMinterSetUp {
+    GenesisETHZapV2 zap;
     address genesis;
     address genesisImpl;
     address user1;
     address receiver;
 
+    // Mainnet Lido addresses
+    address constant STETH = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
+    address constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
+
+    function setUpFork() internal override {
+        vm.createSelectFork(vm.rpcUrl("mainnet"));
+
+        feeReceiver = makeAddr("feeReceiver");
+        owner = makeAddr("owner");
+
+        priceOracle = address(new MockWrappedPriceOracle());
+        vm.label(priceOracle, "priceOracle");
+
+        setUp_leveragedToken();
+        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
+        vm.label(peggedToken, "pegged");
+        peggedTokenBurnSig = "burnFrom(address,uint256)";
+
+        wrappedCollateralToken = WSTETH;
+        collateralToken = STETH;
+
+        setUp_reservePool();
+    }
+
     function setUp() public override {
         super.setUp();
 
-        // Set up Genesis contract with wstETH as collateral (from TestMinterSetUp)
-        setUp_genesisImplementation();
-        setUp_genesisProxy();
+        genesisImpl = address(new Genesis_v1(minter));
+        genesis = UnsafeUpgrades.deployUUPSProxy(genesisImpl, abi.encodeCall(Genesis_v1.initialize, owner));
+        vm.label(genesis, "Genesis");
 
-        // Set up zap contract (uses real STETH and WSTETH from mainnet fork)
-        zap = new GenesisETHZap_v1(genesis);
-        vm.label(address(zap), "GenesisETHZap");
+        zap = new GenesisETHZapV2(genesis, address(0));
+        vm.label(address(zap), "GenesisETHZapV2");
 
         user1 = makeAddr("user1");
         receiver = makeAddr("receiver");
 
-        // Give user ETH
         vm.deal(user1, 100 ether);
     }
 
-    function setUp_genesisImplementation() internal {
-        // We need to deploy a minter that uses wstETH as collateral
-        // For now, we'll use the existing minter setup which should use wstETH
-        genesisImpl = address(new Genesis_v1(minter));
-    }
-
-    function setUp_genesisProxy() internal {
-        genesis = UnsafeUpgrades.deployUUPSProxy(
-            genesisImpl,
-            abi.encodeCall(Genesis_v1.initialize, owner)
-        );
-        vm.label(genesis, "Genesis");
-    }
-
-    function test_ZapETHtoGenesis_Success() public {
+    function test_ZapEthToGenesis_Success() public {
         uint256 ethAmount = 1 ether;
 
         vm.startPrank(user1);
 
-        uint256 genesisBalanceBefore = IGenesis(genesis).balanceOf(receiver);
-        uint256 wstETHBalanceBefore = IERC20(wrappedCollateralToken).balanceOf(genesis);
+        uint256 genesisBalBefore = IGenesis(genesis).balanceOf(receiver);
+        uint256 wstEthBalBefore = IERC20(WSTETH).balanceOf(genesis);
 
-        uint256 collateralAmount = zap.zapETHtoGenesis{value: ethAmount}(receiver);
+        uint256 collateralAmount = zap.zapEthToGenesis{value: ethAmount}(receiver);
 
         vm.stopPrank();
 
-        // Console log the deposit values
-        uint256 genesisBalanceAfter = IGenesis(genesis).balanceOf(receiver);
-        uint256 wstETHBalanceAfter = IERC20(wrappedCollateralToken).balanceOf(genesis);
-        
-        console.log("=== ETH Zap to Genesis Deposit ===");
-        console.log("User Address (user1):", user1);
-        console.log("Receiver Address:", receiver);
-        console.log("ETH Amount Deposited:", ethAmount);
-        console.log("wstETH Amount Received:", collateralAmount);
-        console.log("");
-        console.log("--- Receiver's Contribution to Genesis ---");
-        console.log("Receiver Genesis Balance Before:", genesisBalanceBefore);
-        console.log("Receiver Genesis Balance After:", genesisBalanceAfter);
-        console.log("Receiver Genesis Balance Increase:", genesisBalanceAfter - genesisBalanceBefore);
-        console.log("");
-        console.log("--- Genesis Contract State ---");
-        console.log("wstETH in Genesis Before:", wstETHBalanceBefore);
-        console.log("wstETH in Genesis After:", wstETHBalanceAfter);
-        console.log("wstETH in Genesis Increase:", wstETHBalanceAfter - wstETHBalanceBefore);
-        console.log("");
-        console.log("--- User Balances ---");
-        console.log("User ETH Balance Remaining:", user1.balance);
-        console.log("================================");
+        uint256 genesisBalAfter = IGenesis(genesis).balanceOf(receiver);
+        uint256 wstEthBalAfter = IERC20(WSTETH).balanceOf(genesis);
 
-        // Check balances
-        assertEq(genesisBalanceAfter, genesisBalanceBefore + collateralAmount, "Genesis balance should increase");
-        assertEq(wstETHBalanceAfter, wstETHBalanceBefore + collateralAmount, "Genesis should receive wstETH");
-        assertEq(user1.balance, 100 ether - ethAmount, "User ETH should decrease");
+        console.log("=== ETH Zap v2 Success ===");
+        console.log("ETH Deposited:", ethAmount);
+        console.log("wstETH Received:", collateralAmount);
+        console.log("Genesis Shares Minted:", genesisBalAfter - genesisBalBefore);
+        console.log("wstETH in Genesis:", wstEthBalAfter);
+        console.log("User ETH Left:", user1.balance);
+        console.log("==========================");
+
+        assertGt(collateralAmount, 0, "Should receive wstETH");
+        assertEq(genesisBalAfter, genesisBalBefore + collateralAmount, "Shares mismatch");
+        assertEq(wstEthBalAfter, wstEthBalBefore + collateralAmount, "wstETH not deposited");
+        assertEq(user1.balance, 100 ether - ethAmount, "User ETH not deducted");
+
+        // Allowances should be cleared
+        assertEq(IERC20(STETH).allowance(address(zap), WSTETH), 0, "stETH allowance not cleared");
+        assertEq(IERC20(WSTETH).allowance(address(zap), genesis), 0, "wstETH allowance not cleared");
     }
 
-    function test_ZapETHtoGenesis_ZeroAmount() public {
+    function test_ZapEthToGenesis_ZeroAmount() public {
         vm.startPrank(user1);
 
-        vm.expectRevert(GenesisETHZap_v1.ZeroAmount.selector);
-        zap.zapETHtoGenesis{value: 0}(receiver);
+        vm.expectRevert(GenesisETHZapV2.ZeroAmount.selector);
+        zap.zapEthToGenesis{value: 0}(receiver);
 
         vm.stopPrank();
     }
 
-    function test_ZapETHtoGenesis_InvalidReceiver() public {
+    function test_ZapEthToGenesis_InvalidReceiver() public {
         uint256 ethAmount = 1 ether;
 
         vm.startPrank(user1);
 
-        vm.expectRevert(GenesisETHZap_v1.InvalidAddress.selector);
-        zap.zapETHtoGenesis{value: ethAmount}(address(0));
+        vm.expectRevert(GenesisETHZapV2.InvalidAddress.selector);
+        zap.zapEthToGenesis{value: ethAmount}(address(0));
 
         vm.stopPrank();
     }
 
-    function test_ZapETHtoGenesis_Event() public {
+    function test_ZapEthToGenesis_Event() public {
         uint256 ethAmount = 1 ether;
 
         vm.startPrank(user1);
 
-        // Check only the indexed parameters (user, genesis, receiver)
-        // wstETHAmount and collateralAmount are non-indexed and will have actual values
         vm.expectEmit(true, true, true, false);
-        emit GenesisETHZap_v1.ETHZappedToGenesis(user1, genesis, receiver, ethAmount, 0, 0);
+        emit GenesisETHZapV2.ETHZappedToGenesis(user1, genesis, receiver, ethAmount, 0, 0);
 
-        zap.zapETHtoGenesis{value: ethAmount}(receiver);
+        zap.zapEthToGenesis{value: ethAmount}(receiver);
 
         vm.stopPrank();
     }
 
-    function test_ZapETHtoGenesis_MultipleDeposits() public {
-        uint256 ethAmount1 = 1 ether;
-        uint256 ethAmount2 = 2 ether;
+    function test_ZapEthToGenesis_MultipleDeposits() public {
+        uint256 eth1 = 1 ether;
+        uint256 eth2 = 2 ether;
 
         vm.startPrank(user1);
 
-        uint256 collateralAmount1 = zap.zapETHtoGenesis{value: ethAmount1}(receiver);
-        uint256 collateralAmount2 = zap.zapETHtoGenesis{value: ethAmount2}(receiver);
+        uint256 col1 = zap.zapEthToGenesis{value: eth1}(receiver);
+        uint256 col2 = zap.zapEthToGenesis{value: eth2}(receiver);
 
         vm.stopPrank();
 
-        uint256 totalCollateral = collateralAmount1 + collateralAmount2;
-        assertEq(IGenesis(genesis).balanceOf(receiver), totalCollateral, "Total Genesis balance should match");
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(genesis), totalCollateral, "Total wstETH in Genesis should match");
+        uint256 total = col1 + col2;
+        assertEq(IGenesis(genesis).balanceOf(receiver), total, "Total shares wrong");
+        assertEq(IERC20(WSTETH).balanceOf(genesis), total, "Total wstETH wrong");
     }
 }
-

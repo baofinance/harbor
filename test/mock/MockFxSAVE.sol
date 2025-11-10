@@ -49,4 +49,3 @@ contract MockFxSAVE is ERC20 {
         return (shares * exchangeRate) / 1e18;
     }
 }
-
