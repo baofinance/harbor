@@ -2,10 +2,10 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {DeploymentFoundry, DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
+import {DeploymentRegistryJson, VM} from "@bao-script/deployment/DeploymentRegistryJson.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 
 /**
  * @title HarborDeploymentFoundry
@@ -35,74 +35,37 @@ import {DeploymentFoundry, DeploymentFoundryTest} from "@bao-script/deployment/D
  *            }
  *        }
  */
-contract HarborDeploymentFoundry is HarborDeployment, DeploymentFoundry {
-    function start(
-        DeploymentConfig.SourceJson memory config,
-        string memory network,
-        bool dryRun
-    ) public virtual override(HarborDeployment, Deployment) {
-        super.start(config, network, dryRun);
-    }
-
-    function resume(
-        DeploymentConfig.SourceJson memory config,
-        string memory network,
-        bool dryRun
-    ) public virtual override(HarborDeployment, Deployment) {
-        super.resume(config, network, dryRun);
-    }
-
-    function _deriveSystemSalt(
-        DeploymentConfig.SourceJson memory config
-    ) internal view virtual override(HarborDeployment, Deployment) returns (string memory) {
-        return super._deriveSystemSalt(config);
+contract HarborDeploymentFoundry is HarborDeployment, DeploymentRegistryJson {
+    function labelAddress(address addr, string memory label) public {
+        VM.label(addr, label);
     }
 
     function _getBaseDirPrefix()
         internal
         view
         virtual
-        override(DeploymentRegistry, DeploymentFoundry)
+        override(DeploymentRegistry, DeploymentRegistryJson)
         returns (string memory)
     {
-        return DeploymentFoundry._getBaseDirPrefix();
+        return DeploymentRegistryJson._getBaseDirPrefix();
     }
 }
 
-contract HarborDeploymentFoundryTest is HarborDeploymentFoundry, DeploymentFoundryTest {
-    function start(
-        DeploymentConfig.SourceJson memory config,
-        string memory network,
-        bool dryRun
-    ) public virtual override(HarborDeploymentFoundry, Deployment) {
-        super.start(config, network, dryRun);
+contract HarborDeploymentFoundryTest is HarborDeploymentFoundry {
+    function _getBaseDirPrefix() internal view virtual override(HarborDeploymentFoundry) returns (string memory) {
+        if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
+            return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
+        }
+        return "results";
     }
 
-    function resume(
-        DeploymentConfig.SourceJson memory config,
-        string memory network,
-        bool dryRun
-    ) public virtual override(HarborDeploymentFoundry, Deployment) {
-        super.resume(config, network, dryRun);
-    }
-
-    function _deriveSystemSalt(
-        DeploymentConfig.SourceJson memory config
-    ) internal view virtual override(HarborDeploymentFoundry, Deployment) returns (string memory) {
-        return super._deriveSystemSalt(config);
-    }
-
-    function _getBaseDirPrefix()
-        internal
-        view
-        virtual
-        override(HarborDeploymentFoundry, DeploymentFoundryTest)
-        returns (string memory)
-    {
-        return DeploymentFoundryTest._getBaseDirPrefix();
-    }
-
-    function _ensureBaoDeployerOperator() internal override(DeploymentFoundryTest, Deployment) {
-        DeploymentFoundryTest._ensureBaoDeployerOperator();
+    function _ensureBaoDeployerOperator() internal virtual override {
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
+            VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
+            BaoDeployer(baoDeployer).setOperator(address(this));
+            VM.stopPrank();
+        }
+        super._ensureBaoDeployerOperator();
     }
 }

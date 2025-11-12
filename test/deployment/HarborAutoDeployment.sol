@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Vm} from "forge-std/Vm.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
-import {DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
+import {DeploymentRegistryJson, VM} from "@bao-script/deployment/DeploymentRegistryJson.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
@@ -193,8 +191,6 @@ abstract contract HarborAutoDeployment is HarborDeployment {
  *      Writes to deployments/ directory (production)
  */
 contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistryJson {
-    Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-
     function _getBaseDirPrefix()
         internal
         view
@@ -216,40 +212,14 @@ contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistry
  *      Auto-deploys BaoDeployer, writes to results/ directory
  *      Inherits from DeploymentFoundryTest for test infrastructure
  */
-contract HarborAutoDeploymentFoundryTest is HarborAutoDeployment, DeploymentFoundryTest {
-    function start(
-        DeploymentConfig.SourceJson memory config,
-        string memory network,
-        bool dryRun
-    ) public virtual override(HarborDeployment, Deployment) {
-        super.start(config, network, dryRun);
-    }
-
-    function resume(
-        DeploymentConfig.SourceJson memory config,
-        string memory network,
-        bool dryRun
-    ) public virtual override(HarborDeployment, Deployment) {
-        super.resume(config, network, dryRun);
-    }
-
-    function _deriveSystemSalt(
-        DeploymentConfig.SourceJson memory config
-    ) internal view virtual override(HarborDeployment, Deployment) returns (string memory) {
-        return super._deriveSystemSalt(config);
-    }
-
-    function _ensureBaoDeployerOperator() internal virtual override(Deployment, DeploymentFoundryTest) {
-        DeploymentFoundryTest._ensureBaoDeployerOperator();
-    }
-
-    function _getBaseDirPrefix()
-        internal
-        view
-        virtual
-        override(DeploymentFoundryTest, DeploymentRegistry)
-        returns (string memory)
-    {
-        return DeploymentFoundryTest._getBaseDirPrefix();
+contract HarborAutoDeploymentFoundryTest is HarborAutoDeploymentFoundry {
+    function _ensureBaoDeployerOperator() internal virtual override {
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
+            VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
+            BaoDeployer(baoDeployer).setOperator(address(this));
+            VM.stopPrank();
+        }
+        super._ensureBaoDeployerOperator();
     }
 }
