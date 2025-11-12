@@ -85,10 +85,14 @@ contract DeployHarbor is Script {
 
         // Save deployment
         console.log("\n--- Saving deployment ---");
-        // string memory filename = string.concat("harbor-", vm.toString(block.chainid), ".json");
-        // string memory filepath = string.concat("results/deployments/", filename);
-        // TODO: how are we going to handle chainid's v meaningful names
-        harbor.start(baomultisig, "eek", "v1.0.0", "Bao`.Harbor", false);
+    string memory networkLabel = vm.envOr("DEPLOYMENT_NETWORK", string.concat("chain-", vm.toString(block.chainid)));
+
+        string memory config = string.concat(
+            '{"schemaVersion":1,"version":"v1.0.0","owner":"',
+            vm.toString(baomultisig),
+            '","pegged":{"registryKey":"pegged"},"collateral":{"registryKey":"wrappedCollateral"}}'
+        );
+    harbor.start(config, networkLabel, false);
 
         // Print summary
         console.log("\n=== Deployment Summary ===");

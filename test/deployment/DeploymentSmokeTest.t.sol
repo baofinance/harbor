@@ -19,13 +19,29 @@ import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
  */
 contract DeploymentSmokeTest is BaoDeploymentTest {
     HarborAutoDeploymentFoundryTest public harbor;
+    uint256 private _networkCounter;
 
     function setUp() public override {
         super.setUp();
 
         harbor = new HarborAutoDeploymentFoundryTest();
-        // TODO: Migrate to config-driven start
-        // harbor.start(jsonConfig);
+        string memory network = _nextNetwork();
+        harbor.start(_buildConfig(makeAddr("deployment-smoke-owner")), network, false);
+    }
+
+    function _nextNetwork() internal returns (string memory) {
+        _networkCounter += 1;
+        return string.concat("smoke:", vm.toString(_networkCounter));
+    }
+
+    function _buildConfig(address owner) internal pure returns (string memory) {
+        string memory json = string.concat('{"schemaVersion":1,"version":"v1.0.0","owner":"', vm.toString(owner), '"');
+
+        json = string.concat(
+            json,
+            ',"pegged":{"registryKey":"pegged"},"collateral":{"registryKey":"wrappedCollateral"}}'
+        );
+        return json;
     }
 
     // ============================================================================

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Vm} from "forge-std/Vm.sol";
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentFoundry, DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
 
@@ -36,6 +36,28 @@ import {DeploymentFoundry, DeploymentFoundryTest} from "@bao-script/deployment/D
  *        }
  */
 contract HarborDeploymentFoundry is HarborDeployment, DeploymentFoundry {
+    function start(
+        DeploymentConfig.SourceJson memory config,
+        string memory network,
+        bool dryRun
+    ) public virtual override(HarborDeployment, Deployment) {
+        super.start(config, network, dryRun);
+    }
+
+    function resume(
+        DeploymentConfig.SourceJson memory config,
+        string memory network,
+        bool dryRun
+    ) public virtual override(HarborDeployment, Deployment) {
+        super.resume(config, network, dryRun);
+    }
+
+    function _deriveSystemSalt(
+        DeploymentConfig.SourceJson memory config
+    ) internal view virtual override(HarborDeployment, Deployment) returns (string memory) {
+        return super._deriveSystemSalt(config);
+    }
+
     function _getBaseDirPrefix()
         internal
         view
@@ -48,6 +70,28 @@ contract HarborDeploymentFoundry is HarborDeployment, DeploymentFoundry {
 }
 
 contract HarborDeploymentFoundryTest is HarborDeploymentFoundry, DeploymentFoundryTest {
+    function start(
+        DeploymentConfig.SourceJson memory config,
+        string memory network,
+        bool dryRun
+    ) public virtual override(HarborDeploymentFoundry, Deployment) {
+        super.start(config, network, dryRun);
+    }
+
+    function resume(
+        DeploymentConfig.SourceJson memory config,
+        string memory network,
+        bool dryRun
+    ) public virtual override(HarborDeploymentFoundry, Deployment) {
+        super.resume(config, network, dryRun);
+    }
+
+    function _deriveSystemSalt(
+        DeploymentConfig.SourceJson memory config
+    ) internal view virtual override(HarborDeploymentFoundry, Deployment) returns (string memory) {
+        return super._deriveSystemSalt(config);
+    }
+
     function _getBaseDirPrefix()
         internal
         view

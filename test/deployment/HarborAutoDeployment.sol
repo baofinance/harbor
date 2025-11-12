@@ -2,10 +2,11 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
 import {DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
@@ -216,6 +217,28 @@ contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistry
  *      Inherits from DeploymentFoundryTest for test infrastructure
  */
 contract HarborAutoDeploymentFoundryTest is HarborAutoDeployment, DeploymentFoundryTest {
+    function start(
+        DeploymentConfig.SourceJson memory config,
+        string memory network,
+        bool dryRun
+    ) public virtual override(HarborDeployment, Deployment) {
+        super.start(config, network, dryRun);
+    }
+
+    function resume(
+        DeploymentConfig.SourceJson memory config,
+        string memory network,
+        bool dryRun
+    ) public virtual override(HarborDeployment, Deployment) {
+        super.resume(config, network, dryRun);
+    }
+
+    function _deriveSystemSalt(
+        DeploymentConfig.SourceJson memory config
+    ) internal view virtual override(HarborDeployment, Deployment) returns (string memory) {
+        return super._deriveSystemSalt(config);
+    }
+
     function _ensureBaoDeployerOperator() internal virtual override(Deployment, DeploymentFoundryTest) {
         DeploymentFoundryTest._ensureBaoDeployerOperator();
     }

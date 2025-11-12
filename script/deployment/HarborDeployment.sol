@@ -37,57 +37,40 @@ abstract contract HarborDeployment is Deployment {
     address private _stemImplementation;
 
     // ============================================================================
-    // Errors
-    // ============================================================================
-
-    error ConfigVersionMismatch(string configVersion, string registryVersion);
-    error ConfigMissingField(string field);
-
-    // ============================================================================
     // Lifecycle Overrides
     // ============================================================================
 
-    /// @notice Start a fresh deployment session from JSON config
-    /// @param jsonConfig JSON configuration string
-    function start(string memory jsonConfig) public virtual {
-        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
+    /// @notice Start a deployment with optional dry-run flag
+    /// @param config Parsed deployment configuration
+    /// @param network Network label used for deployment logs
+    /// @param dryRun Whether to enable dry-run mode for this session
+    function start(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun)
+        public
+        virtual
+        override(Deployment)
+    {
+        super.start(config, network, dryRun);
 
-        // Extract required fields
-        address owner = DeploymentConfig.get(config, "", "owner");
-        string memory version = DeploymentConfig.getString(config, "", "version");
-
-        // Derive system salt from pegged and collateral registry keys
-        string memory peggedKey = DeploymentConfig.getString(config, "pegged", "registryKey");
-        string memory collateralKey = DeploymentConfig.getString(config, "collateral", "registryKey");
-        string memory systemSaltString = string.concat(peggedKey, ":", collateralKey, ":");
-
-        // Call base start with empty network
-        Deployment.start(owner, "", version, systemSaltString, false);
+        // Ensure registry owner mirrors metadata owner
+        _applyOwnerConfig(DeploymentConfig.get(config, "", "owner"));
 
         // Apply configuration
         _applyDeploymentConfig(config);
     }
 
-    /// @notice Resume deployment from JSON config
-    /// @param jsonConfig JSON configuration string
-    function resume(string memory jsonConfig) public virtual {
-        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
+    /// @notice Resume deployment with optional dry-run flag
+    /// @param config Parsed deployment configuration
+    /// @param network Network label used for deployment logs
+    /// @param dryRun Whether to enable dry-run mode for this session
+    function resume(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun)
+        public
+        virtual
+        override(Deployment)
+    {
+        super.resume(config, network, dryRun);
 
-        // Extract required fields
-        string memory version = DeploymentConfig.getString(config, "", "version");
-
-        // Derive system salt from pegged and collateral registry keys
-        string memory peggedKey = DeploymentConfig.getString(config, "pegged", "registryKey");
-        string memory collateralKey = DeploymentConfig.getString(config, "collateral", "registryKey");
-        string memory systemSaltString = string.concat(peggedKey, ":", collateralKey, ":");
-
-        // Call base resume with empty network
-        Deployment.resume("", systemSaltString, false);
-
-        // Validate version matches
-        if (keccak256(bytes(_metadata.version)) != keccak256(bytes(version))) {
-            revert ConfigVersionMismatch(version, _metadata.version);
-        }
+        // Ensure registry owner mirrors metadata owner
+        _applyOwnerConfig(DeploymentConfig.get(config, "", "owner"));
 
         // Apply configuration
         _applyDeploymentConfig(config);
@@ -101,6 +84,26 @@ abstract contract HarborDeployment is Deployment {
         _applyTreasuryConfig(config);
         _applyPeggedConfig(config);
         _applyCollateralConfig(config);
+    }
+
+    function _deriveSystemSalt(
+        DeploymentConfig.SourceJson memory config
+    ) internal view virtual override returns (string memory) {
+        string memory peggedKey = DeploymentConfig.getString(config, "pegged", "registryKey");
+        string memory collateralKey = DeploymentConfig.getString(config, "collateral", "registryKey");
+        return string.concat(peggedKey, ":", collateralKey, ":");
+    }
+
+    function _applyOwnerConfig(address owner) internal {
+        if (!hasOwner()) {
+            useExisting(HarborKeys.OWNER, owner);
+            return;
+        }
+
+        address currentOwner = get(HarborKeys.OWNER);
+        if (currentOwner != owner) {
+            revert ConfigOwnerMismatch(owner, currentOwner);
+        }
     }
 
     function _applyTreasuryConfig(DeploymentConfig.SourceJson memory config) internal {

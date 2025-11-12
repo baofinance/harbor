@@ -18,7 +18,7 @@ import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
  */
 contract HarborParameterExample is Test {
     HarborAutoDeploymentFoundry public harbor;
-    uint256 private _saltCounter;
+    uint256 private _networkCounter;
 
     function setUp() public {
         harbor = new HarborAutoDeploymentFoundry();
@@ -29,17 +29,27 @@ contract HarborParameterExample is Test {
         vm.startPrank(DeploymentInfrastructure.BAOMULTISIG);
         BaoDeployer(baoDeployer).setOperator(address(harbor));
         vm.stopPrank();
-        harbor.start(address(this), "test", "v1.0.0", _nextSalt(), false);
+        string memory network = _nextNetwork();
+        harbor.start(_buildConfig(address(this)), network, false);
     }
 
-    function _nextSalt() internal returns (string memory) {
-        _saltCounter += 1;
-        return string.concat("parameters:", vm.toString(_saltCounter));
+    function _buildConfig(address owner) internal pure returns (string memory) {
+        string memory json = string.concat('{"schemaVersion":1,"version":"v1.0.0","owner":"', vm.toString(owner), '"');
+
+        json = string.concat(
+            json,
+            ',"pegged":{"registryKey":"pegged"},"collateral":{"registryKey":"wrappedCollateral"}}'
+        );
+        return json;
+    }
+
+    function _nextNetwork() internal returns (string memory) {
+        _networkCounter += 1;
+        return string.concat("parameters:", vm.toString(_networkCounter));
     }
 
     function test_UseParametersForTokenDeployment() public {
         // Setup admin first (required for Harbor deployments)
-        harbor.useOwner(address(this));
 
         // 1. Set parameters before deployment
         harbor.setPeggedName("Bao USD");
@@ -92,7 +102,6 @@ contract HarborParameterExample is Test {
 
     function test_MixingContractsAndParameters() public {
         // Setup admin
-        harbor.useOwner(address(this));
 
         // Set parameters first
         harbor.setPeggedName("BaoUSD");

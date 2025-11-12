@@ -8,6 +8,7 @@ import {HarborAutoDeploymentFoundryTest} from "@harbor-test/deployment/HarborAut
 import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 
 /**
  * @title PeggedTokenDeployerTest
@@ -18,11 +19,28 @@ contract PeggedTokenDeployerTest is Test {
 
     HarborAutoDeploymentFoundryTest public harbor;
     address public owner = address(0x1234);
+    uint256 private _runId;
 
     function setUp() public {
+        _runId += 1;
         harbor = new HarborAutoDeploymentFoundryTest();
         harbor.deployBaoDeployer();
-        harbor.start(owner, "test", "v1.0.0", "test:system:", false);
+        string memory network = string.concat("pegged:", vm.toString(_runId));
+        harbor.start(_buildConfig(owner), network, false);
+    }
+
+    function _buildConfig(address configOwner) internal pure returns (string memory) {
+        string memory json = string.concat(
+            '{"schemaVersion":1,"version":"v1.0.0","owner":"',
+            vm.toString(configOwner),
+            '"'
+        );
+
+        json = string.concat(
+            json,
+            ',"pegged":{"registryKey":"pegged"},"collateral":{"registryKey":"wrappedCollateral"}}'
+        );
+        return json;
     }
 
     function test_deploy_withExplicitParams() public {
@@ -42,7 +60,6 @@ contract PeggedTokenDeployerTest is Test {
 
     function test_deployFromConfig_lazyLoading() public {
         // Set admin first (required)
-        harbor.useOwner(owner);
 
         // Set parameters in registry (simulating config load)
         harbor.setPeggedName("Test USD");
@@ -61,10 +78,7 @@ contract PeggedTokenDeployerTest is Test {
     }
 
     function test_deployFromConfig_usesAdmin() public {
-        address customAdmin = address(0x5678);
-
         // Set parameters
-        harbor.useOwner(customAdmin);
         harbor.setPeggedName("Admin Test");
         harbor.setPeggedSymbol("ADMIN");
 
@@ -85,11 +99,28 @@ contract PeggedTokenDeployerDryRunTest is Test {
 
     HarborAutoDeploymentFoundryTest public harbor;
     address public owner = address(0x1234);
+    uint256 private _runId;
 
     function setUp() public {
+        _runId += 1;
         harbor = new HarborAutoDeploymentFoundryTest();
         harbor.deployBaoDeployer();
-        harbor.start(owner, "test", "v1.0.0", "test:system:", true);
+        string memory network = string.concat("pegged-dry:", vm.toString(_runId));
+        harbor.start(_buildConfig(owner), network, true);
+    }
+
+    function _buildConfig(address configOwner) internal pure returns (string memory) {
+        string memory json = string.concat(
+            '{"schemaVersion":1,"version":"v1.0.0","owner":"',
+            vm.toString(configOwner),
+            '"'
+        );
+
+        json = string.concat(
+            json,
+            ',"pegged":{"registryKey":"pegged"},"collateral":{"registryKey":"wrappedCollateral"}}'
+        );
+        return json;
     }
 
     function test_dryRun_registersWithoutDeploying() public {
@@ -97,7 +128,6 @@ contract PeggedTokenDeployerDryRunTest is Test {
         assertTrue(harbor.isDryRun(), "Dry-run should be enabled");
 
         // Set parameters
-        harbor.useOwner(owner);
         harbor.setPeggedName("Dry Run Test");
         harbor.setPeggedSymbol("DRY");
 
@@ -119,15 +149,18 @@ contract PeggedTokenDeployerDryRunTest is Test {
 
     function test_deploymentLog_distinguishesDryRunFromActual() public {
         // Part 1: Dry-run deployment
-        harbor.useOwner(owner);
         harbor.setPeggedName("Test Token");
         harbor.setPeggedSymbol("TEST");
 
         address predictedAddr = PeggedTokenDeployer.deployFromConfig(harbor);
         harbor.finish();
 
-        // Read dry-run deployment log
-        string memory logPath = "results/deployments/test/test:system:.json";
+        DeploymentRegistry.DeploymentMetadata memory metadata = harbor.getMetadata();
+        string memory logDir = "results/deployments";
+        if (bytes(metadata.network).length != 0) {
+            logDir = string.concat(logDir, "/", metadata.network);
+        }
+        string memory logPath = string.concat(logDir, "/", metadata.systemSaltString, ".json");
         string memory dryRunJson = vm.readFile(logPath);
 
         // Verify predicted address is in dry-run log
@@ -145,8 +178,8 @@ contract PeggedTokenDeployerDryRunTest is Test {
 
         // Part 2: Actual deployment with same config
         HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
-        harbor2.start(owner, "test", "v1.0.0", "test:system:", false);
-        harbor2.useOwner(owner);
+        harbor2.deployBaoDeployer();
+        harbor2.start(_buildConfig(owner), metadata.network, false);
         harbor2.setPeggedName("Test Token");
         harbor2.setPeggedSymbol("TEST");
 
