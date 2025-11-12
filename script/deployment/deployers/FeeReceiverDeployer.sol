@@ -21,16 +21,15 @@ library FeeReceiverDeployer {
         // Step 1: Deploy implementation
         TokenDistributor_v1 impl = new TokenDistributor_v1();
 
-        // Step 2: Register implementation with unique key
-        string memory implKey = "TokenDistributor_v1";
-        deployment.registerImplementation(
-            implKey,
+        // Step 2: Register implementation under the fee receiver namespace so lookups stay consistent
+        string memory implKey = deployment.registerImplementation(
+            HarborKeys.FEE_RECEIVER,
             address(impl),
             "TokenDistributor_v1",
             "src/minter/TokenDistributor_v1.sol"
         );
 
-        // Step 3: Deploy proxy using implementation key
+        // Step 3: Deploy proxy using the derived implementation key
         return
             deployment.deployProxy(
                 HarborKeys.FEE_RECEIVER,
