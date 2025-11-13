@@ -4,8 +4,7 @@
     "owner": {
       "address": "0x0000000000000000000000000000000000001234",
       "blockNumber": 1,
-      "category": "existing",
-      "dryRun": false
+      "category": "existing"
     },
     "pegged": {
       "address": "0x267CbDA413e473bD17657f0ebfe665Cf66aD92c0",
@@ -15,7 +14,6 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0x267CbDA413e473bD17657f0ebfe665Cf66aD92c0",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false,
       "factory": "0xce9800FCE0F036F06135C353CA3D0A9f3EdcB0Ab",
       "implementation": "pegged__MintableBurnableERC20_v1",
       "proxyType": "UUPS",
@@ -30,7 +28,6 @@
       "contractType": "MintableBurnableERC20_v1",
       "deployedTo": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false,
       "proxies": [
         "pegged"
       ]
@@ -50,7 +47,6 @@
       "finishTimestampISO": "1970-01-01T00:00:01Z",
       "startBlock": 1,
       "finishBlock": 1,
-      "dryRun": false,
       "finished": false
     }
   ]

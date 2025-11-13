@@ -85,14 +85,15 @@ contract DeployHarbor is Script {
 
         // Save deployment
         console.log("\n--- Saving deployment ---");
-    string memory networkLabel = vm.envOr("DEPLOYMENT_NETWORK", string.concat("chain-", vm.toString(block.chainid)));
+        string memory networkLabel =
+            vm.envOr("DEPLOYMENT_NETWORK", string.concat("chain-", vm.toString(block.chainid)));
 
         string memory config = string.concat(
             '{"schemaVersion":1,"version":"v1.0.0","owner":"',
             vm.toString(baomultisig),
             '","pegged":{"registryKey":"pegged"},"collateral":{"registryKey":"wrappedCollateral"}}'
         );
-    harbor.start(config, networkLabel, false);
+        harbor.start(config, networkLabel);
 
         // Print summary
         console.log("\n=== Deployment Summary ===");

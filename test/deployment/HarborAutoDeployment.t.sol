@@ -19,7 +19,7 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
         harbor = new HarborAutoDeploymentFoundryTest();
         _saltCounter += 1;
         string memory network = string.concat("auto:", vm.toString(_saltCounter));
-        harbor.start(_buildConfig(owner), network, false);
+    harbor.start(_buildConfig(owner), network);
     }
 
     function _buildConfig(address owner) internal pure returns (string memory) {

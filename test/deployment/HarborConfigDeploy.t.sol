@@ -36,7 +36,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
     function test_startFromJsonConfig() public {
         string memory json = _loadFixture();
 
-        harbor.start(json, "", false);
+    harbor.start(json, "");
 
         // Verify system salt derived from pegged:collateral:
         assertEq(
@@ -58,7 +58,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
     function test_configAppliedAfterStart() public {
         string memory json = _loadFixture();
 
-        harbor.start(json, "", false);
+    harbor.start(json, "");
 
         // Verify treasury applied
         assertTrue(harbor.hasTreasury(), "Should have treasury");
@@ -82,12 +82,12 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
         string memory json = _loadFixture();
 
         // Start and finish initial deployment
-        harbor.start(json, "", false);
+    harbor.start(json, "");
         harbor.finish();
 
         // Create new harness and resume
-        HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
-        harbor2.resume(json, "", false);
+    HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
+    harbor2.resume(json, "");
 
         // Verify resumed successfully
         DeploymentRegistry.DeploymentMetadata memory metadata = harbor2.getMetadata();
@@ -101,15 +101,15 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
         string memory json = _loadFixture();
 
         // Start and finish initial deployment
-        harbor.start(json, "", false);
+    harbor.start(json, "");
         harbor.finish();
 
         // Try to resume with different version
         string
             memory badJson = '{"schemaVersion":1,"version":"v2.0.0","owner":"0x000000000000000000000000000000000000a002","treasury":"0x000000000000000000000000000000000000a003","pegged":{"registryKey":"pegged","id":"fxSAVE","name":"Bao USD","symbol":"BAOUSD","decimals":18},"collateral":{"registryKey":"wrappedCollateral","address":"0x0000000000000000000000000000000000000001"}}';
 
-        HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
-        vm.expectRevert();
-        harbor2.resume(badJson, "", false);
+    HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
+    vm.expectRevert();
+    harbor2.resume(badJson, "");
     }
 }

@@ -40,16 +40,15 @@ abstract contract HarborDeployment is Deployment {
     // Lifecycle Overrides
     // ============================================================================
 
-    /// @notice Start a deployment with optional dry-run flag
+    /// @notice Start a deployment session and apply Harbor-specific config
     /// @param config Parsed deployment configuration
     /// @param network Network label used for deployment logs
-    /// @param dryRun Whether to enable dry-run mode for this session
-    function start(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun)
+    function start(DeploymentConfig.SourceJson memory config, string memory network)
         public
         virtual
         override(Deployment)
     {
-        super.start(config, network, dryRun);
+        super.start(config, network);
 
         // Ensure registry owner mirrors metadata owner
         _applyOwnerConfig(DeploymentConfig.get(config, "", "owner"));
@@ -58,16 +57,15 @@ abstract contract HarborDeployment is Deployment {
         _applyDeploymentConfig(config);
     }
 
-    /// @notice Resume deployment with optional dry-run flag
+    /// @notice Resume deployment session and reapply Harbor-specific config
     /// @param config Parsed deployment configuration
     /// @param network Network label used for deployment logs
-    /// @param dryRun Whether to enable dry-run mode for this session
-    function resume(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun)
+    function resume(DeploymentConfig.SourceJson memory config, string memory network)
         public
         virtual
         override(Deployment)
     {
-        super.resume(config, network, dryRun);
+        super.resume(config, network);
 
         // Ensure registry owner mirrors metadata owner
         _applyOwnerConfig(DeploymentConfig.get(config, "", "owner"));

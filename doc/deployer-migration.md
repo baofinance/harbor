@@ -19,6 +19,11 @@ The goal is to use these libraries in both tests and deployment scripts.
   - This function has been removed from the public API
   - Implementations now need a different registration approach
 
+- **`start` / `resume` interface**:
+  - Signatures are `start(string config, string network)` and `resume(string config, string network)`
+  - The deployment framework always executes real transactions; there is no dry-run mode
+  - Ensure every call site passes only the config JSON and the network label
+
 - **Implementation Registration**:
   - Implementations must be deployed first, then registered with a unique string key
   - Uses `registerImplementation(key, address, contractType, contractPath)`

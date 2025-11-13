@@ -30,7 +30,7 @@ contract HarborParameterExample is Test {
         BaoDeployer(baoDeployer).setOperator(address(harbor));
         vm.stopPrank();
         string memory network = _nextNetwork();
-        harbor.start(_buildConfig(address(this)), network, false);
+    harbor.start(_buildConfig(address(this)), network);
     }
 
     function _buildConfig(address owner) internal pure returns (string memory) {

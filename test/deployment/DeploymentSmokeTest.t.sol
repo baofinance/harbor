@@ -26,7 +26,7 @@ contract DeploymentSmokeTest is BaoDeploymentTest {
 
         harbor = new HarborAutoDeploymentFoundryTest();
         string memory network = _nextNetwork();
-        harbor.start(_buildConfig(makeAddr("deployment-smoke-owner")), network, false);
+    harbor.start(_buildConfig(makeAddr("deployment-smoke-owner")), network);
     }
 
     function _nextNetwork() internal returns (string memory) {
