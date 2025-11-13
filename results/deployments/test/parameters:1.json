@@ -29,7 +29,7 @@
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "dryRun": false,
       "factory": "0xce9800FCE0F036F06135C353CA3D0A9f3EdcB0Ab",
-      "implementationKey": "pegged:MintableBurnableERC20_v1",
+      "implementation": "pegged:MintableBurnableERC20_v1",
       "proxyType": "UUPS",
       "salt": "0x80ce2dc4e79c6e01694cc71b90e92c43d6958b8f3a1bdef2495c0bb129c21044",
       "saltString": "pegged"

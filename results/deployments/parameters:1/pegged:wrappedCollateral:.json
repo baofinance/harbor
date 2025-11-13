@@ -29,23 +29,10 @@
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "dryRun": false,
       "factory": "0xce9800FCE0F036F06135C353CA3D0A9f3EdcB0Ab",
-      "implementationKey": "pegged:MintableBurnableERC20_v1",
+      "implementation": "pegged__MintableBurnableERC20_v1",
       "proxyType": "UUPS",
       "salt": "0x0349fe1f18c3bb82da125e4d2612b2e97fa98f5c73ce955db5df887efcfb9e46",
       "saltString": "pegged"
-    },
-    "pegged:MintableBurnableERC20_v1": {
-      "address": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
-      "blockNumber": 1,
-      "category": "contract",
-      "contractPath": "src/bao/MintableBurnableERC20_v1.sol",
-      "contractType": "MintableBurnableERC20_v1",
-      "deployedTo": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false,
-      "proxies": [
-        "pegged"
-      ]
     },
     "peggedDecimals": {
       "type": "uint256",
@@ -58,6 +45,19 @@
     "peggedSymbol": {
       "type": "string",
       "value": "BAOUSD"
+    },
+    "pegged__MintableBurnableERC20_v1": {
+      "address": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "blockNumber": 1,
+      "category": "contract",
+      "contractPath": "src/bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deployedTo": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false,
+      "proxies": [
+        "pegged"
+      ]
     }
   },
   "network": "parameters:1",
