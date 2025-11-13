@@ -22,6 +22,7 @@ contract GenesisUSDCZapForkTest is TestMinterSetUp {
 
     // Mainnet addresses
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address constant FXUSD = 0x085780639CC2cACd35E474e71f4d000e2405d8f6;
     address constant FXSAVE = 0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39;
 
     function setUpFork() internal override {
@@ -139,6 +140,102 @@ contract GenesisUSDCZapForkTest is TestMinterSetUp {
 
         uint256 col1 = zap.zapUsdcToGenesis(amt1, receiver);
         uint256 col2 = zap.zapUsdcToGenesis(amt2, receiver);
+
+        vm.stopPrank();
+
+        uint256 total = col1 + col2;
+        assertEq(IGenesis(genesis).balanceOf(receiver), total, "Total shares wrong");
+        assertEq(IERC20(FXSAVE).balanceOf(genesis), total, "Total fxSAVE wrong");
+    }
+
+    // ============ fxUSD Zap Tests ============
+
+    function test_ZapFxUsdToGenesis_Success() public {
+        // Fund user with fxUSD (using deal on fork)
+        deal(FXUSD, user1, 10000 * 1e18); // fxUSD has 18 decimals
+        uint256 fxUsdAmount = 1000 * 1e18;
+
+        vm.startPrank(user1);
+        IERC20(FXUSD).approve(address(zap), fxUsdAmount);
+
+        uint256 genBalBefore = IGenesis(genesis).balanceOf(receiver);
+        uint256 fxBalBefore = IERC20(FXSAVE).balanceOf(genesis);
+
+        uint256 collateralAmount = zap.zapFxUsdToGenesis(fxUsdAmount, receiver);
+
+        vm.stopPrank();
+
+        uint256 genBalAfter = IGenesis(genesis).balanceOf(receiver);
+        uint256 fxBalAfter = IERC20(FXSAVE).balanceOf(genesis);
+
+        console.log("=== fxUSD Zap v2 Success ===");
+        console.log("fxUSD Deposited:", fxUsdAmount);
+        console.log("fxSAVE Received:", collateralAmount);
+        console.log("Genesis Shares Minted:", genBalAfter - genBalBefore);
+        console.log("fxSAVE in Genesis:", fxBalAfter);
+        console.log("User fxUSD Left:", IERC20(FXUSD).balanceOf(user1));
+        console.log("==========================");
+
+        assertGt(collateralAmount, 0, "Should receive fxSAVE");
+        assertEq(genBalAfter, genBalBefore + collateralAmount, "Shares mismatch");
+        assertEq(fxBalAfter, fxBalBefore + collateralAmount, "fxSAVE not deposited");
+        assertEq(IERC20(FXUSD).balanceOf(user1), 10000 * 1e18 - fxUsdAmount, "fxUSD not deducted");
+
+        // Allowances should be cleared
+        assertEq(IERC20(FXUSD).allowance(address(zap), zap.FXUSD_DIAMOND()), 0, "fxUSD allowance not cleared");
+        assertEq(IERC20(FXSAVE).allowance(address(zap), genesis), 0, "fxSAVE allowance not cleared");
+    }
+
+    function test_ZapFxUsdToGenesis_ZeroAmount() public {
+        deal(FXUSD, user1, 10000 * 1e18);
+
+        vm.startPrank(user1);
+        IERC20(FXUSD).approve(address(zap), type(uint256).max);
+
+        vm.expectRevert(GenesisUSDCZapV2.ZeroAmount.selector);
+        zap.zapFxUsdToGenesis(0, receiver);
+
+        vm.stopPrank();
+    }
+
+    function test_ZapFxUsdToGenesis_InvalidReceiver() public {
+        deal(FXUSD, user1, 10000 * 1e18);
+        uint256 fxUsdAmount = 1000 * 1e18;
+
+        vm.startPrank(user1);
+        IERC20(FXUSD).approve(address(zap), fxUsdAmount);
+
+        vm.expectRevert(GenesisUSDCZapV2.InvalidAddress.selector);
+        zap.zapFxUsdToGenesis(fxUsdAmount, address(0));
+
+        vm.stopPrank();
+    }
+
+    function test_ZapFxUsdToGenesis_Event() public {
+        deal(FXUSD, user1, 10000 * 1e18);
+        uint256 fxUsdAmount = 1000 * 1e18;
+
+        vm.startPrank(user1);
+        IERC20(FXUSD).approve(address(zap), fxUsdAmount);
+
+        vm.expectEmit(true, true, true, false);
+        emit GenesisUSDCZapV2.FXUSDZappedToGenesis(user1, genesis, receiver, fxUsdAmount, 0, 0);
+
+        zap.zapFxUsdToGenesis(fxUsdAmount, receiver);
+
+        vm.stopPrank();
+    }
+
+    function test_ZapFxUsdToGenesis_MultipleDeposits() public {
+        deal(FXUSD, user1, 10000 * 1e18);
+        uint256 amt1 = 1000 * 1e18;
+        uint256 amt2 = 2000 * 1e18;
+
+        vm.startPrank(user1);
+        IERC20(FXUSD).approve(address(zap), type(uint256).max);
+
+        uint256 col1 = zap.zapFxUsdToGenesis(amt1, receiver);
+        uint256 col2 = zap.zapFxUsdToGenesis(amt2, receiver);
 
         vm.stopPrank();
 

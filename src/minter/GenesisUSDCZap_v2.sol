@@ -27,9 +27,9 @@ interface IFxUSDDiamondV2 {
 }
 
 /// @title GenesisUSDCZapV2
-/// @notice One-click zapper for depositing USDC into Genesis contracts via fxSAVE
-/// @dev Enables users to deposit USDC in a single transaction
-/// @dev Flow: USDC → fxSAVE → Genesis deposit
+/// @notice One-click zapper for depositing USDC or fxUSD into Genesis contracts via fxSAVE
+/// @dev Enables users to deposit USDC or fxUSD in a single transaction
+/// @dev Flow: USDC/fxUSD → fxSAVE → Genesis deposit
 /// @author Harbor Yield Protocol
 contract GenesisUSDCZapV2 is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -45,8 +45,11 @@ contract GenesisUSDCZapV2 is ReentrancyGuard {
     /// @notice fxUSD Diamond contract address (handles deposits to fxSAVE)
     address public constant FXUSD_DIAMOND = 0x33636D49FbefBE798e15e7F356E8DBef543CC708;
 
-    /// @notice fxUSD swap router/converter address (for USDC deposits)
+    /// @notice fxUSD swap router/converter address (for USDC and fxUSD deposits)
     address public constant FXUSD_SWAP_ROUTER = 0x12AF4529129303D7FbD2563E242C4a2890525912;
+
+    /// @notice fxUSD token address (mainnet)
+    address public constant FXUSD = 0x085780639CC2cACd35E474e71f4d000e2405d8f6;
 
     // ============ Immutables ============
 
@@ -71,6 +74,22 @@ contract GenesisUSDCZapV2 is ReentrancyGuard {
         address indexed genesis,
         address indexed receiver,
         uint256 usdcAmount,
+        uint256 fxSaveAmount,
+        uint256 collateralAmount
+    );
+
+    /// @notice Emitted when fxUSD is zapped into Genesis
+    /// @param user Address that initiated the zap
+    /// @param genesis Address of the Genesis contract
+    /// @param receiver Address that will receive the Genesis shares
+    /// @param fxUsdAmount Amount of fxUSD deposited
+    /// @param fxSaveAmount Amount of fxSAVE received
+    /// @param collateralAmount Amount of collateral deposited to Genesis
+    event FXUSDZappedToGenesis(
+        address indexed user,
+        address indexed genesis,
+        address indexed receiver,
+        uint256 fxUsdAmount,
         uint256 fxSaveAmount,
         uint256 collateralAmount
     );
@@ -173,6 +192,60 @@ contract GenesisUSDCZapV2 is ReentrancyGuard {
 
         // Reset allowances to limit exposure
         usdcToken.forceApprove(FXUSD_DIAMOND, 0);
+        IERC20(FXSAVE).forceApprove(GENESIS, 0);
+    }
+
+    /// @notice Zap fxUSD into Genesis contract in one transaction
+    /// @dev Flow: fxUSD → fxSAVE → Genesis deposit
+    /// @param fxUsdAmount Amount of fxUSD to zap
+    /// @param receiver Address that will receive the Genesis shares
+    /// @return collateralAmount Amount of collateral deposited to Genesis
+    function zapFxUsdToGenesis(
+        uint256 fxUsdAmount,
+        address receiver
+    ) external nonReentrant returns (uint256 collateralAmount) {
+        if (fxUsdAmount == 0) revert ZeroAmount();
+        if (receiver == address(0)) revert InvalidAddress();
+
+        // 1. Pull fxUSD from user
+        IERC20(FXUSD).safeTransferFrom(msg.sender, address(this), fxUsdAmount);
+
+        // 2. fxUSD → fxSAVE via diamond contract
+        IERC20 fxUsdToken = IERC20(FXUSD);
+
+        if (fxUsdToken.allowance(address(this), FXUSD_DIAMOND) > 0) {
+            fxUsdToken.forceApprove(FXUSD_DIAMOND, 0);
+        }
+        fxUsdToken.forceApprove(FXUSD_DIAMOND, fxUsdAmount);
+
+        // Build swap data: fxUSD to fxSAVE (similar to USDC flow)
+        bytes memory swapData = abi.encodeWithSelector(0xed52d54c, FXUSD, fxUsdAmount, uint256(0), "");
+
+        IFxUSDDiamondV2.ConvertInParams memory params = IFxUSDDiamondV2.ConvertInParams({
+            tokenIn: FXUSD,
+            amount: fxUsdAmount,
+            target: FXUSD_SWAP_ROUTER,
+            data: swapData,
+            minOut: 0,
+            signature: ""
+        });
+
+        uint256 fxSaveBalanceBefore = IERC20(FXSAVE).balanceOf(address(this));
+
+        IFxUSDDiamondV2(FXUSD_DIAMOND).depositToFxSave{value: 0}(params, FXUSD, 0, address(this));
+
+        uint256 fxSaveAmount = IERC20(FXSAVE).balanceOf(address(this)) - fxSaveBalanceBefore;
+
+        // 3. fxSAVE → Genesis deposit
+        IERC20(FXSAVE).forceApprove(GENESIS, fxSaveAmount);
+        IGenesis(GENESIS).deposit(fxSaveAmount, receiver);
+
+        collateralAmount = fxSaveAmount;
+
+        emit FXUSDZappedToGenesis(msg.sender, GENESIS, receiver, fxUsdAmount, fxSaveAmount, collateralAmount);
+
+        // Reset allowances to limit exposure
+        fxUsdToken.forceApprove(FXUSD_DIAMOND, 0);
         IERC20(FXSAVE).forceApprove(GENESIS, 0);
     }
 
