@@ -13,6 +13,11 @@ import {TestMinterSetUp} from "test/Minter_base.t.sol";
 import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
 import {MockERC20} from "test/mock/MockERC20.sol";
 
+/// @notice Interface for stETH submit function
+interface ISTETHV2 {
+    function submit(address referral) external payable returns (uint256);
+}
+
 contract GenesisETHZapForkTest is TestMinterSetUp {
     GenesisETHZapV2 zap;
     address genesis;
@@ -134,6 +139,128 @@ contract GenesisETHZapForkTest is TestMinterSetUp {
 
         uint256 col1 = zap.zapEthToGenesis{value: eth1}(receiver);
         uint256 col2 = zap.zapEthToGenesis{value: eth2}(receiver);
+
+        vm.stopPrank();
+
+        uint256 total = col1 + col2;
+        assertEq(IGenesis(genesis).balanceOf(receiver), total, "Total shares wrong");
+        assertEq(IERC20(WSTETH).balanceOf(genesis), total, "Total wstETH wrong");
+    }
+
+    // ============ stETH Zap Tests ============
+
+    function test_ZapStEthToGenesis_Success() public {
+        // Fund user with ETH first, then submit to get stETH
+        vm.deal(user1, 100 ether);
+        
+        // Submit ETH to get stETH
+        vm.startPrank(user1);
+        ISTETHV2(STETH).submit{value: 100 ether}(address(0));
+        vm.stopPrank();
+        
+        uint256 stEthBalanceBefore = IERC20(STETH).balanceOf(user1);
+        uint256 stEthAmount = stEthBalanceBefore / 10; // Use 10% of the stETH
+
+        vm.startPrank(user1);
+        IERC20(STETH).approve(address(zap), stEthAmount);
+
+        uint256 genesisBalBefore = IGenesis(genesis).balanceOf(receiver);
+        uint256 wstEthBalBefore = IERC20(WSTETH).balanceOf(genesis);
+        uint256 userStEthBalBefore = IERC20(STETH).balanceOf(user1);
+
+        uint256 collateralAmount = zap.zapStEthToGenesis(stEthAmount, receiver);
+
+        vm.stopPrank();
+
+        uint256 genesisBalAfter = IGenesis(genesis).balanceOf(receiver);
+        uint256 wstEthBalAfter = IERC20(WSTETH).balanceOf(genesis);
+        uint256 userStEthBalAfter = IERC20(STETH).balanceOf(user1);
+
+        console.log("=== stETH Zap v2 Success ===");
+        console.log("stETH Deposited:", stEthAmount);
+        console.log("wstETH Received:", collateralAmount);
+        console.log("Genesis Shares Minted:", genesisBalAfter - genesisBalBefore);
+        console.log("wstETH in Genesis:", wstEthBalAfter);
+        console.log("User stETH Left:", userStEthBalAfter);
+        console.log("==========================");
+
+        assertGt(collateralAmount, 0, "Should receive wstETH");
+        assertLe(collateralAmount, stEthAmount, "wstETH cannot exceed stETH");
+        assertEq(genesisBalAfter, genesisBalBefore + collateralAmount, "Shares mismatch");
+        assertEq(wstEthBalAfter, wstEthBalBefore + collateralAmount, "wstETH not deposited");
+        assertEq(userStEthBalAfter, userStEthBalBefore - stEthAmount, "stETH not deducted");
+
+        // Allowances should be cleared
+        assertEq(IERC20(STETH).allowance(address(zap), WSTETH), 0, "stETH allowance not cleared");
+        assertEq(IERC20(WSTETH).allowance(address(zap), genesis), 0, "wstETH allowance not cleared");
+    }
+
+    function test_ZapStEthToGenesis_ZeroAmount() public {
+        vm.deal(user1, 100 ether);
+        vm.startPrank(user1);
+        ISTETHV2(STETH).submit{value: 100 ether}(address(0));
+        vm.stopPrank();
+
+        vm.startPrank(user1);
+        IERC20(STETH).approve(address(zap), type(uint256).max);
+
+        vm.expectRevert(GenesisETHZapV2.ZeroAmount.selector);
+        zap.zapStEthToGenesis(0, receiver);
+
+        vm.stopPrank();
+    }
+
+    function test_ZapStEthToGenesis_InvalidReceiver() public {
+        vm.deal(user1, 100 ether);
+        vm.startPrank(user1);
+        ISTETHV2(STETH).submit{value: 100 ether}(address(0));
+        vm.stopPrank();
+
+        uint256 stEthAmount = 10 ether;
+
+        vm.startPrank(user1);
+        IERC20(STETH).approve(address(zap), stEthAmount);
+
+        vm.expectRevert(GenesisETHZapV2.InvalidAddress.selector);
+        zap.zapStEthToGenesis(stEthAmount, address(0));
+
+        vm.stopPrank();
+    }
+
+    function test_ZapStEthToGenesis_Event() public {
+        vm.deal(user1, 100 ether);
+        vm.startPrank(user1);
+        ISTETHV2(STETH).submit{value: 100 ether}(address(0));
+        vm.stopPrank();
+
+        uint256 stEthAmount = 10 ether;
+
+        vm.startPrank(user1);
+        IERC20(STETH).approve(address(zap), stEthAmount);
+
+        vm.expectEmit(true, true, true, false);
+        emit GenesisETHZapV2.STETHZappedToGenesis(user1, genesis, receiver, stEthAmount, 0, 0);
+
+        zap.zapStEthToGenesis(stEthAmount, receiver);
+
+        vm.stopPrank();
+    }
+
+    function test_ZapStEthToGenesis_MultipleDeposits() public {
+        vm.deal(user1, 100 ether);
+        vm.startPrank(user1);
+        ISTETHV2(STETH).submit{value: 100 ether}(address(0));
+        vm.stopPrank();
+
+        uint256 stEthBalance = IERC20(STETH).balanceOf(user1);
+        uint256 amt1 = stEthBalance / 10;
+        uint256 amt2 = stEthBalance / 5;
+
+        vm.startPrank(user1);
+        IERC20(STETH).approve(address(zap), type(uint256).max);
+
+        uint256 col1 = zap.zapStEthToGenesis(amt1, receiver);
+        uint256 col2 = zap.zapStEthToGenesis(amt2, receiver);
 
         vm.stopPrank();
 

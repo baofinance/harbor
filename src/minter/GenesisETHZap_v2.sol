@@ -18,9 +18,10 @@ interface IWstETHWrapV2 {
 }
 
 /// @title GenesisETHZapV2
-/// @notice One-click zapper for depositing ETH into Genesis contracts via wstETH
-/// @dev Enables users to deposit ETH in a single transaction
+/// @notice One-click zapper for depositing ETH or stETH into Genesis contracts via wstETH
+/// @dev Enables users to deposit ETH or stETH in a single transaction
 /// @dev Flow: ETH → stETH → wstETH → Genesis deposit
+/// @dev Flow: stETH → wstETH → Genesis deposit
 /// @author Harbor Yield Protocol
 contract GenesisETHZapV2 is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -60,6 +61,22 @@ contract GenesisETHZapV2 is ReentrancyGuard {
         address indexed genesis,
         address indexed receiver,
         uint256 ethAmount,
+        uint256 wstEthAmount,
+        uint256 collateralAmount
+    );
+
+    /// @notice Emitted when stETH is zapped into Genesis
+    /// @param user Address that initiated the zap
+    /// @param genesis Address of the Genesis contract
+    /// @param receiver Address that will receive the Genesis shares
+    /// @param stEthAmount Amount of stETH deposited
+    /// @param wstEthAmount Amount of wstETH received
+    /// @param collateralAmount Amount of collateral deposited to Genesis
+    event STETHZappedToGenesis(
+        address indexed user,
+        address indexed genesis,
+        address indexed receiver,
+        uint256 stEthAmount,
         uint256 wstEthAmount,
         uint256 collateralAmount
     );
@@ -142,6 +159,38 @@ contract GenesisETHZapV2 is ReentrancyGuard {
         collateralAmount = wstEthAmount;
 
         emit ETHZappedToGenesis(msg.sender, GENESIS, receiver, ethAmount, wstEthAmount, collateralAmount);
+
+        // Reset allowances after interactions
+        IERC20(STETH).forceApprove(WSTETH, 0);
+        IERC20(WSTETH).forceApprove(GENESIS, 0);
+    }
+
+    /// @notice Zap stETH into Genesis contract in one transaction
+    /// @dev Flow: stETH → wstETH → Genesis deposit
+    /// @param stEthAmount Amount of stETH to zap
+    /// @param receiver Address that will receive the Genesis shares
+    /// @return collateralAmount Amount of collateral deposited to Genesis
+    function zapStEthToGenesis(
+        uint256 stEthAmount,
+        address receiver
+    ) external nonReentrant returns (uint256 collateralAmount) {
+        if (stEthAmount == 0) revert ZeroAmount();
+        if (receiver == address(0)) revert InvalidAddress();
+
+        // 1. Pull stETH from user
+        IERC20(STETH).safeTransferFrom(msg.sender, address(this), stEthAmount);
+
+        // 2. stETH → wstETH
+        IERC20(STETH).forceApprove(WSTETH, stEthAmount);
+        uint256 wstEthAmount = IWstETHWrapV2(WSTETH).wrap(stEthAmount);
+
+        // 3. wstETH → Genesis deposit
+        IERC20(WSTETH).forceApprove(GENESIS, wstEthAmount);
+        IGenesis(GENESIS).deposit(wstEthAmount, receiver);
+
+        collateralAmount = wstEthAmount;
+
+        emit STETHZappedToGenesis(msg.sender, GENESIS, receiver, stEthAmount, wstEthAmount, collateralAmount);
 
         // Reset allowances after interactions
         IERC20(STETH).forceApprove(WSTETH, 0);
