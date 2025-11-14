@@ -20,6 +20,14 @@
       "salt": "0x0349fe1f18c3bb82da125e4d2612b2e97fa98f5c73ce955db5df887efcfb9e46",
       "saltString": "pegged"
     },
+    "peggedName": {
+      "type": "string",
+      "value": "Admin Test"
+    },
+    "peggedSymbol": {
+      "type": "string",
+      "value": "ADMIN"
+    },
     "pegged__MintableBurnableERC20_v1": {
       "address": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
       "blockNumber": 1,

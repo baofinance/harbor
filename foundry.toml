@@ -32,6 +32,9 @@ fs_permissions = [
 
 gas_limit = "18446744073709551615"
 
+[lint]
+exclude_lints = ["mixed-case-function"]
+
 # slither building profile - removes vyper
 [profile.novyper]
 skip = ["**/*.vy"]

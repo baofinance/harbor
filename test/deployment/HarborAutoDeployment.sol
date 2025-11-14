@@ -185,12 +185,13 @@ abstract contract HarborAutoDeployment is HarborDeployment {
 }
 
 /**
- * @title HarborAutoDeploymentFoundry
- * @notice Foundry-specific deployment WITHOUT test infrastructure
- * @dev For scripts that need VM but don't auto-deploy BaoDeployer
+ * @title HarborAutoDeploymentProduction
+ * @notice Production deployment with auto-deploy and JSON persistence
+ * @dev For scripts that need auto-deploy mocks and VM features
+ *      Requires manual BaoDeployer operator setup
  *      Writes to deployments/ directory (production)
  */
-contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistryJson {
+contract HarborAutoDeploymentProduction is HarborAutoDeployment, DeploymentRegistryJson {
     function _getBaseDirPrefix()
         internal
         view
@@ -198,28 +199,57 @@ contract HarborAutoDeploymentFoundry is HarborAutoDeployment, DeploymentRegistry
         override(DeploymentRegistry, DeploymentRegistryJson)
         returns (string memory)
     {
-        if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
-            return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
-        }
-        return "results";
+        return ".";
+    }
+
+    /**
+     * @notice Label addresses in Foundry traces
+     * @dev Makes traces more readable
+     * @param addr Address to label
+     * @param label Human-readable label
+     */
+    function labelAddress(address addr, string memory label) public {
+        VM.label(addr, label);
     }
 }
 
 /**
- * @title HarborAutoDeploymentFoundryTest
- * @notice Foundry test deployment with auto-deploy infrastructure
- * @dev For use in forge test files
- *      Auto-deploys BaoDeployer, writes to results/ directory
- *      Inherits from DeploymentFoundryTest for test infrastructure
+ * @title HarborAutoDeploymentAnvil
+ * @notice Anvil deployment with auto-deploy and automatic operator setup
+ * @dev For use in forge test files and anvil scripts
+ *      Auto-deploys dependencies and mocks
+ *      Automatically sets up BaoDeployer operator using vm.prank
+ *      Writes to results/ directory (configurable via BAO_DEPLOYMENT_LOGS_ROOT)
  */
-contract HarborAutoDeploymentFoundryTest is HarborAutoDeploymentFoundry {
-    function _ensureBaoDeployerOperator() internal virtual override {
+contract HarborAutoDeploymentAnvil is HarborAutoDeploymentProduction {
+    constructor() {
+        _setupAnvilOperator();
+    }
+
+    /**
+     * @notice Set up BaoDeployer operator for testing
+     * @dev Uses vm.prank to set this contract as operator
+     *      Only safe on anvil/local networks
+     */
+    function _setupAnvilOperator() private {
         address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
         if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
             VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
             BaoDeployer(baoDeployer).setOperator(address(this));
             VM.stopPrank();
         }
-        super._ensureBaoDeployerOperator();
+    }
+
+    function _getBaseDirPrefix()
+        internal
+        view
+        virtual
+        override(HarborAutoDeploymentProduction)
+        returns (string memory)
+    {
+        if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
+            return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
+        }
+        return "results";
     }
 }

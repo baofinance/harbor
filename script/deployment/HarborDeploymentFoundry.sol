@@ -2,8 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentRegistryJson, VM} from "@bao-script/deployment/DeploymentRegistryJson.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 
@@ -22,7 +22,6 @@ import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
  *                HarborDeploymentScript harbor = new HarborDeploymentScript(vm);
  *
  *                // Must explicitly set all dependencies (or load from JSON)
- *                harbor.useAdmin(vm.envAddress("ADMIN_ADDRESS"));
  *                harbor.useCollateralToken(vm.envAddress("COLLATERAL_TOKEN"));
  *                harbor.useOracle(vm.envAddress("ORACLE_ADDRESS"));
  *                // etc.
@@ -66,6 +65,5 @@ contract HarborDeploymentFoundryTest is HarborDeploymentFoundry {
             BaoDeployer(baoDeployer).setOperator(address(this));
             VM.stopPrank();
         }
-        super._ensureBaoDeployerOperator();
     }
 }
