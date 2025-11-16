@@ -19,12 +19,10 @@ abstract contract ConfigFile is Test {
     function writeConfig(IMinter.Config memory config, string memory style) internal {
         // serialise the thresholds
 
-        string memory minterJson = _addIncentiveConfig(config.mintPeggedIncentiveConfig, "mintPeggedIncentiveConfig");
-        minterJson = _addIncentiveConfig(config.mintLeveragedIncentiveConfig, "mintLeveragedIncentiveConfig");
-        minterJson = _addIncentiveConfig(config.redeemPeggedIncentiveConfig, "redeemPeggedIncentiveConfig");
-        minterJson = _addIncentiveConfig(config.redeemLeveragedIncentiveConfig, "redeemLeveragedIncentiveConfig");
-
-        string memory json = vm.serializeString("config", "minter", minterJson);
+        string memory json = _addIncentiveConfig(config.mintPeggedIncentiveConfig, "mintPeggedIncentiveConfig");
+        json = _addIncentiveConfig(config.mintLeveragedIncentiveConfig, "mintLeveragedIncentiveConfig");
+        json = _addIncentiveConfig(config.redeemPeggedIncentiveConfig, "redeemPeggedIncentiveConfig");
+        json = _addIncentiveConfig(config.redeemLeveragedIncentiveConfig, "redeemLeveragedIncentiveConfig");
 
         vm.writeJson(json, _filename(style));
     }

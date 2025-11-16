@@ -2,13 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {CREATE3} from "@solady/utils/CREATE3.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-
 import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
 import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {FeeReceiverDeployer} from "@harbor-script/deployment/deployers/FeeReceiverDeployer.sol";
-import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
 // TODO: Re-enable as deployers are migrated
 // import {LeveragedTokenDeployer} from "@harbor-script/deployment/deployers/LeveragedTokenDeployer.sol";
 // import {ReservePoolDeployer} from "@harbor-script/deployment/deployers/ReservePoolDeployer.sol";
@@ -52,8 +48,8 @@ abstract contract HarborDeployment is Deployment {
         // Ensure registry owner mirrors metadata owner
         _applyOwnerConfig(DeploymentConfig.get(config, "", "owner"));
 
-        // Apply configuration
-        _applyDeploymentConfig(config);
+        _applyTreasuryConfig(config);
+        _applyCollateralConfig(config);
     }
 
     /// @notice Resume deployment session and reapply Harbor-specific config
@@ -68,19 +64,13 @@ abstract contract HarborDeployment is Deployment {
         // Ensure registry owner mirrors metadata owner
         _applyOwnerConfig(DeploymentConfig.get(config, "", "owner"));
 
-        // Apply configuration
-        _applyDeploymentConfig(config);
+        _applyTreasuryConfig(config);
+        _applyCollateralConfig(config);
     }
 
     // ============================================================================
     // Configuration
     // ============================================================================
-
-    function _applyDeploymentConfig(DeploymentConfig.SourceJson memory config) internal virtual {
-        _applyTreasuryConfig(config);
-        _applyPeggedConfig(config);
-        _applyCollateralConfig(config);
-    }
 
     function _deriveSystemSalt(
         DeploymentConfig.SourceJson memory config
@@ -105,18 +95,6 @@ abstract contract HarborDeployment is Deployment {
     function _applyTreasuryConfig(DeploymentConfig.SourceJson memory config) internal {
         if (!hasTreasury() && DeploymentConfig.has(config, "", "treasury")) {
             useTreasury(DeploymentConfig.get(config, "", "treasury"));
-        }
-    }
-
-    function _applyPeggedConfig(DeploymentConfig.SourceJson memory config) internal {
-        if (!hasPeggedName() && DeploymentConfig.has(config, "pegged", "name")) {
-            setString(HarborKeys.PEGGED_NAME, DeploymentConfig.getString(config, "pegged", "name"));
-        }
-        if (!hasPeggedSymbol() && DeploymentConfig.has(config, "pegged", "symbol")) {
-            setString(HarborKeys.PEGGED_SYMBOL, DeploymentConfig.getString(config, "pegged", "symbol"));
-        }
-        if (!hasPeggedDecimals() && DeploymentConfig.has(config, "pegged", "decimals")) {
-            setUint(HarborKeys.PEGGED_DECIMALS, DeploymentConfig.getUint(config, "pegged", "decimals"));
         }
     }
 
