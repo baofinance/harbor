@@ -1,30 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {DeploymentRegistryJson, VM} from "@bao-script/deployment/DeploymentRegistryJson.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {DeploymentOperatorTesting} from "@bao-script/deployment/DeploymentOperatorTesting.sol";
+import {DeploymentRegistryJsonTesting} from "@bao-script/deployment/DeploymentRegistryJsonTesting.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
 import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockMinter} from "@bao-test/mocks/upgradeable/MockMinter.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /**
- * @title HarborAutoDeployment
+ * @title HarborDeploymentTesting
  * @notice Test/development deployment helper with auto-deploy and auto-mock
  * @dev Framework-agnostic (works in Foundry, Wake, etc.)
  *      Instantiate per test, not in setUp, to enable fuzzing
  *
  *      Usage:
- *        HarborAutoDeployment harbor = new HarborAutoDeployment();
+ *        HarborDeploymentTesting harbor = new HarborDeploymentTesting();
  *        harbor.deploy(Contract.STABILITY_POOL_COLLATERAL);
  *        // ^ Recursively deploys all dependencies with sensible defaults
  */
-abstract contract HarborAutoDeployment is HarborDeployment {
+abstract contract HarborDeploymentTesting is HarborDeployment {
     // ============================================================================
     // Auto-Deploy Override
     // ============================================================================
@@ -152,104 +150,29 @@ abstract contract HarborAutoDeployment is HarborDeployment {
         }
         return 0.01 ether;
     }
-
-    // ============================================================================
-    // Address Derivation & Labeling
-    // ============================================================================
-
-    /**
-     * @notice Derive deterministic address from string key
-     * @dev Uses keccak256 for deterministic, consistent addresses across test runs
-     */
-    function _deriveAddress(string memory key) internal virtual returns (address) {
-        return address(uint160(uint256(keccak256(abi.encodePacked(key)))));
-    }
-
-    // =========================================================================
-    // Test Helpers
-    // =========================================================================
-
-    function mockMinter() public returns (address) {
-        if (has(HarborKeys.MINTER)) {
-            revert ContractAlreadyExists(HarborKeys.MINTER);
-        }
-
-        address collateral = getCollateralToken();
-        address pegged = getPeggedToken();
-        address leveraged = getLeveragedToken();
-
-        MockMinter minter = new MockMinter(collateral, pegged, leveraged);
-        useMinter(address(minter));
-        return address(minter);
-    }
 }
 
+// ============================================================================
+// Concrete Classes
+// ============================================================================
+
 /**
- * @title HarborAutoDeploymentProduction
- * @notice Production deployment with auto-deploy and JSON persistence
- * @dev For scripts that need auto-deploy mocks and VM features
- *      Requires manual BaoDeployer operator setup
- *      Writes to deployments/ directory (production)
+ * @title HarborDeploymentTestingFoundry
+ * @notice Foundry test deployment with auto-deploy, mocks, and results/ directory
+ * @dev For use in test/*.t.sol files
+ *      - Auto-deploys dependencies with mocks
+ *      - Automatically sets up BaoDeployer operator (via DeploymentFoundryTestingOperator)
+ *      - Writes to results/ directory (configurable via BAO_DEPLOYMENT_LOGS_ROOT)
+ *      - Has JSON persistence and VM features
  */
-contract HarborAutoDeploymentProduction is HarborAutoDeployment, DeploymentRegistryJson {
-    function _getBaseDirPrefix()
-        internal
-        view
-        virtual
-        override(DeploymentRegistry, DeploymentRegistryJson)
-        returns (string memory)
-    {
-        return ".";
-    }
-
-    /**
-     * @notice Label addresses in Foundry traces
-     * @dev Makes traces more readable
-     * @param addr Address to label
-     * @param label Human-readable label
-     */
-    function labelAddress(address addr, string memory label) public {
-        VM.label(addr, label);
-    }
-}
+contract HarborDeploymentTestingFoundry is HarborDeploymentTesting, DeploymentOperatorTesting {}
 
 /**
- * @title HarborAutoDeploymentAnvil
+ * @title HarborDeploymentTestingAnvil
  * @notice Anvil deployment with auto-deploy and automatic operator setup
- * @dev For use in forge test files and anvil scripts
- *      Auto-deploys dependencies and mocks
- *      Automatically sets up BaoDeployer operator using vm.prank
- *      Writes to results/ directory (configurable via BAO_DEPLOYMENT_LOGS_ROOT)
+ * @dev For use in anvil scripts
+ *      - Auto-deploys dependencies and mocks
+ *      - Automatically sets up BaoDeployer operator (via DeploymentFoundryTestingOperator)
+ *      - Writes to results/ directory (configurable via BAO_DEPLOYMENT_LOGS_ROOT)
  */
-contract HarborAutoDeploymentAnvil is HarborAutoDeploymentProduction {
-    constructor() {
-        _setupAnvilOperator();
-    }
-
-    /**
-     * @notice Set up BaoDeployer operator for testing
-     * @dev Uses vm.prank to set this contract as operator
-     *      Only safe on anvil/local networks
-     */
-    function _setupAnvilOperator() private {
-        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
-            VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
-            BaoDeployer(baoDeployer).setOperator(address(this));
-            VM.stopPrank();
-        }
-    }
-
-    function _getBaseDirPrefix()
-        internal
-        view
-        virtual
-        override(HarborAutoDeploymentProduction)
-        returns (string memory)
-    {
-        if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
-            return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
-        }
-        return "results";
-    }
-}
+contract HarborDeploymentTestingAnvil is HarborDeploymentTesting, DeploymentOperatorTesting {}

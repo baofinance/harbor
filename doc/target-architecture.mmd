@@ -1,0 +1,86 @@
+---
+config:
+  layout: elk
+---
+flowchart BT
+    %% bao-base abstract mixins
+    subgraph base["bao-base"]
+        BaoDeployer[["BaoDeployer"]]
+        DeploymentRegistry["DeploymentRegistry"]
+        DeploymentFoundryVm["DeploymentFoundryVm"]
+        DeploymentRegistryJson["DeploymentRegistryJson"]
+        Deployment["Deployment"]
+    DeploymentFoundryTestingVm["DeploymentFoundryTestingVm"]
+    BaoDeployerSetOperator["BaoDeployerSetOperator"]
+    DeploymentFoundryTestingOperator["DeploymentFoundryTestingOperator"]
+    DeploymentFoundryTesting[["DeploymentFoundryTesting"]]
+    end
+
+    subgraph base-usage["bao-base usage scenarios"]
+        DeployerScript[["script/DeployBaoDeployer.s.sol"]]
+        FoundryCoreSuite[["test/*.t.sol"]]
+    end
+
+    %% harbor mixins and concretes
+    subgraph harbor["harbor"]
+        HarborDeployment["HarborDeployment"]
+        HarborDeploymentTesting["HarborDeploymentTesting"]
+
+        %% concretes - production (no mocks, explicit config)
+        HarborDeploymentFoundry[["HarborDeploymentFoundry"]]
+        HarborDeploymentWake[["HarborDeploymentWake"]]
+
+        %% concretes - testing (mocks + auto-deploy)
+        HarborDeploymentTestingFoundry[["HarborDeploymentTestingFoundry"]]
+        HarborDeploymentTestingAnvil[["HarborDeploymentTestingAnvil"]]
+        HarborDeploymentTestingWake[["HarborDeploymentTestingWake"]]
+    end
+
+    %% usage scenarios
+    subgraph harbor-usage["harbor usage scenarios"]
+        ProdScript[["script/DeployHarbor.s.sol"]]
+        AnvilScript[["script/DeployHarborAnvil.s.sol"]]
+        FoundrySuite[["test/*.t.sol"]]
+        WakeProdSuite[["tests/prod/*.py"]]
+        WakeTestSuite[["tests/test/*.py"]]
+    end
+
+    %% mixin wiring in bao-base
+    DeploymentRegistryJson --> DeploymentFoundryVm
+    DeploymentFoundryTestingVm --> DeploymentFoundryVm
+    Deployment ==> DeploymentRegistry
+    Deployment -.-o BaoDeployer
+    BaoDeployerSetOperator -.-o BaoDeployer
+    DeployerScript -.-o BaoDeployer
+
+    %% bao-base concrete assembly
+    DeploymentFoundryTesting --> Deployment
+    DeploymentFoundryTesting --> DeploymentRegistryJson
+    DeploymentFoundryTesting --> DeploymentFoundryTestingOperator
+
+    %% harbor mixins extending bao-base
+    HarborDeployment ==> Deployment
+    HarborDeploymentTesting --> HarborDeployment
+
+    %% harbor concrete assembly - production (no mocks, explicit config)
+    HarborDeploymentFoundry --> HarborDeployment
+    HarborDeploymentFoundry --> DeploymentRegistryJson
+
+    HarborDeploymentWake --> HarborDeployment
+
+    %% harbor concrete assembly - testing (with mocks + auto-deploy)
+    HarborDeploymentTestingFoundry --> HarborDeploymentTesting
+    HarborDeploymentTestingFoundry --> DeploymentFoundryTestingOperator
+
+    HarborDeploymentTestingAnvil --> HarborDeploymentTesting
+    HarborDeploymentTestingAnvil --> DeploymentFoundryTestingOperator
+
+    HarborDeploymentTestingWake --> HarborDeploymentTesting
+
+    %% usage hooks
+    FoundryCoreSuite -.-o DeploymentFoundryTesting
+    ProdScript -.-o HarborDeploymentFoundry
+    AnvilScript -.-o HarborDeploymentTestingAnvil
+    FoundrySuite -.-o HarborDeploymentTestingFoundry
+    WakeProdSuite -.-o HarborDeploymentWake
+    WakeTestSuite -.-o HarborDeploymentTestingWake

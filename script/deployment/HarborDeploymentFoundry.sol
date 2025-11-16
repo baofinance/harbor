@@ -2,10 +2,10 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
-import {DeploymentRegistryJson, VM} from "@bao-script/deployment/DeploymentRegistryJson.sol";
+import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
 
 /**
  * @title HarborDeploymentFoundry
@@ -35,35 +35,6 @@ import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
  *        }
  */
 contract HarborDeploymentFoundry is HarborDeployment, DeploymentRegistryJson {
-    function labelAddress(address addr, string memory label) public {
-        VM.label(addr, label);
-    }
-
-    function _getBaseDirPrefix()
-        internal
-        view
-        virtual
-        override(DeploymentRegistry, DeploymentRegistryJson)
-        returns (string memory)
-    {
-        return DeploymentRegistryJson._getBaseDirPrefix();
-    }
-}
-
-contract HarborDeploymentFoundryTest is HarborDeploymentFoundry {
-    function _getBaseDirPrefix() internal view virtual override(HarborDeploymentFoundry) returns (string memory) {
-        if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
-            return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
-        }
-        return "results";
-    }
-
-    function _ensureBaoDeployerOperator() internal virtual override {
-        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
-            VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
-            BaoDeployer(baoDeployer).setOperator(address(this));
-            VM.stopPrank();
-        }
-    }
+    // NOTE: No _getBaseDirPrefix override needed - uses default "." from DeploymentRegistryJson
+    // NOTE: labelAddress() inherited from DeploymentRegistryJson → DeploymentFoundryVm
 }

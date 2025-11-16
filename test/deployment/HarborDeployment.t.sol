@@ -2,9 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
-import {HarborAutoDeploymentFoundryTest} from "@harbor-test/deployment/HarborAutoDeployment.sol";
+import {HarborDeploymentTestingFoundry} from "@harbor-test/deployment/HarborDeploymentTesting.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
+import {DeploymentFoundryTesting} from "@bao-test/deployment/DeploymentFoundryTesting.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
 import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
 import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
@@ -16,11 +16,11 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
  * @notice Tests Harbor deployment lifecycle (start, deploy, finish)
  */
 contract HarborDeploymentTest is BaoDeploymentTest {
-    HarborAutoDeploymentFoundryTest public harbor;
+    HarborDeploymentTestingFoundry public harbor;
 
     function setUp() public override {
         super.setUp();
-        harbor = new HarborAutoDeploymentFoundryTest();
+        harbor = new HarborDeploymentTestingFoundry();
     }
 
     // ========== Harbor Deployment Tests ==========

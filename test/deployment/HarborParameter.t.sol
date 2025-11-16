@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborAutoDeploymentFoundry} from "@harbor-test/deployment/HarborAutoDeployment.sol";
+import {HarborDeploymentTestingFoundry} from "@harbor-test/deployment/HarborDeploymentTesting.sol";
 import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
 import {Stem_v1} from "@bao/Stem_v1.sol";
 import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
@@ -14,14 +14,14 @@ import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
  * @title HarborParameterExample
  * @notice Example showing how to use parameters with Harbor deployment
  * @dev This demonstrates setting configuration values before deploying contracts
- *      Uses HarborAutoDeploymentFoundry (non-auto) to test explicit parameter requirements
+ *      Uses HarborDeploymentTestingFoundry (non-auto) to test explicit parameter requirements
  */
 contract HarborParameterExample is Test {
-    HarborAutoDeploymentFoundry public harbor;
+    HarborDeploymentTestingFoundry public harbor;
     uint256 private _networkCounter;
 
     function setUp() public {
-        harbor = new HarborAutoDeploymentFoundry();
+        harbor = new HarborDeploymentTestingFoundry();
         address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
         if (baoDeployer.code.length == 0) {
             DeploymentInfrastructure.deployBaoDeployer();

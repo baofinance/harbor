@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborAutoDeploymentFoundryTest} from "@harbor-test/deployment/HarborAutoDeployment.sol";
+import {HarborDeploymentTestingFoundry} from "@harbor-test/deployment/HarborDeploymentTesting.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -13,7 +13,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
  * @notice Tests config-driven deployment via JSON config
  */
 contract HarborConfigDeployTest is BaoDeploymentTest {
-    HarborAutoDeploymentFoundryTest public harbor;
+    HarborDeploymentTestingFoundry public harbor;
 
     address constant CONFIG_OWNER = address(0x000000000000000000000000000000000000A002);
     address constant CONFIG_TREASURY = address(0x000000000000000000000000000000000000a003);
@@ -21,7 +21,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        harbor = new HarborAutoDeploymentFoundryTest();
+    harbor = new HarborDeploymentTestingFoundry();
     }
 
     function _loadFixture() internal view returns (string memory) {
@@ -36,7 +36,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
     function test_startFromJsonConfig() public {
         string memory json = _loadFixture();
 
-    harbor.start(json, "");
+        harbor.start(json, "");
 
         // Verify system salt derived from pegged:collateral:
         assertEq(
@@ -58,7 +58,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
     function test_configAppliedAfterStart() public {
         string memory json = _loadFixture();
 
-    harbor.start(json, "");
+        harbor.start(json, "");
 
         // Verify treasury applied
         assertTrue(harbor.hasTreasury(), "Should have treasury");
@@ -82,12 +82,12 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
         string memory json = _loadFixture();
 
         // Start and finish initial deployment
-    harbor.start(json, "");
+        harbor.start(json, "");
         harbor.finish();
 
         // Create new harness and resume
-    HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
-    harbor2.resume(json, "");
+    HarborDeploymentTestingFoundry harbor2 = new HarborDeploymentTestingFoundry();
+        harbor2.resume(json, "");
 
         // Verify resumed successfully
         DeploymentRegistry.DeploymentMetadata memory metadata = harbor2.getMetadata();
@@ -101,15 +101,15 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
         string memory json = _loadFixture();
 
         // Start and finish initial deployment
-    harbor.start(json, "");
+        harbor.start(json, "");
         harbor.finish();
 
         // Try to resume with different version
         string
             memory badJson = '{"schemaVersion":1,"version":"v2.0.0","owner":"0x000000000000000000000000000000000000a002","treasury":"0x000000000000000000000000000000000000a003","pegged":{"registryKey":"pegged","id":"fxSAVE","name":"Bao USD","symbol":"BAOUSD","decimals":18},"collateral":{"registryKey":"wrappedCollateral","address":"0x0000000000000000000000000000000000000001"}}';
 
-    HarborAutoDeploymentFoundryTest harbor2 = new HarborAutoDeploymentFoundryTest();
-    vm.expectRevert();
-    harbor2.resume(badJson, "");
+    HarborDeploymentTestingFoundry harbor2 = new HarborDeploymentTestingFoundry();
+        vm.expectRevert();
+        harbor2.resume(badJson, "");
     }
 }
