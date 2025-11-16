@@ -3,9 +3,10 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentFoundryExecutionTesting} from "@bao-script/deployment/DeploymentFoundryExecutionTesting.sol";
 import {DeploymentOperatorTesting} from "@bao-script/deployment/DeploymentOperatorTesting.sol";
-import {DeploymentRegistryJsonTesting} from "@bao-script/deployment/DeploymentRegistryJsonTesting.sol";
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
+import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
 import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
@@ -165,7 +166,31 @@ abstract contract HarborDeploymentTesting is HarborDeployment {
  *      - Writes to results/ directory (configurable via BAO_DEPLOYMENT_LOGS_ROOT)
  *      - Has JSON persistence and VM features
  */
-contract HarborDeploymentTestingFoundry is HarborDeploymentTesting, DeploymentOperatorTesting {}
+contract HarborDeploymentTestingFoundry is HarborDeploymentTesting, DeploymentFoundryExecutionTesting {
+    function start(
+        DeploymentConfig.SourceJson memory config,
+        string memory network
+    ) public virtual override(Deployment, HarborDeployment) {
+        HarborDeployment.start(config, network);
+    }
+
+    function resume(
+        DeploymentConfig.SourceJson memory config,
+        string memory network
+    ) public virtual override(Deployment, HarborDeployment) {
+        HarborDeployment.resume(config, network);
+    }
+
+    function _deriveSystemSalt(
+        DeploymentConfig.SourceJson memory config
+    ) internal view virtual override(Deployment, HarborDeployment) returns (string memory) {
+        return HarborDeployment._deriveSystemSalt(config);
+    }
+
+    function _requireBaoDeployerOperator() internal virtual override(Deployment, DeploymentOperatorTesting) {
+        DeploymentOperatorTesting._requireBaoDeployerOperator();
+    }
+}
 
 /**
  * @title HarborDeploymentTestingAnvil
@@ -175,4 +200,28 @@ contract HarborDeploymentTestingFoundry is HarborDeploymentTesting, DeploymentOp
  *      - Automatically sets up BaoDeployer operator (via DeploymentFoundryTestingOperator)
  *      - Writes to results/ directory (configurable via BAO_DEPLOYMENT_LOGS_ROOT)
  */
-contract HarborDeploymentTestingAnvil is HarborDeploymentTesting, DeploymentOperatorTesting {}
+contract HarborDeploymentTestingAnvil is HarborDeploymentTesting, DeploymentOperatorTesting {
+    function start(
+        DeploymentConfig.SourceJson memory config,
+        string memory network
+    ) public virtual override(Deployment, HarborDeployment) {
+        HarborDeployment.start(config, network);
+    }
+
+    function resume(
+        DeploymentConfig.SourceJson memory config,
+        string memory network
+    ) public virtual override(Deployment, HarborDeployment) {
+        HarborDeployment.resume(config, network);
+    }
+
+    function _deriveSystemSalt(
+        DeploymentConfig.SourceJson memory config
+    ) internal view virtual override(Deployment, HarborDeployment) returns (string memory) {
+        return HarborDeployment._deriveSystemSalt(config);
+    }
+
+    function _requireBaoDeployerOperator() internal virtual override(Deployment, DeploymentOperatorTesting) {
+        DeploymentOperatorTesting._requireBaoDeployerOperator();
+    }
+}

@@ -2,10 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {HarborDeployment} from "@harbor-script/deployment/HarborDeployment.sol";
-import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
+import {DeploymentFoundryExecution} from "@bao-script/deployment/DeploymentFoundryExecution.sol";
 
 /**
  * @title HarborDeploymentFoundry
@@ -34,7 +31,4 @@ import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOpera
  *            }
  *        }
  */
-contract HarborDeploymentFoundry is HarborDeployment, DeploymentRegistryJson {
-    // NOTE: No _getBaseDirPrefix override needed - uses default "." from DeploymentRegistryJson
-    // NOTE: labelAddress() inherited from DeploymentRegistryJson → DeploymentFoundryVm
-}
+contract HarborDeploymentFoundry is HarborDeployment, DeploymentFoundryExecution {}

@@ -3,17 +3,32 @@ config:
   layout: elk
 ---
 flowchart BT
+    classDef existsComplete fill:#e0f7df,stroke:#4caf50,color:#1b5e20,stroke-width:1px;
+    classDef existsChanging fill:#fff9db,stroke:#f9a825,color:#8c6d1f,stroke-width:1px;
+    classDef targetPhase fill:#ffeede,stroke:#fb8c00,color:#8c3b20,stroke-width:1px;
+    classDef future fill:#ffe4ec,stroke:#f06292,color:#8c1d40,stroke-width:1px;
     %% bao-base abstract mixins
     subgraph base["bao-base"]
         BaoDeployer[["BaoDeployer"]]
         DeploymentRegistry["DeploymentRegistry"]
         DeploymentFoundryVm["DeploymentFoundryVm"]
         DeploymentRegistryJson["DeploymentRegistryJson"]
+          DeploymentRegistryJsonTesting["DeploymentRegistryJsonTesting"]
         Deployment["Deployment"]
-    DeploymentFoundryTestingVm["DeploymentFoundryTestingVm"]
+        DeploymentFoundryTestingVm["DeploymentFoundryTestingVm"]
     BaoDeployerSetOperator["BaoDeployerSetOperator"]
-    DeploymentFoundryTestingOperator["DeploymentFoundryTestingOperator"]
+        DeploymentFoundryTestingOperator["DeploymentFoundryTestingOperator"]
+
+        %% Deployment + operator composition entry point
+    DeploymentOperatorTesting["DeploymentOperatorTesting"]
+
     DeploymentFoundryTesting[["DeploymentFoundryTesting"]]
+
+        %% Environment-specific deployment conduits (composition targets)
+        DeploymentFoundryExecution[["DeploymentFoundryExecution"]]
+        DeploymentFoundryExecutionTesting[["DeploymentFoundryExecutionTesting"]]
+        DeploymentAnvilExecution[["DeploymentAnvilExecution"]]
+        DeploymentWakeExecution[["DeploymentWakeExecution"]]
     end
 
     subgraph base-usage["bao-base usage scenarios"]
@@ -45,37 +60,68 @@ flowchart BT
         WakeTestSuite[["tests/test/*.py"]]
     end
 
+    class BaoDeployer,DeploymentRegistry,DeploymentFoundryVm,DeploymentRegistryJson,Deployment,DeploymentFoundryTestingVm,BaoDeployerSetOperator,DeploymentFoundryTestingOperator,DeploymentOperatorTesting,DeploymentFoundryTesting,DeployerScript,FoundryCoreSuite existsComplete
+
+    class HarborDeployment,HarborDeploymentTesting,HarborDeploymentFoundry,HarborDeploymentTestingFoundry,ProdScript,FoundrySuite existsChanging
+
+    class DeploymentFoundryExecution,DeploymentFoundryExecutionTesting,DeploymentRegistryJsonTesting targetPhase
+
+    class DeploymentAnvilExecution,DeploymentWakeExecution,HarborDeploymentWake,HarborDeploymentTestingAnvil,HarborDeploymentTestingWake,AnvilScript,WakeProdSuite,WakeTestSuite future
+
     %% mixin wiring in bao-base
     DeploymentRegistryJson --> DeploymentFoundryVm
     DeploymentFoundryTestingVm --> DeploymentFoundryVm
-    Deployment ==> DeploymentRegistry
+
+    Deployment --> DeploymentRegistry
     Deployment -.-o BaoDeployer
     BaoDeployerSetOperator -.-o BaoDeployer
     DeployerScript -.-o BaoDeployer
+
 
     %% bao-base concrete assembly
     DeploymentFoundryTesting --> Deployment
     DeploymentFoundryTesting --> DeploymentRegistryJson
     DeploymentFoundryTesting --> DeploymentFoundryTestingOperator
 
-    %% harbor mixins extending bao-base
-    HarborDeployment ==> Deployment
-    HarborDeploymentTesting --> HarborDeployment
 
-    %% harbor concrete assembly - production (no mocks, explicit config)
-    HarborDeploymentFoundry --> HarborDeployment
-    HarborDeploymentFoundry --> DeploymentRegistryJson
+    %% bao-base composition chains
+    DeploymentOperatorTesting --> Deployment
+    DeploymentOperatorTesting --> DeploymentFoundryTestingOperator
 
-    HarborDeploymentWake --> HarborDeployment
+    DeploymentFoundryTestingOperator --> DeploymentRegistryJsonTesting
+    DeploymentFoundryTestingOperator --> DeploymentFoundryTestingVm
+    DeploymentFoundryTestingOperator --> BaoDeployerSetOperator
 
-    %% harbor concrete assembly - testing (with mocks + auto-deploy)
-    HarborDeploymentTestingFoundry --> HarborDeploymentTesting
-    HarborDeploymentTestingFoundry --> DeploymentFoundryTestingOperator
+    DeploymentFoundryExecution --> DeploymentRegistryJson
+    DeploymentRegistryJsonTesting --> DeploymentRegistryJson
 
-    HarborDeploymentTestingAnvil --> HarborDeploymentTesting
-    HarborDeploymentTestingAnvil --> DeploymentFoundryTestingOperator
+    DeploymentFoundryExecutionTesting --> DeploymentOperatorTesting
+    DeploymentFoundryExecutionTesting --> DeploymentRegistryJsonTesting
 
-    HarborDeploymentTestingWake --> HarborDeploymentTesting
+    DeploymentAnvilExecution --> DeploymentOperatorTesting
+    DeploymentAnvilExecution --> DeploymentRegistryJson
+
+    DeploymentWakeExecution --> DeploymentOperatorTesting
+    DeploymentWakeExecution --> DeploymentRegistryJson
+
+    %% harbor layers compose bao-base execution contracts
+    HarborDeployment -.-o Deployment
+    HarborDeploymentTesting -.-o HarborDeployment
+
+    HarborDeploymentFoundry -.-o DeploymentFoundryExecution
+    HarborDeploymentFoundry -.-o HarborDeployment
+
+    HarborDeploymentWake -.-o DeploymentWakeExecution
+    HarborDeploymentWake -.-o HarborDeployment
+
+    HarborDeploymentTestingFoundry -.-o DeploymentFoundryExecutionTesting
+    HarborDeploymentTestingFoundry -.-o HarborDeploymentTesting
+
+    HarborDeploymentTestingAnvil -.-o DeploymentAnvilExecution
+    HarborDeploymentTestingAnvil -.-o HarborDeploymentTesting
+
+    HarborDeploymentTestingWake -.-o DeploymentWakeExecution
+    HarborDeploymentTestingWake -.-o HarborDeploymentTesting
 
     %% usage hooks
     FoundryCoreSuite -.-o DeploymentFoundryTesting
