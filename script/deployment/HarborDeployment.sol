@@ -43,11 +43,10 @@ abstract contract HarborDeployment is Deployment {
     /// @notice Start a deployment session and apply Harbor-specific config
     /// @param config Parsed deployment configuration
     /// @param network Network label used for deployment logs
-    function start(DeploymentConfig.SourceJson memory config, string memory network)
-        public
-        virtual
-        override(Deployment)
-    {
+    function start(
+        DeploymentConfig.SourceJson memory config,
+        string memory network
+    ) public virtual override(Deployment) {
         super.start(config, network);
 
         // Ensure registry owner mirrors metadata owner
@@ -60,11 +59,10 @@ abstract contract HarborDeployment is Deployment {
     /// @notice Resume deployment session and reapply Harbor-specific config
     /// @param config Parsed deployment configuration
     /// @param network Network label used for deployment logs
-    function resume(DeploymentConfig.SourceJson memory config, string memory network)
-        public
-        virtual
-        override(Deployment)
-    {
+    function resume(
+        DeploymentConfig.SourceJson memory config,
+        string memory network
+    ) public virtual override(Deployment) {
         super.resume(config, network);
 
         // Ensure registry owner mirrors metadata owner
@@ -112,13 +110,13 @@ abstract contract HarborDeployment is Deployment {
 
     function _applyPeggedConfig(DeploymentConfig.SourceJson memory config) internal {
         if (!hasPeggedName() && DeploymentConfig.has(config, "pegged", "name")) {
-            setPeggedName(DeploymentConfig.getString(config, "pegged", "name"));
+            setString(HarborKeys.PEGGED_NAME, DeploymentConfig.getString(config, "pegged", "name"));
         }
         if (!hasPeggedSymbol() && DeploymentConfig.has(config, "pegged", "symbol")) {
-            setPeggedSymbol(DeploymentConfig.getString(config, "pegged", "symbol"));
+            setString(HarborKeys.PEGGED_SYMBOL, DeploymentConfig.getString(config, "pegged", "symbol"));
         }
         if (!hasPeggedDecimals() && DeploymentConfig.has(config, "pegged", "decimals")) {
-            setPeggedDecimals(DeploymentConfig.getUint(config, "pegged", "decimals"));
+            setUint(HarborKeys.PEGGED_DECIMALS, DeploymentConfig.getUint(config, "pegged", "decimals"));
         }
     }
 
@@ -137,20 +135,12 @@ abstract contract HarborDeployment is Deployment {
         return has(HarborKeys.FEE_RECEIVER_NAME);
     }
 
-    function setFeeReceiverName(string memory value) public {
-        setString(HarborKeys.FEE_RECEIVER_NAME, value);
-    }
-
     function getFeeReceiverName() public view virtual returns (string memory) {
         return getString(HarborKeys.FEE_RECEIVER_NAME);
     }
 
     function hasPeggedName() public view returns (bool) {
         return has(HarborKeys.PEGGED_NAME);
-    }
-
-    function setPeggedName(string memory value) public {
-        setString(HarborKeys.PEGGED_NAME, value);
     }
 
     function getPeggedName() public view virtual returns (string memory) {
@@ -161,10 +151,6 @@ abstract contract HarborDeployment is Deployment {
         return has(HarborKeys.PEGGED_SYMBOL);
     }
 
-    function setPeggedSymbol(string memory value) public {
-        setString(HarborKeys.PEGGED_SYMBOL, value);
-    }
-
     function getPeggedSymbol() public view virtual returns (string memory) {
         return getString(HarborKeys.PEGGED_SYMBOL);
     }
@@ -173,16 +159,8 @@ abstract contract HarborDeployment is Deployment {
         return has(HarborKeys.PEGGED_DECIMALS);
     }
 
-    function setPeggedDecimals(uint256 value) public {
-        setUint(HarborKeys.PEGGED_DECIMALS, value);
-    }
-
     function getPeggedDecimals() public view returns (uint256) {
         return getUint(HarborKeys.PEGGED_DECIMALS);
-    }
-
-    function setCollateralDecimals(uint256 value) public {
-        setUint(HarborKeys.COLLATERAL_DECIMALS, value);
     }
 
     function getCollateralDecimals() public view returns (uint256) {
@@ -193,10 +171,6 @@ abstract contract HarborDeployment is Deployment {
         return has(HarborKeys.LEVERAGED_NAME);
     }
 
-    function setLeveragedName(string memory value) public {
-        setString(HarborKeys.LEVERAGED_NAME, value);
-    }
-
     function getLeveragedName() public view virtual returns (string memory) {
         return getString(HarborKeys.LEVERAGED_NAME);
     }
@@ -205,48 +179,24 @@ abstract contract HarborDeployment is Deployment {
         return has(HarborKeys.LEVERAGED_SYMBOL);
     }
 
-    function setLeveragedSymbol(string memory value) public {
-        setString(HarborKeys.LEVERAGED_SYMBOL, value);
-    }
-
     function getLeveragedSymbol() public view virtual returns (string memory) {
         return getString(HarborKeys.LEVERAGED_SYMBOL);
-    }
-
-    function setLeveragedDecimals(uint256 value) public {
-        setUint(HarborKeys.LEVERAGED_DECIMALS, value);
     }
 
     function getLeveragedDecimals() public view returns (uint256) {
         return getUint(HarborKeys.LEVERAGED_DECIMALS);
     }
 
-    function setStabilityPoolEarlyWithdrawalFee(uint256 value) public {
-        setUint(HarborKeys.STABILITY_POOL_EARLY_WITHDRAWAL_FEE, value);
-    }
-
     function getStabilityPoolEarlyWithdrawalFee() public view virtual returns (uint256) {
         return getUint(HarborKeys.STABILITY_POOL_EARLY_WITHDRAWAL_FEE);
-    }
-
-    function setStabilityPoolMinDeposit(uint256 value) public {
-        setUint(HarborKeys.STABILITY_POOL_MIN_DEPOSIT, value);
     }
 
     function getStabilityPoolMinDeposit() public view returns (uint256) {
         return getUint(HarborKeys.STABILITY_POOL_MIN_DEPOSIT);
     }
 
-    function setInitialExchangeRate(uint256 value) public {
-        setUint(HarborKeys.INITIAL_EXCHANGE_RATE, value);
-    }
-
     function getInitialExchangeRate() public view returns (uint256) {
         return getUint(HarborKeys.INITIAL_EXCHANGE_RATE);
-    }
-
-    function setFeePercentage(uint256 value) public {
-        setUint(HarborKeys.FEE_PERCENTAGE, value);
     }
 
     function getFeePercentage() public view returns (uint256) {

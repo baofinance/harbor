@@ -37,21 +37,21 @@ library HarborKeys {
     // Parameter Keys
     // =========================================================================
 
-    string internal constant PEGGED_NAME = "peggedName";
-    string internal constant PEGGED_SYMBOL = "peggedSymbol";
-    string internal constant PEGGED_DECIMALS = "peggedDecimals";
-    string internal constant LEVERAGED_NAME = "leveragedName";
-    string internal constant LEVERAGED_SYMBOL = "leveragedSymbol";
-    string internal constant LEVERAGED_DECIMALS = "leveragedDecimals";
-    string internal constant COLLATERAL_DECIMALS = "collateralDecimals";
+    string internal constant PEGGED_NAME = "pegged.name";
+    string internal constant PEGGED_SYMBOL = "pegged.symbol";
+    string internal constant PEGGED_DECIMALS = "pegged.decimals";
+    string internal constant LEVERAGED_NAME = "leveraged.name";
+    string internal constant LEVERAGED_SYMBOL = "leveraged.symbol";
+    string internal constant LEVERAGED_DECIMALS = "leveraged.decimals";
+    string internal constant COLLATERAL_DECIMALS = "collateral.decimals";
 
-    string internal constant FEE_RECEIVER_NAME = "feeReceiverName";
+    string internal constant FEE_RECEIVER_NAME = "feeReceiver.name";
 
-    string internal constant STABILITY_POOL_EARLY_WITHDRAWAL_FEE = "stabilityPoolEarlyWithdrawalFee";
-    string internal constant STABILITY_POOL_MIN_DEPOSIT = "stabilityPoolMinDeposit";
+    string internal constant STABILITY_POOL_EARLY_WITHDRAWAL_FEE = "stabilityPool.earlyWithdrawalFee";
+    string internal constant STABILITY_POOL_MIN_DEPOSIT = "stabilityPool.minDeposit";
 
-    string internal constant INITIAL_EXCHANGE_RATE = "initialExchangeRate";
-    string internal constant FEE_PERCENTAGE = "feePercentage";
+    string internal constant INITIAL_EXCHANGE_RATE = "pegged.initialExchangeRate";
+    string internal constant FEE_PERCENTAGE = "feeReceiver.percentage";
 
     // =========================================================================
     // Helper Views

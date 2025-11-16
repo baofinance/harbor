@@ -30,7 +30,7 @@ contract HarborParameterExample is Test {
         BaoDeployer(baoDeployer).setOperator(address(harbor));
         vm.stopPrank();
         string memory network = _nextNetwork();
-    harbor.start(_buildConfig(address(this)), network);
+        harbor.start(_buildConfig(address(this)), network);
     }
 
     function _buildConfig(address owner) internal pure returns (string memory) {
@@ -52,13 +52,13 @@ contract HarborParameterExample is Test {
         // Setup admin first (required for Harbor deployments)
 
         // 1. Set parameters before deployment
-        harbor.setPeggedName("Bao USD");
-        harbor.setPeggedSymbol("BAOUSD");
-        harbor.setPeggedDecimals(18);
+        harbor.setString(HarborKeys.PEGGED_NAME, "Bao USD");
+        harbor.setString(HarborKeys.PEGGED_SYMBOL, "BAOUSD");
+        harbor.setUint(HarborKeys.PEGGED_DECIMALS, 18);
 
-        harbor.setLeveragedName("Bao Leveraged USD");
-        harbor.setLeveragedSymbol("BAOLUSD");
-        harbor.setLeveragedDecimals(18);
+        harbor.setString(HarborKeys.LEVERAGED_NAME, "Bao Leveraged USD");
+        harbor.setString(HarborKeys.LEVERAGED_SYMBOL, "BAOLUSD");
+        harbor.setUint(HarborKeys.LEVERAGED_DECIMALS, 18);
 
         // 2. Retrieve parameters for contract deployment
         string memory peggedName = harbor.getPeggedName();
@@ -71,7 +71,7 @@ contract HarborParameterExample is Test {
         assertEq(peggedDecimals, 18);
 
         // Deploy tokens using deployer libraries directly
-        PeggedTokenDeployer.deployFromConfig(harbor);
+        PeggedTokenDeployer.deploy(harbor);
 
         // Verify tokens were deployed
         assertTrue(harbor.hasPeggedToken());
@@ -79,7 +79,7 @@ contract HarborParameterExample is Test {
 
     function test_UseParametersForStabilityPools() public {
         // Set minimum deposit amount (shared across both stability pools)
-        harbor.setStabilityPoolMinDeposit(0.01 ether);
+        harbor.setUint(HarborKeys.STABILITY_POOL_MIN_DEPOSIT, 0.01 ether);
 
         // Get min deposit parameter
         uint256 minDeposit = harbor.getStabilityPoolMinDeposit();
@@ -94,7 +94,7 @@ contract HarborParameterExample is Test {
         harbor.getString(HarborKeys.PEGGED_NAME);
 
         // Set parameter
-        harbor.setPeggedName("Bao USD");
+        harbor.setString(HarborKeys.PEGGED_NAME, "Bao USD");
 
         // Now it works
         assertEq(harbor.getPeggedName(), "Bao USD");
@@ -104,13 +104,13 @@ contract HarborParameterExample is Test {
         // Setup admin
 
         // Set parameters first
-        harbor.setPeggedName("BaoUSD");
-        harbor.setPeggedSymbol("BAOUSD");
-        harbor.setInitialExchangeRate(1e18);
-        harbor.setFeePercentage(100);
+        harbor.setString(HarborKeys.PEGGED_NAME, "BaoUSD");
+        harbor.setString(HarborKeys.PEGGED_SYMBOL, "BAOUSD");
+        harbor.setUint(HarborKeys.INITIAL_EXCHANGE_RATE, 1e18);
+        harbor.setUint(HarborKeys.FEE_PERCENTAGE, 100);
 
         // Deploy contract
-        PeggedTokenDeployer.deployFromConfig(harbor);
+        PeggedTokenDeployer.deploy(harbor);
 
         // Get all keys (should include both contracts and parameters)
         string[] memory allKeys = harbor.keys();

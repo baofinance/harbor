@@ -46,13 +46,8 @@ contract DeployPeggedToken is Script {
         harbor.start(config, "anvil-local");
         console.log("Deployment session started");
 
-        // 4. Deploy pegged token with explicit parameters
-        deployedToken = PeggedTokenDeployer.deploy(
-            harbor,
-            ANVIL_DEFAULT, // admin
-            "Bao USD", // name
-            "baoUSD" // symbol
-        );
+        // 4. Deploy pegged token using registry parameters populated from config
+        deployedToken = PeggedTokenDeployer.deploy(harbor);
 
         console.log("\n=== Deployment Complete ===");
         console.log("Pegged Token:", deployedToken);

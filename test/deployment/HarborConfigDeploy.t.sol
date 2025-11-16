@@ -21,7 +21,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-    harbor = new HarborDeploymentTestingFoundry();
+        harbor = new HarborDeploymentTestingFoundry();
     }
 
     function _loadFixture() internal view returns (string memory) {
@@ -86,7 +86,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
         harbor.finish();
 
         // Create new harness and resume
-    HarborDeploymentTestingFoundry harbor2 = new HarborDeploymentTestingFoundry();
+        HarborDeploymentTestingFoundry harbor2 = new HarborDeploymentTestingFoundry();
         harbor2.resume(json, "");
 
         // Verify resumed successfully
@@ -108,7 +108,7 @@ contract HarborConfigDeployTest is BaoDeploymentTest {
         string
             memory badJson = '{"schemaVersion":1,"version":"v2.0.0","owner":"0x000000000000000000000000000000000000a002","treasury":"0x000000000000000000000000000000000000a003","pegged":{"registryKey":"pegged","id":"fxSAVE","name":"Bao USD","symbol":"BAOUSD","decimals":18},"collateral":{"registryKey":"wrappedCollateral","address":"0x0000000000000000000000000000000000000001"}}';
 
-    HarborDeploymentTestingFoundry harbor2 = new HarborDeploymentTestingFoundry();
+        HarborDeploymentTestingFoundry harbor2 = new HarborDeploymentTestingFoundry();
         vm.expectRevert();
         harbor2.resume(badJson, "");
     }

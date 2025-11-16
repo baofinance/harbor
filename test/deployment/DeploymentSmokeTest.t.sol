@@ -24,7 +24,7 @@ contract DeploymentSmokeTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
 
-    harbor = new HarborDeploymentTestingFoundry();
+        harbor = new HarborDeploymentTestingFoundry();
         string memory network = _nextNetwork();
         harbor.start(_buildConfig(makeAddr("deployment-smoke-owner")), network);
     }

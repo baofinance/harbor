@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
+import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
 import {HarborDeploymentTestingFoundry} from "@harbor-test/deployment/HarborDeploymentTesting.sol";
 
 /**
@@ -72,9 +73,9 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
         HarborDeploymentTestingFoundry harbor = _newHarbor(makeAddr("customParams-owner"));
 
         // Set custom parameters before deployment
-        harbor.setPeggedName("Custom USD");
-        harbor.setPeggedSymbol("cUSD");
-        harbor.setStabilityPoolEarlyWithdrawalFee(0.05 ether);
+        harbor.setString(HarborKeys.PEGGED_NAME, "Custom USD");
+        harbor.setString(HarborKeys.PEGGED_SYMBOL, "cUSD");
+        harbor.setUint(HarborKeys.STABILITY_POOL_EARLY_WITHDRAWAL_FEE, 0.05 ether);
 
         // Deploy uses custom params
         address pool = harbor.deployStabilityPoolCollateralFromConfig();
@@ -148,7 +149,7 @@ contract HarborAutoDeployTest is BaoDeploymentTest {
         HarborDeploymentTestingFoundry harbor = _newHarbor(makeAddr(string.concat("fuzz-owner-", vm.toString(fee))));
 
         // Set fuzzed fee
-        harbor.setStabilityPoolEarlyWithdrawalFee(fee);
+        harbor.setUint(HarborKeys.STABILITY_POOL_EARLY_WITHDRAWAL_FEE, fee);
 
         // Deploy with fuzzed param
         address pool = harbor.deployStabilityPoolCollateralFromConfig();

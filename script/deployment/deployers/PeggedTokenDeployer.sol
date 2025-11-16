@@ -11,29 +11,12 @@ import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
  */
 library PeggedTokenDeployer {
     /**
-     * @notice Deploy MintableBurnableERC20 pegged token with explicit parameters
-     * @param deployment The deployment registry
-     * @param admin Admin address
-     * @param name Token name
-     * @param symbol Token symbol
-     * @return proxy Address of deployed pegged token proxy
-     */
-    function deploy(
-        Deployment deployment,
-        address admin,
-        string memory name,
-        string memory symbol
-    ) external returns (address proxy) {
-        proxy = _deployInternal(deployment, admin, name, symbol);
-    }
-
-    /**
      * @notice Deploy pegged token reading parameters from deployment registry
      * @dev Parameters are read directly from registry using key composition
      * @param deployment The deployment registry
      * @return proxy Address of deployed pegged token proxy
      */
-    function deployFromConfig(Deployment deployment) external returns (address proxy) {
+    function deploy(Deployment deployment) external returns (address proxy) {
         // Read parameters directly from registry (populated from config)
         address admin = deployment.get(HarborKeys.OWNER);
         string memory name = deployment.getString(HarborKeys.PEGGED_NAME);
