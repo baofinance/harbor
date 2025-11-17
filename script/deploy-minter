@@ -19,7 +19,7 @@ DEVELOPER="$PUBLIC_KEY"
 # e.g.
 #   --developer-roles "minter.HARVESTER_ROLE,stabilityPoolCollateral.REBALANCER_ROLE"
 DEVELOPER_ROLES=""
-PEGGED_SYMBOL="Bao"
+PEGGED_SYMBOL="PB" # pork bellies
 
 # BURN_SIG can be one of
 # - "burn(uint256)"
@@ -39,10 +39,10 @@ REBALANCE_BOUNTY=""
 REBALANCE_THRESHOLD=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --minter-config-file | --mcf)
+    --minter-fee-config-file | --mfcf)
       MINTER_CONFIG="true"
-      record minter.configFile "$2"
-      record_raw minter.config "$(<$2)"
+      record minter.feeConfigFile "$2"
+      record_raw minter.feeConfig "$(<$2)"
       shift 2
       ;;
     --harvest-bounty)
@@ -90,7 +90,7 @@ while [[ $# -gt 0 ]]; do
       fi
       shift 2
       ;;
-    --pegged | --zhe)
+    --pegged | --anchored)
       PEGGED_SYMBOL="$2"
       record "arguments.pegged" "${PEGGED_SYMBOL}"
       shift 2
@@ -136,7 +136,6 @@ deploy_contract Stem_v1 "lib/bao-base/src/Stem_v1.sol:Stem_v1" "--constructor-ar
 BaoOwnables=()
 for contract in \
   peggedToken leveragedToken \
-  STEAM veSTEAM \
   stakedETHWrappedPriceOracle \
   minter reservePool feeReceiver \
   stabilityPoolManager \
@@ -152,8 +151,8 @@ done
 # pegged token
 # ---------------
 deploy_contract PeggedToken_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
-record peggedToken.symbol "zhe${PEGGED_SYMBOL}"
-record peggedToken.name "Bao Zhenglong ${PEGGED_SYMBOL}"
+record peggedToken.symbol "ha${PEGGED_SYMBOL}"
+record peggedToken.name "Harbor Anchored ${PEGGED_SYMBOL}"
 
 upgrade_proxy peggedToken PeggedToken_v1 \
   "initialize(address,string,string)" owner peggedToken.name peggedToken.symbol
@@ -161,9 +160,9 @@ upgrade_proxy peggedToken PeggedToken_v1 \
 # leveraged token
 # ---------------
 deploy_contract LeveragedToken_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
-LEVERAGED_SYMBOL="steamed${PEGGED_SYMBOL}-${COLLATERAL_SYMBOL}"
-record leveragedToken.symbol "${LEVERAGED_SYMBOL}"
-record leveragedToken.name "Zhenglong governance ${LEVERAGED_SYMBOL}"
+LEVERAGED_SYMBOL="hs${PEGGED_SYMBOL}x${COLLATERAL_SYMBOL}"
+record leveragedToken.symbol "hs${LEVERAGED_SYMBOL}"
+record leveragedToken.name "Harbor Sail ${LEVERAGED_SYMBOL}"
 
 upgrade_proxy leveragedToken LeveragedToken_v1 \
   "initialize(address,string,string)" owner leveragedToken.name leveragedToken.symbol
@@ -247,48 +246,11 @@ send_transaction minter "updateReservePool(address)" reservePool
 
 if [[ -n "${MINTER_CONFIG}" ]]; then
   send_transaction minter "updateConfig(((uint256[],int256[]),(uint256[],int256[]),(uint256[],int256[]),(uint256[],int256[])))" \
-    "(($(query minter.config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.mintPeggedIncentiveConfig.incentiveRatios)),\
-     ($(query minter.config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.redeemPeggedIncentiveConfig.incentiveRatios)),\
-     ($(query minter.config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.mintLeveragedIncentiveConfig.incentiveRatios)),\
-     ($(query minter.config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.config.redeemLeveragedIncentiveConfig.incentiveRatios)))"
+    "(($(query minter.feeConfig.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.feeConfig.mintPeggedIncentiveConfig.incentiveRatios)),\
+     ($(query minter.feeConfig.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.feeConfig.redeemPeggedIncentiveConfig.incentiveRatios)),\
+     ($(query minter.feeConfig.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.feeConfig.mintLeveragedIncentiveConfig.incentiveRatios)),\
+     ($(query minter.feeConfig.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds),$(query minter.feeConfig.redeemLeveragedIncentiveConfig.incentiveRatios)))"
 fi
-
-# gauge/steam/veSteam
-######################
-
-# STEAM
-# -----
-record STEAM.INITIAL_RATE 0.154585e18
-record STEAM.RATE_REDUCTION_COEFFICIENT 1.147080e18
-record STEAM.initialSupply 61000000e18
-record STEAM.name "Zhenglong STEAM"
-record STEAM.symbol "STEAM"
-
-deploy_contract Steam_v1 "src/reward/steam/Steam_v1.sol:Steam_v1" \
-  --constructor-args STEAM.INITIAL_RATE STEAM.RATE_REDUCTION_COEFFICIENT
-upgrade_proxy STEAM Steam_v1 \
-  "initialize(address,uint256,string,string)" owner STEAM.initialSupply STEAM.name STEAM.symbol
-
-# veSTEAM
-# -------
-record veSTEAM.symbol "veSTEAM"
-record veSTEAM.name "Zhenglong voting escrow STEAM"
-record veSTEAM.version "v1.0"
-deploy_contract VeSTEAM_v1 "src/reward/voting-escrow/VotingEscrow_v1.sol:VotingEscrow_v1" \
-  --constructor-args STEAM
-upgrade_proxy veSTEAM VeSTEAM_v1 \
-  "initialize(address,string,string, string)" owner veSTEAM.name veSTEAM.symbol veSTEAM.version
-
-# gauge controller for steam
-# --------------------------
-deploy_contract gaugeController "src/reward/gauge/GaugeController.vy:GaugeController" \
-  --constructor-args STEAM veSTEAM
-# add gauge type 0 (used later)
-send_transaction gaugeController "add_type(string,uint256)" "Liquidity" 1
-
-deploy_contract steamMinter "src/reward/steam/SteamMinter.vy:SteamMinter" \
-  --constructor-args STEAM gaugeController
-grantRoles steamMinter STEAM.MINTER_ROLE
 
 # stability pools
 #################
@@ -297,64 +259,32 @@ grantRoles steamMinter STEAM.MINTER_ROLE
 # --------------
 declare -A TOKEN_SYMBOL
 TOKEN_SYMBOL[Collateral]="${COLLATERAL_SYMBOL}"
-TOKEN_SYMBOL[Steamed]="${LEVERAGED_SYMBOL}"
+TOKEN_SYMBOL[Sail]="${LEVERAGED_SYMBOL}"
 declare -A TOKEN_KEY
 TOKEN_KEY[Collateral]="wrappedCollateralToken"
-TOKEN_KEY[Steamed]="leveragedToken"
+TOKEN_KEY[Sail]="leveragedToken"
 # two stability pools
-for liquidation in Collateral Steamed; do
-  # gauge stake token
-  deploy_stemmed stabilityPool${liquidation}Stake
-  BaoOwnables+=("stabilityPool${liquidation}Stake")
-  deploy_contract StabilityPool_v1${liquidation}Stake_v1 "lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1"
-  upgrade_proxy stabilityPool${liquidation}Stake StabilityPool_v1${liquidation}Stake_v1 \
-    "initialize(address,string,string)" owner \
-    "Zhenglong stability pool ${PEGGED_SYMBOL} (${TOKEN_SYMBOL[${liquidation}]})" \
-    "spZhe${PEGGED_SYMBOL}>${TOKEN_SYMBOL[${liquidation}]}"
-
-  # guage
-  deploy_contract stabilityPool${liquidation}Gauge "src/reward/gauge/LiquidityGaugeV6.vy:LiquidityGaugeV6" \
-    --constructor-args stabilityPool${liquidation}Stake STEAM gaugeController steamMinter veSTEAM veSTEAM
-  # add gauge, type 0, weight 1
-  send_transaction gaugeController "add_gauge(address,int128,uint256)" stabilityPool${liquidation}Gauge 0 1
-
+for liquidation in Collateral Sail; do
   # stability pool
   deploy_stemmed stabilityPool${liquidation}
   BaoOwnables+=("stabilityPool${liquidation}")
-  # constructor(minter, liquidationToken, stabilityPoolToken, steam, earlyFee, feeAddress, startDelay, windowPeriod)
+
+  # constructor(minter, liquidationToken, stabilityPoolToken, earlyFee, feeAddress, startDelay, windowPeriod)
   deploy_contract StabilityPool_v1${liquidation} "src/minter/StabilityPool_v1.sol:StabilityPool_v1" \
-    --constructor-args minter ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}Stake STEAM \
-    25000000000000000 0x3dFc49e5112005179Da613BdE5973229082dAc35 3600 90000
-  upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address,uint256,address)" owner 25000000000000000 0x3dFc49e5112005179Da613BdE5973229082dAc35
-
-  # fee settings initialized in the proxy upgrade call above
-
-  # mint the stake token to the stability pool
-  grantRoles deployer stabilityPool${liquidation}Stake.MINTER_ROLE
-  send_transaction stabilityPool${liquidation}Stake "mint(address,uint256)" stabilityPool${liquidation} 1000000000000000000
-  revokeRoles deployer stabilityPool${liquidation}Stake.MINTER_ROLE
-  record_from_call stabilityPool${liquidation}Stake.totalSupply stabilityPool${liquidation}Stake "totalSupply()(uint256)"
-  record_from_call stabilityPool${liquidation}Stake.balanceOf stabilityPool${liquidation}Stake "balanceOf(address)(uint256)" stabilityPool${liquidation}
-  record_from_call stabilityPool${liquidation}Stake.allowance stabilityPool${liquidation}Stake "allowance(address,address)(uint256)" stabilityPool${liquidation} stabilityPool${liquidation}Gauge
-  send_transaction stabilityPool${liquidation} "updateGauge(address)" stabilityPool${liquidation}Gauge
-
-  send_transaction stabilityPool${liquidation} "registerRewardToken(address, address)" ${TOKEN_KEY[$liquidation]} stabilityPool${liquidation}
-  send_transaction stabilityPool${liquidation} "registerRewardToken(address, address)" STEAM stabilityPool${liquidation}
+    --constructor-args minter ${TOKEN_KEY[$liquidation]} 25000000000000000 treasury 3600 90000 1e18
+  upgrade_proxy stabilityPool${liquidation} StabilityPool_v1${liquidation} "initialize(address,uint256,address)" \
+    owner 25000000000000000 treasury
 
   # grant stabilityPoolManager access
   grantRoles stabilityPoolManager stabilityPool${liquidation}.REBALANCER_ROLE
-  grantRoles stabilityPoolManager stabilityPool${liquidation}.REWARDER_ROLE
+  grantRoles stabilityPoolManager stabilityPool${liquidation}.REWARD_DEPOSITOR_ROLE
 
-  send_transaction stabilityPool${liquidation}Gauge "set_gauge_manager(address)" owner
 done
-
-send_transaction gaugeController "commit_transfer_ownership(address)" owner
-send_transaction gaugeController "apply_transfer_ownership()"
 
 # StabilityPoolManager
 # --------------------
 deploy_contract StabilityPoolManager_v1 "src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1" \
-  --constructor-args minter treasury stabilityPoolCollateral stabilityPoolSteamed
+  --constructor-args minter treasury stabilityPoolCollateral stabilityPoolSail
 upgrade_proxy stabilityPoolManager StabilityPoolManager_v1 "initialize(address)" owner
 send_transaction stabilityPoolManager "updateFeeReceiver(address)" feeReceiver
 

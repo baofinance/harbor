@@ -1,0 +1,78 @@
+{
+  "mintLeveragedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1.0e18,
+      1.1e18,
+      1.2e18,
+      1.25e18,
+      1.5e18,
+      1.6e18,
+      1.8e18
+    ],
+    "incentiveRatios": [
+      -0.05e18,
+      -0.05e18,
+      -0.025e18,
+      -0.01e18,
+      0,
+      0.002e18,
+      0.005e18,
+      0.015e18
+    ]
+  },
+  "mintPeggedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1.1e18,
+      1.3e18,
+      1.35e18,
+      1.4e18,
+      1.5e18,
+      1.6e18
+    ],
+    "incentiveRatios": [
+      1e18,
+      0.1e18,
+      0.05e18,
+      0.03e18,
+      0.02e18,
+      0.01e18,
+      0.005e18
+    ]
+  },
+  "redeemLeveragedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1.1e18,
+      1.2e18,
+      1.3e18,
+      1.4e18,
+      1.8e18
+    ],
+    "incentiveRatios": [
+      1e18,
+      0.10e18,
+      0.05e18,
+      0.035e18,
+      0.015e18,
+      0.0125e18
+    ]
+  },
+  "redeemPeggedIncentiveConfig": {
+    "collateralRatioBandUpperBounds": [
+      1.0e18,
+      1.1e18,
+      1.2e18,
+      1.25e18,
+      1.5e18,
+      1.6e18
+    ],
+    "incentiveRatios": [
+      -0.05e18,
+      -0.05e18,
+      -0.025e18,
+      -0.01e18,
+      0,
+      0.005e18,
+      0.0066e18
+    ]
+  }
+}

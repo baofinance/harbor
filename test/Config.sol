@@ -7,13 +7,17 @@ import {Test} from "forge-std/Test.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
 abstract contract ConfigFile is Test {
-    function readConfig(string memory style) internal view returns (IMinter.Config memory config) {
-        string memory json = vm.readFile(_filename(style));
+    function readConfigFile(string memory fileName) internal view returns (IMinter.Config memory config) {
+        string memory json = vm.readFile(fileName);
 
         config.mintPeggedIncentiveConfig = _readIncentiveConfig(json, "mintPeggedIncentiveConfig");
         config.mintLeveragedIncentiveConfig = _readIncentiveConfig(json, "mintLeveragedIncentiveConfig");
         config.redeemPeggedIncentiveConfig = _readIncentiveConfig(json, "redeemPeggedIncentiveConfig");
         config.redeemLeveragedIncentiveConfig = _readIncentiveConfig(json, "redeemLeveragedIncentiveConfig");
+    }
+
+    function readConfig(string memory style) internal view returns (IMinter.Config memory config) {
+        config = readConfigFile(_filename(style));
     }
 
     function writeConfig(IMinter.Config memory config, string memory style) internal {

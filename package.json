@@ -26,7 +26,7 @@
     "maul": "./lib/bao-base/run maul",
     "deploy": "lib/bao-base/run deploy script/deploy-minter --broadcast",
     "deploy:local": "yarn deploy --rpc-url local",
-    "deploy:anvil": "yarn deploy --anvil --mock-price default --developer-roles 'minter.ZERO_FEE_ROLE'",
+    "deploy:anvil": "yarn deploy --anvil --rebalance-threshold 1.3e18 --minter-fee-config-file script/minter-fee-config.json --mock-price default --developer-roles 'minter.ZERO_FEE_ROLE'",
     "baomultisig:local": "NETWORK=local:test forge script --ffi script/deploy.s.sol:Transactions --unlocked --broadcast --slow",
     "multisig:local": "yarn baomultisig:local",
     "contracts": "awk '/gas_reports *=/ {flag=1; next} /]/ {flag=0} flag {gsub(/\"|,/, \"\"); print $1}' foundry.toml",
