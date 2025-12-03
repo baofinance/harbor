@@ -3,8 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
-import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
+// import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
 
 /**
  * @title DeployHarbor
@@ -31,7 +30,7 @@ import {HarborKeys} from "@harbor-script/deployment/HarborKeys.sol";
  *     --broadcast \
  *     --verify
  */
-contract DeployHarbor is Script {
+/* contract DeployHarbor is Script {
     function run() public {
         // Load environment variables
         // TODO: this should be loaded from a single json file
@@ -52,15 +51,33 @@ contract DeployHarbor is Script {
         console.log("Treasury:", treasuryAddress);
 
         // Create HarborDeployment contract BEFORE broadcast (script-only, not deployed on-chain)
-        HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        // HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+
+        // Build config from environment variables
+        console.log("\n--- Building config from environment ---");
+        string memory config = string.concat(
+            '{"schemaVersion":1,"version":"v1.0.0","owner":"',
+            vm.toString(baomultisig),
+            '","treasury":"',
+            vm.toString(treasuryAddress),
+            '","collateral":{"address":"',
+            vm.toString(collateralToken),
+            '"}'
+        );
+        if (peggedToken != address(0)) {
+            config = string.concat(config, ',"pegged":{"address":"', vm.toString(peggedToken), '"}');
+        }
+        config = string.concat(config, "}");
 
         // Configure with production addresses (script-side setup)
-        console.log("\n--- Configuring deployment (script-side) ---");
+        console.log("\n--- Starting deployment ---");
         vm.startBroadcast(deployerKey);
 
+        string memory network = string.concat("mainnet:", vm.toString(block.chainid));
+        harbor.start(config, network);
+
         // Now broadcast the actual Harbor contract deployments
-        console.log("\n--- Deploying contracts on-chain ---");
-        harbor.useOwner(baomultisig);
+        console.log("\n--- Configuring contracts on-chain ---");
         harbor.useCollateralToken(collateralToken);
 
         // Handle pegged token - use existing or will deploy
@@ -72,7 +89,6 @@ contract DeployHarbor is Script {
         }
 
         harbor.useOracle(oracleAddress);
-        harbor.useTreasury(treasuryAddress);
         harbor.useRewardManager(rewardManager);
         harbor.useRewardDepositor(rewardDepositor);
         harbor.useRebalancer(rebalancer);
@@ -85,17 +101,6 @@ contract DeployHarbor is Script {
 
         // Save deployment
         console.log("\n--- Saving deployment ---");
-        string memory networkLabel = vm.envOr(
-            "DEPLOYMENT_NETWORK",
-            string.concat("chain-", vm.toString(block.chainid))
-        );
-
-        string memory config = string.concat(
-            '{"schemaVersion":1,"version":"v1.0.0","owner":"',
-            vm.toString(baomultisig),
-            '","pegged":{"registryKey":"pegged"},"collateral":{"registryKey":"wrappedCollateral"}}'
-        );
-        harbor.start(config, networkLabel);
 
         // Print summary
         console.log("\n=== Deployment Summary ===");
@@ -119,3 +124,4 @@ contract DeployHarbor is Script {
         console.log("\n=== Deployment Complete ===");
     }
 }
+ */

@@ -1,4 +1,6 @@
 {
+  "schemaVersion": "1",
+  "owner": "0x1234567890abcdef1234567890abcdef12345678",
   "pegged": {
     "name": "Bao USD",
     "symbol": "BAOUSD",

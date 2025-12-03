@@ -321,17 +321,13 @@ library HarborKeys {
 
 #### A. Complex Fallback Hierarchy
 
-`DeploymentConfig._resolvePointer()` checks:
+`DeploymentConfig._resolvePointer()` now checks only:
 
-1. `$.contracts.{contractKey}.{fieldPath}`
-2. `$.{contractKey}.{fieldPath}` (top-level)
-3. `$.defaults.{contractKey}.{fieldPath}` (contract-specific defaults)
-4. `$.defaults.{fieldPath}` (global defaults)
-5. `$.{fieldPath}` (root fallback)
+1. `$.contracts.{contractKey}.{fieldPath}` (explicit contract overrides)
+2. `$.{contractKey}.{fieldPath}` (top-level contract values)
+3. `$.owner` when a contract requests `owner` and has no explicit value
 
-**5-level precedence hierarchy** - difficult to understand and debug
-
-**Question**: Is this complexity necessary? Could it be simplified to 2-3 levels?
+Global lookups (no `contractKey`) still resolve `$.{fieldPath}` directly. The dedicated `defaults` tree was removed to avoid silent overrides.
 
 #### B. Opaque Discovery
 

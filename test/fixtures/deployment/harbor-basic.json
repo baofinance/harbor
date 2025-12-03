@@ -4,14 +4,12 @@
   "owner": "0x000000000000000000000000000000000000A002",
   "treasury": "0x000000000000000000000000000000000000a003",
   "pegged": {
-    "registryKey": "pegged",
-    "id": "fxSAVE",
+    "address": "0x0000000000000000000000000000000000000002",
     "name": "Bao USD",
     "symbol": "BAOUSD",
     "decimals": 18
   },
   "collateral": {
-    "registryKey": "wrappedCollateral",
     "address": "0x0000000000000000000000000000000000000001"
   }
 }

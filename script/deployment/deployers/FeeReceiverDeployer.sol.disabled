@@ -13,28 +13,27 @@ library FeeReceiverDeployer {
     /**
      * @notice Deploy TokenDistributor fee receiver from config
      * @param deployment The deployment registry
-     * @param admin Admin address
-     * @param name Fee receiver name
-     * @return Address of deployed fee receiver proxy
      */
-    function deploy(Deployment deployment, address admin, string memory name) internal returns (address) {
+    function deploy(Deployment deployment) internal returns (address feeReceiver) {
         // Step 1: Deploy implementation
         TokenDistributor_v1 impl = new TokenDistributor_v1();
 
-        // Step 2: Register implementation under the fee receiver namespace so lookups stay consistent
-        string memory implKey = deployment.registerImplementation(
+
+        // Step 3: Deploy proxy using the derived implementation key
+        feeReceiver =
+            deployment.deployProxy(
+                HarborKeys.FEE_RECEIVER,
+                impl,
+                abi.encodeCall(TokenDistributor_v1.initialize, (admin, name))
+            );
+
+                // Step 2: Register implementation under the fee receiver namespace so lookups stay consistent
+        deployment.registerImplementation(
             HarborKeys.FEE_RECEIVER,
             address(impl),
             "TokenDistributor_v1",
             "src/minter/TokenDistributor_v1.sol"
         );
 
-        // Step 3: Deploy proxy using the derived implementation key
-        return
-            deployment.deployProxy(
-                HarborKeys.FEE_RECEIVER,
-                implKey,
-                abi.encodeCall(TokenDistributor_v1.initialize, (admin, name))
-            );
     }
 }

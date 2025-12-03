@@ -3,8 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
-import {PeggedTokenDeployer} from "@harbor-script/deployment/deployers/PeggedTokenDeployer.sol";
+import {HarborDeploymentJsonScript} from "@harbor-script/deployment/HarborDeploymentJsonScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
@@ -15,50 +14,34 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  *   2. Deploy: forge script script/DeployPeggedToken.s.sol --rpc-url http://localhost:8545 --broadcast
  *   3. Verify: forge script script/DeployPeggedToken.s.sol --rpc-url http://localhost:8545 --sig "verify()"
  */
-contract DeployPeggedToken is Script {
-    HarborDeploymentFoundry public harbor;
-    address public deployedToken;
-
-    // Default Anvil account (first account with known private key)
-    address constant ANVIL_DEFAULT = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+contract DeployPegged is HarborDeploymentJsonScript {
+    // Anvil default accounts - account 0 is the deployer/operator
+    uint256 constant PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+    address constant ANVIL_ACCOUNT_0 = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
     function run() public {
         console.log("=== Deploying Pegged Token to Anvil ===");
         console.log("Deployer:", msg.sender);
 
-        vm.startBroadcast();
+        string memory network = "anvil";
+        string memory salt = "DeployPegged";
 
-        // 1. Create deployment harness
-        harbor = new HarborDeploymentFoundry();
-        console.log("Harbor deployment harness created");
+        // Set private key for broadcasts
+        setDeployerPk(PRIVATE_KEY);
 
-        // 2. Deploy BaoDeployer infrastructure
-        harbor.deployBaoDeployer();
-        console.log("BaoDeployer infrastructure deployed");
-
-        // 3. Start deployment session
-        string memory config = string.concat(
-            '{"schemaVersion":1,"version":"v1.0.0","owner":"',
-            vm.toString(ANVIL_DEFAULT),
-            '","pegged":{"name":"Bao USD","symbol":"baoUSD","registryKey":"pegged"}',
-            ',"collateral":{"registryKey":"wrappedCollateral"}}'
-        );
-        harbor.start(config, "anvil-local");
-        console.log("Deployment session started");
+        start(network, salt, vm.addr(PRIVATE_KEY), "");
 
         // 4. Deploy pegged token using registry parameters populated from config
-        deployedToken = PeggedTokenDeployer.deploy(harbor);
+        _deployPegged();
 
         console.log("\n=== Deployment Complete ===");
-        console.log("Pegged Token:", deployedToken);
-        console.log("Name:", IERC20Metadata(deployedToken).name());
-        console.log("Symbol:", IERC20Metadata(deployedToken).symbol());
-        console.log("Decimals:", IERC20Metadata(deployedToken).decimals());
+        console.log("Pegged Token:", _get(PEGGED));
+        console.log("Name:", IERC20Metadata(_get(PEGGED)).name());
+        console.log("Symbol:", IERC20Metadata(_get(PEGGED)).symbol());
+        console.log("Decimals:", IERC20Metadata(_get(PEGGED)).decimals());
 
         // 5. Finish deployment (transfers ownership, saves registry)
-        harbor.finish();
-
-        vm.stopBroadcast();
+        finish();
 
         console.log("\nDeployment registry saved to: results/anvil-local/");
     }
