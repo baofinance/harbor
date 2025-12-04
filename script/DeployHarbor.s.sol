@@ -3,125 +3,80 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
-// import {HarborDeploymentFoundry} from "@harbor-script/deployment/HarborDeploymentFoundry.sol";
+import {HarborDeploymentJsonScript} from "@harbor-script/deployment/HarborDeploymentJsonScript.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+interface ICollateral {
+    function symbol() external returns (string memory);
+}
 
 /**
  * @title DeployHarbor
- * @notice Deploy complete Harbor system with real tokens and oracle
- * @dev Uses the unified finishDeployment() pattern:
- *      1. Load environment variables
- *      2. Configure with production addresses
- *      3. Call finishDeployment() to deploy everything
- *      4. Save deployment to JSON
- *
- * Environment variables required:
- *   - PRIVATE_KEY: Deployer private key
- *   - COLLATERAL_TOKEN: Address of wrapped collateral (e.g., wstETH)
- *   - PEGGED_TOKEN: Address of pegged token (e.g., baoUSD) or 0x0 to deploy
- *   - ORACLE_ADDRESS: Address of price oracle
- *   - TREASURY: Treasury address (optional, defaults to admin)
- *   - REWARD_MANAGER: Reward manager address
- *   - REWARD_DEPOSITOR: Reward depositor address
- *   - REBALANCER: Rebalancer address
- *
- * Usage:
- *   forge script script/DeployHarbor.s.sol \
- *     --rpc-url <rpc> \
- *     --broadcast \
- *     --verify
+ * @notice Simple script to deploy and test Harbor on local Anvil
+ * @dev Usage:
+ *   1. Start Anvil: anvil
+ *   2. Deploy: forge script script/DeployHarbor.s.sol --rpc-url http://localhost:8545 --broadcast
  */
-/* contract DeployHarbor is Script {
-    function run() public {
-        // Load environment variables
-        // TODO: this should be loaded from a single json file
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address collateralToken = vm.envAddress("COLLATERAL_TOKEN");
-        address peggedToken = vm.envOr("PEGGED_TOKEN", address(0)); // Optional - deploy if 0x0
-        address oracleAddress = vm.envAddress("ORACLE_ADDRESS");
-        address baomultisig = vm.envAddress("MULTISIG");
-        address treasuryAddress = vm.envOr("TREASURY", baomultisig);
-        address rewardManager = vm.envAddress("REWARD_MANAGER");
-        address rewardDepositor = vm.envAddress("REWARD_DEPOSITOR");
-        address rebalancer = vm.envAddress("REBALANCER");
+contract DeployHarbor is HarborDeploymentJsonScript {
+    enum Mode {
+        DEPLOY,
+        SMOKE
+    }
 
-        console.log("\n=== Deploying Harbor System ===");
-        console.log("Network:", block.chainid);
-        console.log("Deployer:", vm.addr(deployerKey));
-        console.log("Owner:", baomultisig);
-        console.log("Treasury:", treasuryAddress);
+    // TODO: the 3 parameters should be got from the price oracle - deployed separately?
+    function _do(Mode mode, string memory peggedTicker, address collateral, address wrappedCollateral) internal {
+        string memory what = (mode == Mode.DEPLOY ? "Deploying" : "Smoke Testing");
+        console.log("=== %s Harbor to Anvil ===", what);
 
-        // Create HarborDeployment contract BEFORE broadcast (script-only, not deployed on-chain)
-        // HarborDeploymentFoundry harbor = new HarborDeploymentFoundry();
+        // TODO: get this from somewhere
+        string memory network = "anvil";
 
-        // Build config from environment variables
-        console.log("\n--- Building config from environment ---");
-        string memory config = string.concat(
-            '{"schemaVersion":1,"version":"v1.0.0","owner":"',
-            vm.toString(baomultisig),
-            '","treasury":"',
-            vm.toString(treasuryAddress),
-            '","collateral":{"address":"',
-            vm.toString(collateralToken),
-            '"}'
-        );
-        if (peggedToken != address(0)) {
-            config = string.concat(config, ',"pegged":{"address":"', vm.toString(peggedToken), '"}');
-        }
-        config = string.concat(config, "}");
+        // get the system salt from the collateral symbol and the pegged ticker
+        string memory collateralSymbol = ICollateral(collateral).symbol();
+        string memory baseSymbol = string.concat(peggedTicker, "-", collateralSymbol);
+        string memory baseName = string.concat(peggedTicker, " for ", "", collateralSymbol);
 
-        // Configure with production addresses (script-side setup)
-        console.log("\n--- Starting deployment ---");
-        vm.startBroadcast(deployerKey);
+        string memory salt = string.concat("harbor_v1-", baseSymbol);
 
-        string memory network = string.concat("mainnet:", vm.toString(block.chainid));
-        harbor.start(config, network);
+        // now start for that salt
+        start(network, salt, mode == Mode.DEPLOY ? "" : "latest");
 
-        // Now broadcast the actual Harbor contract deployments
-        console.log("\n--- Configuring contracts on-chain ---");
-        harbor.useCollateralToken(collateralToken);
+        // do the work
+        if (mode == Mode.DEPLOY) {
+            // save the salt based info
+            _set(COLLATERAL, collateral);
+            _setString(COLLATERAL_SYMBOL, collateralSymbol);
+            _set(WRAPPED_COLLATERAL, wrappedCollateral);
 
-        // Handle pegged token - use existing or will deploy
-        if (peggedToken != address(0)) {
-            harbor.usePeggedToken(peggedToken);
-            console.log("Using existing pegged token:", peggedToken);
+            _setString(PEGGED_SYMBOL, string.concat("ha", baseSymbol));
+            _setString(PEGGED_NAME, string.concat("Harbor anchored ", baseName));
+
+            _setString(LEVERAGED_SYMBOL, string.concat("hs", baseSymbol));
+            _setString(LEVERAGED_NAME, string.concat("Harbor sail ", baseName));
+
+            _deployPegged();
+            _deployLeveraged();
+            _deployFeeReceiver();
+            _deployPriceOracle();
+            _deployMinter();
         } else {
-            console.log("Pegged token will be deployed");
+            _smokePegged();
+            _smokeLeveraged();
+            _smokeFeeReceiver();
+            _smokePriceOracle();
+            _smokeMinter();
         }
+        finish();
 
-        harbor.useOracle(oracleAddress);
-        harbor.useRewardManager(rewardManager);
-        harbor.useRewardDepositor(rewardDepositor);
-        harbor.useRebalancer(rebalancer);
+        console.log("\n=== %s Complete ===", what);
+    }
 
-        // Deploy everything
-        console.log("\n--- Deploying all contracts ---");
-        harbor.finish();
+    function run() public {
+        _do(Mode.DEPLOY, "USD", 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84, 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+    }
 
-        vm.stopBroadcast();
-
-        // Save deployment
-        console.log("\n--- Saving deployment ---");
-
-        // Print summary
-        console.log("\n=== Deployment Summary ===");
-        console.log("Owner:", harbor.get(HarborKeys.OWNER));
-        console.log("Fee Receiver:", harbor.get(HarborKeys.FEE_RECEIVER));
-        console.log("Treasury:", harbor.get(HarborKeys.TREASURY));
-        console.log("Wrapped Collateral:", harbor.get(HarborKeys.WRAPPED_COLLATERAL));
-        console.log("Pegged:", harbor.get(HarborKeys.PEGGED));
-        console.log("Leveraged:", harbor.get(HarborKeys.LEVERAGED));
-        console.log("Oracle:", harbor.get(HarborKeys.ORACLE));
-        console.log("Reserve Pool:", harbor.get(HarborKeys.RESERVE_POOL));
-        console.log("Minter:", harbor.get(HarborKeys.MINTER));
-        console.log("Stability Pool (Collateral):", harbor.get(HarborKeys.STABILITY_POOL_COLLATERAL));
-        console.log("Stability Pool (Leveraged):", harbor.get(HarborKeys.STABILITY_POOL_LEVERAGED));
-        console.log("Stability Pool Manager:", harbor.get(HarborKeys.STABILITY_POOL_MANAGER));
-        console.log("Genesis:", harbor.get(HarborKeys.GENESIS));
-        console.log("Reward Manager:", harbor.get(HarborKeys.REWARD_MANAGER));
-        console.log("Reward Depositor:", harbor.get(HarborKeys.REWARD_DEPOSITOR));
-        console.log("Rebalancer:", harbor.get(HarborKeys.REBALANCER));
-
-        console.log("\n=== Deployment Complete ===");
+    function smoke() public {
+        _disableLogging();
+        _do(Mode.SMOKE, "USD", 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84, 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
     }
 }
- */

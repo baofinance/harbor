@@ -27,9 +27,7 @@ contract DeployPegged is HarborDeploymentJsonScript {
         string memory salt = "DeployPegged";
 
         // Set private key for broadcasts
-        setDeployerPk(PRIVATE_KEY);
-
-        start(network, salt, vm.addr(PRIVATE_KEY), "");
+        start(network, salt, "");
 
         // 4. Deploy pegged token using registry parameters populated from config
         _deployPegged();
