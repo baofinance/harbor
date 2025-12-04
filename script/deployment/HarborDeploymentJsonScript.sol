@@ -16,6 +16,7 @@ import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
 import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 
 /**
  * @title HarborDeploymentJson
@@ -45,6 +46,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
     string public constant PEGGED = "contracts.pegged";
     string public constant PEGGED_NAME = "contracts.pegged.name";
     string public constant PEGGED_SYMBOL = "contracts.pegged.symbol";
+    string public constant PEGGED_BURN_SIGNATURE = "contracts.pegged.burnSignature";
 
     string public constant LEVERAGED = "contracts.leveraged";
     string public constant LEVERAGED_NAME = "contracts.leveraged.name";
@@ -58,6 +60,24 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
     string public constant RESERVE_POOL = "contracts.reservePool";
 
     string public constant MINTER = "contracts.minter";
+
+    // Minter config keys
+    string public constant MINTER_MINT_PEGGED_BOUNDS =
+        "contracts.minter.config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds";
+    string public constant MINTER_MINT_PEGGED_RATIOS =
+        "contracts.minter.config.mintPeggedIncentiveConfig.incentiveRatios";
+    string public constant MINTER_REDEEM_PEGGED_BOUNDS =
+        "contracts.minter.config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds";
+    string public constant MINTER_REDEEM_PEGGED_RATIOS =
+        "contracts.minter.config.redeemPeggedIncentiveConfig.incentiveRatios";
+    string public constant MINTER_MINT_LEVERAGED_BOUNDS =
+        "contracts.minter.config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds";
+    string public constant MINTER_MINT_LEVERAGED_RATIOS =
+        "contracts.minter.config.mintLeveragedIncentiveConfig.incentiveRatios";
+    string public constant MINTER_REDEEM_LEVERAGED_BOUNDS =
+        "contracts.minter.config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds";
+    string public constant MINTER_REDEEM_LEVERAGED_RATIOS =
+        "contracts.minter.config.redeemLeveragedIncentiveConfig.incentiveRatios";
 
     string public constant STABILITY_POOL_COLLATERAL = "contracts.stabilityPoolCollateral";
     string public constant STABILITY_POOL_COLLATERAL_EARLY_WITHDRAWAL_FEE =
@@ -96,12 +116,21 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addProxy(PEGGED);
         addStringKey(PEGGED_NAME);
         addStringKey(PEGGED_SYMBOL);
+        addStringKey(PEGGED_BURN_SIGNATURE);
 
         addProxy(LEVERAGED);
         addStringKey(LEVERAGED_NAME);
         addStringKey(LEVERAGED_SYMBOL);
 
         addProxy(MINTER);
+        addUintArrayKey(MINTER_MINT_PEGGED_BOUNDS);
+        addIntArrayKey(MINTER_MINT_PEGGED_RATIOS);
+        addUintArrayKey(MINTER_REDEEM_PEGGED_BOUNDS);
+        addIntArrayKey(MINTER_REDEEM_PEGGED_RATIOS);
+        addUintArrayKey(MINTER_MINT_LEVERAGED_BOUNDS);
+        addIntArrayKey(MINTER_MINT_LEVERAGED_RATIOS);
+        addUintArrayKey(MINTER_REDEEM_LEVERAGED_BOUNDS);
+        addIntArrayKey(MINTER_REDEEM_LEVERAGED_RATIOS);
 
         addProxy(FEE_RECEIVER);
         addStringKey(FEE_RECEIVER_NAME);
@@ -164,6 +193,8 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             type(MintableBurnableERC20_v1).name,
             _getAddress(SESSION_DEPLOYER)
         );
+
+        _setString(PEGGED_BURN_SIGNATURE, "burn(uint256)");
     }
 
     function _smokeLeveraged() internal view {
@@ -251,7 +282,12 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
     function _deployMinter() internal {
         console2.log("Deploying Minter...");
         // Deploy implementation
-        Minter_v1 impl = new Minter_v1(_get(WRAPPED_COLLATERAL), _get(PEGGED), _get(LEVERAGED), "burn(uint256)");
+        Minter_v1 impl = new Minter_v1(
+            _get(WRAPPED_COLLATERAL),
+            _get(PEGGED),
+            _get(LEVERAGED),
+            _getString(PEGGED_BURN_SIGNATURE)
+        );
 
         // Deploy and register proxy
         bytes memory initData = abi.encodeCall(Minter_v1.initialize, (_getAddress(OWNER)));
@@ -261,13 +297,26 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         // Get the proxy and configure it
         Minter_v1 minter = Minter_v1(_get(MINTER));
 
-        // minter config is:
-        // four of (uint[], int[]),
-        // ((uint256[],int256[]),(uint256[],int256[]),(uint256[],int256[]),(uint256[],int256[]))
-
-        // _getUintArray()
-
-        // minter.updateConfig
+        minter.updateConfig(
+            IMinter.Config({
+                mintPeggedIncentiveConfig: IMinter.IncentiveConfig({
+                    collateralRatioBandUpperBounds: _getUintArray(MINTER_MINT_PEGGED_BOUNDS),
+                    incentiveRatios: _getIntArray(MINTER_MINT_PEGGED_RATIOS)
+                }),
+                redeemPeggedIncentiveConfig: IMinter.IncentiveConfig({
+                    collateralRatioBandUpperBounds: _getUintArray(MINTER_REDEEM_PEGGED_BOUNDS),
+                    incentiveRatios: _getIntArray(MINTER_REDEEM_PEGGED_RATIOS)
+                }),
+                mintLeveragedIncentiveConfig: IMinter.IncentiveConfig({
+                    collateralRatioBandUpperBounds: _getUintArray(MINTER_MINT_LEVERAGED_BOUNDS),
+                    incentiveRatios: _getIntArray(MINTER_MINT_LEVERAGED_RATIOS)
+                }),
+                redeemLeveragedIncentiveConfig: IMinter.IncentiveConfig({
+                    collateralRatioBandUpperBounds: _getUintArray(MINTER_REDEEM_LEVERAGED_BOUNDS),
+                    incentiveRatios: _getIntArray(MINTER_REDEEM_LEVERAGED_RATIOS)
+                })
+            })
+        );
 
         minter.updateFeeReceiver(_get(FEE_RECEIVER));
         minter.updatePriceOracle(_get(PRICE_ORACLE));
@@ -284,5 +333,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         _expect(proxy.feeReceiver(), FEE_RECEIVER);
         _expect(proxy.priceOracle(), PRICE_ORACLE);
+
+        // IMinter.Config memory config = proxy.config();
     }
 }
