@@ -171,7 +171,7 @@ upgrade_proxy leveragedToken LeveragedToken_v1 \
 # priceOracle
 # -----------
 # mock price oracle
-deploy_contract MockWrappedPriceOracle "test/mock/MockWrappedPriceOracle.sol:MockWrappedPriceOracle"
+deploy_contract MockWrappedPriceOracle "test/mocks/MockWrappedPriceOracle.sol:MockWrappedPriceOracle"
 
 # real price oracle
 deploy_library PriceOracle_v1 "src/price/PriceOracle_v1.sol:PriceOracle_v1"
