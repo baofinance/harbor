@@ -100,6 +100,13 @@ if ([ "$START_ANVIL" == "true" ]); then
     exit 1
   fi
 
+  # Check if port 8545 is already in use
+  if lsof -i :8545 >/dev/null 2>&1; then
+    echo "Error: Port 8545 is already in use. Another anvil instance may be running." >&2
+    echo "Kill the existing process or use --rpc-url local to connect to it." >&2
+    exit 1
+  fi
+
   # Start anvil in background
   echo "Starting anvil..."
   anvil -f mainnet@23000000 --timestamp $(date +%s) &

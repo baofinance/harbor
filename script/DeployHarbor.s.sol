@@ -58,12 +58,14 @@ contract DeployHarbor is HarborDeploymentJsonScript {
             _deployLeveraged();
             _deployFeeReceiver();
             _deployPriceOracle();
+            _deployReservePool();
             _deployMinter();
         } else {
             _smokePegged();
             _smokeLeveraged();
             _smokeFeeReceiver();
             _smokePriceOracle();
+            _smokeReservePool();
             _smokeMinter();
         }
         finish();

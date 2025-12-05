@@ -47,10 +47,12 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
     string public constant PEGGED_NAME = "contracts.pegged.name";
     string public constant PEGGED_SYMBOL = "contracts.pegged.symbol";
     string public constant PEGGED_BURN_SIGNATURE = "contracts.pegged.burnSignature";
+    string public constant PEGGED_ROLES = "contracts.pegged.roles";
 
     string public constant LEVERAGED = "contracts.leveraged";
     string public constant LEVERAGED_NAME = "contracts.leveraged.name";
     string public constant LEVERAGED_SYMBOL = "contracts.leveraged.symbol";
+    string public constant LEVERAGED_ROLES = "contracts.leveraged.roles";
 
     string public constant FEE_RECEIVER = "contracts.feeReceiver";
     string public constant FEE_RECEIVER_NAME = "contracts.feeReceiver.name";
@@ -122,6 +124,13 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addStringKey(LEVERAGED_NAME);
         addStringKey(LEVERAGED_SYMBOL);
 
+        addProxy(FEE_RECEIVER);
+        addStringKey(FEE_RECEIVER_NAME);
+
+        addContract(PRICE_ORACLE);
+
+        addProxy(RESERVE_POOL);
+
         addProxy(MINTER);
         addUintArrayKey(MINTER_MINT_PEGGED_BOUNDS);
         addIntArrayKey(MINTER_MINT_PEGGED_RATIOS);
@@ -131,11 +140,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addIntArrayKey(MINTER_MINT_LEVERAGED_RATIOS);
         addUintArrayKey(MINTER_REDEEM_LEVERAGED_BOUNDS);
         addIntArrayKey(MINTER_REDEEM_LEVERAGED_RATIOS);
-
-        addProxy(FEE_RECEIVER);
-        addStringKey(FEE_RECEIVER_NAME);
-
-        addContract(PRICE_ORACLE);
     }
 
     // ============================================================================
@@ -161,6 +165,11 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             type(MintableBurnableERC20_v1).name,
             _getAddress(SESSION_DEPLOYER)
         );
+
+        _registerRole(PEGGED, "MINTER_ROLE", impl.MINTER_ROLE());
+        _registerRole(PEGGED, "BURNER_ROLE", impl.BURNER_ROLE());
+
+        _setString(PEGGED_BURN_SIGNATURE, "burn(uint256)");
     }
 
     function _smokePegged() internal view {
@@ -169,6 +178,9 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         _expect(proxy.owner(), OWNER);
         _expect(proxy.symbol(), PEGGED_SYMBOL);
         _expect(proxy.name(), PEGGED_NAME);
+
+        _expectRoleValue(proxy.MINTER_ROLE(), PEGGED, "MINTER_ROLE");
+        _expectRoleValue(proxy.BURNER_ROLE(), PEGGED, "BURNER_ROLE");
     }
 
     // ============================================================================
@@ -193,8 +205,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             type(MintableBurnableERC20_v1).name,
             _getAddress(SESSION_DEPLOYER)
         );
-
-        _setString(PEGGED_BURN_SIGNATURE, "burn(uint256)");
     }
 
     function _smokeLeveraged() internal view {
@@ -256,7 +266,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
     // ReservePool
     // ============================================================================
 
-    function deployReservePool() internal {
+    function _deployReservePool() internal {
         ReservePool_v1 impl = new ReservePool_v1();
 
         deployProxy(
@@ -296,7 +306,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         // Get the proxy and configure it
         Minter_v1 minter = Minter_v1(_get(MINTER));
-
         minter.updateConfig(
             IMinter.Config({
                 mintPeggedIncentiveConfig: IMinter.IncentiveConfig({
@@ -320,6 +329,17 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         minter.updateFeeReceiver(_get(FEE_RECEIVER));
         minter.updatePriceOracle(_get(PRICE_ORACLE));
+        minter.updateReservePool(_get(RESERVE_POOL));
+
+        // now add it to the roles it needs to perform
+        MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
+        pegged.grantRoles(_get(MINTER), _getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE"));
+
+        // MintableBurnableERC20_v1 leveraged = MintableBurnableERC20_v1(_get(LEVERAGED));
+        // leveraged.grantRoles(_get(MINTER), _getRoleValue(LEVERAGED, "MINTER_ROLE") | _getRoleValue(LEVERAGED, "BURNER_ROLE"));
+
+        // ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
+        // reservePool.grantRoles(address(minter), reservePool.REQUESTER_ROLE());
     }
 
     function _smokeMinter() internal view {
@@ -333,7 +353,25 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         _expect(proxy.feeReceiver(), FEE_RECEIVER);
         _expect(proxy.priceOracle(), PRICE_ORACLE);
+        _expect(proxy.reservePool(), RESERVE_POOL);
 
-        // IMinter.Config memory config = proxy.config();
+        IMinter.Config memory config = proxy.config();
+        _expect(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds, MINTER_MINT_PEGGED_BOUNDS);
+        _expect(config.mintPeggedIncentiveConfig.incentiveRatios, MINTER_MINT_PEGGED_RATIOS);
+        _expect(config.redeemPeggedIncentiveConfig.collateralRatioBandUpperBounds, MINTER_REDEEM_PEGGED_BOUNDS);
+        _expect(config.redeemPeggedIncentiveConfig.incentiveRatios, MINTER_REDEEM_PEGGED_RATIOS);
+        _expect(config.mintLeveragedIncentiveConfig.collateralRatioBandUpperBounds, MINTER_MINT_LEVERAGED_BOUNDS);
+        _expect(config.mintLeveragedIncentiveConfig.incentiveRatios, MINTER_MINT_LEVERAGED_RATIOS);
+        _expect(config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds, MINTER_REDEEM_LEVERAGED_BOUNDS);
+        _expect(config.redeemLeveragedIncentiveConfig.incentiveRatios, MINTER_REDEEM_LEVERAGED_RATIOS);
+
+        // now check it has the roles it needs to perform
+        MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
+        _expectRolesOf(pegged.rolesOf(_get(MINTER)), PEGGED, MINTER);
+
+        // MintableBurnableERC20_v1 leveraged =  MintableBurnableERC20_v1(_get(LEVERAGED));
+
+        // ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
+        // reservePool.grantRoles(address(proxy), reservePool.REQUESTER_ROLE());
     }
 }
