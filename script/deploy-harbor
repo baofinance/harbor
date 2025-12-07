@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Deploy Harbor contracts - starts anvil (optionally) and runs DeployPeggedToken.s.sol
+# Deploy Harbor contracts
 #
-# Usage: script/deploy-harbor [OPTIONS]
+# Usage: script/deploy-harbor --salt SALT --network NETWORK [--deploy|--smoke] [OPTIONS]
 #
 
 set -euo pipefail
@@ -14,64 +14,83 @@ cd "$PROJECT_ROOT"
 
 usage() {
   cat <<'USAGE'
-Usage: script/deploy-harbor [OPTIONS]
+Usage: script/deploy-harbor --salt SALT --network NETWORK [--deploy|--smoke] [OPTIONS]
+
+Required:
+  --salt SALT       Deployment salt (e.g., harbor_v1-USD-stETH)
+  --network NETWORK Network name (must exist in foundry.toml rpc_endpoints)
+
+Phase (choose one):
+  --deploy          Run deployment phase (default if neither specified)
+  --smoke           Run smoke test phase only
 
 Options:
-	--anvil         Start a local Anvil instance for deployment.
-									 Uses Anvil default account 0 as deployer.
-  --rpc-url URL  Use an existing Anvil/JSON-RPC endpoint and skip starting a local Anvil.
-                   Use "local" as shorthand for http://127.0.0.1:8545
-  --resume         Resume a failed deployment from where it left off.
-                   Skips transactions already confirmed on-chain.
-  -h, --help       Show this help.
+  --resume          Resume a failed deployment from where it left off
+  --production      Use production settings (verify, read private key from .env)
+  --start-anvil     Start a local Anvil instance (requires network=local)
+  -v                Increase verbosity
+  -h, --help        Show this help
 
 Examples:
-  script/deploy-harbor                      # Start anvil and deploy
-  script/deploy-harbor --anvil-url local    # Use existing local anvil
-  script/deploy-harbor --resume             # Retry failed deployment
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network local --start-anvil --deploy
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network mainnet --production --deploy
 USAGE
 }
 
-LOCALITY="remote"
-
-# START_ANVIL, if true it means
-# * anvil will be started in the background, and killed at the end
-START_ANVIL=true
-# RPC_URL, the rpc url to use
+# Defaults
+SALT=""
+NETWORK=""
+PHASE=""
+START_ANVIL=false
 PRODUCTION=false
-RPC_URL="local"
-PRIVATE_KEY="--private-key=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-VERIFY=""
-RESUME=""
-BROADCAST="--broadcast"
-ENV_FILE=""
 RESUME=""
 VERBOSITY=""
+PRIVATE_KEY="--private-key=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+VERIFY=""
+BROADCAST="--broadcast"
+ENV_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -v)
-      VERBOSITY="${VERBOSITY:--}v"
-      shift
-      ;;
-    -v*)
-      VERBOSITY="$1"
-      shift
-      ;;
-    --rpc-url)
-      RPC_URL="$2"
-      START_ANVIL=false
+    --salt)
+      SALT="$2"
       shift 2
+      ;;
+    --network)
+      NETWORK="$2"
+      shift 2
+      ;;
+    --deploy)
+      PHASE="deploy"
+      shift
+      ;;
+    --smoke)
+      PHASE="smoke"
+      shift
+      ;;
+    --start-anvil)
+      START_ANVIL=true
+      shift
       ;;
     --resume)
       RESUME="--resume"
       shift
       ;;
     --production)
-      # shellcheck disable=SC2034
+      PRODUCTION=true
       VERIFY="--verify"
       PRIVATE_KEY=""
       ENV_FILE="--env-file .env"
+      shift
+      ;;
+    -v)
+      VERBOSITY="${VERBOSITY:--}v"
+      shift
+      ;;
+    -v*)
+      VERBOSITY="$1"
       shift
       ;;
     -h | --help)
@@ -86,24 +105,52 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${RPC_URL}" == "local" ]]; then
-  VERify="" # can't verify locally
+# Validate required arguments
+if [[ -z "$SALT" ]]; then
+  echo "Error: --salt is required" >&2
+  usage
+  exit 1
+fi
+
+if [[ -z "$NETWORK" ]]; then
+  echo "Error: --network is required" >&2
+  usage
+  exit 1
+fi
+
+# Default phase to deploy if not specified
+if [[ -z "$PHASE" ]]; then
+  PHASE="deploy"
+fi
+
+# Validate config file exists
+CONFIG_FILE="deployments/${SALT}.json"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "Error: Config file not found: $CONFIG_FILE" >&2
+  exit 1
+fi
+
+# For local network, can't verify
+if [[ "$NETWORK" == "local" ]]; then
+  VERIFY=""
 fi
 
 # Multisig address - used as BaoDeployer owner
 MULTISIG="0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00"
 
-if ([ "$START_ANVIL" == "true" ]); then
-  if [[ "$RPC_URL" != "local" ]]; then
-    usage
-    echo "Error: --anvil cannot be used with --rpc-url" >&2
+# ============================================================================
+# Start Anvil if requested
+# ============================================================================
+if [[ "$START_ANVIL" == "true" ]]; then
+  if [[ "$NETWORK" != "local" ]]; then
+    echo "Error: --start-anvil can only be used with --network local" >&2
     exit 1
   fi
 
   # Check if port 8545 is already in use
   if lsof -i :8545 >/dev/null 2>&1; then
     echo "Error: Port 8545 is already in use. Another anvil instance may be running." >&2
-    echo "Kill the existing process or use --rpc-url local to connect to it." >&2
+    echo "Kill the existing process or omit --start-anvil to connect to it." >&2
     exit 1
   fi
 
@@ -137,45 +184,61 @@ if ([ "$START_ANVIL" == "true" ]); then
 
   # Fund the multisig with ETH so it can pay for gas
   echo "Funding multisig with ETH..."
-  cast send --rpc-url "$RPC_URL" \
+  cast send --rpc-url local \
     "${PRIVATE_KEY}" \
     "${MULTISIG}" \
     --value 1ether >/dev/null
-
 fi
 
-echo "RPC_URL=${RPC_URL}"
+echo "Salt: $SALT"
+echo "Network: $NETWORK"
+echo "Phase: $PHASE"
 
 # ============================================================================
-# Run the deployment script
+# Run the deployment/smoke script
 # ============================================================================
 echo ""
-if [[ -n "$RESUME" ]]; then
-  echo "Resuming deployment..."
+if [[ "$PHASE" == "deploy" ]]; then
+  if [[ -n "$RESUME" ]]; then
+    echo "Resuming deployment..."
+  else
+    echo "Running deployment..."
+  fi
+  SIG="deploy(string,string)"
 else
-  echo "Running deployment..."
+  echo "Running smoke test..."
+  SIG="smoke(string,string)"
 fi
+
 FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarbor \
-  --sig "run()" \
-  --rpc-url "$RPC_URL" \
+  --sig "$SIG" "$SALT" "$NETWORK" \
+  --rpc-url "$NETWORK" \
   $BROADCAST $VERIFY $ENV_FILE $PRIVATE_KEY \
-  $RESUME 2>&1) || {
-  echo "$FORGE_OUTPUT"
+  $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
+
+echo "$FORGE_OUTPUT"
+
+# ============================================================================
+# Create symlink to latest output (even on failure, partial deployment may exist)
+# ============================================================================
+OUTPUT_DIR="deployments/${SALT}/${NETWORK}"
+if [[ -d "$OUTPUT_DIR" ]]; then
+  LATEST=$(ls -1 "$OUTPUT_DIR"/*.json 2>/dev/null | grep -v 'latest.json' | sort | tail -1)
+  if [[ -n "$LATEST" ]]; then
+    LATEST_NAME=$(basename "$LATEST")
+    ln -sf "$LATEST_NAME" "${OUTPUT_DIR}/latest.json"
+    echo "Created symlink: ${OUTPUT_DIR}/latest.json -> $LATEST_NAME"
+  fi
+fi
+
+# Now handle forge failure
+if [[ $FORGE_EXIT -ne 0 ]]; then
   # Extract error selector and decode it
   if SELECTOR=$(echo "$FORGE_OUTPUT" | grep -oE 'custom error 0x[a-fA-F0-9]{8}' | grep -oE '0x[a-fA-F0-9]{8}' | head -1); then
     cast decode-error "$SELECTOR" 2>/dev/null || true
   fi
   exit 1
-}
-echo "$FORGE_OUTPUT"
+fi
 
-# ============================================================================
-# Verify deployment
-# ============================================================================
 echo ""
-echo "Verifying deployment..."
-
-forge script script/DeployHarbor.s.sol:DeployHarbor \
-  --sig "smoke()" \
-  --rpc-url "$RPC_URL" \
-  $BROADCAST $ENV_FILE $PRIVATE_KEY
+echo "=== $PHASE complete ==="

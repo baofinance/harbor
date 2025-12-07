@@ -3,8 +3,9 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
+import {stdJson} from "forge-std/StdJson.sol";
 import {HarborDeploymentJsonScript} from "@harbor-script/deployment/HarborDeploymentJsonScript.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 interface ICollateral {
     function symbol() external returns (string memory);
@@ -12,33 +13,60 @@ interface ICollateral {
 
 /**
  * @title DeployHarbor
- * @notice Simple script to deploy and test Harbor on local Anvil
+ * @notice Deploy Harbor to a network using configuration from deployments/{salt}.json
  * @dev Usage:
- *   1. Start Anvil: anvil
- *   2. Deploy: forge script script/DeployHarbor.s.sol --rpc-url http://localhost:8545 --broadcast
+ *   deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
+ *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
  */
 contract DeployHarbor is HarborDeploymentJsonScript {
+    using LibString for string;
+    using stdJson for string;
+
+    error ChainIdMismatch(uint256 expected, uint256 actual);
+    error SaltMismatch(string expected, string actual);
+
     enum Mode {
         DEPLOY,
         SMOKE
     }
 
-    // TODO: the 3 parameters should be got from the price oracle - deployed separately?
-    function _do(Mode mode, string memory peggedTicker, address collateral, address wrappedCollateral) internal {
-        string memory what = (mode == Mode.DEPLOY ? "Deploying" : "Smoke Testing");
-        console.log("=== %s Harbor to Anvil ===", what);
+    function _do(Mode mode, string memory salt, string memory network) internal {
+        console.log("=== %s Harbor ===", mode == Mode.DEPLOY ? "Deploying" : "Smoke Testing");
+        console.log("Salt: %s", salt);
+        console.log("Network: %s", network);
 
-        // TODO: get this from somewhere
-        string memory network = "anvil";
+        // Load the config file and validate chain ID
+        string memory configJson = vm.readFile(string.concat("deployments/", salt, ".json"));
+        string memory networkPath = string.concat("$.networks.", network);
 
-        // get the system salt from the collateral symbol and the pegged ticker
+        {
+            uint256 expectedChainId = configJson.readUint(string.concat(networkPath, ".chainId"));
+            if (block.chainid != expectedChainId) {
+                revert ChainIdMismatch(expectedChainId, block.chainid);
+            }
+        }
+
+        // Get network-specific addresses and collateral info
+        address collateral = configJson.readAddress(string.concat(networkPath, ".collateral"));
+        address wrappedCollateral = configJson.readAddress(string.concat(networkPath, ".wrappedCollateral"));
         string memory collateralSymbol = ICollateral(collateral).symbol();
-        string memory baseSymbol = string.concat(peggedTicker, "-", collateralSymbol);
-        string memory baseName = string.concat(peggedTicker, " for ", "", collateralSymbol);
 
-        string memory salt = string.concat("harbor_v1-", baseSymbol);
+        // Validate salt matches config
+        {
+            string memory expectedSalt = string.concat(
+                configJson.readString("$.prefix"), "-", configJson.readString("$.peggedTicker"), "-", collateralSymbol
+            );
+            if (!salt.eq(expectedSalt)) {
+                revert SaltMismatch(expectedSalt, salt);
+            }
+        }
 
-        // now start for that salt
+        // Derive base names (reuse configJson variable since we're done with config)
+        string memory baseSymbol =
+            string.concat(configJson.readString("$.peggedTicker"), "-", collateralSymbol);
+        configJson = string.concat(configJson.readString("$.peggedTicker"), " for ", collateralSymbol); // now baseName
+
+        // Start the deployment session
         start(network, salt, mode == Mode.DEPLOY ? "" : "latest");
 
         // do the work
@@ -49,36 +77,46 @@ contract DeployHarbor is HarborDeploymentJsonScript {
             _set(WRAPPED_COLLATERAL, wrappedCollateral);
 
             _setString(PEGGED_SYMBOL, string.concat("ha", baseSymbol));
-            _setString(PEGGED_NAME, string.concat("Harbor anchored ", baseName));
+            _setString(PEGGED_NAME, string.concat("Harbor anchored ", configJson));
 
             _setString(LEVERAGED_SYMBOL, string.concat("hs", baseSymbol));
-            _setString(LEVERAGED_NAME, string.concat("Harbor sail ", baseName));
+            _setString(LEVERAGED_NAME, string.concat("Harbor sail ", configJson));
 
             _deployPegged();
             _deployLeveraged();
-            _deployFeeReceiver();
+            _deployFeeReceiver(MINTER);
             _deployPriceOracle();
             _deployReservePool();
             _deployMinter();
+            _deployStabilityPool(STABILITY_POOL_COLLATERAL, WRAPPED_COLLATERAL);
+            _deployStabilityPool(STABILITY_POOL_LEVERAGED, LEVERAGED);
+            _deployFeeReceiver(STABILITY_POOL_MANAGER);
+            _deployStabilityPoolManager();
+            _deployGenesis();
         } else {
             _smokePegged();
             _smokeLeveraged();
-            _smokeFeeReceiver();
+            _smokeFeeReceiver(MINTER);
             _smokePriceOracle();
             _smokeReservePool();
             _smokeMinter();
+            _smokeStabilityPool(STABILITY_POOL_COLLATERAL, WRAPPED_COLLATERAL);
+            _smokeStabilityPool(STABILITY_POOL_LEVERAGED, LEVERAGED);
+            _smokeFeeReceiver(STABILITY_POOL_MANAGER);
+            _smokeStabilityPoolManager();
+            _smokeGenesis();
         }
+
         finish();
-
-        console.log("\n=== %s Complete ===", what);
+        console.log("\n=== Complete ===");
     }
 
-    function run() public {
-        _do(Mode.DEPLOY, "USD", 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84, 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+    function deploy(string memory salt, string memory network) public {
+        _do(Mode.DEPLOY, salt, network);
     }
 
-    function smoke() public {
+    function smoke(string memory salt, string memory network) public {
         _disableLogging();
-        _do(Mode.SMOKE, "USD", 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84, 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
+        _do(Mode.SMOKE, salt, network);
     }
 }
