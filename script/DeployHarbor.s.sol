@@ -54,7 +54,11 @@ contract DeployHarbor is HarborDeploymentJsonScript {
         // Validate salt matches config
         {
             string memory expectedSalt = string.concat(
-                configJson.readString("$.prefix"), "-", configJson.readString("$.peggedTicker"), "-", collateralSymbol
+                configJson.readString("$.prefix"),
+                "-",
+                configJson.readString("$.peggedTicker"),
+                "-",
+                collateralSymbol
             );
             if (!salt.eq(expectedSalt)) {
                 revert SaltMismatch(expectedSalt, salt);
@@ -62,8 +66,7 @@ contract DeployHarbor is HarborDeploymentJsonScript {
         }
 
         // Derive base names (reuse configJson variable since we're done with config)
-        string memory baseSymbol =
-            string.concat(configJson.readString("$.peggedTicker"), "-", collateralSymbol);
+        string memory baseSymbol = string.concat(configJson.readString("$.peggedTicker"), "-", collateralSymbol);
         configJson = string.concat(configJson.readString("$.peggedTicker"), " for ", collateralSymbol); // now baseName
 
         // Start the deployment session
