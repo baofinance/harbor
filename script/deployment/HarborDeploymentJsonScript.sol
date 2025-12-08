@@ -5,6 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
@@ -18,6 +19,10 @@ import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
+interface IERC20Minimal {
+    function symbol() external view returns (string memory);
+}
+
 /**
  * @title HarborDeploymentJson
  * @notice Harbor-specific deployment contract with Stem proxy management
@@ -29,11 +34,26 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
  */
 
 abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
+    using LibString for string;
+
+    // =========================================================================
+    // Errors
+    // =========================================================================
+
+    error ChainIdMismatch(uint256 expected, uint256 actual);
+    error SaltMismatch(string expected, string actual);
+
     // =========================================================================
     // Contract Keys
     // =========================================================================
 
     string public constant TREASURY = "treasury";
+
+    string public constant COLLATERAL_INPUT = "collateral";
+    string public constant WRAPPED_COLLATERAL_INPUT = "wrappedCollateral";
+    string public constant PREFIX = "prefix";
+    string public constant NETWORKS = "networks";
+    string public constant PEGGED_TICKER = "peggedTicker";
 
     string public constant COLLATERAL = "contracts.collateral";
     string public constant COLLATERAL_NAME = "contracts.collateral.name";
@@ -113,13 +133,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
     string public constant GENESIS = "contracts.genesis";
 
-    string public constant REWARD_MANAGER = "rewardManager";
-    string public constant REWARD_DEPOSITOR = "rewardDepositor";
-    string public constant REBALANCER = "rebalancer";
-
-    string public constant INITIAL_EXCHANGE_RATE = "contracts.pegged.initialExchangeRate";
-    string public constant FEE_PERCENTAGE = "contracts.feeReceiver.percentage";
-
     // ============================================================================
     // Configuration
     // ============================================================================
@@ -129,6 +142,13 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         // - add* -> register
         // - FEE_RECEIVER -> FEE_DISTRIBUTOR
         // - use set/get for data values, including the ones named register*
+
+        addStringKey(PREFIX);
+        addStringKey(PEGGED_TICKER);
+
+        addKey(NETWORKS);
+        addAddressKey(COLLATERAL_INPUT);
+        addAddressKey(WRAPPED_COLLATERAL_INPUT);
 
         addAddressKey(TREASURY);
 
@@ -198,12 +218,77 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addProxy(GENESIS);
     }
 
+    /// @notice Override start to register network-specific schema keys, then copy network inputs to standard slots
+    function start(
+        string memory network,
+        string memory systemSaltString,
+        string memory startPoint
+    ) public virtual override {
+        // Register keys for the specific network so JSON loader knows about them
+        string memory networkPrefix = string.concat(NETWORKS, ".", network);
+        addUintKey(string.concat(networkPrefix, ".chainId"));
+        addAddressKey(string.concat(networkPrefix, ".collateral"));
+        addAddressKey(string.concat(networkPrefix, ".wrappedCollateral"));
+
+        super.start(network, systemSaltString, startPoint);
+
+        // Copy network-specific inputs to standard slots
+        _setAddress(COLLATERAL_INPUT, _getAddress(string.concat(networkPrefix, ".collateral")));
+        _setAddress(WRAPPED_COLLATERAL_INPUT, _getAddress(string.concat(networkPrefix, ".wrappedCollateral")));
+
+        // Read collateral symbol from chain and store in deployment data
+        string memory collateralSymbol = IERC20Minimal(_getAddress(COLLATERAL_INPUT)).symbol();
+        _setString(COLLATERAL_SYMBOL, collateralSymbol);
+
+        // Validate chain ID
+        uint256 expectedChainId = _getUint(string.concat(networkPrefix, ".chainId"));
+        if (block.chainid != expectedChainId) {
+            revert ChainIdMismatch(expectedChainId, block.chainid);
+        }
+
+        // Validate salt matches config
+        string memory expectedSalt = string.concat(
+            _getString(PREFIX),
+            "-",
+            _getString(PEGGED_TICKER),
+            "-",
+            collateralSymbol
+        );
+        if (!systemSaltString.eq(expectedSalt)) {
+            revert SaltMismatch(expectedSalt, systemSaltString);
+        }
+    }
+
+    // ============================================================================
+    // Token Naming
+    // ============================================================================
+
+    /// @notice Derive token symbol and name from deployment config
+    /// @param prefix Symbol prefix (e.g., "ha" for pegged, "hs" for leveraged)
+    /// @param description Name description (e.g., "anchored" or "sail")
+    /// @return symbol The derived symbol (e.g., "haUSD-stETH")
+    /// @return name The derived name (e.g., "Harbor anchored USD for stETH")
+    function _deriveTokenIdentity(
+        string memory prefix,
+        string memory description
+    ) internal view returns (string memory symbol, string memory name) {
+        string memory ticker = _getString(PEGGED_TICKER);
+        string memory collateral = _getString(COLLATERAL_SYMBOL);
+        symbol = string.concat(prefix, ticker, "-", collateral);
+        name = string.concat("Harbor ", description, " ", ticker, " for ", collateral);
+    }
+
     // ============================================================================
     // Pegged
     // ============================================================================
 
     function _deployPegged() internal {
         console2.log("Deploying Pegged...");
+
+        // Derive symbol and name from deployment config
+        (string memory symbol, string memory name) = _deriveTokenIdentity("ha", "anchored");
+        _setString(PEGGED_SYMBOL, symbol);
+        _setString(PEGGED_NAME, name);
 
         // Deploy implementation
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
@@ -245,6 +330,12 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
     function _deployLeveraged() internal {
         console2.log("Deploying Leveraged...");
+
+        // Derive symbol and name from deployment config
+        (string memory symbol, string memory name) = _deriveTokenIdentity("hs", "sail");
+        _setString(LEVERAGED_SYMBOL, symbol);
+        _setString(LEVERAGED_NAME, name);
+
         // Deploy implementation
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
 

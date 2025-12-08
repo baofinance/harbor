@@ -15,7 +15,7 @@
   },
   "owner": "0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00",
   "treasury": "0x3dFc49e5112005179Da613BdE5973229082dAc35",
-  "stabilityPoolEarlyWithdrawalFeeRatio": 0.025e18,
+  "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
   "stabilityPoolWithdrawalDelay": 3600,
   "stabilityPoolWithdrawalPeriod": 90000,
   "stabilityPoolMinTotalAssetSupply": 1e18,
