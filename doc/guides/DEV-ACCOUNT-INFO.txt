@@ -1,0 +1,76 @@
+===============================================================================
+DEV ACCOUNT INFORMATION
+===============================================================================
+
+Address: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+BALANCES:
+---------
+ETH:    100 ETH
+wstETH: 1000 tokens
+stETH:  1000 tokens
+
+PERMISSIONS:
+------------
+✅ Owner of Genesis contract
+✅ Has ZERO_FEE_ROLE on Minter contract
+
+READY FOR:
+----------
+✅ Gas payments (100 ETH)
+✅ Token transactions (wstETH, stETH)
+✅ Contract interactions (Genesis, Minter)
+
+===============================================================================
+QUICK REFERENCE:
+===============================================================================
+
+# Check balance
+cast balance 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e --rpc-url local
+
+# Add more ETH if needed
+cast rpc anvil_setBalance 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e \
+  $(cast to-hex $(cast to-wei 100)) --rpc-url local
+
+===============================================================================
+
+
+DEV ACCOUNT INFORMATION
+===============================================================================
+
+Address: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+BALANCES:
+---------
+ETH:    100 ETH
+wstETH: 1000 tokens
+stETH:  1000 tokens
+
+PERMISSIONS:
+------------
+✅ Owner of Genesis contract
+✅ Has ZERO_FEE_ROLE on Minter contract
+
+READY FOR:
+----------
+✅ Gas payments (100 ETH)
+✅ Token transactions (wstETH, stETH)
+✅ Contract interactions (Genesis, Minter)
+
+===============================================================================
+QUICK REFERENCE:
+===============================================================================
+
+# Check balance
+cast balance 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e --rpc-url local
+
+# Add more ETH if needed
+cast rpc anvil_setBalance 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e \
+  $(cast to-hex $(cast to-wei 100)) --rpc-url local
+
+===============================================================================
+
+
+
+
+

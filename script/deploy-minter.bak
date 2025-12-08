@@ -177,7 +177,7 @@ deploy_library PriceOracle_v1 "src/price/PriceOracle_v1.sol:PriceOracle_v1"
 
 deploy_contract StakedETHWrappedPriceOracle_v1 "src/price/StakedETHWrappedPriceOracle_v1.sol:StakedETHWrappedPriceOracle_v1" \
   --libraries PriceOracle_v1 \
-  --constructor-args collateralToken.priceFeed.usd wrappedCollateralToken 7200 300 300 300
+  --constructor-args collateralToken.priceFeed.usd wrappedCollateralToken 3600 300 300 300
 
 upgrade_proxy stakedETHWrappedPriceOracle StakedETHWrappedPriceOracle_v1 "initialize(address)" owner
 

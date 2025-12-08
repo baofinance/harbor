@@ -1,0 +1,19 @@
+// Add this to: /Users/andrewyoung/Harbor-App/harbor-app/subgraph/schema.graphql
+// Add after the HaTokenBalance entity
+
+type SailTokenBalance @entity(immutable: false) {
+  id: ID! # {tokenAddress}-{userAddress}
+  tokenAddress: Bytes! # Sail token contract address
+  user: Bytes! # User address
+  balance: BigInt! # Current token balance
+  balanceUSD: BigDecimal! # Current balance in USD
+  marksPerDay: BigDecimal! # Current marks per day rate (includes multiplier)
+  accumulatedMarks: BigDecimal! # Marks accumulated from this balance
+  totalMarksEarned: BigDecimal! # Total marks ever earned from this token
+  firstSeenAt: BigInt! # First time user had balance > 0
+  lastUpdated: BigInt! # Last block timestamp when updated
+  marketId: String # Market identifier (optional, for grouping)
+}
+
+
+
