@@ -620,8 +620,9 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         _expect(proxy.PEGGED_TOKEN(), PEGGED);
         _expect(proxy.WRAPPED_COLLATERAL_TOKEN(), WRAPPED_COLLATERAL);
         _expect(proxy.LEVERAGED_TOKEN(), LEVERAGED);
-        _expect(proxy.STABILITY_POOL_COLLATERAL(), STABILITY_POOL_COLLATERAL);
-        _expect(proxy.STABILITY_POOL_LEVERAGED(), STABILITY_POOL_LEVERAGED);
+        // stability pools are not used
+        // _expect(proxy.STABILITY_POOL_COLLATERAL(), STABILITY_POOL_COLLATERAL);
+        // _expect(proxy.STABILITY_POOL_LEVERAGED(), STABILITY_POOL_LEVERAGED);
         require(!proxy.genesisIsEnded());
 
         Minter_v1 minter = Minter_v1(_get(MINTER));
