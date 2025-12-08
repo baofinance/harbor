@@ -304,6 +304,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             address(impl),
             initData,
             type(MintableBurnableERC20_v1).name,
+            type(MintableBurnableERC20_v1).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
 
@@ -350,6 +351,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             address(impl),
             initData,
             type(MintableBurnableERC20_v1).name,
+            type(MintableBurnableERC20_v1).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
 
@@ -386,6 +388,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             address(impl),
             initData,
             type(TokenDistributor_v1).name,
+            type(TokenDistributor_v1).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
 
@@ -422,7 +425,13 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         console2.log("Deploying Price Oracle...");
         MockWrappedPriceOracle impl = new MockWrappedPriceOracle();
 
-        registerContract(PRICE_ORACLE, address(impl), type(MockWrappedPriceOracle).name, _getAddress(SESSION_DEPLOYER));
+        registerContract(
+            PRICE_ORACLE,
+            address(impl),
+            type(MockWrappedPriceOracle).name,
+            type(MockWrappedPriceOracle).creationCode,
+            _getAddress(SESSION_DEPLOYER)
+        );
     }
 
     function _smokePriceOracle() internal view {
@@ -444,6 +453,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             address(impl),
             abi.encodeCall(ReservePool_v1.initialize, (_getAddress(OWNER))),
             type(ReservePool_v1).name,
+            type(ReservePool_v1).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
         _registerRole(RESERVE_POOL, "REQUESTER_ROLE", impl.REQUESTER_ROLE());
@@ -473,7 +483,14 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         // Deploy and register proxy
         bytes memory initData = abi.encodeCall(Minter_v1.initialize, (_getAddress(OWNER)));
 
-        deployProxy(MINTER, address(impl), initData, type(Minter_v1).name, _getAddress(SESSION_DEPLOYER));
+        deployProxy(
+            MINTER,
+            address(impl),
+            initData,
+            type(Minter_v1).name,
+            type(Minter_v1).creationCode,
+            _getAddress(SESSION_DEPLOYER)
+        );
 
         // Get the proxy and configure it
         Minter_v1 minter = Minter_v1(_get(MINTER));
@@ -587,6 +604,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             address(impl),
             initData,
             type(StabilityPool_v1).name,
+            type(StabilityPool_v1).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
 
@@ -637,6 +655,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             address(impl),
             initData,
             type(StabilityPoolManager_v1).name,
+            type(StabilityPoolManager_v1).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
 
@@ -696,7 +715,14 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (_getAddress(OWNER)));
 
-        deployProxy(GENESIS, address(impl), initData, type(Genesis_v1).name, _getAddress(SESSION_DEPLOYER));
+        deployProxy(
+            GENESIS,
+            address(impl),
+            initData,
+            type(Genesis_v1).name,
+            type(Genesis_v1).creationCode,
+            _getAddress(SESSION_DEPLOYER)
+        );
 
         IBaoRoles(_get(MINTER)).grantRoles(_get(GENESIS), _getRoleValue(MINTER, "ZERO_FEE_ROLE"));
         _registerGrantee(GENESIS, MINTER, "ZERO_FEE_ROLE");
