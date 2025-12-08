@@ -190,6 +190,3 @@ export function handleSailTokenTransfer(event: TransferEvent): void {
     receiverBalance.save();
   }
 }
-
-
-

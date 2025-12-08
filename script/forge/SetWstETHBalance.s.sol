@@ -15,25 +15,22 @@ contract SetWstETHBalance is Script {
         // balanceOf[address] is at keccak256(abi.encode(address, slot))
         // For ERC20, balances are typically at slot 0
         uint256 slot1 = uint256(keccak256(abi.encode(DEV, uint256(0))));
-        
+
         // Try Solady ERC20 storage slot
         // balanceOf[address] is at keccak256(abi.encode(0x87a211a2, address))
         uint256 slot2 = uint256(keccak256(abi.encode(uint256(0x87a211a2), DEV)));
-        
+
         // Try both slots
         vm.store(WSTETH, bytes32(slot1), bytes32(AMOUNT));
         vm.store(WSTETH, bytes32(slot2), bytes32(AMOUNT));
-        
+
         // Verify the balance
-        (bool success, bytes memory data) = WSTETH.staticcall(
-            abi.encodeWithSignature("balanceOf(address)", DEV)
-        );
+        (bool success, bytes memory data) = WSTETH.staticcall(abi.encodeWithSignature("balanceOf(address)", DEV));
         require(success, "Failed to read balance");
         uint256 balance = abi.decode(data, (uint256));
-        
+
         console.log("wstETH balance set to:", balance);
         console.log("Expected:", AMOUNT);
         require(balance == AMOUNT, "Balance mismatch");
     }
 }
-

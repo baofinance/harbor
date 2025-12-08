@@ -20,26 +20,22 @@ contract SetWstETHBalanceDeploy is Script {
 
     function run() external {
         vm.startBroadcast();
-        
+
         // Deploy helper contract
         SetBalanceHelper helper = new SetBalanceHelper();
         console.log("Helper deployed at:", address(helper));
-        
+
         // Set balance via helper
         helper.setBalance(WSTETH, DEV, AMOUNT);
-        
+
         // Verify
-        (bool success, bytes memory data) = WSTETH.staticcall(
-            abi.encodeWithSignature("balanceOf(address)", DEV)
-        );
+        (bool success, bytes memory data) = WSTETH.staticcall(abi.encodeWithSignature("balanceOf(address)", DEV));
         require(success, "Failed to read balance");
         uint256 balance = abi.decode(data, (uint256));
-        
+
         console.log("wstETH balance:", balance);
         require(balance == AMOUNT, "Balance mismatch");
-        
+
         vm.stopBroadcast();
     }
 }
-
-

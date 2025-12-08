@@ -7,12 +7,10 @@ contract SetBalanceHelper {
         // balanceOf[address] is at keccak256(abi.encode(address, slot))
         // For ERC20, balances are typically at slot 0
         uint256 slot = uint256(keccak256(abi.encode(account, uint256(0))));
-        
+
         // Set the balance directly in storage using assembly
         assembly {
             sstore(slot, amount)
         }
     }
 }
-
-

@@ -13,21 +13,17 @@ contract SetWstETHBalanceTest is Test {
         // balanceOf[address] is at keccak256(abi.encode(address, slot))
         // For ERC20, balances are typically at slot 0
         uint256 slot = uint256(keccak256(abi.encode(DEV, uint256(0))));
-        
+
         // Set the balance directly in storage
         vm.store(WSTETH, bytes32(slot), bytes32(AMOUNT));
-        
+
         // Verify the balance
-        (bool success, bytes memory data) = WSTETH.staticcall(
-            abi.encodeWithSignature("balanceOf(address)", DEV)
-        );
+        (bool success, bytes memory data) = WSTETH.staticcall(abi.encodeWithSignature("balanceOf(address)", DEV));
         require(success, "Failed to read balance");
         uint256 balance = abi.decode(data, (uint256));
-        
+
         console.log("wstETH balance set to:", balance);
         console.log("Expected:", AMOUNT);
         assertEq(balance, AMOUNT, "Balance mismatch");
     }
 }
-
-
