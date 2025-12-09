@@ -161,11 +161,13 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addStringKey(WRAPPED_COLLATERAL_NAME);
 
         addProxy(PEGGED);
+        addRoles(PEGGED, sa("MINTER_ROLE", "BURNER_ROLE"));
         addStringKey(PEGGED_NAME);
         addStringKey(PEGGED_SYMBOL);
         addStringKey(PEGGED_BURN_SIGNATURE);
 
         addProxy(LEVERAGED);
+        addRoles(LEVERAGED, sa("MINTER_ROLE", "BURNER_ROLE"));
         addStringKey(LEVERAGED_NAME);
         addStringKey(LEVERAGED_SYMBOL);
 
@@ -186,8 +188,10 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addContract(PRICE_ORACLE);
 
         addProxy(RESERVE_POOL);
+        addRoles(RESERVE_POOL, sa("REQUESTER_ROLE"));
 
         addProxy(MINTER);
+        addRoles(MINTER, sa("HARVESTER_ROLE", "ZERO_FEE_ROLE"));
         addUintArrayKey(MINTER_MINT_PEGGED_BOUNDS, 16);
         addIntArrayKey(MINTER_MINT_PEGGED_RATIOS, 16);
         addUintArrayKey(MINTER_REDEEM_PEGGED_BOUNDS, 16);
@@ -204,8 +208,10 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addUintKey(STABILITY_POOL_MIN_TOTAL_ASSET_SUPPLY, 18);
 
         addProxy(STABILITY_POOL_COLLATERAL);
+        addRoles(STABILITY_POOL_COLLATERAL, sa("REBALANCER_ROLE", "REWARD_DEPOSITOR_ROLE", "REWARD_MANAGER_ROLE"));
         addAddressKey(STABILITY_POOL_COLLATERAL_LIQUIDATION);
         addProxy(STABILITY_POOL_LEVERAGED);
+        addRoles(STABILITY_POOL_LEVERAGED, sa("REBALANCER_ROLE", "REWARD_DEPOSITOR_ROLE", "REWARD_MANAGER_ROLE"));
         addAddressKey(STABILITY_POOL_LEVERAGED_LIQUIDATION);
 
         addProxy(STABILITY_POOL_MANAGER);
@@ -584,13 +590,13 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         // now check it has the roles it needs to perform
         MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
-        _expectRolesOf(pegged.rolesOf(_get(MINTER)), PEGGED, _roles("MINTER_ROLE", "BURNER_ROLE"), MINTER);
+        _expectRolesOf(pegged.rolesOf(_get(MINTER)), PEGGED, sa("MINTER_ROLE", "BURNER_ROLE"), MINTER);
 
         MintableBurnableERC20_v1 leveraged = MintableBurnableERC20_v1(_get(LEVERAGED));
-        _expectRolesOf(leveraged.rolesOf(_get(MINTER)), LEVERAGED, _roles("MINTER_ROLE", "BURNER_ROLE"), MINTER);
+        _expectRolesOf(leveraged.rolesOf(_get(MINTER)), LEVERAGED, sa("MINTER_ROLE", "BURNER_ROLE"), MINTER);
 
         ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
-        _expectRolesOf(reservePool.rolesOf(_get(MINTER)), RESERVE_POOL, _roles("REQUESTER_ROLE"), MINTER);
+        _expectRolesOf(reservePool.rolesOf(_get(MINTER)), RESERVE_POOL, sa("REQUESTER_ROLE"), MINTER);
     }
 
     // ============================================================================
@@ -733,15 +739,14 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         // now check it has the roles it needs to perform
         MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
-        _expectRolesOf(pegged.rolesOf(_get(MINTER)), PEGGED, _roles("MINTER_ROLE", "BURNER_ROLE"), MINTER);
+        _expectRolesOf(pegged.rolesOf(_get(MINTER)), PEGGED, sa("MINTER_ROLE", "BURNER_ROLE"), MINTER);
 
         MintableBurnableERC20_v1 leveraged = MintableBurnableERC20_v1(_get(LEVERAGED));
-        _expectRolesOf(leveraged.rolesOf(_get(MINTER)), LEVERAGED, _roles("MINTER_ROLE", "BURNER_ROLE"), MINTER);
-
-        ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
+        _expectRolesOf(leveraged.rolesOf(_get(MINTER)), LEVERAGED, sa("MINTER_ROLE", "BURNER_ROLE"), MINTER);
 
         // TODO:
-        // _expectRolesOf(reservePool.rolesOf(_get(MINTER)), RESERVE_POOL, _roles("REQUESTER_ROLE"), MINTER);
+        // ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
+        // _expectRolesOf(reservePool.rolesOf(_get(MINTER)), RESERVE_POOL, sa("REQUESTER_ROLE"), MINTER);
         // ❌ MINTER not tested (should verify proxy.MINTER())
         // ❌ rebalanceThreshold not tested
         // ❌ rebalanceBountyRatio not tested
@@ -795,6 +800,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         require(!proxy.genesisIsEnded());
 
         Minter_v1 minter = Minter_v1(_get(MINTER));
-        _expectRolesOf(minter.rolesOf(_get(GENESIS)), MINTER, _roles("ZERO_FEE_ROLE"), GENESIS);
+        _expectRolesOf(minter.rolesOf(_get(GENESIS)), MINTER, sa("ZERO_FEE_ROLE"), GENESIS);
     }
 }
