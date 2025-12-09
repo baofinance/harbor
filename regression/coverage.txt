@@ -1,17 +1,21 @@
-| File                                                            | % Lines          | % Statements     | % Branches      | % Funcs        |
-|-----------------------------------------------------------------|------------------|------------------|-----------------|----------------|
-| src/math/DecrementalFloatingPoint.sol                           | ✓ 100% (31/31)   | ✓ 100% (33/33)   | ✓ 100% (9/9)    | ✓ 100% (6/6)   |
-| src/minter/Genesis_v1.sol                                       | X  99% (88/89)   | ✓ 100% (88/88)   | ✓ 100% (14/14)  | X  92% (11/12) |
-| src/minter/Minter_v1.sol                                        | X  99% (593/601) | X  99% (642/649) | X  93% (95/102) | X  99% (67/68) |
-| src/minter/ReservePool_v1.sol                                   | X  94% (15/16)   | ✓ 100% (15/15)   | ✓ 100% (3/3)    | X  80% (4/5)   |
-| src/minter/StabilityPoolManager_v1.sol                          | X  99% (165/166) | X  99% (176/177) | X  95% (20/21)  | ✓ 100% (24/24) |
-| src/minter/StabilityPool_v1.sol                                 | X  96% (195/203) | X  96% (213/223) | X  79% (26/33)  | ✓ 100% (22/22) |
-| src/minter/TokenDistributor_v1.sol                              | X  96% (94/98)   | X  97% (112/116) | X  77% (10/13)  | X  93% (14/15) |
-| src/minter/library/ConfigIncentiveLib.sol                       | ✓ 100% (24/24)   | ✓ 100% (17/17)   | ✓ 100% (2/2)    | ✓ 100% (9/9)   |
-| src/minter/library/Config_v1.sol                                | X  96% (76/79)   | X  97% (92/95)   | X  90% (18/20)  | ✓ 100% (6/6)   |
-| src/price/PriceOracle_v1.sol                                    | X  97% (31/32)   | X  97% (36/37)   | X  85% (11/13)  | ✓ 100% (3/3)   |
-| src/price/StakedETHWrappedPriceOracle_v1.sol                    | X   0% (0/29)    | X   0% (0/27)    | X   0% (0/5)    | X   0% (0/4)   |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol | X  96% (131/136) | X  97% (166/171) | X  88% (14/16)  | X  95% (20/21) |
-| src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (77/77)   | ✓ 100% (86/86)   | ✓ 100% (12/12)  | ✓ 100% (14/14) |
-| src/reward/distributor/LinearReward.sol                         | ✓ 100% (25/25)   | ✓ 100% (27/27)   | ✓ 100% (6/6)    | ✓ 100% (2/2)   |
-| src/util/WordCodec.sol                                          | ✓ 100% (15/15)   | ✓ 100% (14/14)   | ✓ 100% (0/0)    | ✓ 100% (4/4)   |
+| File                                                            | % Lines            | % Statements       | % Branches       | % Funcs          |
+|-----------------------------------------------------------------|--------------------|--------------------|------------------|------------------|
+| script/DeployState.sol                                          | X   0% (0/6)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/2)     |
+| script/deploy.t.sol                                             | X   0% (0/46)      | X   0% (0/38)      | ✓ 100% (0/0)     | X   0% (0/10)    |
+| script/deployment/HarborDeploymentJsonScript.sol                | X   0% (0/279)     | X   0% (0/309)     | X   0% (0/4)     | X   0% (0/22)    |
+| src/math/DecrementalFloatingPoint.sol                           | ✓ 100% (31/31)     | ✓ 100% (33/33)     | ✓ 100% (9/9)     | ✓ 100% (6/6)     |
+| src/minter/Genesis_v1.sol                                       | X  99% (88/89)     | ✓ 100% (88/88)     | ✓ 100% (14/14)   | X  92% (11/12)   |
+| src/minter/Minter_v1.sol                                        | X  99% (593/601)   | X  99% (642/649)   | X  93% (95/102)  | X  99% (67/68)   |
+| src/minter/ReservePool_v1.sol                                   | X  94% (15/16)     | ✓ 100% (15/15)     | ✓ 100% (3/3)     | X  80% (4/5)     |
+| src/minter/StabilityPoolManager_v1.sol                          | X  99% (165/166)   | X  99% (176/177)   | X  95% (20/21)   | ✓ 100% (24/24)   |
+| src/minter/StabilityPool_v1.sol                                 | X  96% (195/203)   | X  96% (213/223)   | X  79% (26/33)   | ✓ 100% (22/22)   |
+| src/minter/TokenDistributor_v1.sol                              | X  96% (94/98)     | X  97% (112/116)   | X  77% (10/13)   | X  93% (14/15)   |
+| src/minter/library/ConfigIncentiveLib.sol                       | ✓ 100% (24/24)     | ✓ 100% (17/17)     | ✓ 100% (2/2)     | ✓ 100% (9/9)     |
+| src/minter/library/Config_v1.sol                                | X  96% (76/79)     | X  97% (92/95)     | X  90% (18/20)   | ✓ 100% (6/6)     |
+| src/price/PriceOracle_v1.sol                                    | X  97% (31/32)     | X  97% (36/37)     | X  85% (11/13)   | ✓ 100% (3/3)     |
+| src/price/StakedETHWrappedPriceOracle_v1.sol                    | X   0% (0/29)      | X   0% (0/27)      | X   0% (0/5)     | X   0% (0/4)     |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol | X  96% (131/136)   | X  97% (166/171)   | X  88% (14/16)   | X  95% (20/21)   |
+| src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (77/77)     | ✓ 100% (86/86)     | ✓ 100% (12/12)   | ✓ 100% (14/14)   |
+| src/reward/distributor/LinearReward.sol                         | ✓ 100% (25/25)     | ✓ 100% (27/27)     | ✓ 100% (6/6)     | ✓ 100% (2/2)     |
+| src/util/WordCodec.sol                                          | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
+| Total                                                           | X  82% (3274/4015) | X  83% (3422/4127) | X  81% (351/431) | X  79% (474/597) |

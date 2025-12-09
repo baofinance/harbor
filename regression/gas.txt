@@ -1,27 +1,3 @@
-lib/bao-base/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
-| function name     |       max |
-|-------------------|-----------|
-| BURNER_ROLE       | 2.620e+02 |
-| MINTER_ROLE       | 2.600e+02 |
-| allowance         | 2.810e+03 |
-| approve           | 2.480e+04 |
-| balanceOf         | 2.683e+03 |
-| burnFrom          | 1.850e+04 |
-| decimals          | 2.880e+02 |
-| grantRoles        | 2.636e+04 |
-| initialize        | 1.663e+05 |
-| mint              | 4.907e+04 |
-| name              | 3.217e+03 |
-| symbol            | 3.207e+03 |
-| totalSupply       | 2.326e+03 |
-| transfer          | 2.999e+04 |
-| transferOwnership | 1.207e+04 |
-
-lib/bao-base/src/Token.sol:Token
-| function name                       |       max |
-|-------------------------------------|-----------|
-| hasNonMutatingParameterlessFunction | 1.508e+03 |
-
 src/minter/Genesis_v1.sol:Genesis_v1
 | function name            |       max |
 |--------------------------|-----------|
@@ -78,8 +54,8 @@ src/minter/Minter_v1.sol:Minter_v1
 | redeemLeveragedTokenDryRun         | 6.317e+04 |
 | redeemLeveragedTokenIncentiveRatio | 3.092e+04 |
 | redeemPeggedForCollateralRatio     | 1.958e+04 |
-| redeemPeggedToken                  | 1.323e+05 |
-| redeemPeggedTokenDryRun            | 6.170e+04 |
+| redeemPeggedToken                  | 1.322e+05 |
+| redeemPeggedTokenDryRun            | 6.178e+04 |
 | redeemPeggedTokenIncentiveRatio    | 3.085e+04 |
 | reservePool                        | 2.411e+03 |
 | reset                              | 2.869e+04 |
@@ -108,14 +84,14 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | function name              |       max |
 |----------------------------|-----------|
 | feeReceiver                | 2.441e+03 |
-| harvest                    | 4.440e+05 |
+| harvest                    | 4.441e+05 |
 | harvestBountyRatio         | 2.369e+03 |
 | harvestCutRatio            | 2.371e+03 |
 | harvestable                | 3.052e+04 |
 | hasStabilityPool           | 5.370e+02 |
 | initialize                 | 7.069e+04 |
 | owner                      | 2.423e+03 |
-| rebalance                  | 5.189e+05 |
+| rebalance                  | 5.190e+05 |
 | rebalanceBountyRatio       | 2.354e+03 |
 | rebalanceThreshold         | 2.347e+03 |
 | rebalanceable              | 2.926e+04 |
@@ -161,126 +137,7 @@ src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | tokens               | 7.448e+03 |
 | transferOwnership    | 1.200e+04 |
 
-test/StabilityPool.t.sol:MockSTEAM
-| function name   |       max |
-|-----------------|-----------|
-| approve         | 4.674e+04 |
-| balanceOf       | 2.683e+03 |
-
-test/StabilityPool.t.sol:MockStabilityPool
-| function name              |       max |
-|----------------------------|-----------|
-| ASSET_TOKEN                | 2.820e+02 |
-| EXEMPT_WITHDRAWAL_FEE_ROLE | 2.860e+02 |
-| LIQUIDATION_TOKEN          | 3.280e+02 |
-| MIN_TOTAL_ASSET_SUPPLY     | 3.270e+02 |
-| REBALANCER_ROLE            | 2.620e+02 |
-| REWARD_DEPOSITOR_ROLE      | 3.060e+02 |
-| REWARD_MANAGER_ROLE        | 3.270e+02 |
-| __getCompoundedBalance     | 1.897e+03 |
-| __totalSupply              | 4.778e+03 |
-| activeRewardTokens         | 1.418e+04 |
-| approve                    | 2.130e+02 |
-| assetBalanceOf             | 8.057e+03 |
-| claim                      | 2.615e+05 |
-| claimable                  | 2.159e+04 |
-| deposit                    | 4.382e+05 |
-| depositReward              | 1.178e+05 |
-| getEarlyWithdrawalFee      | 2.416e+03 |
-| getFeeAddress              | 2.398e+03 |
-| getWithdrawalRequest       | 2.767e+03 |
-| getWithdrawalWindow        | 3.530e+02 |
-| grantRoles                 | 2.633e+04 |
-| initialize                 | 2.041e+05 |
-| isActiveRewardToken        | 2.766e+03 |
-| lastAssetLossError         | 2.379e+03 |
-| notifyLiquidation          | 1.820e+05 |
-| owner                      | 2.446e+03 |
-| pendingRewards             | 3.470e+03 |
-| registerRewardToken        | 7.294e+04 |
-| requestWithdrawal          | 2.506e+04 |
-| rewardData                 | 2.958e+03 |
-| setRewardReceiver          | 2.458e+04 |
-| sweep                      | 4.013e+04 |
-| totalAssetSupply           | 2.423e+03 |
-| totalAssetSupplyHistory    | 4.861e+03 |
-| transferOwnership          | 1.207e+04 |
-| unregisterRewardToken      | 8.923e+04 |
-| upgradeToAndCall           | 1.096e+04 |
-| withdraw                   | 2.675e+05 |
-
-test/StabilityPool.t.sol:StabilityPool_v2
-| function name   |       max |
-|-----------------|-----------|
-| proxiableUUID   | 3.860e+02 |
-| version         | 4.450e+02 |
-
-test/StabilityPoolManager_v1.t.sol:MockStabilityPoolManagerUpgraded
-| function name            |       max |
-|--------------------------|-----------|
-| MINTER                   | 3.250e+02 |
-| harvestBountyRatio       | 2.369e+03 |
-| isUpgraded               | 3.080e+02 |
-| newFunctionOnlyInUpgrade | 2.640e+02 |
-| proxiableUUID            | 3.530e+02 |
-| updateHarvestBountyRatio | 2.568e+04 |
-
-test/math/DecrementalFloatingPoint.t.sol:MockDecrementalFloatingPoint
-| function name   |       max |
-|-----------------|-----------|
-| encode          | 4.860e+02 |
-| exponent        | 4.010e+02 |
-| magnitude       | 3.420e+02 |
-| mul             | 7.100e+02 |
-
-test/mock/MockERC20.sol:MockERC20
-| function name   |       max |
-|-----------------|-----------|
-| allowance       | 2.788e+03 |
-| approve         | 4.670e+04 |
-| balanceOf       | 2.582e+03 |
-| decimals        | 2.333e+03 |
-| mint            | 6.851e+04 |
-| name            | 3.109e+03 |
-| operator        | 1.890e+02 |
-| symbol          | 3.107e+03 |
-| totalSupply     | 2.348e+03 |
-| transfer        | 5.160e+04 |
-
-test/mock/MockERC20.sol:MockERC20Burn1Arg
-| function name   |       max |
-|-----------------|-----------|
-| approve         | 4.670e+04 |
-| balanceOf       | 2.582e+03 |
-| burnSignature   | 4.490e+02 |
-| decimals        | 2.333e+03 |
-| name            | 3.109e+03 |
-| symbol          | 3.152e+03 |
-| totalSupply     | 2.348e+03 |
-
-test/mock/MockERC20.sol:MockERC20Burn2Arg
-| function name   |       max |
-|-----------------|-----------|
-| approve         | 4.670e+04 |
-| balanceOf       | 2.560e+03 |
-| burnSignature   | 4.490e+02 |
-| decimals        | 2.333e+03 |
-| name            | 3.109e+03 |
-| symbol          | 3.130e+03 |
-| totalSupply     | 2.348e+03 |
-
-test/mock/MockERC20.sol:MockERC20BurnFrom
-| function name   |       max |
-|-----------------|-----------|
-| approve         | 4.670e+04 |
-| balanceOf       | 2.560e+03 |
-| burnSignature   | 4.490e+02 |
-| decimals        | 2.333e+03 |
-| name            | 3.109e+03 |
-| symbol          | 3.152e+03 |
-| totalSupply     | 2.348e+03 |
-
-test/mock/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockMultipleRewardCompoundingAccumulator
+test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockMultipleRewardCompoundingAccumulator
 | function name             |       max |
 |---------------------------|-----------|
 | REWARD_MANAGER_ROLE       | 2.830e+02 |
@@ -304,11 +161,11 @@ test/mock/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockMu
 | unregisterRewardToken     | 1.137e+05 |
 | userRewardSnapshot        | 5.481e+03 |
 
-test/mock/reward/distributor/MockLinearMultipleRewardDistributor.sol:MockLinearMultipleRewardDistributor
+test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol:MockLinearMultipleRewardDistributor
 | function name          |       max |
 |------------------------|-----------|
 | activeRewardTokens     | 9.672e+03 |
-| depositReward          | 1.208e+05 |
+| depositReward          | 1.209e+05 |
 | grantRoles             | 4.790e+04 |
 | hasAnyRole             | 2.592e+03 |
 | historicalRewardTokens | 9.647e+03 |

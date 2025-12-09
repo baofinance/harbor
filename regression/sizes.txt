@@ -1,32 +1,24 @@
-| Contract                       |   Runtime Size (B) |   Runtime Margin (B) |
-|--------------------------------|--------------------|----------------------|
-| Address                        |                 85 |               24,491 |
-| ConfigIncentiveLib             |                 85 |               24,491 |
-| Config_v1                      |              3,789 |               20,787 |
-| DecrementalFloatingPoint       |                 85 |               24,491 |
-| ERC1967Utils                   |                 85 |               24,491 |
-| EnumerableSet                  |                 85 |               24,491 |
-| Errors                         |                 85 |               24,491 |
-| FakeAccessControl              |              1,626 |               22,950 |
-| FakeBaoAccessControl           |              1,487 |               23,089 |
-| FakeInitializable              |                389 |               24,187 |
-| FakeOwnable2Step               |              1,346 |               23,230 |
-| FakeUUPSUpgradeable            |              3,236 |               21,340 |
-| Genesis_v1                     |              7,486 |               17,090 |
-| LinearReward                   |                 85 |               24,491 |
-| Math                           |                 85 |               24,491 |
-| Minter_v1                      |             23,681 |                  895 |
-| Panic                          |                 85 |               24,491 |
-| PriceOracle_v1                 |              1,958 |               22,618 |
-| ReservePool_v1                 |              4,760 |               19,816 |
-| SafeCast                       |                 85 |               24,491 |
-| SafeERC20                      |                 85 |               24,491 |
-| SignedMath                     |                 85 |               24,491 |
-| StabilityPoolManager_v1        |             11,209 |               13,367 |
-| StabilityPool_v1               |             21,092 |                3,484 |
-| StakedETHWrappedPriceOracle_v1 |              3,695 |               20,881 |
-| StorageSlot                    |                 85 |               24,491 |
-| Token                          |                719 |               23,857 |
-| TokenDistributor_v1            |             10,116 |               14,460 |
-| TransientSlot                  |                 85 |               24,491 |
-| WordCodec                      |                 85 |               24,491 |
+| Contract                       |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
+|--------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
+| Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
+| Clog                           |              1,965 |               22,611 |               2,373 |      416,730 |             41.67 |
+| ConfigIncentiveLib             |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Config_v1                      |              3,789 |               20,787 |               3,841 |      796,210 |             79.62 |
+| DecrementalFloatingPoint       |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| FakeAccessControl              |              1,626 |               22,950 |               1,654 |      341,740 |             34.17 |
+| FakeBaoAccessControl           |              1,487 |               23,089 |               1,515 |      312,550 |             31.26 |
+| FakeInitializable              |                389 |               24,187 |                 417 |       81,970 |              8.20 |
+| FakeOwnable2Step               |              1,346 |               23,230 |               1,374 |      282,940 |             28.29 |
+| FakeUUPSUpgradeable            |              3,236 |               21,340 |               3,293 |      680,130 |             68.01 |
+| Genesis_v1                     |              7,486 |               17,090 |               8,423 |    1,581,430 |            158.14 |
+| LinearReward                   |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Minter_v1                      |             23,681 |                  895 |              25,515 |    4,991,350 |            499.14 |
+| MockWrappedPriceOracle         |                373 |               24,203 |                 435 |       78,950 |              7.90 |
+| PriceOracle_v1                 |              1,958 |               22,618 |               2,010 |      411,700 |             41.17 |
+| ReservePool_v1                 |              4,760 |               19,816 |               5,009 |    1,002,090 |            100.21 |
+| StabilityPoolManager_v1        |             11,209 |               13,367 |              13,057 |    2,372,370 |            237.24 |
+| StabilityPool_v1               |             21,092 |                3,484 |              23,085 |    4,449,250 |            444.93 |
+| StakedETHWrappedPriceOracle_v1 |              3,695 |               20,881 |               4,653 |      785,530 |             78.55 |
+| TokenDistributor_v1            |             10,116 |               14,460 |              10,365 |    2,126,850 |            212.69 |
+| Useful                         |                804 |               23,772 |                 856 |      169,360 |             16.94 |
+| WordCodec                      |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
