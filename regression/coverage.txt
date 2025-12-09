@@ -1,8 +1,9 @@
 | File                                                            | % Lines            | % Statements       | % Branches       | % Funcs          |
 |-----------------------------------------------------------------|--------------------|--------------------|------------------|------------------|
-| script/DeployState.sol                                          | X   0% (0/6)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/2)     |
-| script/deploy.t.sol                                             | X   0% (0/46)      | X   0% (0/38)      | ✓ 100% (0/0)     | X   0% (0/10)    |
 | script/deployment/HarborDeploymentJsonScript.sol                | X   0% (0/279)     | X   0% (0/309)     | X   0% (0/4)     | X   0% (0/22)    |
+| script/forge/DeployState.sol                                    | X   0% (0/6)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/2)     |
+| script/forge/SetBalanceHelper.sol                               | X   0% (0/3)       | X   0% (0/2)       | ✓ 100% (0/0)     | X   0% (0/1)     |
+| script/forge/deploy.t.sol                                       | X   0% (0/46)      | X   0% (0/38)      | ✓ 100% (0/0)     | X   0% (0/10)    |
 | src/math/DecrementalFloatingPoint.sol                           | ✓ 100% (31/31)     | ✓ 100% (33/33)     | ✓ 100% (9/9)     | ✓ 100% (6/6)     |
 | src/minter/Genesis_v1.sol                                       | X  99% (88/89)     | ✓ 100% (88/88)     | ✓ 100% (14/14)   | X  92% (11/12)   |
 | src/minter/Minter_v1.sol                                        | X  99% (593/601)   | X  99% (642/649)   | X  93% (95/102)  | X  99% (67/68)   |
@@ -18,4 +19,4 @@
 | src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (77/77)     | ✓ 100% (86/86)     | ✓ 100% (12/12)   | ✓ 100% (14/14)   |
 | src/reward/distributor/LinearReward.sol                         | ✓ 100% (25/25)     | ✓ 100% (27/27)     | ✓ 100% (6/6)     | ✓ 100% (2/2)     |
 | src/util/WordCodec.sol                                          | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
-| Total                                                           | X  82% (3274/4015) | X  83% (3422/4127) | X  81% (351/431) | X  79% (474/597) |
+| Total                                                           | X  76% (3302/4330) | X  78% (3442/4424) | X  74% (351/477) | X  77% (483/631) |

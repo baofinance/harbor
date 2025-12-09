@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Script, console} from "forge-std/Script.sol";
 
 contract SetBalanceHelper {
-    function setBalance(address token, address account, uint256 amount) external {
+    function setBalance(address /* token */, address account, uint256 amount) external {
         // Calculate storage slot for balance mapping (standard ERC20)
         uint256 slot = uint256(keccak256(abi.encode(account, uint256(0))));
         assembly {

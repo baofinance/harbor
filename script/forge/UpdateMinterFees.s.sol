@@ -35,8 +35,8 @@ contract UpdateMinterFees is Script {
             }
         }
         // Read config from JSON file
-        string memory configPath = "script/minter-fee-config-health-based.json";
-        string memory configJson = vm.readFile(configPath);
+        // string memory configPath = "script/minter-fee-config-health-based.json";
+        // string memory configJson = vm.readFile(configPath);
 
         // Parse config (simplified - in production use a JSON parser)
         // For now, we'll construct the config manually

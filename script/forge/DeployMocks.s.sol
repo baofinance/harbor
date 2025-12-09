@@ -2,9 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Script, console} from "forge-std/Script.sol";
-import {MockStETH} from "../../test/mock/MockStETH.sol";
-import {MockWstETHEnhanced} from "../../test/mock/MockWstETHEnhanced.sol";
-import {MockChainlinkAggregator} from "../../test/mock/MockChainlinkAggregator.sol";
+import {MockStETH} from "../../test/mocks/MockStETH.sol";
+import {MockWstETHEnhanced} from "../../test/mocks/MockWstETHEnhanced.sol";
+import {MockChainlinkAggregator} from "../../test/mocks/MockChainlinkAggregator.sol";
 
 /// @title Deploy Mock Contracts for Local Testing
 /// @notice Deploys mock stETH, wstETH, and Chainlink price feeds for clean Anvil chain

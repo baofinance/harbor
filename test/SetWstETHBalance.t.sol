@@ -9,6 +9,7 @@ contract SetWstETHBalanceTest is Test {
     uint256 constant AMOUNT = 1000 * 1e18;
 
     function testSetBalance() external {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
         // Calculate storage slot for balance mapping
         // balanceOf[address] is at keccak256(abi.encode(address, slot))
         // For ERC20, balances are typically at slot 0
