@@ -1,0 +1,31 @@
+# Add this to: /Users/andrewyoung/Harbor-App/harbor-app/subgraph/subgraph.yaml
+# Add after the HaToken_haPB data source in the dataSources section
+
+  - kind: ethereum
+    name: SailToken_hsPB
+    network: anvil
+    source:
+      address: "0x367761085BF3C12e5DA2Df99AC6E1a824612b8fb" # hsPB token address
+      abi: ERC20
+      startBlock: 93 # Start from Genesis deployment block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - SailTokenBalance
+        - MarksMultiplier
+        - UserTotalMarks
+        - PriceFeed
+      abis:
+        - name: ERC20
+          file: ./abis/ERC20.json
+        - name: ChainlinkAggregator
+          file: ./abis/ChainlinkAggregator.json
+      eventHandlers:
+        - event: Transfer(indexed address,indexed address,uint256)
+          handler: handleSailTokenTransfer
+      file: ./src/sailToken.ts
+
+
+

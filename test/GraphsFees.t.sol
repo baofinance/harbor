@@ -10,7 +10,7 @@ import "test/Useful.sol";
 import {TestCollateralRatioRangeSetUp} from "test/CollateralRatio.t.sol";
 import {TestGraphs} from "test/Graphs.t.sol";
 
-contract TestGraphsDisallow is TestGraphs, TestCollateralRatioRangeSetUp {
+contract TestGraphsFees is TestGraphs, TestCollateralRatioRangeSetUp {
     string feesFile;
     string fees1File;
     string invariantFile;
@@ -150,7 +150,7 @@ contract TestGraphsDisallow is TestGraphs, TestCollateralRatioRangeSetUp {
     }
 }
 
-contract TestGraphsNoDisallow is TestGraphsDisallow {
+contract TestGraphsFeesNoDisallow is TestGraphsFees {
     function setUpConfig() internal override {
         setUp_config_likelyNoDisallow();
     }
@@ -160,12 +160,19 @@ contract TestGraphsNoDisallow is TestGraphsDisallow {
     }
 }
 
-contract TestGraphsFlat is TestGraphsDisallow {
+contract TestGraphsFeesDeploy is TestGraphsFees {
+    function setUpRange() internal override {
+        start = 0.8 ether;
+        finish = 2.6 ether;
+        increment = 0.005 ether;
+    }
+
     function setUpConfig() internal override {
-        setUp_config_flatWide();
+        setUp_config(readConfigFile("./script/minter-fee-config.json"));
+        writeConfig(config, "deploy");
     }
 
     function context() internal pure override returns (string memory) {
-        return "_flat";
+        return "_deploy";
     }
 }

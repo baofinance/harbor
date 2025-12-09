@@ -1,0 +1,168 @@
+=== How to Find Rebalance Collateral Ratio ===
+
+The rebalance threshold is stored in the StabilityPoolManager contract, NOT the Minter.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO GET THE REBALANCE THRESHOLD
+═══════════════════════════════════════════════════════════════════════════════
+
+Contract: StabilityPoolManager
+Function: rebalanceThreshold() → uint256
+Returns: The collateral ratio threshold below which rebalancing can occur (18 decimals)
+
+Example:
+```javascript
+const stabilityPoolManager = "0x26291175Fa0Ea3C8583fEdEB56805eA68289b105";
+const threshold = await stabilityPoolManager.rebalanceThreshold();
+// Returns value in 18 decimals (e.g., 1300000000000000000 = 1.3x)
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW REBALANCING WORKS
+═══════════════════════════════════════════════════════════════════════════════
+
+Rebalancing is enabled when:
+  collateralRatio < rebalanceThreshold
+
+Where:
+- collateralRatio: Current system collateral ratio (from Minter.collateralRatio())
+- rebalanceThreshold: Threshold set in StabilityPoolManager
+
+When rebalancing occurs:
+- Pegged tokens in stability pools are liquidated
+- This increases the collateral ratio back above the threshold
+- Anyone can call rebalance() and receive a bounty
+
+═══════════════════════════════════════════════════════════════════════════════
+RELATED FUNCTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+StabilityPoolManager:
+- rebalanceThreshold() → uint256
+  Returns the rebalance threshold collateral ratio
+  
+- rebalanceable() → bool
+  Returns true if rebalancing is currently available
+  (checks if collateralRatio < rebalanceThreshold)
+  
+- rebalance(address bountyReceiver, uint256 minPeggedLiquidated)
+  Executes rebalancing (anyone can call when rebalanceable() is true)
+
+Minter:
+- collateralRatio() → uint256
+  Returns the current collateral ratio (18 decimals)
+  This is what's compared against the rebalance threshold
+
+═══════════════════════════════════════════════════════════════════════════════
+USAGE FOR FRONTEND
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Get current collateral ratio:
+   const currentRatio = await minter.collateralRatio();
+   
+2. Get rebalance threshold:
+   const threshold = await stabilityPoolManager.rebalanceThreshold();
+   
+3. Check if rebalancing is available:
+   const canRebalance = await stabilityPoolManager.rebalanceable();
+   
+4. Display to user:
+   - Show current ratio vs threshold
+   - Show if rebalancing is available
+   - Show how close/far from threshold
+
+═══════════════════════════════════════════════════════════════════════════════
+NOTES
+═══════════════════════════════════════════════════════════════════════════════
+
+- The rebalance threshold is set by the owner of StabilityPoolManager
+- It can be updated via updateRebalanceThreshold(uint256 newRatio)
+- The threshold is typically set to a value like 1.3x (1300000000000000000)
+- Rebalancing helps maintain system stability by increasing collateral ratio
+
+
+
+The rebalance threshold is stored in the StabilityPoolManager contract, NOT the Minter.
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW TO GET THE REBALANCE THRESHOLD
+═══════════════════════════════════════════════════════════════════════════════
+
+Contract: StabilityPoolManager
+Function: rebalanceThreshold() → uint256
+Returns: The collateral ratio threshold below which rebalancing can occur (18 decimals)
+
+Example:
+```javascript
+const stabilityPoolManager = "0x26291175Fa0Ea3C8583fEdEB56805eA68289b105";
+const threshold = await stabilityPoolManager.rebalanceThreshold();
+// Returns value in 18 decimals (e.g., 1300000000000000000 = 1.3x)
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+HOW REBALANCING WORKS
+═══════════════════════════════════════════════════════════════════════════════
+
+Rebalancing is enabled when:
+  collateralRatio < rebalanceThreshold
+
+Where:
+- collateralRatio: Current system collateral ratio (from Minter.collateralRatio())
+- rebalanceThreshold: Threshold set in StabilityPoolManager
+
+When rebalancing occurs:
+- Pegged tokens in stability pools are liquidated
+- This increases the collateral ratio back above the threshold
+- Anyone can call rebalance() and receive a bounty
+
+═══════════════════════════════════════════════════════════════════════════════
+RELATED FUNCTIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+StabilityPoolManager:
+- rebalanceThreshold() → uint256
+  Returns the rebalance threshold collateral ratio
+  
+- rebalanceable() → bool
+  Returns true if rebalancing is currently available
+  (checks if collateralRatio < rebalanceThreshold)
+  
+- rebalance(address bountyReceiver, uint256 minPeggedLiquidated)
+  Executes rebalancing (anyone can call when rebalanceable() is true)
+
+Minter:
+- collateralRatio() → uint256
+  Returns the current collateral ratio (18 decimals)
+  This is what's compared against the rebalance threshold
+
+═══════════════════════════════════════════════════════════════════════════════
+USAGE FOR FRONTEND
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Get current collateral ratio:
+   const currentRatio = await minter.collateralRatio();
+   
+2. Get rebalance threshold:
+   const threshold = await stabilityPoolManager.rebalanceThreshold();
+   
+3. Check if rebalancing is available:
+   const canRebalance = await stabilityPoolManager.rebalanceable();
+   
+4. Display to user:
+   - Show current ratio vs threshold
+   - Show if rebalancing is available
+   - Show how close/far from threshold
+
+═══════════════════════════════════════════════════════════════════════════════
+NOTES
+═══════════════════════════════════════════════════════════════════════════════
+
+- The rebalance threshold is set by the owner of StabilityPoolManager
+- It can be updated via updateRebalanceThreshold(uint256 newRatio)
+- The threshold is typically set to a value like 1.3x (1300000000000000000)
+- Rebalancing helps maintain system stability by increasing collateral ratio
+
+
+
+
+

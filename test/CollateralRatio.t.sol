@@ -13,14 +13,26 @@ import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 
-contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
+import {console2} from "forge-std/console2.sol";
+
+abstract contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
     uint256 startPrice;
     uint256 currentPrice;
     uint256 currentCollateralRatio;
-    uint256 increment = 1 ether / 500;
+    uint256 start;
+    uint256 finish;
+    uint256 increment;
+
+    function setUpRange() internal virtual {
+        increment = 1 ether / 500;
+        start = increment;
+        finish = 16 ether / 10;
+    }
 
     function setUp() public virtual override {
         super.setUp();
+        setUpRange();
+
         (startPrice, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         setUp_collateral(10 ether, 10 ether, address(this));
         deal(address(wrappedCollateralToken), address(this), 1000 ether);
@@ -163,27 +175,25 @@ contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
         uint256 rate;
     }
 
-    function doOneCollateralRatio() internal virtual {
-        // make sure this is overriden and doesn't get called
-        // assertFalse(true);
-    }
+    function doOneCollateralRatio() internal virtual;
+
     function setDown() internal virtual {}
 
     function test_allCollateralRatios() public virtual {
         uint256 startCollateralRatio = 2 ether;
         assertEq(IMinter(minter).collateralRatio(), startCollateralRatio);
 
-        for (
-            currentCollateralRatio = increment;
-            currentCollateralRatio <= 16 ether / 10;
-            currentCollateralRatio += increment
-        ) {
+        console2.log("Testing collateral ratios from %s to %s by %s", start, finish, increment);
+        for (currentCollateralRatio = start; currentCollateralRatio <= finish; currentCollateralRatio += increment) {
+            uint256 snap = vm.snapshotState();
             currentPrice = (startPrice * currentCollateralRatio) / startCollateralRatio;
 
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(currentPrice);
             assertEq(currentCollateralRatio, IMinter(minter).collateralRatio(), "crs must match");
 
             doOneCollateralRatio();
+
+            vm.revertToStateAndDelete(snap);
         }
         setDown();
     }
@@ -194,10 +204,6 @@ contract TestCollateralRatioRangeSetUp is TestStabilityPool2SetUp {
 contract TestCollateralRatioRangeTransfersNoReserve is TestCollateralRatioRangeSetUp {
     function setUp() public virtual override {
         super.setUp();
-        // c.log("collateralToken", IERC20(collateralToken).balanceOf(address(this)));
-        // c.log("leveragedToken", IERC20(leveragedToken).balanceOf(address(this)));
-        // c.log("peggedToken", IERC20(peggedToken).balanceOf(address(this)));
-        increment = 1 ether / 100;
     }
 
     function setUpConfig() internal virtual override {
@@ -353,7 +359,11 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
 
     function setUpConfig() internal virtual override {
         setUp_config_likelyNoDisallow();
-        increment = 1 ether / 10;
+    }
+
+    function setUpRange() internal override {
+        super.setUpRange();
+        increment = 1 ether / 100;
     }
 
     function setUp() public virtual override {
@@ -422,7 +432,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         assertApproxEqAbs(
             a.thisLeveraged,
             b.thisLeveraged,
-            tolerance * 1200,
+            tolerance * 1000,
             string.concat(context, ":", "thisLeveraged")
         );
     }
@@ -477,7 +487,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
                 // console2.log("%s th iteration", i + 1);
                 // logDeltaHoldings(smallChanges);
             }
-            compareDeltaHoldings(largeChanges, smallChanges, 36, toString(Action(a)));
+            compareDeltaHoldings(largeChanges, smallChanges, repeats * 25, toString(Action(a)));
             vm.revertToState(snap);
         }
     }

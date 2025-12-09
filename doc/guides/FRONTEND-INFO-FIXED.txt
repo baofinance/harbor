@@ -1,0 +1,42 @@
+    === Harbor Marks - Final Deployment (Price Feed Fix Verified) ===
+
+    Network Configuration:
+    - Network Name: Local Anvil
+    - Chain ID: 31337
+    - RPC URL: http://localhost:8545
+
+    Contract Addresses:
+    - Genesis: 0x840748F7Fd3EA956E5f4c88001da5CC1ABCBc038
+    - Minter: 0x6484EB0792c646A4827638Fc1B6F20461418eB00
+    - PeggedToken: (check deployment log)
+    - LeveragedToken: (check deployment log)
+    - wstETH: 0x2e8880cAdC08E9B438c6052F5ce3869FBd6cE513
+
+    Price Feeds (All Fixed):
+    - stETH/USD: 0xb007167714e2940013ec3bb551584130b7497e22
+    - stETH/ETH: 0x6b39b761b1b64c8c095bf0e3bb0c6a74705b4788
+    - wstETH/USD: 0xeC827421505972a2AE9C320302d3573B42363C26
+
+    GraphQL Endpoint:
+    - http://localhost:8000/subgraphs/name/harbor-marks-local
+
+    Admin Accounts:
+    - Owner (can call endGenesis): 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+    - Developer: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+    Status:
+    ✅ All contracts redeployed with fixed price feeds
+    ✅ Price feed "Round not found" issue FIXED and VERIFIED
+    ✅ endGenesis() tested and working (no errors!)
+    ✅ Genesis is ACTIVE (not ended) - ready for deposits
+    ✅ ZERO_FEE_ROLE granted to Genesis
+    ✅ Developer has 1000 wstETH and ETH for gas
+    ✅ Subgraph updated and deployed
+
+    Fix Summary:
+    - Root cause: PriceOracle uses stETH/USD feed, which was using OLD address
+    - Solution: Updated bcinfo.local.json with ALL new fixed price feed addresses
+    - Verification: endGenesis() now works without "Round not found" error
+
+
+

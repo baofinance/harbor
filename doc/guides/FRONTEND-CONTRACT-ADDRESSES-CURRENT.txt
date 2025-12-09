@@ -1,0 +1,81 @@
+=== Current Contract Addresses for Frontend ===
+
+Network Configuration:
+- Chain ID: 31337
+- RPC URL: http://localhost:8545
+- Network Name: Local Anvil
+
+Core Contracts:
+- Genesis: 0x840748F7Fd3EA956E5f4c88001da5CC1ABCBc038
+- Minter: 0x6484EB0792c646A4827638Fc1B6F20461418eB00
+- PeggedToken (ha): 0x8aAC5570d54306Bb395bf2385ad327b7b706016b
+- LeveragedToken (hs): 0x64f5219563e28EeBAAd91Ca8D31fa3b36621FD4f
+
+Tokens:
+- wstETH: 0x2e8880cAdC08E9B438c6052F5ce3869FBd6cE513
+- stETH: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+Price Feeds:
+- wstETH/USD: 0xeC827421505972a2AE9C320302d3573B42363C26
+- stETH/USD: 0xb007167714e2940013ec3bb551584130b7497e22
+- stETH/ETH: 0x6b39b761b1b64c8c095bf0e3bb0c6a74705b4788
+
+Other Contracts:
+- ReservePool: 0xf201fFeA8447AB3d43c98Da3349e0749813C9009
+- FeeReceiver: 0xA75E74a5109Ed8221070142D15cEBfFe9642F489
+- StabilityPoolManager: 0x26291175Fa0Ea3C8583fEdEB56805eA68289b105
+- PriceOracle: 0x1757a98c1333B9dc8D408b194B2279b5AFDF70Cc
+
+GraphQL Endpoint:
+- http://localhost:8000/subgraphs/name/harbor-marks-local
+
+Admin Accounts:
+- Owner (can call endGenesis): 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+- Developer: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+Status:
+✅ Genesis is ACTIVE (not ended)
+✅ All price feeds fixed
+✅ ZERO_FEE_ROLE granted to Genesis
+✅ endGenesis() verified working
+
+
+Network Configuration:
+- Chain ID: 31337
+- RPC URL: http://localhost:8545
+- Network Name: Local Anvil
+
+Core Contracts:
+- Genesis: 0x840748F7Fd3EA956E5f4c88001da5CC1ABCBc038
+- Minter: 0x6484EB0792c646A4827638Fc1B6F20461418eB00
+- PeggedToken (ha): 0x8aAC5570d54306Bb395bf2385ad327b7b706016b
+- LeveragedToken (hs): 0x64f5219563e28EeBAAd91Ca8D31fa3b36621FD4f
+
+Tokens:
+- wstETH: 0x2e8880cAdC08E9B438c6052F5ce3869FBd6cE513
+- stETH: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+Price Feeds:
+- wstETH/USD: 0xeC827421505972a2AE9C320302d3573B42363C26
+- stETH/USD: 0xb007167714e2940013ec3bb551584130b7497e22
+- stETH/ETH: 0x6b39b761b1b64c8c095bf0e3bb0c6a74705b4788
+
+Other Contracts:
+- ReservePool: 0xf201fFeA8447AB3d43c98Da3349e0749813C9009
+- FeeReceiver: 0xA75E74a5109Ed8221070142D15cEBfFe9642F489
+- StabilityPoolManager: 0x26291175Fa0Ea3C8583fEdEB56805eA68289b105
+- PriceOracle: 0x1757a98c1333B9dc8D408b194B2279b5AFDF70Cc
+
+GraphQL Endpoint:
+- http://localhost:8000/subgraphs/name/harbor-marks-local
+
+Admin Accounts:
+- Owner (can call endGenesis): 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+- Developer: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+Status:
+✅ Genesis is ACTIVE (not ended)
+✅ All price feeds fixed
+✅ ZERO_FEE_ROLE granted to Genesis
+✅ endGenesis() verified working
+

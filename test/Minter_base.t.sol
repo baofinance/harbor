@@ -345,6 +345,11 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
         writeConfig(config, "likelyNoDisallow");
     }
 
+    function setUp_config(IMinter.Config memory config_) internal {
+        config = config_;
+        isConfigSet = true;
+    }
+
     function setUp_config(
         IMinter.IncentiveConfig memory mintPegged,
         IMinter.IncentiveConfig memory redeemPegged,

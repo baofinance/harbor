@@ -1,0 +1,62 @@
+=== Harbor Marks - Fresh Deployment Configuration ===
+
+Network Configuration:
+- Network Name: Local Anvil
+- Chain ID: 31337
+- RPC URL: http://localhost:8545
+
+Contract Addresses:
+- Genesis: 0x9385556B571ab92bf6dC9a0DbD75429Dd4d56F91
+- Minter: 0xDde063eBe8E85D666AD99f731B4Dbf8C98F29708
+- PeggedToken: 0xC7143d5bA86553C06f5730c8dC9f8187a621A8D4
+- LeveragedToken: 0x359570B3a0437805D0a71457D61AD26a28cAC9A2
+- wstETH: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+
+GraphQL Endpoint:
+- http://localhost:8000/subgraphs/name/harbor-marks-local
+
+Admin Accounts:
+- Owner (can call endGenesis): 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+- Developer: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+Status:
+✅ All contracts deployed
+✅ Genesis owner verified (0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+✅ endGenesis() tested and working
+✅ ZERO_FEE_ROLE granted to Genesis on Minter
+✅ Developer has 1000 wstETH and ETH for gas
+✅ Subgraph updated and ready to deploy
+
+
+
+Network Configuration:
+- Network Name: Local Anvil
+- Chain ID: 31337
+- RPC URL: http://localhost:8545
+
+Contract Addresses:
+- Genesis: 0x9385556B571ab92bf6dC9a0DbD75429Dd4d56F91
+- Minter: 0xDde063eBe8E85D666AD99f731B4Dbf8C98F29708
+- PeggedToken: 0xC7143d5bA86553C06f5730c8dC9f8187a621A8D4
+- LeveragedToken: 0x359570B3a0437805D0a71457D61AD26a28cAC9A2
+- wstETH: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+
+GraphQL Endpoint:
+- http://localhost:8000/subgraphs/name/harbor-marks-local
+
+Admin Accounts:
+- Owner (can call endGenesis): 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+- Developer: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+Status:
+✅ All contracts deployed
+✅ Genesis owner verified (0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+✅ endGenesis() tested and working
+✅ ZERO_FEE_ROLE granted to Genesis on Minter
+✅ Developer has 1000 wstETH and ETH for gas
+✅ Subgraph updated and ready to deploy
+
+
+
+
+
