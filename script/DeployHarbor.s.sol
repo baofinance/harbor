@@ -22,10 +22,11 @@ contract DeployHarbor is HarborDeploymentJsonScript {
         console.log("Salt: %s", salt);
         console.log("Network: %s", network);
 
-        start(network, salt, mode == Mode.DEPLOY ? "" : "latest");
-
         // do the work
         if (mode == Mode.DEPLOY) {
+            _disableIncrementalLogging();
+            start(network, salt, "");
+
             // Copy input addresses to output contract slots
             _set(COLLATERAL, _getAddress(COLLATERAL_INPUT));
             _set(WRAPPED_COLLATERAL, _getAddress(WRAPPED_COLLATERAL_INPUT));
@@ -42,6 +43,9 @@ contract DeployHarbor is HarborDeploymentJsonScript {
             _deployStabilityPoolManager();
             _deployGenesis();
         } else {
+            _disableLogging();
+            start(network, salt, "latest");
+
             _smokePegged();
             _smokeLeveraged();
             _smokeFeeReceiver(MINTER);
@@ -64,7 +68,6 @@ contract DeployHarbor is HarborDeploymentJsonScript {
     }
 
     function smoke(string memory salt, string memory network) public {
-        _disableLogging();
         _do(Mode.SMOKE, salt, network);
     }
 }

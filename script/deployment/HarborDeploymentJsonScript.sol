@@ -312,6 +312,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         _registerRole(PEGGED, "BURNER_ROLE", impl.BURNER_ROLE());
 
         _setString(PEGGED_BURN_SIGNATURE, "burn(uint256)");
+        _saveDeployment();
     }
 
     function _smokePegged() internal view {
@@ -357,6 +358,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         _registerRole(LEVERAGED, "MINTER_ROLE", impl.MINTER_ROLE());
         _registerRole(LEVERAGED, "BURNER_ROLE", impl.BURNER_ROLE());
+        _saveDeployment();
     }
 
     function _smokeLeveraged() internal view {
@@ -408,6 +410,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         //     recipients[i] = _get(receiverKeys[i]);
         // }
         proxy.setDistribution(recipients, shares);
+        _saveDeployment();
     }
 
     function _smokeFeeReceiver(string memory key) internal view {
@@ -432,6 +435,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             type(MockWrappedPriceOracle).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
+        _saveDeployment();
     }
 
     function _smokePriceOracle() internal view {
@@ -457,6 +461,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             _getAddress(SESSION_DEPLOYER)
         );
         _registerRole(RESERVE_POOL, "REQUESTER_ROLE", impl.REQUESTER_ROLE());
+        _saveDeployment();
     }
 
     function _smokeReservePool() internal view {
@@ -539,6 +544,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         _registerRole(MINTER, "HARVESTER_ROLE", impl.HARVESTER_ROLE());
         _registerRole(MINTER, "ZERO_FEE_ROLE", impl.ZERO_FEE_ROLE());
+        _saveDeployment();
     }
 
     function _smokeMinter() internal view {
@@ -614,6 +620,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         _registerRole(stabilityPoolKey, "REBALANCER_ROLE", impl.REBALANCER_ROLE());
         _registerRole(stabilityPoolKey, "REWARD_DEPOSITOR_ROLE", impl.REWARD_DEPOSITOR_ROLE());
         _registerRole(stabilityPoolKey, "REWARD_MANAGER_ROLE", impl.REWARD_MANAGER_ROLE());
+        _saveDeployment();
     }
 
     function _smokeStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) internal view {
@@ -686,6 +693,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         );
         _registerGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_LEVERAGED, "REWARD_DEPOSITOR_ROLE");
         _registerGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_LEVERAGED, "REBALANCER_ROLE");
+        _saveDeployment();
     }
 
     function _smokeStabilityPoolManager() internal view {
@@ -726,6 +734,12 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         IBaoRoles(_get(MINTER)).grantRoles(_get(GENESIS), _getRoleValue(MINTER, "ZERO_FEE_ROLE"));
         _registerGrantee(GENESIS, MINTER, "ZERO_FEE_ROLE");
+        _saveDeployment();
+    }
+
+    function finish() public virtual override returns (uint256 transferred) {
+        transferred = super.finish();
+        _saveDeployment();
     }
 
     function _smokeGenesis() internal view {
