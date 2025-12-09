@@ -706,7 +706,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         proxy.updateFeeReceiver(_get(STABILITY_POOL_MANAGER_FEE_RECEIVER));
 
         // now add it to the roles it needs to perform
-        proxy.grantRoles(_get(STABILITY_POOL_MANAGER), _getRoleValue(MINTER, "HARVESTER_ROLE"));
+        IBaoRoles(_get(MINTER)).grantRoles(_get(STABILITY_POOL_MANAGER), _getRoleValue(MINTER, "HARVESTER_ROLE"));
         _setGrantee(STABILITY_POOL_MANAGER, MINTER, "HARVESTER_ROLE");
 
         IBaoRoles(_get(STABILITY_POOL_COLLATERAL)).grantRoles(
@@ -731,33 +731,52 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         console2.log("Smoke testing StabilityPoolManager...");
         StabilityPoolManager_v1 proxy = StabilityPoolManager_v1(_get(STABILITY_POOL_MANAGER));
 
+        // Constructor immutables
         _expect(proxy.owner(), OWNER);
+        _expect(proxy.MINTER(), MINTER);
         _expect(proxy.PEGGED_TOKEN(), PEGGED);
         _expect(proxy.LEVERAGED_TOKEN(), LEVERAGED);
         _expect(proxy.WRAPPED_COLLATERAL_TOKEN(), WRAPPED_COLLATERAL);
         _expect(proxy.TREASURY(), TREASURY);
 
-        // now check it has the roles it needs to perform
-        MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
-        _expectRolesOf(pegged.rolesOf(_get(MINTER)), PEGGED, sa("MINTER_ROLE", "BURNER_ROLE"), MINTER);
+        // Stability pools
+        address[] memory pools = proxy.stabilityPools();
+        require(pools.length == 2, "Expected 2 stability pools");
+        _expect(pools[0], STABILITY_POOL_COLLATERAL);
+        _expect(pools[1], STABILITY_POOL_LEVERAGED);
 
-        MintableBurnableERC20_v1 leveraged = MintableBurnableERC20_v1(_get(LEVERAGED));
-        _expectRolesOf(leveraged.rolesOf(_get(MINTER)), LEVERAGED, sa("MINTER_ROLE", "BURNER_ROLE"), MINTER);
+        // Configuration
+        _expect(proxy.rebalanceThreshold(), STABILITY_POOL_MANAGER_REBALANCE_THRESHOLD);
+        _expect(proxy.rebalanceBountyRatio(), STABILITY_POOL_MANAGER_REBALANCE_BOUNTY_RATIO);
+        _expect(proxy.harvestBountyRatio(), STABILITY_POOL_MANAGER_HARVEST_BOUNTY_RATIO);
+        _expect(proxy.harvestCutRatio(), STABILITY_POOL_MANAGER_HARVEST_CUT_RATIO);
+        _expect(proxy.feeReceiver(), STABILITY_POOL_MANAGER_FEE_RECEIVER);
 
-        // TODO:
-        // ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
-        // _expectRolesOf(reservePool.rolesOf(_get(MINTER)), RESERVE_POOL, sa("REQUESTER_ROLE"), MINTER);
-        // ❌ MINTER not tested (should verify proxy.MINTER())
-        // ❌ rebalanceThreshold not tested
-        // ❌ rebalanceBountyRatio not tested
-        // ❌ harvestBountyRatio not tested
-        // ❌ harvestCutRatio not tested
-        // ❌ feeReceiver not tested
-        // ❌ stability pools not tested (STABILITY_POOL_COLLATERAL, STABILITY_POOL_LEVERAGED)
-        // ❌ HARVESTER_ROLE grant on Minter not tested
-        // ❌ roles on stabilityPoolCollateral not tested
-        // ❌ roles on stabilityPoolLeveraged not tested
-        // ⚠️ Tests roles of MINTER on PEGGED/LEVERAGED/RESERVE_POOL - these are duplicates from _smokeMinter()
+        // HARVESTER_ROLE grant on Minter
+        Minter_v1 minter = Minter_v1(_get(MINTER));
+        _expectRolesOf(
+            minter.rolesOf(_get(STABILITY_POOL_MANAGER)),
+            MINTER,
+            sa("HARVESTER_ROLE"),
+            STABILITY_POOL_MANAGER
+        );
+
+        // Roles on stability pools
+        StabilityPool_v1 spCollateral = StabilityPool_v1(_get(STABILITY_POOL_COLLATERAL));
+        _expectRolesOf(
+            spCollateral.rolesOf(_get(STABILITY_POOL_MANAGER)),
+            STABILITY_POOL_COLLATERAL,
+            sa("REWARD_DEPOSITOR_ROLE", "REBALANCER_ROLE"),
+            STABILITY_POOL_MANAGER
+        );
+
+        StabilityPool_v1 spLeveraged = StabilityPool_v1(_get(STABILITY_POOL_LEVERAGED));
+        _expectRolesOf(
+            spLeveraged.rolesOf(_get(STABILITY_POOL_MANAGER)),
+            STABILITY_POOL_LEVERAGED,
+            sa("REWARD_DEPOSITOR_ROLE", "REBALANCER_ROLE"),
+            STABILITY_POOL_MANAGER
+        );
     }
 
     function _deployGenesis() internal {

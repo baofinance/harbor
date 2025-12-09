@@ -262,6 +262,7 @@ if [[ -d "$OUTPUT_DIR" ]]; then
   LATEST=$(ls -1 "$OUTPUT_DIR"/*.json 2>/dev/null | grep -v 'latest.json' | sort | tail -1)
   if [[ -n "$LATEST" ]]; then
     LATEST_NAME=$(basename "$LATEST")
+    mv "${OUTPUT_DIR}/latest.json" "${OUTPUT_DIR}/previous.json"
     ln -sf "$LATEST_NAME" "${OUTPUT_DIR}/latest.json"
     echo "Created symlink: ${OUTPUT_DIR}/latest.json -> $LATEST_NAME"
   fi
