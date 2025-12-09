@@ -308,8 +308,8 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             _getAddress(SESSION_DEPLOYER)
         );
 
-        _registerRole(PEGGED, "MINTER_ROLE", impl.MINTER_ROLE());
-        _registerRole(PEGGED, "BURNER_ROLE", impl.BURNER_ROLE());
+        _setRole(PEGGED, "MINTER_ROLE", impl.MINTER_ROLE());
+        _setRole(PEGGED, "BURNER_ROLE", impl.BURNER_ROLE());
 
         _setString(PEGGED_BURN_SIGNATURE, "burn(uint256)");
         _saveDeployment();
@@ -356,8 +356,8 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             _getAddress(SESSION_DEPLOYER)
         );
 
-        _registerRole(LEVERAGED, "MINTER_ROLE", impl.MINTER_ROLE());
-        _registerRole(LEVERAGED, "BURNER_ROLE", impl.BURNER_ROLE());
+        _setRole(LEVERAGED, "MINTER_ROLE", impl.MINTER_ROLE());
+        _setRole(LEVERAGED, "BURNER_ROLE", impl.BURNER_ROLE());
         _saveDeployment();
     }
 
@@ -418,6 +418,14 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         TokenDistributor_v1 proxy = TokenDistributor_v1(_get(string.concat(key, "FeeReceiver")));
         _expect(proxy.owner(), OWNER);
         _expect(proxy.name(), string.concat(key, "FeeReceiver.name"));
+
+        // Check tokens
+        _expect(proxy.tokens(), string.concat(key, "FeeReceiver.tokens"));
+
+        // Check distribution
+        (address[] memory recipients, uint256[] memory shares, ) = proxy.distribution();
+        _expect(recipients, string.concat(key, "FeeReceiver.recipients"));
+        _expect(shares, string.concat(key, "FeeReceiver.shares"));
     }
 
     // ============================================================================
@@ -460,7 +468,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             type(ReservePool_v1).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
-        _registerRole(RESERVE_POOL, "REQUESTER_ROLE", impl.REQUESTER_ROLE());
+        _setRole(RESERVE_POOL, "REQUESTER_ROLE", impl.REQUESTER_ROLE());
         _saveDeployment();
     }
 
@@ -468,6 +476,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         console2.log("Smoke testing Reserve Pool...");
         // not much to check here
         ReservePool_v1 proxy = ReservePool_v1(_get(RESERVE_POOL));
+        _expect(proxy.owner(), OWNER);
         _expectRoleValue(proxy.REQUESTER_ROLE(), RESERVE_POOL, "REQUESTER_ROLE");
     }
 
@@ -527,23 +536,23 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         // now add it to the roles it needs to perform
         MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
         pegged.grantRoles(_get(MINTER), _getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE"));
-        _registerGrantee(MINTER, PEGGED, "MINTER_ROLE");
-        _registerGrantee(MINTER, PEGGED, "BURNER_ROLE");
+        _setGrantee(MINTER, PEGGED, "MINTER_ROLE");
+        _setGrantee(MINTER, PEGGED, "BURNER_ROLE");
 
         MintableBurnableERC20_v1 leveraged = MintableBurnableERC20_v1(_get(LEVERAGED));
         leveraged.grantRoles(
             _get(MINTER),
             _getRoleValue(LEVERAGED, "MINTER_ROLE") | _getRoleValue(LEVERAGED, "BURNER_ROLE")
         );
-        _registerGrantee(MINTER, LEVERAGED, "MINTER_ROLE");
-        _registerGrantee(MINTER, LEVERAGED, "BURNER_ROLE");
+        _setGrantee(MINTER, LEVERAGED, "MINTER_ROLE");
+        _setGrantee(MINTER, LEVERAGED, "BURNER_ROLE");
 
         ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
         reservePool.grantRoles(address(minter), reservePool.REQUESTER_ROLE());
-        _registerGrantee(MINTER, RESERVE_POOL, "REQUESTER_ROLE");
+        _setGrantee(MINTER, RESERVE_POOL, "REQUESTER_ROLE");
 
-        _registerRole(MINTER, "HARVESTER_ROLE", impl.HARVESTER_ROLE());
-        _registerRole(MINTER, "ZERO_FEE_ROLE", impl.ZERO_FEE_ROLE());
+        _setRole(MINTER, "HARVESTER_ROLE", impl.HARVESTER_ROLE());
+        _setRole(MINTER, "ZERO_FEE_ROLE", impl.ZERO_FEE_ROLE());
         _saveDeployment();
     }
 
@@ -569,6 +578,9 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         _expect(config.mintLeveragedIncentiveConfig.incentiveRatios, MINTER_MINT_LEVERAGED_RATIOS);
         _expect(config.redeemLeveragedIncentiveConfig.collateralRatioBandUpperBounds, MINTER_REDEEM_LEVERAGED_BOUNDS);
         _expect(config.redeemLeveragedIncentiveConfig.incentiveRatios, MINTER_REDEEM_LEVERAGED_RATIOS);
+
+        _expectRoleValue(proxy.HARVESTER_ROLE(), MINTER, "HARVESTER_ROLE");
+        _expectRoleValue(proxy.ZERO_FEE_ROLE(), MINTER, "ZERO_FEE_ROLE");
 
         // now check it has the roles it needs to perform
         MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
@@ -616,10 +628,15 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         _setAddress(string.concat(stabilityPoolKey, ".liquidation"), _get(liquidationKey));
         StabilityPool_v1(_get(stabilityPoolKey)).registerRewardToken(_get(liquidationKey));
+        // TODO:
+        // addAddressArrayKey(string.concat(stabilityPoolKey, ".rewardTokens"));
+        // address[] memory tokens = new address[](1);
+        // tokens[0] = _get(liquidationKey);
+        // _setAddressArray(string.concat(stabilityPoolKey, ".rewardTokens"), tokens);
 
-        _registerRole(stabilityPoolKey, "REBALANCER_ROLE", impl.REBALANCER_ROLE());
-        _registerRole(stabilityPoolKey, "REWARD_DEPOSITOR_ROLE", impl.REWARD_DEPOSITOR_ROLE());
-        _registerRole(stabilityPoolKey, "REWARD_MANAGER_ROLE", impl.REWARD_MANAGER_ROLE());
+        _setRole(stabilityPoolKey, "REBALANCER_ROLE", impl.REBALANCER_ROLE());
+        _setRole(stabilityPoolKey, "REWARD_DEPOSITOR_ROLE", impl.REWARD_DEPOSITOR_ROLE());
+        _setRole(stabilityPoolKey, "REWARD_MANAGER_ROLE", impl.REWARD_MANAGER_ROLE());
         _saveDeployment();
     }
 
@@ -638,6 +655,14 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         _expect(proxy.owner(), OWNER);
         _expect(proxy.getEarlyWithdrawalFee(), STABILITY_POOL_EARLY_WITHDRAWAL_FEE_RATIO);
         _expect(proxy.getFeeAddress(), TREASURY);
+
+        // TODO: see above
+        // _expect(proxy.activeRewardTokens(), string.concat(stabilityPoolKey, ".rewardTokens"));
+
+        // roles
+        _expectRoleValue(proxy.REBALANCER_ROLE(), stabilityPoolKey, "REBALANCER_ROLE");
+        _expectRoleValue(proxy.REWARD_DEPOSITOR_ROLE(), stabilityPoolKey, "REWARD_DEPOSITOR_ROLE");
+        _expectRoleValue(proxy.REWARD_MANAGER_ROLE(), stabilityPoolKey, "REWARD_MANAGER_ROLE");
     }
 
     // ============================================================================
@@ -676,23 +701,23 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         // now add it to the roles it needs to perform
         proxy.grantRoles(_get(STABILITY_POOL_MANAGER), _getRoleValue(MINTER, "HARVESTER_ROLE"));
-        _registerGrantee(STABILITY_POOL_MANAGER, MINTER, "HARVESTER_ROLE");
+        _setGrantee(STABILITY_POOL_MANAGER, MINTER, "HARVESTER_ROLE");
 
         IBaoRoles(_get(STABILITY_POOL_COLLATERAL)).grantRoles(
             _get(STABILITY_POOL_MANAGER),
             _getRoleValue(STABILITY_POOL_COLLATERAL, "REWARD_DEPOSITOR_ROLE") |
                 _getRoleValue(STABILITY_POOL_COLLATERAL, "REBALANCER_ROLE")
         );
-        _registerGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_COLLATERAL, "REWARD_DEPOSITOR_ROLE");
-        _registerGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_COLLATERAL, "REBALANCER_ROLE");
+        _setGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_COLLATERAL, "REWARD_DEPOSITOR_ROLE");
+        _setGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_COLLATERAL, "REBALANCER_ROLE");
 
         IBaoRoles(_get(STABILITY_POOL_LEVERAGED)).grantRoles(
             _get(STABILITY_POOL_MANAGER),
             _getRoleValue(STABILITY_POOL_LEVERAGED, "REWARD_DEPOSITOR_ROLE") |
                 _getRoleValue(STABILITY_POOL_LEVERAGED, "REBALANCER_ROLE")
         );
-        _registerGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_LEVERAGED, "REWARD_DEPOSITOR_ROLE");
-        _registerGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_LEVERAGED, "REBALANCER_ROLE");
+        _setGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_LEVERAGED, "REWARD_DEPOSITOR_ROLE");
+        _setGrantee(STABILITY_POOL_MANAGER, STABILITY_POOL_LEVERAGED, "REBALANCER_ROLE");
         _saveDeployment();
     }
 
@@ -714,7 +739,20 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         _expectRolesOf(leveraged.rolesOf(_get(MINTER)), LEVERAGED, _roles("MINTER_ROLE", "BURNER_ROLE"), MINTER);
 
         ReservePool_v1 reservePool = ReservePool_v1(_get(RESERVE_POOL));
-        _expectRolesOf(reservePool.rolesOf(_get(MINTER)), RESERVE_POOL, _roles("REQUESTER_ROLE"), MINTER);
+
+        // TODO:
+        // _expectRolesOf(reservePool.rolesOf(_get(MINTER)), RESERVE_POOL, _roles("REQUESTER_ROLE"), MINTER);
+        // ❌ MINTER not tested (should verify proxy.MINTER())
+        // ❌ rebalanceThreshold not tested
+        // ❌ rebalanceBountyRatio not tested
+        // ❌ harvestBountyRatio not tested
+        // ❌ harvestCutRatio not tested
+        // ❌ feeReceiver not tested
+        // ❌ stability pools not tested (STABILITY_POOL_COLLATERAL, STABILITY_POOL_LEVERAGED)
+        // ❌ HARVESTER_ROLE grant on Minter not tested
+        // ❌ roles on stabilityPoolCollateral not tested
+        // ❌ roles on stabilityPoolLeveraged not tested
+        // ⚠️ Tests roles of MINTER on PEGGED/LEVERAGED/RESERVE_POOL - these are duplicates from _smokeMinter()
     }
 
     function _deployGenesis() internal {
@@ -733,7 +771,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         );
 
         IBaoRoles(_get(MINTER)).grantRoles(_get(GENESIS), _getRoleValue(MINTER, "ZERO_FEE_ROLE"));
-        _registerGrantee(GENESIS, MINTER, "ZERO_FEE_ROLE");
+        _setGrantee(GENESIS, MINTER, "ZERO_FEE_ROLE");
         _saveDeployment();
     }
 
