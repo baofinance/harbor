@@ -39,9 +39,37 @@ Examples:
 USAGE
 }
 
+lookup_environment() {
+  local env_name="$1"
+  # look up the environment
+  local value=""
+
+  # Check if the variable exists before trying to access it
+  if declare -p "$env_name" &>/dev/null; then
+    eval "value=\${$env_name}"
+  fi
+
+  if [[ -z "$value" ]]; then
+    # look up the .env file if it exists
+    if [[ -f .env ]]; then
+      # Use a subshell to source .env without polluting the parent environment
+      value=$(
+        # shellcheck disable=SC1091 # file exists check above
+        source .env
+        if declare -p "$env_name" &>/dev/null; then
+          eval "echo \${$env_name}"
+        else
+          echo ""
+        fi
+      )
+    fi
+  fi
+  echo "$value"
+}
+
 # Defaults
 SALT=""
-NETWORK=""
+NETWORK="local"
 
 # Static phase order - phases always run in this sequence
 readonly PHASE_ORDER=("deploy" "smoke")
@@ -49,17 +77,21 @@ readonly PHASE_ORDER=("deploy" "smoke")
 # Associative array tracking which phases are requested
 declare -A PHASES=()
 
+# Multisig address - used as BaoDeployer owner, defaults to harbor multisig
+MULTISIG="0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
 START_ANVIL=false
-PRODUCTION=false
 RESUME=""
 VERBOSITY=""
-PRIVATE_KEY="--private-key=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-VERIFY=""
-BROADCAST="--broadcast"
-ENV_FILE=""
+# default to the first anvil account - override with --env
+export PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+export BAO_FACTORY_VARIANT="anvil"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --factory-variant)
+      BAO_FACTORY_VARIANT="$2"
+      shift 2
+      ;;
     --salt)
       SALT="$2"
       shift 2
@@ -84,11 +116,8 @@ while [[ $# -gt 0 ]]; do
       RESUME="--resume"
       shift
       ;;
-    --production)
-      PRODUCTION=true
-      VERIFY="--verify"
-      PRIVATE_KEY=""
-      ENV_FILE="--env-file .env"
+    --env)
+      PRIVATE_KEY=$(lookup_environment PRIVATE_KEY)
       shift
       ;;
     -v)
@@ -118,55 +147,21 @@ if [[ -z "$SALT" ]]; then
   exit 1
 fi
 
-# --start-anvil implies network=local
+# ============================================================================
+# Start Anvil if requested
+# ============================================================================
 if [[ "$START_ANVIL" == "true" ]]; then
   if [[ -n "$NETWORK" && "$NETWORK" != "local" ]]; then
     echo "Error: --start-anvil can only be used with network=local, got: $NETWORK" >&2
     exit 1
   fi
-  NETWORK="local"
-fi
 
-if [[ -z "$NETWORK" ]]; then
-  echo "Error: --network is required" >&2
-  usage
-  exit 1
-fi
+  if [[ ${#PHASES[@]} -eq 0 ]]; then
+    for phase in "${PHASE_ORDER[@]}"; do
+      PHASES["$phase"]=1
+    done
+  fi
 
-# When starting anvil, run all phases (deploy then smoke)
-# When starting anvil, run all phases (deploy then smoke)
-if [[ "$START_ANVIL" == "true" ]] && [[ ${#PHASES[@]} -eq 0 ]]; then
-  for phase in "${PHASE_ORDER[@]}"; do
-    PHASES["$phase"]=1
-  done
-fi
-
-# Require at least one phase
-if [[ ${#PHASES[@]} -eq 0 ]]; then
-  echo "Error: At least one phase (--deploy or --smoke) must be specified" >&2
-  usage
-  exit 1
-fi
-
-# Validate config file exists
-CONFIG_FILE="deployments/${SALT}.json"
-if [[ ! -f "$CONFIG_FILE" ]]; then
-  echo "Error: Config file not found: $CONFIG_FILE" >&2
-  exit 1
-fi
-
-# For local network, can't verify
-if [[ "$NETWORK" == "local" ]]; then
-  VERIFY=""
-fi
-
-# Multisig address - used as BaoDeployer owner
-MULTISIG="0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00"
-
-# ============================================================================
-# Start Anvil if requested
-# ============================================================================
-if [[ "$START_ANVIL" == "true" ]]; then
   # Check if port 8545 is already in use
   if lsof -i :8545 >/dev/null 2>&1; then
     echo "Error: Port 8545 is already in use. Another anvil instance may be running." >&2
@@ -205,9 +200,26 @@ if [[ "$START_ANVIL" == "true" ]]; then
   # Fund the multisig with ETH so it can pay for gas
   echo "Funding multisig with ETH..."
   cast send --rpc-url local \
-    "${PRIVATE_KEY}" \
+    --private-key "${PRIVATE_KEY}" \
     "${MULTISIG}" \
     --value 1ether >/dev/null
+elif [[ ${#PHASES[@]} -eq 0 ]]; then
+  echo "Error: At least one phase (--deploy or --smoke) must be specified" >&2
+  usage
+  exit 1
+fi
+
+if [[ -z "$NETWORK" ]]; then
+  echo "Error: --network is required" >&2
+  usage
+  exit 1
+fi
+
+# For local network, can't verify
+if [[ "$NETWORK" == "local" ]]; then
+  VERIFY=""
+else
+  VERIFY="--verify"
 fi
 
 echo "Salt: $SALT"
@@ -236,7 +248,8 @@ for PHASE in "${PHASE_ORDER[@]}"; do
   FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarbor \
     --sig "$SIG" "$SALT" "$NETWORK" \
     --rpc-url "$NETWORK" \
-    $BROADCAST $VERIFY $ENV_FILE $PRIVATE_KEY \
+    --broadcast $VERIFY \
+    --private-key "$PRIVATE_KEY" \
     $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
 
   echo "$FORGE_OUTPUT"
@@ -253,17 +266,3 @@ for PHASE in "${PHASE_ORDER[@]}"; do
   echo ""
   echo "=== $PHASE complete ==="
 done
-
-# ============================================================================
-# Create symlink to latest output
-# ============================================================================
-OUTPUT_DIR="deployments/${SALT}/${NETWORK}"
-if [[ -d "$OUTPUT_DIR" ]]; then
-  LATEST=$(ls -1 "$OUTPUT_DIR"/*.json 2>/dev/null | grep -v 'latest.json' | sort | tail -1)
-  if [[ -n "$LATEST" ]]; then
-    LATEST_NAME=$(basename "$LATEST")
-    mv "${OUTPUT_DIR}/latest.json" "${OUTPUT_DIR}/previous.json"
-    ln -sf "$LATEST_NAME" "${OUTPUT_DIR}/latest.json"
-    echo "Created symlink: ${OUTPUT_DIR}/latest.json -> $LATEST_NAME"
-  fi
-fi

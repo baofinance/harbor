@@ -4,7 +4,11 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
 
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
+import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
+import {DeploymentVariant} from "@bao-script/deployment/DeploymentVariant.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
@@ -24,17 +28,30 @@ interface IERC20Minimal {
 }
 
 /**
- * @title HarborDeploymentJson
+ * @title HarborDeploymentJsonScript
  * @notice Harbor-specific deployment contract with Stem proxy management
- * @dev Extends Deployment with Harbor-specific features:
+ * @dev Combines DeploymentJsonScript (JSON + broadcast) with DeploymentVariant (env var BaoFactory selection).
+ *
+ *      Features:
  *      - All proxies use Stem_v1 for upgrade control
  *      - Type-safe enum-based API
  *      - Production-focused deployment methods
  *      - Delegates actual deployment to specialized libraries
+ *      - BaoFactory variant selection via BAO_FACTORY_VARIANT env var (from DeploymentVariant)
  */
 
-abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
+abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, DeploymentVariant {
     using LibString for string;
+
+    // =========================================================================
+    // Inheritance Resolution
+    // =========================================================================
+
+    // TODO: resolve this diamond
+    /// @dev Resolve _afterValueChanged - use DeploymentJson's implementation for JSON persistence
+    function _afterValueChanged(string memory key) internal virtual override(DeploymentDataMemory, DeploymentJson) {
+        DeploymentJson._afterValueChanged(key);
+    }
 
     // =========================================================================
     // Errors
@@ -109,8 +126,10 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
     string public constant STABILITY_POOL_COLLATERAL = "contracts.stabilityPoolCollateral";
     string public constant STABILITY_POOL_COLLATERAL_LIQUIDATION = "contracts.stabilityPoolCollateral.liquidation";
+    string public constant STABILITY_POOL_COLLATERAL_REWARD_TOKENS = "contracts.stabilityPoolCollateral.rewardTokens";
     string public constant STABILITY_POOL_LEVERAGED = "contracts.stabilityPoolLeveraged";
     string public constant STABILITY_POOL_LEVERAGED_LIQUIDATION = "contracts.stabilityPoolLeveraged.liquidation";
+    string public constant STABILITY_POOL_LEVERAGED_REWARD_TOKENS = "contracts.stabilityPoolLeveraged.rewardTokens";
 
     string public constant STABILITY_POOL_MANAGER = "contracts.stabilityPoolManager";
     string public constant STABILITY_POOL_MANAGER_REBALANCE_THRESHOLD =
@@ -210,9 +229,11 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addProxy(STABILITY_POOL_COLLATERAL);
         addRoles(STABILITY_POOL_COLLATERAL, sa("REBALANCER_ROLE", "REWARD_DEPOSITOR_ROLE", "REWARD_MANAGER_ROLE"));
         addAddressKey(STABILITY_POOL_COLLATERAL_LIQUIDATION);
+        addAddressArrayKey(STABILITY_POOL_COLLATERAL_REWARD_TOKENS);
         addProxy(STABILITY_POOL_LEVERAGED);
         addRoles(STABILITY_POOL_LEVERAGED, sa("REBALANCER_ROLE", "REWARD_DEPOSITOR_ROLE", "REWARD_MANAGER_ROLE"));
         addAddressKey(STABILITY_POOL_LEVERAGED_LIQUIDATION);
+        addAddressArrayKey(STABILITY_POOL_LEVERAGED_REWARD_TOKENS);
 
         addProxy(STABILITY_POOL_MANAGER);
         addUintKey(STABILITY_POOL_MANAGER_REBALANCE_THRESHOLD, 16);
@@ -633,12 +654,13 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         );
 
         _setAddress(string.concat(stabilityPoolKey, ".liquidation"), _get(liquidationKey));
-        StabilityPool_v1(_get(stabilityPoolKey)).registerRewardToken(_get(liquidationKey));
-        // TODO:
-        // addAddressArrayKey(string.concat(stabilityPoolKey, ".rewardTokens"));
-        // address[] memory tokens = new address[](1);
-        // tokens[0] = _get(liquidationKey);
-        // _setAddressArray(string.concat(stabilityPoolKey, ".rewardTokens"), tokens);
+        StabilityPool_v1(_get(stabilityPoolKey)).registerRewardToken(_get(WRAPPED_COLLATERAL));
+        address[] memory rewardTokens = aa(_get(WRAPPED_COLLATERAL));
+        if (_get(liquidationKey) != _get(WRAPPED_COLLATERAL)) {
+            StabilityPool_v1(_get(stabilityPoolKey)).registerRewardToken(_get(liquidationKey));
+            rewardTokens = cons(_get(liquidationKey), rewardTokens);
+        }
+        _setAddressArray(string.concat(stabilityPoolKey, ".rewardTokens"), rewardTokens);
 
         _setRole(stabilityPoolKey, "REBALANCER_ROLE", impl.REBALANCER_ROLE());
         _setRole(stabilityPoolKey, "REWARD_DEPOSITOR_ROLE", impl.REWARD_DEPOSITOR_ROLE());

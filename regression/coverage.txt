@@ -1,6 +1,6 @@
 | File                                                            | % Lines            | % Statements       | % Branches       | % Funcs          |
 |-----------------------------------------------------------------|--------------------|--------------------|------------------|------------------|
-| script/deployment/HarborDeploymentJsonScript.sol                | X   0% (0/305)     | X   0% (0/337)     | X   0% (0/6)     | X   0% (0/22)    |
+| script/deployment/HarborDeploymentJsonScript.sol                | X   0% (0/314)     | X   0% (0/348)     | X   0% (0/7)     | X   0% (0/23)    |
 | script/forge/DeployState.sol                                    | X   0% (0/6)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/2)     |
 | script/forge/SetBalanceHelper.sol                               | X   0% (0/3)       | X   0% (0/2)       | ✓ 100% (0/0)     | X   0% (0/1)     |
 | script/forge/deploy.t.sol                                       | X   0% (0/46)      | X   0% (0/38)      | ✓ 100% (0/0)     | X   0% (0/10)    |
@@ -19,4 +19,4 @@
 | src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (77/77)     | ✓ 100% (86/86)     | ✓ 100% (12/12)   | ✓ 100% (14/14)   |
 | src/reward/distributor/LinearReward.sol                         | ✓ 100% (25/25)     | ✓ 100% (27/27)     | ✓ 100% (6/6)     | ✓ 100% (2/2)     |
 | src/util/WordCodec.sol                                          | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
-| Total                                                           | X  76% (3302/4356) | X  77% (3442/4452) | X  73% (351/479) | X  77% (483/631) |
+| Total                                                           | X  76% (3302/4365) | X  77% (3442/4463) | X  73% (351/480) | X  76% (483/632) |

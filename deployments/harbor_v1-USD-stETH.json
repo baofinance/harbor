@@ -13,8 +13,8 @@
       "wrappedCollateral": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
     }
   },
-  "owner": "0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00",
-  "treasury": "0x3dFc49e5112005179Da613BdE5973229082dAc35",
+  "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
   "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
   "stabilityPoolWithdrawalDelay": 3600,
   "stabilityPoolWithdrawalPeriod": 90000,

@@ -12,6 +12,21 @@ import {HarborDeploymentJsonScript} from "@harbor-script/deployment/HarborDeploy
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
  */
 contract DeployHarbor is HarborDeploymentJsonScript {
+    // address constant HARBORMULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
+
+    // function setBaoFactoryOperator() public {
+    //     console.log("=== Setting BaoFactory Operator ===");
+    //     address baoFactory = _ensureBaoFactory();
+    //     if (!BaoFactory(baoFactory).isCurrentOperator(msg.sender)) {
+    //         console.log("Setting BaoFactory operator to Harbor Multisig: %s", msg.sender);
+    //         vm.prank(BaoFactory(baoFactory).owner());
+    //         BaoFactory(baoFactory).setOperator(msg.sender, 365 days);
+    //     } else {
+    //         console.log("BaoFactory operator is already an operator: %s", msg.sender);
+    //     }
+    //     console.log("=== BaoFactory Operator Set Complete ===\n");
+    // }
+
     enum Mode {
         DEPLOY,
         SMOKE
