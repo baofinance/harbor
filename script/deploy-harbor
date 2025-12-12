@@ -25,46 +25,24 @@ Phase (at least one required, or use --start-anvil which runs all):
   --smoke           Run smoke test phase
 
 Options:
+  --account NAME    Use keystore account from ~/.foundry/keystores (for non-local networks)
   --resume          Resume a failed deployment from where it left off
-  --production      Use production settings (verify, read private key from .env)
   --start-anvil     Start local Anvil, implies network=local and runs all phases if none specified
+  --no-verify       Skip contract verification (verification is default for non-local networks)
   -v                Increase verbosity
   -h, --help        Show this help
+
+Wallet:
+  For 'local' network: uses first Anvil account (0xac0974...)
+  For other networks:  requires --account NAME (keystore in ~/.foundry/keystores)
+                       Create with: cast wallet import <name> --interactive
 
 Examples:
   script/deploy-harbor --salt harbor_v1-USD-stETH --start-anvil
   script/deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
   script/deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
-  script/deploy-harbor --salt harbor_v1-USD-stETH --network mainnet --production --deploy
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network mainnet --account deployer --deploy
 USAGE
-}
-
-lookup_environment() {
-  local env_name="$1"
-  # look up the environment
-  local value=""
-
-  # Check if the variable exists before trying to access it
-  if declare -p "$env_name" &>/dev/null; then
-    eval "value=\${$env_name}"
-  fi
-
-  if [[ -z "$value" ]]; then
-    # look up the .env file if it exists
-    if [[ -f .env ]]; then
-      # Use a subshell to source .env without polluting the parent environment
-      value=$(
-        # shellcheck disable=SC1091 # file exists check above
-        source .env
-        if declare -p "$env_name" &>/dev/null; then
-          eval "echo \${$env_name}"
-        else
-          echo ""
-        fi
-      )
-    fi
-  fi
-  echo "$value"
 }
 
 # Defaults
@@ -82,14 +60,16 @@ MULTISIG="0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
 START_ANVIL=false
 RESUME=""
 VERBOSITY=""
-# default to the first anvil account - override with --env
-export PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-export BAO_FACTORY_VARIANT="anvil"
+# Wallet: for local use anvil private key, for other networks use --account
+ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+ANVIL_PUBLIC_KEY="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+ACCOUNT=""
+NO_VERIFY=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --factory-variant)
-      BAO_FACTORY_VARIANT="$2"
+    --account)
+      ACCOUNT="$2"
       shift 2
       ;;
     --salt)
@@ -116,8 +96,8 @@ while [[ $# -gt 0 ]]; do
       RESUME="--resume"
       shift
       ;;
-    --env)
-      PRIVATE_KEY=$(lookup_environment PRIVATE_KEY)
+    --no-verify)
+      NO_VERIFY=true
       shift
       ;;
     -v)
@@ -171,7 +151,8 @@ if [[ "$START_ANVIL" == "true" ]]; then
 
   # Start anvil in background
   echo "Starting anvil..."
-  anvil -f mainnet@23000000 --timestamp $(date +%s) &
+  # anvil -f mainnet@23000000 --auto-impersonate --timestamp $(date +%s) &
+  anvil -f mainnet --auto-impersonate &
   ANVIL_PID=$!
 
   # Cleanup on exit
@@ -200,9 +181,27 @@ if [[ "$START_ANVIL" == "true" ]]; then
   # Fund the multisig with ETH so it can pay for gas
   echo "Funding multisig with ETH..."
   cast send --rpc-url local \
-    --private-key "${PRIVATE_KEY}" \
+    --private-key "${ANVIL_PRIVATE_KEY}" \
     "${MULTISIG}" \
     --value 1ether >/dev/null
+  echo "Multisig funded"
+
+  factory_salt=$(echo "$SALT" | grep -oE '^[^-]*')
+  echo "installing the factory.with salt ${factory_salt}.."
+  ../bao-factory/script/bao-factory --deploy --network local --salt ${factory_salt}
+
+  # proxy=$(./lib/bao-factory/script/bao-factory --predict --salt ${factory_salt} | tail -1 | grep -o '0x[a-fA-F0-9]\{40\}')
+	proxy=$(jq -r '.factory' <./deployments/${SALT}.json)
+  echo "Proxy: $proxy"
+
+  echo "Setting operator..."
+  echo cast send --rpc-url local "${proxy}" \
+    --from "${MULTISIG}" \
+    "\"setOperator(address, uint)\"" "${ANVIL_PUBLIC_KEY}" 50000
+  cast send --rpc-url local "${proxy}" \
+    --from "${MULTISIG}" --unlocked \
+    "setOperator(address, uint)" "${ANVIL_PUBLIC_KEY}" 50000
+
 elif [[ ${#PHASES[@]} -eq 0 ]]; then
   echo "Error: At least one phase (--deploy or --smoke) must be specified" >&2
   usage
@@ -215,11 +214,30 @@ if [[ -z "$NETWORK" ]]; then
   exit 1
 fi
 
-# For local network, can't verify
+# For local network, can't verify; for others, verify by default unless --no-verify
 if [[ "$NETWORK" == "local" ]]; then
   VERIFY=""
+  if [[ -n "$ACCOUNT" ]]; then
+    WALLET_ARGS="--account $ACCOUNT"
+  else
+    WALLET_ARGS="--private-key $ANVIL_PRIVATE_KEY"
+  fi
 else
-  VERIFY="--verify"
+  if [[ "$NO_VERIFY" == "true" ]]; then
+    VERIFY=""
+  else
+    VERIFY="--verify"
+  fi
+  # --account only required for deploy phase, not smoke (which is read-only)
+  if [[ -z "$ACCOUNT" && -n "${PHASES[deploy]:-}" ]]; then
+    echo "Error: --account is required for --deploy on non-local networks" >&2
+    exit 1
+  fi
+  if [[ -n "$ACCOUNT" ]]; then
+    WALLET_ARGS="--account $ACCOUNT"
+  else
+    WALLET_ARGS=""
+  fi
 fi
 
 echo "Salt: $SALT"
@@ -248,8 +266,8 @@ for PHASE in "${PHASE_ORDER[@]}"; do
   FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarbor \
     --sig "$SIG" "$SALT" "$NETWORK" \
     --rpc-url "$NETWORK" \
-    --broadcast $VERIFY \
-    --private-key "$PRIVATE_KEY" \
+    --broadcast --slow $VERIFY \
+    $WALLET_ARGS \
     $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
 
   echo "$FORGE_OUTPUT"

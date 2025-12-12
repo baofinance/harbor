@@ -43,6 +43,8 @@ results/*.png
 
 deployments/*/anvil/*.json
 deployments/*/local/*.json
+deployments/*/*/latest.json
+
 
 # Docs
 docs/

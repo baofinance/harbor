@@ -8,8 +8,9 @@ import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
-import {DeploymentVariant} from "@bao-script/deployment/DeploymentVariant.sol";
 import {LibString} from "@solady/utils/LibString.sol";
+
+import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
@@ -30,27 +31,48 @@ interface IERC20Minimal {
 /**
  * @title HarborDeploymentJsonScript
  * @notice Harbor-specific deployment contract with Stem proxy management
- * @dev Combines DeploymentJsonScript (JSON + broadcast) with DeploymentVariant (env var BaoFactory selection).
+ * @dev Extends DeploymentJsonScript with Harbor-specific schema and deployment methods.
  *
  *      Features:
  *      - All proxies use Stem_v1 for upgrade control
  *      - Type-safe enum-based API
  *      - Production-focused deployment methods
  *      - Delegates actual deployment to specialized libraries
- *      - BaoFactory variant selection via BAO_FACTORY_VARIANT env var (from DeploymentVariant)
+ *      - BaoFactory address read from JSON config (no variant selection)
  */
 
-abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, DeploymentVariant {
+abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
     using LibString for string;
 
     // =========================================================================
-    // Inheritance Resolution
+    // BaoFactory from JSON
     // =========================================================================
 
-    // TODO: resolve this diamond
-    /// @dev Resolve _afterValueChanged - use DeploymentJson's implementation for JSON persistence
-    function _afterValueChanged(string memory key) internal virtual override(DeploymentDataMemory, DeploymentJson) {
-        DeploymentJson._afterValueChanged(key);
+    error FactoryNotDeployed(address factory);
+    error FactoryOwnerMismatch(address expected, address actual);
+
+    /// @notice Validate BaoFactory exists, has correct owner, and deployer is operator
+    /// @dev Reads factory address from JSON config. Does NOT deploy or set operator - only validates.
+    function _ensureBaoFactory() internal virtual override returns (address factory) {
+        factory = _getAddress(FACTORY);
+
+        // Validate factory is deployed
+        if (factory.code.length == 0) {
+            revert FactoryNotDeployed(factory);
+        }
+
+        // Validate factory owner matches configured owner
+        address factoryOwner = BaoFactory(factory).owner();
+        address expectedOwner = _getAddress(OWNER);
+        if (factoryOwner != expectedOwner) {
+            revert FactoryOwnerMismatch(expectedOwner, factoryOwner);
+        }
+
+        // Validate deployer is operator
+        // address deployer = _getAddress(SESSION_DEPLOYER);
+        // if (!BaoFactory(factory).isCurrentOperator(deployer)) {
+        //     revert DeployerNotOperator(deployer, factory);
+        // }
     }
 
     // =========================================================================
@@ -65,9 +87,11 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
     // =========================================================================
 
     string public constant TREASURY = "treasury";
+    string public constant FACTORY = "factory";
 
     string public constant COLLATERAL_INPUT = "collateral";
     string public constant WRAPPED_COLLATERAL_INPUT = "wrappedCollateral";
+    string public constant PEGGED_INPUT = "pegged";
     string public constant PREFIX = "prefix";
     string public constant NETWORKS = "networks";
     string public constant PEGGED_TICKER = "peggedTicker";
@@ -83,7 +107,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
     string public constant PEGGED = "contracts.pegged";
     string public constant PEGGED_NAME = "contracts.pegged.name";
     string public constant PEGGED_SYMBOL = "contracts.pegged.symbol";
-    string public constant PEGGED_BURN_SIGNATURE = "contracts.pegged.burnSignature";
+    // string public constant PEGGED_BURN_SIGNATURE = "contracts.pegged.burnSignature";
 
     string public constant LEVERAGED = "contracts.leveraged";
     string public constant LEVERAGED_NAME = "contracts.leveraged.name";
@@ -168,8 +192,10 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
         addKey(NETWORKS);
         addAddressKey(COLLATERAL_INPUT);
         addAddressKey(WRAPPED_COLLATERAL_INPUT);
+        addAddressKey(PEGGED_INPUT);
 
         addAddressKey(TREASURY);
+        addAddressKey(FACTORY);
 
         addContract(COLLATERAL);
         addStringKey(COLLATERAL_SYMBOL);
@@ -183,7 +209,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
         addRoles(PEGGED, sa("MINTER_ROLE", "BURNER_ROLE"));
         addStringKey(PEGGED_NAME);
         addStringKey(PEGGED_SYMBOL);
-        addStringKey(PEGGED_BURN_SIGNATURE);
+        // addStringKey(PEGGED_BURN_SIGNATURE);
 
         addProxy(LEVERAGED);
         addRoles(LEVERAGED, sa("MINTER_ROLE", "BURNER_ROLE"));
@@ -256,12 +282,16 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
         addUintKey(string.concat(networkPrefix, ".chainId"));
         addAddressKey(string.concat(networkPrefix, ".collateral"));
         addAddressKey(string.concat(networkPrefix, ".wrappedCollateral"));
+        addAddressKey(string.concat(networkPrefix, ".pegged"));
 
         super.start(network, systemSaltString, startPoint);
 
         // Copy network-specific inputs to standard slots
         _setAddress(COLLATERAL_INPUT, _getAddress(string.concat(networkPrefix, ".collateral")));
         _setAddress(WRAPPED_COLLATERAL_INPUT, _getAddress(string.concat(networkPrefix, ".wrappedCollateral")));
+        if (_has(string.concat(networkPrefix, ".pegged"))) {
+            _setAddress(PEGGED_INPUT, _getAddress(string.concat(networkPrefix, ".pegged")));
+        }
 
         // Read collateral symbol from chain and store in deployment data
         string memory collateralSymbol = IERC20Minimal(_getAddress(COLLATERAL_INPUT)).symbol();
@@ -310,35 +340,49 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
     // ============================================================================
 
     function _deployPegged() internal {
-        console2.log("Deploying Pegged...");
+        string memory prePegged = string.concat(NETWORKS, ".", _getString(SESSION_NETWORK), ".pegged");
+        console2.log("Checking for pegged at key: %s", prePegged);
 
-        // Derive symbol and name from deployment config
-        (string memory symbol, string memory name) = _deriveTokenIdentity("ha", "anchored");
-        _setString(PEGGED_SYMBOL, symbol);
-        _setString(PEGGED_NAME, name);
+        MintableBurnableERC20_v1 proxy;
+        if (_has(prePegged)) {
+            console2.log("Pegged address provided in config; skipping deployment.");
+            _set(PEGGED, _getAddress(string.concat(NETWORKS, ".", _getString(SESSION_NETWORK), ".pegged")));
+            proxy = MintableBurnableERC20_v1(_get(PEGGED));
+            _setString(PEGGED_SYMBOL, proxy.symbol());
+            _setString(PEGGED_NAME, proxy.name());
+        } else {
+            console2.log("Deploying Pegged...");
 
-        // Deploy implementation
-        MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
+            // Derive symbol and name from deployment config
+            (string memory symbol, string memory name) = _deriveTokenIdentity("ha", "anchored");
+            _setString(PEGGED_SYMBOL, symbol);
+            _setString(PEGGED_NAME, name);
 
-        // Deploy and register proxy
-        bytes memory initData = abi.encodeCall(
-            MintableBurnableERC20_v1.initialize,
-            (_getAddress(OWNER), _getString(PEGGED_NAME), _getString(PEGGED_SYMBOL))
-        );
+            // Deploy implementation
+            MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
 
-        deployProxy(
-            PEGGED,
-            address(impl),
-            initData,
-            type(MintableBurnableERC20_v1).name,
-            type(MintableBurnableERC20_v1).creationCode,
-            _getAddress(SESSION_DEPLOYER)
-        );
+            // Deploy and register proxy
+            bytes memory initData = abi.encodeCall(
+                MintableBurnableERC20_v1.initialize,
+                (_getAddress(OWNER), _getString(PEGGED_NAME), _getString(PEGGED_SYMBOL))
+            );
 
-        _setRole(PEGGED, "MINTER_ROLE", impl.MINTER_ROLE());
-        _setRole(PEGGED, "BURNER_ROLE", impl.BURNER_ROLE());
+            deployProxy(
+                PEGGED,
+                address(impl),
+                initData,
+                type(MintableBurnableERC20_v1).name,
+                type(MintableBurnableERC20_v1).creationCode,
+                _getAddress(SESSION_DEPLOYER)
+            );
+            proxy = MintableBurnableERC20_v1(_get(PEGGED));
+        }
+        console2.log("proxy = %s", address(proxy));
+        _setRole(PEGGED, "MINTER_ROLE", proxy.MINTER_ROLE());
+        _setRole(PEGGED, "BURNER_ROLE", proxy.BURNER_ROLE());
+        console2.log("updated the roles in the pegged contract");
 
-        _setString(PEGGED_BURN_SIGNATURE, "burn(uint256)");
+        // _setString(PEGGED_BURN_SIGNATURE, "burn(uint256)");
         _saveDeployment();
     }
 
@@ -518,7 +562,7 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
             _get(WRAPPED_COLLATERAL),
             _get(PEGGED),
             _get(LEVERAGED),
-            _getString(PEGGED_BURN_SIGNATURE)
+            "burn(uint256)" // _getString(PEGGED_BURN_SIGNATURE)
         );
 
         // Deploy and register proxy
@@ -561,10 +605,19 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript, Deployment
         minter.updateReservePool(_get(RESERVE_POOL));
 
         // now add it to the roles it needs to perform
-        MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
-        pegged.grantRoles(_get(MINTER), _getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE"));
-        _setGrantee(MINTER, PEGGED, "MINTER_ROLE");
-        _setGrantee(MINTER, PEGGED, "BURNER_ROLE");
+
+        string memory prePegged = string.concat(NETWORKS, ".", _getString(SESSION_NETWORK), ".pegged");
+        if (_has(prePegged)) {
+            console2.log("Pegged address provided in config; granting roles.");
+        } else {
+            MintableBurnableERC20_v1 pegged = MintableBurnableERC20_v1(_get(PEGGED));
+            pegged.grantRoles(
+                _get(MINTER),
+                _getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE")
+            );
+            _setGrantee(MINTER, PEGGED, "MINTER_ROLE");
+            _setGrantee(MINTER, PEGGED, "BURNER_ROLE");
+        }
 
         MintableBurnableERC20_v1 leveraged = MintableBurnableERC20_v1(_get(LEVERAGED));
         leveraged.grantRoles(

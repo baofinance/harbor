@@ -10,21 +10,30 @@ enabled = false # unset = let the compiler decide
 exclude_paths = ["node_modules", "venv", "lib", "doc"]
 # include paths are for import resolution
 remappings = [
+  # foundry
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
+  # openzeppelin
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
-  "dummy/=/lib/dummy",
-  "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
+  # solady
   "@solady/=lib/solady/src/",
+  # chainlink
+  "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
+  # bao audited code
   "@bao/=lib/bao-base-audit-2025-07/src/",
-  "@bao-script/=lib/bao-base/script/",
+  # bao latest
   "@bao-test/=lib/bao-base/test/",
+  "@bao-script/=lib/bao-base/script/",
+  "@bao-factory/=lib/bao-factory/src/",
+  "@bao-factory-test/=lib/bao-factory/test/",
+  # harbor
   "@harbor/=src/",
-  "@harbor-script/=script/",
-  "@harbor-test/=test/",
+  "@harbor-script/=script//",
+  "@harbor-test/=test//",
+  # retain the below for legacy
   "src/=src/",
   "test/=test/",
 ]
