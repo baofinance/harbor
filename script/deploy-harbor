@@ -152,7 +152,7 @@ if [[ "$START_ANVIL" == "true" ]]; then
   # Start anvil in background
   echo "Starting anvil..."
   # anvil -f mainnet@23000000 --auto-impersonate --timestamp $(date +%s) &
-  anvil -f mainnet --auto-impersonate &
+  anvil -f mainnet --auto-impersonate >anvil.log 2>&1 &
   ANVIL_PID=$!
 
   # Cleanup on exit
@@ -186,21 +186,10 @@ if [[ "$START_ANVIL" == "true" ]]; then
     --value 1ether >/dev/null
   echo "Multisig funded"
 
-  factory_salt=$(echo "$SALT" | grep -oE '^[^-]*')
-  echo "installing the factory.with salt ${factory_salt}.."
-  ../bao-factory/script/bao-factory --deploy --network local --salt ${factory_salt}
-
-  # proxy=$(./lib/bao-factory/script/bao-factory --predict --salt ${factory_salt} | tail -1 | grep -o '0x[a-fA-F0-9]\{40\}')
-	proxy=$(jq -r '.factory' <./deployments/${SALT}.json)
-  echo "Proxy: $proxy"
-
-  echo "Setting operator..."
-  echo cast send --rpc-url local "${proxy}" \
-    --from "${MULTISIG}" \
-    "\"setOperator(address, uint)\"" "${ANVIL_PUBLIC_KEY}" 50000
-  cast send --rpc-url local "${proxy}" \
-    --from "${MULTISIG}" --unlocked \
-    "setOperator(address, uint)" "${ANVIL_PUBLIC_KEY}" 50000
+  # Ensure BaoFactory is ready (deployed, upgraded, operator set)
+  # Uses default salt Bao.BaoFactory.harbor and default anvil operator
+  echo "Ensuring BaoFactory is ready..."
+  ./lib/bao-base/script/ensure-bao-factory
 
 elif [[ ${#PHASES[@]} -eq 0 ]]; then
   echo "Error: At least one phase (--deploy or --smoke) must be specified" >&2

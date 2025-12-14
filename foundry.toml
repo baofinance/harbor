@@ -30,8 +30,9 @@ remappings = [
   # bao latest
   "@bao-test/=lib/bao-base/test/",
   "@bao-script/=lib/bao-base/script/",
-  "@bao-factory/=lib/bao-factory/src/",
-  "@bao-factory-test/=lib/bao-factory/test/",
+  # bao-factory is a transitive dependency via bao-base
+  "@bao-factory/=lib/bao-base/lib/bao-factory/src/",
+  "@bao-factory-test/=lib/bao-base/lib/bao-factory/test/",
   # harbor
   "@harbor/=src/",
   "@harbor-script/=script//",

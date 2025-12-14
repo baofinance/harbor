@@ -20,6 +20,3 @@
 	path = lib/bao-base-audit-2025-07
 	url = https://github.com/baofinance/bao-base
 	branch = audit-2025-07
-[submodule "lib/bao-factory"]
-	path = lib/bao-factory
-	url = https://github.com/baofinance/bao-factory

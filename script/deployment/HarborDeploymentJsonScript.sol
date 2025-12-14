@@ -10,8 +10,6 @@ import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
-import {BaoFactory} from "@bao-factory/BaoFactory.sol";
-
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
 import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
@@ -50,30 +48,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
     error FactoryNotDeployed(address factory);
     error FactoryOwnerMismatch(address expected, address actual);
-
-    /// @notice Validate BaoFactory exists, has correct owner, and deployer is operator
-    /// @dev Reads factory address from JSON config. Does NOT deploy or set operator - only validates.
-    function _ensureBaoFactory() internal virtual override returns (address factory) {
-        factory = _getAddress(FACTORY);
-
-        // Validate factory is deployed
-        if (factory.code.length == 0) {
-            revert FactoryNotDeployed(factory);
-        }
-
-        // Validate factory owner matches configured owner
-        address factoryOwner = BaoFactory(factory).owner();
-        address expectedOwner = _getAddress(OWNER);
-        if (factoryOwner != expectedOwner) {
-            revert FactoryOwnerMismatch(expectedOwner, factoryOwner);
-        }
-
-        // Validate deployer is operator
-        // address deployer = _getAddress(SESSION_DEPLOYER);
-        // if (!BaoFactory(factory).isCurrentOperator(deployer)) {
-        //     revert DeployerNotOperator(deployer, factory);
-        // }
-    }
 
     // =========================================================================
     // Errors
@@ -317,25 +291,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
     }
 
     // ============================================================================
-    // Token Naming
-    // ============================================================================
-
-    /// @notice Derive token symbol and name from deployment config
-    /// @param prefix Symbol prefix (e.g., "ha" for pegged, "hs" for leveraged)
-    /// @param description Name description (e.g., "anchored" or "sail")
-    /// @return symbol The derived symbol (e.g., "haUSD-stETH")
-    /// @return name The derived name (e.g., "Harbor anchored USD for stETH")
-    function _deriveTokenIdentity(
-        string memory prefix,
-        string memory description
-    ) internal view returns (string memory symbol, string memory name) {
-        string memory ticker = _getString(PEGGED_TICKER);
-        string memory collateral = _getString(COLLATERAL_SYMBOL);
-        symbol = string.concat(prefix, ticker, "-", collateral);
-        name = string.concat("Harbor ", description, " ", ticker, " for ", collateral);
-    }
-
-    // ============================================================================
     // Pegged
     // ============================================================================
 
@@ -354,9 +309,12 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
             console2.log("Deploying Pegged...");
 
             // Derive symbol and name from deployment config
-            (string memory symbol, string memory name) = _deriveTokenIdentity("ha", "anchored");
-            _setString(PEGGED_SYMBOL, symbol);
-            _setString(PEGGED_NAME, name);
+            string memory ticker = _getString(PEGGED_TICKER);
+            _setString(PEGGED_SYMBOL, string.concat("ha", ticker));
+            _setString(PEGGED_NAME, string.concat("Harbor anchored ", ticker));
+
+            console2.log("pegged symbol: '%s'", _getString(PEGGED_SYMBOL));
+            console2.log("pegged name: '%s'", _getString(PEGGED_NAME));
 
             // Deploy implementation
             MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
@@ -405,9 +363,13 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         console2.log("Deploying Leveraged...");
 
         // Derive symbol and name from deployment config
-        (string memory symbol, string memory name) = _deriveTokenIdentity("hs", "sail");
-        _setString(LEVERAGED_SYMBOL, symbol);
-        _setString(LEVERAGED_NAME, name);
+        string memory ticker = _getString(PEGGED_TICKER);
+        string memory collateral = _getString(COLLATERAL_SYMBOL);
+        _setString(LEVERAGED_SYMBOL, string.concat("hs", ticker, "-", collateral));
+        _setString(LEVERAGED_NAME, string.concat("Harbor sail ", ticker, " propelled by ", collateral));
+
+        console2.log("leveraged symbol: '%s'", _getString(LEVERAGED_SYMBOL));
+        console2.log("leveraged name: '%s'", _getString(LEVERAGED_NAME));
 
         // Deploy implementation
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
