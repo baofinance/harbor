@@ -227,6 +227,7 @@ fi
 echo "Salt: $SALT"
 echo "Network: $NETWORK"
 echo "Phases: ${!PHASES[*]}"
+echo "Wallet args: $WALLET_ARGS"
 
 # ============================================================================
 # Run the deployment/smoke script
@@ -247,11 +248,13 @@ for PHASE in "${PHASE_ORDER[@]}"; do
       fi
       echo "Running deployment..."
     fi
-    SIG="deploy(string,string)"
+    SIG="deployMinter(string,string)"
   else
     echo "Running smoke test..."
-    SIG="smoke(string,string)"
+    SIG="smokeMinter(string,string)"
   fi
+
+  echo "Running: forge script script/DeployHarbor.s.sol:DeployHarbor --sig \"$SIG\" \"$SALT\" \"$NETWORK\" --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
 
   FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarbor \
     --sig "$SIG" "$SALT" "$NETWORK" \

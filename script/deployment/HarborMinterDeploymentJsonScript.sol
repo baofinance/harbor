@@ -291,7 +291,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         // TODO: add the roles to all the minters
 
         // }
-        _saveDeployment();
+        _save();
     }
 
     function _smokePegged() public view {
@@ -354,7 +354,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         _setGrantee(MINTER, LEVERAGED, "MINTER_ROLE");
         _setGrantee(MINTER, LEVERAGED, "BURNER_ROLE");
 
-        _saveDeployment();
+        _save();
     }
 
     function _smokeLeveraged() public view {
@@ -407,7 +407,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         //     recipients[i] = _get(receiverKeys[i]);
         // }
         proxy.setDistribution(recipients, shares);
-        _saveDeployment();
+        _save();
     }
 
     function _smokeFeeReceiver(string memory key) public view {
@@ -440,7 +440,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
             type(MockWrappedPriceOracle).creationCode,
             _getAddress(SESSION_DEPLOYER)
         );
-        _saveDeployment();
+        _save();
     }
 
     function _smokePriceOracle() public view {
@@ -473,7 +473,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         proxy.grantRoles(minter, proxy.REQUESTER_ROLE());
         _setGrantee(MINTER, RESERVE_POOL, "REQUESTER_ROLE");
 
-        _saveDeployment();
+        _save();
     }
 
     function _smokeReservePool() public view {
@@ -552,7 +552,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         proxy.grantRoles(predictAddress(GENESIS, SYSTEM_SALT_STRING), _getRoleValue(MINTER, "ZERO_FEE_ROLE"));
         _setGrantee(GENESIS, MINTER, "ZERO_FEE_ROLE");
 
-        _saveDeployment();
+        _save();
     }
 
     function _smokeMinter() public view {
@@ -649,7 +649,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         _setGrantee(STABILITY_POOL_MANAGER, stabilityPoolKey, "REWARD_DEPOSITOR_ROLE");
         _setGrantee(STABILITY_POOL_MANAGER, stabilityPoolKey, "REBALANCER_ROLE");
 
-        _saveDeployment();
+        _save();
     }
 
     function _smokeStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) public view {
@@ -712,7 +712,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         proxy.updateHarvestCutRatio(_getUint(STABILITY_POOL_MANAGER_HARVEST_CUT_RATIO));
         proxy.updateFeeReceiver(_get(STABILITY_POOL_MANAGER_FEE_RECEIVER));
 
-        _saveDeployment();
+        _save();
     }
 
     function _smokeStabilityPoolManager() public view {
@@ -783,12 +783,12 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
             _getAddress(SESSION_DEPLOYER)
         );
 
-        _saveDeployment();
+        _save();
     }
 
     function finish() public virtual override returns (uint256 transferred) {
         transferred = super.finish();
-        _saveDeployment();
+        _save();
     }
 
     function _smokeGenesis() public view {

@@ -13,7 +13,7 @@ import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/Harbor
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
  */
-contract DeployHarbor is Script {
+contract DeployHarbor is HarborMinterDeploymentJsonScript {
     // address constant HARBORMULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
     // function setBaoFactoryOperator() public {
@@ -34,55 +34,55 @@ contract DeployHarbor is Script {
         SMOKE
     }
 
-    function _do(Mode mode, string memory salt, string memory network) internal {
+    function _doMinter(Mode mode, string memory salt, string memory network) internal {
         console.log("=== %s Harbor ===", mode == Mode.DEPLOY ? "Deploying" : "Smoke Testing");
         console.log("Salt: %s", salt);
         console.log("Network: %s", network);
 
-        HarborMinterDeploymentJsonScript d = new HarborMinterDeploymentJsonScript();
-
         // do the work
         if (mode == Mode.DEPLOY) {
-            d.disableIncrementalLogging();
-            d.start(network, salt, "");
+            disableIncrementalLogging();
 
-            d._deployPegged();
-            d._deployLeveraged();
-            d._deployFeeReceiver(d.MINTER());
-            d._deployPriceOracle();
-            d._deployReservePool();
-            d._deployMinter();
-            d._deployStabilityPool(d.STABILITY_POOL_COLLATERAL(), d.WRAPPED_COLLATERAL());
-            d._deployStabilityPool(d.STABILITY_POOL_LEVERAGED(), d.LEVERAGED());
-            d._deployFeeReceiver(d.STABILITY_POOL_MANAGER());
-            d._deployStabilityPoolManager();
-            d._deployGenesis();
+            start(network, salt, "");
+
+            _deployPegged();
+            _deployLeveraged();
+            _deployFeeReceiver(MINTER);
+            _deployPriceOracle();
+            _deployReservePool();
+            _deployMinter();
+            _deployStabilityPool(STABILITY_POOL_COLLATERAL, WRAPPED_COLLATERAL);
+            _deployStabilityPool(STABILITY_POOL_LEVERAGED, LEVERAGED);
+            _deployFeeReceiver(STABILITY_POOL_MANAGER);
+            _deployStabilityPoolManager();
+            _deployGenesis();
         } else {
-            d.disableLogging();
-            d.start(network, salt, "latest");
+            disableLogging();
+            start(network, salt, "latest");
 
-            d._smokePegged();
-            d._smokeLeveraged();
-            d._smokeFeeReceiver(d.MINTER());
-            d._smokePriceOracle();
-            d._smokeReservePool();
-            d._smokeMinter();
-            d._smokeStabilityPool(d.STABILITY_POOL_COLLATERAL(), d.WRAPPED_COLLATERAL());
-            d._smokeStabilityPool(d.STABILITY_POOL_LEVERAGED(), d.LEVERAGED());
-            d._smokeFeeReceiver(d.STABILITY_POOL_MANAGER());
-            d._smokeStabilityPoolManager();
-            d._smokeGenesis();
+            _smokePegged();
+            _smokeLeveraged();
+            _smokeFeeReceiver(MINTER);
+            _smokePriceOracle();
+            _smokeReservePool();
+            _smokeMinter();
+            _smokeStabilityPool(STABILITY_POOL_COLLATERAL, WRAPPED_COLLATERAL);
+            _smokeStabilityPool(STABILITY_POOL_LEVERAGED, LEVERAGED);
+            _smokeFeeReceiver(STABILITY_POOL_MANAGER);
+            _smokeStabilityPoolManager();
+            _smokeGenesis();
         }
-        d.finish();
+
+        finish();
 
         console.log("\n=== Complete ===");
     }
 
-    function deploy(string memory salt, string memory network) public {
-        _do(Mode.DEPLOY, salt, network);
+    function deployMinter(string memory salt, string memory network) public {
+        _doMinter(Mode.DEPLOY, salt, network);
     }
 
-    function smoke(string memory salt, string memory network) public {
-        _do(Mode.SMOKE, salt, network);
+    function smokeMinter(string memory salt, string memory network) public {
+        _doMinter(Mode.SMOKE, salt, network);
     }
 }
