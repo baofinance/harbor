@@ -2,6 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
+import {Script} from "forge-std/Script.sol";
+
 import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/HarborMinterDeploymentJsonScript.sol";
 
 /**
@@ -11,7 +13,7 @@ import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/Harbor
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
  */
-contract DeployHarbor is HarborMinterDeploymentJsonScript {
+contract DeployHarbor is Script {
     // address constant HARBORMULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
     // function setBaoFactoryOperator() public {
@@ -37,40 +39,42 @@ contract DeployHarbor is HarborMinterDeploymentJsonScript {
         console.log("Salt: %s", salt);
         console.log("Network: %s", network);
 
+        HarborMinterDeploymentJsonScript d = new HarborMinterDeploymentJsonScript();
+
         // do the work
         if (mode == Mode.DEPLOY) {
-            _disableIncrementalLogging();
-            start(network, salt, "");
+            d.disableIncrementalLogging();
+            d.start(network, salt, "");
 
-            _deployPegged();
-            _deployLeveraged();
-            _deployFeeReceiver(MINTER);
-            _deployPriceOracle();
-            _deployReservePool();
-            _deployMinter();
-            _deployStabilityPool(STABILITY_POOL_COLLATERAL, WRAPPED_COLLATERAL);
-            _deployStabilityPool(STABILITY_POOL_LEVERAGED, LEVERAGED);
-            _deployFeeReceiver(STABILITY_POOL_MANAGER);
-            _deployStabilityPoolManager();
-            _deployGenesis();
+            d._deployPegged();
+            d._deployLeveraged();
+            d._deployFeeReceiver(d.MINTER());
+            d._deployPriceOracle();
+            d._deployReservePool();
+            d._deployMinter();
+            d._deployStabilityPool(d.STABILITY_POOL_COLLATERAL(), d.WRAPPED_COLLATERAL());
+            d._deployStabilityPool(d.STABILITY_POOL_LEVERAGED(), d.LEVERAGED());
+            d._deployFeeReceiver(d.STABILITY_POOL_MANAGER());
+            d._deployStabilityPoolManager();
+            d._deployGenesis();
         } else {
-            _disableLogging();
-            start(network, salt, "latest");
+            d.disableLogging();
+            d.start(network, salt, "latest");
 
-            _smokePegged();
-            _smokeLeveraged();
-            _smokeFeeReceiver(MINTER);
-            _smokePriceOracle();
-            _smokeReservePool();
-            _smokeMinter();
-            _smokeStabilityPool(STABILITY_POOL_COLLATERAL, WRAPPED_COLLATERAL);
-            _smokeStabilityPool(STABILITY_POOL_LEVERAGED, LEVERAGED);
-            _smokeFeeReceiver(STABILITY_POOL_MANAGER);
-            _smokeStabilityPoolManager();
-            _smokeGenesis();
+            d._smokePegged();
+            d._smokeLeveraged();
+            d._smokeFeeReceiver(d.MINTER());
+            d._smokePriceOracle();
+            d._smokeReservePool();
+            d._smokeMinter();
+            d._smokeStabilityPool(d.STABILITY_POOL_COLLATERAL(), d.WRAPPED_COLLATERAL());
+            d._smokeStabilityPool(d.STABILITY_POOL_LEVERAGED(), d.LEVERAGED());
+            d._smokeFeeReceiver(d.STABILITY_POOL_MANAGER());
+            d._smokeStabilityPoolManager();
+            d._smokeGenesis();
         }
+        d.finish();
 
-        finish();
         console.log("\n=== Complete ===");
     }
 

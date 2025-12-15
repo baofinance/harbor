@@ -36,7 +36,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
  *      - BaoFactory address read from JSON config (no variant selection)
  */
 
-abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
+contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
     using LibString for string;
     using LibString for address;
 
@@ -227,7 +227,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // Pegged
     // ============================================================================
 
-    function _deployPegged() internal {
+    function _deployPegged() public {
         // address proxyAddress = predictAddress(PEGGED, PEGGED_SALT_STRING);
         // // TODO: move this into DeploymentBase
         // if (proxyAddress.code.length != 0) {
@@ -294,7 +294,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokePegged() internal view {
+    function _smokePegged() public view {
         console2.log("Smoke testing Pegged...");
         MintableBurnableERC20_v1 proxy = MintableBurnableERC20_v1(_get(PEGGED));
         _expect(proxy.owner(), OWNER);
@@ -309,7 +309,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // Leveraged
     // ============================================================================
 
-    function _deployLeveraged() internal {
+    function _deployLeveraged() public {
         console2.log("Deploying Leveraged...");
 
         // Derive symbol and name from deployment config
@@ -317,7 +317,10 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         string memory collateral = _getString(COLLATERAL_SYMBOL);
         // TODO: uppercase
         _setString(LEVERAGED_SYMBOL, string.concat("hs", collateral.upper(), "-", ticker.upper()));
-        _setString(LEVERAGED_NAME, string.concat("Harbor sail: variable leveraged long ", collateral, " against ", ticker));
+        _setString(
+            LEVERAGED_NAME,
+            string.concat("Harbor sail: variable leveraged long ", collateral, " against ", ticker)
+        );
 
         console2.log("leveraged symbol: '%s'", _getString(LEVERAGED_SYMBOL));
         console2.log("leveraged name: '%s'", _getString(LEVERAGED_NAME));
@@ -354,7 +357,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokeLeveraged() internal view {
+    function _smokeLeveraged() public view {
         console2.log("Smoke testing Leveraged...");
         MintableBurnableERC20_v1 proxy = MintableBurnableERC20_v1(_get(LEVERAGED));
         _expect(proxy.owner(), OWNER);
@@ -369,7 +372,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // Fee Receiver
     // ============================================================================
 
-    function _deployFeeReceiver(string memory key) internal {
+    function _deployFeeReceiver(string memory key) public {
         console2.log("Deploying %s Fee Receiver...", key);
         TokenDistributor_v1 impl = new TokenDistributor_v1();
 
@@ -407,7 +410,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokeFeeReceiver(string memory key) internal view {
+    function _smokeFeeReceiver(string memory key) public view {
         console2.log("Smoke testing %s Fee Receiver...", key);
         TokenDistributor_v1 proxy = TokenDistributor_v1(_get(string.concat(key, "FeeReceiver")));
         _expect(proxy.owner(), OWNER);
@@ -426,7 +429,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // PriceOracle
     // ============================================================================
 
-    function _deployPriceOracle() internal {
+    function _deployPriceOracle() public {
         console2.log("Deploying Price Oracle...");
         MockWrappedPriceOracle impl = new MockWrappedPriceOracle();
 
@@ -440,7 +443,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokePriceOracle() internal view {
+    function _smokePriceOracle() public view {
         console2.log("Smoke testing Price Oracle...");
         // not much to check here
         address impl = _get(PRICE_ORACLE);
@@ -451,7 +454,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // ReservePool
     // ============================================================================
 
-    function _deployReservePool() internal {
+    function _deployReservePool() public {
         ReservePool_v1 impl = new ReservePool_v1();
 
         deployProxy(
@@ -473,7 +476,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokeReservePool() internal view {
+    function _smokeReservePool() public view {
         console2.log("Smoke testing Reserve Pool...");
         // not much to check here
         ReservePool_v1 proxy = ReservePool_v1(_get(RESERVE_POOL));
@@ -485,7 +488,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // Minter
     // ============================================================================
 
-    function _deployMinter() internal {
+    function _deployMinter() public {
         console2.log("Deploying Minter...");
 
         // Deploy implementation
@@ -552,7 +555,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokeMinter() internal view {
+    function _smokeMinter() public view {
         console2.log("Smoke testing Minter...");
         Minter_v1 proxy = Minter_v1(_get(MINTER));
 
@@ -593,7 +596,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // Stability Pool
     // ============================================================================
 
-    function _deployStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) internal {
+    function _deployStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) public {
         console2.log("Deploying Stability Pool %s ...", liquidationKey);
 
         // Deploy implementation
@@ -649,7 +652,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokeStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) internal view {
+    function _smokeStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) public view {
         console2.log("Smoke Testing Stability Pool %s ...", liquidationKey);
         // get proxy
         StabilityPool_v1 proxy = StabilityPool_v1(_get(stabilityPoolKey));
@@ -678,7 +681,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
     // Minter
     // ============================================================================
 
-    function _deployStabilityPoolManager() internal {
+    function _deployStabilityPoolManager() public {
         console2.log("Deploying StabilityPoolManagerMinter...");
         // Deploy implementation
         StabilityPoolManager_v1 impl = new StabilityPoolManager_v1(
@@ -712,7 +715,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokeStabilityPoolManager() internal view {
+    function _smokeStabilityPoolManager() public view {
         console2.log("Smoke testing StabilityPoolManager...");
         StabilityPoolManager_v1 proxy = StabilityPoolManager_v1(_get(STABILITY_POOL_MANAGER));
 
@@ -764,7 +767,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         );
     }
 
-    function _deployGenesis() internal {
+    function _deployGenesis() public {
         // Deploy and register proxy
         Genesis_v1 impl = new Genesis_v1(_get(MINTER));
 
@@ -788,7 +791,7 @@ abstract contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript
         _saveDeployment();
     }
 
-    function _smokeGenesis() internal view {
+    function _smokeGenesis() public view {
         console2.log("Smoke testing Genesis...");
 
         Genesis_v1 proxy = Genesis_v1(_get(GENESIS));
