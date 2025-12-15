@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborDeploymentJsonScript} from "@harbor-script/deployment/HarborDeploymentJsonScript.sol";
+import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/HarborMinterDeploymentJsonScript.sol";
 
 /**
  * @title DeployHarbor
@@ -11,7 +11,7 @@ import {HarborDeploymentJsonScript} from "@harbor-script/deployment/HarborDeploy
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
  */
-contract DeployHarbor is HarborDeploymentJsonScript {
+contract DeployHarbor is HarborMinterDeploymentJsonScript {
     // address constant HARBORMULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
     // function setBaoFactoryOperator() public {
@@ -41,10 +41,6 @@ contract DeployHarbor is HarborDeploymentJsonScript {
         if (mode == Mode.DEPLOY) {
             _disableIncrementalLogging();
             start(network, salt, "");
-
-            // Copy input addresses to output contract slots
-            _set(COLLATERAL, _getAddress(COLLATERAL_INPUT));
-            _set(WRAPPED_COLLATERAL, _getAddress(WRAPPED_COLLATERAL_INPUT));
 
             _deployPegged();
             _deployLeveraged();

@@ -186,11 +186,6 @@ if [[ "$START_ANVIL" == "true" ]]; then
     --value 1ether >/dev/null
   echo "Multisig funded"
 
-  # Ensure BaoFactory is ready (deployed, upgraded, operator set)
-  # Uses default salt Bao.BaoFactory.harbor and default anvil operator
-  echo "Ensuring BaoFactory is ready..."
-  ./lib/bao-base/script/ensure-bao-factory
-
 elif [[ ${#PHASES[@]} -eq 0 ]]; then
   echo "Error: At least one phase (--deploy or --smoke) must be specified" >&2
   usage
@@ -244,6 +239,12 @@ for PHASE in "${PHASE_ORDER[@]}"; do
     if [[ -n "$RESUME" ]]; then
       echo "Resuming deployment..."
     else
+      if [[ "${NETWORK}" == "local" ]]; then
+        # Ensure BaoFactory is ready (deployed, upgraded, operator set)
+        # Uses default salt Bao.BaoFactory.harbor and default anvil operator
+        echo "Ensuring BaoFactory is ready..."
+        ./lib/bao-base/script/ensure-bao-factory
+      fi
       echo "Running deployment..."
     fi
     SIG="deploy(string,string)"

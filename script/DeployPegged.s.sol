@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborDeploymentJsonScript} from "@harbor-script/deployment/HarborDeploymentJsonScript.sol";
+import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/HarborMinterDeploymentJsonScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /**
@@ -14,7 +14,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  *   2. Deploy: forge script script/DeployPeggedToken.s.sol --rpc-url http://localhost:8545 --broadcast
  *   3. Verify: forge script script/DeployPeggedToken.s.sol --rpc-url http://localhost:8545 --sig "verify()"
  */
-contract DeployPegged is HarborDeploymentJsonScript {
+contract DeployPegged is HarborMinterDeploymentJsonScript {
     // Anvil default accounts - account 0 is the deployer/operator
     uint256 constant PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     address constant ANVIL_ACCOUNT_0 = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
