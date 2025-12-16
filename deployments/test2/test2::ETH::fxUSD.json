@@ -1,6 +1,6 @@
 {
   "prefix": "test2",
-  "peggedTicker": "BTC",
+  "peggedTicker": "ETH",
   "networks": {
     "local": {
       "chainId": 1,
@@ -16,7 +16,7 @@
   "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
   "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
   "factory": "0x232C909F51Ce792e7F39106C75A3ED43F12d3554",
-  "priceOracle": "0xF6e28853563Db7F7e42f5DB0e1f959743Ac5B0e6",
+  "priceOracle": "0x56d1a2Fc199bA05F84d2eb8eaB5858d3d954030C",
   "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
   "stabilityPoolWithdrawalDelay": 3600,
   "stabilityPoolWithdrawalPeriod": 90000,

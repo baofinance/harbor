@@ -14,11 +14,13 @@ cd "$PROJECT_ROOT"
 
 usage() {
   cat <<'USAGE'
-Usage: script/deploy-harbor --salt SALT [--network NETWORK] <--deploy|--smoke> [OPTIONS]
+Usage: script/deploy-harbor --salt SALT --peg TICKER --collateral COLLATERAL [--collateral ...] [OPTIONS]
 
 Required:
-  --salt SALT       Deployment salt (e.g., harbor_v1-USD-stETH)
-  --network NETWORK Network name (required unless --start-anvil, must exist in foundry.toml rpc_endpoints)
+  --salt SALT           Deployment salt (e.g., harbor_v1-USD)
+  --peg PEGGED          Pegged token identifier (e.g., USD, BTC)
+  --collateral COLL     Collateral identifier (e.g., stETH, fxUSD). Can be specified multiple times.
+  --network NETWORK     Network name (required unless --start-anvil, must exist in foundry.toml rpc_endpoints)
 
 Phase (at least one required, or use --start-anvil which runs all):
   --deploy          Run deployment phase
@@ -29,6 +31,7 @@ Options:
   --resume          Resume a failed deployment from where it left off
   --start-anvil     Start local Anvil, implies network=local and runs all phases if none specified
   --no-verify       Skip contract verification (verification is default for non-local networks)
+  --no-pegged       Skip pegged token deployment (deploy minters only)
   -v                Increase verbosity
   -h, --help        Show this help
 
@@ -38,15 +41,16 @@ Wallet:
                        Create with: cast wallet import <name> --interactive
 
 Examples:
-  script/deploy-harbor --salt harbor_v1-USD-stETH --start-anvil
-  script/deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
-  script/deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
-  script/deploy-harbor --salt harbor_v1-USD-stETH --network mainnet --account deployer --deploy
+  script/deploy-harbor --salt harbor_v1 --peg USD --collateral stETH --start-anvil
+  script/deploy-harbor --salt harbor_v1 --peg USD --collateral stETH --collateral fxUSD --network local --deploy
+  script/deploy-harbor --salt harbor_v1 --peg BTC --collateral stETH --network mainnet --account deployer --deploy
 USAGE
 }
 
 # Defaults
 SALT=""
+PEGGED=""
+COLLATERALS=()
 NETWORK="local"
 
 # Static phase order - phases always run in this sequence
@@ -65,6 +69,7 @@ ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f
 ANVIL_PUBLIC_KEY="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 ACCOUNT=""
 NO_VERIFY=false
+NO_PEGGED=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -74,6 +79,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --salt)
       SALT="$2"
+      shift 2
+      ;;
+    --peg)
+      PEGGED="$2"
+      shift 2
+      ;;
+    --collateral)
+      COLLATERALS+=("$2")
       shift 2
       ;;
     --network)
@@ -100,6 +113,10 @@ while [[ $# -gt 0 ]]; do
       NO_VERIFY=true
       shift
       ;;
+    --no-pegged)
+      NO_PEGGED=true
+      shift
+      ;;
     -v)
       VERBOSITY="${VERBOSITY:--}v"
       shift
@@ -123,6 +140,18 @@ done
 # Validate required arguments
 if [[ -z "$SALT" ]]; then
   echo "Error: --salt is required" >&2
+  usage
+  exit 1
+fi
+
+if [[ -z "$PEGGED" ]]; then
+  echo "Error: --pegged is required" >&2
+  usage
+  exit 1
+fi
+
+if [[ ${#COLLATERALS[@]} -eq 0 ]]; then
+  echo "Error: at least one --collateral is required" >&2
   usage
   exit 1
 fi
@@ -225,6 +254,8 @@ else
 fi
 
 echo "Salt: $SALT"
+echo "Pegged: $PEGGED"
+echo "Collaterals: ${COLLATERALS[*]}"
 echo "Network: $NETWORK"
 echo "Phases: ${!PHASES[*]}"
 echo "Wallet args: $WALLET_ARGS"
@@ -248,30 +279,118 @@ for PHASE in "${PHASE_ORDER[@]}"; do
       fi
       echo "Running deployment..."
     fi
-    SIG="deployMinter(string,string)"
-  else
-    echo "Running smoke test..."
-    SIG="smokeMinter(string,string)"
-  fi
 
-  echo "Running: forge script script/DeployHarbor.s.sol:DeployHarbor --sig \"$SIG\" \"$SALT\" \"$NETWORK\" --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
+    # Step 1: Deploy pegged token (unless --no-pegged)
+    if [[ "$NO_PEGGED" != "true" ]]; then
+      echo ""
+      echo "=== Deploying pegged token: $PEGGED ==="
+      SIG="deployPegged(string,string,string,string[])"
+      # Build JSON array of collaterals: ["stETH","fxUSD"]
+      COLLATERALS_JSON=$(printf '"%s",' "${COLLATERALS[@]}" | sed 's/,$//')
+      COLLATERALS_JSON="[${COLLATERALS_JSON}]"
+      echo "Running: forge script script/DeployHarbor.s.sol:DeployHarborPegged --sig \"$SIG\" \"$NETWORK\" \"$SALT\" \"$PEGGED\" \"$COLLATERALS_JSON\" --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
 
-  FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarbor \
-    --sig "$SIG" "$SALT" "$NETWORK" \
-    --rpc-url "$NETWORK" \
-    --broadcast --slow $VERIFY \
-    $WALLET_ARGS \
-    $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
+      FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarborPegged \
+        --sig "$SIG" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERALS_JSON" \
+        --rpc-url "$NETWORK" \
+        --broadcast --slow $VERIFY \
+        $WALLET_ARGS \
+        $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
 
-  echo "$FORGE_OUTPUT"
+      echo "$FORGE_OUTPUT"
 
-  # Handle forge failure - exit immediately on error
-  if [[ $FORGE_EXIT -ne 0 ]]; then
-    # Extract error selector and decode it
-    if SELECTOR=$(echo "$FORGE_OUTPUT" | grep -oE 'custom error 0x[a-fA-F0-9]{8}' | grep -oE '0x[a-fA-F0-9]{8}' | head -1); then
-      cast decode-error "$SELECTOR" 2>/dev/null || true
+      if [[ $FORGE_EXIT -ne 0 ]]; then
+        if SELECTOR=$(echo "$FORGE_OUTPUT" | grep -oE 'custom error 0x[a-fA-F0-9]{8}' | grep -oE '0x[a-fA-F0-9]{8}' | head -1); then
+          cast decode-error "$SELECTOR" 2>/dev/null || true
+        fi
+        exit 1
+      fi
+    else
+      echo ""
+      echo "=== Skipping pegged token deployment (--no-pegged) ==="
     fi
-    exit 1
+
+    # Step 2: Deploy minter for each collateral
+    for COLLATERAL in "${COLLATERALS[@]}"; do
+      echo ""
+      echo "=== Deploying minter for collateral: $COLLATERAL ==="
+      SIG="deployMinter(string,string,string,string)"
+      echo "Running: forge script script/DeployHarbor.s.sol:DeployHarborMinter --sig \"$SIG\" \"$NETWORK\" \"$SALT\" \"$PEGGED\" \"$COLLATERAL\" --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
+
+      FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarborMinter \
+        --sig "$SIG" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL" \
+        --rpc-url "$NETWORK" \
+        --broadcast --slow $VERIFY \
+        $WALLET_ARGS \
+        $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
+
+      echo "$FORGE_OUTPUT"
+
+      if [[ $FORGE_EXIT -ne 0 ]]; then
+        if SELECTOR=$(echo "$FORGE_OUTPUT" | grep -oE 'custom error 0x[a-fA-F0-9]{8}' | grep -oE '0x[a-fA-F0-9]{8}' | head -1); then
+          cast decode-error "$SELECTOR" 2>/dev/null || true
+        fi
+        exit 1
+      fi
+    done
+
+  else
+    # Smoke test phase
+    echo "Running smoke test..."
+
+    # Step 1: Smoke pegged token (unless --no-pegged)
+    if [[ "$NO_PEGGED" != "true" ]]; then
+      echo ""
+      echo "=== Smoke testing pegged token: $PEGGED ==="
+      SIG="smokePegged(string,string,string,string[])"
+      # Build JSON array of collaterals: ["stETH","fxUSD"]
+      COLLATERALS_JSON=$(printf '"%s",' "${COLLATERALS[@]}" | sed 's/,$//')
+      COLLATERALS_JSON="[${COLLATERALS_JSON}]"
+      echo "Running: forge script script/DeployHarbor.s.sol:DeployHarborPegged --sig \"$SIG\" \"$NETWORK\" \"$SALT\" \"$PEGGED\" \"$COLLATERALS_JSON\" --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
+
+      FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarborPegged \
+        --sig "$SIG" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERALS_JSON" \
+        --rpc-url "$NETWORK" \
+        --broadcast --slow $VERIFY \
+        $WALLET_ARGS \
+        $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
+
+      echo "$FORGE_OUTPUT"
+
+      if [[ $FORGE_EXIT -ne 0 ]]; then
+        if SELECTOR=$(echo "$FORGE_OUTPUT" | grep -oE 'custom error 0x[a-fA-F0-9]{8}' | grep -oE '0x[a-fA-F0-9]{8}' | head -1); then
+          cast decode-error "$SELECTOR" 2>/dev/null || true
+        fi
+        exit 1
+      fi
+    else
+      echo ""
+      echo "=== Skipping pegged token smoke test (--no-pegged) ==="
+    fi
+
+    # Step 2: Smoke minter for each collateral
+    for COLLATERAL in "${COLLATERALS[@]}"; do
+      echo ""
+      echo "=== Smoke testing minter for collateral: $COLLATERAL ==="
+      SIG="smokeMinter(string,string,string,string)"
+      echo "Running: forge script script/DeployHarbor.s.sol:DeployHarborMinter --sig \"$SIG\" \"$NETWORK\" \"$SALT\" \"$PEGGED\" \"$COLLATERAL\" --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
+
+      FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarborMinter \
+        --sig "$SIG" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL" \
+        --rpc-url "$NETWORK" \
+        --broadcast --slow $VERIFY \
+        $WALLET_ARGS \
+        $RESUME $VERBOSITY 2>&1) && FORGE_EXIT=0 || FORGE_EXIT=$?
+
+      echo "$FORGE_OUTPUT"
+
+      if [[ $FORGE_EXIT -ne 0 ]]; then
+        if SELECTOR=$(echo "$FORGE_OUTPUT" | grep -oE 'custom error 0x[a-fA-F0-9]{8}' | grep -oE '0x[a-fA-F0-9]{8}' | head -1); then
+          cast decode-error "$SELECTOR" 2>/dev/null || true
+        fi
+        exit 1
+      fi
+    done
   fi
 
   echo ""
