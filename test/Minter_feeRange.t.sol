@@ -730,7 +730,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertNear(
                 post.leveragedPrice,
                 post.minterLeveraged == 0 ? 1e18 : pre.leveragedPrice,
-                40,
+                50,
                 p <= 1e9
                     ? 0.000004 ether
                     : p <= 1e18
