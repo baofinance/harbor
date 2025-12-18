@@ -1,0 +1,120 @@
+{
+  "prefix": "test1",
+  "peggedTicker": "USD",
+  "networks": {
+    "local": {
+      "chainId": 1,
+      "collateral": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+      "wrappedCollateral": "0x5ee5bf7ae06d1be5997a1a72006fe6c607ec6de8",
+      "pegged": "0x6ff0fe773d4ad4ea923ba9ea9cc1c1b42b70f5fc"
+    },
+    "mainnet": {
+      "chainId": 1,
+      "collateral": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+      "wrappedCollateral": "0x5ee5bf7ae06d1be5997a1a72006fe6c607ec6de8",
+      "pegged": "0x6ff0fe773d4ad4ea923ba9ea9cc1c1b42b70f5fc"
+    }
+  },
+  "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "factory": "0x232C909F51Ce792e7F39106C75A3ED43F12d3554",
+  "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
+  "stabilityPoolWithdrawalDelay": 3600,
+  "stabilityPoolWithdrawalPeriod": 90000,
+  "stabilityPoolMinTotalAssetSupply": 1e18,
+  "contracts": {
+    "minterFeeReceiver": {
+      "name": "Minter Fee Receiver",
+      "tokens": [
+        "contracts.wrappedCollateral.address"
+      ],
+      "recipients": [
+        "treasury"
+      ],
+      "shares": [
+        1e18
+      ]
+    },
+    "minter": {
+      "peggedBurnSignature": "burn(uint256)",
+      "config": {
+        "mintLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            1.0e18,
+            1.1e18,
+            1.2e18,
+            1.4e18
+          ],
+          "incentiveRatios": [
+            -0.05e18,
+            -0.05e18,
+            0e18,
+            0.02e18,
+            0.07e18
+          ]
+        },
+        "mintPeggedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            1.31e18,
+            1.4e18
+          ],
+          "incentiveRatios": [
+            1e18,
+            0.01e18,
+            0.005e18
+          ]
+        },
+        "redeemLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            1.1e18,
+            1.4e18
+          ],
+          "incentiveRatios": [
+            1e18,
+            0.015e18,
+            0.012e18
+          ]
+        },
+        "redeemPeggedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            1e18,
+            1.1e18,
+            1.2e18,
+            1.4e18
+          ],
+          "incentiveRatios": [
+            -0.005e18,
+            -0.005e18,
+            0,
+            0.006e18,
+            0.008e18
+          ]
+        }
+      },
+      "feeReceiver": "contracts.minterFeeReceiver.address"
+    },
+    "stabilityPoolManagerFeeReceiver": {
+      "name": "StabilityPoolManager Cut Receiver",
+      "tokens": [
+        "contracts.wrappedCollateral.address"
+      ],
+      "recipients": [
+        "treasury",
+        "contracts.stabilityPoolCollateral.address",
+        "contracts.stabilityPoolLeveraged.address"
+      ],
+      "shares": [
+        4e16,
+        48e16,
+        48e16
+      ]
+    },
+    "stabilityPoolManager": {
+      "rebalanceThreshold": 130e16,
+      "rebalanceBountyRatio": 1e16,
+      "harvestBountyRatio": 1e16,
+      "harvestCutRatio": 100e16,
+      "feeReceiver": "contracts.stabilityPoolManagerFeeReceiver.address"
+    }
+  }
+}

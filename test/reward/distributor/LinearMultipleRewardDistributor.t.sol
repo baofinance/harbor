@@ -3,8 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
-import {MockERC20} from "test/mock/MockERC20.sol";
-import {MockLinearMultipleRewardDistributor} from "test/mock/reward/distributor/MockLinearMultipleRewardDistributor.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {MockLinearMultipleRewardDistributor} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol";
 import "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";

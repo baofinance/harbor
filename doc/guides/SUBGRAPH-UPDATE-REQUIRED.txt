@@ -1,0 +1,30 @@
+=== SUBGRAPH UPDATE REQUIRED ===
+
+The subgraph is currently configured with an OLD Genesis address.
+
+Current (WRONG):
+- Address: 0x6732128F9cc0c4344b2d4DC6285BCd516b7E59E6
+- Start Block: 0
+
+Updated (CORRECT):
+- Address: 0xA4899D35897033b927acFCf422bc745916139776 (Genesis PROXY)
+- Start Block: 93
+
+The subgraph.yaml has been updated. You need to:
+
+1. Navigate to subgraph directory:
+   cd /Users/andrewyoung/Harbor-App/harbor-app/subgraph
+
+2. Build the subgraph:
+   graph build
+
+3. Redeploy:
+   graph deploy --node http://localhost:8020/ \
+     --ipfs http://localhost:5001 \
+     harbor-marks-local \
+     --version-label v1.0.1
+
+Or use the quick script if available:
+   ./QUICK-UPDATE-SUBGRAPH.sh
+
+After redeployment, the subgraph will index events from the new Genesis contract.

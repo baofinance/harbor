@@ -1,0 +1,72 @@
+================================================================================
+FRONTEND FIX REQUIRED - End Genesis Failing
+================================================================================
+
+ISSUE
+-----
+The "End Genesis" transaction is failing because:
+1. Frontend is using OLD Genesis address
+2. NEW Genesis was missing ZERO_FEE_ROLE (now fixed)
+
+FIX APPLIED
+-----------
+✅ Granted ZERO_FEE_ROLE to NEW Genesis on Minter
+
+FRONTEND UPDATE REQUIRED
+-------------------------
+You MUST update your frontend to use the NEW Genesis address:
+
+❌ OLD (remove): 0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82
+✅ NEW (use):    0xAD523115cd35a8d4E60B3C0953E0E0ac10418309
+
+After updating, endGenesis() should work!
+
+CURRENT CONFIGURATION
+---------------------
+Genesis (NEW): 0xAD523115cd35a8d4E60B3C0953E0E0ac10418309
+Minter:        0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+Owner:         0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+
+✅ NEW Genesis has ZERO_FEE_ROLE on Minter
+✅ Owner account can call endGenesis()
+
+================================================================================
+
+
+FRONTEND FIX REQUIRED - End Genesis Failing
+================================================================================
+
+ISSUE
+-----
+The "End Genesis" transaction is failing because:
+1. Frontend is using OLD Genesis address
+2. NEW Genesis was missing ZERO_FEE_ROLE (now fixed)
+
+FIX APPLIED
+-----------
+✅ Granted ZERO_FEE_ROLE to NEW Genesis on Minter
+
+FRONTEND UPDATE REQUIRED
+-------------------------
+You MUST update your frontend to use the NEW Genesis address:
+
+❌ OLD (remove): 0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82
+✅ NEW (use):    0xAD523115cd35a8d4E60B3C0953E0E0ac10418309
+
+After updating, endGenesis() should work!
+
+CURRENT CONFIGURATION
+---------------------
+Genesis (NEW): 0xAD523115cd35a8d4E60B3C0953E0E0ac10418309
+Minter:        0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+Owner:         0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+
+✅ NEW Genesis has ZERO_FEE_ROLE on Minter
+✅ Owner account can call endGenesis()
+
+================================================================================
+
+
+
+
+

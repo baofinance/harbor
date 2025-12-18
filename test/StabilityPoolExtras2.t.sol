@@ -8,7 +8,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
-import {MockERC20} from "test/mock/MockERC20.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 

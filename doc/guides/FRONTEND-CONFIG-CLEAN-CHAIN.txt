@@ -1,0 +1,41 @@
+===============================================================================
+FRONTEND CONFIGURATION - Clean Anvil Chain Deployment
+===============================================================================
+
+QUICK COPY-PASTE FOR FRONTEND AI:
+---------------------------------
+
+GraphQL Endpoint: http://localhost:8000/subgraphs/name/harbor-marks-local
+
+Network: anvil (Chain ID: 31337)
+RPC URL: http://localhost:8545
+
+Environment Variable:
+NEXT_PUBLIC_GRAPH_URL=http://localhost:8000/subgraphs/name/harbor-marks-local
+
+CONTRACT ADDRESSES:
+------------------
+Genesis: 0x67d269191c92Caf3cD7723F116c85e6E9bf55933
+Minter: 0x4A679253410272dd5232B3Ff7cF5dbB88f295319
+Pegged Token (haPB): 0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1
+Leveraged Token: 0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44
+Reserve Pool: 0x7a2088a1bFc9d81c55368AE168C2C02570cB814F
+Stability Pool Manager: 0xc5a5C42992dECbae36851359345FE25997F5C42d
+Fee Receiver: 0x09635F643e140090A9A8Dcd712eD6285858ceBef
+Price Oracle: 0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9
+Collateral Token (stETH): 0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9
+Wrapped Collateral (wstETH): 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+Stability Pool Collateral: 0x82e01223d51Eb87e16A03E24687EDF0F294da6f1
+Stability Pool Leveraged: null
+
+TOKEN NAMES:
+Pegged Token: Harbor Anchored PB (haPB)
+Leveraged Token: Harbor Sail hsPBxstETH (hshsPBxstETH)
+
+Developer Address: 0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e
+
+VERIFICATION:
+✅ Developer is owner of Genesis contract
+✅ Developer has ZERO_FEE_ROLE on Minter
+✅ Clean Anvil chain (no problematic blocks)
+✅ Graph Node should sync quickly

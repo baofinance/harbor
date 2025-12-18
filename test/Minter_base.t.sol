@@ -24,9 +24,9 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "test/IBaoUSD.sol";
-import {MockERC20, MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "test/mock/MockERC20.sol";
+import {MockERC20, MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "@bao-test/mocks/MockERC20.sol";
 import "test/Useful.sol";
 import {Array} from "test/Array.sol";
 

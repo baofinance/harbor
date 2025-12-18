@@ -7,25 +7,39 @@ enabled = false # unset = let the compiler decide
 
 [compiler.solc]
 # Exclude paths define locations of Solidity files that should not be compiled unless imported from another non-excluded file.
-exclude_paths = ["node_modules", "venv", "lib", "fx"]
+exclude_paths = ["node_modules", "venv", "lib", "doc"]
 # include paths are for import resolution
-include_paths = []
 remappings = [
+  # foundry
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
-  "openzeppelin-contracts/contracts=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
+  # openzeppelin
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
-  "dummy/=/lib/dummy",
-  "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
+  # solady
   "@solady/=lib/solady/src/",
+  # chainlink
+  "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
+  # bao audited code
   "@bao/=lib/bao-base-audit-2025-07/src/",
+  # bao latest
+  "@bao-test/=lib/bao-base/test/",
+  "@bao-script/=lib/bao-base/script/",
+  # bao-factory is a transitive dependency via bao-base
+  "@bao-factory/=lib/bao-base/lib/bao-factory/src/",
+  "@bao-factory-test/=lib/bao-base/lib/bao-factory/test/",
+  # harbor
+  "@harbor/=src/",
+  "@harbor-script/=script//",
+  "@harbor-test/=test//",
+  # retain the below for legacy
   "src/=src/",
   "test/=test/",
 ]
 
+include_paths = []
 
 [lsp.code_lens]
 enable = true

@@ -10,7 +10,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
 import {TestMinterMint} from "test/Minter_mint.t.sol";
 

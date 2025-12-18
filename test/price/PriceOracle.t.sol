@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {PriceOracle_v1} from "src/price/PriceOracle_v1.sol";
 import {IPriceOracleErrors} from "src/interfaces/IPriceOracleErrors.sol";
-import {MockAggregator} from "test/mock/MockAggregator.sol";
+import {MockAggregator} from "test/mocks/MockAggregator.sol";
 
 contract PriceOracleTest is Test {
     uint64 constant MAX_ANSWER_AGE = 3600; // 1 hour

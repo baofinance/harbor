@@ -7,7 +7,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
-import {MockERC20} from "test/mock/MockERC20.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
 
 contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {

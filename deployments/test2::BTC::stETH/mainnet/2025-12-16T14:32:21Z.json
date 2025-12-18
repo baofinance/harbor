@@ -1,0 +1,417 @@
+{
+  "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+  "prefix": "test2",
+  "peggedTicker": "BTC",
+  "treasury": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+  "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+  "priceOracle": "0xe370289af2145a5b2f0f7a4a900ebfd478a156db",
+  "contracts": {
+    "minterFeeReceiver": {
+      "name": "Minter Fee Receiver",
+      "tokens": [
+        "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"
+      ],
+      "recipients": [
+        "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2"
+      ],
+      "shares": [
+        100e16
+      ],
+      "address": "0xc780d822fc50fdf802c813422bac5aa7aca8c84c",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::minterFeeReceiver",
+      "salt": "0xf401586cb44daa5156f6243ad37e70327697c5d026692959490670ca38cea5cd",
+      "implementation": {
+        "address": "0x3186c3e6fc8f355a5db621a0ace6d6733fc26d2f",
+        "contractType": "TokenDistributor_v1",
+        "contractPath": "src/minter/TokenDistributor_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      }
+    },
+    "stabilityPoolManagerFeeReceiver": {
+      "name": "StabilityPoolManager Cut Receiver",
+      "tokens": [
+        "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"
+      ],
+      "recipients": [
+        "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+        "0x86297bd2de92e91486c7e3b32cb5bc18f0a363bc",
+        "0x8d6307be018fcc42ad65e91b77c6b09c7ac9f0df"
+      ],
+      "shares": [
+        4e16,
+        48e16,
+        48e16
+      ],
+      "address": "0xe3240699b2a7ba353967ff3f6004b85880f98dc1",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::stabilityPoolManagerFeeReceiver",
+      "salt": "0x9a0cd85f0085488cfcdf2c798c154fcbece08165f9ddcfa977170e5156721dc4",
+      "implementation": {
+        "address": "0x895bac2ed34b1df16b56f2a11bb73cb7acec430a",
+        "contractType": "TokenDistributor_v1",
+        "contractPath": "src/minter/TokenDistributor_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      }
+    },
+    "minter": {
+      "config": {
+        "mintPeggedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            131e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            100e16,
+            1e16,
+            0.5e16
+          ]
+        },
+        "redeemPeggedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            100e16,
+            110e16,
+            120e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            -0.5e16,
+            -0.5e16,
+            0,
+            0.6e16,
+            0.8e16
+          ]
+        },
+        "mintLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            100e16,
+            110e16,
+            120e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            -5e16,
+            -5e16,
+            0,
+            2e16,
+            7e16
+          ]
+        },
+        "redeemLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            110e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            100e16,
+            1.5e16,
+            1.2e16
+          ]
+        }
+      },
+      "feeReceiver": "0xc780d822fc50fdf802c813422bac5aa7aca8c84c",
+      "address": "0x042e7cb5b993312490ea07fb89f360a65b8a9056",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::minter",
+      "salt": "0x4dc17e458b690c801dc2b91f084c3b8ac7d7adf24489c4222c57416d205561f2",
+      "implementation": {
+        "address": "0x01a69a23a1813489bcf1fffc4a37f7103d198ea8",
+        "contractType": "Minter_v1",
+        "contractPath": "src/minter/Minter_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      },
+      "roles": {
+        "HARVESTER_ROLE": {
+          "value": 2,
+          "grantees": [
+            "contracts.stabilityPoolManager"
+          ]
+        },
+        "ZERO_FEE_ROLE": {
+          "value": 1,
+          "grantees": [
+            "contracts.genesis"
+          ]
+        }
+      }
+    },
+    "stabilityPoolManager": {
+      "rebalanceThreshold": 130e16,
+      "rebalanceBountyRatio": 1e16,
+      "harvestBountyRatio": 1e16,
+      "harvestCutRatio": 100e16,
+      "feeReceiver": "0xe3240699b2a7ba353967ff3f6004b85880f98dc1",
+      "address": "0x97803311470d6ce713ad70d720d33876c4a98efb",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::stabilityPoolManager",
+      "salt": "0x9099771850e8e17aaa4382ec59265a56b1477928839cd8c54c3f8c2b9676f279",
+      "implementation": {
+        "address": "0x3bf2afbab129824ada743bc59987dedba0717871",
+        "contractType": "StabilityPoolManager_v1",
+        "contractPath": "src/minter/StabilityPoolManager_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      }
+    },
+    "collateral": {
+      "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+      "symbol": "stETH",
+      "name": "Liquid staked Ether 2.0"
+    },
+    "wrappedCollateral": {
+      "address": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+      "symbol": "wstETH",
+      "name": "Wrapped liquid staked Ether 2.0"
+    },
+    "priceOracle": {
+      "address": "0xe370289af2145a5b2f0f7a4a900ebfd478a156db"
+    },
+    "pegged": {
+      "address": "0x1822bbe8fe313c4b53414f0b3e5ef8147d485530",
+      "symbol": "haBTC",
+      "name": "Harbor anchored BTC",
+      "roles": {
+        "MINTER_ROLE": {
+          "value": 1,
+          "grantees": []
+        },
+        "BURNER_ROLE": {
+          "value": 2,
+          "grantees": []
+        }
+      }
+    },
+    "leveraged": {
+      "symbol": "hsSTETH-BTC",
+      "name": "Harbor sail: variable leveraged long stETH against BTC",
+      "address": "0x1df67ebd59db60a13ec783472aaf22e5b2b01f25",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::leveraged",
+      "salt": "0x6f4c1093a83fc4fdfbe7e4385ab61c20389893484c21232ac415c770dc2192ab",
+      "implementation": {
+        "address": "0x987bb8e25e0637fe69daf40c497b3fbc5752dda4",
+        "contractType": "MintableBurnableERC20_v1",
+        "contractPath": "lib/bao-base-audit-2025-07/src/MintableBurnableERC20_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      },
+      "roles": {
+        "MINTER_ROLE": {
+          "value": 1,
+          "grantees": [
+            "contracts.minter"
+          ]
+        },
+        "BURNER_ROLE": {
+          "value": 2,
+          "grantees": [
+            "contracts.minter"
+          ]
+        }
+      }
+    },
+    "reservePool": {
+      "address": "0x18aef82111b673d99b4fbbcf7a4bd1e06734cc3d",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::reservePool",
+      "salt": "0xe78ecd559e096368caf9d7b1db90b4481c772324377eb56567076bb66bce2aa1",
+      "implementation": {
+        "address": "0xf17261f9ea6461d9f841f16a7fde22acf112760f",
+        "contractType": "ReservePool_v1",
+        "contractPath": "src/minter/ReservePool_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      },
+      "roles": {
+        "REQUESTER_ROLE": {
+          "value": 1,
+          "grantees": [
+            "contracts.minter"
+          ]
+        }
+      }
+    },
+    "stabilityPoolCollateral": {
+      "address": "0x86297bd2de92e91486c7e3b32cb5bc18f0a363bc",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::stabilityPoolCollateral",
+      "salt": "0x9af7a663a30ef202c2a18d5879b15925660f67f6f74c16cf242adb3f35b0aa94",
+      "implementation": {
+        "address": "0x751e5becdaf69a40809641d28f473fefc5046dfe",
+        "contractType": "StabilityPool_v1",
+        "contractPath": "src/minter/StabilityPool_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      },
+      "liquidation": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+      "rewardTokens": [
+        "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"
+      ],
+      "roles": {
+        "REBALANCER_ROLE": {
+          "value": 2,
+          "grantees": [
+            "contracts.stabilityPoolManager"
+          ]
+        },
+        "REWARD_DEPOSITOR_ROLE": {
+          "value": 4,
+          "grantees": [
+            "contracts.stabilityPoolManager"
+          ]
+        },
+        "REWARD_MANAGER_ROLE": {
+          "value": 1,
+          "grantees": []
+        }
+      }
+    },
+    "stabilityPoolLeveraged": {
+      "address": "0x8d6307be018fcc42ad65e91b77c6b09c7ac9f0df",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::stabilityPoolLeveraged",
+      "salt": "0x8d1356706afd02ef5a28f4bac50737be87beb284fb173ee420387347dfd3ca9d",
+      "implementation": {
+        "address": "0x458d2477dac27cff17747c523305db8d43183249",
+        "contractType": "StabilityPool_v1",
+        "contractPath": "src/minter/StabilityPool_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      },
+      "liquidation": "0x1df67ebd59db60a13ec783472aaf22e5b2b01f25",
+      "rewardTokens": [
+        "0x1df67ebd59db60a13ec783472aaf22e5b2b01f25",
+        "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"
+      ],
+      "roles": {
+        "REBALANCER_ROLE": {
+          "value": 2,
+          "grantees": [
+            "contracts.stabilityPoolManager"
+          ]
+        },
+        "REWARD_DEPOSITOR_ROLE": {
+          "value": 4,
+          "grantees": [
+            "contracts.stabilityPoolManager"
+          ]
+        },
+        "REWARD_MANAGER_ROLE": {
+          "value": 1,
+          "grantees": []
+        }
+      }
+    },
+    "genesis": {
+      "address": "0x9ae0b57ceada0056dbe21edcd638476fcba3ccc0",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+      "blockNumber": 24025785,
+      "factory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+      "owner": "0x9babfc1a1952a6ed2cac1922bffe80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "test2::BTC::stETH::genesis",
+      "salt": "0x9917be9889ce7e7e11ca38f9519e64ed1f4302e422114299fc6b59e062f2f9fb",
+      "implementation": {
+        "address": "0x07449b7486c7f698e7b6ed5f32095055da2bbb08",
+        "contractType": "Genesis_v1",
+        "contractPath": "src/minter/Genesis_v1.sol",
+        "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+        "blockNumber": 24025785,
+        "ownershipModel": "transferred-after-deploy"
+      }
+    }
+  },
+  "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
+  "stabilityPoolWithdrawalDelay": 3600,
+  "stabilityPoolWithdrawalPeriod": 90000,
+  "stabilityPoolMinTotalAssetSupply": 1e18,
+  "networks": {
+    "mainnet": {
+      "chainId": 1,
+      "collateral": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+      "wrappedCollateral": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0"
+    }
+  },
+  "schemaVersion": 1,
+  "systemSaltString": "test2::BTC::stETH",
+  "session": {
+    "network": "mainnet",
+    "chainId": 1,
+    "startTimestamp": 1765895531,
+    "started": "2025-12-16T14:32:11Z",
+    "startBlock": 24025785,
+    "deployer": "0x61c533e213fe1a19975101369b9f7e7890196290",
+    "stub": {
+      "address": "0x437eab93eb13d57cb99df753946c3e8e094dc169",
+      "contractType": "UUPSProxyDeployStub",
+      "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
+      "blockNumber": 24025785
+    },
+    "finishTimestamp": 1765895531,
+    "finished": "2025-12-16T14:32:11Z",
+    "finishBlock": 24025785
+  },
+  "BaoFactory": "0x232c909f51ce792e7f39106c75a3ed43f12d3554",
+  "peggedSaltString": "test2::BTC"
+}

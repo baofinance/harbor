@@ -1,0 +1,38 @@
+# Template for subgraph.yaml configuration
+# Replace <SUBGRAPH_NAME> with your subgraph name (e.g., harbor-marks-local)
+
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: Genesis
+    network: anvil # Network name - matches Graph Node configuration
+    source:
+      address: "0xDeF8a62f50BA3B9f319B473c48928595A333acba" # Genesis contract address from Anvil
+      abi: Genesis
+      startBlock: 23821852 # Deployment block number (decimal) - update with get-contract-info.sh
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - UserHarborMarks
+        - GenesisMarket
+      abis:
+        - name: Genesis
+          file: ./abis/Genesis.json
+      eventHandlers:
+        - event: Deposit(indexed address,indexed address,uint256)
+          handler: handleDeposit
+        - event: Withdraw(indexed address,indexed address,uint256)
+          handler: handleWithdraw
+        - event: GenesisEnds()
+          handler: handleGenesisEnds
+      file: ./src/genesis.ts
+# Instructions:
+# 1. Copy this file to your subgraph directory as subgraph.yaml
+# 2. Update the address and startBlock with values from get-contract-info.sh
+# 3. Ensure your ABI file exists at ./abis/Genesis.json
+# 4. Ensure your handler file exists at ./src/genesis.ts
+

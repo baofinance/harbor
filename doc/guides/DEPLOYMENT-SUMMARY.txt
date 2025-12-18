@@ -1,0 +1,38 @@
+================================================================================
+DEPLOYMENT SUMMARY - Fresh Start After Problematic Block
+================================================================================
+
+✅ COMPLETED:
+------------
+1. Anvil restarted with fork from block 23829220 (after problematic block)
+2. All contracts redeployed
+3. Developer address verified as owner of Genesis contract
+4. Developer has ZERO_FEE_ROLE on Minter
+5. Subgraph deployed with correct start block
+6. Frontend configuration created
+
+⚠️  CURRENT STATUS:
+------------------
+- Graph Node block ingestor may still hit problematic blocks from mainnet history
+- Subgraph is healthy and waiting to index
+- Start block is set correctly (23829229)
+- Once Graph Node progresses, indexing will begin
+
+📋 FRONTEND CONFIGURATION:
+--------------------------
+See: FRONTEND-CONFIG-NEW.txt
+
+All contract addresses are ready for frontend integration.
+
+🔍 MONITORING:
+-------------
+Run: cd graph-node-local && ./check-subgraph-status.sh
+Or: cd graph-node-local && ./monitor-subgraph.sh
+
+📝 NEXT STEPS:
+-------------
+1. Make test deposits/withdrawals to generate events
+2. Monitor subgraph to see when events are indexed
+3. Update frontend with addresses from FRONTEND-CONFIG-NEW.txt
+
+================================================================================

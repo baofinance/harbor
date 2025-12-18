@@ -14,7 +14,7 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 import "test/Useful.sol";
 import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";

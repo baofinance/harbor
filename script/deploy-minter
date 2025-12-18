@@ -170,14 +170,14 @@ upgrade_proxy leveragedToken LeveragedToken_v1 \
 # priceOracle
 # -----------
 # mock price oracle
-deploy_contract MockWrappedPriceOracle "test/mock/MockWrappedPriceOracle.sol:MockWrappedPriceOracle"
+deploy_contract MockWrappedPriceOracle "test/mocks/MockWrappedPriceOracle.sol:MockWrappedPriceOracle"
 
 # real price oracle
 deploy_library PriceOracle_v1 "src/price/PriceOracle_v1.sol:PriceOracle_v1"
 
 deploy_contract StakedETHWrappedPriceOracle_v1 "src/price/StakedETHWrappedPriceOracle_v1.sol:StakedETHWrappedPriceOracle_v1" \
   --libraries PriceOracle_v1 \
-  --constructor-args collateralToken.priceFeed.usd wrappedCollateralToken 3600 300 300 300
+  --constructor-args collateralToken.priceFeed.usd wrappedCollateralToken 7200 300 300 300
 
 upgrade_proxy stakedETHWrappedPriceOracle StakedETHWrappedPriceOracle_v1 "initialize(address)" owner
 
@@ -305,25 +305,38 @@ fi
 # genesis
 #########
 deploy_contract Genesis_v1 "src/minter/Genesis_v1.sol:Genesis_v1" --constructor-args minter
-upgrade_proxy genesis Genesis_v1 "initialize(address)" owner
-grantRoles genesis minter.ZERO_FEE_ROLE
 
 ###################################################################################################
 # developer options
 ###################################################################################################
 if [[ -n "${DEVELOPER_ROLES}" ]]; then
   record developer.address "${DEVELOPER}"
+  # initialize genesis with developer as finalOwner (pending owner)
+  # This sets the pending owner to developer, allowing transfer within 1 hour
+  upgrade_proxy genesis Genesis_v1 "initialize(address)" developer
+  # Complete the ownership transfer to developer (must be done within 1 hour of initialization)
+  log "completing genesis ownership transfer to developer ${DEVELOPER}."
+  send_transaction genesis "transferOwnership(address)" developer
   for role in ${DEVELOPER_ROLES//,/ }; do
     log "granting ${role} to developer ${DEVELOPER}."
     grantRoles developer "${role}" || warn "failed to grant ${role} to developer ${DEVELOPER}, continuing anyway"
   done
+else
+  upgrade_proxy genesis Genesis_v1 "initialize(address)" owner
+  # Complete the ownership transfer to owner (must be done within 1 hour of initialization)
+  send_transaction genesis "transferOwnership(address)" owner
 fi
+grantRoles genesis minter.ZERO_FEE_ROLE
 
 ###################################################################################################
 # upgrade the proxies with implementations
 ###################################################################################################
 # finalise tokens by transferring ownership
 for contract in ${BaoOwnables[@]}; do
+  # skip genesis if developer roles are set (already transferred to developer)
+  if [[ "${contract}" == "genesis" && -n "${DEVELOPER_ROLES}" ]]; then
+    continue
+  fi
   send_transaction "${contract}" "transferOwnership(address)" owner
 done
 

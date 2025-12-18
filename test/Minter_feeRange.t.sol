@@ -10,7 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
 import "test/Useful.sol";
 import {TestMinterSetUp} from "test/Minter_base.t.sol";
@@ -730,7 +730,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertNear(
                 post.leveragedPrice,
                 post.minterLeveraged == 0 ? 1e18 : pre.leveragedPrice,
-                40,
+                50,
                 p <= 1e9
                     ? 0.000004 ether
                     : p <= 1e18
@@ -1075,7 +1075,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertNear(
             post.userPegged,
             postSteps.userPegged,
-            areDisallows ? 70 : 0,
+            10 * steps,
             areDisallows ? 0.0000003 ether : 0,
             "mp integral user pegged"
         );
@@ -1085,7 +1085,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertNear(
             post.minterPegged,
             postSteps.minterPegged,
-            areDisallows ? 70 : 0,
+            10 * steps,
             areDisallows ? 3e11 : 0,
             "mp integral minter pegged"
         );

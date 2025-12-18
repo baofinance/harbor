@@ -23,7 +23,7 @@ import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mock/MockWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "test/Rebalance.t.sol";
 
 import "test/Useful.sol";

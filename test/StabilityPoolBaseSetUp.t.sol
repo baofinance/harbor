@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
-import {MockERC20} from "test/mock/MockERC20.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
 
 /// @title TestStabilityPoolLossSetUp
