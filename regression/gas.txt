@@ -1,3 +1,27 @@
+lib/bao-base-audit-2025-07/src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
+| function name     |       max |
+|-------------------|-----------|
+| BURNER_ROLE       | 2.620e+02 |
+| MINTER_ROLE       | 2.600e+02 |
+| allowance         | 2.810e+03 |
+| approve           | 2.480e+04 |
+| balanceOf         | 2.683e+03 |
+| burnFrom          | 1.850e+04 |
+| decimals          | 2.880e+02 |
+| grantRoles        | 2.636e+04 |
+| initialize        | 1.663e+05 |
+| mint              | 4.907e+04 |
+| name              | 3.217e+03 |
+| symbol            | 3.207e+03 |
+| totalSupply       | 2.326e+03 |
+| transfer          | 2.999e+04 |
+| transferOwnership | 1.207e+04 |
+
+lib/bao-base-audit-2025-07/src/Token.sol:Token
+| function name                       |       max |
+|-------------------------------------|-----------|
+| hasNonMutatingParameterlessFunction | 1.508e+03 |
+
 src/minter/Genesis_v1.sol:Genesis_v1
 | function name            |       max |
 |--------------------------|-----------|
@@ -51,7 +75,7 @@ src/minter/Minter_v1.sol:Minter_v1
 | peggedTokenPrice                   | 1.923e+04 |
 | priceOracle                        | 2.427e+03 |
 | redeemLeveragedToken               | 1.277e+05 |
-| redeemLeveragedTokenDryRun         | 6.317e+04 |
+| redeemLeveragedTokenDryRun         | 6.318e+04 |
 | redeemLeveragedTokenIncentiveRatio | 2.924e+04 |
 | redeemPeggedForCollateralRatio     | 1.958e+04 |
 | redeemPeggedToken                  | 1.323e+05 |
