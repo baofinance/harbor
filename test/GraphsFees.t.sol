@@ -13,7 +13,6 @@ import {TestGraphs} from "test/Graphs.t.sol";
 contract TestGraphsFees is TestGraphs, TestCollateralRatioRangeSetUp {
     string feesFile;
     string fees1File;
-    string invariantFile;
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -45,20 +44,11 @@ contract TestGraphsFees is TestGraphs, TestCollateralRatioRangeSetUp {
                 "Redeem Leveraged Fees"
             )
         );
-
-        invariantFile = openFile(
-            "invariant",
-            sa("Collateral Ratio", "Leverage Ratio", "Pegged NAV", "Leveraged NAV", "Collateral NAV")
-        );
-
-        // IStabilityPool(stabilityPoolCollateral).deposit(4 * startPrice, address(this), 0);
-        // IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
     }
 
     function setDown() internal override {
         vm.closeFile(feesFile);
         vm.closeFile(fees1File);
-        vm.closeFile(invariantFile);
     }
 
     function getInstantIncentives()
@@ -134,17 +124,6 @@ contract TestGraphsFees is TestGraphs, TestCollateralRatioRangeSetUp {
                 redeemPeggedFees,
                 mintLeveragedFees,
                 redeemLeveragedFees
-            )
-        );
-
-        writeLine(
-            invariantFile,
-            ua(
-                currentCollateralRatio,
-                IMinter(minter).leverageRatio(),
-                IMinter(minter).peggedTokenPrice(),
-                IMinter(minter).leveragedTokenPrice(),
-                currentPrice
             )
         );
     }
