@@ -20,21 +20,6 @@ enum Mode {
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
  */
 contract DeployHarborPegged is HarborPeggedDeploymentJsonScript {
-    // address constant HARBORMULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
-
-    // function setBaoFactoryOperator() public {
-    //     console.log("=== Setting BaoFactory Operator ===");
-    //     address baoFactory = _ensureBaoFactory();
-    //     if (!BaoFactory(baoFactory).isCurrentOperator(msg.sender)) {
-    //         console.log("Setting BaoFactory operator to Harbor Multisig: %s", msg.sender);
-    //         vm.prank(BaoFactory(baoFactory).owner());
-    //         BaoFactory(baoFactory).setOperator(msg.sender, 365 days);
-    //     } else {
-    //         console.log("BaoFactory operator is already an operator: %s", msg.sender);
-    //     }
-    //     console.log("=== BaoFactory Operator Set Complete ===\n");
-    // }
-
     function _doPegged(
         Mode mode,
         string memory network,
@@ -61,7 +46,8 @@ contract DeployHarborPegged is HarborPeggedDeploymentJsonScript {
 
             _deployPegged(collaterals);
         } else {
-            disableLogging();
+            setReadOnly();
+
             start(network, systemSalt, "latest");
 
             _smokePegged();
@@ -122,7 +108,8 @@ contract DeployHarborMinter is HarborMinterDeploymentJsonScript {
             _deployStabilityPoolManager();
             _deployGenesis();
         } else {
-            disableLogging();
+            setReadOnly();
+
             start(network, systemSalt, "latest");
 
             _smokeLeveraged();

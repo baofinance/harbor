@@ -51,7 +51,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
     string public constant PREFIX = "prefix";
     string public constant TREASURY = "treasury";
-    string public constant FACTORY = "factory";
 
     string public constant PEGGED_TICKER = "peggedTicker";
     string public constant PEGGED_SALT_STRING = "peggedSaltString";
@@ -74,11 +73,6 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         addStringKey(PEGGED_SALT_STRING);
 
         addAddressKey(TREASURY);
-        addAddressKey(FACTORY);
-    }
-
-    function _ensureBaoFactory() internal virtual override returns (address factory) {
-        factory = _getAddress(FACTORY);
     }
 
     /// @notice Override start to register network-specific schema keys, then copy network inputs to standard slots
@@ -91,6 +85,5 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         // pegged tokens are shared across systems with the same collateral, so remove that from the SYSTEM_SALT_STRING
         _setString(PEGGED_SALT_STRING, string.concat(_getString(PREFIX), "::", _getString(PEGGED_TICKER)));
-        _save();
     }
 }

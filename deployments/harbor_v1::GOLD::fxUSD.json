@@ -15,7 +15,6 @@
   },
   "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
   "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
-  "factory": "0x232C909F51Ce792e7F39106C75A3ED43F12d3554",
   "priceOracle": "0xD582D94F91c66b34F5Fe7Bb05736148dF80D01ae",
   "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
   "stabilityPoolWithdrawalDelay": 3600,
