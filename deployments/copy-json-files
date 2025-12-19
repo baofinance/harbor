@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+show_diff() {
+  echo -e "\n\033[1;36m=== $1 → $2 ===\033[0m"
+  diff --color=always "$1" "$2" || true
+}
+
+# Price oracles
+ORACLE_ETH_FXUSD='0x56d1a2Fc199bA05F84d2eb8eaB5858d3d954030C'
+ORACLE_BTC_FXUSD='0xF6e28853563Db7F7e42f5DB0e1f959743Ac5B0e6'
+ORACLE_EUR_FXUSD='0x87CDed6655B33E2C8F870AB9Bc7c8400220a6B40'
+ORACLE_GOLD_FXUSD='0xD582D94F91c66b34F5Fe7Bb05736148dF80D01ae'
+ORACLE_BTC_STETH='0xE370289aF2145A5B2F0F7a4a900eBfD478A156dB'
+
+# Base pegged token files (minimal config)
+sed 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  "test2::BTC.json" >"harbor_v1::BTC.json"
+show_diff "test2::BTC.json" "harbor_v1::BTC.json"
+
+sed 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  "test2::ETH.json" >"harbor_v1::ETH.json"
+show_diff "test2::ETH.json" "harbor_v1::ETH.json"
+
+sed -e 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  -e 's/"peggedTicker": "BTC"/"peggedTicker": "GOLD"/' \
+  "test2::BTC.json" >"harbor_v1::GOLD.json"
+show_diff "test2::BTC.json" "harbor_v1::GOLD.json"
+
+sed -e 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  -e 's/"peggedTicker": "BTC"/"peggedTicker": "EUR"/' \
+  "test2::BTC.json" >"harbor_v1::EUR.json"
+show_diff "test2::BTC.json" "harbor_v1::EUR.json"
+
+# Full collateral config files (fxUSD collateral)
+sed 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  "test2::BTC::fxUSD.json" >"harbor_v1::BTC::fxUSD.json"
+show_diff "test2::BTC::fxUSD.json" "harbor_v1::BTC::fxUSD.json"
+
+sed 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  "test2::ETH::fxUSD.json" >"harbor_v1::ETH::fxUSD.json"
+show_diff "test2::ETH::fxUSD.json" "harbor_v1::ETH::fxUSD.json"
+
+sed -e 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  -e 's/"peggedTicker": "BTC"/"peggedTicker": "GOLD"/' \
+  -e "s|\"priceOracle\": \"[^\"]*\"|\"priceOracle\": \"$ORACLE_GOLD_FXUSD\"|" \
+  "test2::BTC::fxUSD.json" >"harbor_v1::GOLD::fxUSD.json"
+show_diff "test2::BTC::fxUSD.json" "harbor_v1::GOLD::fxUSD.json"
+
+sed -e 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  -e 's/"peggedTicker": "BTC"/"peggedTicker": "EUR"/' \
+  -e "s|\"priceOracle\": \"[^\"]*\"|\"priceOracle\": \"$ORACLE_EUR_FXUSD\"|" \
+  "test2::BTC::fxUSD.json" >"harbor_v1::EUR::fxUSD.json"
+show_diff "test2::BTC::fxUSD.json" "harbor_v1::EUR::fxUSD.json"
+
+# BTC with stETH collateral (additional collateral for BTC)
+sed 's/"prefix": "test2"/"prefix": "harbor_v1"/' \
+  "test2::BTC::stETH.json" >"harbor_v1::BTC::stETH.json"
+show_diff "test2::BTC::stETH.json" "harbor_v1::BTC::stETH.json"
+
+echo "Done. Created harbor_v1 deployment files."

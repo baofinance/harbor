@@ -1,0 +1,7 @@
+{
+  "prefix": "harbor_v1",
+  "peggedTicker": "ETH",
+  "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "factory": "0x232C909F51Ce792e7F39106C75A3ED43F12d3554"
+}
