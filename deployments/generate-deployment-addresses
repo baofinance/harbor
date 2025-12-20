@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Generate a markdown file with Etherscan links for deployed contracts
+#
+# Reads: deployments/harbor_v1*.logs/mainnet/latest.json
+# Outputs: deployments/etherscan-links.md
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+OUTPUT_FILE="deployments/etherscan-links.md"
+
+{
+  echo "# Harbor Deployment Addresses"
+  echo ""
+  echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+  echo ""
+
+  for src in deployments/harbor_v1*.logs/mainnet/latest.json; do
+    [[ -f "$src" ]] || continue
+
+    # Extract base name (e.g., harbor_v1::BTC from harbor_v1::BTC.logs)
+    logs_dir=$(basename "$(dirname "$(dirname "$src")")")
+    base_name="${logs_dir%.logs}"
+
+    echo "## ${base_name}"
+    echo ""
+
+    # Extract all contract addresses using jq
+    jq -r '.contracts | to_entries[] | select(.value.address != null) | "\(.key) \(.value.address)"' "$src" | while read -r contract_name address; do
+      echo "- [${base_name} ${contract_name}](https://etherscan.io/address/${address}#code)"
+    done
+
+    echo ""
+  done
+} >"$OUTPUT_FILE"
+
+echo "Generated: $OUTPUT_FILE"
