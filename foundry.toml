@@ -35,8 +35,8 @@ remappings = [
   "@bao-factory-test/=lib/bao-base/lib/bao-factory/test/",
   # harbor
   "@harbor/=src/",
-  "@harbor-script/=script//",
-  "@harbor-test/=test//",
+  "@harbor-script/=script/",
+  "@harbor-test/=test/",
   # retain the below for legacy
   "src/=src/",
   "test/=test/",

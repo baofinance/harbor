@@ -1,0 +1,61 @@
+{
+  "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "prefix": "harbor_v1",
+  "peggedTicker": "EUR",
+  "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "schemaVersion": 1,
+  "systemSaltString": "harbor_v1::EUR",
+  "session": {
+    "network": "mainnet",
+    "chainId": 1,
+    "startTimestamp": 1766182835,
+    "started": "2025-12-19T22:20:35Z",
+    "startBlock": 24049586,
+    "deployer": "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38",
+    "stub": {
+      "address": "0xaF0126183c8c4987C506FdE2295947bb591dd581",
+      "contractType": "UUPSProxyDeployStub",
+      "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
+      "blockNumber": 24049586
+    },
+    "finishTimestamp": 1766182835,
+    "finished": "2025-12-19T22:20:35Z",
+    "finishBlock": 24049586
+  },
+  "BaoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "peggedSaltString": "harbor_v1::EUR",
+  "contracts": {
+    "pegged": {
+      "symbol": "haEUR",
+      "name": "Harbor anchored EUR",
+      "address": "0x83Fd69E0FF5767972b46E61C6833408361bF7346",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38",
+      "blockNumber": 24049586,
+      "factory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+      "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+      "category": "UUPS proxy",
+      "saltString": "harbor_v1::EUR::pegged",
+      "salt": "0x9ad5807e5c2d076c3b51843d2d1600c6e1b5b684fb0fd48f9abab1604566e6ab",
+      "implementation": {
+        "address": "0xe88A00298279D55718FB5E9d8009C1040c5905f7",
+        "contractType": "MintableBurnableERC20_v1",
+        "contractPath": "lib/bao-base-audit-2025-07/src/MintableBurnableERC20_v1.sol",
+        "deployer": "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38",
+        "blockNumber": 24049586,
+        "ownershipModel": "transferred-after-deploy"
+      },
+      "roles": {
+        "MINTER_ROLE": {
+          "value": 1,
+          "grantees": []
+        },
+        "BURNER_ROLE": {
+          "value": 2,
+          "grantees": []
+        }
+      }
+    }
+  }
+}

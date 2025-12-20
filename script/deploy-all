@@ -117,16 +117,13 @@ if [[ -z "$PHASE" ]]; then
   exit 1
 fi
 
-# For local network, can't verify; for others, verify by default
 if [[ "$NETWORK" == "local" ]]; then
-  VERIFY=""
   if [[ -n "$ACCOUNT" ]]; then
     WALLET_ARGS="--account $ACCOUNT"
   else
     WALLET_ARGS="--private-key $ANVIL_PRIVATE_KEY"
   fi
 else
-  VERIFY="--verify"
   # --account only required for deploy phases, not smoke (which is read-only)
   if [[ -z "$ACCOUNT" && "$PHASE" == deploy* ]]; then
     echo "Error: --account is required for deploy phases on non-local networks" >&2
@@ -153,13 +150,13 @@ deploy() {
   echo "--> doing ${PHASE} for $@	..."
   echo ""
 
-  script/deploy-harbor --$PHASE-pegged --network "$NETWORK" --salt "$SALT" $WALLET_ARGS $VERBOSITY $VERIFY "$@"
+  script/deploy-harbor --$PHASE-pegged --network "$NETWORK" --salt "$SALT" $WALLET_ARGS $VERBOSITY "$@"
 
   echo ""
   echo "........................................................."
   echo ""
 
-  script/deploy-harbor --$PHASE-minter --network "$NETWORK" --salt "$SALT" $WALLET_ARGS $VERBOSITY $VERIFY "$@"
+  script/deploy-harbor --$PHASE-minter --network "$NETWORK" --salt "$SALT" $WALLET_ARGS $VERBOSITY "$@"
 
   echo ""
   echo "--> ${PHASE} for $@ complete."
