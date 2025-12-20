@@ -14,24 +14,20 @@ cd "$PROJECT_ROOT"
 
 usage() {
   cat <<'USAGE'
-Usage: script/deploy-harbor --salt SALT --peg TICKER --collateral LIST PHASE [OPTIONS]
+Usage: script/deploy-harbor --salt SALT [--network NETWORK] <--deploy|--smoke> [OPTIONS]
 
 Required:
-  --salt SALT           Deployment salt (e.g. test2, harbor_v1)
-  --peg PEGGED          Pegged token identifier (e.g., USD, BTC)
-  --collateral LIST     Comma-separated collateral identifiers (e.g., stETH,fxUSD)
-  --network NETWORK     Network name (required unless --start-anvil, must exist in foundry.toml rpc_endpoints)
+  --salt SALT       Deployment salt (e.g., harbor_v1-USD-stETH)
+  --network NETWORK Network name (required unless --start-anvil, must exist in foundry.toml rpc_endpoints)
 
-Phase (exactly one required):
-  --deploy-pegged   Deploy pegged token only
-  --deploy-minter   Deploy minters only (for each collateral)
-  --smoke-pegged    Smoke test pegged token only
-  --smoke-minter    Smoke test minters only (for each collateral)
+Phase (at least one required, or use --start-anvil which runs all):
+  --deploy          Run deployment phase
+  --smoke           Run smoke test phase
 
 Options:
   --account NAME    Use keystore account from ~/.foundry/keystores (for non-local networks)
   --resume          Resume a failed deployment from where it left off
-  --start-anvil     Start local Anvil, implies network=local
+  --start-anvil     Start local Anvil, implies network=local and runs all phases if none specified
   --no-verify       Skip contract verification (verification is default for non-local networks)
   -v                Increase verbosity
   -h, --help        Show this help
@@ -42,20 +38,22 @@ Wallet:
                        Create with: cast wallet import <name> --interactive
 
 Examples:
-  script/deploy-harbor --salt harbor_v1 --peg USD --collateral stETH --deploy-pegged --start-anvil
-  script/deploy-harbor --salt harbor_v1 --peg USD --collateral stETH,fxUSD --deploy-minter --network local
-  script/deploy-harbor --salt harbor_v1 --peg BTC --collateral stETH --deploy-pegged --network mainnet --account deployer
+  script/deploy-harbor --salt harbor_v1-USD-stETH --start-anvil
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
+  script/deploy-harbor --salt harbor_v1-USD-stETH --network mainnet --account deployer --deploy
 USAGE
 }
 
 # Defaults
 SALT=""
-PEGGED=""
-COLLATERALS_CSV=""
 NETWORK="local"
 
-# Phase: exactly one of deploy-pegged, deploy-minter, smoke-pegged, smoke-minter
-PHASE=""
+# Static phase order - phases always run in this sequence
+readonly PHASE_ORDER=("deploy" "smoke")
+
+# Associative array tracking which phases are requested
+declare -A PHASES=()
 
 # Multisig address - used as BaoDeployer owner, defaults to harbor multisig
 MULTISIG="0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
@@ -78,36 +76,16 @@ while [[ $# -gt 0 ]]; do
       SALT="$2"
       shift 2
       ;;
-    --peg)
-      PEGGED="$2"
-      shift 2
-      ;;
-    --collateral)
-      COLLATERALS_CSV="$2"
-      shift 2
-      ;;
     --network)
       NETWORK="$2"
       shift 2
       ;;
-    --deploy-pegged)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
-      PHASE="deploy-pegged"
+    --deploy)
+      PHASES["deploy"]=1
       shift
       ;;
-    --deploy-minter)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
-      PHASE="deploy-minter"
-      shift
-      ;;
-    --smoke-pegged)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
-      PHASE="smoke-pegged"
-      shift
-      ;;
-    --smoke-minter)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
-      PHASE="smoke-minter"
+    --smoke)
+      PHASES["smoke"]=1
       shift
       ;;
     --start-anvil)
@@ -149,21 +127,6 @@ if [[ -z "$SALT" ]]; then
   exit 1
 fi
 
-if [[ -z "$PEGGED" ]]; then
-  echo "Error: --peg is required" >&2
-  usage
-  exit 1
-fi
-
-if [[ -z "$COLLATERALS_CSV" ]]; then
-  echo "Error: --collateral is required" >&2
-  usage
-  exit 1
-fi
-
-# Parse comma-separated collaterals into array
-IFS=',' read -ra COLLATERALS <<< "$COLLATERALS_CSV"
-
 # ============================================================================
 # Start Anvil if requested
 # ============================================================================
@@ -171,6 +134,12 @@ if [[ "$START_ANVIL" == "true" ]]; then
   if [[ -n "$NETWORK" && "$NETWORK" != "local" ]]; then
     echo "Error: --start-anvil can only be used with network=local, got: $NETWORK" >&2
     exit 1
+  fi
+
+  if [[ ${#PHASES[@]} -eq 0 ]]; then
+    for phase in "${PHASE_ORDER[@]}"; do
+      PHASES["$phase"]=1
+    done
   fi
 
   # Check if port 8545 is already in use
@@ -216,10 +185,9 @@ if [[ "$START_ANVIL" == "true" ]]; then
     "${MULTISIG}" \
     --value 1ether >/dev/null
   echo "Multisig funded"
-fi
 
-if [[ -z "$PHASE" ]]; then
-  echo "Error: A phase option is required (--deploy-pegged, --deploy-minter, --smoke-pegged, or --smoke-minter)" >&2
+elif [[ ${#PHASES[@]} -eq 0 ]]; then
+  echo "Error: At least one phase (--deploy or --smoke) must be specified" >&2
   usage
   exit 1
 fi
@@ -244,9 +212,9 @@ else
   else
     VERIFY="--verify"
   fi
-  # --account only required for deploy phases, not smoke (which is read-only)
-  if [[ -z "$ACCOUNT" && "$PHASE" == deploy-* ]]; then
-    echo "Error: --account is required for deploy phases on non-local networks" >&2
+  # --account only required for deploy phase, not smoke (which is read-only)
+  if [[ -z "$ACCOUNT" && -n "${PHASES[deploy]:-}" ]]; then
+    echo "Error: --account is required for --deploy on non-local networks" >&2
     exit 1
   fi
   if [[ -n "$ACCOUNT" ]]; then
@@ -257,28 +225,39 @@ else
 fi
 
 echo "Salt: $SALT"
-echo "Pegged: $PEGGED"
-echo "Collaterals: ${COLLATERALS[*]}"
 echo "Network: $NETWORK"
-echo "Phase: $PHASE"
+echo "Phases: ${!PHASES[*]}"
 echo "Wallet args: $WALLET_ARGS"
 
 # ============================================================================
 # Run the deployment/smoke script
 # ============================================================================
+for PHASE in "${PHASE_ORDER[@]}"; do
+  # Skip phases not requested
+  [[ -z "${PHASES[$PHASE]:-}" ]] && continue
+  echo ""
+  if [[ "$PHASE" == "deploy" ]]; then
+    if [[ -n "$RESUME" ]]; then
+      echo "Resuming deployment..."
+    else
+      if [[ "${NETWORK}" == "local" ]]; then
+        # Ensure BaoFactory is ready (deployed, upgraded, operator set)
+        # Uses default salt Bao.BaoFactory.harbor and default anvil operator
+        echo "Ensuring BaoFactory is ready..."
+        ./lib/bao-base/script/ensure-bao-factory
+      fi
+      echo "Running deployment..."
+    fi
+    SIG="deployMinter(string,string)"
+  else
+    echo "Running smoke test..."
+    SIG="smokeMinter(string,string)"
+  fi
 
-# Build JSON array of collaterals: ["stETH","fxUSD"]
-COLLATERALS_JSON=$(printf '"%s",' "${COLLATERALS[@]}" | sed 's/,$//')
-COLLATERALS_JSON="[${COLLATERALS_JSON}]"
+  echo "Running: forge script script/DeployHarbor.s.sol:DeployHarbor --sig \"$SIG\" \"$SALT\" \"$NETWORK\" --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
 
-run_forge() {
-  local script_contract="$1"
-  local sig="$2"
-  shift 2
-  echo "Running: forge script script/DeployHarbor.s.sol:$script_contract --sig \"$sig\" $* --rpc-url \"$NETWORK\" --broadcast --slow $VERIFY $WALLET_ARGS $RESUME $VERBOSITY"
-
-  FORGE_OUTPUT=$(forge script "script/DeployHarbor.s.sol:$script_contract" \
-    --sig "$sig" "$@" \
+  FORGE_OUTPUT=$(forge script script/DeployHarbor.s.sol:DeployHarbor \
+    --sig "$SIG" "$SALT" "$NETWORK" \
     --rpc-url "$NETWORK" \
     --broadcast --slow $VERIFY \
     $WALLET_ARGS \
@@ -286,51 +265,15 @@ run_forge() {
 
   echo "$FORGE_OUTPUT"
 
+  # Handle forge failure - exit immediately on error
   if [[ $FORGE_EXIT -ne 0 ]]; then
+    # Extract error selector and decode it
     if SELECTOR=$(echo "$FORGE_OUTPUT" | grep -oE 'custom error 0x[a-fA-F0-9]{8}' | grep -oE '0x[a-fA-F0-9]{8}' | head -1); then
       cast decode-error "$SELECTOR" 2>/dev/null || true
     fi
     exit 1
   fi
-}
 
-case "$PHASE" in
-  deploy-pegged)
-    if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
-      echo "Ensuring BaoFactory is ready..."
-      ./lib/bao-base/script/ensure-bao-factory
-    fi
-    echo ""
-    echo "=== Deploying pegged token: $PEGGED ==="
-    run_forge DeployHarborPegged "deployPegged(string,string,string,string[])" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERALS_JSON"
-    ;;
-
-  deploy-minter)
-    if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
-      echo "Ensuring BaoFactory is ready..."
-      ./lib/bao-base/script/ensure-bao-factory
-    fi
-    for COLLATERAL in "${COLLATERALS[@]}"; do
-      echo ""
-      echo "=== Deploying minter for collateral: $COLLATERAL ==="
-      run_forge DeployHarborMinter "deployMinter(string,string,string,string)" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL"
-    done
-    ;;
-
-  smoke-pegged)
-    echo ""
-    echo "=== Smoke testing pegged token: $PEGGED ==="
-    run_forge DeployHarborPegged "smokePegged(string,string,string,string[])" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERALS_JSON"
-    ;;
-
-  smoke-minter)
-    for COLLATERAL in "${COLLATERALS[@]}"; do
-      echo ""
-      echo "=== Smoke testing minter for collateral: $COLLATERAL ==="
-      run_forge DeployHarborMinter "smokeMinter(string,string,string,string)" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL"
-    done
-    ;;
-esac
-
-echo ""
-echo "=== $PHASE complete ==="
+  echo ""
+  echo "=== $PHASE complete ==="
+done

@@ -43,7 +43,7 @@ results/*.png
 
 deployments/*/anvil/*.json
 deployments/*/local/*.json
-deployments/*/*/20*T*Z.json
+deployments/*/*/latest.json
 
 
 # Docs

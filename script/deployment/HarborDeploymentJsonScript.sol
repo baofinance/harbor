@@ -22,6 +22,11 @@ import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
+interface IERC20Minimal {
+    function name() external view returns (string memory);
+    function symbol() external view returns (string memory);
+}
+
 /**
  * @title HarborDeploymentJsonScript
  * @notice Harbor-specific deployment contract with Stem proxy management
@@ -51,12 +56,21 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
     string public constant PREFIX = "prefix";
     string public constant TREASURY = "treasury";
+    string public constant FACTORY = "factory";
 
+    string public constant COLLATERAL_INPUT = "collateral";
+    string public constant WRAPPED_COLLATERAL_INPUT = "wrappedCollateral";
+    string public constant PEGGED_INPUT = "pegged";
+    string public constant NETWORKS = "networks";
     string public constant PEGGED_TICKER = "peggedTicker";
-    string public constant PEGGED_SALT_STRING = "peggedSaltString";
 
-    string public constant MINTER = "contracts.minter";
-    string public constant PEGGED = "contracts.pegged";
+    string public constant COLLATERAL = "contracts.collateral";
+    string public constant COLLATERAL_NAME = "contracts.collateral.name";
+    string public constant COLLATERAL_SYMBOL = "contracts.collateral.symbol";
+
+    string public constant WRAPPED_COLLATERAL = "contracts.wrappedCollateral";
+    string public constant WRAPPED_COLLATERAL_NAME = "contracts.wrappedCollateral.name";
+    string public constant WRAPPED_COLLATERAL_SYMBOL = "contracts.wrappedCollateral.symbol";
 
     // ============================================================================
     // Configuration
@@ -70,9 +84,29 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
 
         addStringKey(PREFIX);
         addStringKey(PEGGED_TICKER);
-        addStringKey(PEGGED_SALT_STRING);
+
+        addKey(NETWORKS);
+        addAddressKey(COLLATERAL_INPUT);
+        addAddressKey(WRAPPED_COLLATERAL_INPUT);
+        addAddressKey(PEGGED_INPUT);
 
         addAddressKey(TREASURY);
+        addAddressKey(FACTORY);
+
+        addContract(COLLATERAL);
+        addStringKey(COLLATERAL_SYMBOL);
+        addStringKey(COLLATERAL_NAME);
+
+        addContract(WRAPPED_COLLATERAL);
+        addStringKey(WRAPPED_COLLATERAL_SYMBOL);
+        addStringKey(WRAPPED_COLLATERAL_NAME);
+    }
+
+    function _setERC20Info(string memory key, address token) internal {
+        console2.log("_setERC20Info(", key, ")...");
+        _set(key, token);
+        _setString(string.concat(key, ".symbol"), IERC20Minimal(token).symbol());
+        _setString(string.concat(key, ".name"), IERC20Minimal(token).name());
     }
 
     /// @notice Override start to register network-specific schema keys, then copy network inputs to standard slots
@@ -81,9 +115,33 @@ abstract contract HarborDeploymentJsonScript is DeploymentJsonScript {
         string memory systemSaltString,
         string memory startPoint
     ) public virtual override {
+        // Register keys for the specific network so JSON loader knows about them
+        string memory networkPrefix = string.concat(NETWORKS, ".", network);
+        addUintKey(string.concat(networkPrefix, ".chainId"));
+        addAddressKey(string.concat(networkPrefix, ".collateral"));
+
         super.start(network, systemSaltString, startPoint);
 
-        // pegged tokens are shared across systems with the same collateral, so remove that from the SYSTEM_SALT_STRING
-        _setString(PEGGED_SALT_STRING, string.concat(_getString(PREFIX), "::", _getString(PEGGED_TICKER)));
+        console2.log("setting contracts.collateral...");
+        _setERC20Info(COLLATERAL, _getAddress(string.concat(networkPrefix, ".collateral")));
+
+        // Validate chain ID
+        // TODO: this should be at a lower level along with the network config part
+        uint256 expectedChainId = _getUint(string.concat(networkPrefix, ".chainId"));
+        if (block.chainid != expectedChainId) {
+            revert ChainIdMismatch(expectedChainId, block.chainid);
+        }
+
+        // Validate salt matches config
+        string memory expectedSalt = string.concat(
+            _getString(PREFIX),
+            "::",
+            _getString(PEGGED_TICKER),
+            "::",
+            _getString(COLLATERAL_SYMBOL)
+        );
+        if (!systemSaltString.eq(expectedSalt)) {
+            revert SaltMismatch(expectedSalt, systemSaltString);
+        }
     }
 }

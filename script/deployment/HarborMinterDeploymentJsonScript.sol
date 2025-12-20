@@ -23,11 +23,6 @@ import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-interface IERC20Minimal {
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-}
-
 /**
  * @title HarborDeploymentJsonScript
  * @notice Harbor-specific deployment contract with Stem proxy management
@@ -46,21 +41,21 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
     using LibString for address;
 
     // =========================================================================
+    // BaoFactory from JSON
+    // =========================================================================
+
+    error FactoryNotDeployed(address factory);
+    error FactoryOwnerMismatch(address expected, address actual);
+
+    // =========================================================================
     // Contract Keys
     // =========================================================================
 
-    string public constant NETWORKS = "networks";
-    string public constant COLLATERAL_INPUT = "collateral";
-    string public constant WRAPPED_COLLATERAL_INPUT = "wrappedCollateral";
-    string public constant PRICE_ORACLE_INPUT = "priceOracle";
+    string public constant PEGGED_SALT_STRING = "systemPeggedSaltString";
 
-    string public constant COLLATERAL = "contracts.collateral";
-    string public constant COLLATERAL_NAME = "contracts.collateral.name";
-    string public constant COLLATERAL_SYMBOL = "contracts.collateral.symbol";
-
-    string public constant WRAPPED_COLLATERAL = "contracts.wrappedCollateral";
-    string public constant WRAPPED_COLLATERAL_NAME = "contracts.wrappedCollateral.name";
-    string public constant WRAPPED_COLLATERAL_SYMBOL = "contracts.wrappedCollateral.symbol";
+    string public constant PEGGED = "contracts.pegged";
+    string public constant PEGGED_NAME = "contracts.pegged.name";
+    string public constant PEGGED_SYMBOL = "contracts.pegged.symbol";
 
     string public constant LEVERAGED = "contracts.leveraged";
     string public constant LEVERAGED_NAME = "contracts.leveraged.name";
@@ -76,6 +71,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
 
     string public constant RESERVE_POOL = "contracts.reservePool";
 
+    string public constant MINTER = "contracts.minter";
     // Minter config keys
     string public constant MINTER_MINT_PEGGED_BOUNDS =
         "contracts.minter.config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds";
@@ -133,29 +129,17 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
     // ============================================================================
 
     constructor() {
-        addKey(NETWORKS);
-        addAddressKey(COLLATERAL_INPUT);
-        addAddressKey(WRAPPED_COLLATERAL_INPUT);
-        addAddressKey(PRICE_ORACLE_INPUT);
+        addStringKey(PEGGED_SALT_STRING);
 
-        // TODO: should be a built in ERC20 adder
         addProxy(PEGGED);
         addRoles(PEGGED, sa("MINTER_ROLE", "BURNER_ROLE"));
-        addStringKey(string.concat(PEGGED, ".symbol"));
-        addStringKey(string.concat(PEGGED, ".name"));
+        addStringKey(PEGGED_NAME);
+        addStringKey(PEGGED_SYMBOL);
 
         addProxy(LEVERAGED);
         addRoles(LEVERAGED, sa("MINTER_ROLE", "BURNER_ROLE"));
         addStringKey(LEVERAGED_NAME);
         addStringKey(LEVERAGED_SYMBOL);
-
-        addContract(COLLATERAL);
-        addStringKey(COLLATERAL_SYMBOL);
-        addStringKey(COLLATERAL_NAME);
-
-        addContract(WRAPPED_COLLATERAL);
-        addStringKey(WRAPPED_COLLATERAL_SYMBOL);
-        addStringKey(WRAPPED_COLLATERAL_NAME);
 
         // TODO: rationalise the naming for contracts: have _CONTRACT or not?
         // TODO: make a function for fee receivers
@@ -227,48 +211,98 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
     ) public virtual override {
         // Register keys for the specific network so JSON loader knows about them
         string memory networkPrefix = string.concat(NETWORKS, ".", network);
-        addUintKey(string.concat(networkPrefix, ".chainId"));
-        addAddressKey(string.concat(networkPrefix, ".collateral"));
         addAddressKey(string.concat(networkPrefix, ".wrappedCollateral"));
+        addAddressKey(string.concat(networkPrefix, ".pegged"));
 
         super.start(network, systemSaltString, startPoint);
 
-        console2.log("setting contracts.collateral...");
-        _setERC20Info(COLLATERAL, _getAddress(string.concat(networkPrefix, ".collateral")));
+        // Copy network-specific inputs to standard slots
         _setERC20Info(WRAPPED_COLLATERAL, _getAddress(string.concat(networkPrefix, ".wrappedCollateral")));
 
-        if (_has(PRICE_ORACLE_INPUT)) {
-            console2.log("price oracle specified");
-            _set(PRICE_ORACLE, _getAddress(PRICE_ORACLE_INPUT));
-            require(_has(PRICE_ORACLE), "price oracle not set properly");
-        }
-        // Validate chain ID
-        // TODO: this should be at a lower level along with the network config part
-        uint256 expectedChainId = _getUint(string.concat(networkPrefix, ".chainId"));
-        if (block.chainid != expectedChainId) {
-            revert ChainIdMismatch(expectedChainId, block.chainid);
-        }
-
-        // Validate salt matches config
-        string memory expectedSalt = string.concat(
-            _getString(PREFIX),
-            "::",
-            _getString(PEGGED_TICKER),
-            "::",
-            _getString(COLLATERAL_SYMBOL)
-        );
-        if (!systemSaltString.eq(expectedSalt)) {
-            revert SaltMismatch(expectedSalt, systemSaltString);
-        }
-
-        _setMintableBurnableERC20Info(PEGGED, predictAddress(PEGGED, PEGGED_SALT_STRING));
+        // pegged tokens are shared across systems with the same collateral, so remove that from the SYSTEM_SALT_STRING
+        _setString(PEGGED_SALT_STRING, string.concat(_getString(PREFIX), "-", _getString(PEGGED_TICKER)));
     }
 
-    function _setERC20Info(string memory key, address token) internal {
-        console2.log("_setERC20Info(", key, ")...");
-        _set(key, token);
-        _setString(string.concat(key, ".symbol"), IERC20Minimal(token).symbol());
-        _setString(string.concat(key, ".name"), IERC20Minimal(token).name());
+    // ============================================================================
+    // Pegged
+    // ============================================================================
+
+    function _deployPegged() public {
+        // address proxyAddress = predictAddress(PEGGED, PEGGED_SALT_STRING);
+        // // TODO: move this into DeploymentBase
+        // if (proxyAddress.code.length != 0) {
+        //     require(
+        //         keccak256(proxyAddress.code) == keccak256(type(ERC1967Proxy).runtimeCode),
+        //         "not a ERC1967 proxy at PEGGED address"
+        //     );
+        //     console2.log("Pegged address already has a proxy deployed; skipping deployment.");
+        //     console2.log("MINTER_ROLE and BURNER_ROLE needs to be set via multisig.");
+        //     _setMintableBurnableERC20Info(PEGGED, proxyAddress);
+        //     console2.log(
+        //         string.concat(
+        //             proxyAddress.toHexStringChecksummed(),
+        //             ".grantRoles(",
+        //             predictAddress(MINTER, SYSTEM_SALT_STRING).toHexStringChecksummed(),
+        //             ",",
+        //             LibString.toString(_getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE")),
+        //             ")"
+        //         )
+        //     );
+        // } else {
+        console2.log("Deploying Pegged...");
+
+        // Derive symbol and name from deployment config
+        string memory ticker = _getString(PEGGED_TICKER);
+        _setString(PEGGED_SYMBOL, string.concat("ha", ticker.upper()));
+        _setString(PEGGED_NAME, string.concat("Harbor anchored ", ticker));
+
+        console2.log("pegged symbol: '%s'", _getString(PEGGED_SYMBOL));
+        console2.log("pegged name: '%s'", _getString(PEGGED_NAME));
+
+        // Deploy implementation
+        MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
+
+        // Deploy and register proxy
+        bytes memory initData = abi.encodeCall(
+            MintableBurnableERC20_v1.initialize,
+            (_getAddress(OWNER), _getString(PEGGED_NAME), _getString(PEGGED_SYMBOL))
+        );
+
+        deployProxy(
+            PEGGED,
+            PEGGED_SALT_STRING,
+            address(impl),
+            initData,
+            type(MintableBurnableERC20_v1).name,
+            type(MintableBurnableERC20_v1).creationCode,
+            _getAddress(SESSION_DEPLOYER)
+        );
+        // declare the roles
+        MintableBurnableERC20_v1 proxy = MintableBurnableERC20_v1(_get(PEGGED));
+        _setRole(PEGGED, "MINTER_ROLE", proxy.MINTER_ROLE());
+        _setRole(PEGGED, "BURNER_ROLE", proxy.BURNER_ROLE());
+
+        // set the roles on the minter
+        address minter = predictAddress(MINTER, SYSTEM_SALT_STRING);
+        proxy.grantRoles(minter, _getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE"));
+        _setGrantee(MINTER, PEGGED, "MINTER_ROLE");
+        _setGrantee(MINTER, PEGGED, "BURNER_ROLE");
+
+        // TODO: add the roles to all the minters
+
+        // }
+        _save();
+    }
+
+    function _smokePegged() public view {
+        console2.log("Smoke testing Pegged...");
+        MintableBurnableERC20_v1 proxy = MintableBurnableERC20_v1(_get(PEGGED));
+        _expect(proxy.owner(), OWNER);
+        _expect(proxy.symbol(), PEGGED_SYMBOL);
+        _expect(proxy.name(), PEGGED_NAME);
+
+        _expectRoleValue(proxy.MINTER_ROLE(), PEGGED, "MINTER_ROLE");
+        _expectRoleValue(proxy.BURNER_ROLE(), PEGGED, "BURNER_ROLE");
     }
 
     // ============================================================================
@@ -396,19 +430,17 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
     // ============================================================================
 
     function _deployPriceOracle() public {
-        if (!_has(PRICE_ORACLE)) {
-            console2.log("Deploying Price Oracle...");
-            MockWrappedPriceOracle impl = new MockWrappedPriceOracle();
+        console2.log("Deploying Price Oracle...");
+        MockWrappedPriceOracle impl = new MockWrappedPriceOracle();
 
-            registerContract(
-                PRICE_ORACLE,
-                address(impl),
-                type(MockWrappedPriceOracle).name,
-                type(MockWrappedPriceOracle).creationCode,
-                _getAddress(SESSION_DEPLOYER)
-            );
-            _save();
-        }
+        registerContract(
+            PRICE_ORACLE,
+            address(impl),
+            type(MockWrappedPriceOracle).name,
+            type(MockWrappedPriceOracle).creationCode,
+            _getAddress(SESSION_DEPLOYER)
+        );
+        _save();
     }
 
     function _smokePriceOracle() public view {
