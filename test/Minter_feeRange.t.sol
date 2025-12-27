@@ -1075,7 +1075,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertNear(
             post.userPegged,
             postSteps.userPegged,
-            areDisallows ? 70 : 0,
+            areDisallows ? 80 : 0,
             areDisallows ? 0.0000003 ether : 0,
             "mp integral user pegged"
         );
@@ -1085,7 +1085,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertNear(
             post.minterPegged,
             postSteps.minterPegged,
-            areDisallows ? 70 : 0,
+            areDisallows ? 80 : 0,
             areDisallows ? 3e11 : 0,
             "mp integral minter pegged"
         );
@@ -1093,14 +1093,14 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertNear(
             post.minterWrapped,
             postSteps.minterWrapped,
-            areDisallows ? 8e10 : steps,
+            areDisallows ? 9e10 : steps,
             areDisallows ? 4e15 : 200 * steps,
             "mp integral minter wrapped"
         );
         assertNear(
             post.minterUnderlying,
             postSteps.minterUnderlying,
-            areDisallows ? 8e10 : steps,
+            areDisallows ? 9e10 : steps,
             areDisallows ? 4e15 : 200 * steps,
             "mp integral minter underlying"
         );

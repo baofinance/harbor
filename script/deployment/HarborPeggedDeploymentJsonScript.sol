@@ -27,8 +27,12 @@ contract HarborPeggedDeploymentJsonScript is HarborDeploymentJsonScript {
     using LibString for string;
     using LibString for address;
 
+    string public constant PEGGED = "contracts.pegged";
+
     string public constant PEGGED_NAME = "contracts.pegged.name";
     string public constant PEGGED_SYMBOL = "contracts.pegged.symbol";
+
+    string public constant MINTER = "contracts.minter";
 
     constructor() {
         addProxy(PEGGED);
@@ -94,7 +98,7 @@ contract HarborPeggedDeploymentJsonScript is HarborDeploymentJsonScript {
 
         deployProxy(
             PEGGED,
-            PEGGED_SALT_STRING,
+            string.concat(_getString(PREFIX), "::", _getString(PEGGED_TICKER)),
             address(impl),
             initData,
             type(MintableBurnableERC20_v1).name,
@@ -108,7 +112,10 @@ contract HarborPeggedDeploymentJsonScript is HarborDeploymentJsonScript {
 
         // set the roles on the minter
         for (uint c = 0; c < collaterals.length; ++c) {
-            address minter = predictAddress(MINTER, PEGGED_SALT_STRING, collaterals[c]);
+            address minter = predictAddress(
+                MINTER,
+                string.concat(_getString(PREFIX), "::", _getString(PEGGED_TICKER), "::", collaterals[c])
+            );
             console2.log("minter = %s", minter);
             proxy.grantRoles(minter, _getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE"));
             // TODO: fix this
