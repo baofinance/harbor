@@ -1,6 +1,8 @@
 | File                                                            | % Lines            | % Statements       | % Branches       | % Funcs          |
 |-----------------------------------------------------------------|--------------------|--------------------|------------------|------------------|
-| script/deployment/HarborDeploymentJsonScript.sol                | X   0% (0/338)     | X   0% (0/376)     | X   0% (0/14)    | X   0% (0/23)    |
+| script/deployment/HarborDeploymentJsonScript.sol                | X   0% (0/33)      | X   0% (0/33)      | X   0% (0/2)     | X   0% (0/3)     |
+| script/deployment/HarborMinterDeploymentJsonScript.sol          | X   0% (0/297)     | X   0% (0/332)     | X   0% (0/5)     | X   0% (0/22)    |
+| script/deployment/HarborPeggedDeploymentJsonScript.sol          | X   0% (0/34)      | X   0% (0/38)      | ✓ 100% (0/0)     | X   0% (0/4)     |
 | script/forge/DeployState.sol                                    | X   0% (0/6)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/2)     |
 | script/forge/SetBalanceHelper.sol                               | X   0% (0/3)       | X   0% (0/2)       | ✓ 100% (0/0)     | X   0% (0/1)     |
 | script/forge/deploy.t.sol                                       | X   0% (0/46)      | X   0% (0/38)      | ✓ 100% (0/0)     | X   0% (0/10)    |
@@ -19,4 +21,4 @@
 | src/reward/distributor/LinearMultipleRewardDistributor.sol      | ✓ 100% (77/77)     | ✓ 100% (86/86)     | ✓ 100% (12/12)   | ✓ 100% (14/14)   |
 | src/reward/distributor/LinearReward.sol                         | ✓ 100% (25/25)     | ✓ 100% (27/27)     | ✓ 100% (6/6)     | ✓ 100% (2/2)     |
 | src/util/WordCodec.sol                                          | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
-| Total                                                           | X  75% (3302/4389) | X  77% (3442/4491) | X  72% (351/487) | X  76% (483/632) |
+| Total                                                           | X  75% (3302/4413) | X  76% (3442/4516) | X  73% (351/480) | X  76% (483/638) |
