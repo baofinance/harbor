@@ -315,22 +315,19 @@ run_forge() {
   fi
 }
 
+# if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
+#   echo "Ensuring BaoFactory is ready..."
+#   ./lib/bao-base/script/ensure-bao-factory
+# fi
+
 case "$PHASE" in
   deploy-pegged)
-    if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
-      echo "Ensuring BaoFactory is ready..."
-      ./lib/bao-base/script/ensure-bao-factory
-    fi
     echo ""
     echo "=== Deploying pegged token: $PEGGED ==="
     run_forge DeployHarborPegged "deployPegged(string,string,string,string[])" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERALS_JSON"
     ;;
 
   deploy-minter)
-    if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
-      echo "Ensuring BaoFactory is ready..."
-      ./lib/bao-base/script/ensure-bao-factory
-    fi
     for COLLATERAL in "${COLLATERALS[@]}"; do
       echo ""
       echo "=== Deploying minter for collateral: $COLLATERAL ==="
@@ -339,10 +336,6 @@ case "$PHASE" in
     ;;
 
   deploy-sp-impl)
-    if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
-      echo "Ensuring BaoFactory is ready..."
-      ./lib/bao-base/script/ensure-bao-factory
-    fi
     for COLLATERAL in "${COLLATERALS[@]}"; do
       echo ""
       echo "=== Deploying Stability Pools for collateral: $COLLATERAL ==="

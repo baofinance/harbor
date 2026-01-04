@@ -150,7 +150,7 @@ echo ""
 deploy --peg BTC --collateral stETH,fxUSD
 deploy --peg ETH --collateral fxUSD
 # deploy --peg EUR --collateral fxUSD
-# deploy --peg GOLD --collateral fxUSD
+deploy --peg GOLD --collateral fxUSD
 
 echo ""
 echo "==> ${PHASE} complete"

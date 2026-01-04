@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# Upgrade stability pool proxies to new implementations
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${SCRIPT_DIR}/sp-config.json"
+
+usage() {
+  cat <<'USAGE'
+Usage: sp-upgrade [OPTIONS]
+
+Options:
+  --network NETWORK   Network name (default: local)
+  --account ACCOUNT   Keystore account (required for non-local networks)
+  --dry-run           Print commands without executing
+  -h, --help          Show this help
+
+Examples:
+  ./sp-upgrade --network local
+  ./sp-upgrade --network mainnet --account HarborDeployer
+USAGE
+}
+
+# Defaults
+NETWORK="local"
+ACCOUNT=""
+DRY_RUN=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --network)
+      NETWORK="$2"
+      shift 2
+      ;;
+    --account)
+      ACCOUNT="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: Unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Set up wallet/sender args
+if [[ "$NETWORK" == "local" ]]; then
+  # Use unlocked multisig on local anvil fork
+  SEND_ARGS="--unlocked --from 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
+else
+  if [[ -z "$ACCOUNT" ]]; then
+    echo "Error: --account required for non-local networks" >&2
+    exit 1
+  fi
+  SEND_ARGS="--account $ACCOUNT"
+fi
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "Error: Config file not found: $CONFIG_FILE" >&2
+  exit 1
+fi
+
+# Read upgrades from config
+readarray -t PROXIES < <(jq -r '.upgrades[].proxy' "$CONFIG_FILE")
+readarray -t IMPLEMENTATIONS < <(jq -r '.upgrades[].implementation' "$CONFIG_FILE")
+
+echo "=========================================="
+echo "Upgrading stability pools on $NETWORK"
+echo "=========================================="
+echo ""
+
+for i in "${!PROXIES[@]}"; do
+  proxy="${PROXIES[$i]}"
+  impl="${IMPLEMENTATIONS[$i]}"
+
+  echo "Upgrading $proxy -> $impl"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo "  [dry-run] cast send --rpc-url $NETWORK $SEND_ARGS $proxy upgradeToAndCall(address,bytes) $impl 0x"
+  else
+    cast send --rpc-url "$NETWORK" $SEND_ARGS \
+      "$proxy" "upgradeToAndCall(address,bytes)" "$impl" "0x"
+  fi
+  echo ""
+done
+
+echo "=========================================="
+echo "All upgrades complete"
+echo "=========================================="

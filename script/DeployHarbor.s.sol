@@ -191,16 +191,36 @@ contract DeployHarborMinter is HarborMinterDeploymentJsonScript {
         );
         console.log("Deployed at %s", spCol);
 
-        console.log(
-            "Deploying Stability Pool %s, %s, implementation ...",
-            STABILITY_POOL_COLLATERAL,
-            WRAPPED_COLLATERAL
-        );
+        console.log("Deploying Stability Pool %s, %s, implementation ...", STABILITY_POOL_COLLATERAL, LEVERAGED);
         address spLev = _deployStabilityPoolImplementation(
             addr(salt, peg, collateral, "minter"),
             addr(salt, peg, collateral, "leveraged")
         );
         console.log("Deployed at %s", spLev);
+
+        console.log("");
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolCollateral"));
+        console.log("  * proxy         : %s", addr(salt, peg, collateral, "stabilityPoolCollateral"));
+        console.log("  * implementation: %s", spCol);
+
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolLeveraged"));
+        console.log("  * proxy         : %s", addr(salt, peg, collateral, "stabilityPoolLeveraged"));
+        console.log("  * implementation: %s", spLev);
+
+        console.log("");
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolCollateral"));
+        console.log(
+            "  * proxy         : http://etherscan.io/address/%s#code",
+            addr(salt, peg, collateral, "stabilityPoolCollateral")
+        );
+        console.log("  * implementation: http://etherscan.io/address/%s#code", spCol);
+
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolLeveraged"));
+        console.log(
+            "  * proxy         : http://etherscan.io/address/%s#code",
+            addr(salt, peg, collateral, "stabilityPoolLeveraged")
+        );
+        console.log("  * implementation: http://etherscan.io/address/%s#code", spLev);
 
         finish();
 
