@@ -1,12 +1,7 @@
 {
   "prefix": "harbor_v1",
-  "peggedTicker": "BTC",
+  "peggedTicker": "GOLD",
   "networks": {
-    "local": {
-      "chainId": 1,
-      "collateral": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
-      "wrappedCollateral": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
-    },
     "mainnet": {
       "chainId": 1,
       "collateral": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
@@ -15,11 +10,11 @@
   },
   "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
   "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
-  "priceOracle": "0xd8789EB86Dd57f9Fe10D0D8dFa803286b389b1BC",
+  "priceOracle": "0xD582D94F91c66b34F5Fe7Bb05736148dF80D01ae",
   "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
   "stabilityPoolWithdrawalDelay": 3600,
   "stabilityPoolWithdrawalPeriod": 90000,
-  "stabilityPoolMinTotalAssetSupply": 10000000000000,
+  "stabilityPoolMinTotalAssetSupply": 200000000000000,
   "contracts": {
     "minterFeeReceiver": {
       "name": "Minter Fee Receiver",

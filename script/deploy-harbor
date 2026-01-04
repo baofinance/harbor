@@ -20,9 +20,12 @@ Required:
   --salt SALT       Deployment salt (e.g., harbor_v1-USD-stETH)
   --network NETWORK Network name (required unless --start-anvil, must exist in foundry.toml rpc_endpoints)
 
-Phase (at least one required, or use --start-anvil which runs all):
-  --deploy          Run deployment phase
-  --smoke           Run smoke test phase
+Phase (exactly one required):
+  --deploy-pegged   Deploy pegged token only
+  --deploy-minter   Deploy minters only (for each collateral)
+  --smoke-pegged    Smoke test pegged token only
+  --smoke-minter    Smoke test minters only (for each collateral)
+	--deploy-sp-impl   Deploy Stability Pool implementation only
 
 Options:
   --account NAME    Use keystore account from ~/.foundry/keystores (for non-local networks)
@@ -80,12 +83,44 @@ while [[ $# -gt 0 ]]; do
       NETWORK="$2"
       shift 2
       ;;
-    --deploy)
-      PHASES["deploy"]=1
+    --deploy-pegged)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="deploy-pegged"
       shift
       ;;
-    --smoke)
-      PHASES["smoke"]=1
+    --deploy-minter)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="deploy-minter"
+      shift
+      ;;
+    --deploy-sp-impl)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="deploy-sp-impl"
+      shift
+      ;;
+    --smoke-pegged)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="smoke-pegged"
+      shift
+      ;;
+    --smoke-minter)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="smoke-minter"
       shift
       ;;
     --start-anvil)
@@ -126,6 +161,21 @@ if [[ -z "$SALT" ]]; then
   usage
   exit 1
 fi
+
+if [[ -z "$PEGGED" ]]; then
+  echo "Error: --peg is required" >&2
+  usage
+  exit 1
+fi
+
+if [[ -z "$COLLATERALS_CSV" ]]; then
+  echo "Error: --collateral is required" >&2
+  usage
+  exit 1
+fi
+
+# Parse comma-separated collaterals into array
+IFS=',' read -ra COLLATERALS <<<"$COLLATERALS_CSV"
 
 # ============================================================================
 # Start Anvil if requested
@@ -273,6 +323,50 @@ for PHASE in "${PHASE_ORDER[@]}"; do
     fi
     exit 1
   fi
+}
+
+# if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
+#   echo "Ensuring BaoFactory is ready..."
+#   ./lib/bao-base/script/ensure-bao-factory
+# fi
+
+case "$PHASE" in
+  deploy-pegged)
+    echo ""
+    echo "=== Deploying pegged token: $PEGGED ==="
+    run_forge DeployHarborPegged "deployPegged(string,string,string,string[])" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERALS_JSON"
+    ;;
+
+  deploy-minter)
+    for COLLATERAL in "${COLLATERALS[@]}"; do
+      echo ""
+      echo "=== Deploying minter for collateral: $COLLATERAL ==="
+      run_forge DeployHarborMinter "deployMinter(string,string,string,string)" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL"
+    done
+    ;;
+
+  deploy-sp-impl)
+    for COLLATERAL in "${COLLATERALS[@]}"; do
+      echo ""
+      echo "=== Deploying Stability Pools for collateral: $COLLATERAL ==="
+      run_forge DeployHarborMinter "deploySPImpl(string,string,string,string)" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL"
+    done
+    ;;
+
+  smoke-pegged)
+    echo ""
+    echo "=== Smoke testing pegged token: $PEGGED ==="
+    run_forge DeployHarborPegged "smokePegged(string,string,string,string[])" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERALS_JSON"
+    ;;
+
+  smoke-minter)
+    for COLLATERAL in "${COLLATERALS[@]}"; do
+      echo ""
+      echo "=== Smoke testing minter for collateral: $COLLATERAL ==="
+      run_forge DeployHarborMinter "smokeMinter(string,string,string,string)" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL"
+    done
+    ;;
+esac
 
   echo ""
   echo "=== $PHASE complete ==="

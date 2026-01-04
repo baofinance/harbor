@@ -219,90 +219,38 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         // Copy network-specific inputs to standard slots
         _setERC20Info(WRAPPED_COLLATERAL, _getAddress(string.concat(networkPrefix, ".wrappedCollateral")));
 
-        // pegged tokens are shared across systems with the same collateral, so remove that from the SYSTEM_SALT_STRING
-        _setString(PEGGED_SALT_STRING, string.concat(_getString(PREFIX), "-", _getString(PEGGED_TICKER)));
+        if (_has(PRICE_ORACLE_INPUT)) {
+            console2.log("price oracle specified");
+            _set(PRICE_ORACLE, _getAddress(PRICE_ORACLE_INPUT));
+            require(_has(PRICE_ORACLE), "price oracle not set properly");
+        }
+        // Validate chain ID
+        // TODO: this should be at a lower level along with the network config part
+        uint256 expectedChainId = _getUint(string.concat(networkPrefix, ".chainId"));
+        if (block.chainid != expectedChainId) {
+            revert ChainIdMismatch(expectedChainId, block.chainid);
+        }
+
+        // Validate salt matches config
+        string memory expectedSalt = string.concat(
+            _getString(PREFIX),
+            "::",
+            _getString(PEGGED_TICKER),
+            "::",
+            _getString(COLLATERAL_SYMBOL)
+        );
+        if (!systemSaltString.eq(expectedSalt)) {
+            revert SaltMismatch(expectedSalt, systemSaltString);
+        }
+
+        //_setMintableBurnableERC20Info(PEGGED, predictAddress(PEGGED, PEGGED_SALT_STRING));
     }
 
-    // ============================================================================
-    // Pegged
-    // ============================================================================
-
-    function _deployPegged() public {
-        // address proxyAddress = predictAddress(PEGGED, PEGGED_SALT_STRING);
-        // // TODO: move this into DeploymentBase
-        // if (proxyAddress.code.length != 0) {
-        //     require(
-        //         keccak256(proxyAddress.code) == keccak256(type(ERC1967Proxy).runtimeCode),
-        //         "not a ERC1967 proxy at PEGGED address"
-        //     );
-        //     console2.log("Pegged address already has a proxy deployed; skipping deployment.");
-        //     console2.log("MINTER_ROLE and BURNER_ROLE needs to be set via multisig.");
-        //     _setMintableBurnableERC20Info(PEGGED, proxyAddress);
-        //     console2.log(
-        //         string.concat(
-        //             proxyAddress.toHexStringChecksummed(),
-        //             ".grantRoles(",
-        //             predictAddress(MINTER, SYSTEM_SALT_STRING).toHexStringChecksummed(),
-        //             ",",
-        //             LibString.toString(_getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE")),
-        //             ")"
-        //         )
-        //     );
-        // } else {
-        console2.log("Deploying Pegged...");
-
-        // Derive symbol and name from deployment config
-        string memory ticker = _getString(PEGGED_TICKER);
-        _setString(PEGGED_SYMBOL, string.concat("ha", ticker.upper()));
-        _setString(PEGGED_NAME, string.concat("Harbor anchored ", ticker));
-
-        console2.log("pegged symbol: '%s'", _getString(PEGGED_SYMBOL));
-        console2.log("pegged name: '%s'", _getString(PEGGED_NAME));
-
-        // Deploy implementation
-        MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
-
-        // Deploy and register proxy
-        bytes memory initData = abi.encodeCall(
-            MintableBurnableERC20_v1.initialize,
-            (_getAddress(OWNER), _getString(PEGGED_NAME), _getString(PEGGED_SYMBOL))
-        );
-
-        deployProxy(
-            PEGGED,
-            PEGGED_SALT_STRING,
-            address(impl),
-            initData,
-            type(MintableBurnableERC20_v1).name,
-            type(MintableBurnableERC20_v1).creationCode,
-            _getAddress(SESSION_DEPLOYER)
-        );
-        // declare the roles
-        MintableBurnableERC20_v1 proxy = MintableBurnableERC20_v1(_get(PEGGED));
-        _setRole(PEGGED, "MINTER_ROLE", proxy.MINTER_ROLE());
-        _setRole(PEGGED, "BURNER_ROLE", proxy.BURNER_ROLE());
-
-        // set the roles on the minter
-        address minter = predictAddress(MINTER, SYSTEM_SALT_STRING);
-        proxy.grantRoles(minter, _getRoleValue(PEGGED, "MINTER_ROLE") | _getRoleValue(PEGGED, "BURNER_ROLE"));
-        _setGrantee(MINTER, PEGGED, "MINTER_ROLE");
-        _setGrantee(MINTER, PEGGED, "BURNER_ROLE");
-
-        // TODO: add the roles to all the minters
-
-        // }
-        _save();
-    }
-
-    function _smokePegged() public view {
-        console2.log("Smoke testing Pegged...");
-        MintableBurnableERC20_v1 proxy = MintableBurnableERC20_v1(_get(PEGGED));
-        _expect(proxy.owner(), OWNER);
-        _expect(proxy.symbol(), PEGGED_SYMBOL);
-        _expect(proxy.name(), PEGGED_NAME);
-
-        _expectRoleValue(proxy.MINTER_ROLE(), PEGGED, "MINTER_ROLE");
-        _expectRoleValue(proxy.BURNER_ROLE(), PEGGED, "BURNER_ROLE");
+    function _setERC20Info(string memory key, address token) internal {
+        console2.log("_setERC20Info(", key, ")...");
+        _set(key, token);
+        _setString(string.concat(key, ".symbol"), IERC20Minimal(token).symbol());
+        _setString(string.concat(key, ".name"), IERC20Minimal(token).name());
     }
 
     // ============================================================================
@@ -595,6 +543,22 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
     // ============================================================================
     // Stability Pool
     // ============================================================================
+
+    function _deployStabilityPoolImplementation(address minter, address liquidation) public returns (address) {
+        // Deploy implementation
+        return
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    liquidation,
+                    1, // TODO: this value is not used but must be > 0
+                    address(0xdeadbeef), // TODO: this address is not used but must be non-zero
+                    _getUint(STABILITY_POOL_WITHDRAWAL_DELAY),
+                    _getUint(STABILITY_POOL_WITHDRAWAL_PERIOD),
+                    _getUint(STABILITY_POOL_MIN_TOTAL_ASSET_SUPPLY)
+                )
+            );
+    }
 
     function _deployStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) public {
         console2.log("Deploying Stability Pool %s ...", liquidationKey);

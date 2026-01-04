@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+#
+# Deploy Harbor contracts
+#
+# Usage: script/deploy-all --network NETWORK [--deploy|--smoke] [OPTIONS]
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$PROJECT_ROOT"
+
+usage() {
+  cat <<'USAGE'
+Usage: script/deploy-all --network NETWORK PHASE [OPTIONS]
+
+Required:
+  --network NETWORK     Network name (must exist in foundry.toml rpc_endpoints)
+
+Phase (exactly one required):
+  --deploy          Deploy all contracts
+  --smoke           Smoke test all contracts
+
+Options:
+  --salt SALT       Deployment salt (default: harbor_v1)
+  --account NAME    Use keystore account from ~/.foundry/keystores (for non-local networks)
+  -v                Increase verbosity
+  -h, --help        Show this help
+
+Wallet:
+  For 'local' network: uses first Anvil account (0xac0974...)
+  For other networks:  requires --account NAME (keystore in ~/.foundry/keystores)
+                       Create with: cast wallet import <name> --interactive
+
+Examples:
+  script/deploy-all --network local --deploy
+  script/deploy-all --network mainnet --deploy --account deployer
+  script/deploy-all --network mainnet --smoke
+USAGE
+}
+
+# Defaults
+SALT="harbor_v1"
+NETWORK=""
+
+# Phase: deploy or smoke
+PHASE=""
+
+VERBOSITY=""
+ACCOUNT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --account)
+      ACCOUNT="$2"
+      shift 2
+      ;;
+    --salt)
+      SALT="$2"
+      shift 2
+      ;;
+    --network)
+      NETWORK="$2"
+      shift 2
+      ;;
+    --deploy)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="deploy"
+      shift
+      ;;
+    --smoke)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="smoke"
+      shift
+      ;;
+    -v)
+      VERBOSITY="${VERBOSITY:--}v"
+      shift
+      ;;
+    -v*)
+      VERBOSITY="$1"
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: Unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Validate required arguments
+if [[ -z "$NETWORK" ]]; then
+  echo "Error: --network is required" >&2
+  usage
+  exit 1
+fi
+
+if [[ -z "$PHASE" ]]; then
+  echo "Error: A phase option is required (--deploy or --smoke)" >&2
+  usage
+  exit 1
+fi
+
+# --account only required for deploy phases on non-local networks
+if [[ "$NETWORK" != "local" && -z "$ACCOUNT" && "$PHASE" == deploy* ]]; then
+  echo "Error: --account is required for deploy phases on non-local networks" >&2
+  exit 1
+fi
+
+echo "Salt: $SALT"
+echo "Network: $NETWORK"
+echo "Phase: $PHASE"
+
+# ============================================================================
+# Run the deployment/smoke script
+# ============================================================================
+
+deploy() {
+  echo "---------------------------------------------------------"
+  echo "--> doing ${PHASE} for $@	..."
+  echo ""
+
+  local ACCOUNT_ARG=""
+  if [[ -n "$ACCOUNT" ]]; then
+    ACCOUNT_ARG="--account $ACCOUNT"
+  fi
+
+  script/deploy-harbor --$PHASE-sp-impl --network "$NETWORK" --salt "$SALT" $ACCOUNT_ARG $VERBOSITY "$@"
+
+}
+
+echo ""
+echo "========================================================="
+echo "==> ${PHASE}ing contracts"
+echo ""
+
+deploy --peg BTC --collateral stETH,fxUSD
+deploy --peg ETH --collateral fxUSD
+# deploy --peg EUR --collateral fxUSD
+deploy --peg GOLD --collateral fxUSD
+
+echo ""
+echo "==> ${PHASE} complete"
+echo "========================================================="
+echo ""

@@ -4,6 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console2 as console} from "forge-std/console2.sol";
 import {Script} from "forge-std/Script.sol";
 
+import {LibString} from "@solady/utils/LibString.sol";
+
 import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/HarborMinterDeploymentJsonScript.sol";
 
 /**
@@ -84,5 +86,83 @@ contract DeployHarbor is HarborMinterDeploymentJsonScript {
 
     function smokeMinter(string memory salt, string memory network) public {
         _doMinter(Mode.SMOKE, salt, network);
+    }
+
+    function addr(
+        string memory prefix,
+        string memory peg,
+        string memory collateral,
+        string memory key
+    ) public view returns (address) {
+        address factory = LibString.eq(prefix, "test2")
+            ? 0x232C909F51Ce792e7F39106C75A3ED43F12d3554
+            : _getAddress(BAO_FACTORY);
+        return predictAddress(string.concat(prefix, "::", peg, "::", collateral, "::", key), factory);
+    }
+
+    function deploySPImpl(
+        string memory network,
+        string memory salt,
+        string memory peg,
+        string memory collateral
+    ) public {
+        console.log("=== Deploying Harbor Stability Pool Implementation ===");
+        console.log("Network: %s", network);
+        console.log("Salt: %s", salt);
+        console.log("Pegged: %s", peg);
+        console.log("Collateral: %s", collateral);
+
+        string memory systemSalt = string.concat(salt, "::", peg, "::", collateral);
+        console.log("System salt %s", systemSalt);
+
+        disableIncrementalLogging();
+
+        start(network, systemSalt, "");
+
+        console.log(
+            "Deploying Stability Pool %s, %s, implementation ...",
+            STABILITY_POOL_COLLATERAL,
+            WRAPPED_COLLATERAL
+        );
+        address spCol = _deployStabilityPoolImplementation(
+            addr(salt, peg, collateral, "minter"),
+            _get(WRAPPED_COLLATERAL)
+        );
+        console.log("Deployed at %s", spCol);
+
+        console.log("Deploying Stability Pool %s, %s, implementation ...", STABILITY_POOL_COLLATERAL, LEVERAGED);
+        address spLev = _deployStabilityPoolImplementation(
+            addr(salt, peg, collateral, "minter"),
+            addr(salt, peg, collateral, "leveraged")
+        );
+        console.log("Deployed at %s", spLev);
+
+        console.log("");
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolCollateral"));
+        console.log("  * proxy         : %s", addr(salt, peg, collateral, "stabilityPoolCollateral"));
+        console.log("  * implementation: %s", spCol);
+
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolLeveraged"));
+        console.log("  * proxy         : %s", addr(salt, peg, collateral, "stabilityPoolLeveraged"));
+        console.log("  * implementation: %s", spLev);
+
+        console.log("");
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolCollateral"));
+        console.log(
+            "  * proxy         : http://etherscan.io/address/%s#code",
+            addr(salt, peg, collateral, "stabilityPoolCollateral")
+        );
+        console.log("  * implementation: http://etherscan.io/address/%s#code", spCol);
+
+        console.log("* %s", string.concat(systemSalt, "::stabilityPoolLeveraged"));
+        console.log(
+            "  * proxy         : http://etherscan.io/address/%s#code",
+            addr(salt, peg, collateral, "stabilityPoolLeveraged")
+        );
+        console.log("  * implementation: http://etherscan.io/address/%s#code", spLev);
+
+        finish();
+
+        console.log("\n=== Complete ===");
     }
 }

@@ -103,7 +103,7 @@ contract TestGraphsFees is TestGraphs, TestCollateralRatioRangeSetUp {
     }
 
     function doOneCollateralRatio() internal override {
-        // write a gnuplot data file line for fees, invariant and liquidation
+        // write a gnuplot data file line for fees and liquidation
 
         int256 mintPeggedFees;
         int256 redeemPeggedFees;
