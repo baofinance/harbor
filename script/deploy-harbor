@@ -27,6 +27,7 @@ Phase (exactly one required):
   --deploy-minter   Deploy minters only (for each collateral)
   --smoke-pegged    Smoke test pegged token only
   --smoke-minter    Smoke test minters only (for each collateral)
+	--deploy-sp-impl   Deploy Stability Pool implementation only
 
 Options:
   --account NAME    Use keystore account from ~/.foundry/keystores (for non-local networks)
@@ -91,22 +92,42 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --deploy-pegged)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
       PHASE="deploy-pegged"
       shift
       ;;
     --deploy-minter)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
       PHASE="deploy-minter"
       shift
       ;;
+    --deploy-sp-impl)
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
+      PHASE="deploy-sp-impl"
+      shift
+      ;;
     --smoke-pegged)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
       PHASE="smoke-pegged"
       shift
       ;;
     --smoke-minter)
-      [[ -n "$PHASE" ]] && { echo "Error: Only one phase option allowed" >&2; exit 1; }
+      [[ -n "$PHASE" ]] && {
+        echo "Error: Only one phase option allowed" >&2
+        exit 1
+      }
       PHASE="smoke-minter"
       shift
       ;;
@@ -162,7 +183,7 @@ if [[ -z "$COLLATERALS_CSV" ]]; then
 fi
 
 # Parse comma-separated collaterals into array
-IFS=',' read -ra COLLATERALS <<< "$COLLATERALS_CSV"
+IFS=',' read -ra COLLATERALS <<<"$COLLATERALS_CSV"
 
 # ============================================================================
 # Start Anvil if requested
@@ -314,6 +335,18 @@ case "$PHASE" in
       echo ""
       echo "=== Deploying minter for collateral: $COLLATERAL ==="
       run_forge DeployHarborMinter "deployMinter(string,string,string,string)" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL"
+    done
+    ;;
+
+  deploy-sp-impl)
+    if [[ -z "$RESUME" && "${NETWORK}" == "local" ]]; then
+      echo "Ensuring BaoFactory is ready..."
+      ./lib/bao-base/script/ensure-bao-factory
+    fi
+    for COLLATERAL in "${COLLATERALS[@]}"; do
+      echo ""
+      echo "=== Deploying Stability Pools for collateral: $COLLATERAL ==="
+      run_forge DeployHarborMinter "deploySPImpl(string,string,string,string)" "$NETWORK" "$SALT" "$PEGGED" "$COLLATERAL"
     done
     ;;
 

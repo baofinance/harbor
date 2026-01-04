@@ -1,0 +1,147 @@
+{
+  "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "prefix": "test2",
+  "peggedTicker": "ETH",
+  "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+  "priceOracle": "0x56d1a2Fc199bA05F84d2eb8eaB5858d3d954030C",
+  "contracts": {
+    "minterFeeReceiver": {
+      "name": "Minter Fee Receiver",
+      "tokens": [
+        "0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39"
+      ],
+      "recipients": [
+        "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
+      ],
+      "shares": [
+        100e16
+      ]
+    },
+    "stabilityPoolManagerFeeReceiver": {
+      "name": "StabilityPoolManager Cut Receiver",
+      "tokens": [
+        "0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39"
+      ],
+      "recipients": [
+        "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+        "contracts.stabilityPoolCollateral.address",
+        "contracts.stabilityPoolLeveraged.address"
+      ],
+      "shares": [
+        4e16,
+        48e16,
+        48e16
+      ]
+    },
+    "minter": {
+      "address": "0x565F90dC7C022e7857734352c7Bf645852d8d4e7",
+      "config": {
+        "mintPeggedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            131e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            100e16,
+            1e16,
+            0.5e16
+          ]
+        },
+        "redeemPeggedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            100e16,
+            110e16,
+            120e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            -0.5e16,
+            -0.5e16,
+            0,
+            0.6e16,
+            0.8e16
+          ]
+        },
+        "mintLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            100e16,
+            110e16,
+            120e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            -5e16,
+            -5e16,
+            0,
+            2e16,
+            7e16
+          ]
+        },
+        "redeemLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            110e16,
+            140e16
+          ],
+          "incentiveRatios": [
+            100e16,
+            1.5e16,
+            1.2e16
+          ]
+        }
+      },
+      "feeReceiver": "contracts.minterFeeReceiver.address"
+    },
+    "stabilityPoolManager": {
+      "rebalanceThreshold": 130e16,
+      "rebalanceBountyRatio": 1e16,
+      "harvestBountyRatio": 1e16,
+      "harvestCutRatio": 100e16,
+      "feeReceiver": "contracts.stabilityPoolManagerFeeReceiver.address"
+    },
+    "collateral": {
+      "address": "0x085780639CC2cACd35E474e71f4d000e2405d8f6",
+      "symbol": "fxUSD",
+      "name": "f(x) USD"
+    },
+    "wrappedCollateral": {
+      "address": "0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39",
+      "symbol": "fxSAVE",
+      "name": "f(x) USD Saving"
+    },
+    "priceOracle": {
+      "address": "0x56d1a2Fc199bA05F84d2eb8eaB5858d3d954030C"
+    }
+  },
+  "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
+  "stabilityPoolWithdrawalDelay": 3600,
+  "stabilityPoolWithdrawalPeriod": 90000,
+  "stabilityPoolMinTotalAssetSupply": 0.0005e18,
+  "networks": {
+    "mainnet": {
+      "chainId": 1,
+      "collateral": "0x085780639CC2cACd35E474e71f4d000e2405d8f6",
+      "wrappedCollateral": "0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39"
+    }
+  },
+  "schemaVersion": 1,
+  "systemSaltString": "test2::ETH::fxUSD",
+  "session": {
+    "network": "mainnet",
+    "chainId": 1,
+    "startTimestamp": 1767459683,
+    "started": "2026-01-03T17:01:23Z",
+    "startBlock": 24155481,
+    "deployer": "0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38",
+    "stub": {
+      "address": "0x4639F130e2d3295fC1AD3BEA78D7F694635630e0",
+      "contractType": "UUPSProxyDeployStub",
+      "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
+      "blockNumber": 24155481
+    },
+    "finishTimestamp": 1767459683,
+    "finished": "2026-01-03T17:01:23Z",
+    "finishBlock": 24155481
+  },
+  "BaoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "peggedSaltString": "test2::ETH"
+}

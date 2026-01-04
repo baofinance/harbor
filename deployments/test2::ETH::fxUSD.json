@@ -20,7 +20,7 @@
   "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
   "stabilityPoolWithdrawalDelay": 3600,
   "stabilityPoolWithdrawalPeriod": 90000,
-  "stabilityPoolMinTotalAssetSupply": 1e18,
+  "stabilityPoolMinTotalAssetSupply": 500000000000000,
   "contracts": {
     "minterFeeReceiver": {
       "name": "Minter Fee Receiver",
@@ -35,6 +35,7 @@
       ]
     },
     "minter": {
+      "address": "0x565f90dc7c022e7857734352c7bf645852d8d4e7",
       "peggedBurnSignature": "burn(uint256)",
       "config": {
         "mintLeveragedIncentiveConfig": {

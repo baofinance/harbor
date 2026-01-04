@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+salt=$(cast keccak "$1")
+
+if [[ "$1" == test2* ]]; then
+  factory="0x232C909F51Ce792e7F39106C75A3ED43F12d3554"
+else
+  factory="0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
+fi
+
+address=$(cast call "$factory" "predictAddress(bytes32)(address)" $salt)
+
+echo "salt: $1; address: ${address}"
+min_deposit=$(cast call ${address} "MIN_DEPOSIT()(uint256)")
+echo "MIN_DEPOSIT: ${min_deposit}"
+echo "https://etherscan.io/address/${address}#code"

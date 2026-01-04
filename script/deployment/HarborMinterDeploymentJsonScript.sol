@@ -261,7 +261,7 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
             revert SaltMismatch(expectedSalt, systemSaltString);
         }
 
-        _setMintableBurnableERC20Info(PEGGED, predictAddress(PEGGED, PEGGED_SALT_STRING));
+        //_setMintableBurnableERC20Info(PEGGED, predictAddress(PEGGED, PEGGED_SALT_STRING));
     }
 
     function _setERC20Info(string memory key, address token) internal {
@@ -563,6 +563,22 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
     // ============================================================================
     // Stability Pool
     // ============================================================================
+
+    function _deployStabilityPoolImplementation(address minter, address liquidation) public returns (address) {
+        // Deploy implementation
+        return
+            address(
+                new StabilityPool_v1(
+                    minter,
+                    liquidation,
+                    1, // TODO: this value is not used but must be > 0
+                    address(0xdeadbeef), // TODO: this address is not used but must be non-zero
+                    _getUint(STABILITY_POOL_WITHDRAWAL_DELAY),
+                    _getUint(STABILITY_POOL_WITHDRAWAL_PERIOD),
+                    _getUint(STABILITY_POOL_MIN_TOTAL_ASSET_SUPPLY)
+                )
+            );
+    }
 
     function _deployStabilityPool(string memory stabilityPoolKey, string memory liquidationKey) public {
         console2.log("Deploying Stability Pool %s ...", liquidationKey);

@@ -19,7 +19,7 @@
   "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
   "stabilityPoolWithdrawalDelay": 3600,
   "stabilityPoolWithdrawalPeriod": 90000,
-  "stabilityPoolMinTotalAssetSupply": 1e18,
+  "stabilityPoolMinTotalAssetSupply": 200000000000000,
   "contracts": {
     "minterFeeReceiver": {
       "name": "Minter Fee Receiver",
