@@ -16,7 +16,7 @@
   "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
   "treasury": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
   "priceOracle": "0x8F76a260c5D21586aFfF18f880FFC808D0524A73",
-  "stabilityPoolEarlyWithdrawalFeeRatio": 1e16,
+  "stabilityPoolEarlyWithdrawalFeeRatio": 1E+16,
   "stabilityPoolWithdrawalDelay": 3600,
   "stabilityPoolWithdrawalPeriod": 90000,
   "stabilityPoolMinTotalAssetSupply": 10000000000000,
@@ -30,62 +30,86 @@
         "treasury"
       ],
       "shares": [
-        1e18
+        1E+18
       ]
     },
     "minter": {
       "peggedBurnSignature": "burn(uint256)",
       "config": {
-        "mintLeveragedIncentiveConfig": {
-          "collateralRatioBandUpperBounds": [
-            1.0e18,
-            1.1e18,
-            1.2e18,
-            1.4e18
-          ],
-          "incentiveRatios": [
-            -0.05e18,
-            -0.05e18,
-            0e18,
-            0.02e18,
-            0.07e18
-          ]
-        },
         "mintPeggedIncentiveConfig": {
           "collateralRatioBandUpperBounds": [
-            1.31e18,
-            1.4e18
+            1.31E+18,
+            1.40E+18,
+            1.50E+18,
+            1.60E+18,
+            1.70E+18,
+            1.80E+18
           ],
           "incentiveRatios": [
-            1e18,
-            0.01e18,
-            0.005e18
-          ]
-        },
-        "redeemLeveragedIncentiveConfig": {
-          "collateralRatioBandUpperBounds": [
-            1.1e18,
-            1.4e18
-          ],
-          "incentiveRatios": [
-            1e18,
-            0.015e18,
-            0.012e18
+            1.00E+18,
+            2E+16,
+            1E+16,
+            7.5E+15,
+            5E+15,
+            3.3E+15,
+            2.5E+15
           ]
         },
         "redeemPeggedIncentiveConfig": {
           "collateralRatioBandUpperBounds": [
-            1e18,
-            1.1e18,
-            1.2e18,
-            1.4e18
+            1.00E+18,
+            1.10E+18,
+            1.25E+18,
+            1.40E+18,
+            1.50E+18,
+            1.60E+18
           ],
           "incentiveRatios": [
-            -0.005e18,
-            -0.005e18,
+            -1E+16,
+            -7.5E+15,
+            -3E+15,
             0,
-            0.006e18,
-            0.008e18
+            2.5E+15,
+            5E+15,
+            7.5E+15
+          ]
+        },
+        "mintLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            1.00E+18,
+            1.10E+18,
+            1.25E+18,
+            1.60E+18,
+            1.70E+18,
+            1.80E+18
+          ],
+          "incentiveRatios": [
+            0,
+            -2.5E+16,
+            -1E+16,
+            0,
+            2.5E+15,
+            5E+15,
+            7.5E+15
+          ]
+        },
+        "redeemLeveragedIncentiveConfig": {
+          "collateralRatioBandUpperBounds": [
+            1.00E+18,
+            1.25E+18,
+            1.40E+18,
+            1.50E+18,
+            1.60E+18,
+            1.80E+18
+          ],
+          "incentiveRatios": [
+            1.00E+18,
+            4E+16,
+            2.5E+16,
+            2E+16,
+            1.5E+16,
+            1E+16,
+            7.5E+15
           ]
         }
       },
@@ -102,16 +126,16 @@
         "contracts.stabilityPoolLeveraged.address"
       ],
       "shares": [
-        4e16,
-        48e16,
-        48e16
+        4E+16,
+        4.8E+17,
+        4.8E+17
       ]
     },
     "stabilityPoolManager": {
-      "rebalanceThreshold": 130e16,
-      "rebalanceBountyRatio": 1e16,
-      "harvestBountyRatio": 1e16,
-      "harvestCutRatio": 100e16,
+      "rebalanceThreshold": 1.30E+18,
+      "rebalanceBountyRatio": 1E+16,
+      "harvestBountyRatio": 1E+16,
+      "harvestCutRatio": 1.00E+18,
       "feeReceiver": "contracts.stabilityPoolManagerFeeReceiver.address"
     }
   }

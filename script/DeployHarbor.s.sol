@@ -7,6 +7,12 @@ import {Script} from "forge-std/Script.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/HarborMinterDeploymentJsonScript.sol";
+import {HarborPeggedDeploymentJsonScript} from "@harbor-script/deployment/HarborPeggedDeploymentJsonScript.sol";
+
+enum Mode {
+    DEPLOY,
+    SMOKE
+}
 
 /**
  * @title DeployHarbor
@@ -15,7 +21,68 @@ import {HarborMinterDeploymentJsonScript} from "@harbor-script/deployment/Harbor
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
  *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
  */
-contract DeployHarbor is HarborMinterDeploymentJsonScript {
+contract DeployHarborPegged is HarborPeggedDeploymentJsonScript {
+    function _doPegged(
+        Mode mode,
+        string memory network,
+        string memory salt,
+        string memory peg,
+        string[] memory collaterals
+    ) internal {
+        console.log("=== %s Harbor Pegged Token (%s) ===", mode == Mode.DEPLOY ? "Deploying" : "Smoke Testing", peg);
+        console.log("Network: %s", network);
+        console.log("Salt: %s", salt);
+        console.log("Pegged: %s", peg);
+        for (uint c = 0; c < collaterals.length; ++c) {
+            console.log("Collateral: %s", collaterals[c]);
+        }
+
+        string memory systemSalt = string.concat(salt, "::", peg);
+        console.log("System salt %s", systemSalt);
+
+        // do the work
+        if (mode == Mode.DEPLOY) {
+            disableIncrementalLogging();
+
+            start(network, systemSalt, "");
+
+            _deployPegged(collaterals);
+        } else {
+            setReadOnly();
+
+            start(network, systemSalt, "latest");
+
+            _smokePegged();
+        }
+        finish();
+    }
+
+    function deployPegged(
+        string memory network,
+        string memory salt,
+        string memory peg,
+        string[] memory collaterals
+    ) public {
+        _doPegged(Mode.DEPLOY, network, salt, peg, collaterals);
+    }
+
+    function smokePegged(
+        string memory network,
+        string memory salt,
+        string memory peg,
+        string[] memory collaterals
+    ) public {
+        _doPegged(Mode.SMOKE, network, salt, peg, collaterals);
+    }
+}
+/**
+ * @title DeployHarbor
+ * @notice Deploy Harbor to a network using configuration from deployments/{salt}.json
+ * @dev Usage:
+ *   deploy-harbor --salt harbor_v1-USD-stETH --network local --deploy
+ *   deploy-harbor --salt harbor_v1-USD-stETH --network local --smoke
+ */
+contract DeployHarborMinter is HarborMinterDeploymentJsonScript {
     // address constant HARBORMULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
     // function setBaoFactoryOperator() public {
@@ -30,11 +97,6 @@ contract DeployHarbor is HarborMinterDeploymentJsonScript {
     //     }
     //     console.log("=== BaoFactory Operator Set Complete ===\n");
     // }
-
-    enum Mode {
-        DEPLOY,
-        SMOKE
-    }
 
     function _doMinter(Mode mode, string memory salt, string memory network) internal {
         console.log("=== %s Harbor ===", mode == Mode.DEPLOY ? "Deploying" : "Smoke Testing");
