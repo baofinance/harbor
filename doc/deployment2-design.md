@@ -591,7 +591,7 @@ Scripts source `lib/deploy-cli` for shared functionality:
 
 **`script/lib/deploy-cli`** - Minimal shared CLI functions:
 
-```bash
+````bash
 # Minimal CLI helpers for Harbor deployment scripts
 #
 # Source: source "$(dirname "$0")/lib/deploy-cli"
@@ -683,7 +683,7 @@ else
 fi
 
 echo "=== State updated in Solidity ==="
-```
+````
 
 `encode_minter_markets` lives beside the wrappers and enforces the peg→collateral ordering when turning positional arguments into ABI tuples. Price-aggregator wrappers ship an analogous helper (`encode_price_markets`) that flips the tuple order to collateral→peg.
 
@@ -961,7 +961,7 @@ string[] memory keys = _getProxiesMatching("*::stabilityPool*");
 - [ ] **2.2** Chain config (`Config_Chain_Mainnet.sol`, `Config_Chain_Arbitrum.sol`)
 - [ ] **2.3** Peg config (`Config_Peg_ETH.sol`, `Config_Peg_BTC.sol`, etc.)
 - [ ] **2.4** Volatility config (`Config_PriceVolatility_130.sol`, etc.)
-- [ ] **2.5** Market config (`Config_Market_harbor_v1_ETH_fxUSD.sol`, etc.)
+- [ ] **2.5** Minter Market config (`Config_MinterMarket_ETH_fxUSD.sol`, etc.)
 
 ### Phase 3: Deployment Library (`script/deployment2/`)
 
@@ -1047,10 +1047,7 @@ contract DeployMinterIntegrationTest is Test {
   function test_deployMinter_createsWorkingProxy() public {
     DeployMinter script = new DeployMinter();
     MinterMarket[] memory markets = new MinterMarket[](1);
-    markets[0] = MinterMarket({
-      peg: PegFragment({ id: "fxUSD" }),
-      collateral: CollateralFragment({ id: "ETH" })
-    });
+    markets[0] = MinterMarket({ peg: PegFragment({ id: "fxUSD" }), collateral: CollateralFragment({ id: "ETH" }) });
     script.runMinterMarkets(markets);
 
     // Verify proxy is deployed and functional
@@ -1147,6 +1144,7 @@ Any future validations (bytecode hashes, Safe ownership, etc.) live beside these
 **Purpose**: Verify that a fresh deployment from current code matches the live production deployment.
 
 **Strategy**:
+
 1. Fork mainnet at a recent block
 2. Deploy with salt prefix `test0` using current code
 3. Compare minter-market entries recorded under the `test0` salt prefix against those under the production prefix
@@ -1198,33 +1196,29 @@ contract DeploymentEquivalenceTest is Test {
 Compare implementation bytecode - should be identical:
 
 ```solidity
-  function test_implementation_bytecode_matches() public {
-    string[] memory implKeys = _getImplementationKeys();
+function test_implementation_bytecode_matches() public {
+  string[] memory implKeys = _getImplementationKeys();
 
-    for (uint i = 0; i < implKeys.length; i++) {
-      address prodProxy = productionAddresses[implKeys[i]];
-      address testProxy = testAddresses[implKeys[i]];
+  for (uint i = 0; i < implKeys.length; i++) {
+    address prodProxy = productionAddresses[implKeys[i]];
+    address testProxy = testAddresses[implKeys[i]];
 
-      // Extract implementation addresses from ERC1967 slot
-      address prodImpl = _getImplementation(prodProxy);
-      address testImpl = _getImplementation(testProxy);
+    // Extract implementation addresses from ERC1967 slot
+    address prodImpl = _getImplementation(prodProxy);
+    address testImpl = _getImplementation(testProxy);
 
-      // Compare runtime code (excludes constructor, includes immutables)
-      bytes memory prodCode = prodImpl.code;
-      bytes memory testCode = testImpl.code;
+    // Compare runtime code (excludes constructor, includes immutables)
+    bytes memory prodCode = prodImpl.code;
+    bytes memory testCode = testImpl.code;
 
-      assertEq(
-        keccak256(prodCode),
-        keccak256(testCode),
-        string.concat("Implementation mismatch for ", implKeys[i])
-      );
-    }
+    assertEq(keccak256(prodCode), keccak256(testCode), string.concat("Implementation mismatch for ", implKeys[i]));
   }
+}
 
-  function _getImplementation(address proxy) internal view returns (address) {
-    bytes32 slot = bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);
-    return address(uint160(uint256(vm.load(proxy, slot))));
-  }
+function _getImplementation(address proxy) internal view returns (address) {
+  bytes32 slot = bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);
+  return address(uint160(uint256(vm.load(proxy, slot))));
+}
 ```
 
 **5.5.2 View Function Comparison**
@@ -1232,29 +1226,29 @@ Compare implementation bytecode - should be identical:
 Call all parameterless view functions and compare results:
 
 ```solidity
-  function test_parameterless_view_functions_match() public {
-    string[] memory proxyKeys = _getProxyKeys();
+function test_parameterless_view_functions_match() public {
+  string[] memory proxyKeys = _getProxyKeys();
 
-    for (uint i = 0; i < proxyKeys.length; i++) {
-      address prod = productionAddresses[proxyKeys[i]];
-      address test = testAddresses[proxyKeys[i]];
+  for (uint i = 0; i < proxyKeys.length; i++) {
+    address prod = productionAddresses[proxyKeys[i]];
+    address test = testAddresses[proxyKeys[i]];
 
-      // Get list of parameterless view functions from ABI
-      bytes4[] memory selectors = _getParameterlessViewSelectors(proxyKeys[i]);
+    // Get list of parameterless view functions from ABI
+    bytes4[] memory selectors = _getParameterlessViewSelectors(proxyKeys[i]);
 
-      for (uint j = 0; j < selectors.length; j++) {
-        (bool prodSuccess, bytes memory prodResult) = prod.staticcall(abi.encodePacked(selectors[j]));
-        (bool testSuccess, bytes memory testResult) = test.staticcall(abi.encodePacked(selectors[j]));
+    for (uint j = 0; j < selectors.length; j++) {
+      (bool prodSuccess, bytes memory prodResult) = prod.staticcall(abi.encodePacked(selectors[j]));
+      (bool testSuccess, bytes memory testResult) = test.staticcall(abi.encodePacked(selectors[j]));
 
-        assertEq(prodSuccess, testSuccess, "Call success mismatch");
-        assertEq(
-          keccak256(prodResult),
-          keccak256(testResult),
-          string.concat("View result mismatch: ", proxyKeys[i], " selector ", vm.toString(selectors[j]))
-        );
-      }
+      assertEq(prodSuccess, testSuccess, "Call success mismatch");
+      assertEq(
+        keccak256(prodResult),
+        keccak256(testResult),
+        string.concat("View result mismatch: ", proxyKeys[i], " selector ", vm.toString(selectors[j]))
+      );
     }
   }
+}
 ```
 
 **5.5.3 Address-Parameter View Functions**
@@ -1262,56 +1256,52 @@ Call all parameterless view functions and compare results:
 Call view functions that take a single address, using all known addresses:
 
 ```solidity
-  function test_address_param_view_functions_match() public {
-    string[] memory proxyKeys = _getProxyKeys();
-    address[] memory knownAddresses = _getAllKnownAddresses();
+function test_address_param_view_functions_match() public {
+  string[] memory proxyKeys = _getProxyKeys();
+  address[] memory knownAddresses = _getAllKnownAddresses();
 
-    for (uint i = 0; i < proxyKeys.length; i++) {
-      address prod = productionAddresses[proxyKeys[i]];
-      address test = testAddresses[proxyKeys[i]];
+  for (uint i = 0; i < proxyKeys.length; i++) {
+    address prod = productionAddresses[proxyKeys[i]];
+    address test = testAddresses[proxyKeys[i]];
 
-      // Get list of view functions with single address param
-      bytes4[] memory selectors = _getSingleAddressViewSelectors(proxyKeys[i]);
+    // Get list of view functions with single address param
+    bytes4[] memory selectors = _getSingleAddressViewSelectors(proxyKeys[i]);
 
-      for (uint j = 0; j < selectors.length; j++) {
-        for (uint k = 0; k < knownAddresses.length; k++) {
-          // Call with each known address (production version)
-          address prodAddr = _mapToProduction(knownAddresses[k]);
-          (bool prodSuccess, bytes memory prodResult) = prod.staticcall(
-            abi.encodeWithSelector(selectors[j], prodAddr)
-          );
+    for (uint j = 0; j < selectors.length; j++) {
+      for (uint k = 0; k < knownAddresses.length; k++) {
+        // Call with each known address (production version)
+        address prodAddr = _mapToProduction(knownAddresses[k]);
+        (bool prodSuccess, bytes memory prodResult) = prod.staticcall(abi.encodeWithSelector(selectors[j], prodAddr));
 
-          // Call with corresponding test address
-          address testAddr = _mapToTest(knownAddresses[k]);
-          (bool testSuccess, bytes memory testResult) = test.staticcall(
-            abi.encodeWithSelector(selectors[j], testAddr)
-          );
+        // Call with corresponding test address
+        address testAddr = _mapToTest(knownAddresses[k]);
+        (bool testSuccess, bytes memory testResult) = test.staticcall(abi.encodeWithSelector(selectors[j], testAddr));
 
-          // Results should match (after address translation in return values)
-          assertEq(prodSuccess, testSuccess);
-          assertEq(
-            _normalizeAddresses(prodResult, productionAddresses, testAddresses),
-            testResult,
-            "Address-param view mismatch"
-          );
-        }
+        // Results should match (after address translation in return values)
+        assertEq(prodSuccess, testSuccess);
+        assertEq(
+          _normalizeAddresses(prodResult, productionAddresses, testAddresses),
+          testResult,
+          "Address-param view mismatch"
+        );
       }
     }
   }
+}
 
-  /// @dev Map addresses between the test prefix and the production prefix
-  function _mapToProduction(address testAddr) internal view returns (address) {
-    // Lookup in address mapping
-  }
+/// @dev Map addresses between the test prefix and the production prefix
+function _mapToProduction(address testAddr) internal view returns (address) {
+  // Lookup in address mapping
+}
 
-  /// @dev Normalize addresses in return data (replace prod addresses with test equivalents)
-  function _normalizeAddresses(
-    bytes memory data,
-    mapping(string => address) storage fromMap,
-    mapping(string => address) storage toMap
-  ) internal view returns (bytes memory) {
-    // Replace all occurrences of production addresses with test addresses
-  }
+/// @dev Normalize addresses in return data (replace prod addresses with test equivalents)
+function _normalizeAddresses(
+  bytes memory data,
+  mapping(string => address) storage fromMap,
+  mapping(string => address) storage toMap
+) internal view returns (bytes memory) {
+  // Replace all occurrences of production addresses with test addresses
+}
 ```
 
 **5.5.4 Expected Differences**
@@ -1319,13 +1309,14 @@ Call view functions that take a single address, using all known addresses:
 Some values will legitimately differ:
 
 ```solidity
-  // Skip these selectors - they're expected to differ
-  function _isExpectedDifferent(bytes4 selector) internal pure returns (bool) {
-    return selector == bytes4(keccak256("owner()"))           // Different deployer
-        || selector == bytes4(keccak256("pendingOwner()"))    // Different pending
-        || selector == bytes4(keccak256("deployedAt()"))      // Different block
-        || selector == bytes4(keccak256("implementation()")); // Different impl address
-  }
+// Skip these selectors - they're expected to differ
+function _isExpectedDifferent(bytes4 selector) internal pure returns (bool) {
+  return
+    selector == bytes4(keccak256("owner()")) || // Different deployer
+    selector == bytes4(keccak256("pendingOwner()")) || // Different pending
+    selector == bytes4(keccak256("deployedAt()")) || // Different block
+    selector == bytes4(keccak256("implementation()")); // Different impl address
+}
 ```
 
 **Running the test:**
@@ -1377,26 +1368,27 @@ contract DeploymentStateStoreTest is Test {
   }
 }
 ```
+
 These tests guarantee both entry points (`runFromStateFile()` and `runMinterMarkets()`) stay compatible with the JSON schema consumed by the CLI.
 
 ---
 
 ## 6. Key Design Decisions
 
-| Decision               | Choice                                                              |
-| ---------------------- | ------------------------------------------------------------------- |
-| Config format          | **Solidity contracts**, not JSON - type safety, inheritance, IDE   |
-| Config composition     | Composable pieces via multiple inheritance (no hierarchy)          |
-| Config naming          | `Config_{Category}_{Value}` e.g. `Config_Peg_ETH`                  |
-| Key extraction         | `marketKey()` in `ConfigBase` extracts from `type(this).name`      |
-| Proxy detection        | Tool for validation only, not control flow (intent is explicit)    |
-| Broadcast control      | **Script controls** - calls `vm.startBroadcast()` directly         |
-| State file             | One per network **per salt prefix** (filename matches `saltPrefix`) |
-| State file format      | JSON - only runtime output, not compile-time input                 |
-| State file access      | Solidity (`DeploymentStateStore`) loads + saves JSON               |
-| CLI pattern            | `--network`, `--local`, `--account` - no `.env`, no raw keys       |
-| CLI-driven loops       | Solidity derives workloads via state-store helpers                 |
-| Bash wrappers          | Source `script/lib/deploy-cli`, choose `runFromStateFile` VS `runMinterMarkets` only |
+| Decision           | Choice                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| Config format      | **Solidity contracts**, not JSON - type safety, inheritance, IDE                     |
+| Config composition | Composable pieces via multiple inheritance (no hierarchy)                            |
+| Config naming      | `Config_{Category}_{Value}` e.g. `Config_Peg_ETH`                                    |
+| Key extraction     | `marketKey()` in `ConfigBase` extracts from `type(this).name`                        |
+| Proxy detection    | Tool for validation only, not control flow (intent is explicit)                      |
+| Broadcast control  | **Script controls** - calls `vm.startBroadcast()` directly                           |
+| State file         | One per network **per salt prefix** (filename matches `saltPrefix`)                  |
+| State file format  | JSON - only runtime output, not compile-time input                                   |
+| State file access  | Solidity (`DeploymentStateStore`) loads + saves JSON                                 |
+| CLI pattern        | `--network`, `--local`, `--account` - no `.env`, no raw keys                         |
+| CLI-driven loops   | Solidity derives workloads via state-store helpers                                   |
+| Bash wrappers      | Source `script/lib/deploy-cli`, choose `runFromStateFile` VS `runMinterMarkets` only |
 
 ---
 
@@ -1502,4 +1494,3 @@ jq '.proxies' deployments/local/mainnet/harbor_v1.state.json | head
 **Step 3: Execute via Safe**
 
 Import batch JSON → review → execute
-````

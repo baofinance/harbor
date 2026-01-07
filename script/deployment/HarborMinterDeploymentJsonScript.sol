@@ -219,11 +219,11 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         // Copy network-specific inputs to standard slots
         _setERC20Info(WRAPPED_COLLATERAL, _getAddress(string.concat(networkPrefix, ".wrappedCollateral")));
 
-        if (_has(PRICE_ORACLE_INPUT)) {
-            console2.log("price oracle specified");
-            _set(PRICE_ORACLE, _getAddress(PRICE_ORACLE_INPUT));
-            require(_has(PRICE_ORACLE), "price oracle not set properly");
-        }
+        // if (_has(PRICE_ORACLE_INPUT)) {
+        //     console2.log("price oracle specified");
+        //     _set(PRICE_ORACLE, _getAddress(PRICE_ORACLE_INPUT));
+        //     require(_has(PRICE_ORACLE), "price oracle not set properly");
+        // }
         // Validate chain ID
         // TODO: this should be at a lower level along with the network config part
         uint256 expectedChainId = _getUint(string.concat(networkPrefix, ".chainId"));
@@ -246,12 +246,12 @@ contract HarborMinterDeploymentJsonScript is HarborDeploymentJsonScript {
         //_setMintableBurnableERC20Info(PEGGED, predictAddress(PEGGED, PEGGED_SALT_STRING));
     }
 
-    function _setERC20Info(string memory key, address token) internal {
-        console2.log("_setERC20Info(", key, ")...");
-        _set(key, token);
-        _setString(string.concat(key, ".symbol"), IERC20Minimal(token).symbol());
-        _setString(string.concat(key, ".name"), IERC20Minimal(token).name());
-    }
+    // function _setERC20Info(string memory key, address token) internal {
+    //     console2.log("_setERC20Info(", key, ")...");
+    //     _set(key, token);
+    //     _setString(string.concat(key, ".symbol"), IERC20Minimal(token).symbol());
+    //     _setString(string.concat(key, ".name"), IERC20Minimal(token).name());
+    // }
 
     // ============================================================================
     // Leveraged

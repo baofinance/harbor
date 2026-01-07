@@ -30,7 +30,7 @@ contract DeployPegged is HarborMinterDeploymentJsonScript {
         start(network, salt, "");
 
         // 4. Deploy pegged token using registry parameters populated from config
-        _deployPegged();
+        // _deployPegged();
 
         console.log("\n=== Deployment Complete ===");
         console.log("Pegged Token:", _get(PEGGED));

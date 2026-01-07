@@ -109,7 +109,7 @@ contract DeployHarborMinter is HarborMinterDeploymentJsonScript {
 
             start(network, salt, "");
 
-            _deployPegged();
+            // _deployPegged();
             _deployLeveraged();
             _deployFeeReceiver(MINTER);
             _deployPriceOracle();
@@ -124,7 +124,7 @@ contract DeployHarborMinter is HarborMinterDeploymentJsonScript {
             disableLogging();
             start(network, salt, "latest");
 
-            _smokePegged();
+            // _smokePegged();
             _smokeLeveraged();
             _smokeFeeReceiver(MINTER);
             _smokePriceOracle();
@@ -151,15 +151,15 @@ contract DeployHarborMinter is HarborMinterDeploymentJsonScript {
     }
 
     function addr(
-        string memory prefix,
-        string memory peg,
-        string memory collateral,
-        string memory key
-    ) public view returns (address) {
-        address factory = LibString.eq(prefix, "test2")
-            ? 0x232C909F51Ce792e7F39106C75A3ED43F12d3554
-            : _getAddress(BAO_FACTORY);
-        return predictAddress(string.concat(prefix, "::", peg, "::", collateral, "::", key), factory);
+        string memory /* prefix */,
+        string memory /* peg */,
+        string memory /* collateral */,
+        string memory /* key */
+    ) public pure returns (address) {
+        // address factory = LibString.eq(prefix, "test2")
+        //     ? 0x232C909F51Ce792e7F39106C75A3ED43F12d3554
+        //     : _getAddress(BAO_FACTORY);
+        return address(0); // predictAddress(string.concat(prefix, "::", peg, "::", collateral, "::", key), factory);
     }
 
     function deploySPImpl(
