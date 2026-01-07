@@ -951,17 +951,17 @@ string[] memory keys = _getProxiesMatching("*::stabilityPool*");
 
 ### Phase 1: Infrastructure (`script/bao-basedeployment/`)
 
-- [ ] **1.1** `Deployment.sol` - Core state file handling
+- [x] **1.1** `Deployment.sol` - Core state file handling
 - [ ] **1.2** `SafeTxBuilder.sol` - Generate Safe batch transactions
-- [ ] **1.3** Unit tests for state file operations
+- [x] **1.3** Unit tests for state file operations
 
 ### Phase 2: Config Contracts (`script/config/`)
 
-- [ ] **2.1** `ConfigBase.sol` - Key extraction from `type(this).name`
-- [ ] **2.2** Chain config (`Config_Chain_Mainnet.sol`, `Config_Chain_Arbitrum.sol`)
-- [ ] **2.3** Peg config (`Config_Peg_ETH.sol`, `Config_Peg_BTC.sol`, etc.)
-- [ ] **2.4** Volatility config (`Config_PriceVolatility_130.sol`, etc.)
-- [ ] **2.5** Minter Market config (`Config_MinterMarket_ETH_fxUSD.sol`, etc.)
+- [x] **2.1** `ConfigBase.sol` - Key extraction from `type(this).name`
+- [x] **2.2** Chain config (`Config_Chain_Mainnet.sol`, `Config_Chain_Arbitrum.sol`)
+- [x] **2.3** Peg config (`Config_Peg_ETH.sol`, `Config_Peg_BTC.sol`, etc.)
+- [x] **2.4** Volatility config (`Config_PriceVolatility_130.sol`, etc.)
+- [x] **2.5** Minter Market config (`Config_MinterMarket_ETH_fxUSD.sol`, etc.)
 
 ### Phase 3: Deployment Library (`script/deployment2/`)
 

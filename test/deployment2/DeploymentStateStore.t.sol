@@ -2,10 +2,14 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test, stdJson} from "forge-std/Test.sol";
-import {DeploymentStateStore} from "script/bao-basedeployment/Deployment.sol";
+import {Vm} from "forge-std/Vm.sol";
+import {DeploymentStateStore} from "script/bao-basedeployment/DeploymentStateStore.sol";
+import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
+import {JsonParser} from "script/bao-basedeployment/JsonParser.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 contract DeploymentStateStoreHarness is DeploymentStateStore {
+    Vm private constant testVm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     string private directoryPrefix;
 
     constructor(string memory prefix) {
@@ -17,13 +21,13 @@ contract DeploymentStateStoreHarness is DeploymentStateStore {
         string memory saltPrefix,
         bool useLocal,
         string memory json
-    ) external view returns (State memory) {
-        State memory state;
+    ) external view returns (DeploymentTypes.State memory) {
+        DeploymentTypes.State memory state;
         state.network = network;
         state.saltPrefix = saltPrefix;
         state.useLocal = useLocal;
         state.path = resolvePath(network, saltPrefix, useLocal);
-        return _applyStateJson(state, json);
+        return JsonParser.applyStateJson(testVm, state, json);
     }
 
     function _directoryPrefix() internal view override returns (string memory) {
@@ -83,7 +87,7 @@ contract DeploymentStateStoreTest is Test {
 
     function testLoadSeedsEmptyState() public {
         string memory salt = "testLoadSeedsEmptyState";
-        DeploymentStateStore.State memory state = store.load(NETWORK, salt, true);
+        DeploymentTypes.State memory state = store.load(NETWORK, salt, true);
         assertEq(state.network, NETWORK);
         assertEq(state.saltPrefix, salt);
         assertTrue(state.useLocal);
@@ -96,14 +100,14 @@ contract DeploymentStateStoreTest is Test {
     function testSavePersistsRecords() public {
         vm.warp(1);
         string memory salt = "testSavePersistsRecords";
-        DeploymentStateStore.State memory state;
+        DeploymentTypes.State memory state;
         state.network = NETWORK;
         state.saltPrefix = salt;
         state.useLocal = true;
         state.path = store.resolvePath(NETWORK, salt, true);
         state.baoFactory = address(0xB00B);
 
-        DeploymentStateStore.ImplementationRecord memory impl = DeploymentStateStore.ImplementationRecord({
+        DeploymentTypes.ImplementationRecord memory impl = DeploymentTypes.ImplementationRecord({
             forProxy: "ETH::fxUSD::minter",
             contractSource: "src/DeployMinter.sol",
             contractType: "Minter",
@@ -111,10 +115,10 @@ contract DeploymentStateStoreTest is Test {
             deploymentTime: uint64(block.timestamp)
         });
 
-        DeploymentStateStore.ProxyRecord memory proxy = DeploymentStateStore.ProxyRecord({
+        DeploymentTypes.ProxyRecord memory proxy = DeploymentTypes.ProxyRecord({
             id: "ETH::fxUSD::minter",
-            fragment: DeploymentStateStore.FragmentDescriptor({
-                kind: DeploymentStateStore.FragmentKind.ContractRole,
+            fragment: DeploymentTypes.FragmentDescriptor({
+                kind: DeploymentTypes.FragmentKind.ContractRole,
                 key: "ETH::fxUSD::minter"
             }),
             proxy: address(0xC0FFEE),
@@ -148,8 +152,12 @@ contract DeploymentStateStoreTest is Test {
     }
 
     function testRecordImplementationRejectsDuplicateAddress() public {
-        DeploymentStateStore.State memory state = store.load(NETWORK, "testRecordImplementationRejectsDuplicateAddress", true);
-        DeploymentStateStore.ImplementationRecord memory record = DeploymentStateStore.ImplementationRecord({
+        DeploymentTypes.State memory state = store.load(
+            NETWORK,
+            "testRecordImplementationRejectsDuplicateAddress",
+            true
+        );
+        DeploymentTypes.ImplementationRecord memory record = DeploymentTypes.ImplementationRecord({
             forProxy: "ETH::fxUSD::minter",
             contractSource: "src/DeployMinter.sol",
             contractType: "Minter",
@@ -164,7 +172,7 @@ contract DeploymentStateStoreTest is Test {
         );
         store.recordImplementation(state, record);
 
-        DeploymentStateStore.ImplementationRecord memory second = record;
+        DeploymentTypes.ImplementationRecord memory second = record;
         second.forProxy = "ETH::fxUSD::stabilityPool";
 
         vm.expectRevert(
@@ -174,11 +182,11 @@ contract DeploymentStateStoreTest is Test {
     }
 
     function testRecordProxyRejectsDuplicateKey() public {
-        DeploymentStateStore.State memory state = store.load(NETWORK, "testRecordProxyRejectsDuplicateKey", true);
-        DeploymentStateStore.ProxyRecord memory record = DeploymentStateStore.ProxyRecord({
+        DeploymentTypes.State memory state = store.load(NETWORK, "testRecordProxyRejectsDuplicateKey", true);
+        DeploymentTypes.ProxyRecord memory record = DeploymentTypes.ProxyRecord({
             id: "ETH::fxUSD::minter",
-            fragment: DeploymentStateStore.FragmentDescriptor({
-                kind: DeploymentStateStore.FragmentKind.ContractRole,
+            fragment: DeploymentTypes.FragmentDescriptor({
+                kind: DeploymentTypes.FragmentKind.ContractRole,
                 key: "ETH::fxUSD::minter"
             }),
             proxy: address(0x1234),
@@ -192,7 +200,7 @@ contract DeploymentStateStoreTest is Test {
         vm.expectRevert(abi.encodeWithSelector(DeploymentStateStore.DuplicateProxy.selector, record.id));
         store.recordProxy(state, record);
 
-        DeploymentStateStore.ProxyRecord memory other = record;
+        DeploymentTypes.ProxyRecord memory other = record;
         other.id = "ETH::fxUSD::oracle";
 
         vm.expectRevert(abi.encodeWithSelector(DeploymentStateStore.DuplicateProxyAddress.selector, record.proxy));
@@ -202,8 +210,8 @@ contract DeploymentStateStoreTest is Test {
     function testRolesMissingProxiesDetectsGaps() public {
         vm.warp(1);
         string memory salt = "testRolesMissingProxiesDetectsGaps";
-        DeploymentStateStore.State memory state = store.load(NETWORK, salt, true);
-        DeploymentStateStore.ImplementationRecord memory record = DeploymentStateStore.ImplementationRecord({
+        DeploymentTypes.State memory state = store.load(NETWORK, salt, true);
+        DeploymentTypes.ImplementationRecord memory record = DeploymentTypes.ImplementationRecord({
             forProxy: "ETH::fxUSD::minter",
             contractSource: "src/DeployMinter.sol",
             contractType: "Minter",
@@ -212,16 +220,16 @@ contract DeploymentStateStoreTest is Test {
         });
         state = store.recordImplementation(state, record);
 
-        DeploymentStateStore.ContractRole[] memory missing = store.rolesMissingProxies(state);
+        DeploymentTypes.ContractRole[] memory missing = store.rolesMissingProxies(state);
         assertEq(missing.length, 1);
         assertEq(missing[0].id, "ETH::fxUSD::minter");
 
         state = store.recordProxy(
             state,
-            DeploymentStateStore.ProxyRecord({
+            DeploymentTypes.ProxyRecord({
                 id: "ETH::fxUSD::minter",
-                fragment: DeploymentStateStore.FragmentDescriptor({
-                    kind: DeploymentStateStore.FragmentKind.ContractRole,
+                fragment: DeploymentTypes.FragmentDescriptor({
+                    kind: DeploymentTypes.FragmentKind.ContractRole,
                     key: "ETH::fxUSD::minter"
                 }),
                 proxy: address(0xC001),
@@ -236,34 +244,34 @@ contract DeploymentStateStoreTest is Test {
     }
 
     function testFragmentsNeedingUpgradeFiltersByTag() public {
-        DeploymentStateStore.State memory state = store.load(NETWORK, "testFragmentsNeedingUpgradeFiltersByTag", true);
+        DeploymentTypes.State memory state = store.load(NETWORK, "testFragmentsNeedingUpgradeFiltersByTag", true);
         bytes32 targetTag = keccak256("SPv2");
-        state.pendingUpgrades = new DeploymentStateStore.PendingUpgrade[](2);
-        state.pendingUpgrades[0] = DeploymentStateStore.PendingUpgrade({
-            fragment: DeploymentStateStore.FragmentDescriptor({
-                kind: DeploymentStateStore.FragmentKind.MinterMarket,
+        state.pendingUpgrades = new DeploymentTypes.PendingUpgrade[](2);
+        state.pendingUpgrades[0] = DeploymentTypes.PendingUpgrade({
+            fragment: DeploymentTypes.FragmentDescriptor({
+                kind: DeploymentTypes.FragmentKind.MinterMarket,
                 key: "ETH::fxUSD"
             }),
             versionTag: targetTag
         });
-        state.pendingUpgrades[1] = DeploymentStateStore.PendingUpgrade({
-            fragment: DeploymentStateStore.FragmentDescriptor({
-                kind: DeploymentStateStore.FragmentKind.MinterMarket,
+        state.pendingUpgrades[1] = DeploymentTypes.PendingUpgrade({
+            fragment: DeploymentTypes.FragmentDescriptor({
+                kind: DeploymentTypes.FragmentKind.MinterMarket,
                 key: "BTC::fxUSD"
             }),
             versionTag: keccak256("SPv1")
         });
 
-        DeploymentStateStore.FragmentDescriptor[] memory targets = store.fragmentsNeedingUpgrade(state, targetTag);
+        DeploymentTypes.FragmentDescriptor[] memory targets = store.fragmentsNeedingUpgrade(state, targetTag);
         assertEq(targets.length, 1);
         assertEq(targets[0].key, "ETH::fxUSD");
-        assertEq(uint8(targets[0].kind), uint8(DeploymentStateStore.FragmentKind.MinterMarket));
+        assertEq(uint8(targets[0].kind), uint8(DeploymentTypes.FragmentKind.MinterMarket));
     }
 
     function testLoadRoundTripsSavedData() public {
         vm.warp(1);
         string memory salt = "testLoadRoundTripsSavedData";
-        DeploymentStateStore.State memory original;
+        DeploymentTypes.State memory original;
         original.network = NETWORK;
         original.saltPrefix = salt;
         original.useLocal = false;
@@ -271,10 +279,10 @@ contract DeploymentStateStoreTest is Test {
         original.baoFactory = address(0xA11CE);
         original = store.recordProxy(
             original,
-            DeploymentStateStore.ProxyRecord({
+            DeploymentTypes.ProxyRecord({
                 id: "ETH::fxUSD::minter",
-                fragment: DeploymentStateStore.FragmentDescriptor({
-                    kind: DeploymentStateStore.FragmentKind.ContractRole,
+                fragment: DeploymentTypes.FragmentDescriptor({
+                    kind: DeploymentTypes.FragmentKind.ContractRole,
                     key: "ETH::fxUSD::minter"
                 }),
                 proxy: address(0xCAFE),
@@ -285,7 +293,7 @@ contract DeploymentStateStoreTest is Test {
         );
         original = store.recordImplementation(
             original,
-            DeploymentStateStore.ImplementationRecord({
+            DeploymentTypes.ImplementationRecord({
                 forProxy: "ETH::fxUSD::minter",
                 contractSource: "src/DeployMinter.sol",
                 contractType: "Minter",
@@ -295,7 +303,7 @@ contract DeploymentStateStoreTest is Test {
         );
         store.save(original);
 
-        DeploymentStateStore.State memory reloaded = store.load(NETWORK, salt, false);
+        DeploymentTypes.State memory reloaded = store.load(NETWORK, salt, false);
         assertEq(reloaded.proxies.length, 1);
         assertEq(reloaded.implementations.length, 1);
         assertEq(reloaded.proxies[0].id, "ETH::fxUSD::minter");
@@ -318,7 +326,7 @@ contract DeploymentStateStoreTest is Test {
             )
         );
 
-        DeploymentStateStore.State memory parsed = store.loadFromString(NETWORK, salt, true, json);
+        DeploymentTypes.State memory parsed = store.loadFromString(NETWORK, salt, true, json);
         assertEq(parsed.implementations.length, 1);
         assertEq(parsed.proxies.length, 1);
         assertEq(parsed.pendingUpgrades.length, 0);
@@ -327,8 +335,89 @@ contract DeploymentStateStoreTest is Test {
         assertEq(parsed.path, store.resolvePath(NETWORK, salt, true));
     }
 
+    function testMinterMarketsMissingImplementationsReturnsGaps() public {
+        string memory salt = "testMinterMarketsMissingImplementations";
+        DeploymentTypes.State memory state = store.load(NETWORK, salt, true);
+
+        // Add proxy for ETH::fxUSD::minter without implementation
+        state = store.recordProxy(
+            state,
+            DeploymentTypes.ProxyRecord({
+                id: "ETH::fxUSD::minter",
+                fragment: DeploymentTypes.FragmentDescriptor({
+                    kind: DeploymentTypes.FragmentKind.MinterMarket,
+                    key: "ETH::fxUSD"
+                }),
+                proxy: address(0x1111),
+                implementation: address(0x2222),
+                salt: "ETH::fxUSD::minter",
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+
+        DeploymentTypes.MinterMarket[] memory markets = store.minterMarketsMissingImplementations(state);
+        assertEq(markets.length, 1);
+        assertEq(markets[0].collateral.id, "ETH");
+        assertEq(markets[0].peg.id, "fxUSD");
+
+        // Add implementation - should no longer be missing
+        state = store.recordImplementation(
+            state,
+            DeploymentTypes.ImplementationRecord({
+                forProxy: "ETH::fxUSD::minter",
+                contractSource: "src/Minter.sol",
+                contractType: "Minter",
+                implementation: address(0x3333),
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+
+        markets = store.minterMarketsMissingImplementations(state);
+        assertEq(markets.length, 0);
+    }
+
+    function testPriceMarketsMissingImplementationsReturnsGaps() public {
+        string memory salt = "testPriceMarketsMissingImplementations";
+        DeploymentTypes.State memory state = store.load(NETWORK, salt, true);
+
+        // Add proxy for ETH::fxUSD::priceAggregator without implementation
+        state = store.recordProxy(
+            state,
+            DeploymentTypes.ProxyRecord({
+                id: "ETH::fxUSD::priceAggregator",
+                fragment: DeploymentTypes.FragmentDescriptor({
+                    kind: DeploymentTypes.FragmentKind.PriceMarket,
+                    key: "ETH::fxUSD"
+                }),
+                proxy: address(0x4444),
+                implementation: address(0x5555),
+                salt: "ETH::fxUSD::priceAggregator",
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+
+        DeploymentTypes.PriceMarket[] memory markets = store.priceMarketsMissingImplementations(state);
+        assertEq(markets.length, 1);
+        assertEq(markets[0].collateral.id, "ETH");
+        assertEq(markets[0].peg.id, "fxUSD");
+
+        // Add implementation - should no longer be missing
+        state = store.recordImplementation(
+            state,
+            DeploymentTypes.ImplementationRecord({
+                forProxy: "ETH::fxUSD::priceAggregator",
+                contractSource: "src/PriceAggregator.sol",
+                contractType: "PriceAggregator",
+                implementation: address(0x6666),
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+
+        markets = store.priceMarketsMissingImplementations(state);
+        assertEq(markets.length, 0);
+    }
+
     function _lowerHex(address addr) private pure returns (string memory) {
         return LibString.lower(LibString.toHexString(uint256(uint160(addr)), 20));
     }
-
 }
