@@ -16,15 +16,11 @@ library JsonParser {
     error SchemaMismatch(uint256 expected, uint256 found);
     error UnknownFragmentKind(string kind);
     error InvalidTimestamp(string input);
+    error MissingRequiredField(string fieldName);
 
-    function applyStateJson(
-        Vm vm,
-        DeploymentTypes.State memory state,
-        string memory json
-    ) internal view returns (DeploymentTypes.State memory) {
-        state.implementations = new DeploymentTypes.ImplementationRecord[](0);
-        state.proxies = new DeploymentTypes.ProxyRecord[](0);
-        state.pendingUpgrades = new DeploymentTypes.PendingUpgrade[](0);
+    function parseStateJson(string memory json) internal view returns (DeploymentTypes.State memory) {
+        Vm vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+        DeploymentTypes.State memory state;
 
         if (bytes(json).length == 0) {
             return state;
@@ -39,17 +35,25 @@ library JsonParser {
             revert SchemaMismatch(SCHEMA_VERSION, 0);
         }
 
-        state.implementations = parseImplementations(vm, json);
-        state.proxies = parseProxies(vm, json);
+        state.network = json.readString(".network");
+        if (bytes(state.network).length == 0) {
+            revert MissingRequiredField("network");
+        }
+        state.saltPrefix = json.readString(".saltPrefix");
+        if (bytes(state.saltPrefix).length == 0) {
+            revert MissingRequiredField("saltPrefix");
+        }
+        state.implementations = parseImplementations(json);
+        state.proxies = parseProxies(json);
         state.pendingUpgrades = new DeploymentTypes.PendingUpgrade[](0);
-        state.baoFactory = _parseAddress(vm, json, ".baoFactory");
+        state.baoFactory = vm.parseAddress(json.readString(".baoFactory"));
         return state;
     }
 
     function parseImplementations(
-        Vm vm,
         string memory json
     ) internal view returns (DeploymentTypes.ImplementationRecord[] memory) {
+        Vm vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
         if (!json.keyExists(".implementations")) {
             return new DeploymentTypes.ImplementationRecord[](0);
         }
@@ -61,20 +65,20 @@ library JsonParser {
             string memory key = keys[i];
             string memory path = string.concat(".implementations['", key, "']");
             DeploymentTypes.ImplementationRecord memory rec;
-            rec.implementation = _parseAddress(vm, key);
-            rec.forProxy = readStringOrEmpty(json, string.concat(path, ".proxy"));
-            rec.contractSource = readStringOrEmpty(json, string.concat(path, ".contractSource"));
-            rec.contractType = readStringOrEmpty(json, string.concat(path, ".contractType"));
-            rec.deploymentTime = _parseTimestamp(readStringOrEmpty(json, string.concat(path, ".deploymentTime")));
+            rec.implementation = vm.parseAddress(key);
+            rec.proxy = json.readString(string.concat(path, ".proxy"));
+            rec.contractSource = json.readString(string.concat(path, ".contractSource"));
+            rec.contractType = json.readString(string.concat(path, ".contractType"));
+            rec.deploymentTime = _parseTimestamp(json.readString(string.concat(path, ".deploymentTime")));
             records[i] = rec;
         }
         return records;
     }
 
     function parseProxies(
-        Vm vm,
         string memory json
     ) internal view returns (DeploymentTypes.ProxyRecord[] memory) {
+        Vm vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
         if (!json.keyExists(".proxies")) {
             return new DeploymentTypes.ProxyRecord[](0);
         }
@@ -85,14 +89,14 @@ library JsonParser {
             string memory path = string.concat(".proxies['", key, "']");
             DeploymentTypes.ProxyRecord memory rec;
             rec.id = key;
-            rec.proxy = _parseAddress(vm, json, string.concat(path, ".address"));
-            rec.implementation = _parseAddress(vm, json, string.concat(path, ".implementation"));
-            rec.salt = readStringOrEmpty(json, string.concat(path, ".salt"));
-            rec.deploymentTime = _parseTimestamp(readStringOrEmpty(json, string.concat(path, ".deploymentTime")));
-            string memory kindValue = readStringOrEmpty(json, string.concat(path, ".fragment.kind"));
+            rec.proxy = vm.parseAddress(json.readString(string.concat(path, ".address")));
+            rec.implementation = vm.parseAddress(json.readString(string.concat(path, ".implementation")));
+            rec.salt = json.readString(string.concat(path, ".salt"));
+            rec.deploymentTime = _parseTimestamp(json.readString(string.concat(path, ".deploymentTime")));
+            string memory kindValue = json.readString(string.concat(path, ".fragment.kind"));
             rec.fragment = DeploymentTypes.FragmentDescriptor({
                 kind: parseFragmentKind(kindValue),
-                key: readStringOrEmpty(json, string.concat(path, ".fragment.key"))
+                key: json.readString(string.concat(path, ".fragment.key"))
             });
             records[i] = rec;
         }
@@ -107,28 +111,6 @@ library JsonParser {
         if (LibString.eq(value, "MinterMarket")) return DeploymentTypes.FragmentKind.MinterMarket;
         if (LibString.eq(value, "PriceMarket")) return DeploymentTypes.FragmentKind.PriceMarket;
         revert UnknownFragmentKind(value);
-    }
-
-    function readStringOrEmpty(string memory json, string memory path) internal view returns (string memory) {
-        if (!json.keyExists(path)) {
-            return "";
-        }
-        return json.readString(path);
-    }
-
-    function _parseAddress(Vm vm, string memory value) private pure returns (address) {
-        if (bytes(value).length == 0) {
-            return address(0);
-        }
-        return vm.parseAddress(value);
-    }
-
-    function _parseAddress(Vm vm, string memory json, string memory path) private view returns (address) {
-        string memory value = readStringOrEmpty(json, path);
-        if (bytes(value).length == 0) {
-            return address(0);
-        }
-        return vm.parseAddress(value);
     }
 
     function _parseTimestamp(string memory value) private pure returns (uint64) {

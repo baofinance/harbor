@@ -6,14 +6,9 @@ import {MinterConfig, MinterIncentiveConfig, StabilityPoolManagerConfig, Stabili
 /// @notice Volatility configuration for 130% rebalance threshold markets.
 /// @dev All current Harbor markets use this configuration.
 abstract contract Config_PriceVolatility_130 {
-    uint256 internal constant REBALANCE_THRESHOLD = 1.30e18;
-    uint256 internal constant REBALANCE_BOUNTY_RATIO = 1e16;
-    uint256 internal constant HARVEST_BOUNTY_RATIO = 1e16;
-    uint256 internal constant HARVEST_CUT_RATIO = 1.00e18;
-
-    uint256 internal constant EARLY_WITHDRAWAL_FEE_RATIO = 1e16;
-    uint256 internal constant WITHDRAWAL_DELAY = 3600;
-    uint256 internal constant WITHDRAWAL_PERIOD = 90000;
+    function rebalanceThreshold() public pure virtual returns (uint256) {
+        return 1.30e18;
+    }
 
     function _minterConfig() internal pure returns (MinterConfig memory) {
         uint256[] memory mintPeggedBounds = new uint256[](6);
@@ -102,26 +97,6 @@ abstract contract Config_PriceVolatility_130 {
                     collateralRatioBandUpperBounds: redeemLeveragedBounds,
                     incentiveRatios: redeemLeveragedRatios
                 })
-            });
-    }
-
-    function _stabilityPoolManagerConfig() internal pure returns (StabilityPoolManagerConfig memory) {
-        return
-            StabilityPoolManagerConfig({
-                rebalanceThreshold: REBALANCE_THRESHOLD,
-                rebalanceBountyRatio: REBALANCE_BOUNTY_RATIO,
-                harvestBountyRatio: HARVEST_BOUNTY_RATIO,
-                harvestCutRatio: HARVEST_CUT_RATIO
-            });
-    }
-
-    function _stabilityPoolConfig(uint256 minTotalAssetSupply) internal pure returns (StabilityPoolConfig memory) {
-        return
-            StabilityPoolConfig({
-                earlyWithdrawalFeeRatio: EARLY_WITHDRAWAL_FEE_RATIO,
-                withdrawalDelay: WITHDRAWAL_DELAY,
-                withdrawalPeriod: WITHDRAWAL_PERIOD,
-                minTotalAssetSupply: minTotalAssetSupply
             });
     }
 }

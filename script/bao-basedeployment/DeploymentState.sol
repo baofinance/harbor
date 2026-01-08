@@ -9,17 +9,17 @@ import {JsonParser} from "./JsonParser.sol";
 import {DeploymentTypes} from "./DeploymentTypes.sol";
 
 /// @notice Persistent deployment state management backed by JSON files.
-/// @dev Single contract for .s.sol scripts to inherit from. Delegates to libraries for clean separation.
-contract DeploymentStateStore {
+/// @dev Use composition (not inheritance) in deployment scripts for multi-network support.
+contract DeploymentState {
     using stdJson for string;
 
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     error DuplicateImplementation(address implementation);
-    error DuplicateImplementationForProxy(string forProxy);
+    error DuplicateImplementationForProxy(string proxy);
     error DuplicateProxy(string id);
     error DuplicateProxyAddress(address proxy);
-    error ImplementationKeyRequired();
+    error ProxyKeyRequiredForImplementation();
     error ImplementationAddressRequired();
     error ProxyKeyRequired();
     error ProxyAddressRequired();
@@ -28,7 +28,7 @@ contract DeploymentStateStore {
         string memory network,
         string memory saltPrefix,
         bool useLocal
-    ) public view returns (string memory) {
+    ) internal view returns (string memory) {
         string memory root = vm.projectRoot();
         return string.concat(root, "/", _relativePath(network, saltPrefix, useLocal));
     }
@@ -37,18 +37,19 @@ contract DeploymentStateStore {
         string memory network,
         string memory saltPrefix,
         bool useLocal
-    ) external returns (DeploymentTypes.State memory state) {
+    ) external virtual returns (DeploymentTypes.State memory state) {
         _ensureDirectory(network, useLocal);
 
+        string memory path = resolvePath(network, saltPrefix, useLocal);
+        string memory json = _readStateFile(path);
+        state = JsonParser.parseStateJson(json);
         state.network = network;
         state.saltPrefix = saltPrefix;
         state.useLocal = useLocal;
-        state.path = resolvePath(network, saltPrefix, useLocal);
-        string memory json = _readStateFile(state.path);
-        return JsonParser.applyStateJson(vm, state, json);
+        return state;
     }
 
-    function save(DeploymentTypes.State memory state) external {
+    function save(DeploymentTypes.State memory state) external virtual {
         _ensureDirectory(state.network, state.useLocal);
 
         string memory json = JsonSerializer.renderState(state);
@@ -61,13 +62,13 @@ contract DeploymentStateStore {
         DeploymentTypes.State memory state,
         DeploymentTypes.ImplementationRecord memory rec
     ) external pure returns (DeploymentTypes.State memory) {
-        if (bytes(rec.forProxy).length == 0) revert ImplementationKeyRequired();
+        if (bytes(rec.proxy).length == 0) revert ProxyKeyRequiredForImplementation();
         if (rec.implementation == address(0)) revert ImplementationAddressRequired();
 
         uint256 length = state.implementations.length;
         for (uint256 i = 0; i < length; ++i) {
-            if (LibString.eq(state.implementations[i].forProxy, rec.forProxy)) {
-                revert DuplicateImplementationForProxy(rec.forProxy);
+            if (LibString.eq(state.implementations[i].proxy, rec.proxy)) {
+                revert DuplicateImplementationForProxy(rec.proxy);
             }
             if (state.implementations[i].implementation == rec.implementation) {
                 revert DuplicateImplementation(rec.implementation);
@@ -114,7 +115,7 @@ contract DeploymentStateStore {
         string[] memory seen = new string[](state.implementations.length);
         uint256 count;
         for (uint256 i = 0; i < state.implementations.length; ++i) {
-            string memory key = state.implementations[i].forProxy;
+            string memory key = state.implementations[i].proxy;
             if (bytes(key).length == 0) continue;
             if (_hasProxy(state, key)) continue;
             if (_containsString(seen, count, key)) continue;
@@ -244,7 +245,7 @@ contract DeploymentStateStore {
 
     function _hasImplementation(DeploymentTypes.State memory state, string memory key) private pure returns (bool) {
         for (uint256 i = 0; i < state.implementations.length; ++i) {
-            if (LibString.eq(state.implementations[i].forProxy, key)) return true;
+            if (LibString.eq(state.implementations[i].proxy, key)) return true;
         }
         return false;
     }

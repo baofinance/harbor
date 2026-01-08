@@ -3,31 +3,21 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test, stdJson} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {DeploymentStateStore} from "script/bao-basedeployment/DeploymentStateStore.sol";
+import {DeploymentState} from "script/bao-basedeployment/DeploymentState.sol";
 import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
 import {JsonParser} from "script/bao-basedeployment/JsonParser.sol";
+import {JsonSerializer} from "script/bao-basedeployment/JsonSerializer.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
-contract DeploymentStateStoreHarness is DeploymentStateStore {
-    Vm private constant testVm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+contract DeploymentStateHarness is DeploymentState {
     string private directoryPrefix;
 
     constructor(string memory prefix) {
         directoryPrefix = prefix;
     }
 
-    function loadFromString(
-        string memory network,
-        string memory saltPrefix,
-        bool useLocal,
-        string memory json
-    ) external view returns (DeploymentTypes.State memory) {
-        DeploymentTypes.State memory state;
-        state.network = network;
-        state.saltPrefix = saltPrefix;
-        state.useLocal = useLocal;
-        state.path = resolvePath(network, saltPrefix, useLocal);
-        return JsonParser.applyStateJson(testVm, state, json);
+    function loadFromString(string memory json) external view returns (DeploymentTypes.State memory) {
+        return JsonParser.parseStateJson(json);
     }
 
     function _directoryPrefix() internal view override returns (string memory) {
@@ -35,54 +25,17 @@ contract DeploymentStateStoreHarness is DeploymentStateStore {
     }
 }
 
-contract DeploymentStateStoreTest is Test {
+contract DeploymentStateTest is Test {
     using stdJson for string;
 
-    DeploymentStateStoreHarness private store;
-    DeploymentStateStore private defaultStore;
+    DeploymentStateHarness private store;
+    DeploymentState private defaultStore;
 
     string private constant NETWORK = "mainnet";
 
     function setUp() public {
-        store = new DeploymentStateStoreHarness("results/");
-        defaultStore = new DeploymentStateStore();
-    }
-
-    function testResolvePathProduction() public view {
-        string memory expected = string.concat(
-            vm.projectRoot(),
-            "/deployments/",
-            NETWORK,
-            "/",
-            "harbor_v1",
-            ".state.json"
-        );
-        assertEq(defaultStore.resolvePath(NETWORK, "harbor_v1", false), expected);
-    }
-
-    function testResolvePathLocal() public view {
-        string memory expected = string.concat(
-            vm.projectRoot(),
-            "/deployments/local/",
-            NETWORK,
-            "/",
-            "harbor_v1",
-            ".state.json"
-        );
-        assertEq(defaultStore.resolvePath(NETWORK, "harbor_v1", true), expected);
-    }
-
-    function testResolvePathWithPrefix() public view {
-        string memory expected = string.concat(
-            vm.projectRoot(),
-            "/",
-            "results/deployments/local/",
-            NETWORK,
-            "/",
-            "harbor_v1",
-            ".state.json"
-        );
-        assertEq(store.resolvePath(NETWORK, "harbor_v1", true), expected);
+        store = new DeploymentStateHarness("results/");
+        defaultStore = new DeploymentState();
     }
 
     function testLoadSeedsEmptyState() public {
@@ -94,7 +47,6 @@ contract DeploymentStateStoreTest is Test {
         assertEq(state.implementations.length, 0);
         assertEq(state.proxies.length, 0);
         assertEq(state.pendingUpgrades.length, 0);
-        assertEq(state.path, store.resolvePath(NETWORK, salt, true));
     }
 
     function testSavePersistsRecords() public {
@@ -104,11 +56,10 @@ contract DeploymentStateStoreTest is Test {
         state.network = NETWORK;
         state.saltPrefix = salt;
         state.useLocal = true;
-        state.path = store.resolvePath(NETWORK, salt, true);
         state.baoFactory = address(0xB00B);
 
         DeploymentTypes.ImplementationRecord memory impl = DeploymentTypes.ImplementationRecord({
-            forProxy: "ETH::fxUSD::minter",
+            proxy: "ETH::fxUSD::minter",
             contractSource: "src/DeployMinter.sol",
             contractType: "Minter",
             implementation: address(0xBEEF),
@@ -132,23 +83,19 @@ contract DeploymentStateStoreTest is Test {
 
         store.save(state);
 
-        string memory json = vm.readFile(store.resolvePath(NETWORK, salt, true));
-        assertEq(json.readUint(".schemaVersion"), 1);
-        assertEq(json.readUint(".chainId"), block.chainid);
-        assertEq(json.readString(".version"), "v1");
-        assertEq(json.readString(".network"), NETWORK);
-        assertEq(json.readString(".saltPrefix"), salt);
-        assertEq(json.readString(".baoFactory"), _lowerHex(state.baoFactory));
-        assertEq(json.readString(".proxies['ETH::fxUSD::minter'].address"), _lowerHex(proxy.proxy));
-        assertEq(json.readString(".proxies['ETH::fxUSD::minter'].fragment.kind"), "ContractRole");
-        assertEq(
-            json.readString(string.concat(".implementations['", _lowerHex(impl.implementation), "'].proxy")),
-            impl.forProxy
-        );
-        assertEq(
-            json.readString(string.concat(".implementations['", _lowerHex(impl.implementation), "'].deploymentTime")),
-            "1970-01-01T00:00:01Z"
-        );
+        // Load and verify round-trip
+        DeploymentTypes.State memory reloaded = store.load(NETWORK, salt, true);
+        assertEq(reloaded.network, NETWORK);
+        assertEq(reloaded.saltPrefix, salt);
+        assertTrue(reloaded.useLocal);
+        assertEq(reloaded.baoFactory, address(0xB00B));
+        assertEq(reloaded.implementations.length, 1);
+        assertEq(reloaded.proxies.length, 1);
+        assertEq(reloaded.proxies[0].id, "ETH::fxUSD::minter");
+        assertEq(reloaded.proxies[0].proxy, address(0xC0FFEE));
+        assertEq(reloaded.proxies[0].implementation, address(0xBEEF));
+        assertEq(reloaded.implementations[0].proxy, "ETH::fxUSD::minter");
+        assertEq(reloaded.implementations[0].implementation, address(0xBEEF));
     }
 
     function testRecordImplementationRejectsDuplicateAddress() public {
@@ -158,7 +105,7 @@ contract DeploymentStateStoreTest is Test {
             true
         );
         DeploymentTypes.ImplementationRecord memory record = DeploymentTypes.ImplementationRecord({
-            forProxy: "ETH::fxUSD::minter",
+            proxy: "ETH::fxUSD::minter",
             contractSource: "src/DeployMinter.sol",
             contractType: "Minter",
             implementation: address(0xAAA0),
@@ -168,15 +115,15 @@ contract DeploymentStateStoreTest is Test {
         state = store.recordImplementation(state, record);
 
         vm.expectRevert(
-            abi.encodeWithSelector(DeploymentStateStore.DuplicateImplementationForProxy.selector, record.forProxy)
+            abi.encodeWithSelector(DeploymentState.DuplicateImplementationForProxy.selector, record.proxy)
         );
         store.recordImplementation(state, record);
 
         DeploymentTypes.ImplementationRecord memory second = record;
-        second.forProxy = "ETH::fxUSD::stabilityPool";
+        second.proxy = "ETH::fxUSD::stabilityPool";
 
         vm.expectRevert(
-            abi.encodeWithSelector(DeploymentStateStore.DuplicateImplementation.selector, second.implementation)
+            abi.encodeWithSelector(DeploymentState.DuplicateImplementation.selector, second.implementation)
         );
         store.recordImplementation(state, second);
     }
@@ -197,13 +144,13 @@ contract DeploymentStateStoreTest is Test {
 
         state = store.recordProxy(state, record);
 
-        vm.expectRevert(abi.encodeWithSelector(DeploymentStateStore.DuplicateProxy.selector, record.id));
+        vm.expectRevert(abi.encodeWithSelector(DeploymentState.DuplicateProxy.selector, record.id));
         store.recordProxy(state, record);
 
         DeploymentTypes.ProxyRecord memory other = record;
         other.id = "ETH::fxUSD::oracle";
 
-        vm.expectRevert(abi.encodeWithSelector(DeploymentStateStore.DuplicateProxyAddress.selector, record.proxy));
+        vm.expectRevert(abi.encodeWithSelector(DeploymentState.DuplicateProxyAddress.selector, record.proxy));
         store.recordProxy(state, other);
     }
 
@@ -212,7 +159,7 @@ contract DeploymentStateStoreTest is Test {
         string memory salt = "testRolesMissingProxiesDetectsGaps";
         DeploymentTypes.State memory state = store.load(NETWORK, salt, true);
         DeploymentTypes.ImplementationRecord memory record = DeploymentTypes.ImplementationRecord({
-            forProxy: "ETH::fxUSD::minter",
+            proxy: "ETH::fxUSD::minter",
             contractSource: "src/DeployMinter.sol",
             contractType: "Minter",
             implementation: address(0xFACE),
@@ -275,7 +222,6 @@ contract DeploymentStateStoreTest is Test {
         original.network = NETWORK;
         original.saltPrefix = salt;
         original.useLocal = false;
-        original.path = store.resolvePath(NETWORK, salt, false);
         original.baoFactory = address(0xA11CE);
         original = store.recordProxy(
             original,
@@ -294,16 +240,21 @@ contract DeploymentStateStoreTest is Test {
         original = store.recordImplementation(
             original,
             DeploymentTypes.ImplementationRecord({
-                forProxy: "ETH::fxUSD::minter",
+                proxy: "ETH::fxUSD::minter",
                 contractSource: "src/DeployMinter.sol",
                 contractType: "Minter",
                 implementation: address(0xFEED),
                 deploymentTime: uint64(block.timestamp)
             })
         );
-        store.save(original);
 
-        DeploymentTypes.State memory reloaded = store.load(NETWORK, salt, false);
+        // Serialize to JSON
+        string memory json = JsonSerializer.renderState(original);
+
+        // Parse back from JSON
+        DeploymentTypes.State memory reloaded = store.loadFromString(json);
+        assertEq(reloaded.network, NETWORK);
+        assertEq(reloaded.saltPrefix, salt);
         assertEq(reloaded.proxies.length, 1);
         assertEq(reloaded.implementations.length, 1);
         assertEq(reloaded.proxies[0].id, "ETH::fxUSD::minter");
@@ -326,13 +277,14 @@ contract DeploymentStateStoreTest is Test {
             )
         );
 
-        DeploymentTypes.State memory parsed = store.loadFromString(NETWORK, salt, true, json);
+        DeploymentTypes.State memory parsed = store.loadFromString(json);
+        assertEq(parsed.network, NETWORK);
+        assertEq(parsed.saltPrefix, salt);
         assertEq(parsed.implementations.length, 1);
         assertEq(parsed.proxies.length, 1);
         assertEq(parsed.pendingUpgrades.length, 0);
         assertEq(parsed.proxies[0].fragment.key, "ETH::fxUSD::minter");
         assertEq(parsed.baoFactory, address(0x9999));
-        assertEq(parsed.path, store.resolvePath(NETWORK, salt, true));
     }
 
     function testMinterMarketsMissingImplementationsReturnsGaps() public {
@@ -364,7 +316,7 @@ contract DeploymentStateStoreTest is Test {
         state = store.recordImplementation(
             state,
             DeploymentTypes.ImplementationRecord({
-                forProxy: "ETH::fxUSD::minter",
+                proxy: "ETH::fxUSD::minter",
                 contractSource: "src/Minter.sol",
                 contractType: "Minter",
                 implementation: address(0x3333),
@@ -405,7 +357,7 @@ contract DeploymentStateStoreTest is Test {
         state = store.recordImplementation(
             state,
             DeploymentTypes.ImplementationRecord({
-                forProxy: "ETH::fxUSD::priceAggregator",
+                proxy: "ETH::fxUSD::priceAggregator",
                 contractSource: "src/PriceAggregator.sol",
                 contractType: "PriceAggregator",
                 implementation: address(0x6666),

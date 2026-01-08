@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "test_owner",
+  "network": "mainnet",
+  "chainId": 31337,
+  "baoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+  "lastUpdated": "1970-01-01T00:00:01Z",
+  "implementations": {},
+  "proxies": {}
+}

@@ -7,11 +7,11 @@ import {Config_Chain_Mainnet} from "../chains/Config_Chain_Mainnet.sol";
 /// @dev Addresses come from the chain config that this is composed with.
 abstract contract Config_Collateral_fxUSD is Config_Chain_Mainnet {
     function collateralToken() public pure virtual returns (address) {
-        return fxUSD;
+        return fxUSD();
     }
 
     function wrappedCollateralToken() public pure virtual returns (address) {
-        return fxSAVE;
+        return fxSAVE();
     }
 
     function collateral() public pure virtual returns (string memory) {

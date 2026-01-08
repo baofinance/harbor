@@ -14,4 +14,5 @@ contract Config_Market_EUR_fxUSD is
     Config_Peg_EUR,
     Config_Collateral_fxUSD,
     Config_PriceVolatility_130
-{}
+{
+}

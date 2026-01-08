@@ -392,7 +392,7 @@ struct FragmentDescriptor {
 }
 
 struct ImplementationRecord {
-  string forProxy; // Fully qualified fragment key without prefix (e.g., "ETH::fxUSD::minter")
+  string proxy; // Fully qualified fragment key without prefix (e.g., "ETH::fxUSD::minter")
   string contractSource; // e.g., src/mainnet/...
   string contractType; // forge contract identifier
   address implementation; // deployed address
@@ -423,7 +423,7 @@ interface DeploymentStateStore {
   function recordProxy(State memory state, ProxyRecord memory rec) external;
 }
 
-"Fragment" now carries a concrete type so salt pieces stay meaningful: `PegFragment`, `CollateralFragment`, `ContractRole`, plus the two composite markets `MinterMarket` (peg→collateral) and `PriceMarket` (collateral→peg). Scripts consume the strongly typed structs and never handle raw delimiter strings, while implementation records retain the fully qualified proxy key string in `forProxy` so multiple versions map cleanly back to the same proxy.
+"Fragment" now carries a concrete type so salt pieces stay meaningful: `PegFragment`, `CollateralFragment`, `ContractRole`, plus the two composite markets `MinterMarket` (peg→collateral) and `PriceMarket` (collateral→peg). Scripts consume the strongly typed structs and never handle raw delimiter strings, while implementation records retain the fully qualified proxy key string in `proxy` so multiple versions map cleanly back to the same proxy.
 
 The state JSON always persists the active prefix (as `saltPrefix`) unless the file name itself encodes that prefix. Scripts rely on `saltPrefix` together with typed fragments to compose full identifiers—`qualify(prefix, market, role)`—whenever they interact with on-chain addresses or log output.
 ```
@@ -434,7 +434,57 @@ By funnelling every update through this contract we keep schema rules (`schemaVe
 
 ## 3. Architecture
 
-### 3.1 Directory Structure
+### 3.1 Inheritance Structure (Following bao-base Pattern)
+
+**bao-base provides the foundation:**
+
+```
+DeploymentBase (from bao-base)
+├── Core deployment operations: deployProxy(), deployLibrary(), useExisting()
+├── In-memory data storage (DeploymentDataMemory)
+├── UUPSProxyDeployStub integration for CREATE3 proxies
+├── ABSTRACT _ensureBaoFactory() - must be provided by mixin
+└── No Script or Test inheritance - pure orchestration
+
+Deployment (from bao-base)
+├── extends DeploymentBase
+└── Implements _ensureBaoFactory() for production (requires functional BaoFactory)
+
+DeploymentTesting (from bao-base)
+├── extends DeploymentBase
+└── Implements _ensureBaoFactory() for tests (auto-deploys BaoFactory)
+
+DeploymentJsonScript (from bao-base)
+├── extends Deployment + DeploymentJson + Script
+└── Production script base with JSON persistence + broadcast control
+```
+
+**Harbor builds on this foundation:**
+
+```
+HarborDeploymentBase
+├── extends DeploymentStateStore (Harbor-specific state file handling)
+├── Uses DeploymentBase functions (deployProxy, etc.) from bao-base
+├── Harbor-specific orchestration: deployMinterMarket(), upgradeSP(), etc.
+├── Auto-recording: wraps deployProxy to record contract metadata to state
+└── No Script, Test, or _ensureBaoFactory - pure orchestration
+
+Production Scripts (direct multiple inheritance)
+contract DeployMinter is HarborDeploymentBase, Deployment, Script {
+├── Gets production _ensureBaoFactory() from Deployment mixin
+├── Gets Script broadcast control from Script
+└── Used by: forge script --sig 'run()' (broadcasts to live networks)
+
+Test Harnesses (direct multiple inheritance)
+contract HarborDeploymentTest is BaoDeploymentTest {
+    HarborDeploymentTesting deployer; // where HarborDeploymentTesting = HarborDeploymentBase + DeploymentTesting
+├── Gets test _ensureBaoFactory() from DeploymentTesting mixin
+└── Used by: forge test (creates test instances, no broadcast)
+```
+
+**Key principle:** Same orchestration logic (`HarborDeploymentBase`) works in both production scripts and tests via different mixins. Neither `HarborDeploymentBase` nor bao-base's `DeploymentBase` inherit from Script or Test.
+
+### 3.2 Directory Structure
 
 ```
 script/
@@ -455,23 +505,41 @@ script/
 │       ├── Config_Market_harbor_v1_BTC_fxUSD.sol
 │       ├── Config_Market_harbor_v1_GOLD_stETH.sol
 │       └── ...
-├── deployment2/                      # Harbor-specific deployment logic
-│   ├── HarborDeployment.sol          # Deployment library (no broadcast)
-│   ├── DeployMinter.s.sol            # Minimal script entry point
-│   ├── DeployPegged.s.sol            # Minimal script entry point
-│   ├── UpgradeStabilityPools.s.sol   # Minimal script entry point
-│   └── ...
-├── bao-basedeployment/               # Reusable infrastructure
-│   ├── Deployment.sol                # Core: state file handling
+├── bao-basedeployment/               # Harbor-specific deployment orchestration
+│   ├── HarborDeploymentBase.sol      # Pure orchestration (no Script/Test/BaoFactory)
+│   ├── DeploymentStateStore.sol      # Harbor state file format/queries
+│   ├── DeploymentTypes.sol           # Market/Fragment type definitions
 │   └── SafeTxBuilder.sol             # Generate Safe upgrade txs
+├── deployment2/                      # Concrete deployment scripts
+│   ├── DeployMinter.s.sol            # is HarborDeploymentBase, Deployment, Script
+│   ├── DeployPegged.s.sol            # is HarborDeploymentBase, Deployment, Script
+│   ├── UpgradeStabilityPools.s.sol   # is HarborDeploymentBase, Deployment, Script
+│   └── ...
 ├── lib/
 │   └── deploy-cli                    # Minimal shared CLI functions
 ├── deploy-minter                     # CLI wrapper sourcing deploy-cli
 ├── deploy-pegged                     # CLI wrapper sourcing deploy-cli
 └── upgrade-stability-pools           # CLI wrapper sourcing deploy-cli
 
+lib/bao-base/script/deployment/       # Foundation from bao-base
+├── DeploymentBase.sol                # Core: deployProxy(), deployLibrary(), etc.
+├── DeploymentDataMemory.sol          # In-memory key-value storage
+├── UUPSProxyDeployStub.sol           # CREATE3 proxy deployment helper
+├── Deployment.sol                    # Production _ensureBaoFactory()
+├── DeploymentTesting.sol             # Test _ensureBaoFactory()
+├── DeploymentJsonScript.sol          # Deployment + Script (if using JSON)
+└── ...
+
 See Section 2.4 for the per-network/per-prefix state and log layout that accompanies these scripts.
 ```
+
+**Key components:**
+
+- **DeploymentBase** (bao-base): Provides `deployProxy()`, `deployLibrary()`, `useExisting()`, etc.
+- **UUPSProxyDeployStub** (bao-base): Handles CREATE3 proxy deployment via BaoFactory
+- **HarborDeploymentBase**: Harbor-specific orchestration using DeploymentBase functions
+- **Deployment mixin**: Provides production `_ensureBaoFactory()` (requires existing)
+- **DeploymentTesting mixin**: Provides test `_ensureBaoFactory()` (auto-deploys)
 
 **Verification + validation pipeline**
 
@@ -482,9 +550,175 @@ See Section 2.4 for the per-network/per-prefix state and log layout that accompa
 
 With those guardrails in place, bash wrappers stay minimal and no standalone `verify-*` or `check-*` scripts remain.
 
-### 3.2 Deployment Pattern
+### 3.3 Deployment Pattern
 
-**Unified Pattern: `forge script` + `DeploymentStateStore`**
+**Unified Pattern: `forge script` + `DeploymentStateStore` + bao-base functions**
+
+Harbor deployment scripts combine:
+
+1. **bao-base DeploymentBase functions** - `deployProxy()`, `deployLibrary()`, `useExisting()`, `predictAddress()`
+2. **Harbor orchestration** - Market-specific deployment sequencing
+3. **Harbor state management** - `DeploymentStateStore` for market/fragment tracking
+
+**Address Prediction Pattern (Breaking Circular Dependencies)**
+
+`predictAddress()` from bao-base allows computing proxy addresses before deployment:
+
+```solidity
+// Config provides key, not address
+string memory peggedKey = config.peggedKey();  // "fxUSD"
+
+// Predict where proxy will be deployed
+address peggedToken = predictAddress(peggedKey, SYSTEM_SALT_STRING());
+
+// Pass predicted address to constructor
+Minter_v1 minterImpl = new Minter_v1(
+  wrappedCollateral,
+  peggedToken,      // Not deployed yet, but address is deterministic
+  leveragedToken,
+  config.peggedBurnSignature()
+);
+
+// Later, deploy the pegged token to that exact address
+deployProxy(peggedKey, SYSTEM_SALT_STRING(), ...);
+```
+
+This eliminates deployment order constraints:
+
+- Minter can reference pegged token before pegged token is deployed
+- Config provides keys, not addresses (addresses computed deterministically)
+- Deployment order becomes flexible
+
+**Two-Phase Deployment Strategy**
+
+1. **Phase 4a: Deploy Pegged Tokens** (`DeployPegged.s.sol`)
+   - Deploy fxUSD (shared by BTC::fxUSD, ETH::fxUSD, EUR::fxUSD, GOLD::fxUSD)
+   - Deploy stETH (shared by BTC::stETH, EUR::stETH, GOLD::stETH)
+   - These are small, simple deployments that prove the infrastructure
+
+2. **Phase 4b: Deploy Minter Markets** (`DeployMinter.s.sol`)
+   - Deploy minter markets (BTC::fxUSD, ETH::fxUSD, etc.)
+   - Grant MINTER_ROLE and BURNER_ROLE on pegged tokens (fxUSD, stETH)
+   - Each market references pegged tokens via predictAddress
+
+**Production Script Structure:**
+
+```solidity
+// script/deployment2/DeployPegged.s.sol
+import { HarborDeploymentBase_Pegged } from "script/bao-basedeployment/HarborDeploymentBase_Pegged.sol";
+
+contract DeployPegged is HarborDeploymentBase_Pegged, Deployment, Script {
+  function run() external {
+    vm.startBroadcast();
+
+    State memory state = load(network(), saltPrefix(), useLocal());
+    state = deployPeggedToken_fxUSD(state);
+    state = deployPeggedToken_stETH(state);
+    save(state);
+
+    vm.stopBroadcast();
+  }
+}
+```
+
+```solidity
+// script/deployment2/DeployMinter.s.sol
+import { HarborDeploymentBase } from "script/bao-basedeployment/HarborDeploymentBase.sol";
+
+contract DeployMinter is HarborDeploymentBase, Deployment, Script {
+  function run() public {
+    vm.startBroadcast();
+
+    State memory state = load(network(), saltPrefix(), useLocal());
+    Config_MinterMarket[] memory configs = _loadMarketConfigs();
+
+    for (uint256 i = 0; i < configs.length; i++) {
+      state = deployMinterMarket(state, configs[i]);
+    }
+
+    save(state);
+    vm.stopBroadcast();
+  }
+}
+```
+
+**Harbor orchestration uses bao-base primitives with manual recording:**
+
+```solidity
+// script/bao-basedeployment/HarborDeploymentBase.sol
+abstract contract HarborDeploymentBase is DeploymentStateStore {
+  // Uses bao-base DeploymentBase (inherited via mixin)
+
+  function _deployMinterMarket(State memory state, MinterMarket memory market, Config_MinterMarket config) internal {
+    string memory minterKey = _qualifyKey(market, "minter");
+
+    // Deploy using bao-base deployProxy()
+    address minter = deployProxy(minterKey, type(Minter).creationCode, abi.encode(/* constructor args from config */));
+
+    // Script records both implementation and proxy
+    address minterImpl = _getImplementation(minter);
+    recordImplementation(
+      state,
+      ImplementationRecord({
+        proxy: minterKey,
+        contractSource: "src/Minter.sol:Minter",
+        contractType: "Minter",
+        implementation: minterImpl,
+        deploymentTime: uint64(block.timestamp)
+      })
+    );
+    recordProxy(state, _parseFragment(market, "minter"), minter, minterImpl);
+
+    // Deploy stability pool
+    string memory spKey = _qualifyKey(market, "stabilityPoolCollateral");
+    address stabilityPool = deployProxy(spKey, type(StabilityPool).creationCode, abi.encode(/* constructor args */));
+
+    // Record implementation and proxy
+    address spImpl = _getImplementation(stabilityPool);
+    recordImplementation(
+      state,
+      ImplementationRecord({
+        proxy: spKey,
+        contractSource: "src/StabilityPool.sol:StabilityPool",
+        contractType: "StabilityPool",
+        implementation: spImpl,
+        deploymentTime: uint64(block.timestamp)
+      })
+    );
+    recordProxy(state, _parseFragment(market, "stabilityPoolCollateral"), stabilityPool, spImpl);
+  }
+}
+```
+
+**Test Structure:**
+
+```solidity
+// test/deployment2/HarborDeployment.t.sol
+import { BaoDeploymentTest } from "@bao-test/deployment/BaoDeploymentTest.sol";
+import { HarborDeploymentTesting } from "script/bao-basedeployment/HarborDeploymentTesting.sol";
+
+contract HarborDeploymentTest is BaoDeploymentTest {
+  HarborDeploymentTesting deployer;
+
+  function setUp() public override {
+    super.setUp(); // BaoDeploymentTest ensures BaoFactory
+    deployer = new HarborDeploymentTesting();
+  }
+
+  function test_deployMinterMarket() public {
+    // Uses same orchestration as production
+    State memory state = deployer.load("mainnet", "test", true);
+    MinterMarket memory market = MinterMarket({ peg: PegFragment("fxUSD"), collateral: CollateralFragment("ETH") });
+
+    deployer._deployMinterMarket(state, market);
+    deployer.save(state);
+
+    // Verify using bao-base getters
+    address minter = deployer._getAddress(_qualifyKey(market, "minter"));
+    assertTrue(minter != address(0));
+  }
+}
+```
 
 Every `.s.sol` script exposes two public entry points:
 
@@ -886,7 +1120,7 @@ abstract contract HarborDeployment is Deployment {
 
 ### 3.5 State File Format
 
-**One state file per network** (not per salt) - like harbor-price-aggregators:
+**One state file per network per salt prefix:**
 
 `deployments/mainnet/harbor_v1.state.json`:
 
@@ -896,39 +1130,74 @@ abstract contract HarborDeployment is Deployment {
   "chainId": 1,
   "saltPrefix": "harbor_v1",
   "lastUpdated": "2026-01-06T12:00:00Z",
+  "baoFactory": "0x...",
 
   "proxies": {
     "ETH::fxUSD::minter": {
       "address": "0x1234...",
-      "currentImplementation": "0xabcd...",
-      "deployedBlock": 21432567,
+      "implementation": "0xabcd...",
+      "salt": "harbor_v1::ETH::fxUSD::minter",
+      "deploymentTime": 1704537600,
       "fragment": { "kind": "MinterMarket", "key": "ETH::fxUSD" }
     },
     "ETH::fxUSD::stabilityPoolCollateral": {
       "address": "0x2345...",
-      "currentImplementation": "0xbcde...",
-      "deployedBlock": 21432567,
+      "implementation": "0xbcde...",
+      "salt": "harbor_v1::ETH::fxUSD::stabilityPoolCollateral",
+      "deploymentTime": 1704537600,
       "fragment": { "kind": "MinterMarket", "key": "ETH::fxUSD" }
     },
     "BTC::fxUSD::minter": {
       "address": "0x3456...",
-      "currentImplementation": "0xcdef...",
-      "deployedBlock": 21432568,
+      "implementation": "0xcdef...",
+      "salt": "harbor_v1::BTC::fxUSD::minter",
+      "deploymentTime": 1704537660,
       "fragment": { "kind": "MinterMarket", "key": "BTC::fxUSD" }
     }
   },
 
   "implementations": {
     "0xabcd...": {
-      "contractName": "Minter_v1",
-      "forProxy": "ETH::fxUSD::minter",
-      "deployedBlock": 21432567
+      "proxy": "ETH::fxUSD::minter",
+      "contractSource": "src/Minter.sol:Minter",
+      "contractType": "Minter",
+      "implementation": "0xabcd...",
+      "deploymentTime": 1704537600
+    },
+    "0xbcde...": {
+      "proxy": "ETH::fxUSD::stabilityPoolCollateral",
+      "contractSource": "src/StabilityPool.sol:StabilityPool",
+      "contractType": "StabilityPool",
+      "implementation": "0xbcde...",
+      "deploymentTime": 1704537600
+    },
+    "0xcdef...": {
+      "proxy": "BTC::fxUSD::minter",
+      "contractSource": "src/Minter.sol:Minter",
+      "contractType": "Minter",
+      "implementation": "0xcdef...",
+      "deploymentTime": 1704537660
     }
-  },
-
-  "pendingUpgrades": []
+  }
 }
 ```
+
+**Key changes from harbor-price-aggregators format:**
+
+1. **Implementation metadata** - Each implementation records:
+   - `contractSource` - Full forge artifact path (e.g., "src/Minter.sol:Minter")
+   - `contractType` - Contract type name (e.g., "Minter")
+   - `proxy` - Which proxy uses this implementation
+   - `deploymentTime` - Unix timestamp (uint64)
+
+2. **Proxy records** include:
+   - `salt` - Full CREATE3 salt used for deterministic deployment
+   - `fragment` - Structured fragment descriptor (kind + key)
+   - `deploymentTime` - Unix timestamp matching implementation
+
+3. **No `pendingUpgrades`** - Upgrades are atomic in scripts; no pending state tracked
+
+4. **`baoFactory`** - Address of BaoFactory used for CREATE3 deployments
 
 `saltPrefix` redundantly records the prefix stored in the filename so mismatches surface immediately during load. Consumers reconstruct fully qualified identifiers by calling `qualify(saltPrefix, descriptor)` so the fragment kind controls how the key is expanded.
 
@@ -962,30 +1231,164 @@ string[] memory keys = _getProxiesMatching("*::stabilityPool*");
 - [x] **2.3** Peg config (`Config_Peg_ETH.sol`, `Config_Peg_BTC.sol`, etc.)
 - [x] **2.4** Volatility config (`Config_PriceVolatility_130.sol`, etc.)
 - [x] **2.5** Minter Market config (`Config_MinterMarket_ETH_fxUSD.sol`, etc.)
+- [x] **2.6** Config parameter methods (wrappedCollateralToken(), peggedToken(), owner(), treasury(), etc.)
 
-### Phase 3: Deployment Library (`script/deployment2/`)
+**Phase 2 Status: 100% complete** (all config contracts provide accessor methods)
 
-- [ ] **3.1** `HarborDeployment.sol` - Deployment library functions
-- [ ] **3.2** Multi-network execution (`_setNetworkContext`, `_configureBroadcast`, `runAcrossNetworks`)
-- [ ] **3.3** Integration tests on Anvil fork (single + multi-network)
-- [ ] **3.4** Smoke test hooks (`_runSmokeTestForFragment`, `_runSmokeTestForSystem`)
+### Phase 3: Deployment Library (`script/bao-basedeployment/`)
 
-### Phase 4: Scripts and Wrappers
+- [x] **3.1** `HarborDeploymentBase.sol` - Pure orchestration
+  - [x] Market deployment functions (script records both implementation and proxy)
+  - [x] Helper functions for key qualification and fragment parsing
+  - [x] Optional smoke test hooks (`_shouldRunSmokeTests()`, `_runSmokeTestForMarket()`)
+  - [ ] Actual deployment logic (blocked on Phase 2 config parameter methods)
+- [x] **3.2** `DeploymentStateStore.sol` - Harbor state file format and queries
+  - [x] Contract source and type tracking in state file
+  - [x] Implementation and proxy recording functions
+- [x] **3.3** `DeploymentTypes.sol` - Market/Fragment type definitions
+- [ ] **3.4** Multi-network execution (`_setNetworkContext`, `_configureBroadcast`, `runAcrossNetworks`) - Deferred
 
-- [ ] **4.1** Minimal deployment scripts (`Deploy*.s.sol`)
-- [ ] **4.2** Bash wrapper scripts (`script/deploy-*`, `script/upgrade-*`)
-- [ ] **4.3** Cross-network wrappers (`script/deploy-markets-batch`, plan parsing)
+**Phase 3 Status: ~85% complete** (skeleton done, actual deployment blocked on Phase 2 config methods)
 
-### Phase 5: Migration
+### Phase 4: Concrete Deployment Scripts (`script/deployment2/`)
 
-- [ ] **5.1** Script to extract state from existing log files
-- [ ] **5.2** Validate extracted state against on-chain
+- [ ] **4.1** `DeployPegged.s.sol` - is HarborDeploymentBase_Pegged, Deployment, Script
+  - [ ] Deploy fxUSD pegged token
+  - [ ] Deploy stETH pegged token
+  - [ ] Test harness to verify pegged token deployments
+- [ ] **4.2** `DeployMinter.s.sol` - is HarborDeploymentBase, Deployment, Script
+  - [ ] Deploy minter markets (BTC::fxUSD, ETH::fxUSD, BTC::stETH, etc.)
+  - [ ] Grant roles on pegged tokens (MINTER_ROLE, BURNER_ROLE)
+- [ ] **4.3** `UpgradeStabilityPools.s.sol` - is HarborDeploymentBase, Deployment, Script
+- [ ] **4.4** Relationship tests (address references, role assignments, view functions)
+
+- [ ] **5.1** `script/lib/deploy-cli` - Shared CLI functions (RPC, signer resolution)
+- [ ] **5.2** Bash wrapper scripts (`script/deploy-*`, `script/upgrade-*`)
+- [ ] **5.3** Cross-network wrappers (`script/deploy-markets-batch`, plan parsing)
+
+### Phase 6: Migration
+
+- [ ] **6.1** Script to extract state from existing log files
+- [ ] **6.2** Validate extracted state against on-chain
 
 ---
 
-## 5. Testing Strategy
+## 5. Key Components from bao-base
 
-### 5.1 Unit Tests (forge test)
+### 5.1 DeploymentBase Functions
+
+**Core deployment primitives** (inherited by HarborDeploymentBase via mixin):
+
+```solidity
+// From lib/bao-base/script/deployment/DeploymentBase.sol
+
+abstract contract DeploymentBase is DeploymentDataMemory {
+  /// @notice Deploy a UUPS proxy via CREATE3
+  /// @param key The contract key (e.g., "contracts.minter")
+  /// @param creationCode The implementation creation code
+  /// @param constructorArgs ABI-encoded constructor arguments
+  /// @return proxy The deployed proxy address
+  function deployProxy(
+    string memory key,
+    bytes memory creationCode,
+    bytes memory constructorArgs
+  ) public returns (address proxy);
+
+  /// @notice Deploy a library via CREATE
+  /// @param key The library key
+  /// @param creationCode The library creation code
+  /// @return lib The deployed library address
+  function deployLibrary(string memory key, bytes memory creationCode) public returns (address lib);
+
+  /// @notice Register an existing contract at known address
+  /// @param key The contract key
+  /// @param addr The existing contract address
+  function useExisting(string memory key, address addr) public;
+
+  /// @notice Upgrade a proxy to a new implementation
+  /// @param proxyKey The proxy key
+  /// @param newImpl The new implementation address
+  function upgradeProxy(string memory proxyKey, address newImpl) public;
+
+  /// @notice Ensure BaoFactory is deployed (abstract - provided by mixin)
+  function _ensureBaoFactory() internal virtual returns (address);
+}
+```
+
+### 5.2 UUPSProxyDeployStub
+
+**CREATE3 proxy deployment helper** (used internally by DeploymentBase):
+
+```solidity
+// From lib/bao-base/script/deployment/UUPSProxyDeployStub.sol
+
+/// @notice Deploys UUPS proxy + implementation via CREATE3
+/// @dev Called by DeploymentBase.deployProxy()
+contract UUPSProxyDeployStub {
+  /// @notice Deploy implementation and proxy
+  /// @param factory BaoFactory address (provides CREATE3)
+  /// @param salt CREATE3 salt
+  /// @param creationCode Implementation bytecode
+  /// @param constructorArgs Constructor arguments
+  /// @param initData Proxy initialization data
+  /// @return implementation The implementation address
+  /// @return proxy The proxy address (deterministic via CREATE3)
+  function deploy(
+    address factory,
+    bytes32 salt,
+    bytes memory creationCode,
+    bytes memory constructorArgs,
+    bytes memory initData
+  ) external returns (address implementation, address proxy);
+}
+```
+
+### 5.3 Deployment Mixins
+
+**Production mixin** (requires existing BaoFactory):
+
+```solidity
+// From lib/bao-base/script/deployment/Deployment.sol
+
+abstract contract Deployment is DeploymentBase {
+  function _ensureBaoFactory() internal virtual override returns (address factory) {
+    BaoFactoryDeployment.requireFunctionalBaoFactory();
+    factory = BaoFactoryDeployment.predictBaoFactoryAddress();
+  }
+}
+```
+
+**Test mixin** (auto-deploys BaoFactory):
+
+```solidity
+// From lib/bao-base/script/deployment/DeploymentTesting.sol
+
+abstract contract DeploymentTesting is DeploymentBase {
+  function _ensureBaoFactory() internal virtual override returns (address baoFactory) {
+    baoFactory = BaoFactoryDeployment.predictBaoFactoryAddress();
+    if (!BaoFactoryDeployment.isBaoFactoryDeployed()) {
+      BaoFactoryDeployment.deployBaoFactory();
+    }
+    if (!BaoFactoryDeployment.isBaoFactoryFunctional()) {
+      VM.startPrank(IBaoFactory(baoFactory).owner());
+      BaoFactoryDeployment.upgradeBaoFactoryToV1();
+      VM.stopPrank();
+    }
+    // Set operator to this test harness
+    IBaoFactory factory = IBaoFactory(baoFactory);
+    if (!factory.isCurrentOperator(address(this))) {
+      VM.prank(factory.owner());
+      factory.setOperator(address(this), 365 days);
+    }
+  }
+}
+```
+
+---
+
+## 6. Testing Strategy
+
+### 6.1 Unit Tests (forge test)
 
 **Config contracts:**
 
@@ -1013,7 +1416,7 @@ contract ConfigTest is Test {
 **State file operations:**
 
 ```solidity
-// test/deployment2/StateFileTest.t.sol
+// test/deployment2/DeploymentState.t.sol
 contract StateFileTest is Test {
   function test_recordProxy_createsEntry() public {
     Deployment d = new TestDeployment();
@@ -1033,7 +1436,123 @@ contract StateFileTest is Test {
 }
 ```
 
-### 5.2 Integration Tests (Anvil fork)
+### 6.2 Contract Relationship Tests
+
+**Testing focuses on relationships between contracts rather than individual contracts in isolation.**
+
+**Address relationships:**
+
+```solidity
+// test/deployment2/ContractRelationships.t.sol
+contract ContractRelationshipsTest is Test {
+  /// @notice Verify minter holds correct addresses
+  function test_minter_holds_expected_addresses() public {
+    address minter = getProxy("ETH::fxUSD::minter");
+
+    // Expected relationships
+    assertEq(IMinter(minter).collateral(), FXUSD);
+    assertEq(IMinter(minter).stabilityPool(), getProxy("ETH::fxUSD::stabilityPoolCollateral"));
+    assertEq(IMinter(minter).priceOracle(), EXPECTED_ORACLE);
+    assertEq(IMinter(minter).treasury(), TREASURY);
+  }
+
+  /// @notice Verify stability pool knows about minter
+  function test_stabilityPool_references_minter() public {
+    address sp = getProxy("ETH::fxUSD::stabilityPoolCollateral");
+    address minter = getProxy("ETH::fxUSD::minter");
+
+    assertEq(IStabilityPool(sp).minter(), minter);
+    assertEq(IStabilityPool(sp).collateralToken(), FXUSD);
+  }
+}
+```
+
+**Role assignments:**
+
+```solidity
+// test/deployment2/RoleAssignments.t.sol
+contract RoleAssignmentsTest is Test {
+  /// @notice Test that each address has expected roles
+  function test_address_has_expected_roles() public {
+    address minter = getProxy("ETH::fxUSD::minter");
+
+    // Expected roles for minter
+    Role[] memory expectedRoles = new Role[](2);
+    expectedRoles[0] = Role({ contract: minter, role: MINTER_ROLE });
+    expectedRoles[1] = Role({ contract: minter, role: PAUSER_ROLE });
+
+    assertAddressHasRoles(TREASURY, expectedRoles);
+  }
+
+  /// @notice Test role relationships across multiple contracts
+  function test_treasury_has_admin_roles_everywhere() public {
+    address[] memory contracts = getAllMarketContracts();
+
+    for (uint i = 0; i < contracts.length; i++) {
+      assertTrue(
+        IAccessControl(contracts[i]).hasRole(DEFAULT_ADMIN_ROLE, TREASURY),
+        string.concat("Treasury missing admin on ", vm.toString(contracts[i]))
+      );
+    }
+  }
+
+  /// @notice Helper to assert address has specific roles
+  function assertAddressHasRoles(address account, Role[] memory expectedRoles) internal {
+    for (uint i = 0; i < expectedRoles.length; i++) {
+      assertTrue(
+        IAccessControl(expectedRoles[i].contract).hasRole(
+          expectedRoles[i].role,
+          account
+        ),
+        string.concat(
+          "Missing role ",
+          vm.toString(expectedRoles[i].role),
+          " on ",
+          vm.toString(expectedRoles[i].contract)
+        )
+      );
+    }
+  }
+}
+```
+
+**View function validation:**
+
+```solidity
+// test/deployment2/ViewFunctionValidation.t.sol
+contract ViewFunctionValidationTest is Test {
+  /// @notice Test all view functions return expected values
+  function test_minter_view_functions() public {
+    address minter = getProxy("ETH::fxUSD::minter");
+
+    // Expected values for all view functions
+    assertEq(IMinter(minter).collateral(), EXPECTED_COLLATERAL);
+    assertEq(IMinter(minter).stabilityPool(), EXPECTED_STABILITY_POOL);
+    assertEq(IMinter(minter).priceOracle(), EXPECTED_ORACLE);
+    assertEq(IMinter(minter).mintFee(), EXPECTED_MINT_FEE);
+    assertEq(IMinter(minter).redeemFee(), EXPECTED_REDEEM_FEE);
+    assertEq(IMinter(minter).paused(), false);
+
+    // Parameterized view functions
+    assertEq(IMinter(minter).canMint(1e18), true);
+    assertEq(IMinter(minter).previewMint(1e18), EXPECTED_MINT_AMOUNT);
+  }
+
+  /// @notice Generic view function tester
+  function assertViewFunction(
+    address target,
+    bytes4 selector,
+    bytes memory args,
+    bytes memory expectedReturn
+  ) internal {
+    (bool success, bytes memory result) = target.staticcall(abi.encodePacked(selector, args));
+    assertTrue(success, "View call failed");
+    assertEq(keccak256(result), keccak256(expectedReturn), string.concat("View mismatch: ", vm.toString(selector)));
+  }
+}
+```
+
+### 6.3 Integration Tests (Anvil fork)
 
 **Full deployment flow:**
 
@@ -1326,13 +1845,13 @@ function _isExpectedDifferent(bytes4 selector) internal pure returns (bool) {
 forge test --match-contract DeploymentEquivalenceTest --fork-url mainnet --fork-block-number 21500000 -vvv
 ```
 
-### 5.6 DeploymentStateStore Tests
+### 5.6 DeploymentState Tests
 
 The contract that owns state I/O must be thoroughly tested so CLI assumptions hold.
 
 ```solidity
-// test/deployment2/DeploymentStateStore.t.sol
-contract DeploymentStateStoreTest is Test {
+// test/deployment2/DeploymentState.t.sol
+contract DeploymentStateTest is Test {
   using stdJson for string;
 
   DeploymentStateStore store;
@@ -1348,7 +1867,7 @@ contract DeploymentStateStoreTest is Test {
 
   function test_recordImplementation_updates_json() public {
     DeploymentStateStore.ImplementationRecord memory rec = DeploymentStateStore.ImplementationRecord({
-      forProxy: "ETH::fxUSD::minter",
+      proxy: "ETH::fxUSD::minter",
       contractSource: "src/mainnet/Aggregator_fxUSD_ETH_mainnet.sol",
       contractType: "Aggregator_fxUSD_ETH_mainnet",
       implementation: address(0x1234),
@@ -1360,7 +1879,7 @@ contract DeploymentStateStoreTest is Test {
     store.save(state);
 
     string memory json = vm.readFile(state.path);
-    assertEq(json.readString(".implementations['0x0000000000000000000000000000000000001234'].forProxy"), rec.forProxy);
+    assertEq(json.readString(".implementations['0x0000000000000000000000000000000000001234'].proxy"), rec.proxy);
   }
 
   function test_rolesMissingProxies_filters_correctly() public {
@@ -1373,26 +1892,32 @@ These tests guarantee both entry points (`runFromStateFile()` and `runMinterMark
 
 ---
 
-## 6. Key Design Decisions
+## 7. Key Design Decisions
 
-| Decision           | Choice                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------ |
-| Config format      | **Solidity contracts**, not JSON - type safety, inheritance, IDE                     |
-| Config composition | Composable pieces via multiple inheritance (no hierarchy)                            |
-| Config naming      | `Config_{Category}_{Value}` e.g. `Config_Peg_ETH`                                    |
-| Key extraction     | `marketKey()` in `ConfigBase` extracts from `type(this).name`                        |
-| Proxy detection    | Tool for validation only, not control flow (intent is explicit)                      |
-| Broadcast control  | **Script controls** - calls `vm.startBroadcast()` directly                           |
-| State file         | One per network **per salt prefix** (filename matches `saltPrefix`)                  |
-| State file format  | JSON - only runtime output, not compile-time input                                   |
-| State file access  | Solidity (`DeploymentStateStore`) loads + saves JSON                                 |
-| CLI pattern        | `--network`, `--local`, `--account` - no `.env`, no raw keys                         |
-| CLI-driven loops   | Solidity derives workloads via state-store helpers                                   |
-| Bash wrappers      | Source `script/lib/deploy-cli`, choose `runFromStateFile` VS `runMinterMarkets` only |
+| Decision                  | Choice                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| Foundation                | **bao-base** - DeploymentBase, UUPSProxyDeployStub, Deployment/DeploymentTesting mixins |
+| Orchestration inheritance | HarborDeploymentBase extends neither Script nor Test - pure logic                       |
+| Production scripts        | HarborDeploymentScript = HarborDeploymentBase + Deployment + Script                     |
+| Test harnesses            | HarborDeploymentTesting = HarborDeploymentBase + DeploymentTesting                      |
+| BaoFactory setup          | Via mixin: Deployment (production) or DeploymentTesting (tests)                         |
+| Proxy deployment          | bao-base `deployProxy()` using UUPSProxyDeployStub + CREATE3                            |
+| Config format             | **Solidity contracts**, not JSON - type safety, inheritance, IDE                        |
+| Config composition        | Composable pieces via multiple inheritance (no hierarchy)                               |
+| Config naming             | `Config_{Category}_{Value}` e.g. `Config_Peg_ETH`                                       |
+| Key extraction            | `marketKey()` in `ConfigBase` extracts from `type(this).name`                           |
+| Proxy detection           | Tool for validation only, not control flow (intent is explicit)                         |
+| Broadcast control         | **Script controls** - calls `vm.startBroadcast()` directly                              |
+| State file                | One per network **per salt prefix** (filename matches `saltPrefix`)                     |
+| State file format         | JSON - only runtime output, not compile-time input                                      |
+| State file access         | Solidity (`DeploymentStateStore`) loads + saves JSON                                    |
+| CLI pattern               | `--network`, `--local`, `--account` - no `.env`, no raw keys                            |
+| CLI-driven loops          | Solidity derives workloads via state-store helpers                                      |
+| Bash wrappers             | Source `script/lib/deploy-cli`, choose `runFromStateFile` VS `runMinterMarkets` only    |
 
 ---
 
-## 7. Open Questions
+## 8. Open Questions
 
 ### 6.1 Proxy Detection Role
 
@@ -1400,13 +1925,13 @@ Should detection affect behavior at all, or only log/validate?
 
 Current position: **Validation only** - if intent says "upgrade" but proxy missing, fail loudly.
 
-### 6.2 Logs
+### 8.2 Logs
 
 Are session logs needed, or is git history sufficient?
 
 ---
 
-## 8. Example Workflow
+## 9. Example Workflow
 
 ### Upgrade Stability Pools Across All Markets
 
@@ -1414,7 +1939,11 @@ Are session logs needed, or is git history sufficient?
 
 ```solidity
 // script/deployment2/UpgradeStabilityPools.s.sol
-contract UpgradeStabilityPools is HarborDeployment {
+import { HarborDeploymentBase } from "script/bao-basedeployment/HarborDeploymentBase.sol";
+import { Deployment } from "@bao-script/deployment/Deployment.sol";
+import { Script } from "forge-std/Script.sol";
+
+contract UpgradeStabilityPools is HarborDeploymentBase, Deployment, Script {
   function runFromStateFile() public {
     State memory state = stateStore.load(targetNetwork(), saltPrefix(), useLocal());
     FragmentDescriptor[] memory targets = stateStore.fragmentsNeedingUpgrade(state, keccak256("SPv2"));

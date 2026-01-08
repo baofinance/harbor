@@ -14,4 +14,5 @@ contract Config_Market_BTC_stETH is
     Config_Peg_BTC,
     Config_Collateral_stETH,
     Config_PriceVolatility_130
-{}
+{
+}

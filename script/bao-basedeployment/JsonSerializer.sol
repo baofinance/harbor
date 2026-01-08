@@ -53,7 +53,7 @@ library JsonSerializer {
                 '"',
                 LibString.toHexString(rec.implementation),
                 '":{"proxy":',
-                _quote(rec.forProxy),
+                _quote(rec.proxy),
                 ',"contractSource":',
                 _quote(rec.contractSource),
                 ',"contractType":',
@@ -115,7 +115,7 @@ library JsonSerializer {
         for (uint256 i = 0; i < sorted.length; ++i) {
             uint256 minIndex = i;
             for (uint256 j = i + 1; j < sorted.length; ++j) {
-                if (LibString.eq(sorted[j].forProxy, sorted[minIndex].forProxy) ? false : bytes(sorted[j].forProxy)[0] < bytes(sorted[minIndex].forProxy)[0]) {
+                if (LibString.eq(sorted[j].proxy, sorted[minIndex].proxy) ? false : bytes(sorted[j].proxy)[0] < bytes(sorted[minIndex].proxy)[0]) {
                     minIndex = j;
                 }
             }

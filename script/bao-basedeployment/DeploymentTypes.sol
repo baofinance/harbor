@@ -41,7 +41,7 @@ library DeploymentTypes {
     }
 
     struct ImplementationRecord {
-        string forProxy;
+        string proxy;
         string contractSource;
         string contractType;
         address implementation;
@@ -66,7 +66,6 @@ library DeploymentTypes {
         string network;
         string saltPrefix;
         bool useLocal;
-        string path;
         ImplementationRecord[] implementations;
         ProxyRecord[] proxies;
         PendingUpgrade[] pendingUpgrades;

@@ -14,4 +14,5 @@ contract Config_Market_GOLD_stETH is
     Config_Peg_GOLD,
     Config_Collateral_stETH,
     Config_PriceVolatility_130
-{}
+{
+}
