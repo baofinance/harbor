@@ -116,13 +116,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         implRecord.proxy = pegKey; // Associate with this proxy key
 
         // Deploy proxy
-        (proxy, proxyRecord) = deployPeggedProxy(
-            baoFactoryAddr,
-            pegConfig,
-            impl,
-            tokenOwner,
-            systemSalt
-        );
+        (proxy, proxyRecord) = deployPeggedProxy(baoFactoryAddr, pegConfig, impl, tokenOwner, systemSalt);
 
         console.log("%s deployment complete\n", pegKey);
     }
@@ -156,7 +150,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         DeploymentState.recordProxy(stateData, proxyRecord);
 
         peggedToken = proxy;
-        _registerForOwnershipTransfer(proxy);
+        _registerForOwnershipTransfer(proxy, _saltString(proxyRecord.id));
 
         // Grant minter/burner roles to each market's minter contract
         console.log("Granting pegged roles for %s", pegKey);
@@ -250,14 +244,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         implRecord.proxy = leveragedKey; // Associate with this proxy key
 
         // Deploy proxy
-        (proxy, proxyRecord) = deployLeveragedProxy(
-            baoFactoryAddr,
-            peg,
-            collateral,
-            impl,
-            tokenOwner,
-            systemSalt
-        );
+        (proxy, proxyRecord) = deployLeveragedProxy(baoFactoryAddr, peg, collateral, impl, tokenOwner, systemSalt);
 
         console.log("%s deployment complete\n", leveragedKey);
     }
@@ -279,19 +266,13 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
             address proxy,
             DeploymentTypes.ImplementationRecord memory implRecord,
             DeploymentTypes.ProxyRecord memory proxyRecord
-        ) = deployLeveragedToken(
-            baoFactoryAddr,
-            market.peg(),
-            market.collateral(),
-            tokenOwner,
-            systemSalt
-        );
+        ) = deployLeveragedToken(baoFactoryAddr, market.peg(), market.collateral(), tokenOwner, systemSalt);
 
         DeploymentState.recordImplementation(stateData, implRecord);
         DeploymentState.recordProxy(stateData, proxyRecord);
 
         leveragedToken = proxy;
-        _registerForOwnershipTransfer(proxy);
+        _registerForOwnershipTransfer(proxy, _saltString(proxyRecord.id));
 
         // Grant minter/burner roles to the market's minter contract
         console.log("Granting leveraged roles for %s", marketKey);

@@ -27,8 +27,13 @@ abstract contract FactoryDeployer is Config_Protocol {
     // Contracts are deployed with deployer as owner, then transferred at end.
     // initialize(owner()) sets pending owner; transferOwnership(owner()) confirms it.
 
+    struct PendingOwnership {
+        address deployed;
+        string salt;
+    }
+
     /// @dev List of deployed contracts needing ownership transfer.
-    address[] private _pendingOwnershipTransfers;
+    PendingOwnership[] private _pendingOwnershipTransfers;
 
     constructor() {
         _proxyDeployStub = new UUPSProxyDeployStub();
@@ -36,8 +41,8 @@ abstract contract FactoryDeployer is Config_Protocol {
 
     /// @notice Register a deployed contract for later ownership transfer.
     /// @dev Call this after deploying any contract that needs ownership transferred.
-    function _registerForOwnershipTransfer(address deployed) internal {
-        _pendingOwnershipTransfers.push(deployed);
+    function _registerForOwnershipTransfer(address deployed, string memory salt) internal {
+        _pendingOwnershipTransfers.push(PendingOwnership(deployed, salt));
     }
 
     /// @notice Transfer ownership of all registered contracts to final owner.
@@ -46,9 +51,9 @@ abstract contract FactoryDeployer is Config_Protocol {
     function _transferAllOwnerships() internal {
         address pendingOwner = owner(); // From Config_Protocol - same as passed to initialize()
         for (uint256 i = 0; i < _pendingOwnershipTransfers.length; i++) {
-            address deployed = _pendingOwnershipTransfers[i];
-            console.log("Transferring ownership: %s -> %s", deployed, pendingOwner);
-            IBaoOwnable(deployed).transferOwnership(pendingOwner);
+            PendingOwnership memory pending = _pendingOwnershipTransfers[i];
+            console.log("Transferring ownership: %s -> %s", pending.salt, pendingOwner);
+            IBaoOwnable(pending.deployed).transferOwnership(pendingOwner);
         }
         // Clear the list after transfer
         delete _pendingOwnershipTransfers;
@@ -59,19 +64,40 @@ abstract contract FactoryDeployer is Config_Protocol {
         return _pendingOwnershipTransfers.length;
     }
 
-    // ========== ADDRESS PREDICTION ==========
+    // ========== SALT STRING CONSTRUCTION ==========
     // All "::" salt construction happens here - nowhere else in the codebase.
     // Parameters are generic (part1, part2, part3) as they vary by use case.
 
+    /// @notice Construct salt string for a single-part key (e.g., "ETH::pegged")
+    function _saltString(string memory part1) internal view returns (string memory) {
+        return string.concat(systemSalt(), "::", part1);
+    }
+
+    /// @notice Construct salt string for two-part key (e.g., "ETH::fxUSD", "minter")
+    function _saltString(string memory part1, string memory part2) internal view returns (string memory) {
+        return string.concat(systemSalt(), "::", part1, "::", part2);
+    }
+
+    /// @notice Construct salt string for three-part key (e.g., "ETH", "fxUSD", "minter")
+    function _saltString(
+        string memory part1,
+        string memory part2,
+        string memory part3
+    ) internal view returns (string memory) {
+        return string.concat(systemSalt(), "::", part1, "::", part2, "::", part3);
+    }
+
+    // ========== ADDRESS PREDICTION ==========
+
     /// @notice Predict address for a single-part key (e.g., "ETH::pegged")
     function _predictAddress(string memory part1) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", part1));
+        bytes32 salt = keccak256(abi.encodePacked(_saltString(part1)));
         return IBaoFactory(baoFactory()).predictAddress(salt);
     }
 
     /// @notice Predict address for two-part key (e.g., "ETH::fxUSD", "minter")
     function _predictAddress(string memory part1, string memory part2) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", part1, "::", part2));
+        bytes32 salt = keccak256(abi.encodePacked(_saltString(part1, part2)));
         return IBaoFactory(baoFactory()).predictAddress(salt);
     }
 
@@ -81,7 +107,7 @@ abstract contract FactoryDeployer is Config_Protocol {
         string memory part2,
         string memory part3
     ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", part1, "::", part2, "::", part3));
+        bytes32 salt = keccak256(abi.encodePacked(_saltString(part1, part2, part3)));
         return IBaoFactory(baoFactory()).predictAddress(salt);
     }
 

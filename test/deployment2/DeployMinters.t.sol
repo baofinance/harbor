@@ -184,12 +184,13 @@ contract DeployMintersTest is BaoDeploymentTest {
             s.refToken = IBaoFactory(baoFactory).predictAddress(refSalt);
             s.candToken = IBaoFactory(baoFactory).predictAddress(candSalt);
 
+            string memory fullSalt = string.concat(referenceSalt, "::", peg, "::pegged");
             if (!_hasCode(s.refToken)) {
-                console.log("reference pegged token missing code for %s", peg);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": reference missing code"));
                 continue;
             }
             if (!_hasCode(s.candToken)) {
-                console.log("candidate pegged token missing code for %s", peg);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": candidate missing code"));
                 continue;
             }
 
@@ -198,7 +199,7 @@ contract DeployMintersTest is BaoDeploymentTest {
 
             _populateKnownAddresses(peg, referenceSalt, candidateSalt, s);
 
-            CompareTotals memory pegTotals = _processContract(string.concat("pegged::", peg), s, TOKEN_ARTIFACT);
+            CompareTotals memory pegTotals = _processContract(fullSalt, s, TOKEN_ARTIFACT);
             agg.total += pegTotals.total;
             agg.passed += pegTotals.passed;
         }
@@ -207,17 +208,14 @@ contract DeployMintersTest is BaoDeploymentTest {
         for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
             string memory marketKey = marketSalts[iMarket];
             TokenCompareState memory s = _setupMarketContract(marketKey, "leveraged", referenceSalt, candidateSalt);
+            string memory fullSalt = string.concat(referenceSalt, "::", marketKey, "::leveraged");
 
             if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
-                console.log("leveraged token missing code for %s", marketKey);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": missing code"));
                 continue;
             }
 
-            CompareTotals memory levTotals = _processContract(
-                string.concat("leveraged::", marketKey),
-                s,
-                TOKEN_ARTIFACT
-            );
+            CompareTotals memory levTotals = _processContract(fullSalt, s, TOKEN_ARTIFACT);
             agg.total += levTotals.total;
             agg.passed += levTotals.passed;
         }
@@ -226,13 +224,14 @@ contract DeployMintersTest is BaoDeploymentTest {
         for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
             string memory marketKey = marketSalts[iMarket];
             TokenCompareState memory s = _setupMarketContract(marketKey, "minter", referenceSalt, candidateSalt);
+            string memory fullSalt = string.concat(referenceSalt, "::", marketKey, "::minter");
 
             if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
-                console.log("minter missing code for %s", marketKey);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": missing code"));
                 continue;
             }
 
-            CompareTotals memory totals = _processContract(string.concat("minter::", marketKey), s, MINTER_ARTIFACT);
+            CompareTotals memory totals = _processContract(fullSalt, s, MINTER_ARTIFACT);
             agg.total += totals.total;
             agg.passed += totals.passed;
         }
@@ -246,13 +245,14 @@ contract DeployMintersTest is BaoDeploymentTest {
                 referenceSalt,
                 candidateSalt
             );
+            string memory fullSalt = string.concat(referenceSalt, "::", marketKey, "::stabilityPoolManager");
 
             if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
-                console.log("stabilityPoolManager missing code for %s", marketKey);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": missing code"));
                 continue;
             }
 
-            CompareTotals memory totals = _processContract(string.concat("SPM::", marketKey), s, SPM_ARTIFACT);
+            CompareTotals memory totals = _processContract(fullSalt, s, SPM_ARTIFACT);
             agg.total += totals.total;
             agg.passed += totals.passed;
         }
@@ -266,13 +266,14 @@ contract DeployMintersTest is BaoDeploymentTest {
                 referenceSalt,
                 candidateSalt
             );
+            string memory fullSalt = string.concat(referenceSalt, "::", marketKey, "::stabilityPoolCollateral");
 
             if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
-                console.log("stabilityPoolCollateral missing code for %s", marketKey);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": missing code"));
                 continue;
             }
 
-            CompareTotals memory totals = _processContract(string.concat("SP-C::", marketKey), s, SP_ARTIFACT);
+            CompareTotals memory totals = _processContract(fullSalt, s, SP_ARTIFACT);
             agg.total += totals.total;
             agg.passed += totals.passed;
         }
@@ -286,13 +287,14 @@ contract DeployMintersTest is BaoDeploymentTest {
                 referenceSalt,
                 candidateSalt
             );
+            string memory fullSalt = string.concat(referenceSalt, "::", marketKey, "::stabilityPoolLeveraged");
 
             if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
-                console.log("stabilityPoolLeveraged missing code for %s", marketKey);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": missing code"));
                 continue;
             }
 
-            CompareTotals memory totals = _processContract(string.concat("SP-L::", marketKey), s, SP_ARTIFACT);
+            CompareTotals memory totals = _processContract(fullSalt, s, SP_ARTIFACT);
             agg.total += totals.total;
             agg.passed += totals.passed;
         }
@@ -301,13 +303,14 @@ contract DeployMintersTest is BaoDeploymentTest {
         for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
             string memory marketKey = marketSalts[iMarket];
             TokenCompareState memory s = _setupMarketContract(marketKey, "reservePool", referenceSalt, candidateSalt);
+            string memory fullSalt = string.concat(referenceSalt, "::", marketKey, "::reservePool");
 
             if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
-                console.log("reservePool missing code for %s", marketKey);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": missing code"));
                 continue;
             }
 
-            CompareTotals memory totals = _processContract(string.concat("reserve::", marketKey), s, RESERVE_ARTIFACT);
+            CompareTotals memory totals = _processContract(fullSalt, s, RESERVE_ARTIFACT);
             agg.total += totals.total;
             agg.passed += totals.passed;
         }
@@ -316,13 +319,14 @@ contract DeployMintersTest is BaoDeploymentTest {
         for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
             string memory marketKey = marketSalts[iMarket];
             TokenCompareState memory s = _setupMarketContract(marketKey, "genesis", referenceSalt, candidateSalt);
+            string memory fullSalt = string.concat(referenceSalt, "::", marketKey, "::genesis");
 
             if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
-                console.log("genesis missing code for %s", marketKey);
+                mismatchDetails.push(string.concat("- ", fullSalt, ": missing code"));
                 continue;
             }
 
-            CompareTotals memory totals = _processContract(string.concat("genesis::", marketKey), s, GENESIS_ARTIFACT);
+            CompareTotals memory totals = _processContract(fullSalt, s, GENESIS_ARTIFACT);
             agg.total += totals.total;
             agg.passed += totals.passed;
         }

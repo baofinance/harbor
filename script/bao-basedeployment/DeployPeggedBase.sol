@@ -120,7 +120,7 @@ abstract contract DeployPeggedBase is HarborDeployment_Pegged {
 
         // Register for ownership transfer at end
         address peggedToken = deployment.proxy;
-        _registerForOwnershipTransfer(peggedToken);
+        _registerForOwnershipTransfer(peggedToken, _saltString(deployment.proxyRecord.id));
 
         // Grant roles to minters while we still own the token
         console.log("Granting roles for %s", pegKey);
