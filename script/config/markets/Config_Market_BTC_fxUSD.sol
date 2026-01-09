@@ -15,4 +15,5 @@ contract Config_Market_BTC_fxUSD is
     Config_Collateral_fxUSD,
     Config_PriceVolatility_130
 {
+    constructor(string memory systemSaltString) Config_Chain_Mainnet(systemSaltString) {}
 }

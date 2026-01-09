@@ -7,7 +7,7 @@ import {Config_Peg} from "./Config_Peg.sol";
 /// @dev Deployed pegged token: haGOLD ("Harbor anchored GOLD")
 /// @dev Used by markets: GOLD::fxUSD, GOLD::stETH
 contract Config_Peg_GOLD is Config_Peg {
-    function peg() public pure override returns (string memory) {
+    function peg() public pure virtual override returns (string memory) {
         return "GOLD";
     }
 

@@ -30,7 +30,8 @@ abstract contract HarborDeployment_Pegged is FactoryDeployer {
         address owner,
         string memory systemSalt
     ) internal returns (PeggedTokenDeployment memory deployment) {
-        string memory pegKey = pegConfig.key();
+        // Include the proxy qualifier directly in the peg key to match legacy mainnet salts
+        string memory pegKey = string.concat(pegConfig.key(), "::pegged");
         console.log("\n=== Deploying Pegged Token: %s ===", pegKey);
 
         // Get token name and symbol from config
@@ -45,6 +46,8 @@ abstract contract HarborDeployment_Pegged is FactoryDeployer {
         console.log("Implementation deployed at: %s", address(impl));
 
         // Compute CREATE3 salt
+        // Match legacy deployment salt string used on mainnet: "<system>::<PEG>::pegged"
+        // Legacy mainnet salt format: <system>::<PEG>::pegged
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", pegKey));
 
         // Prepare initialization data

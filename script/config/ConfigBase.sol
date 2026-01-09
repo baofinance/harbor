@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {Config_Protocol} from "./chains/Config_Protocol.sol";
 
 /// @notice Base contract for all Harbor configuration contracts.
 /// @dev Config contracts provide keys via methods, not string parsing.
@@ -39,23 +40,13 @@ library MinterMarketConfigLib {
 
     /// @notice Predicts the price oracle address for a minter market config.
     /// @param config The minter market config contract.
-    /// @param systemSalt System salt prefix.
-    /// @param baoFactory BaoFactory address for prediction.
     /// @return The predicted price oracle address.
-    function priceOracle(
-        Config_MinterMarket config,
-        string memory systemSalt,
-        address baoFactory
-    ) internal view returns (address) {
+    function priceOracle(Config_MinterMarket config) internal view returns (address) {
         IMarketConfig market = IMarketConfig(address(config));
-        string memory key = string.concat(
-            market.peg(),
-            "::",
-            market.collateral(),
-            "::wrappedPriceAggregator"
-        );
-        bytes32 saltHash = keccak256(abi.encodePacked(systemSalt, "::", key));
-        return IBaoFactory(baoFactory).predictAddress(saltHash);
+        Config_Protocol protocol = Config_Protocol(address(config));
+        string memory key = string.concat(market.peg(), "::", market.collateral(), "::wrappedPriceAggregator");
+        bytes32 saltHash = keccak256(abi.encodePacked(protocol.systemSalt(), "::", key));
+        return IBaoFactory(protocol.baoFactory()).predictAddress(saltHash);
     }
 }
 

@@ -11,20 +11,11 @@ import {Config_Market_BTC_fxUSD} from "script/config/markets/Config_Market_BTC_f
 import {Config_Market_BTC_stETH} from "script/config/markets/Config_Market_BTC_stETH.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 
-/// @notice Test-specific DeploymentState that writes to results/deployments/
-contract TestDeploymentState is DeploymentState {
-    function _directoryPrefix() internal pure override returns (string memory) {
-        return "results/";
-    }
-}
-
 /// @notice Test harness for Harbor deployment.
 contract HarborDeploymentHarness is HarborDeploymentBase {
-    TestDeploymentState private stateManager;
+    using DeploymentState for DeploymentTypes.State;
 
-    constructor() {
-        stateManager = new TestDeploymentState();
-    }
+    string private constant PREFIX = "results/";
 
     // Expose internal functions for testing (public but with _ prefix to avoid Forge treating them as tests)
     function _startDeploymentWrapper(
@@ -33,7 +24,7 @@ contract HarborDeploymentHarness is HarborDeploymentBase {
         bool useLocal
     ) public returns (DeploymentTypes.State memory state) {
         address baoFactory = BaoFactoryDeployment.predictBaoFactoryAddress();
-        state = stateManager.load(network, saltPrefix, useLocal);
+        state = DeploymentState.load(network, saltPrefix, useLocal, PREFIX);
         state.baoFactory = baoFactory;
         return state;
     }
@@ -46,7 +37,7 @@ contract HarborDeploymentHarness is HarborDeploymentBase {
     }
 
     function _finishDeploymentWrapper(DeploymentTypes.State memory state) public {
-        stateManager.save(state);
+        DeploymentState.save(state, PREFIX);
     }
 }
 
@@ -58,14 +49,15 @@ contract HarborDeploymentTest is BaoDeploymentTest {
     }
 
     function test_deployMultipleMarkets() public {
+        string memory systemSalt = "harbor_v1";
         // Define markets to deploy
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](3);
-        markets[0] = new Config_Market_ETH_fxUSD();
-        markets[1] = new Config_Market_BTC_fxUSD();
-        markets[2] = new Config_Market_BTC_stETH();
+        markets[0] = new Config_Market_ETH_fxUSD(systemSalt);
+        markets[1] = new Config_Market_BTC_fxUSD(systemSalt);
+        markets[2] = new Config_Market_BTC_stETH(systemSalt);
 
         // Start deployment session
-        DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", "harbor_v1", true);
+        DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", systemSalt, true);
 
         // Deploy each market
         for (uint256 i = 0; i < markets.length; i++) {
@@ -84,14 +76,15 @@ contract HarborDeploymentTest is BaoDeploymentTest {
     }
 
     function test_deploymentPattern() public {
+        string memory systemSalt = "test_pattern";
         // This demonstrates the intended usage pattern for deployment scripts:
         // 1. Script inherits from HarborDeploymentBase
         // 2. Script lists configs to deploy
         // 3. Script calls startDeployment(), loops deployMinterMarket(), calls finishDeployment()
 
-        Config_MinterMarket config = new Config_Market_ETH_fxUSD();
+        Config_MinterMarket config = new Config_Market_ETH_fxUSD(systemSalt);
 
-        DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", "test_pattern", true);
+        DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", systemSalt, true);
         state = deployer._deployMinterMarketWrapper(state, config);
         deployer._finishDeploymentWrapper(state);
     }

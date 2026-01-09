@@ -1230,10 +1230,11 @@ string[] memory keys = _getProxiesMatching("*::stabilityPool*");
 - [x] **2.2** Chain config (`Config_Chain_Mainnet.sol`, `Config_Chain_Arbitrum.sol`)
 - [x] **2.3** Peg config (`Config_Peg_ETH.sol`, `Config_Peg_BTC.sol`, etc.)
 - [x] **2.4** Volatility config (`Config_PriceVolatility_130.sol`, etc.)
-- [x] **2.5** Minter Market config (`Config_MinterMarket_ETH_fxUSD.sol`, etc.)
-- [x] **2.6** Config parameter methods (wrappedCollateralToken(), peggedToken(), owner(), treasury(), etc.)
+- [ ] **2.5** Minter market configs (fxUSD/stETH for ETH/BTC/GOLD/EUR) including fee receivers and price oracle wiring
+- [ ] **2.6** Config parameter methods (wrappedCollateralToken(), peggedToken(), owner(), treasury(), etc.) finalized per minter markets
+- [x] **2.7** Shared fee-receiver commons (minter and SPM) with tokens/recipients/shares structure
 
-**Phase 2 Status: 100% complete** (all config contracts provide accessor methods)
+**Phase 2 Status: in progress** (chain/peg/vol done; shared fee-receiver commons added; per-market minter/SPM configs still to be completed)
 
 ### Phase 3: Deployment Library (`script/bao-basedeployment/`)
 
@@ -1248,7 +1249,7 @@ string[] memory keys = _getProxiesMatching("*::stabilityPool*");
 - [x] **3.3** `DeploymentTypes.sol` - Market/Fragment type definitions
 - [ ] **3.4** Multi-network execution (`_setNetworkContext`, `_configureBroadcast`, `runAcrossNetworks`) - Deferred
 
-**Phase 3 Status: ~85% complete** (skeleton done, actual deployment blocked on Phase 2 config methods)
+**Phase 3 Status: ~70% complete** (skeleton done; actual deployment logic waiting on Phase 2 minter/SPM configs)
 
 ### Phase 4: Concrete Deployment Scripts (`script/deployment2/`)
 

@@ -24,20 +24,23 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {LibString} from "@solady/utils/LibString.sol";
+import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 
 /// @notice Base contract for pegged token deployment orchestration.
 /// @dev Provides reusable deployment logic for both production scripts and tests.
 abstract contract DeployPeggedBase is HarborDeployment_Pegged, Config_Protocol {
     using LibString for string;
 
+    constructor() Config_Protocol("") {}
+
     /// @notice Deploy all Harbor pegged tokens and grant minter roles.
     /// @param systemSalt System salt for CREATE3 deployment (e.g., "harbor_v1").
     /// @param network Network name (e.g., "mainnet", "arbitrum").
     /// @param useLocal Whether to read/write state in the local results directory.
     function deployAllPeggedTokens(string memory systemSalt, string memory network, bool useLocal) internal {
-        // Create state store and load existing state
-        DeploymentState state = new DeploymentState();
-        DeploymentTypes.State memory stateData = state.load(network, systemSalt, useLocal);
+        DeploymentTypes.State memory stateData = _shouldPersistState()
+            ? DeploymentState.load(network, systemSalt, useLocal, _stateDirectoryPrefix())
+            : _seedEphemeralState(systemSalt, network, useLocal);
         stateData.baoFactory = baoFactory();
 
         console.log("=== Deploying Pegged Tokens ===");
@@ -46,48 +49,46 @@ abstract contract DeployPeggedBase is HarborDeployment_Pegged, Config_Protocol {
 
         // ETH markets
         Config_MinterMarket[] memory ethMarkets = new Config_MinterMarket[](1);
-        ethMarkets[0] = new Config_Market_ETH_fxUSD();
+        ethMarkets[0] = new Config_Market_ETH_fxUSD(systemSalt);
 
         // BTC markets
         Config_MinterMarket[] memory btcMarkets = new Config_MinterMarket[](2);
-        btcMarkets[0] = new Config_Market_BTC_fxUSD();
-        btcMarkets[1] = new Config_Market_BTC_stETH();
+        btcMarkets[0] = new Config_Market_BTC_fxUSD(systemSalt);
+        btcMarkets[1] = new Config_Market_BTC_stETH(systemSalt);
 
         // GOLD markets
         Config_MinterMarket[] memory goldMarkets = new Config_MinterMarket[](2);
-        goldMarkets[0] = new Config_Market_GOLD_fxUSD();
-        goldMarkets[1] = new Config_Market_GOLD_stETH();
+        goldMarkets[0] = new Config_Market_GOLD_fxUSD(systemSalt);
+        goldMarkets[1] = new Config_Market_GOLD_stETH(systemSalt);
 
         // EUR markets
         Config_MinterMarket[] memory eurMarkets = new Config_MinterMarket[](2);
-        eurMarkets[0] = new Config_Market_EUR_fxUSD();
-        eurMarkets[1] = new Config_Market_EUR_stETH();
+        eurMarkets[0] = new Config_Market_EUR_fxUSD(systemSalt);
+        eurMarkets[1] = new Config_Market_EUR_stETH(systemSalt);
 
         // Deploy all pegged tokens and grant roles
-        _deployPeggedToken(state, stateData, new Config_Peg_ETH(), systemSalt, ethMarkets);
-        _deployPeggedToken(state, stateData, new Config_Peg_BTC(), systemSalt, btcMarkets);
-        _deployPeggedToken(
-            state,
-            stateData,
-            new Config_Peg_GOLD(),
-            systemSalt,
-            goldMarkets
-        );
-        _deployPeggedToken(state, stateData, new Config_Peg_EUR(), systemSalt, eurMarkets);
+        address[4] memory peggedTokens;
+        peggedTokens[0] = _deployPeggedToken(stateData, new Config_Peg_ETH(), systemSalt, ethMarkets);
+        peggedTokens[1] = _deployPeggedToken(stateData, new Config_Peg_BTC(), systemSalt, btcMarkets);
+        peggedTokens[2] = _deployPeggedToken(stateData, new Config_Peg_GOLD(), systemSalt, goldMarkets);
+        peggedTokens[3] = _deployPeggedToken(stateData, new Config_Peg_EUR(), systemSalt, eurMarkets);
+
+        _transferPeggedOwnerships(peggedTokens);
 
         // Save state
-        state.save(stateData);
+        if (_shouldPersistState()) {
+            DeploymentState.save(stateData, _stateDirectoryPrefix());
+        }
         console.log("=== Pegged Token Deployment Complete ===");
     }
 
     /// @notice Deploy a single pegged token, record in state, and grant minter roles.
     function _deployPeggedToken(
-        DeploymentState state,
         DeploymentTypes.State memory stateData,
         Config_Peg pegConfig,
         string memory systemSalt,
         Config_MinterMarket[] memory marketConfigs
-    ) private {
+    ) private returns (address peggedToken) {
         string memory pegKey = pegConfig.key();
 
         HarborDeployment_Pegged.PeggedTokenDeployment memory deployment = deployPeggedToken(
@@ -96,11 +97,11 @@ abstract contract DeployPeggedBase is HarborDeployment_Pegged, Config_Protocol {
             owner(),
             systemSalt
         );
-        state.recordImplementation(stateData, deployment.implRecord);
-        state.recordProxy(stateData, deployment.proxyRecord);
+        DeploymentState.recordImplementation(stateData, deployment.implRecord);
+        DeploymentState.recordProxy(stateData, deployment.proxyRecord);
 
         // Grant roles to minters
-        address peggedToken = deployment.proxy;
+        peggedToken = deployment.proxy;
         IBaoFactory factory = IBaoFactory(baoFactory());
 
         console.log("Granting roles for %s", pegKey);
@@ -118,11 +119,45 @@ abstract contract DeployPeggedBase is HarborDeployment_Pegged, Config_Protocol {
             );
 
             string memory minterKey = MinterMarketConfigLib.salt(marketConfigs[i]);
-            bytes32 minterSalt = keccak256(abi.encodePacked(minterKey));
+            // Legacy mainnet salt format appends "::minter" to the market key
+            bytes32 minterSalt = keccak256(abi.encodePacked(systemSalt, "::", minterKey, "::minter"));
             address minter = factory.predictAddress(minterSalt);
 
             console.log("  minter: %s (%s)", minterKey, minter);
             IBaoRoles(peggedToken).grantRoles(minter, minterRole | burnerRole);
         }
+    }
+
+    function _transferPeggedOwnerships(address[4] memory peggedTokens) private {
+        address finalOwner = owner();
+        for (uint256 i = 0; i < peggedTokens.length; i++) {
+            address peggedToken = peggedTokens[i];
+            if (peggedToken == address(0)) continue;
+
+            address currentOwner = MintableBurnableERC20_v1(peggedToken).owner();
+            if (currentOwner == finalOwner) continue;
+
+            console.log("Transferring ownership for %s -> %s", peggedToken, finalOwner);
+            MintableBurnableERC20_v1(peggedToken).transferOwnership(finalOwner);
+        }
+    }
+
+    function _shouldPersistState() internal pure virtual returns (bool) {
+        return true;
+    }
+
+    function _stateDirectoryPrefix() internal view virtual returns (string memory) {
+        return "";
+    }
+
+    function _seedEphemeralState(
+        string memory systemSalt,
+        string memory network,
+        bool useLocal
+    ) private pure returns (DeploymentTypes.State memory stateData) {
+        stateData.network = network;
+        stateData.saltPrefix = systemSalt;
+        stateData.useLocal = useLocal;
+        return stateData;
     }
 }

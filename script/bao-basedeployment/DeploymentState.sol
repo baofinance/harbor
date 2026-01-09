@@ -9,8 +9,8 @@ import {JsonParser} from "./JsonParser.sol";
 import {DeploymentTypes} from "./DeploymentTypes.sol";
 
 /// @notice Persistent deployment state management backed by JSON files.
-/// @dev Use composition (not inheritance) in deployment scripts for multi-network support.
-contract DeploymentState {
+/// @dev Library form to avoid on-chain deployment/broadcast in scripts.
+library DeploymentState {
     using stdJson for string;
 
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
@@ -27,20 +27,30 @@ contract DeploymentState {
     function resolvePath(
         string memory network,
         string memory saltPrefix,
-        bool useLocal
+        bool useLocal,
+        string memory directoryPrefix
     ) internal view returns (string memory) {
         string memory root = vm.projectRoot();
-        return string.concat(root, "/", _relativePath(network, saltPrefix, useLocal));
+        return string.concat(root, "/", _relativePath(network, saltPrefix, useLocal, directoryPrefix));
     }
 
     function load(
         string memory network,
         string memory saltPrefix,
         bool useLocal
-    ) external virtual returns (DeploymentTypes.State memory state) {
-        _ensureDirectory(network, useLocal);
+    ) internal returns (DeploymentTypes.State memory state) {
+        return load(network, saltPrefix, useLocal, "");
+    }
 
-        string memory path = resolvePath(network, saltPrefix, useLocal);
+    function load(
+        string memory network,
+        string memory saltPrefix,
+        bool useLocal,
+        string memory directoryPrefix
+    ) internal returns (DeploymentTypes.State memory state) {
+        _ensureDirectory(network, useLocal, directoryPrefix);
+
+        string memory path = resolvePath(network, saltPrefix, useLocal, directoryPrefix);
         string memory json = _readStateFile(path);
         state = JsonParser.parseStateJson(json);
         state.network = network;
@@ -49,19 +59,23 @@ contract DeploymentState {
         return state;
     }
 
-    function save(DeploymentTypes.State memory state) external virtual {
-        _ensureDirectory(state.network, state.useLocal);
+    function save(DeploymentTypes.State memory state) internal {
+        save(state, "");
+    }
+
+    function save(DeploymentTypes.State memory state, string memory directoryPrefix) internal {
+        _ensureDirectory(state.network, state.useLocal, directoryPrefix);
 
         string memory json = JsonSerializer.renderState(state);
 
-        string memory relativePath = _relativePath(state.network, state.saltPrefix, state.useLocal);
+        string memory relativePath = _relativePath(state.network, state.saltPrefix, state.useLocal, directoryPrefix);
         json.write(relativePath);
     }
 
     function recordImplementation(
         DeploymentTypes.State memory state,
         DeploymentTypes.ImplementationRecord memory rec
-    ) external pure returns (DeploymentTypes.State memory) {
+    ) internal pure {
         if (bytes(rec.proxy).length == 0) revert ProxyKeyRequiredForImplementation();
         if (rec.implementation == address(0)) revert ImplementationAddressRequired();
 
@@ -81,13 +95,12 @@ contract DeploymentState {
         }
         updated[length] = rec;
         state.implementations = updated;
-        return state;
     }
 
     function recordProxy(
         DeploymentTypes.State memory state,
         DeploymentTypes.ProxyRecord memory rec
-    ) external pure returns (DeploymentTypes.State memory) {
+    ) internal pure {
         if (bytes(rec.id).length == 0) revert ProxyKeyRequired();
         if (rec.proxy == address(0)) revert ProxyAddressRequired();
 
@@ -103,12 +116,11 @@ contract DeploymentState {
         }
         updated[length] = rec;
         state.proxies = updated;
-        return state;
     }
 
     function rolesMissingProxies(
         DeploymentTypes.State memory state
-    ) external pure returns (DeploymentTypes.ContractRole[] memory) {
+    ) internal pure returns (DeploymentTypes.ContractRole[] memory) {
         DeploymentTypes.ContractRole[] memory missing = new DeploymentTypes.ContractRole[](
             state.implementations.length
         );
@@ -129,7 +141,7 @@ contract DeploymentState {
     function fragmentsNeedingUpgrade(
         DeploymentTypes.State memory state,
         bytes32 targetVersion
-    ) external pure returns (DeploymentTypes.FragmentDescriptor[] memory) {
+    ) internal pure returns (DeploymentTypes.FragmentDescriptor[] memory) {
         DeploymentTypes.FragmentDescriptor[] memory fragments = new DeploymentTypes.FragmentDescriptor[](
             state.pendingUpgrades.length
         );
@@ -144,14 +156,14 @@ contract DeploymentState {
 
     function minterMarketsMissingImplementations(
         DeploymentTypes.State memory state
-    ) external pure returns (DeploymentTypes.MinterMarket[] memory) {
+    ) internal pure returns (DeploymentTypes.MinterMarket[] memory) {
         string[] memory keys = _collectRoleKeys(state, "minter");
         return _decodeMinterMarkets(keys);
     }
 
     function priceMarketsMissingImplementations(
         DeploymentTypes.State memory state
-    ) external pure returns (DeploymentTypes.PriceMarket[] memory) {
+    ) internal pure returns (DeploymentTypes.PriceMarket[] memory) {
         string[] memory keys = _collectRoleKeys(state, "priceAggregator");
         return _decodePriceMarkets(keys);
     }
@@ -235,11 +247,10 @@ contract DeploymentState {
         return (true, collateral, peg);
     }
 
-    function _ensureDirectory(string memory network, bool useLocal) private {
-        string memory prefix = _directoryPrefix();
+    function _ensureDirectory(string memory network, bool useLocal, string memory directoryPrefix) private {
         string memory relative = useLocal
-            ? string.concat(prefix, "deployments/local/", network)
-            : string.concat(prefix, "deployments/", network);
+            ? string.concat(directoryPrefix, "deployments/local/", network)
+            : string.concat(directoryPrefix, "deployments/", network);
         vm.createDir(relative, true);
     }
 
@@ -325,7 +336,7 @@ contract DeploymentState {
         return output;
     }
 
-    function _readStateFile(string memory path) internal view virtual returns (string memory) {
+    function _readStateFile(string memory path) internal view returns (string memory) {
         if (!vm.exists(path)) {
             return "";
         }
@@ -335,16 +346,12 @@ contract DeploymentState {
     function _relativePath(
         string memory network,
         string memory saltPrefix,
-        bool useLocal
-    ) private view returns (string memory) {
-        string memory prefix = _directoryPrefix();
+        bool useLocal,
+        string memory directoryPrefix
+    ) private pure returns (string memory) {
         string memory base = useLocal
-            ? string.concat(prefix, "deployments/local/", network)
-            : string.concat(prefix, "deployments/", network);
+            ? string.concat(directoryPrefix, "deployments/local/", network)
+            : string.concat(directoryPrefix, "deployments/", network);
         return string.concat(base, "/", saltPrefix, ".state.json");
-    }
-
-    function _directoryPrefix() internal view virtual returns (string memory) {
-        return "";
     }
 }

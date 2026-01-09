@@ -10,7 +10,7 @@ abstract contract Config_PriceVolatility_130 {
         return 1.30e18;
     }
 
-    function _minterConfig() internal pure returns (MinterConfig memory) {
+    function minterConfig() public pure returns (MinterConfig memory) {
         uint256[] memory mintPeggedBounds = new uint256[](6);
         mintPeggedBounds[0] = 1.31e18;
         mintPeggedBounds[1] = 1.40e18;

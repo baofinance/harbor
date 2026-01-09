@@ -15,8 +15,10 @@ import {MinterConfig, StabilityPoolManagerConfig, StabilityPoolConfig} from "scr
 contract ConfigTest is Test {
     using MinterMarketConfigLib for Config_MinterMarket;
 
+    string private constant SYSTEM_SALT = "harbor_v1";
+
     function test_market_ETH_fxUSD() public {
-        Config_MinterMarket config = new Config_Market_ETH_fxUSD();
+        Config_MinterMarket config = new Config_Market_ETH_fxUSD(SYSTEM_SALT);
         assertEq(config.salt(), "ETH::fxUSD");
         // Can also access concrete type methods
         Config_Market_ETH_fxUSD concrete = Config_Market_ETH_fxUSD(address(config));
@@ -25,32 +27,32 @@ contract ConfigTest is Test {
     }
 
     function test_market_BTC_fxUSD() public {
-        Config_MinterMarket config = new Config_Market_BTC_fxUSD();
+        Config_MinterMarket config = new Config_Market_BTC_fxUSD(SYSTEM_SALT);
         assertEq(config.salt(), "BTC::fxUSD");
     }
 
     function test_market_BTC_stETH() public {
-        Config_MinterMarket config = new Config_Market_BTC_stETH();
+        Config_MinterMarket config = new Config_Market_BTC_stETH(SYSTEM_SALT);
         assertEq(config.salt(), "BTC::stETH");
     }
 
     function test_market_GOLD_fxUSD() public {
-        Config_MinterMarket config = new Config_Market_GOLD_fxUSD();
+        Config_MinterMarket config = new Config_Market_GOLD_fxUSD(SYSTEM_SALT);
         assertEq(config.salt(), "GOLD::fxUSD");
     }
 
     function test_market_GOLD_stETH() public {
-        Config_MinterMarket config = new Config_Market_GOLD_stETH();
+        Config_MinterMarket config = new Config_Market_GOLD_stETH(SYSTEM_SALT);
         assertEq(config.salt(), "GOLD::stETH");
     }
 
     function test_market_EUR_fxUSD() public {
-        Config_MinterMarket config = new Config_Market_EUR_fxUSD();
+        Config_MinterMarket config = new Config_Market_EUR_fxUSD(SYSTEM_SALT);
         assertEq(config.salt(), "EUR::fxUSD");
     }
 
     function test_market_EUR_stETH() public {
-        Config_MinterMarket config = new Config_Market_EUR_stETH();
+        Config_MinterMarket config = new Config_Market_EUR_stETH(SYSTEM_SALT);
         assertEq(config.salt(), "EUR::stETH");
     }
 
@@ -59,10 +61,10 @@ contract ConfigTest is Test {
     function test_deploymentScriptPattern() public {
         // The deployment script directly instantiates the configs it wants to deploy
         Config_MinterMarket[] memory marketsToDeply = new Config_MinterMarket[](3);
-        marketsToDeply[0] = new Config_Market_ETH_fxUSD();
-        marketsToDeply[1] = new Config_Market_BTC_fxUSD();
-        marketsToDeply[2] = new Config_Market_BTC_stETH();
-        
+        marketsToDeply[0] = new Config_Market_ETH_fxUSD(SYSTEM_SALT);
+        marketsToDeply[1] = new Config_Market_BTC_fxUSD(SYSTEM_SALT);
+        marketsToDeply[2] = new Config_Market_BTC_stETH(SYSTEM_SALT);
+
         // Then loops over them to deploy
         for (uint256 i = 0; i < marketsToDeply.length; i++) {
             Config_MinterMarket config = marketsToDeply[i];

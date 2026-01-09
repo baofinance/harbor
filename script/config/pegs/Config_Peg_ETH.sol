@@ -7,7 +7,7 @@ import {Config_Peg} from "./Config_Peg.sol";
 /// @dev Deployed pegged token: haETH ("Harbor anchored ETH")
 /// @dev Used by markets: ETH::fxUSD, ETH::stETH
 contract Config_Peg_ETH is Config_Peg {
-    function peg() public pure override returns (string memory) {
+    function peg() public pure virtual override returns (string memory) {
         return "ETH";
     }
 
