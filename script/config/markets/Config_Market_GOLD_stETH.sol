@@ -15,5 +15,4 @@ contract Config_Market_GOLD_stETH is
     Config_Collateral_stETH,
     Config_PriceVolatility_130
 {
-    constructor(string memory systemSaltString) Config_Chain_Mainnet(systemSaltString) {}
 }

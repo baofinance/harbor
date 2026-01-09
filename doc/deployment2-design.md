@@ -1092,11 +1092,18 @@ address leveragedImpl = deployLeveragedImpl();
 
 ```
 script/bao-basedeployment/
-├── DeployMintersBase.sol           # Orchestration only: deployAllMinters(), _deployAllPeggedTokens(), etc.
-├── HarborDeployment_MinterTokens.sol  # Contract-specific: MintableBurnableERC20_v1 deployment + role granting
-├── HarborDeployment_Minter.sol        # Contract-specific: Minter_v1 deployment + fee receiver setup
-├── HarborDeployment_StabilityPool.sol # Contract-specific: SP deployment + gauge registration
-└── ...
+├── FactoryDeployer.sol                     # Base: CREATE3 proxy deployment + DeploymentOwnership
+├── DeploymentTypes.sol                     # Shared type definitions
+├── DeploymentState.sol                     # State persistence
+│
+├── HarborDeployment_MinterTokens.sol       # Contract: MintableBurnableERC20_v1 (pegged + leveraged)
+├── HarborDeployment_Minter.sol             # Contract: Minter_v1 + ReservePool + MinterFeeReceiver
+├── HarborDeployment_StabilityPool.sol      # Contract: StabilityPool_v1 (Collateral + Leveraged)
+├── HarborDeployment_StabilityPoolManager.sol # Contract: SPM + SPMFeeReceiver
+├── HarborDeployment_Genesis.sol            # Contract: Genesis_v1
+│
+├── DeployMintersBase.sol                   # Orchestration: deployAllMinters()
+└── DeployMinterMarketBase.sol              # Orchestration: full market deployment (future)
 ```
 
 **Layer Separation**:
@@ -1106,65 +1113,307 @@ script/bao-basedeployment/
    - Knows which contracts to deploy and in what order
    - Handles state loading/saving
    - Calls contract-specific deployment functions
+   - Calls `_transferAllOwnerships()` at the end
 
 2. **Contract Layer** (`HarborDeployment_Xxx.sol`):
-   - Contains `deployXxxImpl()`, `deployXxxProxy()`, `deployXxxWithRoles()`
-   - Knows how to deploy ONE contract type
+   - Contains `deployXxxImpl()`, `deployXxxProxy()`, `configureXxx()`, `grantXxxRoles()`
+   - Knows how to deploy ONE contract type (or tightly coupled contracts)
    - Handles role granting for that contract type
+   - Calls `_registerForOwnershipTransfer()` for each deployed proxy
    - No knowledge of other contracts or deployment order
 
-**Example - MinterTokens**:
+**Contract Layer Groupings**:
+
+- **MinterTokens**: Pegged + Leveraged tokens (same contract: `MintableBurnableERC20_v1`)
+- **Minter**: `Minter_v1` + `ReservePool_v1` + MinterFeeReceiver (`TokenDistributor_v1`)
+- **StabilityPool**: `StabilityPool_v1` (two variants: Collateral and Leveraged)
+- **StabilityPoolManager**: `StabilityPoolManager_v1` + SPMFeeReceiver (`TokenDistributor_v1`)
+- **Genesis**: `Genesis_v1` (standalone)
+
+**FeeReceivers are co-located with their source contracts** because:
+
+- They are configured with contract-specific tokens
+- They are wired directly to their source contract
+- Dependencies flow one way (Minter → FeeReceiver)
+
+### 3.3.3 DeploymentOwnership Pattern
+
+**Problem**: Ownership must be transferred after all configuration and role grants are complete, but tracking which contracts need transfer is error-prone.
+
+**Solution**: Centralized ownership registration with batch transfer at deployment end.
+
+**Location**: `FactoryDeployer.sol`
+
+**BaoOwnable Ownership Model**:
+
+BaoOwnable uses a two-phase ownership transfer:
+
+1. **Initialize phase**: `initialize(pendingOwner)` sets `msg.sender` as current owner and `pendingOwner` as the pending owner. The current owner can configure the contract and grant roles.
+
+2. **Transfer phase**: `transferOwnership(pendingOwner)` confirms the transfer to the pending owner. The `pendingOwner` argument must match what was set during initialization. Transfer must occur within 1 hour of initialization.
+
+This means the final owner is **already known at initialization time** - it comes from `Config_Protocol.owner()`. The deployment script:
+
+- Passes `owner()` to `initialize()` as the pending owner
+- Configures the contract and grants roles (as msg.sender, the current owner)
+- Calls `transferOwnership(owner())` to confirm the transfer
+
+**Implementation**:
 
 ```solidity
-// HarborDeployment_MinterTokens.sol - Contract-specific
-abstract contract HarborDeployment_MinterTokens {
-    struct TokenDeployment { ... }  // Unified for pegged AND leveraged
+abstract contract FactoryDeployer is Config_Protocol {
+  address[] private _pendingOwnershipTransfers;
 
-    function deployMinterTokenImpl() internal returns (address, ImplementationRecord memory);
-    function deployPeggedProxy(...) internal returns (address, ProxyRecord memory);
-    function deployLeveragedProxy(...) internal returns (address, ProxyRecord memory);
-    function deployPeggedTokenWithRoles(...) internal returns (address);  // Deploy + grant roles
-    function deployLeveragedTokenWithRoles(...) internal returns (address);
+  /// @notice Register a deployed contract for later ownership transfer.
+  function _registerForOwnershipTransfer(address deployed) internal {
+    _pendingOwnershipTransfers.push(deployed);
+  }
+
+  /// @notice Transfer ownership of all registered contracts to final owner.
+  /// @dev No parameter needed - pending owner is already set in initialize() to owner().
+  function _transferAllOwnerships() internal {
+    address pendingOwner = owner(); // From Config_Protocol
+    for (uint256 i = 0; i < _pendingOwnershipTransfers.length; i++) {
+      address deployed = _pendingOwnershipTransfers[i];
+      IBaoOwnable(deployed).transferOwnership(pendingOwner);
+    }
+    delete _pendingOwnershipTransfers;
+  }
+}
+```
+
+**Usage Pattern**:
+
+```solidity
+// In contract-specific deployment (HarborDeployment_MinterTokens.sol)
+function deployPeggedTokenWithRoles(...) internal returns (address peggedToken) {
+    (..., proxy, ...) = deployPeggedToken(...);  // initialize(owner()) already called
+    _registerForOwnershipTransfer(proxy);  // Add to list
+    // ... grant roles while we still own it ...
+    return proxy;
 }
 
-// DeployMintersBase.sol - Orchestration
+// In orchestration (DeployMintersBase.sol)
+function deployAllMinters(...) internal {
+    _deployAllPeggedTokens(...);
+    _deployAllLeveragedTokens(...);
+    _transferAllOwnerships();  // Confirms transfer to owner() for all contracts
+}
+```
+
+**Benefits**:
+
+- No manual tracking of deployed contracts
+- Single point of ownership transfer
+- Can't forget to transfer a contract
+- Clear separation: deploy/configure first, transfer last
+- No redundant parameter passing - owner is already known from Config_Protocol
+
+### 3.3.4 Config-Before-Broadcast Pattern
+
+**Problem**: Config contracts created inside `startBroadcast()` get deployed on-chain, wasting gas and polluting the chain.
+
+**Solution**: Separate config creation from deployment with a two-phase pattern.
+
+**Key Insight**: Contracts created BEFORE `startBroadcast()` exist only in the local EVM simulation - they are NOT deployed on-chain. This preserves all benefits of contract-based config (inheritance, composition, type safety) without on-chain deployment.
+
+**Pattern**:
+
+```solidity
+// In DeployMintersBase.sol (library file)
 abstract contract DeployMintersBase is HarborDeployment_MinterTokens {
-    function deployAllMinters(...) internal {
-        _deployAllPeggedTokens(...);
-        _deployAllLeveragedTokens(...);
-        _transferOwnerships(...);
-    }
+  /// @notice Create all config objects - call BEFORE startBroadcast()
+  /// @dev Config contracts are NOT deployed on-chain when created before broadcast.
+  function createAllMintersConfig() internal returns (Config_Peg[] memory pegs, Config_MinterMarket[] memory markets) {
+    pegs = new Config_Peg[](4);
+    pegs[0] = new Config_Peg_ETH();
+    pegs[1] = new Config_Peg_BTC();
+    pegs[2] = new Config_Peg_GOLD();
+    pegs[3] = new Config_Peg_EUR();
 
-    function _deployAllPeggedTokens(...) private returns (address[4] memory) {
-        // ETH peg
-        deployPeggedTokenWithRoles(state, new Config_Peg_ETH(), markets, ...);
-        // BTC peg, GOLD peg, EUR peg...
-    }
+    markets = new Config_MinterMarket[](7);
+    markets[0] = new Config_Market_ETH_fxUSD(systemSalt());
+    markets[1] = new Config_Market_BTC_fxUSD(systemSalt());
+    // ... etc
+
+    return (pegs, markets);
+  }
+
+  /// @notice Deploy all minters - call INSIDE startBroadcast()
+  function deployAllMinters(
+    Config_Peg[] memory pegs,
+    Config_MinterMarket[] memory markets,
+    string memory network,
+    bool useLocal
+  ) internal {
+    // ... deployment logic using the config ...
+  }
 }
 ```
-
-**Struct Consolidation**:
-
-When multiple contracts use the same underlying type, use a single struct:
 
 ```solidity
-// Both pegged and leveraged tokens use MintableBurnableERC20_v1
-struct TokenDeployment {
-  address implementation;
-  address proxy;
-  ImplementationRecord implRecord;
-  ProxyRecord proxyRecord;
+// In DeployMinters.s.sol (script file - thin wrapper)
+contract DeployMinters is DeployMintersBase, Script {
+  function run(string memory systemSalt, string memory network, bool useLocal) external {
+    // Config creation - NOT broadcast (function lives in DeployMintersBase)
+    (Config_Peg[] memory pegs, Config_MinterMarket[] memory markets) = createAllMintersConfig();
+
+    vm.startBroadcast();
+    // Deployment (function lives in DeployMintersBase)
+    deployAllMinters(pegs, markets, network, useLocal);
+    vm.stopBroadcast();
+  }
 }
-// NOT: PeggedTokenDeployment, LeveragedTokenDeployment (duplicates)
 ```
 
-**When to Split Files**:
+**Key points**:
 
-- Split when contracts have **different deployment patterns** (different constructors, init params)
-- Keep together when contracts share **identical deployment mechanics** (same contract type)
-- Example: `FeeReceiver` for Minter vs `FeeReceiver` for SPM could share one file if they use identical contracts, or split if they have different initialization
+- All logic stays in `.sol` library files (reusable by scripts and tests)
+- `.s.sol` and `.t.sol` are thin wrappers that call the functions in the right order
+- The only thing scripts control is WHEN to call `startBroadcast()`
+- Config contracts retain inheritance, composition, and type safety
 
-### 3.3.3 ABI Comparison Utility
+### 3.3.5 Salt Construction and Address Prediction
+
+**Problem**: Salt construction (`"::"` concatenation) scattered across files leads to inconsistency and bugs.
+
+**Solution**: Centralize ALL salt construction in `FactoryDeployer` with overloaded `_predictAddress` functions.
+
+**Location**: `FactoryDeployer.sol`
+
+**Implementation**:
+
+```solidity
+abstract contract FactoryDeployer is Config_Protocol {
+  // All "::" salt construction happens here - nowhere else in the codebase.
+  // Parameters are generic (part1, part2, part3) as they vary by use case.
+
+  /// @notice Predict address for a single-part key (e.g., "ETH::pegged")
+  function _predictAddress(string memory part1) internal view returns (address) {
+    bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", part1));
+    return IBaoFactory(baoFactory()).predictAddress(salt);
+  }
+
+  /// @notice Predict address for two-part key (e.g., "ETH::fxUSD", "minter")
+  function _predictAddress(string memory part1, string memory part2) internal view returns (address) {
+    bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", part1, "::", part2));
+    return IBaoFactory(baoFactory()).predictAddress(salt);
+  }
+
+  /// @notice Predict address for three-part key (e.g., "ETH", "fxUSD", "minter")
+  function _predictAddress(
+    string memory part1,
+    string memory part2,
+    string memory part3
+  ) internal view returns (address) {
+    bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", part1, "::", part2, "::", part3));
+    return IBaoFactory(baoFactory()).predictAddress(salt);
+  }
+}
+```
+
+**Usage**:
+
+```solidity
+// In deployment code - no string concatenation with "::"
+address minter = _predictAddress(config.marketKey(), "minter");
+address pegged = _predictAddress(string.concat(config.peg(), "::pegged"));
+address genesis = _predictAddress(config.peg(), config.collateral(), "genesis");
+```
+
+**Benefits**:
+
+- Single point of truth for salt format
+- Consistent `systemSalt()::` prefix everywhere
+- Easy to audit and modify
+- Type-safe overloads prevent mistakes
+
+### 3.3.6 Config-Passing and Function Design
+
+1. **Pass config objects, not extracted values**: Instead of extracting values from config at the call site and passing them as individual parameters, pass the config object and let the deploy function extract what it needs.
+
+2. **Get context from inheritance, not parameters**: `baoFactory()`, `owner()`, and `systemSalt()` are available via `Config_Protocol` inheritance. Don't pass them as parameters.
+
+3. **No single-use configure functions**: If a configuration block is only called from one place, inline it in the deploy function. Only extract functions that are genuinely reusable (e.g., `grantRoles()` which may be called during deployment and during upgrades).
+
+4. **Differentiate by what actually differs**: If two deployments differ only in one value (e.g., liquidation token for stability pools), that's the only parameter needed.
+
+**Anti-pattern** (too many parameters, extracted at wrong layer):
+
+```solidity
+// BAD: Caller extracts from config, passes many parameters
+function deployStabilityPoolImpl(
+    address minter,
+    address liquidationToken,
+    uint256 withdrawalDelay,
+    uint256 withdrawalPeriod,
+    uint256 minTotalAssetSupply
+) internal returns (address impl) { ... }
+
+// BAD: Single-use configure function
+function configureStabilityPool(address pool, address[] memory rewardTokens) internal { ... }
+
+// Call site extracts everything
+address impl = deployStabilityPoolImpl(
+    predictMinterAddress(...),
+    config.wrappedCollateral(),
+    config.withdrawalDelay(),
+    config.withdrawalPeriod(),
+    config.minTotalAssetSupply()
+);
+configureStabilityPool(impl, config.rewardTokens());
+```
+
+**Correct pattern** (config passed in, context from inheritance):
+
+```solidity
+// GOOD: Accept config, get context from inheritance
+function deployStabilityPoolCollateral(
+    Config_MinterMarket config
+) internal returns (address proxy, DeploymentTypes.ProxyRecord memory rec) {
+    // Extract what we need inside the function
+    address minter = predictMinterAddress(config.marketKey());
+    address liquidationToken = config.wrappedCollateral();
+
+    // baoFactory(), owner(), systemSalt() come from Config_Protocol
+    address impl = new StabilityPool_v1(
+        minter,
+        liquidationToken,
+        config.withdrawalDelay(),
+        config.withdrawalPeriod(),
+        config.minTotalAssetSupply()
+    );
+
+    bytes memory initData = abi.encodeCall(
+        StabilityPool_v1.initialize,
+        (owner(), config.earlyWithdrawalFeeRatio(), treasury())
+    );
+
+    proxy = deployProxy(baoFactory(), salt, impl, initData);
+
+    // Configuration inlined - not a separate function
+    for (uint256 i = 0; i < config.rewardTokens().length; i++) {
+        StabilityPool_v1(proxy).registerRewardToken(config.rewardTokens()[i]);
+    }
+
+    _registerForOwnershipTransfer(proxy);
+    return (proxy, ...);
+}
+```
+
+**When to extract a function**:
+
+- **Role granting**: May be called during initial deployment AND during upgrades when new roles are added
+- **Shared logic**: Used by multiple deploy functions (e.g., address prediction)
+- **Testing**: Needs to be called independently in tests
+
+**When NOT to extract**:
+
+- Configuration that's only done once during deployment
+- Logic that's only called from one place
+- "configure" functions that just pass parameters to setters
+
+### 3.3.7 ABI Comparison Utility
 
 **Problem**: Validating that newly deployed contracts match reference deployments requires comparing all view functions, but the functions vary by contract type.
 

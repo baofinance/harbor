@@ -10,7 +10,6 @@ import {MinterMarketConfigLib} from "../../ConfigBase.sol";
 
 /// @notice Mainnet wiring for GOLD::fxUSD minter market config.
 contract Config_MinterMarket_GOLD_fxUSD_mainnet is Config_Chain_Mainnet, Config_MinterMarket_GOLD_fxUSD {
-    constructor(string memory systemSaltString) Config_Chain_Mainnet(systemSaltString) {}
 
     function fxUSD() public pure override(Config_Chain_Mainnet, Config_Collateral_fxUSD) returns (address) {
         return Config_Chain_Mainnet.fxUSD();

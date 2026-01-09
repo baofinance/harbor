@@ -31,15 +31,6 @@ import {LibString} from "@solady/utils/LibString.sol";
 abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
     using LibString for string;
 
-    /// @notice Unified deployment result for both pegged and leveraged tokens.
-    /// @dev Both use MintableBurnableERC20_v1, so same structure applies.
-    struct TokenDeployment {
-        address implementation;
-        address proxy;
-        DeploymentTypes.ImplementationRecord implRecord;
-        DeploymentTypes.ProxyRecord proxyRecord;
-    }
-
     // ========== IMPLEMENTATION DEPLOYMENT ==========
 
     /// @notice Deploy a MintableBurnableERC20_v1 implementation.
@@ -108,27 +99,30 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         Config_Peg pegConfig,
         address tokenOwner,
         string memory systemSalt
-    ) internal returns (TokenDeployment memory deployment) {
+    )
+        internal
+        returns (
+            address impl,
+            address proxy,
+            DeploymentTypes.ImplementationRecord memory implRecord,
+            DeploymentTypes.ProxyRecord memory proxyRecord
+        )
+    {
         string memory pegKey = string.concat(pegConfig.key(), "::pegged");
         console.log("\n=== Deploying Pegged Token: %s ===", pegKey);
 
         // Deploy implementation
-        (address impl, DeploymentTypes.ImplementationRecord memory implRecord) = deployMinterTokenImpl();
+        (impl, implRecord) = deployMinterTokenImpl();
         implRecord.proxy = pegKey; // Associate with this proxy key
 
         // Deploy proxy
-        (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) = deployPeggedProxy(
+        (proxy, proxyRecord) = deployPeggedProxy(
             baoFactoryAddr,
             pegConfig,
             impl,
             tokenOwner,
             systemSalt
         );
-
-        deployment.implementation = impl;
-        deployment.proxy = proxy;
-        deployment.implRecord = implRecord;
-        deployment.proxyRecord = proxyRecord;
 
         console.log("%s deployment complete\n", pegKey);
     }
@@ -151,11 +145,18 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
     ) internal returns (address peggedToken) {
         string memory pegKey = pegConfig.key();
 
-        TokenDeployment memory deployment = deployPeggedToken(baoFactoryAddr, pegConfig, tokenOwner, systemSalt);
-        DeploymentState.recordImplementation(stateData, deployment.implRecord);
-        DeploymentState.recordProxy(stateData, deployment.proxyRecord);
+        (
+            ,
+            address proxy,
+            DeploymentTypes.ImplementationRecord memory implRecord,
+            DeploymentTypes.ProxyRecord memory proxyRecord
+        ) = deployPeggedToken(baoFactoryAddr, pegConfig, tokenOwner, systemSalt);
 
-        peggedToken = deployment.proxy;
+        DeploymentState.recordImplementation(stateData, implRecord);
+        DeploymentState.recordProxy(stateData, proxyRecord);
+
+        peggedToken = proxy;
+        _registerForOwnershipTransfer(proxy);
 
         // Grant minter/burner roles to each market's minter contract
         console.log("Granting pegged roles for %s", pegKey);
@@ -232,16 +233,24 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         string memory collateral,
         address tokenOwner,
         string memory systemSalt
-    ) internal returns (TokenDeployment memory deployment) {
+    )
+        internal
+        returns (
+            address impl,
+            address proxy,
+            DeploymentTypes.ImplementationRecord memory implRecord,
+            DeploymentTypes.ProxyRecord memory proxyRecord
+        )
+    {
         string memory leveragedKey = string.concat(peg, "::", collateral, "::leveraged");
         console.log("\n=== Deploying Leveraged Token: %s ===", leveragedKey);
 
         // Deploy implementation
-        (address impl, DeploymentTypes.ImplementationRecord memory implRecord) = deployMinterTokenImpl();
+        (impl, implRecord) = deployMinterTokenImpl();
         implRecord.proxy = leveragedKey; // Associate with this proxy key
 
         // Deploy proxy
-        (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) = deployLeveragedProxy(
+        (proxy, proxyRecord) = deployLeveragedProxy(
             baoFactoryAddr,
             peg,
             collateral,
@@ -249,11 +258,6 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
             tokenOwner,
             systemSalt
         );
-
-        deployment.implementation = impl;
-        deployment.proxy = proxy;
-        deployment.implRecord = implRecord;
-        deployment.proxyRecord = proxyRecord;
 
         console.log("%s deployment complete\n", leveragedKey);
     }
@@ -270,17 +274,24 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         IMarketConfig market = IMarketConfig(address(marketConfig));
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
 
-        TokenDeployment memory deployment = deployLeveragedToken(
+        (
+            ,
+            address proxy,
+            DeploymentTypes.ImplementationRecord memory implRecord,
+            DeploymentTypes.ProxyRecord memory proxyRecord
+        ) = deployLeveragedToken(
             baoFactoryAddr,
             market.peg(),
             market.collateral(),
             tokenOwner,
             systemSalt
         );
-        DeploymentState.recordImplementation(stateData, deployment.implRecord);
-        DeploymentState.recordProxy(stateData, deployment.proxyRecord);
 
-        leveragedToken = deployment.proxy;
+        DeploymentState.recordImplementation(stateData, implRecord);
+        DeploymentState.recordProxy(stateData, proxyRecord);
+
+        leveragedToken = proxy;
+        _registerForOwnershipTransfer(proxy);
 
         // Grant minter/burner roles to the market's minter contract
         console.log("Granting leveraged roles for %s", marketKey);

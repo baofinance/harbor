@@ -10,6 +10,7 @@ import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 /// @notice Harbor pegged token deployment logic.
 /// @dev One pegged token per peg (pETH, pBTC, pGOLD, pEUR), shared by all markets with that peg.
 /// @dev Returns deployment records for caller to record in state.
+/// @dev Config context (baoFactory, owner, systemSalt) comes from Config_Protocol via FactoryDeployer.
 abstract contract HarborDeployment_Pegged is FactoryDeployer {
     struct PeggedTokenDeployment {
         address implementation;
@@ -19,17 +20,13 @@ abstract contract HarborDeployment_Pegged is FactoryDeployer {
     }
 
     /// @notice Deploy a pegged token for a specific peg.
-    /// @param baoFactory BaoFactory address.
+    /// @dev baoFactory(), owner(), systemSalt() come from Config_Protocol inheritance.
     /// @param pegConfig Configuration for this peg (Config_Peg_ETH, Config_Peg_BTC, etc.).
-    /// @param owner Owner address for the deployed token.
-    /// @param systemSalt System salt for CREATE3 deployment.
     /// @return deployment Deployment records to be saved to state by caller.
-    function deployPeggedToken(
-        address baoFactory,
-        Config_Peg pegConfig,
-        address owner,
-        string memory systemSalt
-    ) internal returns (PeggedTokenDeployment memory deployment) {
+    function deployPeggedToken(Config_Peg pegConfig)
+        internal
+        returns (PeggedTokenDeployment memory deployment)
+    {
         // Include the proxy qualifier directly in the peg key to match legacy mainnet salts
         string memory pegKey = string.concat(pegConfig.key(), "::pegged");
         console.log("\n=== Deploying Pegged Token: %s ===", pegKey);
@@ -45,16 +42,15 @@ abstract contract HarborDeployment_Pegged is FactoryDeployer {
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
         console.log("Implementation deployed at: %s", address(impl));
 
-        // Compute CREATE3 salt
+        // Compute CREATE3 salt - systemSalt() from Config_Protocol
         // Match legacy deployment salt string used on mainnet: "<system>::<PEG>::pegged"
-        // Legacy mainnet salt format: <system>::<PEG>::pegged
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", pegKey));
+        bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", pegKey));
 
-        // Prepare initialization data
-        bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, tokenName, tokenSymbol));
+        // Prepare initialization data - owner() from Config_Protocol
+        bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), tokenName, tokenSymbol));
 
-        // Deploy proxy via CREATE3
-        address proxy = deployProxy(baoFactory, salt, address(impl), initData);
+        // Deploy proxy via CREATE3 - baoFactory() from Config_Protocol
+        address proxy = deployProxy(baoFactory(), salt, address(impl), initData);
         console.log("Proxy deployed at: %s", proxy);
 
         // Prepare records for caller to save
@@ -72,7 +68,7 @@ abstract contract HarborDeployment_Pegged is FactoryDeployer {
             fragment: DeploymentTypes.FragmentDescriptor({key: pegKey, kind: DeploymentTypes.FragmentKind.Peg}),
             proxy: proxy,
             implementation: address(impl),
-            salt: systemSalt,
+            salt: systemSalt(),
             deploymentTime: uint64(block.timestamp)
         });
 

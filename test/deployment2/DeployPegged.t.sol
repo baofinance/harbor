@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
 import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {DeployPeggedBase} from "script/bao-basedeployment/DeployPeggedBase.sol";
+import {DeployPeggedBase, AllPeggedConfig} from "script/bao-basedeployment/DeployPeggedBase.sol";
 import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -23,9 +23,11 @@ contract TestDeployPeggedHarness is DeployPeggedBase {
         return false;
     }
 
-    // Expose for testing
-    function deployAllPeggedTokensWrapper(string memory systemSalt, string memory network, bool useLocal) external {
-        deployAllPeggedTokens(systemSalt, network, useLocal);
+    // Expose for testing - uses config-before-broadcast pattern
+    function deployAllPeggedTokensWrapper(string memory systemSaltArg, string memory network, bool useLocal) external {
+        _setSystemSalt(systemSaltArg);
+        AllPeggedConfig memory config = createAllPeggedConfig();
+        deployAllPeggedTokens(config, network, useLocal);
     }
 }
 

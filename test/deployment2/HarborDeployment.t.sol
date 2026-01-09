@@ -52,9 +52,9 @@ contract HarborDeploymentTest is BaoDeploymentTest {
         string memory systemSalt = "harbor_v1";
         // Define markets to deploy
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](3);
-        markets[0] = new Config_Market_ETH_fxUSD(systemSalt);
-        markets[1] = new Config_Market_BTC_fxUSD(systemSalt);
-        markets[2] = new Config_Market_BTC_stETH(systemSalt);
+        markets[0] = new Config_Market_ETH_fxUSD();
+        markets[1] = new Config_Market_BTC_fxUSD();
+        markets[2] = new Config_Market_BTC_stETH();
 
         // Start deployment session
         DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", systemSalt, true);
@@ -82,7 +82,7 @@ contract HarborDeploymentTest is BaoDeploymentTest {
         // 2. Script lists configs to deploy
         // 3. Script calls startDeployment(), loops deployMinterMarket(), calls finishDeployment()
 
-        Config_MinterMarket config = new Config_Market_ETH_fxUSD(systemSalt);
+        Config_MinterMarket config = new Config_Market_ETH_fxUSD();
 
         DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", systemSalt, true);
         state = deployer._deployMinterMarketWrapper(state, config);

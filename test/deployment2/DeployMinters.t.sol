@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
 import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {DeployMintersBase} from "script/bao-basedeployment/DeployMintersBase.sol";
+import {DeployMintersBase, AllMintersConfig} from "script/bao-basedeployment/DeployMintersBase.sol";
 import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -23,9 +23,12 @@ contract TestDeployMintersHarness is DeployMintersBase {
         return false;
     }
 
-    // Expose for testing
-    function deployAllMintersWrapper(string memory systemSalt, string memory network, bool useLocal) external {
-        deployAllMinters(systemSalt, network, useLocal);
+    /// @notice Set system salt and deploy all minters.
+    /// @dev Creates config before deployment (simulating the before-broadcast phase).
+    function deployAllMintersWrapper(string memory systemSaltArg, string memory network, bool useLocal) external {
+        _setSystemSalt(systemSaltArg);
+        AllMintersConfig memory config = createAllMintersConfig();
+        deployAllMinters(config, network, useLocal);
     }
 }
 
@@ -34,7 +37,14 @@ contract DeployMintersTest is BaoDeploymentTest {
 
     string private constant REFERENCE_SALT = "harbor_v1";
     string private constant CANDIDATE_SALT = "test";
+
+    // Artifact paths for different contract types
     string private constant TOKEN_ARTIFACT = "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json";
+    string private constant MINTER_ARTIFACT = "out/Minter_v1.sol/Minter_v1.json";
+    string private constant SPM_ARTIFACT = "out/StabilityPoolManager_v1.sol/StabilityPoolManager_v1.json";
+    string private constant SP_ARTIFACT = "out/StabilityPool_v1.sol/StabilityPool_v1.json";
+    string private constant RESERVE_ARTIFACT = "out/ReservePool_v1.sol/ReservePool_v1.json";
+    string private constant GENESIS_ARTIFACT = "out/Genesis_v1.sol/Genesis_v1.json";
 
     // Market definitions: peg::collateral format
     function _getMarketSalts() private pure returns (string[7] memory) {
@@ -159,10 +169,11 @@ contract DeployMintersTest is BaoDeploymentTest {
         delete diffLog;
         delete mismatchDetails;
         string[4] memory pegs = ["ETH", "BTC", "GOLD", "EUR"];
+        string[7] memory marketSalts = _getMarketSalts();
 
         CompareTotals memory agg;
 
-        // Compare pegged tokens
+        // Compare pegged tokens (one per peg)
         for (uint256 iPeg = 0; iPeg < pegs.length; iPeg++) {
             string memory peg = pegs[iPeg];
             TokenCompareState memory s;
@@ -187,49 +198,133 @@ contract DeployMintersTest is BaoDeploymentTest {
 
             _populateKnownAddresses(peg, referenceSalt, candidateSalt, s);
 
-            CompareTotals memory pegTotals = _processToken(string.concat("pegged::", peg), s);
+            CompareTotals memory pegTotals = _processContract(string.concat("pegged::", peg), s, TOKEN_ARTIFACT);
             agg.total += pegTotals.total;
             agg.passed += pegTotals.passed;
         }
 
-        // Compare leveraged tokens
-        string[7] memory marketSalts = _getMarketSalts();
+        // Compare leveraged tokens (one per market)
         for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
             string memory marketKey = marketSalts[iMarket];
-            TokenCompareState memory s;
+            TokenCompareState memory s = _setupMarketContract(marketKey, "leveraged", referenceSalt, candidateSalt);
 
-            string memory leveragedKey = string.concat(marketKey, "::leveraged");
-            bytes32 refSalt = keccak256(abi.encodePacked(referenceSalt, "::", leveragedKey));
-            bytes32 candSalt = keccak256(abi.encodePacked(candidateSalt, "::", leveragedKey));
-            s.refToken = IBaoFactory(baoFactory).predictAddress(refSalt);
-            s.candToken = IBaoFactory(baoFactory).predictAddress(candSalt);
-
-            if (!_hasCode(s.refToken)) {
-                console.log("reference leveraged token missing code for %s", marketKey);
-                continue;
-            }
-            if (!_hasCode(s.candToken)) {
-                console.log("candidate leveraged token missing code for %s", marketKey);
+            if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
+                console.log("leveraged token missing code for %s", marketKey);
                 continue;
             }
 
-            // Leveraged tokens have a single minter per market
-            s.refMinters = new address[](1);
-            s.candMinters = new address[](1);
-            s.minterKeys = new string[](1);
-            s.refMinters[0] = IBaoFactory(baoFactory).predictAddress(
-                keccak256(abi.encodePacked(referenceSalt, "::", marketKey, "::minter"))
+            CompareTotals memory levTotals = _processContract(
+                string.concat("leveraged::", marketKey),
+                s,
+                TOKEN_ARTIFACT
             );
-            s.candMinters[0] = IBaoFactory(baoFactory).predictAddress(
-                keccak256(abi.encodePacked(candidateSalt, "::", marketKey, "::minter"))
-            );
-            s.minterKeys[0] = marketKey;
-
-            _populateLeveragedKnownAddresses(marketKey, referenceSalt, candidateSalt, s);
-
-            CompareTotals memory levTotals = _processToken(string.concat("leveraged::", marketKey), s);
             agg.total += levTotals.total;
             agg.passed += levTotals.passed;
+        }
+
+        // Compare minters (one per market)
+        for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
+            string memory marketKey = marketSalts[iMarket];
+            TokenCompareState memory s = _setupMarketContract(marketKey, "minter", referenceSalt, candidateSalt);
+
+            if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
+                console.log("minter missing code for %s", marketKey);
+                continue;
+            }
+
+            CompareTotals memory totals = _processContract(string.concat("minter::", marketKey), s, MINTER_ARTIFACT);
+            agg.total += totals.total;
+            agg.passed += totals.passed;
+        }
+
+        // Compare stabilityPoolManager (one per market)
+        for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
+            string memory marketKey = marketSalts[iMarket];
+            TokenCompareState memory s = _setupMarketContract(
+                marketKey,
+                "stabilityPoolManager",
+                referenceSalt,
+                candidateSalt
+            );
+
+            if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
+                console.log("stabilityPoolManager missing code for %s", marketKey);
+                continue;
+            }
+
+            CompareTotals memory totals = _processContract(string.concat("SPM::", marketKey), s, SPM_ARTIFACT);
+            agg.total += totals.total;
+            agg.passed += totals.passed;
+        }
+
+        // Compare stabilityPoolCollateral (one per market)
+        for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
+            string memory marketKey = marketSalts[iMarket];
+            TokenCompareState memory s = _setupMarketContract(
+                marketKey,
+                "stabilityPoolCollateral",
+                referenceSalt,
+                candidateSalt
+            );
+
+            if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
+                console.log("stabilityPoolCollateral missing code for %s", marketKey);
+                continue;
+            }
+
+            CompareTotals memory totals = _processContract(string.concat("SP-C::", marketKey), s, SP_ARTIFACT);
+            agg.total += totals.total;
+            agg.passed += totals.passed;
+        }
+
+        // Compare stabilityPoolLeveraged (one per market)
+        for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
+            string memory marketKey = marketSalts[iMarket];
+            TokenCompareState memory s = _setupMarketContract(
+                marketKey,
+                "stabilityPoolLeveraged",
+                referenceSalt,
+                candidateSalt
+            );
+
+            if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
+                console.log("stabilityPoolLeveraged missing code for %s", marketKey);
+                continue;
+            }
+
+            CompareTotals memory totals = _processContract(string.concat("SP-L::", marketKey), s, SP_ARTIFACT);
+            agg.total += totals.total;
+            agg.passed += totals.passed;
+        }
+
+        // Compare reservePool (one per market)
+        for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
+            string memory marketKey = marketSalts[iMarket];
+            TokenCompareState memory s = _setupMarketContract(marketKey, "reservePool", referenceSalt, candidateSalt);
+
+            if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
+                console.log("reservePool missing code for %s", marketKey);
+                continue;
+            }
+
+            CompareTotals memory totals = _processContract(string.concat("reserve::", marketKey), s, RESERVE_ARTIFACT);
+            agg.total += totals.total;
+            agg.passed += totals.passed;
+        }
+
+        // Compare genesis (one per market)
+        for (uint256 iMarket = 0; iMarket < 7; iMarket++) {
+            string memory marketKey = marketSalts[iMarket];
+            TokenCompareState memory s = _setupMarketContract(marketKey, "genesis", referenceSalt, candidateSalt);
+
+            if (!_hasCode(s.refToken) || !_hasCode(s.candToken)) {
+                console.log("genesis missing code for %s", marketKey);
+                continue;
+            }
+
+            CompareTotals memory totals = _processContract(string.concat("genesis::", marketKey), s, GENESIS_ARTIFACT);
+            agg.total += totals.total;
+            agg.passed += totals.passed;
         }
 
         console.log("");
@@ -254,21 +349,51 @@ contract DeployMintersTest is BaoDeploymentTest {
         }
     }
 
-    function _processToken(
+    /// @notice Setup a market-level contract for comparison.
+    function _setupMarketContract(
+        string memory marketKey,
+        string memory role,
+        string memory referenceSalt,
+        string memory candidateSalt
+    ) private view returns (TokenCompareState memory s) {
+        string memory fullKey = string.concat(marketKey, "::", role);
+        bytes32 refSalt = keccak256(abi.encodePacked(referenceSalt, "::", fullKey));
+        bytes32 candSalt = keccak256(abi.encodePacked(candidateSalt, "::", fullKey));
+        s.refToken = IBaoFactory(baoFactory).predictAddress(refSalt);
+        s.candToken = IBaoFactory(baoFactory).predictAddress(candSalt);
+
+        // Set up minter addresses for role comparison
+        s.refMinters = new address[](1);
+        s.candMinters = new address[](1);
+        s.minterKeys = new string[](1);
+        s.refMinters[0] = IBaoFactory(baoFactory).predictAddress(
+            keccak256(abi.encodePacked(referenceSalt, "::", marketKey, "::minter"))
+        );
+        s.candMinters[0] = IBaoFactory(baoFactory).predictAddress(
+            keccak256(abi.encodePacked(candidateSalt, "::", marketKey, "::minter"))
+        );
+        s.minterKeys[0] = marketKey;
+
+        _populateLeveragedKnownAddresses(marketKey, referenceSalt, candidateSalt, s);
+    }
+
+    function _processContract(
         string memory label,
-        TokenCompareState memory s
+        TokenCompareState memory s,
+        string memory artifactPath
     ) private returns (CompareTotals memory totals) {
         currentKnownAddrs = s.knownAddrs;
         currentKnownSalts = s.knownSalts;
-        totals = _compareNoArgViews(label, s);
-        totals = _compareAddressArgViews(label, s, totals);
+        totals = _compareNoArgViews(label, s, artifactPath);
+        totals = _compareAddressArgViews(label, s, totals, artifactPath);
     }
 
     function _compareNoArgViews(
         string memory label,
-        TokenCompareState memory s
+        TokenCompareState memory s,
+        string memory artifactPath
     ) private returns (CompareTotals memory totals) {
-        FuncSpec[] memory specs = _loadZeroArgViewFunctions();
+        FuncSpec[] memory specs = _loadZeroArgViewFunctions(artifactPath);
         for (uint256 i = 0; i < specs.length; i++) {
             totals = _compareCall(label, specs[i], s, totals);
         }
@@ -277,9 +402,10 @@ contract DeployMintersTest is BaoDeploymentTest {
     function _compareAddressArgViews(
         string memory label,
         TokenCompareState memory s,
-        CompareTotals memory totals
+        CompareTotals memory totals,
+        string memory artifactPath
     ) private returns (CompareTotals memory) {
-        FuncSpec[] memory sigs = _loadAddressViewFunctions();
+        FuncSpec[] memory sigs = _loadAddressViewFunctions(artifactPath);
         if (s.refMinters.length != s.candMinters.length) return totals;
         for (uint256 i = 0; i < sigs.length; i++) {
             for (uint256 j = 0; j < s.refMinters.length; j++) {
@@ -289,8 +415,8 @@ contract DeployMintersTest is BaoDeploymentTest {
         return totals;
     }
 
-    function _loadZeroArgViewFunctions() private view returns (FuncSpec[] memory sigs) {
-        string memory raw = vm.readFile(TOKEN_ARTIFACT);
+    function _loadZeroArgViewFunctions(string memory artifactPath) private view returns (FuncSpec[] memory sigs) {
+        string memory raw = vm.readFile(artifactPath);
         uint256 len = _abiLength(raw);
 
         uint256 count;
@@ -349,8 +475,8 @@ contract DeployMintersTest is BaoDeploymentTest {
         return ReturnKind.TupleKind;
     }
 
-    function _loadAddressViewFunctions() private view returns (FuncSpec[] memory sigs) {
-        string memory raw = vm.readFile(TOKEN_ARTIFACT);
+    function _loadAddressViewFunctions(string memory artifactPath) private view returns (FuncSpec[] memory sigs) {
+        string memory raw = vm.readFile(artifactPath);
         uint256 len = _abiLength(raw);
 
         uint256 count;

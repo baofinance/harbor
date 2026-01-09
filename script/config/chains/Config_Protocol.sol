@@ -3,14 +3,18 @@ pragma solidity >=0.8.28 <0.9.0;
 
 /// @notice Protocol addresses that are the same across all networks.
 abstract contract Config_Protocol {
-    string private systemSaltValue;
+    string private _systemSaltValue;
 
-    constructor(string memory systemSaltString) {
-        systemSaltValue = systemSaltString;
+    constructor() {}
+
+    /// @notice Set the system salt - must be called before any deployment.
+    /// @dev Called by scripts before startBroadcast().
+    function _setSystemSalt(string memory systemSaltString) internal {
+        _systemSaltValue = systemSaltString;
     }
 
     function systemSalt() public view virtual returns (string memory) {
-        return systemSaltValue;
+        return _systemSaltValue;
     }
 
     function treasury() public pure virtual returns (address) {
