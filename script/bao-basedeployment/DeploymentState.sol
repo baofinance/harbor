@@ -24,14 +24,22 @@ library DeploymentState {
     error ProxyKeyRequired();
     error ProxyAddressRequired();
 
+    function resolveDirectory(
+        string memory network,
+        bool useLocal,
+        string memory directoryPrefix
+    ) private view returns (string memory) {
+        return
+            string.concat(vm.projectRoot(), "/", directoryPrefix, "/deployments", useLocal ? "/local/" : "/", network);
+    }
+
     function resolvePath(
         string memory network,
         string memory saltPrefix,
         bool useLocal,
         string memory directoryPrefix
     ) internal view returns (string memory) {
-        string memory root = vm.projectRoot();
-        return string.concat(root, "/", _relativePath(network, saltPrefix, useLocal, directoryPrefix));
+        return string.concat(resolveDirectory(network, useLocal, directoryPrefix), "/", saltPrefix, ".state.json");
     }
 
     function load(
@@ -68,8 +76,9 @@ library DeploymentState {
 
         string memory json = JsonSerializer.renderState(state);
 
-        string memory relativePath = _relativePath(state.network, state.saltPrefix, state.useLocal, directoryPrefix);
-        json.write(relativePath);
+        string memory path = resolvePath(state.network, state.saltPrefix, state.useLocal, directoryPrefix);
+        // vm.writeFile(path, json); // don't do this as we want the json pretty-printed
+        json.write(path);
     }
 
     function recordImplementation(
@@ -97,10 +106,7 @@ library DeploymentState {
         state.implementations = updated;
     }
 
-    function recordProxy(
-        DeploymentTypes.State memory state,
-        DeploymentTypes.ProxyRecord memory rec
-    ) internal pure {
+    function recordProxy(DeploymentTypes.State memory state, DeploymentTypes.ProxyRecord memory rec) internal pure {
         if (bytes(rec.id).length == 0) revert ProxyKeyRequired();
         if (rec.proxy == address(0)) revert ProxyAddressRequired();
 
@@ -248,10 +254,7 @@ library DeploymentState {
     }
 
     function _ensureDirectory(string memory network, bool useLocal, string memory directoryPrefix) private {
-        string memory relative = useLocal
-            ? string.concat(directoryPrefix, "deployments/local/", network)
-            : string.concat(directoryPrefix, "deployments/", network);
-        vm.createDir(relative, true);
+        vm.createDir(resolveDirectory(network, useLocal, directoryPrefix), true);
     }
 
     function _hasImplementation(DeploymentTypes.State memory state, string memory key) private pure returns (bool) {
@@ -341,17 +344,5 @@ library DeploymentState {
             return "";
         }
         return vm.readFile(path);
-    }
-
-    function _relativePath(
-        string memory network,
-        string memory saltPrefix,
-        bool useLocal,
-        string memory directoryPrefix
-    ) private pure returns (string memory) {
-        string memory base = useLocal
-            ? string.concat(directoryPrefix, "deployments/local/", network)
-            : string.concat(directoryPrefix, "deployments/", network);
-        return string.concat(base, "/", saltPrefix, ".state.json");
     }
 }

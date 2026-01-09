@@ -7,9 +7,14 @@ import {Config_Peg} from "./Config_Peg.sol";
 /// @dev Deployed pegged token: haEUR ("Harbor anchored EUR")
 /// @dev Used by markets: EUR::fxUSD, EUR::stETH
 contract Config_Peg_EUR is Config_Peg {
-    function peg() public pure virtual override returns (string memory) { return "EUR"; }
+    function peg() public pure virtual override returns (string memory) {
+        return "EUR";
+    }
 
-    function minDeposit() public pure override returns (uint256) { return 1e18; }
-    function minTotalSupply() public pure override returns (uint256) { return 1e18; }
+    function minDeposit() public pure override returns (uint256) {
+        return 1e18;
+    }
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e18;
+    }
 }
-

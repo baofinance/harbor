@@ -58,9 +58,7 @@ library JsonParser {
             return new DeploymentTypes.ImplementationRecord[](0);
         }
         string[] memory keys = vm.parseJsonKeys(json, ".implementations");
-        DeploymentTypes.ImplementationRecord[] memory records = new DeploymentTypes.ImplementationRecord[](
-            keys.length
-        );
+        DeploymentTypes.ImplementationRecord[] memory records = new DeploymentTypes.ImplementationRecord[](keys.length);
         for (uint256 i = 0; i < keys.length; ++i) {
             string memory key = keys[i];
             string memory path = string.concat(".implementations['", key, "']");
@@ -75,9 +73,7 @@ library JsonParser {
         return records;
     }
 
-    function parseProxies(
-        string memory json
-    ) internal view returns (DeploymentTypes.ProxyRecord[] memory) {
+    function parseProxies(string memory json) internal view returns (DeploymentTypes.ProxyRecord[] memory) {
         Vm vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
         if (!json.keyExists(".proxies")) {
             return new DeploymentTypes.ProxyRecord[](0);
@@ -118,7 +114,15 @@ library JsonParser {
         if (data.length == 0) {
             return 0;
         }
-        if (data.length != 20 || data[4] != "-" || data[7] != "-" || data[10] != "T" || data[13] != ":" || data[16] != ":" || data[19] != "Z") {
+        if (
+            data.length != 20 ||
+            data[4] != "-" ||
+            data[7] != "-" ||
+            data[10] != "T" ||
+            data[13] != ":" ||
+            data[16] != ":" ||
+            data[19] != "Z"
+        ) {
             revert InvalidTimestamp(value);
         }
         uint256 year = _parseDigits(data, 0, 4);

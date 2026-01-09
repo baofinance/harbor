@@ -120,15 +120,15 @@ abstract contract HarborDeploymentBase {
     /// @param marketSalt The market salt (e.g., "BTC::stETH").
     /// @param role The contract role (e.g., "minter").
     /// @return Fragment descriptor for the contract.
-    function _parseFragment(string memory marketSalt, string memory role)
-        internal
-        pure
-        returns (DeploymentTypes.FragmentDescriptor memory)
-    {
-        return DeploymentTypes.FragmentDescriptor({
-            kind: DeploymentTypes.FragmentKind.ContractRole,
-            key: _qualifyKey(marketSalt, role)
-        });
+    function _parseFragment(
+        string memory marketSalt,
+        string memory role
+    ) internal pure returns (DeploymentTypes.FragmentDescriptor memory) {
+        return
+            DeploymentTypes.FragmentDescriptor({
+                kind: DeploymentTypes.FragmentKind.ContractRole,
+                key: _qualifyKey(marketSalt, role)
+            });
     }
 
     /// @notice Hook to determine if smoke tests should run.
@@ -142,11 +142,10 @@ abstract contract HarborDeploymentBase {
     /// @dev Override in test harness or concrete scripts. Default: no-op.
     /// @param state The deployment state.
     /// @param config The market configuration.
-    function _runSmokeTestForMarket(DeploymentTypes.State memory state, Config_MinterMarket config)
-        internal
-        view
-        virtual
-    {
+    function _runSmokeTestForMarket(
+        DeploymentTypes.State memory state,
+        Config_MinterMarket config
+    ) internal view virtual {
         // Default: no smoke tests
         // Can be overridden to check:
         // - All addresses non-zero
