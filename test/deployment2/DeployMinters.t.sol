@@ -157,6 +157,7 @@ contract DeployMintersTest is BaoDeploymentTest {
     enum ReturnKind {
         Unknown,
         AddressKind,
+        AddressArrayKind,
         UintKind,
         IntKind,
         StringKind,
@@ -534,6 +535,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         string memory t = _parseJsonString(raw, _abiPathOutputTypeAt(i, 0));
         bytes32 h = keccak256(bytes(t));
         if (h == keccak256("address")) return ReturnKind.AddressKind;
+        if (h == keccak256("address[]")) return ReturnKind.AddressArrayKind;
         if (h == keccak256("uint256")) return ReturnKind.UintKind;
         if (h == keccak256("int256")) return ReturnKind.IntKind;
         if (h == keccak256("string")) return ReturnKind.StringKind;
@@ -691,6 +693,8 @@ contract DeployMintersTest is BaoDeploymentTest {
         if (!ok) {
             if (okRef && okCand && spec.kind == ReturnKind.AddressKind && _secondChanceAddressMatch(refOut, candOut)) {
                 ok = true;
+            } else if (okRef && okCand && spec.kind == ReturnKind.AddressArrayKind && _secondChanceAddressArrayMatch(refOut, candOut)) {
+                ok = true;
             } else {
                 _logMismatch(label, spec.sig, refOut, candOut, "", spec.kind);
             }
@@ -825,6 +829,9 @@ contract DeployMintersTest is BaoDeploymentTest {
             } else {
                 _logTupleMismatch(refOut, candOut);
             }
+        } else if (kind == ReturnKind.AddressArrayKind) {
+            // Address arrays: show each element with salt lookup
+            _logAddressArrayMismatch(refOut, candOut);
         } else {
             // Simple types: format with aligned labels
             string memory refStr = _formatReturn(refOut, kind);
@@ -833,6 +840,48 @@ contract DeployMintersTest is BaoDeploymentTest {
             string memory candLine = string.concat("    ", _padLabel(CANDIDATE_SALT), ": ", candStr);
             mismatchDetails.push(refLine);
             mismatchDetails.push(candLine);
+        }
+    }
+
+    /// @notice Log address array mismatch with element-by-element comparison and salt lookup.
+    function _logAddressArrayMismatch(bytes memory refOut, bytes memory candOut) private {
+        address[] memory refAddrs = abi.decode(refOut, (address[]));
+        address[] memory candAddrs = abi.decode(candOut, (address[]));
+
+        uint256 refLen = refAddrs.length;
+        uint256 candLen = candAddrs.length;
+        uint256 maxLen = refLen > candLen ? refLen : candLen;
+
+        mismatchDetails.push(string.concat("    ", _padLabel(REFERENCE_SALT), " (", vm.toString(refLen), " elements):"));
+        for (uint256 i = 0; i < refLen; i++) {
+            string memory salt = _findSalt(refAddrs[i]);
+            mismatchDetails.push(string.concat("      [", vm.toString(i), "] ", _formatAddr(refAddrs[i], salt)));
+        }
+
+        mismatchDetails.push(string.concat("    ", _padLabel(CANDIDATE_SALT), " (", vm.toString(candLen), " elements):"));
+        for (uint256 i = 0; i < candLen; i++) {
+            string memory salt = _findSalt(candAddrs[i]);
+            mismatchDetails.push(string.concat("      [", vm.toString(i), "] ", _formatAddr(candAddrs[i], salt)));
+        }
+
+        // Also show element-by-element comparison for matching indices
+        if (refLen == candLen && refLen > 0) {
+            mismatchDetails.push("    Element comparison:");
+            for (uint256 i = 0; i < maxLen; i++) {
+                address refAddr = i < refLen ? refAddrs[i] : address(0);
+                address candAddr = i < candLen ? candAddrs[i] : address(0);
+                
+                if (refAddr != candAddr) {
+                    // Check second-chance match
+                    if (_secondChanceWordMatch(bytes32(uint256(uint160(refAddr))), bytes32(uint256(uint160(candAddr))))) {
+                        mismatchDetails.push(string.concat("      [", vm.toString(i), "] [MATCH via salt]"));
+                    } else {
+                        string memory refSalt = _findSalt(refAddr);
+                        string memory candSalt = _findSalt(candAddr);
+                        mismatchDetails.push(string.concat("      [", vm.toString(i), "] DIFF: ", _formatAddr(refAddr, refSalt), " vs ", _formatAddr(candAddr, candSalt)));
+                    }
+                }
+            }
         }
     }
 
@@ -1203,6 +1252,28 @@ contract DeployMintersTest is BaoDeploymentTest {
                 ")"
             )
         );
+    }
+
+    function _secondChanceAddressArrayMatch(bytes memory refOut, bytes memory candOut) private view returns (bool matched) {
+        address[] memory refAddrs = abi.decode(refOut, (address[]));
+        address[] memory candAddrs = abi.decode(candOut, (address[]));
+        
+        if (refAddrs.length != candAddrs.length) return false;
+        
+        for (uint256 i = 0; i < refAddrs.length; i++) {
+            if (refAddrs[i] == candAddrs[i]) continue;
+            
+            // Check second-chance match via salt tail
+            string memory refSalt = _findSalt(refAddrs[i]);
+            string memory candSalt = _findSalt(candAddrs[i]);
+            if (bytes(refSalt).length == 0 || bytes(candSalt).length == 0) return false;
+            
+            string memory refTail = _saltTail(refSalt);
+            string memory candTail = _saltTail(candSalt);
+            if (keccak256(bytes(refTail)) != keccak256(bytes(candTail))) return false;
+        }
+        
+        matched = true;
     }
 
     function _findSalt(address addr) private view returns (string memory salt) {

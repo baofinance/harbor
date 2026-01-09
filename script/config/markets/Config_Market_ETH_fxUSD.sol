@@ -6,6 +6,7 @@ import {Config_Peg_ETH} from "../pegs/Config_Peg_ETH.sol";
 import {Config_Collateral_fxUSD} from "../collaterals/Config_Collateral_fxUSD.sol";
 import {Config_PriceVolatility_130} from "../volatility/Config_PriceVolatility_130.sol";
 import {Config_StabilityPool} from "../stabilitypool/Config_StabilityPool.sol";
+import {Config_StabilityPoolManager} from "../stabilitypool/Config_StabilityPoolManager.sol";
 import {Config_MinterMarket} from "../ConfigBase.sol";
 
 /// @notice Market configuration for ETH::fxUSD.
@@ -15,7 +16,8 @@ contract Config_Market_ETH_fxUSD is
     Config_Peg_ETH,
     Config_Collateral_fxUSD,
     Config_PriceVolatility_130,
-    Config_StabilityPool
+    Config_StabilityPool,
+    Config_StabilityPoolManager
 {
     function stabilityPoolMinTotalAssetSupply() public pure override returns (uint256) {
         return 2e14;

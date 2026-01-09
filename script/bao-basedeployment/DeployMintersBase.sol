@@ -38,6 +38,11 @@ interface IFullMinterConfig {
     function stabilityPoolWithdrawalPeriod() external pure returns (uint256);
     function stabilityPoolMinTotalAssetSupply() external pure returns (uint256);
     function stabilityPoolEarlyWithdrawalFeeRatio() external pure returns (uint256);
+    // StabilityPoolManager config (rebalanceThreshold comes from volatility config)
+    function rebalanceThreshold() external pure returns (uint256);
+    function rebalanceBountyRatio() external pure returns (uint256);
+    function harvestBountyRatio() external pure returns (uint256);
+    function harvestCutRatio() external pure returns (uint256);
 }
 
 /// @notice Configuration for all minter deployment.
@@ -355,6 +360,18 @@ abstract contract DeployMintersBase is
         StabilityPool_v1(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
         StabilityPool_v1(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
         StabilityPool_v1(spLeveraged).registerRewardToken(leveragedToken);
+
+        // Configure StabilityPoolManager
+        configureStabilityPoolManager(
+            spm,
+            SPMConfig({
+                rebalanceThreshold: cfg.rebalanceThreshold(),
+                rebalanceBountyRatio: cfg.rebalanceBountyRatio(),
+                harvestBountyRatio: cfg.harvestBountyRatio(),
+                harvestCutRatio: cfg.harvestCutRatio(),
+                feeReceiver: cfg.treasury()
+            })
+        );
     }
 
     function _shouldPersistState() internal pure virtual returns (bool) {
