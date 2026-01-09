@@ -998,6 +998,245 @@ This keeps one authoritative implementation of the schema, while bash remains a 
 - Additional out-of-band diagnostics live in forge tests (`DeploymentSmokeTest.t.sol`) that can use forked RPC for more exhaustive checks.
 - For observability, `HarborDeployment` stores the last smoke-test status per market (e.g., `lastSmokeTestPassed[market]`) so integration tests and post-run analytics can assert expected behaviour.
 
+### 3.3.1 Deployment Composability Pattern
+
+**Problem**: Monolithic deployment functions are hard to compose for different scenarios:
+
+- Fresh deployments: need both implementation and proxy
+- Upgrades: only need new implementation (proxy exists)
+- Batch operations: may want all implementations first, then proxies
+
+**Solution**: Split deployment functions by contract type AND by impl/proxy phase.
+
+**Implementation/Proxy Separation**:
+
+Each contract type has three deployment functions:
+
+```solidity
+// 1. Deploy only the implementation (for upgrades or batch impl phase)
+function deployXxxImpl() internal returns (address impl, ImplementationRecord memory implRecord);
+
+// 2. Deploy only the proxy (for batch proxy phase, pointing to existing impl)
+function deployXxxProxy(
+    address baoFactory,
+    Config_Xxx config,
+    address implementation,  // Must already exist
+    address owner,
+    string memory systemSalt
+) internal returns (address proxy, ProxyRecord memory proxyRecord);
+
+// 3. Convenience wrapper (for simple fresh deployments)
+function deployXxxToken(...) internal returns (XxxDeployment memory deployment) {
+    (address impl, ImplementationRecord memory implRecord) = deployXxxImpl();
+    (address proxy, ProxyRecord memory proxyRecord) = deployXxxProxy(..., impl, ...);
+    // combine into deployment struct
+}
+```
+
+**Contract Type Separation**:
+
+Orchestration functions are split by token type for independent execution:
+
+```solidity
+// Deploy all pegged tokens (one per peg: ETH, BTC, GOLD, EUR)
+function _deployAllPeggedTokens(State memory state, string memory systemSalt)
+    returns (address[4] memory peggedTokens);
+
+// Deploy all leveraged tokens (one per market: 7 total)
+function _deployAllLeveragedTokens(State memory state, string memory systemSalt)
+    returns (address[] memory leveragedTokens);
+
+// Combined convenience function
+function deployAllMinters(...) {
+    address[4] memory pegged = _deployAllPeggedTokens(state, systemSalt);
+    address[] memory leveraged = _deployAllLeveragedTokens(state, systemSalt);
+    // ownership transfers, state persistence
+}
+```
+
+**Composability Examples**:
+
+```solidity
+// Scenario 1: Fresh deployment of everything
+deployAllMinters(systemSalt, network, useLocal);
+
+// Scenario 2: Only deploy pegged tokens (new peg, no markets yet)
+address[4] memory pegged = _deployAllPeggedTokens(state, systemSalt);
+
+// Scenario 3: Upgrade all leveraged token implementations
+for (uint i = 0; i < 7; i++) {
+    (address impl,) = deployLeveragedImpl();
+    // ... prepare Safe upgrade tx for existing proxy
+}
+
+// Scenario 4: Batch all implementations first (gas optimization)
+address peggedImpl = deployPeggedImpl();
+address leveragedImpl = deployLeveragedImpl();
+// ... then deploy all proxies pointing to shared impl if identical
+```
+
+**Rationale**:
+
+- **Upgrade flows**: Only `deployXxxImpl()` needed; Safe handles proxy upgrade
+- **Testing**: Can test impl and proxy phases independently
+- **Gas optimization**: Share implementations across identical contract types
+- **Future flexibility**: New orchestration patterns don't require refactoring primitives
+
+### 3.3.2 Deployment File Organization
+
+**Problem**: Monolithic deployment files become unmaintainable as contracts multiply.
+
+**Solution**: Separate orchestration from contract-specific deployment logic.
+
+**File Structure Pattern**:
+
+```
+script/bao-basedeployment/
+├── DeployMintersBase.sol           # Orchestration only: deployAllMinters(), _deployAllPeggedTokens(), etc.
+├── HarborDeployment_MinterTokens.sol  # Contract-specific: MintableBurnableERC20_v1 deployment + role granting
+├── HarborDeployment_Minter.sol        # Contract-specific: Minter_v1 deployment + fee receiver setup
+├── HarborDeployment_StabilityPool.sol # Contract-specific: SP deployment + gauge registration
+└── ...
+```
+
+**Layer Separation**:
+
+1. **Orchestration Layer** (`DeployXxxBase.sol`):
+   - Contains `deployAll*()` functions
+   - Knows which contracts to deploy and in what order
+   - Handles state loading/saving
+   - Calls contract-specific deployment functions
+
+2. **Contract Layer** (`HarborDeployment_Xxx.sol`):
+   - Contains `deployXxxImpl()`, `deployXxxProxy()`, `deployXxxWithRoles()`
+   - Knows how to deploy ONE contract type
+   - Handles role granting for that contract type
+   - No knowledge of other contracts or deployment order
+
+**Example - MinterTokens**:
+
+```solidity
+// HarborDeployment_MinterTokens.sol - Contract-specific
+abstract contract HarborDeployment_MinterTokens {
+    struct TokenDeployment { ... }  // Unified for pegged AND leveraged
+
+    function deployMinterTokenImpl() internal returns (address, ImplementationRecord memory);
+    function deployPeggedProxy(...) internal returns (address, ProxyRecord memory);
+    function deployLeveragedProxy(...) internal returns (address, ProxyRecord memory);
+    function deployPeggedTokenWithRoles(...) internal returns (address);  // Deploy + grant roles
+    function deployLeveragedTokenWithRoles(...) internal returns (address);
+}
+
+// DeployMintersBase.sol - Orchestration
+abstract contract DeployMintersBase is HarborDeployment_MinterTokens {
+    function deployAllMinters(...) internal {
+        _deployAllPeggedTokens(...);
+        _deployAllLeveragedTokens(...);
+        _transferOwnerships(...);
+    }
+
+    function _deployAllPeggedTokens(...) private returns (address[4] memory) {
+        // ETH peg
+        deployPeggedTokenWithRoles(state, new Config_Peg_ETH(), markets, ...);
+        // BTC peg, GOLD peg, EUR peg...
+    }
+}
+```
+
+**Struct Consolidation**:
+
+When multiple contracts use the same underlying type, use a single struct:
+
+```solidity
+// Both pegged and leveraged tokens use MintableBurnableERC20_v1
+struct TokenDeployment {
+  address implementation;
+  address proxy;
+  ImplementationRecord implRecord;
+  ProxyRecord proxyRecord;
+}
+// NOT: PeggedTokenDeployment, LeveragedTokenDeployment (duplicates)
+```
+
+**When to Split Files**:
+
+- Split when contracts have **different deployment patterns** (different constructors, init params)
+- Keep together when contracts share **identical deployment mechanics** (same contract type)
+- Example: `FeeReceiver` for Minter vs `FeeReceiver` for SPM could share one file if they use identical contracts, or split if they have different initialization
+
+### 3.3.3 ABI Comparison Utility
+
+**Problem**: Validating that newly deployed contracts match reference deployments requires comparing all view functions, but the functions vary by contract type.
+
+**Solution**: Dynamic ABI-based comparison that loads function signatures from contract artifacts.
+
+**Location**: `test/helpers/ABICompare.sol`
+
+**Usage Pattern**:
+
+```solidity
+import { ABICompare } from "test/helpers/ABICompare.sol";
+
+contract DeploymentValidationTest is Test {
+  using ABICompare for *;
+
+  function test_compareDeployments() public {
+    // Set up known address mappings for salt-based matching
+    ABICompare.KnownAddresses memory known;
+    known.addrs = new address[](4);
+    known.salts = new string[](4);
+    known.addrs[0] = refToken;
+    known.salts[0] = "harbor_v1::ETH::pegged";
+    known.addrs[1] = candToken;
+    known.salts[1] = "test::ETH::pegged";
+    // ... minters, etc.
+
+    // Functions to skip (chain-specific like DOMAIN_SEPARATOR)
+    string[] memory skip = new string[](2);
+    skip[0] = "DOMAIN_SEPARATOR";
+    skip[1] = "eip712Domain";
+
+    // Compare zero-arg view functions
+    ABICompare.CompareResult memory result = ABICompare.compareContracts(
+      "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
+      refToken,
+      candToken,
+      known,
+      skip
+    );
+
+    // Compare address-arg view functions (e.g., balanceOf, hasRole)
+    ABICompare.CompareResult memory argResult = ABICompare.compareContractsWithAddressArgs(
+      artifactPath,
+      refToken,
+      candToken,
+      refMinters,
+      candMinters,
+      known
+    );
+
+    // Log results
+    ABICompare.logResults(result, "MinterToken comparison");
+
+    // Assert all passed
+    assertEq(result.passed, result.total, "Mismatch in deployed contracts");
+  }
+}
+```
+
+**Key Features**:
+
+1. **Dynamic Function Loading**: Reads ABI from artifact JSON, no hardcoded function lists
+2. **Salt-Based Address Matching**: When addresses differ but have matching salt tails (e.g., `harbor_v1::ETH::pegged` vs `test::ETH::pegged`), the comparison passes
+3. **Return Type Awareness**: Properly formats addresses, uints, strings, tuples in mismatch reports
+4. **Skip List**: Exclude chain-specific functions like `DOMAIN_SEPARATOR` that legitimately differ
+
+**When to Use**:
+
+- After deploying new contracts, compare against mainnet reference
+- Before upgrades, validate new implementation matches expected behavior
+- In CI, ensure deployments are reproducible
+
 ### 3.4 Solidity Config Structure
 
 **Composable config contracts** - no hierarchy, just pieces combined via multiple inheritance.
