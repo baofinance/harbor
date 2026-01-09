@@ -5,6 +5,7 @@ import {Config_Chain_Mainnet} from "../chains/Config_Chain_Mainnet.sol";
 import {Config_Peg_BTC} from "../pegs/Config_Peg_BTC.sol";
 import {Config_Collateral_fxUSD} from "../collaterals/Config_Collateral_fxUSD.sol";
 import {Config_PriceVolatility_130} from "../volatility/Config_PriceVolatility_130.sol";
+import {Config_StabilityPool} from "../stabilitypool/Config_StabilityPool.sol";
 import {Config_MinterMarket} from "../ConfigBase.sol";
 
 /// @notice Market configuration for BTC::fxUSD.
@@ -13,5 +14,10 @@ contract Config_Market_BTC_fxUSD is
     Config_Chain_Mainnet,
     Config_Peg_BTC,
     Config_Collateral_fxUSD,
-    Config_PriceVolatility_130
-{}
+    Config_PriceVolatility_130,
+    Config_StabilityPool
+{
+    function stabilityPoolMinTotalAssetSupply() public pure override returns (uint256) {
+        return 1e13;
+    }
+}

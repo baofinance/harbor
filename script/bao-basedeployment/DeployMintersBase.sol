@@ -24,6 +24,7 @@ import {Config_Market_GOLD_fxUSD} from "script/config/markets/Config_Market_GOLD
 import {Config_Market_GOLD_stETH} from "script/config/markets/Config_Market_GOLD_stETH.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
 import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @notice Extended market config interface with methods from collateral and chain configs.
 interface IFullMinterConfig {
@@ -31,6 +32,12 @@ interface IFullMinterConfig {
     function collateral() external view returns (string memory);
     function wrappedCollateralToken() external view returns (address);
     function treasury() external view returns (address);
+    function minterConfig() external pure returns (IMinter.Config memory);
+    // Stability pool config
+    function stabilityPoolWithdrawalDelay() external pure returns (uint256);
+    function stabilityPoolWithdrawalPeriod() external pure returns (uint256);
+    function stabilityPoolMinTotalAssetSupply() external pure returns (uint256);
+    function stabilityPoolEarlyWithdrawalFeeRatio() external pure returns (uint256);
 }
 
 /// @notice Configuration for all minter deployment.
@@ -241,13 +248,19 @@ abstract contract DeployMintersBase is
 
         // Stability Pool Collateral
         {
-            (address impl, ) = deployStabilityPoolImpl(minter, cfg.wrappedCollateralToken(), 7 days, 1 days, 1e18);
+            (address impl, ) = deployStabilityPoolImpl(
+                minter,
+                cfg.wrappedCollateralToken(),
+                cfg.stabilityPoolWithdrawalDelay(),
+                cfg.stabilityPoolWithdrawalPeriod(),
+                cfg.stabilityPoolMinTotalAssetSupply()
+            );
             (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolCollateralProxy(
                 baoFactory(),
                 marketKey,
                 impl,
                 owner(),
-                0.01e18,
+                cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
                 cfg.treasury(),
                 systemSalt()
             );
@@ -257,13 +270,19 @@ abstract contract DeployMintersBase is
 
         // Stability Pool Leveraged
         {
-            (address impl, ) = deployStabilityPoolImpl(minter, leveragedToken, 7 days, 1 days, 1e18);
+            (address impl, ) = deployStabilityPoolImpl(
+                minter,
+                leveragedToken,
+                cfg.stabilityPoolWithdrawalDelay(),
+                cfg.stabilityPoolWithdrawalPeriod(),
+                cfg.stabilityPoolMinTotalAssetSupply()
+            );
             (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolLeveragedProxy(
                 baoFactory(),
                 marketKey,
                 impl,
                 owner(),
-                0.01e18,
+                cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
                 cfg.treasury(),
                 systemSalt()
             );
@@ -318,10 +337,13 @@ abstract contract DeployMintersBase is
         address spm = _predictAddress(marketKey, "stabilityPoolManager");
         address genesis = _predictAddress(marketKey, "genesis");
         address leveragedToken = _predictAddress(marketKey, "leveraged");
+        address priceOracle = _predictAddress(marketKey, "wrappedPriceAggregator");
 
-        // Note: Price oracle not deployed here - test uses mock, production uses separate deployment
+        // Update minter configuration (incentive ratios)
+        Minter_v1(minter).updateConfig(cfg.minterConfig());
         Minter_v1(minter).updateReservePool(reservePool);
         Minter_v1(minter).updateFeeReceiver(cfg.treasury());
+        Minter_v1(minter).updatePriceOracle(priceOracle);
 
         // Grant roles
         grantReservePoolRoles(reservePool, minter);

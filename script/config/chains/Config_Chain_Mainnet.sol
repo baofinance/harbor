@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Config_Protocol} from "./Config_Protocol.sol";
+import {Config_Protocol, WellKnownAddress} from "./Config_Protocol.sol";
 
 /// @notice Mainnet chain addresses and configuration.
 /// @dev Inherits protocol addresses from Config_Protocol (same across all networks).
@@ -34,5 +34,26 @@ abstract contract Config_Chain_Mainnet is Config_Protocol {
 
     function chainName() public pure virtual returns (string memory) {
         return "mainnet";
+    }
+
+    /// @notice Return all well-known addresses (protocol + chain-specific).
+    /// @dev Combines protocol addresses with mainnet-specific collateral tokens.
+    function getWellKnownAddresses() public pure virtual override returns (WellKnownAddress[] memory addrs) {
+        WellKnownAddress[] memory protocolAddrs = Config_Protocol.getWellKnownAddresses();
+        uint256 chainCount = 5; // fxUSD, fxSAVE, stETH, wstETH, WBTC
+        addrs = new WellKnownAddress[](protocolAddrs.length + chainCount);
+        
+        // Copy protocol addresses
+        for (uint256 i = 0; i < protocolAddrs.length; i++) {
+            addrs[i] = protocolAddrs[i];
+        }
+        
+        // Add chain-specific addresses
+        uint256 idx = protocolAddrs.length;
+        addrs[idx++] = WellKnownAddress({addr: fxUSD(), label: "fxUSD"});
+        addrs[idx++] = WellKnownAddress({addr: fxSAVE(), label: "fxSAVE"});
+        addrs[idx++] = WellKnownAddress({addr: stETH(), label: "stETH"});
+        addrs[idx++] = WellKnownAddress({addr: wstETH(), label: "wstETH"});
+        addrs[idx++] = WellKnownAddress({addr: WBTC(), label: "WBTC"});
     }
 }

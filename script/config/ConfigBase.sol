@@ -21,7 +21,20 @@ interface IMarketConfig {
 
 /// @notice Base contract for minter market configurations.
 /// @dev Provides type safety for minter market config parameters.
-abstract contract Config_MinterMarket {}
+///      Subclasses must implement IMarketConfig (peg/collateral) and inherit Config_Protocol.
+abstract contract Config_MinterMarket {
+    /// @notice Predicts the price oracle address for this minter market.
+    /// @dev Uses BaoFactory address prediction with salt format "collateral::peg::wrappedPriceAggregator".
+    /// @return The predicted price oracle address.
+    function priceOracle() public view returns (address) {
+        IMarketConfig market = IMarketConfig(address(this));
+        Config_Protocol protocol = Config_Protocol(address(this));
+        // Salt format: collateral::peg::wrappedPriceAggregator (e.g., "stETH::BTC::wrappedPriceAggregator")
+        string memory oracleKey = string.concat(market.collateral(), "::", market.peg(), "::wrappedPriceAggregator");
+        bytes32 saltHash = keccak256(abi.encodePacked(protocol.systemSalt(), "::", oracleKey));
+        return IBaoFactory(protocol.baoFactory()).predictAddress(saltHash);
+    }
+}
 
 /// @notice Base contract for price market configurations.
 /// @dev Provides type safety for price market config parameters.
@@ -36,17 +49,6 @@ library MinterMarketConfigLib {
     function salt(Config_MinterMarket config) internal view returns (string memory) {
         IMarketConfig market = IMarketConfig(address(config));
         return string.concat(market.peg(), "::", market.collateral());
-    }
-
-    /// @notice Predicts the price oracle address for a minter market config.
-    /// @param config The minter market config contract.
-    /// @return The predicted price oracle address.
-    function priceOracle(Config_MinterMarket config) internal view returns (address) {
-        IMarketConfig market = IMarketConfig(address(config));
-        Config_Protocol protocol = Config_Protocol(address(config));
-        string memory key = string.concat(market.peg(), "::", market.collateral(), "::wrappedPriceAggregator");
-        bytes32 saltHash = keccak256(abi.encodePacked(protocol.systemSalt(), "::", key));
-        return IBaoFactory(protocol.baoFactory()).predictAddress(saltHash);
     }
 }
 

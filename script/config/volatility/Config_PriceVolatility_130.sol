@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {MinterConfig, MinterIncentiveConfig, StabilityPoolManagerConfig, StabilityPoolConfig} from "../MinterTypes.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @notice Volatility configuration for 130% rebalance threshold markets.
 /// @dev All current Harbor markets use this configuration.
@@ -10,7 +10,7 @@ abstract contract Config_PriceVolatility_130 {
         return 1.30e18;
     }
 
-    function minterConfig() public pure returns (MinterConfig memory) {
+    function minterConfig() public pure returns (IMinter.Config memory) {
         uint256[] memory mintPeggedBounds = new uint256[](6);
         mintPeggedBounds[0] = 1.31e18;
         mintPeggedBounds[1] = 1.40e18;
@@ -80,20 +80,20 @@ abstract contract Config_PriceVolatility_130 {
         redeemLeveragedRatios[6] = 7.5e15;
 
         return
-            MinterConfig({
-                mintPeggedIncentiveConfig: MinterIncentiveConfig({
+            IMinter.Config({
+                mintPeggedIncentiveConfig: IMinter.IncentiveConfig({
                     collateralRatioBandUpperBounds: mintPeggedBounds,
                     incentiveRatios: mintPeggedRatios
                 }),
-                redeemPeggedIncentiveConfig: MinterIncentiveConfig({
+                redeemPeggedIncentiveConfig: IMinter.IncentiveConfig({
                     collateralRatioBandUpperBounds: redeemPeggedBounds,
                     incentiveRatios: redeemPeggedRatios
                 }),
-                mintLeveragedIncentiveConfig: MinterIncentiveConfig({
+                mintLeveragedIncentiveConfig: IMinter.IncentiveConfig({
                     collateralRatioBandUpperBounds: mintLeveragedBounds,
                     incentiveRatios: mintLeveragedRatios
                 }),
-                redeemLeveragedIncentiveConfig: MinterIncentiveConfig({
+                redeemLeveragedIncentiveConfig: IMinter.IncentiveConfig({
                     collateralRatioBandUpperBounds: redeemLeveragedBounds,
                     incentiveRatios: redeemLeveragedRatios
                 })

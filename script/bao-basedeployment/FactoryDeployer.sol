@@ -2,10 +2,11 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
-import {Config_Protocol} from "script/config/chains/Config_Protocol.sol";
+import {Config_Protocol, WellKnownAddress} from "script/config/chains/Config_Protocol.sol";
 
 interface IUUPSProxyUpgrade {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
@@ -50,9 +51,10 @@ abstract contract FactoryDeployer is Config_Protocol {
     /// @dev See deployment2-design.md Section 3.3.3 for ownership model.
     function _transferAllOwnerships() internal {
         address pendingOwner = owner(); // From Config_Protocol - same as passed to initialize()
+        string memory ownerLabel = _addressLabel(pendingOwner);
         for (uint256 i = 0; i < _pendingOwnershipTransfers.length; i++) {
             PendingOwnership memory pending = _pendingOwnershipTransfers[i];
-            console.log("Transferring ownership: %s -> %s", pending.salt, pendingOwner);
+            console.log("Transferring ownership: %s -> %s", pending.salt, ownerLabel);
             IBaoOwnable(pending.deployed).transferOwnership(pendingOwner);
         }
         // Clear the list after transfer
@@ -62,6 +64,18 @@ abstract contract FactoryDeployer is Config_Protocol {
     /// @notice Get count of contracts pending ownership transfer.
     function _pendingOwnershipCount() internal view returns (uint256) {
         return _pendingOwnershipTransfers.length;
+    }
+
+    /// @notice Look up a human-readable label for an address.
+    /// @dev Uses getWellKnownAddresses() to find a label. Falls back to hex address.
+    function _addressLabel(address addr) internal pure returns (string memory) {
+        WellKnownAddress[] memory known = getWellKnownAddresses();
+        for (uint256 i = 0; i < known.length; i++) {
+            if (known[i].addr == addr) {
+                return known[i].label;
+            }
+        }
+        return Strings.toHexString(addr);
     }
 
     // ========== SALT STRING CONSTRUCTION ==========
