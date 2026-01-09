@@ -14,5 +14,4 @@ contract Config_Market_ETH_fxUSD is
     Config_Peg_ETH,
     Config_Collateral_fxUSD,
     Config_PriceVolatility_130
-{
-}
+{}

@@ -48,8 +48,8 @@ contract DeployMintersTest is BaoDeploymentTest {
 
     /// @notice Contract spec for dynamic comparison. Maps salt suffixes to artifacts.
     struct ContractSpec {
-        string salt;      // e.g., "ETH::pegged", "ETH::fxUSD::minter"
-        string artifact;  // Artifact path for ABI loading
+        string salt; // e.g., "ETH::pegged", "ETH::fxUSD::minter"
+        string artifact; // Artifact path for ABI loading
         string marketKey; // e.g., "ETH::fxUSD" for minter lookup (empty for pegged tokens)
     }
 
@@ -62,12 +62,20 @@ contract DeployMintersTest is BaoDeploymentTest {
     /// @dev Matches the ownership transfer list: pegged tokens, leveraged tokens, then per-market infrastructure.
     function _buildContractSpecs() private pure returns (ContractSpec[] memory specs) {
         string[4] memory pegs = ["ETH", "BTC", "GOLD", "EUR"];
-        string[7] memory markets = ["ETH::fxUSD", "BTC::fxUSD", "BTC::stETH", "GOLD::fxUSD", "GOLD::stETH", "EUR::fxUSD", "EUR::stETH"];
-        
+        string[7] memory markets = [
+            "ETH::fxUSD",
+            "BTC::fxUSD",
+            "BTC::stETH",
+            "GOLD::fxUSD",
+            "GOLD::stETH",
+            "EUR::fxUSD",
+            "EUR::stETH"
+        ];
+
         // 4 pegged + 7 leveraged + 7 markets × 6 contracts = 4 + 7 + 42 = 53
         specs = new ContractSpec[](53);
         uint256 idx;
-        
+
         // Pegged tokens (one per peg)
         for (uint256 i = 0; i < 4; i++) {
             specs[idx++] = ContractSpec({
@@ -76,7 +84,7 @@ contract DeployMintersTest is BaoDeploymentTest {
                 marketKey: ""
             });
         }
-        
+
         // Leveraged tokens (one per market)
         for (uint256 i = 0; i < 7; i++) {
             specs[idx++] = ContractSpec({
@@ -85,7 +93,7 @@ contract DeployMintersTest is BaoDeploymentTest {
                 marketKey: markets[i]
             });
         }
-        
+
         // Per-market infrastructure contracts
         for (uint256 i = 0; i < 7; i++) {
             // Order matches ownership transfer list
@@ -244,20 +252,20 @@ contract DeployMintersTest is BaoDeploymentTest {
     function _compareMintersAgainstReference(string memory referenceSalt, string memory candidateSalt) private {
         delete diffLog;
         delete mismatchDetails;
-        
+
         ContractSpec[] memory specs = _buildContractSpecs();
         CompareTotals memory agg;
 
         for (uint256 i = 0; i < specs.length; i++) {
             ContractSpec memory spec = specs[i];
             string memory fullRefSalt = string.concat(referenceSalt, "::", spec.salt);
-            
+
             bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", spec.salt));
             bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", spec.salt));
-            
+
             address refAddr = IBaoFactory(baoFactory).predictAddress(refSaltHash);
             address candAddr = IBaoFactory(baoFactory).predictAddress(candSaltHash);
-            
+
             if (!_hasCode(refAddr)) {
                 mismatchDetails.push(string.concat("- ", fullRefSalt, ": missing code"));
                 continue;
@@ -266,12 +274,12 @@ contract DeployMintersTest is BaoDeploymentTest {
                 mismatchDetails.push(string.concat("- ", fullRefSalt, ": candidate missing code"));
                 continue;
             }
-            
+
             // Build TokenCompareState for this contract
             TokenCompareState memory s;
             s.refToken = refAddr;
             s.candToken = candAddr;
-            
+
             // Set up minter addresses for role comparison (for address-arg view functions)
             if (bytes(spec.marketKey).length > 0) {
                 s.refMinters = new address[](1);
@@ -290,7 +298,7 @@ contract DeployMintersTest is BaoDeploymentTest {
                 (s.refMinters, s.minterKeys) = _predictMintersForPeg(referenceSalt, peg);
                 (s.candMinters, ) = _predictMintersForPeg(candidateSalt, peg);
             }
-            
+
             _populateKnownAddressesForSpec(spec, referenceSalt, candidateSalt, s);
 
             CompareTotals memory contractTotals = _processContract(fullRefSalt, s, spec.artifact);
@@ -319,7 +327,7 @@ contract DeployMintersTest is BaoDeploymentTest {
             }
         }
     }
-    
+
     /// @notice Extract the peg portion from a salt like "ETH::pegged" → "ETH"
     function _extractPeg(string memory salt) private pure returns (string memory) {
         bytes memory b = bytes(salt);
@@ -334,7 +342,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         }
         return salt;
     }
-    
+
     /// @notice Populate known addresses for any contract spec.
     function _populateKnownAddressesForSpec(
         ContractSpec memory spec,

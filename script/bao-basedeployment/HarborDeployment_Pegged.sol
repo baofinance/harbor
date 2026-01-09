@@ -23,10 +23,7 @@ abstract contract HarborDeployment_Pegged is FactoryDeployer {
     /// @dev baoFactory(), owner(), systemSalt() come from Config_Protocol inheritance.
     /// @param pegConfig Configuration for this peg (Config_Peg_ETH, Config_Peg_BTC, etc.).
     /// @return deployment Deployment records to be saved to state by caller.
-    function deployPeggedToken(Config_Peg pegConfig)
-        internal
-        returns (PeggedTokenDeployment memory deployment)
-    {
+    function deployPeggedToken(Config_Peg pegConfig) internal returns (PeggedTokenDeployment memory deployment) {
         // Include the proxy qualifier directly in the peg key to match legacy mainnet salts
         string memory pegKey = string.concat(pegConfig.key(), "::pegged");
         console.log("\n=== Deploying Pegged Token: %s ===", pegKey);

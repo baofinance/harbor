@@ -6,7 +6,6 @@ import {Config_Protocol} from "./Config_Protocol.sol";
 /// @notice Mainnet chain addresses and configuration.
 /// @dev Inherits protocol addresses from Config_Protocol (same across all networks).
 abstract contract Config_Chain_Mainnet is Config_Protocol {
-
     // Collateral tokens - names match actual token symbols
     function fxUSD() public pure virtual returns (address) {
         return 0x085780639CC2cACd35E474e71f4d000e2405d8f6;

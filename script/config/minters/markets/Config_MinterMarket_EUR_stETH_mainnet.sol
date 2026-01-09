@@ -10,7 +10,6 @@ import {MinterMarketConfigLib} from "../../ConfigBase.sol";
 
 /// @notice Mainnet wiring for EUR::stETH minter market config.
 contract Config_MinterMarket_EUR_stETH_mainnet is Config_Chain_Mainnet, Config_MinterMarket_EUR_stETH {
-
     function stETH() public pure override(Config_Chain_Mainnet, Config_Collateral_stETH) returns (address) {
         return Config_Chain_Mainnet.stETH();
     }

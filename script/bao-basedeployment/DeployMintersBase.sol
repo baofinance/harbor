@@ -128,9 +128,7 @@ abstract contract DeployMintersBase is
     }
 
     /// @notice Deploy all leveraged tokens (one per market).
-    function _deployAllLeveragedTokens(DeploymentTypes.State memory stateData, AllMintersConfig memory config)
-        private
-    {
+    function _deployAllLeveragedTokens(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
         console.log("\n--- Deploying Leveraged Tokens ---");
 
         // ETH peg markets
@@ -155,9 +153,10 @@ abstract contract DeployMintersBase is
     }
 
     /// @notice Deploy minter infrastructure for all markets.
-    function _deployAllMinterInfrastructure(DeploymentTypes.State memory stateData, AllMintersConfig memory config)
-        private
-    {
+    function _deployAllMinterInfrastructure(
+        DeploymentTypes.State memory stateData,
+        AllMintersConfig memory config
+    ) private {
         console.log("\n--- Deploying Minter Infrastructure ---");
 
         for (uint256 i = 0; i < config.marketsETH.length; i++) {
@@ -201,8 +200,13 @@ abstract contract DeployMintersBase is
 
     function _deployReservePool(DeploymentTypes.State memory stateData, string memory marketKey) private {
         (address reservePoolImpl, ) = deployReservePoolImpl();
-        (address reservePool, DeploymentTypes.ProxyRecord memory record) =
-            deployReservePoolProxy(baoFactory(), marketKey, reservePoolImpl, owner(), systemSalt());
+        (address reservePool, DeploymentTypes.ProxyRecord memory record) = deployReservePoolProxy(
+            baoFactory(),
+            marketKey,
+            reservePoolImpl,
+            owner(),
+            systemSalt()
+        );
         DeploymentState.recordProxy(stateData, record);
         _registerForOwnershipTransfer(reservePool, _saltString(record.id));
     }
@@ -216,8 +220,13 @@ abstract contract DeployMintersBase is
         address leveragedToken = _predictAddress(marketKey, "leveraged");
 
         (address minterImpl, ) = deployMinterImpl(cfg.wrappedCollateralToken(), peggedToken, leveragedToken);
-        (address minter, DeploymentTypes.ProxyRecord memory record) =
-            deployMinterProxy(baoFactory(), marketKey, minterImpl, owner(), systemSalt());
+        (address minter, DeploymentTypes.ProxyRecord memory record) = deployMinterProxy(
+            baoFactory(),
+            marketKey,
+            minterImpl,
+            owner(),
+            systemSalt()
+        );
         DeploymentState.recordProxy(stateData, record);
         _registerForOwnershipTransfer(minter, _saltString(record.id));
     }
@@ -232,10 +241,15 @@ abstract contract DeployMintersBase is
 
         // Stability Pool Collateral
         {
-            (address impl, ) =
-                deployStabilityPoolImpl(minter, cfg.wrappedCollateralToken(), 7 days, 1 days, 1e18);
+            (address impl, ) = deployStabilityPoolImpl(minter, cfg.wrappedCollateralToken(), 7 days, 1 days, 1e18);
             (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolCollateralProxy(
-                baoFactory(), marketKey, impl, owner(), 0.01e18, cfg.treasury(), systemSalt()
+                baoFactory(),
+                marketKey,
+                impl,
+                owner(),
+                0.01e18,
+                cfg.treasury(),
+                systemSalt()
             );
             DeploymentState.recordProxy(stateData, record);
             _registerForOwnershipTransfer(proxy, _saltString(record.id));
@@ -245,7 +259,13 @@ abstract contract DeployMintersBase is
         {
             (address impl, ) = deployStabilityPoolImpl(minter, leveragedToken, 7 days, 1 days, 1e18);
             (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolLeveragedProxy(
-                baoFactory(), marketKey, impl, owner(), 0.01e18, cfg.treasury(), systemSalt()
+                baoFactory(),
+                marketKey,
+                impl,
+                owner(),
+                0.01e18,
+                cfg.treasury(),
+                systemSalt()
             );
             DeploymentState.recordProxy(stateData, record);
             _registerForOwnershipTransfer(proxy, _saltString(record.id));
@@ -264,8 +284,13 @@ abstract contract DeployMintersBase is
         // Stability Pool Manager
         {
             (address impl, ) = deployStabilityPoolManagerImpl(minter, cfg.treasury(), spCollateral, spLeveraged);
-            (address proxy, DeploymentTypes.ProxyRecord memory record) =
-                deployStabilityPoolManagerProxy(baoFactory(), marketKey, impl, owner(), systemSalt());
+            (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolManagerProxy(
+                baoFactory(),
+                marketKey,
+                impl,
+                owner(),
+                systemSalt()
+            );
             DeploymentState.recordProxy(stateData, record);
             _registerForOwnershipTransfer(proxy, _saltString(record.id));
         }
@@ -273,8 +298,13 @@ abstract contract DeployMintersBase is
         // Genesis
         {
             (address impl, ) = deployGenesisImpl(minter);
-            (address proxy, DeploymentTypes.ProxyRecord memory record) =
-                deployGenesisProxy(baoFactory(), marketKey, impl, owner(), systemSalt());
+            (address proxy, DeploymentTypes.ProxyRecord memory record) = deployGenesisProxy(
+                baoFactory(),
+                marketKey,
+                impl,
+                owner(),
+                systemSalt()
+            );
             DeploymentState.recordProxy(stateData, record);
             _registerForOwnershipTransfer(proxy, _saltString(record.id));
         }
@@ -313,11 +343,11 @@ abstract contract DeployMintersBase is
         return "";
     }
 
-    function _seedEphemeralState(string memory saltPrefix, string memory network, bool useLocal)
-        private
-        pure
-        returns (DeploymentTypes.State memory stateData)
-    {
+    function _seedEphemeralState(
+        string memory saltPrefix,
+        string memory network,
+        bool useLocal
+    ) private pure returns (DeploymentTypes.State memory stateData) {
         stateData.network = network;
         stateData.saltPrefix = saltPrefix;
         stateData.useLocal = useLocal;

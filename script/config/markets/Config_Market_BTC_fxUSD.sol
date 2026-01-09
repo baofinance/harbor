@@ -14,5 +14,4 @@ contract Config_Market_BTC_fxUSD is
     Config_Peg_BTC,
     Config_Collateral_fxUSD,
     Config_PriceVolatility_130
-{
-}
+{}

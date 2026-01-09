@@ -14,5 +14,4 @@ contract Config_Market_GOLD_fxUSD is
     Config_Peg_GOLD,
     Config_Collateral_fxUSD,
     Config_PriceVolatility_130
-{
-}
+{}
