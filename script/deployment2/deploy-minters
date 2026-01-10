@@ -3,7 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../.."
-source "script/lib/deploy-cli" # Validates project root on source
 
 usage() {
   cat <<EOF
@@ -21,69 +20,15 @@ Options:
 EOF
 }
 
-NETWORK="" SALT="" ACCOUNT="" USE_LOCAL=false
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --network)
-      NETWORK=$2
-      shift 2
-      ;;
-    --salt)
-      SALT=$2
-      shift 2
-      ;;
-    --account)
-      ACCOUNT=$2
-      shift 2
-      ;;
-    --local)
-      USE_LOCAL=true
-      shift
-      ;;
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    -*)
-      echo "Unknown option: $1" >&2
-      usage >&2
-      exit 1
-      ;;
-    *)
-      echo "Unexpected argument: $1" >&2
-      usage >&2
-      exit 1
-      ;;
-  esac
-done
-
-[[ -n "$NETWORK" ]] || {
-  echo "❌ --network required" >&2
-  exit 1
-}
-[[ -n "$SALT" ]] || {
-  echo "❌ --salt required" >&2
-  exit 1
-}
-[[ "$USE_LOCAL" == true || -n "$ACCOUNT" ]] || {
-  echo "❌ --account required (or use --local)" >&2
-  exit 1
-}
-
-init_rpc "$NETWORK" "$USE_LOCAL"
-init_signer "$USE_LOCAL" "$ACCOUNT"
-
-FORGE_ARGS=(--rpc-url "$RPC_URL" "${SIGNER_ARGS[@]}")
-[[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--broadcast)
+source "script/lib/deploy-cli"
 
 SCRIPT_PATH="script/deployment2/DeployMinters.s.sol:DeployMinters"
 
 echo "=== Deploy Minters ==="
-echo "Salt: $SALT"
-echo "Network: $NETWORK"
-echo "Use Local: $USE_LOCAL"
-echo "RPC URL: $RPC_URL"
-echo ""
+echo "Salt:       $SALT"
+echo "Network:    $NETWORK"
+echo "Use Local:  $USE_LOCAL"
+echo "forge args: ${FORGE_ARGS[*]}"
 
 forge script "$SCRIPT_PATH" \
   --sig 'run(string,string,bool)' "$SALT" "$NETWORK" "$USE_LOCAL" \

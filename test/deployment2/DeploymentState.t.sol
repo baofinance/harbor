@@ -142,7 +142,8 @@ contract DeploymentStateTest is Test {
         assertEq(reloaded.implementations[0].implementation, address(0xBEEF));
     }
 
-    function testRecordImplementationRejectsDuplicateProxy() public {
+    /// @notice Recording the exact same implementation record twice is idempotent (no error).
+    function testRecordImplementationIdempotentForSameRecord() public view {
         DeploymentTypes.State memory state;
         DeploymentTypes.ImplementationRecord memory record = DeploymentTypes.ImplementationRecord({
             proxy: "ETH::fxUSD::minter",
@@ -154,8 +155,36 @@ contract DeploymentStateTest is Test {
         state.implementations = new DeploymentTypes.ImplementationRecord[](1);
         state.implementations[0] = record;
 
-        vm.expectRevert(abi.encodeWithSelector(DeploymentState.DuplicateImplementationForProxy.selector, record.proxy));
+        // Recording the exact same record should NOT revert (idempotent behavior)
         harness.recordImplementationExternal(state, record);
+    }
+
+    /// @notice Recording same proxy key with different implementation should error.
+    function testRecordImplementationRejectsConflictingImplementation() public {
+        DeploymentTypes.State memory state;
+        DeploymentTypes.ImplementationRecord memory existing = DeploymentTypes.ImplementationRecord({
+            proxy: "ETH::fxUSD::minter",
+            contractSource: "src/DeployMinter.sol",
+            contractType: "Minter",
+            implementation: address(0xAAA0),
+            deploymentTime: uint64(block.timestamp)
+        });
+        state.implementations = new DeploymentTypes.ImplementationRecord[](1);
+        state.implementations[0] = existing;
+
+        // Same proxy key, different implementation address = conflict
+        DeploymentTypes.ImplementationRecord memory conflicting = DeploymentTypes.ImplementationRecord({
+            proxy: "ETH::fxUSD::minter",
+            contractSource: "src/DeployMinter.sol",
+            contractType: "Minter",
+            implementation: address(0xBBB0), // Different address!
+            deploymentTime: uint64(block.timestamp)
+        });
+
+        vm.expectRevert(
+            abi.encodeWithSelector(DeploymentState.DuplicateImplementationForProxy.selector, conflicting.proxy)
+        );
+        harness.recordImplementationExternal(state, conflicting);
     }
 
     function testRecordImplementationRejectsDuplicateAddress() public {
@@ -184,7 +213,8 @@ contract DeploymentStateTest is Test {
         harness.recordImplementationExternal(state, newRec);
     }
 
-    function testRecordProxyRejectsDuplicateKey() public {
+    /// @notice Recording the exact same proxy record twice is idempotent (no error).
+    function testRecordProxyIdempotentForSameRecord() public view {
         DeploymentTypes.State memory state;
         DeploymentTypes.ProxyRecord memory record = DeploymentTypes.ProxyRecord({
             id: "ETH::fxUSD::minter",
@@ -200,8 +230,42 @@ contract DeploymentStateTest is Test {
         state.proxies = new DeploymentTypes.ProxyRecord[](1);
         state.proxies[0] = record;
 
-        vm.expectRevert(abi.encodeWithSelector(DeploymentState.DuplicateProxy.selector, record.id));
+        // Recording the exact same record should NOT revert (idempotent behavior)
         harness.recordProxyExternal(state, record);
+    }
+
+    /// @notice Recording same proxy key with different proxy address should error.
+    function testRecordProxyRejectsConflictingProxy() public {
+        DeploymentTypes.State memory state;
+        DeploymentTypes.ProxyRecord memory existing = DeploymentTypes.ProxyRecord({
+            id: "ETH::fxUSD::minter",
+            fragment: DeploymentTypes.FragmentDescriptor({
+                kind: DeploymentTypes.FragmentKind.ContractRole,
+                key: "ETH::fxUSD::minter"
+            }),
+            proxy: address(0x1234),
+            implementation: address(0x5678),
+            salt: "salt",
+            deploymentTime: uint64(block.timestamp)
+        });
+        state.proxies = new DeploymentTypes.ProxyRecord[](1);
+        state.proxies[0] = existing;
+
+        // Same ID, different proxy address = conflict
+        DeploymentTypes.ProxyRecord memory conflicting = DeploymentTypes.ProxyRecord({
+            id: "ETH::fxUSD::minter",
+            fragment: DeploymentTypes.FragmentDescriptor({
+                kind: DeploymentTypes.FragmentKind.ContractRole,
+                key: "ETH::fxUSD::minter"
+            }),
+            proxy: address(0x9999), // Different address!
+            implementation: address(0x5678),
+            salt: "salt",
+            deploymentTime: uint64(block.timestamp)
+        });
+
+        vm.expectRevert(abi.encodeWithSelector(DeploymentState.DuplicateProxy.selector, conflicting.id));
+        harness.recordProxyExternal(state, conflicting);
     }
 
     function testRecordProxyRejectsDuplicateAddress() public {

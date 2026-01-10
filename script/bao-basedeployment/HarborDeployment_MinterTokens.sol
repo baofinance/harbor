@@ -133,7 +133,6 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address peggedToken) {
         string memory pegKey = pegConfig.key();
-
         (
             ,
             address proxy,
@@ -251,7 +250,6 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
     ) internal returns (address leveragedToken) {
         IMarketConfig market = IMarketConfig(address(marketConfig));
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-
         (
             ,
             address proxy,

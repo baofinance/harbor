@@ -82,6 +82,7 @@ abstract contract DeployPeggedBase is HarborDeployment_Pegged {
     /// @param network Network name (e.g., "mainnet", "arbitrum").
     /// @param useLocal Whether to read/write state in the local results directory.
     function deployAllPeggedTokens(AllPeggedConfig memory config, string memory network, bool useLocal) internal {
+        // Load existing state to resume partial deployments, or seed fresh if not persisting.
         DeploymentTypes.State memory stateData = _shouldPersistState()
             ? DeploymentState.load(network, systemSalt(), useLocal, _stateDirectoryPrefix())
             : _seedEphemeralState(systemSalt(), network, useLocal);

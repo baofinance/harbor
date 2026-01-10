@@ -1,19 +1,41 @@
 #!/usr/bin/env bash
 
-salt=$(cast keccak "$1")
+# Parse arguments
+network="mainnet"
+salt_input=""
 
-if [[ "$1" == test2* ]]; then
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --network)
+      network="$2"
+      shift 2
+      ;;
+    *)
+      salt_input="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$salt_input" ]]; then
+  echo "Usage: predict [--network <network>] <salt>"
+  exit 1
+fi
+
+salt=$(cast keccak "$salt_input")
+
+if [[ "$salt_input" == test2* ]]; then
   factory="0x232C909F51Ce792e7F39106C75A3ED43F12d3554"
 else
   factory="0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
 fi
 echo "factory:        $factory"
 
-address=$(cast call "$factory" "predictAddress(bytes32)(address)" $salt)
+address=$(cast call "$factory" "predictAddress(bytes32)(address)" $salt --rpc-url "$network")
 echo "address:        ${address} https://etherscan.io/address/${address}#code"
 echo "                ------------------------------------------"
-implementation=$(cast implementation ${address})
+implementation=$(cast implementation ${address} --rpc-url "$network")
 echo "implementation: ${implementation} https://etherscan.io/address/${implementation}#code"
 
-owner=$(cast call "$address" "owner()(address)")
+owner=$(cast call "$address" "owner()(address)" --rpc-url "$network")
 echo "owner/multisig: ${owner}"

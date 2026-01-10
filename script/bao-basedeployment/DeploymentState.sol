@@ -12,6 +12,7 @@ import {DeploymentTypes} from "./DeploymentTypes.sol";
 /// @dev Library form to avoid on-chain deployment/broadcast in scripts.
 library DeploymentState {
     using stdJson for string;
+    using LibString for string;
 
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -30,7 +31,14 @@ library DeploymentState {
         string memory directoryPrefix
     ) private view returns (string memory) {
         return
-            string.concat(vm.projectRoot(), "/", directoryPrefix, "/deployments", useLocal ? "/local/" : "/", network);
+            string.concat(
+                vm.projectRoot(),
+                "/",
+                (directoryPrefix.eq("") ? "" : string.concat(directoryPrefix, "/")),
+                "deployments/",
+                useLocal ? "local/" : "",
+                network
+            );
     }
 
     function resolvePath(
@@ -81,16 +89,22 @@ library DeploymentState {
         json.write(path);
     }
 
+    /// @notice Record an implementation. Idempotent: if exact same record exists, returns true.
+    /// @return alreadyExists True if the record already existed (no change made).
     function recordImplementation(
         DeploymentTypes.State memory state,
         DeploymentTypes.ImplementationRecord memory rec
-    ) internal pure {
+    ) internal pure returns (bool alreadyExists) {
         if (bytes(rec.proxy).length == 0) revert ProxyKeyRequiredForImplementation();
         if (rec.implementation == address(0)) revert ImplementationAddressRequired();
 
         uint256 length = state.implementations.length;
         for (uint256 i = 0; i < length; ++i) {
             if (LibString.eq(state.implementations[i].proxy, rec.proxy)) {
+                // Same proxy key - check if it's an identical record (idempotent) or a conflict
+                if (state.implementations[i].implementation == rec.implementation) {
+                    return true; // Idempotent: exact same record already exists
+                }
                 revert DuplicateImplementationForProxy(rec.proxy);
             }
             if (state.implementations[i].implementation == rec.implementation) {
@@ -104,15 +118,27 @@ library DeploymentState {
         }
         updated[length] = rec;
         state.implementations = updated;
+        return false;
     }
 
-    function recordProxy(DeploymentTypes.State memory state, DeploymentTypes.ProxyRecord memory rec) internal pure {
+    /// @notice Record a proxy. Idempotent: if exact same record exists, returns true.
+    /// @return alreadyExists True if the record already existed (no change made).
+    function recordProxy(
+        DeploymentTypes.State memory state,
+        DeploymentTypes.ProxyRecord memory rec
+    ) internal pure returns (bool alreadyExists) {
         if (bytes(rec.id).length == 0) revert ProxyKeyRequired();
         if (rec.proxy == address(0)) revert ProxyAddressRequired();
 
         uint256 length = state.proxies.length;
         for (uint256 i = 0; i < length; ++i) {
-            if (LibString.eq(state.proxies[i].id, rec.id)) revert DuplicateProxy(rec.id);
+            if (LibString.eq(state.proxies[i].id, rec.id)) {
+                // Same ID - check if it's an identical record (idempotent) or a conflict
+                if (state.proxies[i].proxy == rec.proxy) {
+                    return true; // Idempotent: exact same record already exists
+                }
+                revert DuplicateProxy(rec.id);
+            }
             if (state.proxies[i].proxy == rec.proxy) revert DuplicateProxyAddress(rec.proxy);
         }
 
@@ -122,6 +148,7 @@ library DeploymentState {
         }
         updated[length] = rec;
         state.proxies = updated;
+        return false;
     }
 
     function rolesMissingProxies(
