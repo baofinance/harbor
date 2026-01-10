@@ -41,7 +41,6 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord)
     {
         impl = address(new MintableBurnableERC20_v1());
-        console.log("MinterToken implementation deployed at: %s", impl);
 
         implRecord = DeploymentTypes.ImplementationRecord({
             proxy: "", // Will be set by caller when associating with a proxy
@@ -64,12 +63,11 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
         string memory pegKey = string.concat(pegConfig.key(), "::pegged");
-        console.log("\n=== Deploying Pegged Proxy: %s ===", pegKey);
 
         string memory tokenName = pegConfig.name();
         string memory tokenSymbol = pegConfig.symbol();
-        console.log("Token Name: %s", tokenName);
-        console.log("Token Symbol: %s", tokenSymbol);
+        console.log("      Name:   %s", tokenName);
+        console.log("      Symbol: %s", tokenSymbol);
 
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", pegKey));
         bytes memory initData = abi.encodeCall(
@@ -78,7 +76,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         );
 
         proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("Proxy deployed at: %s", proxy);
+        console.log("      Proxy:  %s", proxy);
 
         proxyRecord = DeploymentTypes.ProxyRecord({
             id: pegKey,
@@ -88,8 +86,6 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
             salt: systemSalt,
             deploymentTime: uint64(block.timestamp)
         });
-
-        console.log("%s proxy deployment complete\n", pegKey);
     }
 
     /// @notice Deploy a pegged token (implementation + proxy) for a specific peg.
@@ -109,16 +105,15 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         )
     {
         string memory pegKey = string.concat(pegConfig.key(), "::pegged");
-        console.log("\n=== Deploying Pegged Token: %s ===", pegKey);
+        console.log("  > %s", pegKey);
 
         // Deploy implementation
         (impl, implRecord) = deployMinterTokenImpl();
+        console.log("      Impl:   %s", impl);
         implRecord.proxy = pegKey; // Associate with this proxy key
 
         // Deploy proxy
         (proxy, proxyRecord) = deployPeggedProxy(baoFactoryAddr, pegConfig, impl, tokenOwner, systemSalt);
-
-        console.log("%s deployment complete\n", pegKey);
     }
 
     /// @notice Deploy a pegged token, record in state, and grant minter roles.
@@ -153,7 +148,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         _registerForOwnershipTransfer(proxy, _saltString(proxyRecord.id));
 
         // Grant minter/burner roles to each market's minter contract
-        console.log("Granting pegged roles for %s", pegKey);
+        console.log("      Roles:");
         for (uint256 i = 0; i < marketConfigs.length; i++) {
             IMarketConfig market = IMarketConfig(address(marketConfigs[i]));
             string memory configPeg = market.peg();
@@ -167,7 +162,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
             string memory minterKey = MinterMarketConfigLib.salt(marketConfigs[i]);
             address minter = _predictMinterAddress(baoFactoryAddr, systemSalt, minterKey);
 
-            console.log("  minter: %s (%s)", minterKey, minter);
+            console.log("        MINTER -> %s", minterKey);
             _grantMinterRoles(peggedToken, minter);
         }
     }
@@ -185,15 +180,14 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
         string memory leveragedKey = string.concat(peg, "::", collateral, "::leveraged");
-        console.log("\n=== Deploying Leveraged Proxy: %s ===", leveragedKey);
 
         // Token name: "Harbor sail: variable leveraged long <COLLATERAL> against <PEG>"
         string memory tokenName = string.concat("Harbor sail: variable leveraged long ", collateral, " against ", peg);
         // Token symbol: "hs<COLLATERAL>-<PEG>"
         string memory tokenSymbol = string.concat("hs", collateral.upper(), "-", peg.upper());
 
-        console.log("Token Name: %s", tokenName);
-        console.log("Token Symbol: %s", tokenSymbol);
+        console.log("      Name:   %s", tokenName);
+        console.log("      Symbol: %s", tokenSymbol);
 
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", leveragedKey));
         bytes memory initData = abi.encodeCall(
@@ -202,7 +196,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         );
 
         proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("Proxy deployed at: %s", proxy);
+        console.log("      Proxy:  %s", proxy);
 
         proxyRecord = DeploymentTypes.ProxyRecord({
             id: leveragedKey,
@@ -215,8 +209,6 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
             salt: systemSalt,
             deploymentTime: uint64(block.timestamp)
         });
-
-        console.log("%s proxy deployment complete\n", leveragedKey);
     }
 
     /// @notice Deploy a leveraged token (implementation + proxy) for a specific market.
@@ -237,16 +229,15 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         )
     {
         string memory leveragedKey = string.concat(peg, "::", collateral, "::leveraged");
-        console.log("\n=== Deploying Leveraged Token: %s ===", leveragedKey);
+        console.log("  > %s", leveragedKey);
 
         // Deploy implementation
         (impl, implRecord) = deployMinterTokenImpl();
+        console.log("      Impl:   %s", impl);
         implRecord.proxy = leveragedKey; // Associate with this proxy key
 
         // Deploy proxy
         (proxy, proxyRecord) = deployLeveragedProxy(baoFactoryAddr, peg, collateral, impl, tokenOwner, systemSalt);
-
-        console.log("%s deployment complete\n", leveragedKey);
     }
 
     /// @notice Deploy a leveraged token, record in state, and grant minter roles.
@@ -275,9 +266,9 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
         _registerForOwnershipTransfer(proxy, _saltString(proxyRecord.id));
 
         // Grant minter/burner roles to the market's minter contract
-        console.log("Granting leveraged roles for %s", marketKey);
+        console.log("      Roles:");
         address minter = _predictMinterAddress(baoFactoryAddr, systemSalt, marketKey);
-        console.log("  minter: %s (%s)", marketKey, minter);
+        console.log("        MINTER -> %s", marketKey);
         _grantMinterRoles(leveragedToken, minter);
     }
 

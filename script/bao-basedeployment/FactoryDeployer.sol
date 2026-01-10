@@ -42,7 +42,7 @@ abstract contract FactoryDeployer is Config_Protocol {
     function _getOrDeployStub() internal returns (UUPSProxyDeployStub) {
         if (address(_proxyDeployStub) == address(0)) {
             _proxyDeployStub = new UUPSProxyDeployStub();
-            console.log("UUPSProxyDeployStub deployed at: %s (owner: %s)", address(_proxyDeployStub), _proxyDeployStub.owner());
+            console.log("      UUPSProxyDeployStub: %s", address(_proxyDeployStub));
         }
         return _proxyDeployStub;
     }
@@ -61,7 +61,7 @@ abstract contract FactoryDeployer is Config_Protocol {
         string memory ownerLabel = _addressLabel(pendingOwner);
         for (uint256 i = 0; i < _pendingOwnershipTransfers.length; i++) {
             PendingOwnership memory pending = _pendingOwnershipTransfers[i];
-            console.log("Transferring ownership: %s -> %s", pending.salt, ownerLabel);
+            console.log("        %s -> %s", pending.salt, ownerLabel);
             IBaoOwnable(pending.deployed).transferOwnership(pendingOwner);
         }
         // Clear the list after transfer

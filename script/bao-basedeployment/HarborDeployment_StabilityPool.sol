@@ -49,7 +49,6 @@ abstract contract HarborDeployment_StabilityPool is FactoryDeployer {
                 minTotalAssetSupply
             )
         );
-        console.log("StabilityPool implementation deployed at: %s", impl);
 
         implRecord = DeploymentTypes.ImplementationRecord({
             proxy: "",
@@ -71,7 +70,6 @@ abstract contract HarborDeployment_StabilityPool is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
         string memory spKey = string.concat(marketKey, "::stabilityPoolCollateral");
-        console.log("\n=== Deploying StabilityPoolCollateral Proxy: %s ===", spKey);
 
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", spKey));
         bytes memory initData = abi.encodeCall(
@@ -80,7 +78,7 @@ abstract contract HarborDeployment_StabilityPool is FactoryDeployer {
         );
 
         proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("StabilityPoolCollateral proxy deployed at: %s", proxy);
+        console.log("        Proxy: %s", proxy);
 
         proxyRecord = DeploymentTypes.ProxyRecord({
             id: spKey,
@@ -93,8 +91,6 @@ abstract contract HarborDeployment_StabilityPool is FactoryDeployer {
             salt: systemSalt,
             deploymentTime: uint64(block.timestamp)
         });
-
-        console.log("%s deployment complete\n", spKey);
     }
 
     /// @notice Deploy StabilityPool_v1 proxy for leveraged stability pool.
@@ -108,7 +104,6 @@ abstract contract HarborDeployment_StabilityPool is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
         string memory spKey = string.concat(marketKey, "::stabilityPoolLeveraged");
-        console.log("\n=== Deploying StabilityPoolLeveraged Proxy: %s ===", spKey);
 
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", spKey));
         bytes memory initData = abi.encodeCall(
@@ -117,7 +112,7 @@ abstract contract HarborDeployment_StabilityPool is FactoryDeployer {
         );
 
         proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("StabilityPoolLeveraged proxy deployed at: %s", proxy);
+        console.log("        Proxy: %s", proxy);
 
         proxyRecord = DeploymentTypes.ProxyRecord({
             id: spKey,
@@ -130,8 +125,6 @@ abstract contract HarborDeployment_StabilityPool is FactoryDeployer {
             salt: systemSalt,
             deploymentTime: uint64(block.timestamp)
         });
-
-        console.log("%s deployment complete\n", spKey);
     }
 
     /// @notice Configure a stability pool with reward tokens.

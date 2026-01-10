@@ -26,7 +26,6 @@ abstract contract HarborDeployment_Genesis is FactoryDeployer {
         address minter
     ) internal returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord) {
         impl = address(new Genesis_v1(minter));
-        console.log("Genesis implementation deployed at: %s", impl);
 
         implRecord = DeploymentTypes.ImplementationRecord({
             proxy: "",
@@ -46,13 +45,12 @@ abstract contract HarborDeployment_Genesis is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
         string memory genesisKey = string.concat(marketKey, "::genesis");
-        console.log("\n=== Deploying Genesis Proxy: %s ===", genesisKey);
 
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", genesisKey));
         bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (tokenOwner));
 
         proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("Genesis proxy deployed at: %s", proxy);
+        console.log("        Proxy: %s", proxy);
 
         proxyRecord = DeploymentTypes.ProxyRecord({
             id: genesisKey,
@@ -65,8 +63,6 @@ abstract contract HarborDeployment_Genesis is FactoryDeployer {
             salt: systemSalt,
             deploymentTime: uint64(block.timestamp)
         });
-
-        console.log("%s deployment complete\n", genesisKey);
     }
 
     // ========== ADDRESS PREDICTION ==========

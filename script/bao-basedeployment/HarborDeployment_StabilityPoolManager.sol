@@ -40,7 +40,6 @@ abstract contract HarborDeployment_StabilityPoolManager is FactoryDeployer {
         address stabilityPoolLeveraged
     ) internal returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord) {
         impl = address(new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged));
-        console.log("StabilityPoolManager implementation deployed at: %s", impl);
 
         implRecord = DeploymentTypes.ImplementationRecord({
             proxy: "",
@@ -60,13 +59,12 @@ abstract contract HarborDeployment_StabilityPoolManager is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
         string memory spmKey = string.concat(marketKey, "::stabilityPoolManager");
-        console.log("\n=== Deploying StabilityPoolManager Proxy: %s ===", spmKey);
 
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", spmKey));
         bytes memory initData = abi.encodeCall(StabilityPoolManager_v1.initialize, (tokenOwner));
 
         proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("StabilityPoolManager proxy deployed at: %s", proxy);
+        console.log("        Proxy: %s", proxy);
 
         proxyRecord = DeploymentTypes.ProxyRecord({
             id: spmKey,
@@ -79,8 +77,6 @@ abstract contract HarborDeployment_StabilityPoolManager is FactoryDeployer {
             salt: systemSalt,
             deploymentTime: uint64(block.timestamp)
         });
-
-        console.log("%s deployment complete\n", spmKey);
     }
 
     /// @notice Configure a deployed StabilityPoolManager with its operational parameters.
@@ -102,7 +98,7 @@ abstract contract HarborDeployment_StabilityPoolManager is FactoryDeployer {
         returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord)
     {
         impl = address(new TokenDistributor_v1());
-        console.log("TokenDistributor (SPMFeeReceiver) implementation deployed at: %s", impl);
+        console.log("      Impl:   %s", impl);
 
         implRecord = DeploymentTypes.ImplementationRecord({
             proxy: "",
@@ -123,13 +119,13 @@ abstract contract HarborDeployment_StabilityPoolManager is FactoryDeployer {
         string memory systemSalt
     ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
         string memory feeReceiverKey = string.concat(marketKey, "::spmFeeReceiver");
-        console.log("\n=== Deploying SPMFeeReceiver Proxy: %s ===", feeReceiverKey);
+        console.log("    > %s", feeReceiverKey);
 
         bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", feeReceiverKey));
         bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (tokenOwner, name));
 
         proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("SPMFeeReceiver proxy deployed at: %s", proxy);
+        console.log("        Proxy: %s", proxy);
 
         proxyRecord = DeploymentTypes.ProxyRecord({
             id: feeReceiverKey,
@@ -142,8 +138,6 @@ abstract contract HarborDeployment_StabilityPoolManager is FactoryDeployer {
             salt: systemSalt,
             deploymentTime: uint64(block.timestamp)
         });
-
-        console.log("%s deployment complete\n", feeReceiverKey);
     }
 
     /// @notice Configure TokenDistributor with tokens and distribution.
