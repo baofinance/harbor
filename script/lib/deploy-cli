@@ -1,0 +1,45 @@
+# Minimal CLI helpers for Harbor deployment scripts
+#
+# Source: source "$(dirname "$0")/lib/deploy-cli"
+#
+# On source: validates project root (fails fast if wrong directory)
+# Provides:
+#   - init_rpc NETWORK USE_LOCAL  → sets RPC_URL, CHAIN_ID
+#   - init_signer USE_LOCAL ACCOUNT → sets SIGNER_ARGS array
+
+set -euo pipefail
+
+# Fail fast if not in project root
+[[ -f "foundry.toml" ]] || {
+  echo "❌ Run from project root" >&2
+  exit 1
+}
+
+init_rpc() {
+  local network=$1 use_local=$2
+  if [[ "$use_local" == true ]]; then
+    RPC_URL="http://127.0.0.1:8545"
+  else
+    RPC_URL=$(forge config --json | jq -r ".rpc_endpoints.${network} // empty")
+    [[ -n "$RPC_URL" ]] || {
+      echo "❌ No RPC endpoint for network: $network" >&2
+      exit 1
+    }
+  fi
+  CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null) || {
+    echo "❌ RPC failed: $RPC_URL" >&2
+    exit 1
+  }
+}
+
+init_signer() {
+  local use_local=$1 account=${2:-}
+  if [[ "$use_local" == true ]]; then
+    # Anvil's first account private key
+    SIGNER_ARGS=(--private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80)
+  elif [[ -n "$account" ]]; then
+    SIGNER_ARGS=(--account "$account")
+  else
+    SIGNER_ARGS=()
+  fi
+}

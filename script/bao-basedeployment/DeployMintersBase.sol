@@ -15,6 +15,7 @@ import {Config_Peg_ETH} from "script/config/pegs/Config_Peg_ETH.sol";
 import {Config_Peg_BTC} from "script/config/pegs/Config_Peg_BTC.sol";
 import {Config_Peg_GOLD} from "script/config/pegs/Config_Peg_GOLD.sol";
 import {Config_Peg_EUR} from "script/config/pegs/Config_Peg_EUR.sol";
+import {Config_Peg_MCAP} from "script/config/pegs/Config_Peg_MCAP.sol";
 import {Config_Market_ETH_fxUSD} from "script/config/markets/Config_Market_ETH_fxUSD.sol";
 import {Config_Market_BTC_fxUSD} from "script/config/markets/Config_Market_BTC_fxUSD.sol";
 import {Config_Market_BTC_stETH} from "script/config/markets/Config_Market_BTC_stETH.sol";
@@ -22,6 +23,8 @@ import {Config_Market_EUR_fxUSD} from "script/config/markets/Config_Market_EUR_f
 import {Config_Market_EUR_stETH} from "script/config/markets/Config_Market_EUR_stETH.sol";
 import {Config_Market_GOLD_fxUSD} from "script/config/markets/Config_Market_GOLD_fxUSD.sol";
 import {Config_Market_GOLD_stETH} from "script/config/markets/Config_Market_GOLD_stETH.sol";
+import {Config_Market_MCAP_fxUSD} from "script/config/markets/Config_Market_MCAP_fxUSD.sol";
+import {Config_Market_MCAP_stETH} from "script/config/markets/Config_Market_MCAP_stETH.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
 import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -33,10 +36,11 @@ interface IFullMinterConfig {
     function wrappedCollateralToken() external view returns (address);
     function treasury() external view returns (address);
     function minterConfig() external pure returns (IMinter.Config memory);
+    // Peg config
+    function minTotalSupply() external view returns (uint256);
     // Stability pool config
     function stabilityPoolWithdrawalDelay() external pure returns (uint256);
     function stabilityPoolWithdrawalPeriod() external pure returns (uint256);
-    function stabilityPoolMinTotalAssetSupply() external pure returns (uint256);
     function stabilityPoolEarlyWithdrawalFeeRatio() external pure returns (uint256);
     // StabilityPoolManager config (rebalanceThreshold comes from volatility config)
     function rebalanceThreshold() external pure returns (uint256);
@@ -53,10 +57,12 @@ struct AllMintersConfig {
     Config_Peg pegBTC;
     Config_Peg pegGOLD;
     Config_Peg pegEUR;
+    Config_Peg pegMCAP;
     Config_MinterMarket[] marketsETH; // Markets using ETH peg
     Config_MinterMarket[] marketsBTC; // Markets using BTC peg
     Config_MinterMarket[] marketsGOLD; // Markets using GOLD peg
     Config_MinterMarket[] marketsEUR; // Markets using EUR peg
+    Config_MinterMarket[] marketsMCAP; // Markets using MCAP peg
 }
 
 /// @notice Orchestration for complete minter deployment (tokens + infrastructure).
@@ -79,6 +85,7 @@ abstract contract DeployMintersBase is
         config.pegBTC = new Config_Peg_BTC();
         config.pegGOLD = new Config_Peg_GOLD();
         config.pegEUR = new Config_Peg_EUR();
+        config.pegMCAP = new Config_Peg_MCAP();
 
         // ETH peg markets
         config.marketsETH = new Config_MinterMarket[](1);
@@ -98,6 +105,11 @@ abstract contract DeployMintersBase is
         config.marketsEUR = new Config_MinterMarket[](2);
         config.marketsEUR[0] = new Config_Market_EUR_fxUSD();
         config.marketsEUR[1] = new Config_Market_EUR_stETH();
+
+        // MCAP peg markets
+        config.marketsMCAP = new Config_MinterMarket[](2);
+        config.marketsMCAP[0] = new Config_Market_MCAP_fxUSD();
+        config.marketsMCAP[1] = new Config_Market_MCAP_stETH();
 
         return config;
     }
@@ -137,6 +149,7 @@ abstract contract DeployMintersBase is
         deployPeggedTokenWithRoles(stateData, config.pegBTC, config.marketsBTC, baoFactory(), owner(), systemSalt());
         deployPeggedTokenWithRoles(stateData, config.pegGOLD, config.marketsGOLD, baoFactory(), owner(), systemSalt());
         deployPeggedTokenWithRoles(stateData, config.pegEUR, config.marketsEUR, baoFactory(), owner(), systemSalt());
+        deployPeggedTokenWithRoles(stateData, config.pegMCAP, config.marketsMCAP, baoFactory(), owner(), systemSalt());
     }
 
     /// @notice Deploy all leveraged tokens (one per market).
@@ -162,6 +175,11 @@ abstract contract DeployMintersBase is
         for (uint256 i = 0; i < config.marketsEUR.length; i++) {
             deployLeveragedTokenWithRoles(stateData, config.marketsEUR[i], baoFactory(), owner(), systemSalt());
         }
+
+        // MCAP peg markets
+        for (uint256 i = 0; i < config.marketsMCAP.length; i++) {
+            deployLeveragedTokenWithRoles(stateData, config.marketsMCAP[i], baoFactory(), owner(), systemSalt());
+        }
     }
 
     /// @notice Deploy minter infrastructure for all markets.
@@ -182,6 +200,9 @@ abstract contract DeployMintersBase is
         }
         for (uint256 i = 0; i < config.marketsEUR.length; i++) {
             _deployMinterForMarket(stateData, config.marketsEUR[i]);
+        }
+        for (uint256 i = 0; i < config.marketsMCAP.length; i++) {
+            _deployMinterForMarket(stateData, config.marketsMCAP[i]);
         }
     }
 
@@ -207,7 +228,7 @@ abstract contract DeployMintersBase is
         // Configure Minter and grant roles
         _configureMinter(cfg, marketKey);
 
-        console.log("=== Market %s Complete ===", marketKey);
+        console.log("\n=== Market %s Complete ===", marketKey);
     }
 
     function _deployReservePool(DeploymentTypes.State memory stateData, string memory marketKey) private {
@@ -258,7 +279,7 @@ abstract contract DeployMintersBase is
                 cfg.wrappedCollateralToken(),
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.stabilityPoolMinTotalAssetSupply()
+                cfg.minTotalSupply()
             );
             (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolCollateralProxy(
                 baoFactory(),
@@ -280,7 +301,7 @@ abstract contract DeployMintersBase is
                 leveragedToken,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.stabilityPoolMinTotalAssetSupply()
+                cfg.minTotalSupply()
             );
             (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolLeveragedProxy(
                 baoFactory(),

@@ -14,6 +14,4 @@ abstract contract Config_StabilityPool {
     function stabilityPoolWithdrawalPeriod() public pure virtual returns (uint256) {
         return 90000;
     }
-
-    function stabilityPoolMinTotalAssetSupply() public pure virtual returns (uint256);
 }

@@ -18,8 +18,4 @@ contract Config_Market_GOLD_stETH is
     Config_PriceVolatility_130,
     Config_StabilityPool,
     Config_StabilityPoolManager
-{
-    function stabilityPoolMinTotalAssetSupply() public pure override returns (uint256) {
-        return 2e14;
-    }
-}
+{}

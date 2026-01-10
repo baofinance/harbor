@@ -22,7 +22,8 @@ interface IBaoOwnable {
 /// @dev Includes DeploymentOwnership pattern - tracks deployed contracts and transfers ownership at end.
 /// @dev Inherits Config_Protocol to get baoFactory(), owner(), systemSalt() from context.
 abstract contract FactoryDeployer is Config_Protocol {
-    UUPSProxyDeployStub private immutable _proxyDeployStub;
+    /// @dev Lazily deployed stub - must be deployed within broadcast context so msg.sender is correct.
+    UUPSProxyDeployStub private _proxyDeployStub;
 
     // ========== DEPLOYMENT OWNERSHIP PATTERN ==========
     // Contracts are deployed with deployer as owner, then transferred at end.
@@ -36,8 +37,14 @@ abstract contract FactoryDeployer is Config_Protocol {
     /// @dev List of deployed contracts needing ownership transfer.
     PendingOwnership[] private _pendingOwnershipTransfers;
 
-    constructor() {
-        _proxyDeployStub = new UUPSProxyDeployStub();
+    /// @notice Get or deploy the proxy stub. Must be called within broadcast context.
+    /// @dev Deploys on first call, returns cached address on subsequent calls.
+    function _getOrDeployStub() internal returns (UUPSProxyDeployStub) {
+        if (address(_proxyDeployStub) == address(0)) {
+            _proxyDeployStub = new UUPSProxyDeployStub();
+            console.log("UUPSProxyDeployStub deployed at: %s (owner: %s)", address(_proxyDeployStub), _proxyDeployStub.owner());
+        }
+        return _proxyDeployStub;
     }
 
     /// @notice Register a deployed contract for later ownership transfer.
@@ -142,9 +149,12 @@ abstract contract FactoryDeployer is Config_Protocol {
         // Predict proxy address
         address predictedProxy = baoFactoryContract.predictAddress(salt);
 
+        // Get or deploy stub (must happen within broadcast context)
+        UUPSProxyDeployStub stub = _getOrDeployStub();
+
         // Step 1: deploy proxy pointing at stub
         proxy = baoFactoryContract.deploy(
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(_proxyDeployStub), "")),
+            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(stub), "")),
             salt
         );
         require(proxy == predictedProxy, "Proxy address mismatch");
