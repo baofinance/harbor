@@ -4,8 +4,10 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
 import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {DeployMintersBase, AllMintersConfig} from "script/bao-basedeployment/DeployMintersBase.sol";
-import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
+import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
+import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "script/config/ConfigBase.sol";
+import {DeploymentTypes} from "script/src/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {WellKnownAddress} from "script/config/chains/ConfigProtocol.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -18,8 +20,8 @@ interface IWellKnownAddresses {
     function getWellKnownAddresses() external pure returns (WellKnownAddress[] memory);
 }
 
-/// @notice Test harness for minter deployment (tokens + infrastructure).
-contract TestDeployMintersHarness is DeployMintersBase {
+/// @notice Test harness for BTC minter deployment (tokens + infrastructure).
+contract TestDeployMintersHarness is Deploy_BTC_Minter {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function baoFactory() public pure override returns (address) {
@@ -30,12 +32,12 @@ contract TestDeployMintersHarness is DeployMintersBase {
         return false;
     }
 
-    /// @notice Deploy all minter contracts (tokens + infrastructure).
+    /// @notice Deploy BTC minter contracts (tokens + infrastructure).
     /// @dev Requires fork with real external contracts (wrapped collateral, etc).
-    function deployAllMintersWrapper(string memory systemSaltArg, string memory network, bool useLocal) external {
+    function deployAllMintersWrapper(string memory systemSaltArg, string memory network) external {
         _setSystemSalt(systemSaltArg);
-        AllMintersConfig memory config = createAllMintersConfig();
-        deployAll(config, network, useLocal);
+        (ConfigPeg peg, Config_MinterMarket[] memory markets) = createBTCMintersConfig();
+        deployAll_BTC(peg, markets, network);
     }
 
     /// @notice Return well-known addresses from the market config (which inherits chain config).
@@ -43,8 +45,8 @@ contract TestDeployMintersHarness is DeployMintersBase {
     function queryWellKnownAddresses() external returns (WellKnownAddress[] memory) {
         // Create a market config to access chain-specific addresses
         // Market configs inherit from Config_Chain_* which provides getWellKnownAddresses()
-        AllMintersConfig memory config = createAllMintersConfig();
-        return IWellKnownAddresses(address(config.marketsETH[0])).getWellKnownAddresses();
+        (, Config_MinterMarket[] memory markets) = createBTCMintersConfig();
+        return IWellKnownAddresses(address(markets[0])).getWellKnownAddresses();
     }
 }
 
@@ -202,7 +204,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         IBaoFactory(_factoryAddr).setOperator(address(harness), 365 days);
     }
 
-    function test_deployAllMinters_mainnetFork_() public {
+    function test_deployBTCMinters_mainnetFork_() public {
         uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
         vm.selectFork(forkId);
 
@@ -212,7 +214,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         vm.prank(IBaoFactory(_factoryAddr).owner());
         IBaoFactory(_factoryAddr).setOperator(address(harness), 365 days);
 
-        harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet", false);
+        harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet");
 
         // Verify 4 pegged tokens were deployed
         address[4] memory peggedTokens = _predictPeggedTokens(CANDIDATE_SALT);
@@ -252,7 +254,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         _verifyTokenViaABI(leveragedTokens[6], "Harbor sail: variable leveraged long stETH against EUR", "hsSTETH-EUR");
     }
 
-    function test_compareMintersAgainstReference_mainnetFork_() public {
+    function test_compareBTCMintersAgainstReference_mainnetFork_() public {
         uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
         vm.selectFork(forkId);
 
@@ -262,7 +264,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         vm.prank(IBaoFactory(_factoryAddr).owner());
         IBaoFactory(_factoryAddr).setOperator(address(harness), 365 days);
 
-        harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet", false);
+        harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet");
 
         _compareMintersAgainstReference(REFERENCE_SALT, CANDIDATE_SALT);
     }

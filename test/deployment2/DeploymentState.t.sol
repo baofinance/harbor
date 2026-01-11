@@ -2,10 +2,10 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test, stdJson} from "forge-std/Test.sol";
-import {DeploymentState} from "script/bao-basedeployment/DeploymentState.sol";
-import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
-import {JsonParser} from "script/bao-basedeployment/JsonParser.sol";
-import {JsonSerializer} from "script/bao-basedeployment/JsonSerializer.sol";
+import {DeploymentState} from "script/src/DeploymentState.sol";
+import {DeploymentTypes} from "script/src/DeploymentTypes.sol";
+import {JsonParser} from "script/src/JsonParser.sol";
+import {JsonSerializer} from "script/src/JsonSerializer.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 contract DeploymentStateHarness {
@@ -31,12 +31,8 @@ contract DeploymentStateHarness {
         DeploymentState.recordProxy(state, rec);
     }
 
-    function load(
-        string memory network,
-        string memory saltPrefix,
-        bool useLocal
-    ) external returns (DeploymentTypes.State memory) {
-        return DeploymentState.load(network, saltPrefix, useLocal, directoryPrefix);
+    function load(string memory network, string memory saltPrefix) external returns (DeploymentTypes.State memory) {
+        return DeploymentState.load(network, saltPrefix, directoryPrefix);
     }
 
     function save(DeploymentTypes.State memory state) external {
@@ -99,7 +95,6 @@ contract DeploymentStateTest is Test {
         DeploymentTypes.State memory state;
         state.network = NETWORK;
         state.saltPrefix = salt;
-        state.useLocal = true;
         state.baoFactory = address(0xB00B);
 
         DeploymentTypes.ImplementationRecord memory impl = DeploymentTypes.ImplementationRecord({
@@ -128,10 +123,9 @@ contract DeploymentStateTest is Test {
         harness.save(state);
 
         // Load and verify round-trip
-        DeploymentTypes.State memory reloaded = harness.load(NETWORK, salt, true);
+        DeploymentTypes.State memory reloaded = harness.load(NETWORK, salt);
         assertEq(reloaded.network, NETWORK);
         assertEq(reloaded.saltPrefix, salt);
-        assertTrue(reloaded.useLocal);
         assertEq(reloaded.baoFactory, address(0xB00B));
         assertEq(reloaded.implementations.length, 1);
         assertEq(reloaded.proxies.length, 1);
@@ -365,7 +359,6 @@ contract DeploymentStateTest is Test {
         DeploymentTypes.State memory original;
         original.network = NETWORK;
         original.saltPrefix = salt;
-        original.useLocal = false;
         original.baoFactory = address(0xA11CE);
         original.recordProxy(
             DeploymentTypes.ProxyRecord({

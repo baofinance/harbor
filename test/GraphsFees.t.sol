@@ -168,7 +168,7 @@ contract TestGraphsFeesDeploy is TestGraphsFees {
     }
 
     function setUpConfig() internal override {
-        setUp_config(readConfigFile("./script/minter-fee-config.json"));
+        setUp_config(readConfigFile("./test/minter-fee-config.json"));
         writeConfig(config, "deploy");
     }
 

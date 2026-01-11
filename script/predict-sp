@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-
-for system in "harbor_v1::BTC::stETH" "harbor_v1::BTC::fxUSD" "harbor_v1::ETH::fxUSD"; do
-  for pool in "stabilityPoolCollateral" "stabilityPoolLeveraged"; do
-    salt="${system}::${pool}"
-    ./predict "$salt"
-    echo ""
-  done
-done
