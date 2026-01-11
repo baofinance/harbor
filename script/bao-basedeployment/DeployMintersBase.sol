@@ -9,22 +9,25 @@ import {HarborDeployment_StabilityPoolManager} from "./HarborDeployment_Stabilit
 import {HarborDeployment_Genesis} from "./HarborDeployment_Genesis.sol";
 import {DeploymentState} from "./DeploymentState.sol";
 import {DeploymentTypes} from "./DeploymentTypes.sol";
-import {Config_Peg} from "script/config/pegs/Config_Peg.sol";
+import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
-import {Config_Peg_ETH} from "script/config/pegs/Config_Peg_ETH.sol";
-import {Config_Peg_BTC} from "script/config/pegs/Config_Peg_BTC.sol";
-import {Config_Peg_GOLD} from "script/config/pegs/Config_Peg_GOLD.sol";
-import {Config_Peg_EUR} from "script/config/pegs/Config_Peg_EUR.sol";
-import {Config_Peg_MCAP} from "script/config/pegs/Config_Peg_MCAP.sol";
-import {Config_Market_ETH_fxUSD} from "script/config/markets/Config_Market_ETH_fxUSD.sol";
-import {Config_Market_BTC_fxUSD} from "script/config/markets/Config_Market_BTC_fxUSD.sol";
-import {Config_Market_BTC_stETH} from "script/config/markets/Config_Market_BTC_stETH.sol";
-import {Config_Market_EUR_fxUSD} from "script/config/markets/Config_Market_EUR_fxUSD.sol";
-import {Config_Market_EUR_stETH} from "script/config/markets/Config_Market_EUR_stETH.sol";
-import {Config_Market_GOLD_fxUSD} from "script/config/markets/Config_Market_GOLD_fxUSD.sol";
-import {Config_Market_GOLD_stETH} from "script/config/markets/Config_Market_GOLD_stETH.sol";
-import {Config_Market_MCAP_fxUSD} from "script/config/markets/Config_Market_MCAP_fxUSD.sol";
-import {Config_Market_MCAP_stETH} from "script/config/markets/Config_Market_MCAP_stETH.sol";
+import {ConfigPeg_ETH} from "script/config/pegs/ConfigPeg_ETH.sol";
+import {ConfigPeg_BTC} from "script/config/pegs/ConfigPeg_BTC.sol";
+import {ConfigPeg_GOLD} from "script/config/pegs/ConfigPeg_GOLD.sol";
+import {ConfigPeg_EUR} from "script/config/pegs/ConfigPeg_EUR.sol";
+import {ConfigPeg_MCAP} from "script/config/pegs/ConfigPeg_MCAP.sol";
+import {ConfigPeg_SILVER} from "script/config/pegs/ConfigPeg_SILVER.sol";
+import {ConfigMarket_ETH_fxUSD_mainnet} from "script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
+import {ConfigMarket_BTC_fxUSD_mainnet} from "script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol";
+import {ConfigMarket_BTC_stETH_mainnet} from "script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
+import {ConfigMarket_EUR_fxUSD_mainnet} from "script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
+import {ConfigMarket_EUR_stETH_mainnet} from "script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
+import {ConfigMarket_GOLD_fxUSD_mainnet} from "script/config/markets/ConfigMarket_GOLD_fxUSD_mainnet.sol";
+import {ConfigMarket_GOLD_stETH_mainnet} from "script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol";
+import {ConfigMarket_MCAP_fxUSD_mainnet} from "script/config/markets/ConfigMarket_MCAP_fxUSD_mainnet.sol";
+import {ConfigMarket_MCAP_stETH_mainnet} from "script/config/markets/ConfigMarket_MCAP_stETH_mainnet.sol";
+import {ConfigMarket_SILVER_fxUSD_mainnet} from "script/config/markets/ConfigMarket_SILVER_fxUSD_mainnet.sol";
+import {ConfigMarket_SILVER_stETH_mainnet} from "script/config/markets/ConfigMarket_SILVER_stETH_mainnet.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
 import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -53,22 +56,24 @@ interface IFullMinterConfig {
 /// @dev Created BEFORE startBroadcast() so config contracts are NOT deployed on-chain.
 /// @dev Defined at file scope for import/export capability.
 struct AllMintersConfig {
-    Config_Peg pegETH;
-    Config_Peg pegBTC;
-    Config_Peg pegGOLD;
-    Config_Peg pegEUR;
-    Config_Peg pegMCAP;
+    ConfigPeg pegETH;
+    ConfigPeg pegBTC;
+    ConfigPeg pegGOLD;
+    ConfigPeg pegEUR;
+    ConfigPeg pegMCAP;
+    ConfigPeg pegSILVER;
     Config_MinterMarket[] marketsETH; // Markets using ETH peg
     Config_MinterMarket[] marketsBTC; // Markets using BTC peg
     Config_MinterMarket[] marketsGOLD; // Markets using GOLD peg
     Config_MinterMarket[] marketsEUR; // Markets using EUR peg
     Config_MinterMarket[] marketsMCAP; // Markets using MCAP peg
+    Config_MinterMarket[] marketsSILVER; // Markets using SILVER peg
 }
 
 /// @notice Orchestration for complete minter deployment (tokens + infrastructure).
 /// @dev Deploys: pegged tokens, leveraged tokens, minter, SP, SPM, reserve pool, genesis.
 /// @dev Contract-specific deployment logic lives in HarborDeployment_*.sol files.
-/// @dev Config_Protocol inherited via FactoryDeployer → provides baoFactory(), owner(), systemSalt().
+/// @dev ConfigProtocol inherited via FactoryDeployer → provides baoFactory(), owner(), systemSalt().
 abstract contract DeployMintersBase is
     HarborDeployment_MinterTokens,
     HarborDeployment_Minter,
@@ -81,35 +86,41 @@ abstract contract DeployMintersBase is
     /// @dev See deployment2-design.md Section 3.3.4 for pattern.
     function createAllMintersConfig() internal returns (AllMintersConfig memory config) {
         // Peg configs
-        config.pegETH = new Config_Peg_ETH();
-        config.pegBTC = new Config_Peg_BTC();
-        config.pegGOLD = new Config_Peg_GOLD();
-        config.pegEUR = new Config_Peg_EUR();
-        config.pegMCAP = new Config_Peg_MCAP();
+        config.pegETH = new ConfigPeg_ETH();
+        config.pegBTC = new ConfigPeg_BTC();
+        config.pegGOLD = new ConfigPeg_GOLD();
+        config.pegEUR = new ConfigPeg_EUR();
+        config.pegMCAP = new ConfigPeg_MCAP();
+        config.pegSILVER = new ConfigPeg_SILVER();
 
         // ETH peg markets
         config.marketsETH = new Config_MinterMarket[](1);
-        config.marketsETH[0] = new Config_Market_ETH_fxUSD();
+        config.marketsETH[0] = new ConfigMarket_ETH_fxUSD_mainnet();
 
         // BTC peg markets
         config.marketsBTC = new Config_MinterMarket[](2);
-        config.marketsBTC[0] = new Config_Market_BTC_fxUSD();
-        config.marketsBTC[1] = new Config_Market_BTC_stETH();
+        config.marketsBTC[0] = new ConfigMarket_BTC_fxUSD_mainnet();
+        config.marketsBTC[1] = new ConfigMarket_BTC_stETH_mainnet();
 
         // GOLD peg markets
         config.marketsGOLD = new Config_MinterMarket[](2);
-        config.marketsGOLD[0] = new Config_Market_GOLD_fxUSD();
-        config.marketsGOLD[1] = new Config_Market_GOLD_stETH();
+        config.marketsGOLD[0] = new ConfigMarket_GOLD_fxUSD_mainnet();
+        config.marketsGOLD[1] = new ConfigMarket_GOLD_stETH_mainnet();
 
         // EUR peg markets
         config.marketsEUR = new Config_MinterMarket[](2);
-        config.marketsEUR[0] = new Config_Market_EUR_fxUSD();
-        config.marketsEUR[1] = new Config_Market_EUR_stETH();
+        config.marketsEUR[0] = new ConfigMarket_EUR_fxUSD_mainnet();
+        config.marketsEUR[1] = new ConfigMarket_EUR_stETH_mainnet();
 
         // MCAP peg markets
         config.marketsMCAP = new Config_MinterMarket[](2);
-        config.marketsMCAP[0] = new Config_Market_MCAP_fxUSD();
-        config.marketsMCAP[1] = new Config_Market_MCAP_stETH();
+        config.marketsMCAP[0] = new ConfigMarket_MCAP_fxUSD_mainnet();
+        config.marketsMCAP[1] = new ConfigMarket_MCAP_stETH_mainnet();
+
+        // SILVER peg markets
+        config.marketsSILVER = new Config_MinterMarket[](2);
+        config.marketsSILVER[0] = new ConfigMarket_SILVER_fxUSD_mainnet();
+        config.marketsSILVER[1] = new ConfigMarket_SILVER_stETH_mainnet();
 
         return config;
     }
@@ -138,6 +149,7 @@ abstract contract DeployMintersBase is
         deployAll_GOLD(stateData, config);
         deployAll_EUR(stateData, config);
         deployAll_MCAP(stateData, config);
+        deployAll_SILVER(stateData, config);
 
         _transferAllOwnerships();
 

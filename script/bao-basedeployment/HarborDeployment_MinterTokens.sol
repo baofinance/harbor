@@ -5,7 +5,7 @@ import {console2 as console} from "forge-std/console2.sol";
 import {FactoryDeployer} from "./FactoryDeployer.sol";
 import {DeploymentState} from "./DeploymentState.sol";
 import {DeploymentTypes} from "./DeploymentTypes.sol";
-import {Config_Peg} from "script/config/pegs/Config_Peg.sol";
+import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -57,7 +57,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
     /// @dev Use after deployMinterTokenImpl() for fresh deployments.
     function deployPeggedProxy(
         address baoFactoryAddr,
-        Config_Peg pegConfig,
+        ConfigPeg pegConfig,
         address implementation,
         address tokenOwner,
         string memory systemSalt
@@ -92,7 +92,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
     /// @dev Convenience wrapper combining deployMinterTokenImpl() and deployPeggedProxy().
     function deployPeggedToken(
         address baoFactoryAddr,
-        Config_Peg pegConfig,
+        ConfigPeg pegConfig,
         address tokenOwner,
         string memory systemSalt
     )
@@ -126,7 +126,7 @@ abstract contract HarborDeployment_MinterTokens is FactoryDeployer {
     /// @param systemSalt System salt for CREATE3 deployment.
     function deployPeggedTokenWithRoles(
         DeploymentTypes.State memory stateData,
-        Config_Peg pegConfig,
+        ConfigPeg pegConfig,
         Config_MinterMarket[] memory marketConfigs,
         address baoFactoryAddr,
         address tokenOwner,

@@ -415,7 +415,9 @@ contract DeploymentStateTest is Test {
                 NETWORK,
                 '","chainId":31337,"baoFactory":"0x0000000000000000000000000000000000009999","lastUpdated":"1970-01-01T00:00:01Z",',
                 '"implementations":{"0x0000000000000000000000000000000000005678":{"proxy":"ETH::fxUSD::minter","contractSource":"src/DeployMinter.sol","contractType":"Minter","deploymentTime":"1970-01-01T00:00:01Z"}},',
-                '"proxies":{"ETH::fxUSD::minter":{"address":"0x0000000000000000000000000000000000001234","implementation":"0x0000000000000000000000000000000000005678","salt":"salt","deploymentTime":"1970-01-01T00:00:01Z","fragment":{"kind":"ContractRole","key":"ETH::fxUSD::minter"}}}}'
+                '"proxies":{"ETH::fxUSD::minter":{"address":"0x0000000000000000000000000000000000001234","implementation":"0x0000000000000000000000000000000000005678","salt":"',
+                salt,
+                '::ETH::fxUSD::minter","deploymentTime":"1970-01-01T00:00:01Z"}}}'
             )
         );
 
@@ -425,7 +427,7 @@ contract DeploymentStateTest is Test {
         assertEq(parsed.implementations.length, 1, "implementations length");
         assertEq(parsed.proxies.length, 1, "proxies length");
         assertEq(parsed.pendingUpgrades.length, 0, "pendingUpgrades length");
-        assertEq(parsed.proxies[0].fragment.key, "ETH::fxUSD::minter", "proxy fragment key");
+        assertEq(parsed.proxies[0].salt, string.concat(salt, "::ETH::fxUSD::minter"), "proxy salt");
         assertEq(parsed.baoFactory, address(0x9999), "baoFactory");
     }
 

@@ -6,9 +6,9 @@ import {HarborDeploymentBase} from "script/bao-basedeployment/HarborDeploymentBa
 import {DeploymentState} from "script/bao-basedeployment/DeploymentState.sol";
 import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
-import {Config_Market_ETH_fxUSD} from "script/config/markets/Config_Market_ETH_fxUSD.sol";
-import {Config_Market_BTC_fxUSD} from "script/config/markets/Config_Market_BTC_fxUSD.sol";
-import {Config_Market_BTC_stETH} from "script/config/markets/Config_Market_BTC_stETH.sol";
+import {ConfigMarket_ETH_fxUSD_mainnet} from "script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
+import {ConfigMarket_BTC_fxUSD_mainnet} from "script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol";
+import {ConfigMarket_BTC_stETH_mainnet} from "script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 
 /// @notice Test harness for Harbor deployment.
@@ -52,9 +52,9 @@ contract HarborDeploymentTest is BaoDeploymentTest {
         string memory systemSalt = "harbor_v1";
         // Define markets to deploy
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](3);
-        markets[0] = new Config_Market_ETH_fxUSD();
-        markets[1] = new Config_Market_BTC_fxUSD();
-        markets[2] = new Config_Market_BTC_stETH();
+        markets[0] = new ConfigMarket_ETH_fxUSD_mainnet();
+        markets[1] = new ConfigMarket_BTC_fxUSD_mainnet();
+        markets[2] = new ConfigMarket_BTC_stETH_mainnet();
 
         // Start deployment session
         DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", systemSalt, true);
@@ -82,7 +82,7 @@ contract HarborDeploymentTest is BaoDeploymentTest {
         // 2. Script lists configs to deploy
         // 3. Script calls startDeployment(), loops deployMinterMarket(), calls finishDeployment()
 
-        Config_MinterMarket config = new Config_Market_ETH_fxUSD();
+        Config_MinterMarket config = new ConfigMarket_ETH_fxUSD_mainnet();
 
         DeploymentTypes.State memory state = deployer._startDeploymentWrapper("mainnet", systemSalt, true);
         state = deployer._deployMinterMarketWrapper(state, config);

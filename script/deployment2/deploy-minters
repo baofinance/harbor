@@ -16,7 +16,7 @@ Required:
 Options:
   --account <name>  Foundry keystore account name (required for non-local)
   --local           Use local anvil (auto-impersonate, state in local directory)
-  --peg <peg>       Deploy only specific peg (ETH, BTC, GOLD, EUR, MCAP). Default: all
+  --peg <peg>       Deploy only specific peg (ETH, BTC, GOLD, EUR, MCAP, SILVER). Default: all
   -h, --help        Show this help message
 EOF
 }
@@ -27,16 +27,16 @@ source "script/lib/deploy-cli"
 if [[ -n "$PEG" ]]; then
   PEG_UPPER=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')
   case "$PEG_UPPER" in
-    ETH | BTC | GOLD | EUR | MCAP)
-      SCRIPT_PATH="script/deployment2/Deploy_${PEG_UPPER}.s.sol:Deploy_${PEG_UPPER}"
+    ETH | BTC | GOLD | EUR | MCAP | SILVER)
+      SCRIPT_PATH="script/deployment2/Deploy_${PEG_UPPER}_mainnet.s.sol:Deploy_${PEG_UPPER}_mainnet"
       ;;
     *)
-      echo "Error: Invalid peg '$PEG'. Must be one of: ETH, BTC, GOLD, EUR, MCAP" >&2
+      echo "Error: Invalid peg '$PEG'. Must be one of: ETH, BTC, GOLD, EUR, MCAP, SILVER" >&2
       exit 1
       ;;
   esac
 else
-  SCRIPT_PATH="script/deployment2/DeployMinters.s.sol:DeployMinters"
+  SCRIPT_PATH="script/deployment2/DeployMinters_mainnet.s.sol:DeployMinters_mainnet"
 fi
 
 echo "=== Deploy Minters ==="

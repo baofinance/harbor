@@ -6,7 +6,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
-import {Config_Protocol, WellKnownAddress} from "script/config/chains/Config_Protocol.sol";
+import {ConfigProtocol, WellKnownAddress} from "script/config/chains/ConfigProtocol.sol";
 
 interface IUUPSProxyUpgrade {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
@@ -20,8 +20,8 @@ interface IBaoOwnable {
 /// @notice Base contract providing CREATE3 proxy deployment via BaoFactory.
 /// @dev Deployment calls execute in the derived contract's context (important for permissions).
 /// @dev Includes DeploymentOwnership pattern - tracks deployed contracts and transfers ownership at end.
-/// @dev Inherits Config_Protocol to get baoFactory(), owner(), systemSalt() from context.
-abstract contract FactoryDeployer is Config_Protocol {
+/// @dev Inherits ConfigProtocol to get baoFactory(), owner(), systemSalt() from context.
+abstract contract FactoryDeployer is ConfigProtocol {
     /// @dev Lazily deployed stub - must be deployed within broadcast context so msg.sender is correct.
     UUPSProxyDeployStub private _proxyDeployStub;
 
@@ -57,7 +57,7 @@ abstract contract FactoryDeployer is Config_Protocol {
     /// @dev No parameter needed - pending owner was set to owner() during initialize().
     /// @dev See deployment2-design.md Section 3.3.3 for ownership model.
     function _transferAllOwnerships() internal {
-        address pendingOwner = owner(); // From Config_Protocol - same as passed to initialize()
+        address pendingOwner = owner(); // From ConfigProtocol - same as passed to initialize()
         string memory ownerLabel = _addressLabel(pendingOwner);
         for (uint256 i = 0; i < _pendingOwnershipTransfers.length; i++) {
             PendingOwnership memory pending = _pendingOwnershipTransfers[i];

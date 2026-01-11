@@ -7,13 +7,13 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {DeployMintersBase, AllMintersConfig} from "script/bao-basedeployment/DeployMintersBase.sol";
 import {DeploymentTypes} from "script/bao-basedeployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {WellKnownAddress} from "script/config/chains/Config_Protocol.sol";
+import {WellKnownAddress} from "script/config/chains/ConfigProtocol.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
-/// @notice Interface to query well-known addresses from any config that inherits Config_Protocol.
+/// @notice Interface to query well-known addresses from any config that inherits ConfigProtocol.
 interface IWellKnownAddresses {
     function getWellKnownAddresses() external pure returns (WellKnownAddress[] memory);
 }

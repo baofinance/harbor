@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {Config_Protocol} from "./chains/Config_Protocol.sol";
+import {ConfigProtocol} from "./chains/ConfigProtocol.sol";
 
 /// @notice Base contract for all Harbor configuration contracts.
 /// @dev Config contracts provide keys via methods, not string parsing.
@@ -21,14 +21,14 @@ interface IMarketConfig {
 
 /// @notice Base contract for minter market configurations.
 /// @dev Provides type safety for minter market config parameters.
-///      Subclasses must implement IMarketConfig (peg/collateral) and inherit Config_Protocol.
+///      Subclasses must implement IMarketConfig (peg/collateral) and inherit ConfigProtocol.
 abstract contract Config_MinterMarket {
     /// @notice Predicts the price oracle address for this minter market.
     /// @dev Uses BaoFactory address prediction with salt format "collateral::peg::wrappedPriceAggregator".
     /// @return The predicted price oracle address.
     function priceOracle() public view returns (address) {
         IMarketConfig market = IMarketConfig(address(this));
-        Config_Protocol protocol = Config_Protocol(address(this));
+        ConfigProtocol protocol = ConfigProtocol(address(this));
         // Salt format: collateral::peg::wrappedPriceAggregator (e.g., "stETH::BTC::wrappedPriceAggregator")
         string memory oracleKey = string.concat(market.collateral(), "::", market.peg(), "::wrappedPriceAggregator");
         bytes32 saltHash = keccak256(abi.encodePacked(protocol.systemSalt(), "::", oracleKey));
