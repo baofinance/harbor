@@ -189,6 +189,26 @@ abstract contract DeployMintersBase is
         }
     }
 
+    /// @notice Deploy SILVER pegged token and all SILVER markets.
+    function deployAll_SILVER(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
+        console.log("");
+        console.log("--- Deploying SILVER Peg and Markets ---");
+
+        deployPeggedTokenWithRoles(
+            stateData,
+            config.pegSILVER,
+            config.marketsSILVER,
+            baoFactory(),
+            owner(),
+            systemSalt()
+        );
+
+        for (uint256 i = 0; i < config.marketsSILVER.length; i++) {
+            deployLeveragedTokenWithRoles(stateData, config.marketsSILVER[i], baoFactory(), owner(), systemSalt());
+            _deployMinterForMarket(stateData, config.marketsSILVER[i]);
+        }
+    }
+
     /// @notice Deploy EUR pegged token and all EUR markets.
     function deployAll_EUR(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
         console.log("");
@@ -235,6 +255,13 @@ abstract contract DeployMintersBase is
     function deployAll_GOLD(AllMintersConfig memory config, string memory network, bool useLocal) internal {
         DeploymentTypes.State memory stateData = _loadOrSeedState(network, useLocal);
         deployAll_GOLD(stateData, config);
+        _finalizeDeploy(stateData);
+    }
+
+    /// @notice Deploy SILVER pegged token and all SILVER markets (public entry point).
+    function deployAll_SILVER(AllMintersConfig memory config, string memory network, bool useLocal) internal {
+        DeploymentTypes.State memory stateData = _loadOrSeedState(network, useLocal);
+        deployAll_SILVER(stateData, config);
         _finalizeDeploy(stateData);
     }
 

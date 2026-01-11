@@ -7,6 +7,8 @@ import {DeploymentTypes} from "./DeploymentTypes.sol";
 
 /// @notice JSON serialization for deployment state.
 library JsonSerializer {
+    using LibString for string;
+
     uint256 internal constant SCHEMA_VERSION = 1;
 
     function renderState(DeploymentTypes.State memory state) internal view returns (string memory) {
@@ -16,7 +18,7 @@ library JsonSerializer {
         DeploymentTypes.ProxyRecord[] memory proxiesSorted = sortedProxies(state.proxies);
 
         string memory implementationsJson = renderImplementationsMap(implementationsSorted);
-        string memory proxiesJson = renderProxiesMap(proxiesSorted);
+        string memory proxiesJson = renderProxiesMap(proxiesSorted, state.saltPrefix);
 
         return
             string.concat(
@@ -66,13 +68,14 @@ library JsonSerializer {
         }
     }
 
-    function renderProxiesMap(DeploymentTypes.ProxyRecord[] memory records) internal pure returns (string memory body) {
+    function renderProxiesMap(DeploymentTypes.ProxyRecord[] memory records, string memory saltPrefix) internal pure returns (string memory body) {
         uint256 length = records.length;
         if (length == 0) {
             return "";
         }
         for (uint256 i = 0; i < length; ++i) {
             DeploymentTypes.ProxyRecord memory rec = records[i];
+            string memory combinedSalt = string.concat(saltPrefix, "::", rec.id);
             string memory entry = string.concat(
                 '"',
                 rec.id,
@@ -81,26 +84,13 @@ library JsonSerializer {
                 ',"implementation":',
                 _quote(LibString.toHexString(rec.implementation)),
                 ',"salt":',
-                _quote(rec.salt),
+                _quote(combinedSalt),
                 ',"deploymentTime":',
                 _quote(_formatTimestamp(uint256(rec.deploymentTime))),
-                ',"fragment":{"kind":',
-                _quote(fragmentKindToString(rec.fragment.kind)),
-                ',"key":',
-                _quote(rec.fragment.key),
-                "}}"
+                "}"
             );
             body = bytes(body).length == 0 ? entry : string.concat(body, ",", entry);
         }
-    }
-
-    function fragmentKindToString(DeploymentTypes.FragmentKind kind) internal pure returns (string memory) {
-        if (kind == DeploymentTypes.FragmentKind.Peg) return "Peg";
-        if (kind == DeploymentTypes.FragmentKind.Collateral) return "Collateral";
-        if (kind == DeploymentTypes.FragmentKind.ContractRole) return "ContractRole";
-        if (kind == DeploymentTypes.FragmentKind.MinterMarket) return "MinterMarket";
-        if (kind == DeploymentTypes.FragmentKind.PriceMarket) return "PriceMarket";
-        return "ContractRole";
     }
 
     function sortedImplementations(
@@ -142,7 +132,7 @@ library JsonSerializer {
         for (uint256 i = 0; i < sorted.length; ++i) {
             uint256 minIndex = i;
             for (uint256 j = i + 1; j < sorted.length; ++j) {
-                if (_compareStrings(sorted[j].id, sorted[minIndex].id) < 0) {
+                if (sorted[j].id.cmp(sorted[minIndex].id) < 0) {
                     minIndex = j;
                 }
             }
@@ -153,19 +143,6 @@ library JsonSerializer {
             }
         }
         return sorted;
-    }
-
-    function _compareStrings(string memory a, string memory b) private pure returns (int256) {
-        bytes memory aBytes = bytes(a);
-        bytes memory bBytes = bytes(b);
-        uint256 minLen = aBytes.length < bBytes.length ? aBytes.length : bBytes.length;
-        for (uint256 i = 0; i < minLen; ++i) {
-            if (aBytes[i] < bBytes[i]) return -1;
-            if (aBytes[i] > bBytes[i]) return 1;
-        }
-        if (aBytes.length < bBytes.length) return -1;
-        if (aBytes.length > bBytes.length) return 1;
-        return 0;
     }
 
     function _quote(string memory value) private pure returns (string memory) {

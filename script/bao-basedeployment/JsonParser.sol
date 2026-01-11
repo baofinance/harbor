@@ -89,10 +89,10 @@ library JsonParser {
             rec.implementation = vm.parseAddress(json.readString(string.concat(path, ".implementation")));
             rec.salt = json.readString(string.concat(path, ".salt"));
             rec.deploymentTime = _parseTimestamp(json.readString(string.concat(path, ".deploymentTime")));
-            string memory kindValue = json.readString(string.concat(path, ".fragment.kind"));
+            // Fragment no longer stored in JSON - use empty descriptor
             rec.fragment = DeploymentTypes.FragmentDescriptor({
-                kind: parseFragmentKind(kindValue),
-                key: json.readString(string.concat(path, ".fragment.key"))
+                kind: DeploymentTypes.FragmentKind.ContractRole,
+                key: ""
             });
             records[i] = rec;
         }
