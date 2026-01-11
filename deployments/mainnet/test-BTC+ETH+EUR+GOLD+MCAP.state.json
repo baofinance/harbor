@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "test-BTC+ETH+EUR+GOLD+MCAP",
+  "network": "mainnet",
+  "chainId": 1,
+  "baoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+  "lastUpdated": "2026-01-10T12:11:11Z",
+  "implementations": {
+    "0x2683bd9c5a1cddf484db19e03b95e1a0fc6226d9": {
+      "proxy": "MCAP::pegged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-01-10T12:10:59Z"
+    },
+    "0x12a30ef6f5d80be6552743a0c7c40136c3adc701": {
+      "proxy": "MCAP::fxUSD::leveraged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-01-10T12:10:59Z"
+    },
+    "0xee0bbb18fa4f8edf44f5ea23383a6aa4a4c72ecd": {
+      "proxy": "MCAP::stETH::leveraged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-01-10T12:10:59Z"
+    }
+  },
+  "proxies": {
+    "MCAP::fxUSD::genesis": {
+      "address": "0xd0b2a8422c91a053a4945886b32c7eddd7f67aa3",
+      "implementation": "0x23f09160007eee541c28c6b43e859ff4f338cc72",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::fxUSD"
+      }
+    },
+    "MCAP::fxUSD::leveraged": {
+      "address": "0x2c11cdc041dbbeb1b2a40fd1483f6968aa5a3ab6",
+      "implementation": "0x12a30ef6f5d80be6552743a0c7c40136c3adc701",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::fxUSD::leveraged"
+      }
+    },
+    "MCAP::fxUSD::minter": {
+      "address": "0xfb9a2535ecc4536349ccd4240cef15e6d9810def",
+      "implementation": "0xfab941ce1daec41d153def9fe3a43db08fdbf96d",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::fxUSD"
+      }
+    },
+    "MCAP::fxUSD::reservePool": {
+      "address": "0xafd6f3abff2f47c2981120a4b0a5355dae5718bd",
+      "implementation": "0xa1ed94619de543d0f9537c1bb677436004f11797",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::fxUSD"
+      }
+    },
+    "MCAP::fxUSD::stabilityPoolCollateral": {
+      "address": "0x02d973b081f6dc9d2904f6011aa3600aba55e626",
+      "implementation": "0x59a281316b325b6f12daff9140babd317773e907",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::fxUSD"
+      }
+    },
+    "MCAP::fxUSD::stabilityPoolLeveraged": {
+      "address": "0x55298ec6faf72477f23af911086b45911ca61963",
+      "implementation": "0xa018da9511c290368b2179f1151d473ba6bd3940",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::fxUSD"
+      }
+    },
+    "MCAP::fxUSD::stabilityPoolManager": {
+      "address": "0x0d6064996ae278b7d6f05f55d36444b932545cd1",
+      "implementation": "0xc1230d28fa756114e17c8d742a33151b4b47f266",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::fxUSD"
+      }
+    },
+    "MCAP::pegged": {
+      "address": "0x484a73a23e880fcc38d6507a7b532c121e1eab77",
+      "implementation": "0x2683bd9c5a1cddf484db19e03b95e1a0fc6226d9",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "Peg",
+        "key": "MCAP::pegged"
+      }
+    },
+    "MCAP::stETH::genesis": {
+      "address": "0x3098b009efe5224bb29c94df95f95ae7f13c4425",
+      "implementation": "0x2a30fd66f498564e7a320af3596e45c0c90bb038",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::stETH"
+      }
+    },
+    "MCAP::stETH::leveraged": {
+      "address": "0x87e89112b11da16cbdb87b34c307bb553ebd809d",
+      "implementation": "0xee0bbb18fa4f8edf44f5ea23383a6aa4a4c72ecd",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::stETH::leveraged"
+      }
+    },
+    "MCAP::stETH::minter": {
+      "address": "0x4e5efd8279fabecffaac5bee4d44fedd37a03142",
+      "implementation": "0x21b4de07f1bf6e5897b8dd65d16ed1ed84e3ddc3",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::stETH"
+      }
+    },
+    "MCAP::stETH::reservePool": {
+      "address": "0x2383d30fff2274e471736411938d6b05b7348a1a",
+      "implementation": "0x74c1aa77dffcb4a8651dda6e35d747ff1b89322c",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::stETH"
+      }
+    },
+    "MCAP::stETH::stabilityPoolCollateral": {
+      "address": "0x07ab3f3663198889d58cb118095d03864523118d",
+      "implementation": "0xd7c6c1b9c50697716f9e2af4e0f3c05b9dcfd5cb",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::stETH"
+      }
+    },
+    "MCAP::stETH::stabilityPoolLeveraged": {
+      "address": "0x77174986fca893b57815c8c31258a3f6fbe54c4e",
+      "implementation": "0x1857cc6c23b492308efa0e2c8fefebfde37c2f97",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::stETH"
+      }
+    },
+    "MCAP::stETH::stabilityPoolManager": {
+      "address": "0xda27a3ec61bbf9fc9684cd4120365275be1cc7eb",
+      "implementation": "0x58ad597672182b0fe3cbc4c4f5d7212e39ef01d4",
+      "salt": "test-BTC+ETH+EUR+GOLD+MCAP",
+      "deploymentTime": "2026-01-10T12:10:59Z",
+      "fragment": {
+        "kind": "MinterMarket",
+        "key": "MCAP::stETH"
+      }
+    }
+  }
+}

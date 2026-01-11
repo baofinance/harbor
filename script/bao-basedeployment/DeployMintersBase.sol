@@ -119,7 +119,7 @@ abstract contract DeployMintersBase is
     /// @param config All minter configs (created by createAllMintersConfig()).
     /// @param network Network name (e.g., "mainnet", "arbitrum").
     /// @param useLocal Whether to read/write state in the local results directory.
-    function deployAllMinters(AllMintersConfig memory config, string memory network, bool useLocal) internal {
+    function deployAll(AllMintersConfig memory config, string memory network, bool useLocal) internal {
         // Load existing state to resume partial deployments, or seed fresh if not persisting.
         DeploymentTypes.State memory stateData = _shouldPersistState()
             ? DeploymentState.load(network, systemSalt(), useLocal, _stateDirectoryPrefix())
@@ -133,9 +133,11 @@ abstract contract DeployMintersBase is
         console.log("  Salt:    %s", systemSalt());
         console.log("  Network: %s", network);
 
-        _deployAllPeggedTokens(stateData, config);
-        _deployAllLeveragedTokens(stateData, config);
-        _deployAllMinterInfrastructure(stateData, config);
+        deployAll_ETH(stateData, config);
+        deployAll_BTC(stateData, config);
+        deployAll_GOLD(stateData, config);
+        deployAll_EUR(stateData, config);
+        deployAll_MCAP(stateData, config);
 
         _transferAllOwnerships();
 
@@ -148,72 +150,136 @@ abstract contract DeployMintersBase is
         console.log("================================================================================");
     }
 
-    /// @notice Deploy all pegged tokens (one per peg: ETH, BTC, GOLD, EUR).
-    function _deployAllPeggedTokens(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
+    /// @notice Deploy ETH pegged token and all ETH markets.
+    function deployAll_ETH(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
         console.log("");
-        console.log("--- Deploying Pegged Tokens ---");
+        console.log("--- Deploying ETH Peg and Markets ---");
 
         deployPeggedTokenWithRoles(stateData, config.pegETH, config.marketsETH, baoFactory(), owner(), systemSalt());
-        deployPeggedTokenWithRoles(stateData, config.pegBTC, config.marketsBTC, baoFactory(), owner(), systemSalt());
-        deployPeggedTokenWithRoles(stateData, config.pegGOLD, config.marketsGOLD, baoFactory(), owner(), systemSalt());
-        deployPeggedTokenWithRoles(stateData, config.pegEUR, config.marketsEUR, baoFactory(), owner(), systemSalt());
-        deployPeggedTokenWithRoles(stateData, config.pegMCAP, config.marketsMCAP, baoFactory(), owner(), systemSalt());
-    }
 
-    /// @notice Deploy all leveraged tokens (one per market).
-    function _deployAllLeveragedTokens(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
-        console.log("");
-        console.log("--- Deploying Leveraged Tokens ---");
-
-        // ETH peg markets
         for (uint256 i = 0; i < config.marketsETH.length; i++) {
             deployLeveragedTokenWithRoles(stateData, config.marketsETH[i], baoFactory(), owner(), systemSalt());
-        }
-
-        // BTC peg markets
-        for (uint256 i = 0; i < config.marketsBTC.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, config.marketsBTC[i], baoFactory(), owner(), systemSalt());
-        }
-
-        // GOLD peg markets
-        for (uint256 i = 0; i < config.marketsGOLD.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, config.marketsGOLD[i], baoFactory(), owner(), systemSalt());
-        }
-
-        // EUR peg markets
-        for (uint256 i = 0; i < config.marketsEUR.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, config.marketsEUR[i], baoFactory(), owner(), systemSalt());
-        }
-
-        // MCAP peg markets
-        for (uint256 i = 0; i < config.marketsMCAP.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, config.marketsMCAP[i], baoFactory(), owner(), systemSalt());
+            _deployMinterForMarket(stateData, config.marketsETH[i]);
         }
     }
 
-    /// @notice Deploy minter infrastructure for all markets.
-    function _deployAllMinterInfrastructure(
-        DeploymentTypes.State memory stateData,
-        AllMintersConfig memory config
-    ) private {
+    /// @notice Deploy BTC pegged token and all BTC markets.
+    function deployAll_BTC(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
         console.log("");
-        console.log("--- Deploying Minter Infrastructure ---");
+        console.log("--- Deploying BTC Peg and Markets ---");
 
-        for (uint256 i = 0; i < config.marketsETH.length; i++) {
-            _deployMinterForMarket(stateData, config.marketsETH[i]);
-        }
+        deployPeggedTokenWithRoles(stateData, config.pegBTC, config.marketsBTC, baoFactory(), owner(), systemSalt());
+
         for (uint256 i = 0; i < config.marketsBTC.length; i++) {
+            deployLeveragedTokenWithRoles(stateData, config.marketsBTC[i], baoFactory(), owner(), systemSalt());
             _deployMinterForMarket(stateData, config.marketsBTC[i]);
         }
+    }
+
+    /// @notice Deploy GOLD pegged token and all GOLD markets.
+    function deployAll_GOLD(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
+        console.log("");
+        console.log("--- Deploying GOLD Peg and Markets ---");
+
+        deployPeggedTokenWithRoles(stateData, config.pegGOLD, config.marketsGOLD, baoFactory(), owner(), systemSalt());
+
         for (uint256 i = 0; i < config.marketsGOLD.length; i++) {
+            deployLeveragedTokenWithRoles(stateData, config.marketsGOLD[i], baoFactory(), owner(), systemSalt());
             _deployMinterForMarket(stateData, config.marketsGOLD[i]);
         }
+    }
+
+    /// @notice Deploy EUR pegged token and all EUR markets.
+    function deployAll_EUR(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
+        console.log("");
+        console.log("--- Deploying EUR Peg and Markets ---");
+
+        deployPeggedTokenWithRoles(stateData, config.pegEUR, config.marketsEUR, baoFactory(), owner(), systemSalt());
+
         for (uint256 i = 0; i < config.marketsEUR.length; i++) {
+            deployLeveragedTokenWithRoles(stateData, config.marketsEUR[i], baoFactory(), owner(), systemSalt());
             _deployMinterForMarket(stateData, config.marketsEUR[i]);
         }
+    }
+
+    /// @notice Deploy MCAP pegged token and all MCAP markets.
+    function deployAll_MCAP(DeploymentTypes.State memory stateData, AllMintersConfig memory config) private {
+        console.log("");
+        console.log("--- Deploying MCAP Peg and Markets ---");
+
+        deployPeggedTokenWithRoles(stateData, config.pegMCAP, config.marketsMCAP, baoFactory(), owner(), systemSalt());
+
         for (uint256 i = 0; i < config.marketsMCAP.length; i++) {
+            deployLeveragedTokenWithRoles(stateData, config.marketsMCAP[i], baoFactory(), owner(), systemSalt());
             _deployMinterForMarket(stateData, config.marketsMCAP[i]);
         }
+    }
+
+    // Public wrapper functions for individual peg deployments
+
+    /// @notice Deploy ETH pegged token and all ETH markets (public entry point).
+    function deployAll_ETH(AllMintersConfig memory config, string memory network, bool useLocal) internal {
+        DeploymentTypes.State memory stateData = _loadOrSeedState(network, useLocal);
+        deployAll_ETH(stateData, config);
+        _finalizeDeploy(stateData);
+    }
+
+    /// @notice Deploy BTC pegged token and all BTC markets (public entry point).
+    function deployAll_BTC(AllMintersConfig memory config, string memory network, bool useLocal) internal {
+        DeploymentTypes.State memory stateData = _loadOrSeedState(network, useLocal);
+        deployAll_BTC(stateData, config);
+        _finalizeDeploy(stateData);
+    }
+
+    /// @notice Deploy GOLD pegged token and all GOLD markets (public entry point).
+    function deployAll_GOLD(AllMintersConfig memory config, string memory network, bool useLocal) internal {
+        DeploymentTypes.State memory stateData = _loadOrSeedState(network, useLocal);
+        deployAll_GOLD(stateData, config);
+        _finalizeDeploy(stateData);
+    }
+
+    /// @notice Deploy EUR pegged token and all EUR markets (public entry point).
+    function deployAll_EUR(AllMintersConfig memory config, string memory network, bool useLocal) internal {
+        DeploymentTypes.State memory stateData = _loadOrSeedState(network, useLocal);
+        deployAll_EUR(stateData, config);
+        _finalizeDeploy(stateData);
+    }
+
+    /// @notice Deploy MCAP pegged token and all MCAP markets (public entry point).
+    function deployAll_MCAP(AllMintersConfig memory config, string memory network, bool useLocal) internal {
+        DeploymentTypes.State memory stateData = _loadOrSeedState(network, useLocal);
+        deployAll_MCAP(stateData, config);
+        _finalizeDeploy(stateData);
+    }
+
+    function _loadOrSeedState(
+        string memory network,
+        bool useLocal
+    ) private returns (DeploymentTypes.State memory stateData) {
+        stateData = _shouldPersistState()
+            ? DeploymentState.load(network, systemSalt(), useLocal, _stateDirectoryPrefix())
+            : _seedEphemeralState(systemSalt(), network, useLocal);
+        stateData.baoFactory = baoFactory();
+
+        console.log("");
+        console.log("================================================================================");
+        console.log("                          DEPLOYING MINTER CONTRACTS");
+        console.log("================================================================================");
+        console.log("  Salt:    %s", systemSalt());
+        console.log("  Network: %s", network);
+        return stateData;
+    }
+
+    function _finalizeDeploy(DeploymentTypes.State memory stateData) private {
+        _transferAllOwnerships();
+
+        if (_shouldPersistState()) {
+            DeploymentState.save(stateData, _stateDirectoryPrefix());
+        }
+        console.log("");
+        console.log("================================================================================");
+        console.log("                          MINTER DEPLOYMENT COMPLETE");
+        console.log("================================================================================");
     }
 
     /// @notice Deploy complete minter infrastructure for a single market.

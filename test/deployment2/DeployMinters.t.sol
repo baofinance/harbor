@@ -35,7 +35,7 @@ contract TestDeployMintersHarness is DeployMintersBase {
     function deployAllMintersWrapper(string memory systemSaltArg, string memory network, bool useLocal) external {
         _setSystemSalt(systemSaltArg);
         AllMintersConfig memory config = createAllMintersConfig();
-        deployAllMinters(config, network, useLocal);
+        deployAll(config, network, useLocal);
     }
 
     /// @notice Return well-known addresses from the market config (which inherits chain config).
@@ -359,11 +359,11 @@ contract DeployMintersTest is BaoDeploymentTest {
         // Query well-known addresses from harness (which queries the market config)
         WellKnownAddress[] memory wellKnown = harness.queryWellKnownAddresses();
         uint256 wellKnownCount = wellKnown.length;
-        
+
         // Markets for price oracles
         string[7] memory markets = _getMarketSalts();
         uint256 priceOracleCount = markets.length * 2; // ref + candidate per market
-        
+
         // Each spec creates 2 entries (ref + candidate) + well-known + price oracles
         uint256 totalEntries = specs.length * 2 + wellKnownCount + priceOracleCount;
         currentKnownAddrs = new address[](totalEntries);
@@ -390,11 +390,11 @@ contract DeployMintersTest is BaoDeploymentTest {
             currentKnownAddrs[idx] = IBaoFactory(_factoryAddr).predictAddress(candSaltHash);
             currentKnownSalts[idx++] = string.concat(candidateSalt, "::", spec.salt);
         }
-        
+
         // Add price oracle addresses for each market (not deployed by us, but needed for matching)
         for (uint256 i = 0; i < markets.length; i++) {
             string memory oracleSalt = string.concat(markets[i], "::wrappedPriceAggregator");
-            
+
             bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", oracleSalt));
             bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", oracleSalt));
 
@@ -693,7 +693,12 @@ contract DeployMintersTest is BaoDeploymentTest {
         if (!ok) {
             if (okRef && okCand && spec.kind == ReturnKind.AddressKind && _secondChanceAddressMatch(refOut, candOut)) {
                 ok = true;
-            } else if (okRef && okCand && spec.kind == ReturnKind.AddressArrayKind && _secondChanceAddressArrayMatch(refOut, candOut)) {
+            } else if (
+                okRef &&
+                okCand &&
+                spec.kind == ReturnKind.AddressArrayKind &&
+                _secondChanceAddressArrayMatch(refOut, candOut)
+            ) {
                 ok = true;
             } else {
                 _logMismatch(label, spec.sig, refOut, candOut, "", spec.kind);
@@ -852,13 +857,17 @@ contract DeployMintersTest is BaoDeploymentTest {
         uint256 candLen = candAddrs.length;
         uint256 maxLen = refLen > candLen ? refLen : candLen;
 
-        mismatchDetails.push(string.concat("    ", _padLabel(REFERENCE_SALT), " (", vm.toString(refLen), " elements):"));
+        mismatchDetails.push(
+            string.concat("    ", _padLabel(REFERENCE_SALT), " (", vm.toString(refLen), " elements):")
+        );
         for (uint256 i = 0; i < refLen; i++) {
             string memory salt = _findSalt(refAddrs[i]);
             mismatchDetails.push(string.concat("      [", vm.toString(i), "] ", _formatAddr(refAddrs[i], salt)));
         }
 
-        mismatchDetails.push(string.concat("    ", _padLabel(CANDIDATE_SALT), " (", vm.toString(candLen), " elements):"));
+        mismatchDetails.push(
+            string.concat("    ", _padLabel(CANDIDATE_SALT), " (", vm.toString(candLen), " elements):")
+        );
         for (uint256 i = 0; i < candLen; i++) {
             string memory salt = _findSalt(candAddrs[i]);
             mismatchDetails.push(string.concat("      [", vm.toString(i), "] ", _formatAddr(candAddrs[i], salt)));
@@ -870,15 +879,26 @@ contract DeployMintersTest is BaoDeploymentTest {
             for (uint256 i = 0; i < maxLen; i++) {
                 address refAddr = i < refLen ? refAddrs[i] : address(0);
                 address candAddr = i < candLen ? candAddrs[i] : address(0);
-                
+
                 if (refAddr != candAddr) {
                     // Check second-chance match
-                    if (_secondChanceWordMatch(bytes32(uint256(uint160(refAddr))), bytes32(uint256(uint160(candAddr))))) {
+                    if (
+                        _secondChanceWordMatch(bytes32(uint256(uint160(refAddr))), bytes32(uint256(uint160(candAddr))))
+                    ) {
                         mismatchDetails.push(string.concat("      [", vm.toString(i), "] [MATCH via salt]"));
                     } else {
                         string memory refSalt = _findSalt(refAddr);
                         string memory candSalt = _findSalt(candAddr);
-                        mismatchDetails.push(string.concat("      [", vm.toString(i), "] DIFF: ", _formatAddr(refAddr, refSalt), " vs ", _formatAddr(candAddr, candSalt)));
+                        mismatchDetails.push(
+                            string.concat(
+                                "      [",
+                                vm.toString(i),
+                                "] DIFF: ",
+                                _formatAddr(refAddr, refSalt),
+                                " vs ",
+                                _formatAddr(candAddr, candSalt)
+                            )
+                        );
                     }
                 }
             }
@@ -902,7 +922,7 @@ contract DeployMintersTest is BaoDeploymentTest {
                 if (_secondChanceWordMatch(refWord, candWord)) {
                     continue; // Equivalent addresses, skip this field
                 }
-                
+
                 // Determine likely type from content and format accordingly
                 string memory refFormatted = _formatWord(refWord);
                 string memory candFormatted = _formatWord(candWord);
@@ -923,10 +943,26 @@ contract DeployMintersTest is BaoDeploymentTest {
         IMinter.Config memory candConfig = abi.decode(candOut, (IMinter.Config));
 
         // Compare each IncentiveConfig
-        _compareIncentiveConfig("mintPeggedIncentiveConfig", refConfig.mintPeggedIncentiveConfig, candConfig.mintPeggedIncentiveConfig);
-        _compareIncentiveConfig("redeemPeggedIncentiveConfig", refConfig.redeemPeggedIncentiveConfig, candConfig.redeemPeggedIncentiveConfig);
-        _compareIncentiveConfig("mintLeveragedIncentiveConfig", refConfig.mintLeveragedIncentiveConfig, candConfig.mintLeveragedIncentiveConfig);
-        _compareIncentiveConfig("redeemLeveragedIncentiveConfig", refConfig.redeemLeveragedIncentiveConfig, candConfig.redeemLeveragedIncentiveConfig);
+        _compareIncentiveConfig(
+            "mintPeggedIncentiveConfig",
+            refConfig.mintPeggedIncentiveConfig,
+            candConfig.mintPeggedIncentiveConfig
+        );
+        _compareIncentiveConfig(
+            "redeemPeggedIncentiveConfig",
+            refConfig.redeemPeggedIncentiveConfig,
+            candConfig.redeemPeggedIncentiveConfig
+        );
+        _compareIncentiveConfig(
+            "mintLeveragedIncentiveConfig",
+            refConfig.mintLeveragedIncentiveConfig,
+            candConfig.mintLeveragedIncentiveConfig
+        );
+        _compareIncentiveConfig(
+            "redeemLeveragedIncentiveConfig",
+            refConfig.redeemLeveragedIncentiveConfig,
+            candConfig.redeemLeveragedIncentiveConfig
+        );
     }
 
     /// @notice Compare two IncentiveConfig structs and log differences.
@@ -936,7 +972,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         IMinter.IncentiveConfig memory cand
     ) private {
         bool hasDiff = false;
-        
+
         // Check if lengths differ
         if (ref.collateralRatioBandUpperBounds.length != cand.collateralRatioBandUpperBounds.length) {
             hasDiff = true;
@@ -944,10 +980,10 @@ contract DeployMintersTest is BaoDeploymentTest {
         if (ref.incentiveRatios.length != cand.incentiveRatios.length) {
             hasDiff = true;
         }
-        
+
         // Check values (up to min length)
-        uint256 boundsLen = ref.collateralRatioBandUpperBounds.length < cand.collateralRatioBandUpperBounds.length 
-            ? ref.collateralRatioBandUpperBounds.length 
+        uint256 boundsLen = ref.collateralRatioBandUpperBounds.length < cand.collateralRatioBandUpperBounds.length
+            ? ref.collateralRatioBandUpperBounds.length
             : cand.collateralRatioBandUpperBounds.length;
         for (uint256 i = 0; i < boundsLen; i++) {
             if (ref.collateralRatioBandUpperBounds[i] != cand.collateralRatioBandUpperBounds[i]) {
@@ -955,9 +991,9 @@ contract DeployMintersTest is BaoDeploymentTest {
                 break;
             }
         }
-        
-        uint256 ratiosLen = ref.incentiveRatios.length < cand.incentiveRatios.length 
-            ? ref.incentiveRatios.length 
+
+        uint256 ratiosLen = ref.incentiveRatios.length < cand.incentiveRatios.length
+            ? ref.incentiveRatios.length
             : cand.incentiveRatios.length;
         for (uint256 i = 0; i < ratiosLen; i++) {
             if (ref.incentiveRatios[i] != cand.incentiveRatios[i]) {
@@ -965,11 +1001,13 @@ contract DeployMintersTest is BaoDeploymentTest {
                 break;
             }
         }
-        
+
         if (hasDiff) {
             mismatchDetails.push(string.concat("    [", fieldName, "]"));
             mismatchDetails.push(string.concat("      ", _padLabel(REFERENCE_SALT), ": ", _formatIncentiveConfig(ref)));
-            mismatchDetails.push(string.concat("      ", _padLabel(CANDIDATE_SALT), ": ", _formatIncentiveConfig(cand)));
+            mismatchDetails.push(
+                string.concat("      ", _padLabel(CANDIDATE_SALT), ": ", _formatIncentiveConfig(cand))
+            );
         }
     }
 
@@ -983,7 +1021,7 @@ contract DeployMintersTest is BaoDeploymentTest {
     /// @notice Format uint256[] as comma-separated values with scientific notation.
     function _formatUintArray(uint256[] memory arr) private pure returns (string memory) {
         if (arr.length == 0) return "[]";
-        
+
         string memory result = "[";
         for (uint256 i = 0; i < arr.length; i++) {
             if (i > 0) result = string.concat(result, ", ");
@@ -995,7 +1033,7 @@ contract DeployMintersTest is BaoDeploymentTest {
     /// @notice Format int256[] as comma-separated values with scientific notation.
     function _formatIntArray(int256[] memory arr) private pure returns (string memory) {
         if (arr.length == 0) return "[]";
-        
+
         string memory result = "[";
         for (uint256 i = 0; i < arr.length; i++) {
             if (i > 0) result = string.concat(result, ", ");
@@ -1032,7 +1070,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         string memory s = _uintToString(v);
         bytes memory b = bytes(s);
         if (b.length >= width) return s;
-        
+
         bytes memory padded = new bytes(width);
         uint256 padding = width - b.length;
         for (uint256 i = 0; i < padding; i++) {
@@ -1066,24 +1104,24 @@ contract DeployMintersTest is BaoDeploymentTest {
     function _secondChanceWordMatch(bytes32 refWord, bytes32 candWord) private view returns (bool) {
         uint256 refVal = uint256(refWord);
         uint256 candVal = uint256(candWord);
-        
+
         // Both must look like addresses (fit in uint160)
         if (refVal > type(uint160).max || candVal > type(uint160).max) return false;
         if (refVal == 0 || candVal == 0) return false;
-        
+
         address refAddr = address(uint160(refVal));
         address candAddr = address(uint160(candVal));
-        
+
         string memory refSalt = _findSalt(refAddr);
         string memory candSalt = _findSalt(candAddr);
-        
+
         // Both must have known salts
         if (bytes(refSalt).length == 0 || bytes(candSalt).length == 0) return false;
-        
+
         // Compare salt tails (strip the system prefix)
         string memory refTail = _saltTail(refSalt);
         string memory candTail = _saltTail(candSalt);
-        
+
         return keccak256(bytes(refTail)) == keccak256(bytes(candTail));
     }
 
@@ -1254,25 +1292,28 @@ contract DeployMintersTest is BaoDeploymentTest {
         );
     }
 
-    function _secondChanceAddressArrayMatch(bytes memory refOut, bytes memory candOut) private view returns (bool matched) {
+    function _secondChanceAddressArrayMatch(
+        bytes memory refOut,
+        bytes memory candOut
+    ) private view returns (bool matched) {
         address[] memory refAddrs = abi.decode(refOut, (address[]));
         address[] memory candAddrs = abi.decode(candOut, (address[]));
-        
+
         if (refAddrs.length != candAddrs.length) return false;
-        
+
         for (uint256 i = 0; i < refAddrs.length; i++) {
             if (refAddrs[i] == candAddrs[i]) continue;
-            
+
             // Check second-chance match via salt tail
             string memory refSalt = _findSalt(refAddrs[i]);
             string memory candSalt = _findSalt(candAddrs[i]);
             if (bytes(refSalt).length == 0 || bytes(candSalt).length == 0) return false;
-            
+
             string memory refTail = _saltTail(refSalt);
             string memory candTail = _saltTail(candSalt);
             if (keccak256(bytes(refTail)) != keccak256(bytes(candTail))) return false;
         }
-        
+
         matched = true;
     }
 

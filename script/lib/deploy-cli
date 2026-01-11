@@ -18,12 +18,13 @@ set -euo pipefail
 }
 
 # Common argument parsing for deployment scripts
-# Sets: NETWORK, SALT, ACCOUNT, USE_LOCAL
+# Sets: NETWORK, SALT, ACCOUNT, USE_LOCAL, PEG
 NETWORK=""
 SALT=""
 USE_LOCAL=false
 FORGE_ARGS=()
 ACCOUNT=""
+PEG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,6 +43,10 @@ while [[ $# -gt 0 ]]; do
     --local)
       USE_LOCAL=true
       shift
+      ;;
+    --peg)
+      PEG=$2
+      shift 2
       ;;
     --resume)
       FORGE_ARGS+=(--resume)
