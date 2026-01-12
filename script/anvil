@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Block number when BaoFactory was deployed
+FACTORY_BLOCK=24046017 # set operator # created 24033720
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--block <spec>] [anvil-options...]
+
+Fork mainnet with anvil.
+
+Options:
+  --block latest     Use the latest block
+  --block factory    Use block $FACTORY_BLOCK (when BaoFactory was deployed) [default]
+  --block <number>   Use a specific block number
+  --block <time>     Use block at given time (ISO 8601, e.g., 2025-12-01T12:00:00Z)
+  -h, --help         Show this help
+
+All other options are passed through to anvil.
+EOF
+  exit 0
+}
+
+# Parse arguments
+BLOCK_SPEC="factory"
+PASSTHROUGH=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help)
+      usage
+      ;;
+    --block)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --block requires an argument" >&2
+        exit 1
+      fi
+      BLOCK_SPEC="$2"
+      shift 2
+      ;;
+    *)
+      PASSTHROUGH+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Resolve block spec to a block number
+resolve_block() {
+  local spec="$1"
+
+  case "$spec" in
+    latest)
+      echo "" # Empty means no --fork-block-number flag
+      ;;
+    factory)
+      echo "$FACTORY_BLOCK"
+      ;;
+    [0-9]*)
+      # Numeric block number
+      echo "$spec"
+      ;;
+    *)
+      # Assume ISO 8601 timestamp - convert to block number
+      local timestamp
+      timestamp=$(date -d "$spec" +%s 2>/dev/null) || {
+        echo "Error: Invalid time format '$spec'. Use ISO 8601 (e.g., 2025-12-01T12:00:00Z)" >&2
+        exit 1
+      }
+      # Use cast to find block by timestamp
+      cast find-block "$timestamp" --rpc-url mainnet
+      ;;
+  esac
+}
+
+BLOCK=$(resolve_block "$BLOCK_SPEC")
+
+# Build anvil command
+ANVIL_ARGS=(
+  --fork-url "mainnet"
+  --auto-impersonate
+)
+
+if [[ -n "$BLOCK" ]]; then
+  ANVIL_ARGS+=(--fork-block-number "$BLOCK")
+  echo "Forking mainnet at block $BLOCK"
+else
+  echo "Forking mainnet at latest block"
+fi
+
+exec anvil "${ANVIL_ARGS[@]}" "${PASSTHROUGH[@]}"

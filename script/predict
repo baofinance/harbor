@@ -3,12 +3,17 @@
 # Parse arguments
 network="mainnet"
 salt_input=""
+porcelain=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --network)
       network="$2"
       shift 2
+      ;;
+    --porcelain)
+      porcelain=true
+      shift
       ;;
     *)
       salt_input="$1"
@@ -18,7 +23,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$salt_input" ]]; then
-  echo "Usage: predict [--network <network>] <salt>"
+  echo "Usage: predict [--network <network>] [--porcelain] <salt>"
   exit 1
 fi
 
@@ -29,9 +34,15 @@ if [[ "$salt_input" == test2* ]]; then
 else
   factory="0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
 fi
-echo "factory:        $factory"
 
 address=$(cast call "$factory" "predictAddress(bytes32)(address)" $salt --rpc-url "$network")
+
+if [[ "$porcelain" == true ]]; then
+  echo "$address"
+  exit 0
+fi
+
+echo "factory:        $factory"
 echo "address:        ${address} https://etherscan.io/address/${address}#code"
 echo "                ------------------------------------------"
 implementation=$(cast implementation ${address} --rpc-url "$network")

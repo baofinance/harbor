@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ $# -eq 0 ]]; then
+  echo "Usage: cast [--network <network>] <command with salt strings>"
+  echo "Example: cast call harbor_v1::BTC::pegged 'owner()(address)'"
+  echo "         cast --network mainnet call harbor_v1::BTC::pegged 'owner()(address)'"
+  exit 1
+fi
+
+# Parse network option
+network="mainnet"
+if [[ "$1" == "--network" ]]; then
+  network="$2"
+  shift 2
+fi
+
+# Known salt components
+PREFIXES=("harbor_v1" "test2")
+PEGS=("BTC" "ETH" "EUR" "GOLD")
+COLLATERALS=("stETH" "fxUSD")
+CONTRACTS=("pegged" "leveraged" "minter" "stabilityPoolManager" "stabilityPoolCollateral" "stabilityPoolLeveraged" "reservePool" "genesis" "minterFeeReceiver" "stabilityPoolManagerFeeReceiver")
+
+# Well-known fixed addresses (name=address)
+declare -A KNOWN_ADDRESSES=(
+  # ["defiJane"]="0x2f5E08Ef5A99a98336519E54F58D503F550BD9AC"
+  ["treasury"]="0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
+  ["owner"]="0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
+  ["fxSave"]="0x7e3670dd56D76E9FA73508C7C7cbbC2E6a9b3c80"
+  ["stETH"]="0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84"
+  ["wstETH"]="0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
+  ["fxUSD"]="0x085780639CC2cACd35E474e71f4d000e2405d8f6"
+)
+
+# Reverse lookup for known fixed addresses
+lookup_known_address() {
+  local addr="$1"
+  local addr_lower=$(echo "$addr" | tr '[:upper:]' '[:lower:]')
+  for name in "${!KNOWN_ADDRESSES[@]}"; do
+    known_lower=$(echo "${KNOWN_ADDRESSES[$name]}" | tr '[:upper:]' '[:lower:]')
+    if [[ "$known_lower" == "$addr_lower" ]]; then
+      echo "$name"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Compute CREATE3 address locally (no RPC calls)
+# Uses solady CREATE3 formula: proxy = CREATE2(factory, salt, initCodeHash), deployed = CREATE(proxy, nonce=1)
+INIT_CODE_HASH="21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f"
+
+compute_create3_address() {
+  local factory="$1"
+  local salt_string="$2"
+
+  # Hash the salt string
+  local salt=$(cast keccak "$salt_string")
+  local salt_clean=${salt#0x}
+  local factory_clean=${factory#0x}
+
+  # Step 1: Compute proxy address using CREATE2
+  # proxy = keccak256(0xff ++ factory ++ salt ++ initCodeHash)[12:32]
+  local preimage=$(cast concat-hex 0xff "$factory" "$salt" "0x$INIT_CODE_HASH")
+  local proxy_hash=$(cast keccak "$preimage")
+  local proxy="0x${proxy_hash:26}"
+
+  # Step 2: Compute deployed address using CREATE with nonce 1
+  # RLP([proxy, 1]) = 0xd694 ++ proxy ++ 0x01
+  local proxy_clean=${proxy#0x}
+  local rlp="0xd694${proxy_clean}01"
+  local deployed_hash=$(cast keccak "$rlp")
+  echo "0x${deployed_hash:26}"
+}
+
+# Get factory for a salt prefix
+get_factory() {
+  local salt="$1"
+  if [[ "$salt" == test2* ]]; then
+    echo "0x232C909F51Ce792e7F39106C75A3ED43F12d3554"
+  else
+    echo "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
+  fi
+}
+
+# Reverse lookup: address -> salt (using local computation, no RPC)
+reverse_lookup() {
+  local addr="$1"
+  local addr_lower=$(echo "$addr" | tr '[:upper:]' '[:lower:]')
+
+  for prefix in "${PREFIXES[@]}"; do
+    local factory=$(get_factory "$prefix")
+    for peg in "${PEGS[@]}"; do
+      # Try peg-only salts (e.g., harbor_v1::BTC::pegged)
+      salt="${prefix}::${peg}::pegged"
+      predicted=$(compute_create3_address "$factory" "$salt")
+      if [[ "$(echo "$predicted" | tr '[:upper:]' '[:lower:]')" == "$addr_lower" ]]; then
+        echo "$salt"
+        return 0
+      fi
+
+      # Try collateral-specific salts
+      for collateral in "${COLLATERALS[@]}"; do
+        for contract in "${CONTRACTS[@]}"; do
+          [[ "$contract" == "pegged" ]] && continue # Already handled above
+          salt="${prefix}::${peg}::${collateral}::${contract}"
+          predicted=$(compute_create3_address "$factory" "$salt")
+          if [[ "$(echo "$predicted" | tr '[:upper:]' '[:lower:]')" == "$addr_lower" ]]; then
+            echo "$salt"
+            return 0
+          fi
+        done
+      done
+    done
+  done
+  return 1
+}
+
+# ENS reverse lookup
+lookup_ens() {
+  local addr="$1"
+  local ens
+  ens=$(cast lookup-address "$addr" --rpc-url "$network" 2>/dev/null || echo "")
+  if [[ -n "$ens" && "$ens" != "null" ]]; then
+    echo "$ens"
+    return 0
+  fi
+  return 1
+}
+
+# Build the command by replacing salt strings with addresses
+args=()
+display_args=()
+for arg in "$@"; do
+  # Check if arg is a known address name
+  if [[ -n "${KNOWN_ADDRESSES[$arg]:-}" ]]; then
+    address="${KNOWN_ADDRESSES[$arg]}"
+    args+=("$address")
+    display_args+=("$address ($arg)")
+  # Check if arg looks like a salt string (contains ::)
+  elif [[ "$arg" =~ ^[a-zA-Z0-9_]+::[a-zA-Z0-9_:]+ ]]; then
+    # Replace salt with predicted address
+    address=$("$SCRIPT_DIR/predict" --network "$network" --porcelain "$arg")
+    args+=("$address")
+    display_args+=("$address ($arg)")
+  # Check if arg looks like an address
+  elif [[ "$arg" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
+    args+=("$arg")
+    # Try known addresses first, then salt reverse lookup, then ENS
+    if name=$(lookup_known_address "$arg"); then
+      display_args+=("$arg ($name)")
+    elif salt=$(reverse_lookup "$arg"); then
+      display_args+=("$arg ($salt)")
+    elif ens=$(lookup_ens "$arg"); then
+      display_args+=("$arg ($ens)")
+    else
+      display_args+=("$arg")
+    fi
+  else
+    args+=("$arg")
+    display_args+=("$arg")
+  fi
+done
+
+# Print and execute, then annotate output
+echo "→ cast ${display_args[*]} --rpc-url $network"
+output=$(cast "${args[@]}" --rpc-url "$network")
+
+# Annotate any known addresses in the output
+annotate_output() {
+  local text="$1"
+  # First pass: known addresses
+  for name in "${!KNOWN_ADDRESSES[@]}"; do
+    addr="${KNOWN_ADDRESSES[$name]}"
+    # Case-insensitive replacement: address -> address (name)
+    text=$(echo "$text" | sed "s/${addr}/${addr} (${name})/Ig")
+  done
+
+  # Second pass: find remaining addresses and try ENS lookup
+  # Extract all 0x addresses that don't already have annotations
+  while read -r addr; do
+    [[ -z "$addr" ]] && continue
+    # Skip if already annotated (has parentheses after it)
+    if echo "$text" | grep -q "${addr} ("; then
+      continue
+    fi
+    # Try ENS lookup
+    if ens=$(lookup_ens "$addr"); then
+      text=$(echo "$text" | sed "s/${addr}/${addr} (${ens})/Ig")
+    fi
+  done < <(echo "$text" | grep -oE '0x[a-fA-F0-9]{40}' | sort -u)
+
+  echo "$text"
+}
+
+annotate_output "$output"

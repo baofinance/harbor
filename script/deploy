@@ -22,15 +22,17 @@ Required:
 Options:
   --account <name>  Foundry keystore account name (required for non-local)
   --local           Use local anvil (auto-impersonate, state in local directory)
+  --timestamp       Add timestamp to local state directory (requires --local)
   -h, --help        Show this help message
 EOF
 }
 
 # Common argument parsing for deployment scripts
-# Sets: NETWORK, SALT, ACCOUNT, USE_LOCAL, PEG
+# Sets: NETWORK, SALT, ACCOUNT, USE_LOCAL, USE_TIMESTAMP, PEG
 NETWORK=""
 SALT=""
 USE_LOCAL=false
+USE_TIMESTAMP=false
 FORGE_ARGS=()
 ACCOUNT=""
 PEG=""
@@ -51,6 +53,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --local)
       USE_LOCAL=true
+      shift
+      ;;
+    --timestamp)
+      USE_TIMESTAMP=true
       shift
       ;;
     --peg)
@@ -94,10 +100,18 @@ done
   echo "❌ --account required (or use --local)" >&2
   exit 1
 }
+[[ "$USE_TIMESTAMP" == false || "$USE_LOCAL" == true ]] || {
+  echo "❌ --timestamp requires --local" >&2
+  exit 1
+}
 
 if [[ "$USE_LOCAL" == true ]]; then
-	RPC_URL="local"
-	export DEPLOY_STATE_SUBDIR="local-$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  RPC_URL="local"
+  if [[ "$USE_TIMESTAMP" == true ]]; then
+    export DEPLOY_STATE_SUBDIR="local-$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  else
+    export DEPLOY_STATE_SUBDIR="local"
+  fi
 else
   RPC_URL=$NETWORK
 fi
