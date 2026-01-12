@@ -2,14 +2,18 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {MinterTokenShared} from "./MinterTokenShared.sol";
+import {FactoryDeployer} from "../FactoryDeployer.sol";
 import {DeploymentTypes} from "../DeploymentTypes.sol";
+import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
+import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Harbor leveraged token deployment logic.
 /// @dev Leveraged tokens are unique per market (e.g., hsFXUSD-BTC for BTC::fxUSD market).
-abstract contract LeveragedToken is MinterTokenShared {
+abstract contract LeveragedToken is FactoryDeployer {
     using LibString for string;
 
     // ========== LEVERAGED TOKEN DEPLOYMENT ==========
@@ -28,15 +32,34 @@ abstract contract LeveragedToken is MinterTokenShared {
         string memory tokenName = string.concat("Harbor sail: variable leveraged long ", collateral, " against ", peg);
         string memory tokenSymbol = string.concat("hs", collateral.upper(), "-", peg.upper());
 
-        leveragedToken = _deployToken(
-            stateData,
-            leveragedKey,
-            tokenName,
-            tokenSymbol,
-            DeploymentTypes.FragmentKind.MinterMarket
+        console.log("  > %s", leveragedKey);
+        console.log("      Name:   %s", tokenName);
+        console.log("      Symbol: %s", tokenSymbol);
+
+        address impl = address(new MintableBurnableERC20_v1());
+        console.log("      Impl:   %s", impl);
+
+        bytes memory initData = abi.encodeCall(
+            MintableBurnableERC20_v1.initialize,
+            (owner(), tokenName, tokenSymbol)
         );
 
+        leveragedToken = _deployProxyAndRecord(
+            stateData,
+            leveragedKey,
+            DeploymentTypes.FragmentKind.MinterMarket,
+            leveragedKey,
+            impl,
+            "@bao/MintableBurnableERC20_v1.sol",
+            "MintableBurnableERC20_v1",
+            initData
+        );
+
+        // Grant minter roles
         console.log("      Roles:");
-        _grantMinterRolesForMarketKey(leveragedToken, marketKey);
+        address minter = _predictAddress(marketKey, "minter");
+        console.log("        MINTER -> %s", marketKey);
+        uint256 roles = IMintableRole(leveragedToken).MINTER_ROLE() | IBurnableRole(leveragedToken).BURNER_ROLE();
+        IBaoRoles(leveragedToken).grantRoles(minter, roles);
     }
 }
