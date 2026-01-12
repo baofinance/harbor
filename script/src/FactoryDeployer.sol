@@ -7,6 +7,8 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {ConfigProtocol, WellKnownAddress} from "script/config/chains/ConfigProtocol.sol";
+import {DeploymentState} from "./DeploymentState.sol";
+import {DeploymentTypes} from "./DeploymentTypes.sol";
 
 interface IUUPSProxyUpgrade {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
@@ -132,7 +134,65 @@ abstract contract FactoryDeployer is ConfigProtocol {
         return IBaoFactory(baoFactory()).predictAddress(salt);
     }
 
+    // ========== DEPLOY AND RECORD ==========
+
+    /// @notice Deploy a proxy and record both implementation and proxy in state.
+    /// @dev This is the main entry point for all proxy deployments - ensures recording cannot be forgotten.
+    /// @param stateData Deployment state to record into.
+    /// @param proxyId The proxy identifier (e.g., "ETH::fxUSD::minter").
+    /// @param fragmentKind The kind of fragment this proxy belongs to.
+    /// @param fragmentKey The fragment key (typically marketKey or peg).
+    /// @param implementation The implementation contract address.
+    /// @param contractSource Source file path for the implementation (e.g., "@harbor/minter/Minter_v1.sol").
+    /// @param contractType Contract type name (e.g., "Minter_v1").
+    /// @param initData Initialization calldata for the proxy.
+    /// @return proxy The deployed proxy address.
+    function _deployProxyAndRecord(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        DeploymentTypes.FragmentKind fragmentKind,
+        string memory fragmentKey,
+        address implementation,
+        string memory contractSource,
+        string memory contractType,
+        bytes memory initData
+    ) internal returns (address proxy) {
+        bytes32 salt = keccak256(abi.encodePacked(systemSalt(), "::", proxyId));
+        proxy = deployProxy(baoFactory(), salt, implementation, initData);
+
+        // Record implementation
+        DeploymentState.recordImplementation(
+            stateData,
+            DeploymentTypes.ImplementationRecord({
+                proxy: proxyId,
+                contractSource: contractSource,
+                contractType: contractType,
+                implementation: implementation,
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+
+        // Record proxy
+        DeploymentState.recordProxy(
+            stateData,
+            DeploymentTypes.ProxyRecord({
+                id: proxyId,
+                fragment: DeploymentTypes.FragmentDescriptor({key: fragmentKey, kind: fragmentKind}),
+                proxy: proxy,
+                implementation: implementation,
+                salt: systemSalt(),
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+
+        // Register for ownership transfer
+        _registerForOwnershipTransfer(proxy, _saltString(proxyId));
+
+        console.log("        Proxy: %s", proxy);
+    }
+
     /// @notice Deploy a proxy via CREATE3 using BaoFactory.
+    /// @dev Private - all deployments must go through _deployProxyAndRecord() to ensure recording.
     /// @param factory BaoFactory address.
     /// @param salt CREATE3 salt.
     /// @param implementation Implementation contract address.
@@ -143,7 +203,7 @@ abstract contract FactoryDeployer is ConfigProtocol {
         bytes32 salt,
         address implementation,
         bytes memory initData
-    ) internal returns (address proxy) {
+    ) private returns (address proxy) {
         IBaoFactory baoFactoryContract = IBaoFactory(factory);
 
         // Predict proxy address

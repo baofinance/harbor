@@ -11,30 +11,6 @@ import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
 /// @notice ETH-specific minter deployment functionality.
 abstract contract Deploy_ETH_Minter is DeployMintersShared {
-    /// @notice Deploy ETH pegged token and all ETH markets.
-    function deployAll_ETH(
-        DeploymentTypes.State memory stateData,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory markets
-    ) internal {
-        console.log("");
-        console.log("--- Deploying ETH Peg and Markets ---");
-
-        deployPeggedTokenWithRoles(stateData, peg, markets, baoFactory(), owner(), systemSalt());
-
-        for (uint256 i = 0; i < markets.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, markets[i], baoFactory(), owner(), systemSalt());
-            _deployMinterForMarket(stateData, markets[i]);
-        }
-    }
-
-    /// @notice Deploy ETH pegged token and all ETH markets (public entry point).
-    function deployAll_ETH(ConfigPeg peg, Config_MinterMarket[] memory markets, string memory network) internal {
-        DeploymentTypes.State memory stateData = _loadOrSeedState(network);
-        deployAll_ETH(stateData, peg, markets);
-        _finalizeDeploy(stateData);
-    }
-
     /// @notice Create ETH-specific config objects.
     function createETHMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH();

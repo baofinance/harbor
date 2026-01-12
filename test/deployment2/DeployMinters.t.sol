@@ -7,7 +7,6 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
-import {DeploymentTypes} from "script/src/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {WellKnownAddress} from "script/config/chains/ConfigProtocol.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -34,10 +33,10 @@ contract TestDeployMintersHarness is Deploy_BTC_Minter {
 
     /// @notice Deploy BTC minter contracts (tokens + infrastructure).
     /// @dev Requires fork with real external contracts (wrapped collateral, etc).
-    function deployAllMintersWrapper(string memory systemSaltArg, string memory network) external {
-        _setSystemSalt(systemSaltArg);
+    function deployAllMintersWrapper(string memory saltPrefix, string memory network) external {
+        _setSystemSalt(saltPrefix);
         (ConfigPeg peg, Config_MinterMarket[] memory markets) = createBTCMintersConfig();
-        deployAll_BTC(peg, markets, network);
+        deployAllForPeg(peg, markets, network);
     }
 
     /// @notice Return well-known addresses from the market config (which inherits chain config).

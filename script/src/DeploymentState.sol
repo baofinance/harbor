@@ -29,12 +29,16 @@ library DeploymentState {
         string memory network,
         string memory directoryPrefix
     ) private view returns (string memory) {
+        // DEPLOY_STATE_SUBDIR: optional subdirectory between deployments/ and network
+        // e.g., "local" → deployments/local/mainnet/
+        string memory subdir = vm.envOr("DEPLOY_STATE_SUBDIR", string(""));
         return
             string.concat(
                 vm.projectRoot(),
                 "/",
                 (directoryPrefix.eq("") ? "" : string.concat(directoryPrefix, "/")),
                 "deployments/",
+                (subdir.eq("") ? "" : string.concat(subdir, "/")),
                 network
             );
     }

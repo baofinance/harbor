@@ -20,49 +20,30 @@ import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 abstract contract Genesis is FactoryDeployer {
     // ========== GENESIS DEPLOYMENT ==========
 
-    /// @notice Deploy Genesis_v1 implementation.
-    /// @dev Constructor takes minter address as immutable.
-    function deployGenesisImpl(
-        address minter
-    ) internal returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord) {
-        impl = address(new Genesis_v1(minter));
-
-        implRecord = DeploymentTypes.ImplementationRecord({
-            proxy: "",
-            contractSource: "@harbor/minter/Genesis_v1.sol",
-            contractType: "Genesis_v1",
-            implementation: impl,
-            deploymentTime: uint64(block.timestamp)
-        });
-    }
-
-    /// @notice Deploy Genesis_v1 proxy.
-    function deployGenesisProxy(
-        address baoFactoryAddr,
+    /// @notice Deploy Genesis impl+proxy, record both in state, register for ownership transfer.
+    function deployGenesis(
+        DeploymentTypes.State memory stateData,
         string memory marketKey,
-        address implementation,
-        address tokenOwner,
-        string memory systemSalt
-    ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
+        address minter
+    ) internal returns (address proxy) {
         string memory genesisKey = string.concat(marketKey, "::genesis");
+        console.log("    > %s", genesisKey);
 
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", genesisKey));
-        bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (tokenOwner));
+        address impl = address(new Genesis_v1(minter));
+        console.log("        Impl:  %s", impl);
 
-        proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("        Proxy: %s", proxy);
+        bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (owner()));
 
-        proxyRecord = DeploymentTypes.ProxyRecord({
-            id: genesisKey,
-            fragment: DeploymentTypes.FragmentDescriptor({
-                key: marketKey,
-                kind: DeploymentTypes.FragmentKind.MinterMarket
-            }),
-            proxy: proxy,
-            implementation: implementation,
-            salt: systemSalt,
-            deploymentTime: uint64(block.timestamp)
-        });
+        proxy = _deployProxyAndRecord(
+            stateData,
+            genesisKey,
+            DeploymentTypes.FragmentKind.MinterMarket,
+            marketKey,
+            impl,
+            "@harbor/minter/Genesis_v1.sol",
+            "Genesis_v1",
+            initData
+        );
     }
 
     // ========== ADDRESS PREDICTION ==========
@@ -70,10 +51,10 @@ abstract contract Genesis is FactoryDeployer {
     /// @notice Predict genesis contract address from salt.
     function predictGenesisAddress(
         address baoFactoryAddr,
-        string memory systemSalt,
+        string memory saltPrefix,
         string memory marketKey
     ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", marketKey, "::genesis"));
+        bytes32 salt = keccak256(abi.encodePacked(saltPrefix, "::", marketKey, "::genesis"));
         return IBaoFactory(baoFactoryAddr).predictAddress(salt);
     }
 }

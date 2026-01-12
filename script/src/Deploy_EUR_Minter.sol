@@ -12,30 +12,6 @@ import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
 /// @notice EUR-specific minter deployment functionality.
 abstract contract Deploy_EUR_Minter is DeployMintersShared {
-    /// @notice Deploy EUR pegged token and all EUR markets.
-    function deployAll_EUR(
-        DeploymentTypes.State memory stateData,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory markets
-    ) internal {
-        console.log("");
-        console.log("--- Deploying EUR Peg and Markets ---");
-
-        deployPeggedTokenWithRoles(stateData, peg, markets, baoFactory(), owner(), systemSalt());
-
-        for (uint256 i = 0; i < markets.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, markets[i], baoFactory(), owner(), systemSalt());
-            _deployMinterForMarket(stateData, markets[i]);
-        }
-    }
-
-    /// @notice Deploy EUR pegged token and all EUR markets (public entry point).
-    function deployAll_EUR(ConfigPeg peg, Config_MinterMarket[] memory markets, string memory network) internal {
-        DeploymentTypes.State memory stateData = _loadOrSeedState(network);
-        deployAll_EUR(stateData, peg, markets);
-        _finalizeDeploy(stateData);
-    }
-
     /// @notice Create EUR-specific config objects.
     function createEURMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_EUR();

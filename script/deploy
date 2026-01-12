@@ -96,7 +96,8 @@ done
 }
 
 if [[ "$USE_LOCAL" == true ]]; then
-  RPC_URL="local"
+	RPC_URL="local"
+	export DEPLOY_STATE_SUBDIR="local-$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 else
   RPC_URL=$NETWORK
 fi
@@ -122,7 +123,9 @@ FORGE_ARGS+=(--broadcast --slow) # leaving out the --slow arg means it is unreli
 PEG_UPPER=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')
 SCRIPT_PATH="script/Deploy_${PEG_UPPER}_mainnet.s.sol:Deploy_${PEG_UPPER}_mainnet"
 
-echo "=== Deploy Minters ==="
+echo "======================================================"
+echo "DEPLOYING MINTERS"
+echo "======================================================"
 echo "Salt:       $SALT"
 echo "Network:    $NETWORK"
 echo "Peg:        $PEG"
@@ -130,8 +133,18 @@ echo "rpc-url:    $RPC_URL"
 echo "script:     $SCRIPT_PATH"
 echo "forge args: ${FORGE_ARGS[*]}"
 
+START_TIME=$(date +%s)
+
 forge script "$SCRIPT_PATH" \
   --sig 'run(string,string)' "$SALT" "$NETWORK" \
   "${FORGE_ARGS[@]}"
 
-echo "=== Deployment Complete ==="
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+MINS=$((ELAPSED / 60))
+SECS=$((ELAPSED % 60))
+
+echo "======================================================"
+echo "DEPLOYMENT COMPLETE"
+printf "Took: %dm %02ds\n" "$MINS" "$SECS"
+echo "======================================================"

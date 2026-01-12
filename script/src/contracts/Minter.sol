@@ -26,55 +26,35 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 abstract contract Minter is FactoryDeployer {
     // ========== MINTER DEPLOYMENT ==========
 
-    /// @notice Deploy Minter_v1 implementation.
-    /// @dev Constructor takes immutables: wrappedCollateral, peggedToken, leveragedToken, burnSignature.
-    function deployMinterImpl(
+    /// @notice Deploy Minter impl+proxy, record both in state, register for ownership transfer.
+    function deployMinter(
+        DeploymentTypes.State memory stateData,
+        string memory marketKey,
         address wrappedCollateral,
         address peggedToken,
         address leveragedToken
-    ) internal returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord) {
-        impl = address(new Minter_v1(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
-
-        implRecord = DeploymentTypes.ImplementationRecord({
-            proxy: "", // Will be set by caller when associating with a proxy
-            contractSource: "@harbor/minter/Minter_v1.sol",
-            contractType: "Minter_v1",
-            implementation: impl,
-            deploymentTime: uint64(block.timestamp)
-        });
-    }
-
-    /// @notice Deploy Minter_v1 proxy.
-    function deployMinterProxy(
-        address baoFactoryAddr,
-        string memory marketKey,
-        address implementation,
-        address tokenOwner,
-        string memory systemSalt
-    ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
+    ) internal returns (address proxy) {
         string memory minterKey = string.concat(marketKey, "::minter");
+        console.log("    > %s", minterKey);
 
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", minterKey));
-        bytes memory initData = abi.encodeCall(Minter_v1.initialize, (tokenOwner));
+        address impl = address(new Minter_v1(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
+        console.log("        Impl:  %s", impl);
 
-        proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("        Proxy: %s", proxy);
+        bytes memory initData = abi.encodeCall(Minter_v1.initialize, (owner()));
 
-        proxyRecord = DeploymentTypes.ProxyRecord({
-            id: minterKey,
-            fragment: DeploymentTypes.FragmentDescriptor({
-                key: marketKey,
-                kind: DeploymentTypes.FragmentKind.MinterMarket
-            }),
-            proxy: proxy,
-            implementation: implementation,
-            salt: systemSalt,
-            deploymentTime: uint64(block.timestamp)
-        });
+        proxy = _deployProxyAndRecord(
+            stateData,
+            minterKey,
+            DeploymentTypes.FragmentKind.MinterMarket,
+            marketKey,
+            impl,
+            "@harbor/minter/Minter_v1.sol",
+            "Minter_v1",
+            initData
+        );
     }
 
     /// @notice Configure a deployed Minter with its operational parameters.
-    /// @dev Separated from deployment for clarity and potential reuse in upgrades.
     function configureMinter(
         address minterProxy,
         IMinter.Config memory config,
@@ -90,7 +70,6 @@ abstract contract Minter is FactoryDeployer {
     }
 
     /// @notice Grant Minter roles to downstream contracts.
-    /// @dev HARVESTER_ROLE to StabilityPoolManager, ZERO_FEE_ROLE to Genesis.
     function grantMinterRoles(address minterProxy, address stabilityPoolManager, address genesis) internal {
         Minter_v1 minter = Minter_v1(minterProxy);
         minter.grantRoles(stabilityPoolManager, minter.HARVESTER_ROLE());
@@ -99,49 +78,29 @@ abstract contract Minter is FactoryDeployer {
 
     // ========== RESERVE POOL DEPLOYMENT ==========
 
-    /// @notice Deploy ReservePool_v1 implementation.
-    function deployReservePoolImpl()
-        internal
-        returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord)
-    {
-        impl = address(new ReservePool_v1());
-
-        implRecord = DeploymentTypes.ImplementationRecord({
-            proxy: "",
-            contractSource: "@harbor/minter/ReservePool_v1.sol",
-            contractType: "ReservePool_v1",
-            implementation: impl,
-            deploymentTime: uint64(block.timestamp)
-        });
-    }
-
-    /// @notice Deploy ReservePool_v1 proxy.
-    function deployReservePoolProxy(
-        address baoFactoryAddr,
-        string memory marketKey,
-        address implementation,
-        address tokenOwner,
-        string memory systemSalt
-    ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
+    /// @notice Deploy ReservePool impl+proxy, record both in state, register for ownership transfer.
+    function deployReservePool(
+        DeploymentTypes.State memory stateData,
+        string memory marketKey
+    ) internal returns (address proxy) {
         string memory reservePoolKey = string.concat(marketKey, "::reservePool");
+        console.log("    > %s", reservePoolKey);
 
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", reservePoolKey));
-        bytes memory initData = abi.encodeCall(ReservePool_v1.initialize, (tokenOwner));
+        address impl = address(new ReservePool_v1());
+        console.log("        Impl:  %s", impl);
 
-        proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("        Proxy: %s", proxy);
+        bytes memory initData = abi.encodeCall(ReservePool_v1.initialize, (owner()));
 
-        proxyRecord = DeploymentTypes.ProxyRecord({
-            id: reservePoolKey,
-            fragment: DeploymentTypes.FragmentDescriptor({
-                key: marketKey,
-                kind: DeploymentTypes.FragmentKind.MinterMarket
-            }),
-            proxy: proxy,
-            implementation: implementation,
-            salt: systemSalt,
-            deploymentTime: uint64(block.timestamp)
-        });
+        proxy = _deployProxyAndRecord(
+            stateData,
+            reservePoolKey,
+            DeploymentTypes.FragmentKind.MinterMarket,
+            marketKey,
+            impl,
+            "@harbor/minter/ReservePool_v1.sol",
+            "ReservePool_v1",
+            initData
+        );
     }
 
     /// @notice Grant ReservePool REQUESTER_ROLE to Minter.
@@ -152,51 +111,30 @@ abstract contract Minter is FactoryDeployer {
 
     // ========== FEE RECEIVER (TOKEN DISTRIBUTOR) DEPLOYMENT ==========
 
-    /// @notice Deploy TokenDistributor_v1 implementation (used as MinterFeeReceiver).
-    function deployFeeReceiverImpl()
-        internal
-        returns (address impl, DeploymentTypes.ImplementationRecord memory implRecord)
-    {
-        impl = address(new TokenDistributor_v1());
-
-        implRecord = DeploymentTypes.ImplementationRecord({
-            proxy: "",
-            contractSource: "@harbor/minter/TokenDistributor_v1.sol",
-            contractType: "TokenDistributor_v1",
-            implementation: impl,
-            deploymentTime: uint64(block.timestamp)
-        });
-    }
-
-    /// @notice Deploy TokenDistributor_v1 proxy for Minter fee receiver.
-    function deployMinterFeeReceiverProxy(
-        address baoFactoryAddr,
+    /// @notice Deploy TokenDistributor_v1 as Minter fee receiver.
+    function deployMinterFeeReceiver(
+        DeploymentTypes.State memory stateData,
         string memory marketKey,
-        address implementation,
-        address tokenOwner,
-        string memory name,
-        string memory systemSalt
-    ) internal returns (address proxy, DeploymentTypes.ProxyRecord memory proxyRecord) {
+        string memory name
+    ) internal returns (address proxy) {
         string memory feeReceiverKey = string.concat(marketKey, "::minterFeeReceiver");
         console.log("    > %s", feeReceiverKey);
 
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", feeReceiverKey));
-        bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (tokenOwner, name));
+        address impl = address(new TokenDistributor_v1());
+        console.log("        Impl:  %s", impl);
 
-        proxy = deployProxy(baoFactoryAddr, salt, implementation, initData);
-        console.log("        Proxy: %s", proxy);
+        bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
 
-        proxyRecord = DeploymentTypes.ProxyRecord({
-            id: feeReceiverKey,
-            fragment: DeploymentTypes.FragmentDescriptor({
-                key: marketKey,
-                kind: DeploymentTypes.FragmentKind.MinterMarket
-            }),
-            proxy: proxy,
-            implementation: implementation,
-            salt: systemSalt,
-            deploymentTime: uint64(block.timestamp)
-        });
+        proxy = _deployProxyAndRecord(
+            stateData,
+            feeReceiverKey,
+            DeploymentTypes.FragmentKind.MinterMarket,
+            marketKey,
+            impl,
+            "@harbor/minter/TokenDistributor_v1.sol",
+            "TokenDistributor_v1",
+            initData
+        );
     }
 
     /// @notice Configure TokenDistributor with tokens and distribution.

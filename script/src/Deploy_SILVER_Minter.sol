@@ -12,30 +12,6 @@ import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
 /// @notice SILVER-specific minter deployment functionality.
 abstract contract Deploy_SILVER_Minter is DeployMintersShared {
-    /// @notice Deploy SILVER pegged token and all SILVER markets.
-    function deployAll_SILVER(
-        DeploymentTypes.State memory stateData,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory markets
-    ) internal {
-        console.log("");
-        console.log("--- Deploying SILVER Peg and Markets ---");
-
-        deployPeggedTokenWithRoles(stateData, peg, markets, baoFactory(), owner(), systemSalt());
-
-        for (uint256 i = 0; i < markets.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, markets[i], baoFactory(), owner(), systemSalt());
-            _deployMinterForMarket(stateData, markets[i]);
-        }
-    }
-
-    /// @notice Deploy SILVER pegged token and all SILVER markets (public entry point).
-    function deployAll_SILVER(ConfigPeg peg, Config_MinterMarket[] memory markets, string memory network) internal {
-        DeploymentTypes.State memory stateData = _loadOrSeedState(network);
-        deployAll_SILVER(stateData, peg, markets);
-        _finalizeDeploy(stateData);
-    }
-
     /// @notice Create SILVER-specific config objects.
     function createSILVERMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_SILVER();

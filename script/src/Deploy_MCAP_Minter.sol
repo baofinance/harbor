@@ -12,30 +12,6 @@ import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
 /// @notice MCAP-specific minter deployment functionality.
 abstract contract Deploy_MCAP_Minter is DeployMintersShared {
-    /// @notice Deploy MCAP pegged token and all MCAP markets.
-    function deployAll_MCAP(
-        DeploymentTypes.State memory stateData,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory markets
-    ) internal {
-        console.log("");
-        console.log("--- Deploying MCAP Peg and Markets ---");
-
-        deployPeggedTokenWithRoles(stateData, peg, markets, baoFactory(), owner(), systemSalt());
-
-        for (uint256 i = 0; i < markets.length; i++) {
-            deployLeveragedTokenWithRoles(stateData, markets[i], baoFactory(), owner(), systemSalt());
-            _deployMinterForMarket(stateData, markets[i]);
-        }
-    }
-
-    /// @notice Deploy MCAP pegged token and all MCAP markets (public entry point).
-    function deployAll_MCAP(ConfigPeg peg, Config_MinterMarket[] memory markets, string memory network) internal {
-        DeploymentTypes.State memory stateData = _loadOrSeedState(network);
-        deployAll_MCAP(stateData, peg, markets);
-        _finalizeDeploy(stateData);
-    }
-
     /// @notice Create MCAP-specific config objects.
     function createMCAPMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_MCAP();

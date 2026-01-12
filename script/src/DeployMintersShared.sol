@@ -55,10 +55,7 @@ abstract contract DeployMintersShared is
             : _seedEphemeralState(systemSalt(), network);
         stateData.baoFactory = baoFactory();
 
-        console.log("");
-        console.log("================================================================================");
-        console.log("                          DEPLOYING MINTER CONTRACTS");
-        console.log("================================================================================");
+        console.log("=== Deploying Minter Contracts ===");
         console.log("  Salt:    %s", systemSalt());
         console.log("  Network: %s", network);
         return stateData;
@@ -70,10 +67,30 @@ abstract contract DeployMintersShared is
         if (_shouldPersistState()) {
             DeploymentState.save(stateData, _stateDirectoryPrefix());
         }
+        console.log("=== Minter Deployment Done ===");
+    }
+
+    /// @notice Deploy pegged token and all markets for a peg (public entry point).
+    function deployAllForPeg(ConfigPeg peg, Config_MinterMarket[] memory markets, string memory network) internal {
+        DeploymentTypes.State memory stateData = _loadOrSeedState(network);
+        _deployPegAndMarkets(stateData, peg, markets);
+        _finalizeDeploy(stateData);
+    }
+
+    /// @notice Deploy pegged token and all markets for a peg.
+    function _deployPegAndMarkets(
+        DeploymentTypes.State memory stateData,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory markets
+    ) internal {
         console.log("");
-        console.log("================================================================================");
-        console.log("                          MINTER DEPLOYMENT COMPLETE");
-        console.log("================================================================================");
+        console.log("--- Deploying %s Peg and Markets ---", peg.key());
+
+        deployPeggedTokenWithRoles(stateData, peg, markets);
+
+        for (uint256 i = 0; i < markets.length; i++) {
+            _deployMinterForMarket(stateData, markets[i]);
+        }
     }
 
     /// @notice Deploy complete minter infrastructure for a single market.
@@ -83,6 +100,9 @@ abstract contract DeployMintersShared is
 
         console.log("");
         console.log("  > Market: %s", marketKey);
+
+        // Deploy LeveragedToken
+        deployLeveragedTokenWithRoles(stateData, market);
 
         // Deploy ReservePool
         _deployReservePool(stateData, marketKey);
@@ -106,18 +126,7 @@ abstract contract DeployMintersShared is
     }
 
     function _deployReservePool(DeploymentTypes.State memory stateData, string memory marketKey) internal {
-        console.log("    > %s::reservePool", marketKey);
-        (address reservePoolImpl, ) = deployReservePoolImpl();
-        console.log("        Impl:  %s", reservePoolImpl);
-        (address reservePool, DeploymentTypes.ProxyRecord memory record) = deployReservePoolProxy(
-            baoFactory(),
-            marketKey,
-            reservePoolImpl,
-            owner(),
-            systemSalt()
-        );
-        DeploymentState.recordProxy(stateData, record);
-        _registerForOwnershipTransfer(reservePool, _saltString(record.id));
+        deployReservePool(stateData, marketKey);
     }
 
     function _deployMinter(
@@ -125,21 +134,11 @@ abstract contract DeployMintersShared is
         IFullMinterConfig cfg,
         string memory marketKey
     ) internal {
+        address wrappedCollateral = cfg.wrappedCollateralToken();
         address peggedToken = _predictAddress(string.concat(cfg.peg(), "::pegged"));
         address leveragedToken = _predictAddress(marketKey, "leveraged");
 
-        console.log("    > %s::minter", marketKey);
-        (address minterImpl, ) = deployMinterImpl(cfg.wrappedCollateralToken(), peggedToken, leveragedToken);
-        console.log("        Impl:  %s", minterImpl);
-        (address minter, DeploymentTypes.ProxyRecord memory record) = deployMinterProxy(
-            baoFactory(),
-            marketKey,
-            minterImpl,
-            owner(),
-            systemSalt()
-        );
-        DeploymentState.recordProxy(stateData, record);
-        _registerForOwnershipTransfer(minter, _saltString(record.id));
+        deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);
     }
 
     function _deployStabilityPools(
@@ -150,53 +149,17 @@ abstract contract DeployMintersShared is
         address minter = _predictAddress(marketKey, "minter");
         address leveragedToken = _predictAddress(marketKey, "leveraged");
 
-        // Stability Pool Collateral
-        {
-            console.log("    > %s::stabilityPoolCollateral", marketKey);
-            (address impl, ) = deployStabilityPoolImpl(
-                minter,
-                cfg.wrappedCollateralToken(),
-                cfg.stabilityPoolWithdrawalDelay(),
-                cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.minTotalSupply()
-            );
-            console.log("        Impl:  %s", impl);
-            (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolCollateralProxy(
-                baoFactory(),
-                marketKey,
-                impl,
-                owner(),
-                cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
-                cfg.treasury(),
-                systemSalt()
-            );
-            DeploymentState.recordProxy(stateData, record);
-            _registerForOwnershipTransfer(proxy, _saltString(record.id));
-        }
+        StabilityPoolConfig memory spConfig = StabilityPoolConfig({
+            earlyWithdrawalFeeRatio: cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
+            withdrawalDelay: cfg.stabilityPoolWithdrawalDelay(),
+            withdrawalPeriod: cfg.stabilityPoolWithdrawalPeriod(),
+            minTotalAssetSupply: cfg.minTotalSupply(),
+            treasury: cfg.treasury()
+        });
 
-        // Stability Pool Leveraged
-        {
-            console.log("    > %s::stabilityPoolLeveraged", marketKey);
-            (address impl, ) = deployStabilityPoolImpl(
-                minter,
-                leveragedToken,
-                cfg.stabilityPoolWithdrawalDelay(),
-                cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.minTotalSupply()
-            );
-            console.log("        Impl:  %s", impl);
-            (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolLeveragedProxy(
-                baoFactory(),
-                marketKey,
-                impl,
-                owner(),
-                cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
-                cfg.treasury(),
-                systemSalt()
-            );
-            DeploymentState.recordProxy(stateData, record);
-            _registerForOwnershipTransfer(proxy, _saltString(record.id));
-        }
+        deployStabilityPoolCollateral(stateData, marketKey, minter, cfg.wrappedCollateralToken(), spConfig);
+
+        deployStabilityPoolLeveraged(stateData, marketKey, minter, leveragedToken, spConfig);
     }
 
     function _deployStabilityPoolManager(
@@ -208,18 +171,7 @@ abstract contract DeployMintersShared is
         address spCollateral = _predictAddress(marketKey, "stabilityPoolCollateral");
         address spLeveraged = _predictAddress(marketKey, "stabilityPoolLeveraged");
 
-        console.log("    > %s::stabilityPoolManager", marketKey);
-        (address impl, ) = deployStabilityPoolManagerImpl(minter, cfg.treasury(), spCollateral, spLeveraged);
-        console.log("        Impl:  %s", impl);
-        (address proxy, DeploymentTypes.ProxyRecord memory record) = deployStabilityPoolManagerProxy(
-            baoFactory(),
-            marketKey,
-            impl,
-            owner(),
-            systemSalt()
-        );
-        DeploymentState.recordProxy(stateData, record);
-        _registerForOwnershipTransfer(proxy, _saltString(record.id));
+        deployStabilityPoolManager(stateData, marketKey, minter, cfg.treasury(), spCollateral, spLeveraged);
     }
 
     function _deployGenesis(
@@ -228,21 +180,8 @@ abstract contract DeployMintersShared is
         string memory marketKey
     ) internal {
         cfg;
-
         address minter = _predictAddress(marketKey, "minter");
-
-        console.log("    > %s::genesis", marketKey);
-        (address impl, ) = deployGenesisImpl(minter);
-        console.log("        Impl:  %s", impl);
-        (address proxy, DeploymentTypes.ProxyRecord memory record) = deployGenesisProxy(
-            baoFactory(),
-            marketKey,
-            impl,
-            owner(),
-            systemSalt()
-        );
-        DeploymentState.recordProxy(stateData, record);
-        _registerForOwnershipTransfer(proxy, _saltString(record.id));
+        deployGenesis(stateData, marketKey, minter);
     }
 
     function _configureMinter(IFullMinterConfig cfg, string memory marketKey) internal {
@@ -289,7 +228,7 @@ abstract contract DeployMintersShared is
         return true;
     }
 
-    function _stateDirectoryPrefix() internal view virtual returns (string memory) {
+    function _stateDirectoryPrefix() internal pure virtual returns (string memory) {
         return "";
     }
 

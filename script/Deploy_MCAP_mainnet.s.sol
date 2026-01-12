@@ -9,18 +9,18 @@ import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 /// @notice Deploy Harbor MCAP pegged token and all MCAP markets.
 contract Deploy_MCAP_mainnet is Deploy_MCAP_Minter, Script {
     /// @notice Deploy MCAP pegged token, leveraged tokens, and minter infrastructure.
-    /// @param systemSaltArg System salt for CREATE3 deployment (e.g., "harbor_v1").
+    /// @param saltPrefix System salt for CREATE3 deployment (e.g., "harbor_v1").
     /// @param network Network name (e.g., "mainnet", "arbitrum").
-    function run(string memory systemSaltArg, string memory network) external {
+    function run(string memory saltPrefix, string memory network) external {
         // Set the system salt for ConfigProtocol
-        _setSystemSalt(systemSaltArg);
+        _setSystemSalt(saltPrefix);
 
         // Create config BEFORE broadcast - config contracts NOT deployed on-chain
         (ConfigPeg peg, Config_MinterMarket[] memory markets) = createMCAPMintersConfig();
 
         vm.startBroadcast();
         // Only actual contracts deployed here
-        deployAll_MCAP(peg, markets, network);
+        deployAllForPeg(peg, markets, network);
         vm.stopBroadcast();
     }
 }

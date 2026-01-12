@@ -10,7 +10,6 @@ import {ConfigMarket_GOLD_fxUSD_mainnet} from "script/config/markets/ConfigMarke
 import {ConfigMarket_GOLD_stETH_mainnet} from "script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol";
 import {ConfigMarket_EUR_fxUSD_mainnet} from "script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
 import {ConfigMarket_EUR_stETH_mainnet} from "script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
-import {MinterConfig, StabilityPoolManagerConfig, StabilityPoolConfig} from "script/config/MinterTypes.sol";
 
 contract ConfigTest is Test {
     using MinterMarketConfigLib for Config_MinterMarket;
