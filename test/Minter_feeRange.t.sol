@@ -839,7 +839,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         post.leveragedPrice,
                         post.minterLeveraged == 0 ? 1e18 : pre.leveragedPrice,
                         400,
-                        0,
+                        2000,
                         "rl leveraged price"
                     );
                 } else {
