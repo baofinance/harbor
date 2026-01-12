@@ -5,6 +5,9 @@ import {BaoDeploymentTest} from "@bao-test/deployment/BaoDeploymentTest.sol";
 import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
+import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
@@ -49,6 +52,40 @@ contract TestDeployMintersHarness is Deploy_BTC_Minter {
     }
 }
 
+/// @notice Test harness for deploying ALL pegs (ETH, BTC, GOLD, EUR).
+contract TestDeployAllMintersHarness is Deploy_ETH_Minter, Deploy_BTC_Minter, Deploy_EUR_Minter, Deploy_GOLD_Minter {
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    function baoFactory() public pure override returns (address) {
+        return BaoFactoryBytecode.PREDICTED_PROXY;
+    }
+
+    function _shouldPersistState() internal pure override returns (bool) {
+        return false;
+    }
+
+    /// @notice Deploy all pegs and their markets.
+    function deployAllPegsWrapper(string memory saltPrefix, string memory network) external {
+        _setSystemSalt(saltPrefix);
+
+        // Deploy ETH peg
+        (ConfigPeg ethPeg, Config_MinterMarket[] memory ethMarkets) = createETHMintersConfig();
+        deployAllForPeg(ethPeg, ethMarkets, network);
+
+        // Deploy BTC peg
+        (ConfigPeg btcPeg, Config_MinterMarket[] memory btcMarkets) = createBTCMintersConfig();
+        deployAllForPeg(btcPeg, btcMarkets, network);
+
+        // Deploy EUR peg
+        (ConfigPeg eurPeg, Config_MinterMarket[] memory eurMarkets) = createEURMintersConfig();
+        deployAllForPeg(eurPeg, eurMarkets, network);
+
+        // Deploy GOLD peg
+        (ConfigPeg goldPeg, Config_MinterMarket[] memory goldMarkets) = createGOLDMintersConfig();
+        deployAllForPeg(goldPeg, goldMarkets, network);
+    }
+}
+
 contract DeployMintersTest is BaoDeploymentTest {
     using stdJson for string;
 
@@ -58,14 +95,6 @@ contract DeployMintersTest is BaoDeploymentTest {
     // Compute max label width for aligned output (harbor_v1 = 9, test = 4, so use 9)
     uint256 private constant LABEL_WIDTH = 9;
 
-    // Artifact paths for different contract types
-    string private constant TOKEN_ARTIFACT = "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json";
-    string private constant MINTER_ARTIFACT = "out/Minter_v1.sol/Minter_v1.json";
-    string private constant SPM_ARTIFACT = "out/StabilityPoolManager_v1.sol/StabilityPoolManager_v1.json";
-    string private constant SP_ARTIFACT = "out/StabilityPool_v1.sol/StabilityPool_v1.json";
-    string private constant RESERVE_ARTIFACT = "out/ReservePool_v1.sol/ReservePool_v1.json";
-    string private constant GENESIS_ARTIFACT = "out/Genesis_v1.sol/Genesis_v1.json";
-
     /// @notice Contract spec for dynamic comparison. Maps salt suffixes to artifacts.
     struct ContractSpec {
         string salt; // e.g., "ETH::pegged", "ETH::fxUSD::minter"
@@ -73,78 +102,68 @@ contract DeployMintersTest is BaoDeploymentTest {
         string marketKey; // e.g., "ETH::fxUSD" for minter lookup (empty for pegged tokens)
     }
 
-    // Market definitions: peg::collateral format
-    function _getMarketSalts() private pure returns (string[7] memory) {
-        return ["ETH::fxUSD", "BTC::fxUSD", "BTC::stETH", "GOLD::fxUSD", "GOLD::stETH", "EUR::fxUSD", "EUR::stETH"];
-    }
-
     /// @notice Build the full list of contract specs to compare.
     /// @dev Matches the ownership transfer list: pegged tokens, leveraged tokens, then per-market infrastructure.
-    function _buildContractSpecs() private pure returns (ContractSpec[] memory specs) {
-        string[4] memory pegs = ["ETH", "BTC", "GOLD", "EUR"];
-        string[7] memory markets = [
-            "ETH::fxUSD",
-            "BTC::fxUSD",
-            "BTC::stETH",
-            "GOLD::fxUSD",
-            "GOLD::stETH",
-            "EUR::fxUSD",
-            "EUR::stETH"
-        ];
-
-        // 4 pegged + 7 leveraged + 7 markets × 6 contracts = 4 + 7 + 42 = 53
-        specs = new ContractSpec[](53);
+    /// @param pegs Array of peg identifiers (e.g., ["ETH", "BTC", "GOLD", "EUR"])
+    /// @param markets Array of market identifiers (e.g., ["ETH::fxUSD", "BTC::fxUSD"])
+    function _buildContractSpecs(
+        string[] memory pegs,
+        string[] memory markets
+    ) private pure returns (ContractSpec[] memory specs) {
+        // pegs.length pegged + markets.length leveraged + markets.length × 6 infrastructure
+        uint256 totalSpecs = pegs.length + markets.length + markets.length * 6;
+        specs = new ContractSpec[](totalSpecs);
         uint256 idx;
 
         // Pegged tokens (one per peg)
-        for (uint256 i = 0; i < 4; i++) {
+        for (uint256 i = 0; i < pegs.length; i++) {
             specs[idx++] = ContractSpec({
                 salt: string.concat(pegs[i], "::pegged"),
-                artifact: TOKEN_ARTIFACT,
+                artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
                 marketKey: ""
             });
         }
 
         // Leveraged tokens (one per market)
-        for (uint256 i = 0; i < 7; i++) {
+        for (uint256 i = 0; i < markets.length; i++) {
             specs[idx++] = ContractSpec({
                 salt: string.concat(markets[i], "::leveraged"),
-                artifact: TOKEN_ARTIFACT,
+                artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
                 marketKey: markets[i]
             });
         }
 
         // Per-market infrastructure contracts
-        for (uint256 i = 0; i < 7; i++) {
+        for (uint256 i = 0; i < markets.length; i++) {
             // Order matches ownership transfer list
             specs[idx++] = ContractSpec({
                 salt: string.concat(markets[i], "::reservePool"),
-                artifact: RESERVE_ARTIFACT,
+                artifact: "out/ReservePool_v1.sol/ReservePool_v1.json",
                 marketKey: markets[i]
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(markets[i], "::minter"),
-                artifact: MINTER_ARTIFACT,
+                artifact: "out/Minter_v1.sol/Minter_v1.json",
                 marketKey: markets[i]
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(markets[i], "::stabilityPoolCollateral"),
-                artifact: SP_ARTIFACT,
+                artifact: "out/StabilityPool_v1.sol/StabilityPool_v1.json",
                 marketKey: markets[i]
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(markets[i], "::stabilityPoolLeveraged"),
-                artifact: SP_ARTIFACT,
+                artifact: "out/StabilityPool_v1.sol/StabilityPool_v1.json",
                 marketKey: markets[i]
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(markets[i], "::stabilityPoolManager"),
-                artifact: SPM_ARTIFACT,
+                artifact: "out/StabilityPoolManager_v1.sol/StabilityPoolManager_v1.json",
                 marketKey: markets[i]
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(markets[i], "::genesis"),
-                artifact: GENESIS_ARTIFACT,
+                artifact: "out/Genesis_v1.sol/Genesis_v1.json",
                 marketKey: markets[i]
             });
         }
@@ -171,6 +190,7 @@ contract DeployMintersTest is BaoDeploymentTest {
     string[] private currentKnownSalts;
 
     TestDeployMintersHarness private harness;
+    TestDeployAllMintersHarness private allHarness;
     address private _factoryAddr;
 
     struct TokenCompareState {
@@ -195,15 +215,19 @@ contract DeployMintersTest is BaoDeploymentTest {
         super.setUp();
         _factoryAddr = _baoFactory;
 
-        // Create test harness after factory is ready
+        // Create test harnesses after factory is ready
         harness = new TestDeployMintersHarness();
+        allHarness = new TestDeployAllMintersHarness();
 
-        // Allow harness to deploy via factory
-        vm.prank(IBaoFactory(_factoryAddr).owner());
+        // Allow harnesses to deploy via factory
+        vm.startPrank(IBaoFactory(_factoryAddr).owner());
         IBaoFactory(_factoryAddr).setOperator(address(harness), 365 days);
+        IBaoFactory(_factoryAddr).setOperator(address(allHarness), 365 days);
+        vm.stopPrank();
     }
 
     function test_deployBTCMinters_mainnetFork_() public {
+        vm.skip(true); // Skip - use test_compareAllMintersAgainstReference for full testing
         uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
         vm.selectFork(forkId);
 
@@ -215,42 +239,25 @@ contract DeployMintersTest is BaoDeploymentTest {
 
         harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet");
 
-        // Verify 4 pegged tokens were deployed
-        address[4] memory peggedTokens = _predictPeggedTokens(CANDIDATE_SALT);
-        for (uint256 i = 0; i < peggedTokens.length; i++) {
-            assertTrue(peggedTokens[i] != address(0), "Pegged token address should not be zero");
-            assertTrue(_hasCode(peggedTokens[i]), "Pegged token should have code");
-        }
-
-        // Verify each pegged token via ABI
-        _verifyTokenViaABI(peggedTokens[0], "Harbor anchored ETH", "haETH");
-        _verifyTokenViaABI(peggedTokens[1], "Harbor anchored BTC", "haBTC");
-        _verifyTokenViaABI(peggedTokens[2], "Harbor anchored GOLD", "haGOLD");
-        _verifyTokenViaABI(peggedTokens[3], "Harbor anchored EUR", "haEUR");
-
-        // Verify 7 leveraged tokens were deployed
-        address[7] memory leveragedTokens = _predictLeveragedTokens(CANDIDATE_SALT);
-        for (uint256 i = 0; i < leveragedTokens.length; i++) {
-            assertTrue(leveragedTokens[i] != address(0), "Leveraged token address should not be zero");
-            assertTrue(_hasCode(leveragedTokens[i]), "Leveraged token should have code");
-        }
-
-        // Verify each leveraged token via ABI (name and symbol patterns)
-        _verifyTokenViaABI(leveragedTokens[0], "Harbor sail: variable leveraged long fxUSD against ETH", "hsFXUSD-ETH");
-        _verifyTokenViaABI(leveragedTokens[1], "Harbor sail: variable leveraged long fxUSD against BTC", "hsFXUSD-BTC");
-        _verifyTokenViaABI(leveragedTokens[2], "Harbor sail: variable leveraged long stETH against BTC", "hsSTETH-BTC");
-        _verifyTokenViaABI(
-            leveragedTokens[3],
-            "Harbor sail: variable leveraged long fxUSD against GOLD",
-            "hsFXUSD-GOLD"
+        // Verify BTC pegged token was deployed
+        address peggedToken = IBaoFactory(_factoryAddr).predictAddress(
+            keccak256(abi.encodePacked(CANDIDATE_SALT, "::", "BTC::pegged"))
         );
-        _verifyTokenViaABI(
-            leveragedTokens[4],
-            "Harbor sail: variable leveraged long stETH against GOLD",
-            "hsSTETH-GOLD"
+        assertTrue(peggedToken != address(0), "Pegged token address should not be zero");
+        assertTrue(_hasCode(peggedToken), "Pegged token should have code");
+        _verifyTokenViaABI(peggedToken, "Harbor anchored BTC", "haBTC");
+
+        // Verify BTC leveraged tokens were deployed (2 markets: fxUSD and stETH)
+        address leveragedFxUSD = IBaoFactory(_factoryAddr).predictAddress(
+            keccak256(abi.encodePacked(CANDIDATE_SALT, "::", "BTC::fxUSD::leveraged"))
         );
-        _verifyTokenViaABI(leveragedTokens[5], "Harbor sail: variable leveraged long fxUSD against EUR", "hsFXUSD-EUR");
-        _verifyTokenViaABI(leveragedTokens[6], "Harbor sail: variable leveraged long stETH against EUR", "hsSTETH-EUR");
+        address leveragedStETH = IBaoFactory(_factoryAddr).predictAddress(
+            keccak256(abi.encodePacked(CANDIDATE_SALT, "::", "BTC::stETH::leveraged"))
+        );
+        assertTrue(_hasCode(leveragedFxUSD), "Leveraged fxUSD token should have code");
+        assertTrue(_hasCode(leveragedStETH), "Leveraged stETH token should have code");
+        _verifyTokenViaABI(leveragedFxUSD, "Harbor sail: variable leveraged long fxUSD against BTC", "hsFXUSD-BTC");
+        _verifyTokenViaABI(leveragedStETH, "Harbor sail: variable leveraged long stETH against BTC", "hsSTETH-BTC");
     }
 
     function test_compareBTCMintersAgainstReference_mainnetFork_() public {
@@ -265,19 +272,64 @@ contract DeployMintersTest is BaoDeploymentTest {
 
         harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet");
 
-        _compareMintersAgainstReference(REFERENCE_SALT, CANDIDATE_SALT);
+        // BTC-only: 1 peg, 2 markets
+        string[] memory pegs = new string[](1);
+        pegs[0] = "BTC";
+        string[] memory markets = new string[](2);
+        markets[0] = "BTC::fxUSD";
+        markets[1] = "BTC::stETH";
+        _compareMintersAgainstReference(REFERENCE_SALT, CANDIDATE_SALT, pegs, markets);
+    }
+
+    function test_compareAllMintersAgainstReference_mainnetFork_() public {
+        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.selectFork(forkId);
+
+        // Re-initialize harnesses on the forked mainnet state
+        // (harness is needed for queryWellKnownAddresses in _compareMintersAgainstReference)
+        harness = new TestDeployMintersHarness();
+        allHarness = new TestDeployAllMintersHarness();
+        _factoryAddr = _baoFactory;
+        vm.prank(IBaoFactory(_factoryAddr).owner());
+        IBaoFactory(_factoryAddr).setOperator(address(allHarness), 365 days);
+
+        allHarness.deployAllPegsWrapper(CANDIDATE_SALT, "mainnet");
+
+        // All pegs with markets that exist on mainnet as reference
+        // (excludes GOLD::stETH, EUR::stETH which aren't deployed on mainnet yet)
+        string[] memory pegs = new string[](4);
+        pegs[0] = "ETH";
+        pegs[1] = "BTC";
+        pegs[2] = "GOLD";
+        pegs[3] = "EUR";
+        string[] memory markets = new string[](5);
+        markets[0] = "ETH::fxUSD";
+        markets[1] = "BTC::fxUSD";
+        markets[2] = "BTC::stETH";
+        markets[3] = "GOLD::fxUSD";
+        markets[4] = "EUR::fxUSD";
+        _compareMintersAgainstReference(REFERENCE_SALT, CANDIDATE_SALT, pegs, markets);
     }
 
     /// @dev Compare freshly deployed minters (candidateSalt) against existing deployment (referenceSalt).
-    function _compareMintersAgainstReference(string memory referenceSalt, string memory candidateSalt) private {
+    /// @param referenceSalt Salt prefix for reference deployment (e.g., "harbor_v1")
+    /// @param candidateSalt Salt prefix for candidate deployment (e.g., "test")
+    /// @param pegs Array of peg identifiers to compare (e.g., ["ETH", "BTC"])
+    /// @param markets Array of market identifiers to compare (e.g., ["ETH::fxUSD", "BTC::fxUSD"])
+    function _compareMintersAgainstReference(
+        string memory referenceSalt,
+        string memory candidateSalt,
+        string[] memory pegs,
+        string[] memory markets
+    ) private {
         delete diffLog;
         delete mismatchDetails;
 
-        ContractSpec[] memory specs = _buildContractSpecs();
+        ContractSpec[] memory specs = _buildContractSpecs(pegs, markets);
         CompareTotals memory agg;
 
         // Build global address-to-salt mapping for ALL contracts in both deployments
-        _buildGlobalAddressMapping(specs, referenceSalt, candidateSalt);
+        _buildGlobalAddressMapping(specs, referenceSalt, candidateSalt, markets);
 
         for (uint256 i = 0; i < specs.length; i++) {
             ContractSpec memory spec = specs[i];
@@ -318,8 +370,8 @@ contract DeployMintersTest is BaoDeploymentTest {
             } else {
                 // Pegged tokens: find all minters for this peg
                 string memory peg = _extractPeg(spec.salt);
-                (s.refMinters, s.minterKeys) = _predictMintersForPeg(referenceSalt, peg);
-                (s.candMinters, ) = _predictMintersForPeg(candidateSalt, peg);
+                (s.refMinters, s.minterKeys) = _predictMintersForPeg(referenceSalt, peg, markets);
+                (s.candMinters, ) = _predictMintersForPeg(candidateSalt, peg, markets);
             }
 
             CompareTotals memory contractTotals = _processContract(fullRefSalt, s, spec.artifact);
@@ -355,14 +407,14 @@ contract DeployMintersTest is BaoDeploymentTest {
     function _buildGlobalAddressMapping(
         ContractSpec[] memory specs,
         string memory referenceSalt,
-        string memory candidateSalt
+        string memory candidateSalt,
+        string[] memory markets
     ) private {
         // Query well-known addresses from harness (which queries the market config)
         WellKnownAddress[] memory wellKnown = harness.queryWellKnownAddresses();
         uint256 wellKnownCount = wellKnown.length;
 
-        // Markets for price oracles
-        string[7] memory markets = _getMarketSalts();
+        // Price oracles for each market
         uint256 priceOracleCount = markets.length * 2; // ref + candidate per market
 
         // Each spec creates 2 entries (ref + candidate) + well-known + price oracles
@@ -529,6 +581,13 @@ contract DeployMintersTest is BaoDeploymentTest {
         return false;
     }
 
+    function _skipAddressArgFunction(string memory name) private pure returns (bool) {
+        bytes32 h = keccak256(bytes(name));
+        // Skip genesis claimable - depends on minter address which differs between deployments
+        if (h == keccak256("claimable")) return true;
+        return false;
+    }
+
     function _returnKind(string memory raw, uint256 i) private view returns (ReturnKind) {
         uint256 outs = _outputsLength(raw, i);
         if (outs != 1) return ReturnKind.TupleKind;
@@ -551,6 +610,8 @@ contract DeployMintersTest is BaoDeploymentTest {
         uint256 count;
         for (uint256 i = 0; i < len; i++) {
             if (!_isAddressViewEntry(raw, i)) continue;
+            string memory name = _parseJsonString(raw, _abiPathName(i));
+            if (_skipAddressArgFunction(name)) continue;
             ++count;
         }
 
@@ -559,6 +620,7 @@ contract DeployMintersTest is BaoDeploymentTest {
         for (uint256 i = 0; i < len; i++) {
             if (!_isAddressViewEntry(raw, i)) continue;
             string memory name = _parseJsonString(raw, _abiPathName(i));
+            if (_skipAddressArgFunction(name)) continue;
             sigs[idx++] = FuncSpec({sig: string.concat(name, "(address)"), kind: _returnKind(raw, i)});
         }
     }
@@ -749,49 +811,24 @@ contract DeployMintersTest is BaoDeploymentTest {
 
     // --- Prediction Helpers ---
 
-    function _predictPeggedTokens(string memory systemSalt) internal view returns (address[4] memory tokens) {
-        tokens[0] = IBaoFactory(_factoryAddr).predictAddress(
-            keccak256(abi.encodePacked(systemSalt, "::", "ETH::pegged"))
-        );
-        tokens[1] = IBaoFactory(_factoryAddr).predictAddress(
-            keccak256(abi.encodePacked(systemSalt, "::", "BTC::pegged"))
-        );
-        tokens[2] = IBaoFactory(_factoryAddr).predictAddress(
-            keccak256(abi.encodePacked(systemSalt, "::", "GOLD::pegged"))
-        );
-        tokens[3] = IBaoFactory(_factoryAddr).predictAddress(
-            keccak256(abi.encodePacked(systemSalt, "::", "EUR::pegged"))
-        );
-    }
-
-    function _predictLeveragedTokens(string memory systemSalt) internal view returns (address[7] memory tokens) {
-        string[7] memory marketSalts = _getMarketSalts();
-        for (uint256 i = 0; i < 7; i++) {
-            string memory leveragedKey = string.concat(marketSalts[i], "::leveraged");
-            tokens[i] = IBaoFactory(_factoryAddr).predictAddress(
-                keccak256(abi.encodePacked(systemSalt, "::", leveragedKey))
-            );
-        }
-    }
-
     function _predictMintersForPeg(
         string memory systemSalt,
-        string memory peg
+        string memory peg,
+        string[] memory markets
     ) private view returns (address[] memory addrs, string[] memory keys) {
-        string[7] memory marketSalts = _getMarketSalts();
         uint256 count;
-        for (uint256 i = 0; i < 7; i++) {
-            if (_marketMatchesPeg(marketSalts[i], peg)) ++count;
+        for (uint256 i = 0; i < markets.length; i++) {
+            if (_marketMatchesPeg(markets[i], peg)) ++count;
         }
         addrs = new address[](count);
         keys = new string[](count);
         uint256 idx;
-        for (uint256 i = 0; i < 7; i++) {
-            if (!_marketMatchesPeg(marketSalts[i], peg)) continue;
+        for (uint256 i = 0; i < markets.length; i++) {
+            if (!_marketMatchesPeg(markets[i], peg)) continue;
             addrs[idx] = IBaoFactory(_factoryAddr).predictAddress(
-                keccak256(abi.encodePacked(systemSalt, "::", marketSalts[i], "::minter"))
+                keccak256(abi.encodePacked(systemSalt, "::", markets[i], "::minter"))
             );
-            keys[idx] = marketSalts[i];
+            keys[idx] = markets[i];
             ++idx;
         }
     }
