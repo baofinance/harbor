@@ -2,10 +2,11 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {ConfigStabilityPoolManager} from "./ConfigStabilityPoolManager.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 
 /// @notice Shared stability pool manager fee receiver and parameter defaults.
 /// @dev Keeps stability pool manager concerns separate from minter config.
-abstract contract ConfigStabilityPoolManagerCommon is ConfigStabilityPoolManager {
+abstract contract ConfigStabilityPoolManagerCommon is ConfigStabilityPoolManager, HarborFactoryDeployer {
     function feeReceiverName() public pure returns (string memory) {
         return "StabilityPoolManager Cut Receiver";
     }
@@ -44,7 +45,6 @@ abstract contract ConfigStabilityPoolManagerCommon is ConfigStabilityPoolManager
 
     // To be supplied by concrete market configs
     function wrappedCollateral() public view virtual returns (address);
-    function treasury() public view virtual returns (address);
     function stabilityPoolCollateral() public view virtual returns (address);
     function stabilityPoolLeveraged() public view virtual returns (address);
 }

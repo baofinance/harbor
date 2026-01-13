@@ -2,8 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {FactoryDeployer} from "../FactoryDeployer.sol";
-import {DeploymentTypes} from "../DeploymentTypes.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
 import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
@@ -13,7 +13,7 @@ import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
 /// @dev SPM coordinates the two stability pools per market.
 /// @dev SPM grants: HARVESTER_ROLE on Minter (obtained via Minter deployment).
 /// @dev SPM needs: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE on both stability pools.
-abstract contract StabilityPoolManager is FactoryDeployer {
+abstract contract StabilityPoolManager is HarborFactoryDeployer {
     /// @notice StabilityPoolManager configuration.
     struct SPMConfig {
         uint256 rebalanceThreshold;

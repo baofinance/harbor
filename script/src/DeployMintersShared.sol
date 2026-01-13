@@ -8,8 +8,9 @@ import {Minter} from "./contracts/Minter.sol";
 import {StabilityPool} from "./contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "./contracts/StabilityPoolManager.sol";
 import {Genesis} from "./contracts/Genesis.sol";
-import {DeploymentState} from "./DeploymentState.sol";
-import {DeploymentTypes} from "./DeploymentTypes.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
@@ -21,7 +22,6 @@ interface IFullMinterConfig {
     function peg() external view returns (string memory);
     function collateral() external view returns (string memory);
     function wrappedCollateralToken() external view returns (address);
-    function treasury() external view returns (address);
     function minterConfig() external pure returns (IMinter.Config memory);
     // Peg config
     function minTotalSupply() external view returns (uint256);
@@ -38,7 +38,6 @@ interface IFullMinterConfig {
 
 /// @notice Shared functionality for all minter deployment contracts.
 /// @dev Provides common infrastructure and deployment primitives.
-/// @dev ConfigProtocol inherited via FactoryDeployer → provides baoFactory(), owner(), systemSalt().
 abstract contract DeployMintersShared is
     PeggedToken,
     LeveragedToken,
@@ -51,12 +50,12 @@ abstract contract DeployMintersShared is
 
     function _loadOrSeedState(string memory network) internal returns (DeploymentTypes.State memory stateData) {
         stateData = _shouldPersistState()
-            ? DeploymentState.load(network, systemSalt(), _stateDirectoryPrefix())
-            : _seedEphemeralState(systemSalt(), network);
+            ? DeploymentState.load(network, saltPrefix(), "")
+            : _seedEphemeralState(saltPrefix(), network);
         stateData.baoFactory = baoFactory();
 
         console.log("=== Deploying Minter Contracts ===");
-        console.log("  Salt:    %s", systemSalt());
+        console.log("  Salt:    %s", saltPrefix());
         console.log("  Network: %s", network);
         return stateData;
     }
@@ -65,7 +64,7 @@ abstract contract DeployMintersShared is
         _transferAllOwnerships();
 
         if (_shouldPersistState()) {
-            DeploymentState.save(stateData, _stateDirectoryPrefix());
+            DeploymentState.save(stateData);
         }
         console.log("=== Minter Deployment Done ===");
     }
@@ -120,7 +119,7 @@ abstract contract DeployMintersShared is
         _deployGenesis(stateData, cfg, marketKey);
 
         // Configure Minter and grant roles
-        _configureMinter(cfg, marketKey);
+        _configureMinter(market, marketKey);
 
         console.log("    [complete]");
     }
@@ -154,7 +153,7 @@ abstract contract DeployMintersShared is
             withdrawalDelay: cfg.stabilityPoolWithdrawalDelay(),
             withdrawalPeriod: cfg.stabilityPoolWithdrawalPeriod(),
             minTotalAssetSupply: cfg.minTotalSupply(),
-            treasury: cfg.treasury()
+            treasury: treasury()
         });
 
         deployStabilityPoolCollateral(stateData, marketKey, minter, cfg.wrappedCollateralToken(), spConfig);
@@ -164,14 +163,14 @@ abstract contract DeployMintersShared is
 
     function _deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
-        IFullMinterConfig cfg,
+        IFullMinterConfig,
         string memory marketKey
     ) internal {
         address minter = _predictAddress(marketKey, "minter");
         address spCollateral = _predictAddress(marketKey, "stabilityPoolCollateral");
         address spLeveraged = _predictAddress(marketKey, "stabilityPoolLeveraged");
 
-        deployStabilityPoolManager(stateData, marketKey, minter, cfg.treasury(), spCollateral, spLeveraged);
+        deployStabilityPoolManager(stateData, marketKey, minter, treasury(), spCollateral, spLeveraged);
     }
 
     function _deployGenesis(
@@ -184,7 +183,8 @@ abstract contract DeployMintersShared is
         deployGenesis(stateData, marketKey, minter);
     }
 
-    function _configureMinter(IFullMinterConfig cfg, string memory marketKey) internal {
+    function _configureMinter(Config_MinterMarket market, string memory marketKey) internal {
+        IFullMinterConfig cfg = IFullMinterConfig(address(market));
         address minter = _predictAddress(marketKey, "minter");
         address reservePool = _predictAddress(marketKey, "reservePool");
         address spCollateral = _predictAddress(marketKey, "stabilityPoolCollateral");
@@ -192,12 +192,12 @@ abstract contract DeployMintersShared is
         address spm = _predictAddress(marketKey, "stabilityPoolManager");
         address genesis = _predictAddress(marketKey, "genesis");
         address leveragedToken = _predictAddress(marketKey, "leveraged");
-        address priceOracle = _predictAddress(marketKey, "wrappedPriceAggregator");
+        address priceOracle = _predictAddress(MinterMarketConfigLib.priceOracleKey(market));
 
         // Update minter configuration (incentive ratios)
         Minter_v1(minter).updateConfig(cfg.minterConfig());
         Minter_v1(minter).updateReservePool(reservePool);
-        Minter_v1(minter).updateFeeReceiver(cfg.treasury());
+        Minter_v1(minter).updateFeeReceiver(treasury());
         Minter_v1(minter).updatePriceOracle(priceOracle);
 
         // Grant roles
@@ -219,17 +219,13 @@ abstract contract DeployMintersShared is
                 rebalanceBountyRatio: cfg.rebalanceBountyRatio(),
                 harvestBountyRatio: cfg.harvestBountyRatio(),
                 harvestCutRatio: cfg.harvestCutRatio(),
-                feeReceiver: cfg.treasury()
+                feeReceiver: treasury()
             })
         );
     }
 
     function _shouldPersistState() internal pure virtual returns (bool) {
         return true;
-    }
-
-    function _stateDirectoryPrefix() internal pure virtual returns (string memory) {
-        return "";
     }
 
     function _seedEphemeralState(

@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {ConfigProtocol} from "./chains/ConfigProtocol.sol";
-
 /// @notice Base contract for all Harbor configuration contracts.
 /// @dev Config contracts provide keys via methods, not string parsing.
 abstract contract ConfigBase {
@@ -21,19 +18,10 @@ interface IMarketConfig {
 
 /// @notice Base contract for minter market configurations.
 /// @dev Provides type safety for minter market config parameters.
-///      Subclasses must implement IMarketConfig (peg/collateral) and inherit ConfigProtocol.
+///      Concrete configs must provide peg() and collateral() methods via inherited components.
+///      This contract doesn't declare the methods to avoid diamond inheritance conflicts.
 abstract contract Config_MinterMarket {
-    /// @notice Predicts the price oracle address for this minter market.
-    /// @dev Uses BaoFactory address prediction with salt format "collateral::peg::wrappedPriceAggregator".
-    /// @return The predicted price oracle address.
-    function priceOracle() public view returns (address) {
-        IMarketConfig market = IMarketConfig(address(this));
-        ConfigProtocol protocol = ConfigProtocol(address(this));
-        // Salt format: collateral::peg::wrappedPriceAggregator (e.g., "stETH::BTC::wrappedPriceAggregator")
-        string memory oracleKey = string.concat(market.collateral(), "::", market.peg(), "::wrappedPriceAggregator");
-        bytes32 saltHash = keccak256(abi.encodePacked(protocol.systemSalt(), "::", oracleKey));
-        return IBaoFactory(protocol.baoFactory()).predictAddress(saltHash);
-    }
+    // Methods provided by ConfigPeg_* and ConfigCollateral_* components via inheritance
 }
 
 /// @notice Base contract for price market configurations.
@@ -43,23 +31,32 @@ abstract contract Config_PriceMarket {}
 /// @notice Library for computing minter market salt from configuration.
 /// @dev Used by deployment scripts to generate salt for minter market configs.
 library MinterMarketConfigLib {
+    /// @notice Get the peg identifier from a market config.
+    /// @param config The minter market config contract.
+    /// @return The peg identifier (e.g., "BTC", "ETH").
+    function peg(Config_MinterMarket config) internal view returns (string memory) {
+        return IMarketConfig(address(config)).peg();
+    }
+
+    /// @notice Get the collateral identifier from a market config.
+    /// @param config The minter market config contract.
+    /// @return The collateral identifier (e.g., "fxUSD", "stETH").
+    function collateral(Config_MinterMarket config) internal view returns (string memory) {
+        return IMarketConfig(address(config)).collateral();
+    }
+
     /// @notice Computes the salt for a minter market config.
     /// @param config The minter market config contract.
     /// @return The salt in "peg::collateral" format (e.g., "BTC::stETH").
     function salt(Config_MinterMarket config) internal view returns (string memory) {
-        IMarketConfig market = IMarketConfig(address(config));
-        return string.concat(market.peg(), "::", market.collateral());
+        return string.concat(peg(config), "::", collateral(config));
     }
-}
 
-/// @notice Library for computing price market salt from configuration.
-/// @dev Used by deployment scripts to generate salt for price market configs.
-library PriceMarketConfigLib {
-    /// @notice Computes the salt for a price market config.
-    /// @param config The price market config contract.
-    /// @return The salt in "peg::collateral" format (e.g., "BTC::stETH").
-    function salt(Config_PriceMarket config) internal view returns (string memory) {
-        IMarketConfig market = IMarketConfig(address(config));
-        return string.concat(market.peg(), "::", market.collateral());
+    /// @notice Computes the price oracle key for a minter market config.
+    /// @dev The price oracle uses a reversed key format: collateral::peg (not peg::collateral).
+    /// @param config The minter market config contract.
+    /// @return The key in "collateral::peg::wrappedPriceAggregator" format (e.g., "fxUSD::BTC::wrappedPriceAggregator").
+    function priceOracleKey(Config_MinterMarket config) internal view returns (string memory) {
+        return string.concat(collateral(config), "::", peg(config), "::wrappedPriceAggregator");
     }
 }

@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
 import {DeployMintersShared} from "./DeployMintersShared.sol";
-import {DeploymentTypes} from "./DeploymentTypes.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {ConfigPeg_EUR} from "script/config/pegs/ConfigPeg_EUR.sol";
 import {ConfigMarket_EUR_fxUSD_mainnet} from "script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";

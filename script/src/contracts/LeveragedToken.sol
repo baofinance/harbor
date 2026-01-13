@@ -2,8 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {FactoryDeployer} from "../FactoryDeployer.sol";
-import {DeploymentTypes} from "../DeploymentTypes.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
@@ -13,7 +13,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Harbor leveraged token deployment logic.
 /// @dev Leveraged tokens are unique per market (e.g., hsFXUSD-BTC for BTC::fxUSD market).
-abstract contract LeveragedToken is FactoryDeployer {
+abstract contract LeveragedToken is HarborFactoryDeployer {
     using LibString for string;
 
     // ========== LEVERAGED TOKEN DEPLOYMENT ==========
@@ -23,10 +23,9 @@ abstract contract LeveragedToken is FactoryDeployer {
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig
     ) internal returns (address leveragedToken) {
-        IMarketConfig market = IMarketConfig(address(marketConfig));
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory peg = market.peg();
-        string memory collateral = market.collateral();
+        string memory peg = MinterMarketConfigLib.peg(marketConfig);
+        string memory collateral = MinterMarketConfigLib.collateral(marketConfig);
 
         string memory leveragedKey = string.concat(marketKey, "::leveraged");
         string memory tokenName = string.concat("Harbor sail: variable leveraged long ", collateral, " against ", peg);

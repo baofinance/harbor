@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ConfigProtocol, WellKnownAddress} from "./ConfigProtocol.sol";
+import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 
 /// @notice Mainnet chain addresses and configuration.
-/// @dev Inherits protocol addresses from ConfigProtocol (same across all networks).
-abstract contract ConfigChain_mainnet is ConfigProtocol {
+/// @dev Only provides chain-specific addresses; protocol-level addresses live in deployers.
+abstract contract ConfigChain_mainnet {
     // Collateral tokens - names match actual token symbols
     function fxUSD() public pure virtual returns (address) {
         return 0x085780639CC2cACd35E474e71f4d000e2405d8f6;
@@ -37,23 +37,13 @@ abstract contract ConfigChain_mainnet is ConfigProtocol {
     }
 
     /// @notice Return all well-known addresses (protocol + chain-specific).
-    /// @dev Combines protocol addresses with mainnet-specific collateral tokens.
-    function getWellKnownAddresses() public pure virtual override returns (WellKnownAddress[] memory addrs) {
-        WellKnownAddress[] memory protocolAddrs = ConfigProtocol.getWellKnownAddresses();
-        uint256 chainCount = 5; // fxUSD, fxSAVE, stETH, wstETH, WBTC
-        addrs = new WellKnownAddress[](protocolAddrs.length + chainCount);
-
-        // Copy protocol addresses
-        for (uint256 i = 0; i < protocolAddrs.length; i++) {
-            addrs[i] = protocolAddrs[i];
-        }
-
-        // Add chain-specific addresses
-        uint256 idx = protocolAddrs.length;
-        addrs[idx++] = WellKnownAddress({addr: fxUSD(), label: "fxUSD"});
-        addrs[idx++] = WellKnownAddress({addr: fxSAVE(), label: "fxSAVE"});
-        addrs[idx++] = WellKnownAddress({addr: stETH(), label: "stETH"});
-        addrs[idx++] = WellKnownAddress({addr: wstETH(), label: "wstETH"});
-        addrs[idx++] = WellKnownAddress({addr: WBTC(), label: "WBTC"});
+    /// @dev Protocol addresses (treasury, baoFactory) are provided by FactoryDeployer.
+    function getWellKnownAddresses() public view virtual returns (WellKnownAddress[] memory addrs) {
+        addrs = new WellKnownAddress[](5);
+        addrs[0] = WellKnownAddress({addr: fxUSD(), label: "fxUSD"});
+        addrs[1] = WellKnownAddress({addr: fxSAVE(), label: "fxSAVE"});
+        addrs[2] = WellKnownAddress({addr: stETH(), label: "stETH"});
+        addrs[3] = WellKnownAddress({addr: wstETH(), label: "wstETH"});
+        addrs[4] = WellKnownAddress({addr: WBTC(), label: "WBTC"});
     }
 }

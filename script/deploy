@@ -132,6 +132,7 @@ elif [[ -n "$ACCOUNT" ]]; then
 fi
 
 FORGE_ARGS+=(--broadcast --slow) # leaving out the --slow arg means it is unreliable
+FORGE_ARGS+=(--ffi)              # needed for reliable state file saving
 [[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--verify)
 
 PEG_UPPER=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')

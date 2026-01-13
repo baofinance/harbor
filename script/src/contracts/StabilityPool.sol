@@ -2,8 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {FactoryDeployer} from "../FactoryDeployer.sol";
-import {DeploymentTypes} from "../DeploymentTypes.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
 import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
@@ -11,7 +11,7 @@ import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
 /// @notice Harbor StabilityPool_v1 deployment logic.
 /// @dev Each market has TWO stability pools: Collateral (wrapped collateral) and Leveraged (leveraged token).
 /// @dev Both pools grant: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE to StabilityPoolManager.
-abstract contract StabilityPool is FactoryDeployer {
+abstract contract StabilityPool is HarborFactoryDeployer {
     /// @notice StabilityPool configuration for deployment.
     struct StabilityPoolConfig {
         uint256 earlyWithdrawalFeeRatio;

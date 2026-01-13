@@ -2,8 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {FactoryDeployer} from "../FactoryDeployer.sol";
-import {DeploymentTypes} from "../DeploymentTypes.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
@@ -15,7 +15,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 /// @notice Harbor pegged token deployment logic.
 /// @dev Pegged tokens are one per peg (ETH, BTC, GOLD, EUR), shared by all markets with that peg.
 /// @dev If a pegged token already exists, logs the manual grantRoles transactions required.
-abstract contract PeggedToken is FactoryDeployer {
+abstract contract PeggedToken is HarborFactoryDeployer {
     using LibString for string;
 
     // ========== PEGGED TOKEN DEPLOYMENT ==========
@@ -63,8 +63,8 @@ abstract contract PeggedToken is FactoryDeployer {
         // Grant minter roles for each market
         console.log("      Roles:");
         for (uint256 i = 0; i < marketConfigs.length; i++) {
-            IMarketConfig market = IMarketConfig(address(marketConfigs[i]));
-            string memory configPeg = market.peg();
+            Config_MinterMarket market = marketConfigs[i];
+            string memory configPeg = MinterMarketConfigLib.peg(market);
             require(
                 configPeg.eq(pegKey),
                 string.concat("Market config peg '", configPeg, "' does not match pegged token '", pegKey, "'")
