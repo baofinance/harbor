@@ -149,219 +149,27 @@ library DeploymentState {
         return false;
     }
 
-    function rolesMissingProxies(
-        DeploymentTypes.State memory state
-    ) internal pure returns (DeploymentTypes.ContractRole[] memory) {
-        DeploymentTypes.ContractRole[] memory missing = new DeploymentTypes.ContractRole[](
-            state.implementations.length
-        );
-        string[] memory seen = new string[](state.implementations.length);
-        uint256 count;
-        for (uint256 i = 0; i < state.implementations.length; ++i) {
-            string memory key = state.implementations[i].proxy;
-            if (bytes(key).length == 0) continue;
-            if (_hasProxy(state, key)) continue;
-            if (_containsString(seen, count, key)) continue;
-            seen[count] = key;
-            missing[count] = DeploymentTypes.ContractRole({id: key});
-            ++count;
-        }
-        return _shrinkContractRoles(missing, count);
-    }
-
-    function fragmentsNeedingUpgrade(
-        DeploymentTypes.State memory state,
-        bytes32 targetVersion
-    ) internal pure returns (DeploymentTypes.FragmentDescriptor[] memory) {
-        DeploymentTypes.FragmentDescriptor[] memory fragments = new DeploymentTypes.FragmentDescriptor[](
-            state.pendingUpgrades.length
-        );
-        uint256 count;
-        for (uint256 i = 0; i < state.pendingUpgrades.length; ++i) {
-            DeploymentTypes.PendingUpgrade memory upgrade = state.pendingUpgrades[i];
-            if (upgrade.versionTag != targetVersion) continue;
-            fragments[count++] = upgrade.fragment;
-        }
-        return _shrinkFragmentDescriptors(fragments, count);
-    }
-
-    function minterMarketsMissingImplementations(
-        DeploymentTypes.State memory state
-    ) internal pure returns (DeploymentTypes.MinterMarket[] memory) {
-        string[] memory keys = _collectRoleKeys(state, "minter");
-        return _decodeMinterMarkets(keys);
-    }
-
-    function priceMarketsMissingImplementations(
-        DeploymentTypes.State memory state
-    ) internal pure returns (DeploymentTypes.PriceMarket[] memory) {
-        string[] memory keys = _collectRoleKeys(state, "priceAggregator");
-        return _decodePriceMarkets(keys);
-    }
-
-    function _decodePriceMarkets(string[] memory keys) private pure returns (DeploymentTypes.PriceMarket[] memory) {
-        DeploymentTypes.PriceMarket[] memory buffer = new DeploymentTypes.PriceMarket[](keys.length);
-        string[] memory seen = new string[](keys.length);
-        uint256 count;
-        for (uint256 i = 0; i < keys.length; ++i) {
-            (bool ok, DeploymentTypes.PriceMarket memory market, string memory canonical) = _toPriceMarket(keys[i]);
-            if (!ok) continue;
-            if (_containsString(seen, count, canonical)) continue;
-            seen[count] = canonical;
-            buffer[count++] = market;
-        }
-        return _shrinkPriceMarkets(buffer, count);
-    }
-
-    function _collectRoleKeys(
-        DeploymentTypes.State memory state,
-        string memory role
-    ) private pure returns (string[] memory) {
-        string[] memory buffer = new string[](state.proxies.length);
-        uint256 count;
-        string memory suffix = string.concat("::", role);
+    /// @notice Check if a proxy with given ID exists in state.
+    function hasProxy(DeploymentTypes.State memory state, string memory id) internal pure returns (bool) {
         for (uint256 i = 0; i < state.proxies.length; ++i) {
-            string memory key = state.proxies[i].id;
-            if (!LibString.endsWith(key, suffix)) continue;
-            if (_hasImplementation(state, key)) continue;
-            if (_containsString(buffer, count, key)) continue;
-            buffer[count++] = key;
+            if (LibString.eq(state.proxies[i].id, id)) return true;
         }
-        return _shrinkStringArray(buffer, count);
+        return false;
     }
 
-    function _decodeMinterMarkets(string[] memory keys) private pure returns (DeploymentTypes.MinterMarket[] memory) {
-        DeploymentTypes.MinterMarket[] memory buffer = new DeploymentTypes.MinterMarket[](keys.length);
-        uint256 count;
-        for (uint256 i = 0; i < keys.length; ++i) {
-            (bool ok, string memory collateral, string memory peg) = _parseMinterIdentifiers(keys[i]);
-            if (!ok) continue;
-            buffer[count++] = DeploymentTypes.MinterMarket({
-                peg: DeploymentTypes.PegFragment({id: peg}),
-                collateral: DeploymentTypes.CollateralFragment({id: collateral})
-            });
+    /// @notice Check if an implementation for given proxy key exists in state.
+    function hasImplementation(
+        DeploymentTypes.State memory state,
+        string memory proxyKey
+    ) internal pure returns (bool) {
+        for (uint256 i = 0; i < state.implementations.length; ++i) {
+            if (LibString.eq(state.implementations[i].proxy, proxyKey)) return true;
         }
-        return _shrinkMinterMarkets(buffer, count);
-    }
-
-    function _toPriceMarket(
-        string memory key
-    ) private pure returns (bool, DeploymentTypes.PriceMarket memory, string memory) {
-        (bool ok, string memory collateral, string memory peg) = _parseMinterIdentifiers(key);
-        if (!ok)
-            return (
-                false,
-                DeploymentTypes.PriceMarket({
-                    collateral: DeploymentTypes.CollateralFragment({id: ""}),
-                    peg: DeploymentTypes.PegFragment({id: ""})
-                }),
-                ""
-            );
-        string memory canonical = string.concat(collateral, "::", peg);
-        DeploymentTypes.PriceMarket memory market = DeploymentTypes.PriceMarket({
-            collateral: DeploymentTypes.CollateralFragment({id: collateral}),
-            peg: DeploymentTypes.PegFragment({id: peg})
-        });
-        return (true, market, canonical);
-    }
-
-    function _parseMinterIdentifiers(string memory key) private pure returns (bool, string memory, string memory) {
-        // Parse "collateral::peg::role" - find first two "::" separators
-        uint256 first = LibString.indexOf(key, "::");
-        if (first == type(uint256).max) return (false, "", "");
-
-        uint256 second = LibString.indexOf(key, "::", first + 2);
-        if (second == type(uint256).max) return (false, "", "");
-
-        string memory collateral = LibString.slice(key, 0, first);
-        string memory peg = LibString.slice(key, first + 2, second);
-        return (true, collateral, peg);
+        return false;
     }
 
     function _ensureDirectory(string memory network, string memory directoryPrefix) private {
         vm.createDir(resolveDirectory(network, directoryPrefix), true);
-    }
-
-    function _hasImplementation(DeploymentTypes.State memory state, string memory key) private pure returns (bool) {
-        for (uint256 i = 0; i < state.implementations.length; ++i) {
-            if (LibString.eq(state.implementations[i].proxy, key)) return true;
-        }
-        return false;
-    }
-
-    function _hasProxy(DeploymentTypes.State memory state, string memory key) private pure returns (bool) {
-        for (uint256 i = 0; i < state.proxies.length; ++i) {
-            if (LibString.eq(state.proxies[i].id, key)) return true;
-        }
-        return false;
-    }
-
-    function _containsString(
-        string[] memory haystack,
-        uint256 length,
-        string memory needle
-    ) private pure returns (bool) {
-        for (uint256 i = 0; i < length; ++i) {
-            if (LibString.eq(haystack[i], needle)) return true;
-        }
-        return false;
-    }
-
-    function _shrinkStringArray(string[] memory input, uint256 length) private pure returns (string[] memory) {
-        if (input.length == length) return input;
-        string[] memory output = new string[](length);
-        for (uint256 i = 0; i < length; ++i) {
-            output[i] = input[i];
-        }
-        return output;
-    }
-
-    function _shrinkMinterMarkets(
-        DeploymentTypes.MinterMarket[] memory input,
-        uint256 length
-    ) private pure returns (DeploymentTypes.MinterMarket[] memory) {
-        if (input.length == length) return input;
-        DeploymentTypes.MinterMarket[] memory output = new DeploymentTypes.MinterMarket[](length);
-        for (uint256 i = 0; i < length; ++i) {
-            output[i] = input[i];
-        }
-        return output;
-    }
-
-    function _shrinkPriceMarkets(
-        DeploymentTypes.PriceMarket[] memory input,
-        uint256 length
-    ) private pure returns (DeploymentTypes.PriceMarket[] memory) {
-        if (input.length == length) return input;
-        DeploymentTypes.PriceMarket[] memory output = new DeploymentTypes.PriceMarket[](length);
-        for (uint256 i = 0; i < length; ++i) {
-            output[i] = input[i];
-        }
-        return output;
-    }
-
-    function _shrinkContractRoles(
-        DeploymentTypes.ContractRole[] memory input,
-        uint256 length
-    ) private pure returns (DeploymentTypes.ContractRole[] memory) {
-        if (input.length == length) return input;
-        DeploymentTypes.ContractRole[] memory output = new DeploymentTypes.ContractRole[](length);
-        for (uint256 i = 0; i < length; ++i) {
-            output[i] = input[i];
-        }
-        return output;
-    }
-
-    function _shrinkFragmentDescriptors(
-        DeploymentTypes.FragmentDescriptor[] memory input,
-        uint256 length
-    ) private pure returns (DeploymentTypes.FragmentDescriptor[] memory) {
-        if (input.length == length) return input;
-        DeploymentTypes.FragmentDescriptor[] memory output = new DeploymentTypes.FragmentDescriptor[](length);
-        for (uint256 i = 0; i < length; ++i) {
-            output[i] = input[i];
-        }
-        return output;
     }
 
     function _readStateFile(string memory path) internal view returns (string memory) {

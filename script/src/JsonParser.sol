@@ -14,7 +14,6 @@ library JsonParser {
     uint256 internal constant SCHEMA_VERSION = 1;
 
     error SchemaMismatch(uint256 expected, uint256 found);
-    error UnknownFragmentKind(string kind);
     error InvalidTimestamp(string input);
     error MissingRequiredField(string fieldName);
 
@@ -45,7 +44,6 @@ library JsonParser {
         }
         state.implementations = parseImplementations(json);
         state.proxies = parseProxies(json);
-        state.pendingUpgrades = new DeploymentTypes.PendingUpgrade[](0);
         state.baoFactory = vm.parseAddress(json.readString(".baoFactory"));
         return state;
     }
@@ -89,24 +87,9 @@ library JsonParser {
             rec.implementation = vm.parseAddress(json.readString(string.concat(path, ".implementation")));
             rec.salt = json.readString(string.concat(path, ".salt"));
             rec.deploymentTime = _parseTimestamp(json.readString(string.concat(path, ".deploymentTime")));
-            // Fragment no longer stored in JSON - use empty descriptor
-            rec.fragment = DeploymentTypes.FragmentDescriptor({
-                kind: DeploymentTypes.FragmentKind.ContractRole,
-                key: ""
-            });
             records[i] = rec;
         }
         return records;
-    }
-
-    function parseFragmentKind(string memory value) internal pure returns (DeploymentTypes.FragmentKind) {
-        if (bytes(value).length == 0) return DeploymentTypes.FragmentKind.ContractRole;
-        if (LibString.eq(value, "Peg")) return DeploymentTypes.FragmentKind.Peg;
-        if (LibString.eq(value, "Collateral")) return DeploymentTypes.FragmentKind.Collateral;
-        if (LibString.eq(value, "ContractRole")) return DeploymentTypes.FragmentKind.ContractRole;
-        if (LibString.eq(value, "MinterMarket")) return DeploymentTypes.FragmentKind.MinterMarket;
-        if (LibString.eq(value, "PriceMarket")) return DeploymentTypes.FragmentKind.PriceMarket;
-        revert UnknownFragmentKind(value);
     }
 
     function _parseTimestamp(string memory value) private pure returns (uint64) {

@@ -39,15 +39,10 @@ abstract contract LeveragedToken is FactoryDeployer {
         address impl = address(new MintableBurnableERC20_v1());
         console.log("      Impl:   %s", impl);
 
-        bytes memory initData = abi.encodeCall(
-            MintableBurnableERC20_v1.initialize,
-            (owner(), tokenName, tokenSymbol)
-        );
+        bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), tokenName, tokenSymbol));
 
         leveragedToken = _deployProxyAndRecord(
             stateData,
-            leveragedKey,
-            DeploymentTypes.FragmentKind.MinterMarket,
             leveragedKey,
             impl,
             "@bao/MintableBurnableERC20_v1.sol",

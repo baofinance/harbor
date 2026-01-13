@@ -68,7 +68,10 @@ library JsonSerializer {
         }
     }
 
-    function renderProxiesMap(DeploymentTypes.ProxyRecord[] memory records, string memory saltPrefix) internal pure returns (string memory body) {
+    function renderProxiesMap(
+        DeploymentTypes.ProxyRecord[] memory records,
+        string memory saltPrefix
+    ) internal pure returns (string memory body) {
         uint256 length = records.length;
         if (length == 0) {
             return "";

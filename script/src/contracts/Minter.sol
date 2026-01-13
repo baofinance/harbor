@@ -45,8 +45,6 @@ abstract contract Minter is FactoryDeployer {
         proxy = _deployProxyAndRecord(
             stateData,
             minterKey,
-            DeploymentTypes.FragmentKind.MinterMarket,
-            marketKey,
             impl,
             "@harbor/minter/Minter_v1.sol",
             "Minter_v1",
@@ -94,8 +92,6 @@ abstract contract Minter is FactoryDeployer {
         proxy = _deployProxyAndRecord(
             stateData,
             reservePoolKey,
-            DeploymentTypes.FragmentKind.MinterMarket,
-            marketKey,
             impl,
             "@harbor/minter/ReservePool_v1.sol",
             "ReservePool_v1",
@@ -128,8 +124,6 @@ abstract contract Minter is FactoryDeployer {
         proxy = _deployProxyAndRecord(
             stateData,
             feeReceiverKey,
-            DeploymentTypes.FragmentKind.MinterMarket,
-            marketKey,
             impl,
             "@harbor/minter/TokenDistributor_v1.sol",
             "TokenDistributor_v1",

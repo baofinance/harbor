@@ -53,8 +53,6 @@ abstract contract PeggedToken is FactoryDeployer {
             peggedToken = _deployProxyAndRecord(
                 stateData,
                 tokenKey,
-                DeploymentTypes.FragmentKind.Peg,
-                tokenKey,
                 impl,
                 "@bao/MintableBurnableERC20_v1.sol",
                 "MintableBurnableERC20_v1",

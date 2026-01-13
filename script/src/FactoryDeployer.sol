@@ -140,8 +140,6 @@ abstract contract FactoryDeployer is ConfigProtocol {
     /// @dev This is the main entry point for all proxy deployments - ensures recording cannot be forgotten.
     /// @param stateData Deployment state to record into.
     /// @param proxyId The proxy identifier (e.g., "ETH::fxUSD::minter").
-    /// @param fragmentKind The kind of fragment this proxy belongs to.
-    /// @param fragmentKey The fragment key (typically marketKey or peg).
     /// @param implementation The implementation contract address.
     /// @param contractSource Source file path for the implementation (e.g., "@harbor/minter/Minter_v1.sol").
     /// @param contractType Contract type name (e.g., "Minter_v1").
@@ -150,8 +148,6 @@ abstract contract FactoryDeployer is ConfigProtocol {
     function _deployProxyAndRecord(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
-        DeploymentTypes.FragmentKind fragmentKind,
-        string memory fragmentKey,
         address implementation,
         string memory contractSource,
         string memory contractType,
@@ -177,7 +173,6 @@ abstract contract FactoryDeployer is ConfigProtocol {
             stateData,
             DeploymentTypes.ProxyRecord({
                 id: proxyId,
-                fragment: DeploymentTypes.FragmentDescriptor({key: fragmentKey, kind: fragmentKind}),
                 proxy: proxy,
                 implementation: implementation,
                 salt: systemSalt(),

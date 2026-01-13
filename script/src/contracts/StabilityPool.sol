@@ -55,8 +55,6 @@ abstract contract StabilityPool is FactoryDeployer {
         proxy = _deployProxyAndRecord(
             stateData,
             spKey,
-            DeploymentTypes.FragmentKind.MinterMarket,
-            marketKey,
             impl,
             "@harbor/minter/StabilityPool_v1.sol",
             "StabilityPool_v1",
@@ -96,8 +94,6 @@ abstract contract StabilityPool is FactoryDeployer {
         proxy = _deployProxyAndRecord(
             stateData,
             spKey,
-            DeploymentTypes.FragmentKind.MinterMarket,
-            marketKey,
             impl,
             "@harbor/minter/StabilityPool_v1.sol",
             "StabilityPool_v1",

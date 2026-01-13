@@ -37,8 +37,6 @@ abstract contract Genesis is FactoryDeployer {
         proxy = _deployProxyAndRecord(
             stateData,
             genesisKey,
-            DeploymentTypes.FragmentKind.MinterMarket,
-            marketKey,
             impl,
             "@harbor/minter/Genesis_v1.sol",
             "Genesis_v1",

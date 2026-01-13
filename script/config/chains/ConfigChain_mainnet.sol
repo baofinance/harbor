@@ -42,12 +42,12 @@ abstract contract ConfigChain_mainnet is ConfigProtocol {
         WellKnownAddress[] memory protocolAddrs = ConfigProtocol.getWellKnownAddresses();
         uint256 chainCount = 5; // fxUSD, fxSAVE, stETH, wstETH, WBTC
         addrs = new WellKnownAddress[](protocolAddrs.length + chainCount);
-        
+
         // Copy protocol addresses
         for (uint256 i = 0; i < protocolAddrs.length; i++) {
             addrs[i] = protocolAddrs[i];
         }
-        
+
         // Add chain-specific addresses
         uint256 idx = protocolAddrs.length;
         addrs[idx++] = WellKnownAddress({addr: fxUSD(), label: "fxUSD"});
