@@ -3,17 +3,17 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 
-/// @notice Volatility configuration for 130% rebalance threshold markets (Month 1 fees).
+/// @notice Volatility configuration for 125% rebalance threshold markets (Month 1 fees).
 /// @dev Higher redeem leveraged fees for initial month after launch.
-abstract contract ConfigPriceVolatility_130 {
+abstract contract ConfigPriceVolatility_125 {
     function rebalanceThreshold() public pure virtual returns (uint256) {
-        return 1.30e18;
+        return 1.25e18;
     }
 
     function minterConfig() public pure returns (IMinter.Config memory) {
         uint256[] memory mintPeggedBounds = new uint256[](6);
-        mintPeggedBounds[0] = 1.31e18;
-        mintPeggedBounds[1] = 1.40e18;
+        mintPeggedBounds[0] = 1.26e18;
+        mintPeggedBounds[1] = 1.35e18;
         mintPeggedBounds[2] = 1.50e18;
         mintPeggedBounds[3] = 1.60e18;
         mintPeggedBounds[4] = 1.70e18;
@@ -31,8 +31,8 @@ abstract contract ConfigPriceVolatility_130 {
         uint256[] memory redeemPeggedBounds = new uint256[](6);
         redeemPeggedBounds[0] = 1.00e18;
         redeemPeggedBounds[1] = 1.10e18;
-        redeemPeggedBounds[2] = 1.29e18;
-        redeemPeggedBounds[3] = 1.40e18;
+        redeemPeggedBounds[2] = 1.24e18;
+        redeemPeggedBounds[3] = 1.35e18;
         redeemPeggedBounds[4] = 1.50e18;
         redeemPeggedBounds[5] = 1.60e18;
 
@@ -48,9 +48,9 @@ abstract contract ConfigPriceVolatility_130 {
         uint256[] memory mintLeveragedBounds = new uint256[](6);
         mintLeveragedBounds[0] = 1.00e18;
         mintLeveragedBounds[1] = 1.10e18;
-        mintLeveragedBounds[2] = 1.29e18;
-        mintLeveragedBounds[3] = 1.80e18;
-        mintLeveragedBounds[4] = 1.90e18;
+        mintLeveragedBounds[2] = 1.24e18;
+        mintLeveragedBounds[3] = 1.75e18;
+        mintLeveragedBounds[4] = 1.85e18;
         mintLeveragedBounds[5] = 2.00e18;
 
         int256[] memory mintLeveragedRatios = new int256[](7);
@@ -64,11 +64,11 @@ abstract contract ConfigPriceVolatility_130 {
 
         uint256[] memory redeemLeveragedBounds = new uint256[](6);
         redeemLeveragedBounds[0] = 1.00e18;
-        redeemLeveragedBounds[1] = 1.29e18;
-        redeemLeveragedBounds[2] = 1.40e18;
-        redeemLeveragedBounds[3] = 1.50e18;
-        redeemLeveragedBounds[4] = 1.60e18;
-        redeemLeveragedBounds[5] = 1.70e18;
+        redeemLeveragedBounds[1] = 1.24e18;
+        redeemLeveragedBounds[2] = 1.35e18;
+        redeemLeveragedBounds[3] = 1.45e18;
+        redeemLeveragedBounds[4] = 1.55e18;
+        redeemLeveragedBounds[5] = 1.65e18;
 
         int256[] memory redeemLeveragedRatios = new int256[](7);
         redeemLeveragedRatios[0] = 1e18;

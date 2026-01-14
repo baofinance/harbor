@@ -1,0 +1,115 @@
+#!/bin/bash
+# Generate Safe Transaction Builder JSON for batch operations using Solidity scripts.
+#
+# Usage: ./script/generate-safe-batch <script-name> [--network <network>] [--salt <salt>] [--local]
+#
+# Examples:
+#   ./script/generate-safe-batch UpdateVolatility_Example
+#   ./script/generate-safe-batch UpdateVolatility_Example --network mainnet --salt harbor_v1
+#   ./script/generate-safe-batch UpdateTo140_Test --local  # outputs to deployments/local/<network>/batch/
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+show_help() {
+  cat <<EOF
+Usage: $0 <script-name> [options]
+
+Generate Safe Transaction Builder JSON for batch operations.
+
+Arguments:
+  script-name    Name of the batch script (e.g., UpdateVolatility_Example)
+
+Options:
+  --network <n>  Network name (default: mainnet)
+  --salt <s>     Salt prefix (default: harbor_v1)
+  --local        Output to deployments/local/<network>/batch/ without timestamp
+  --help, -h     Show this help message
+
+Available batch scripts:
+EOF
+  grep -l "SafeBatchBase" "$SCRIPT_DIR"/*.s.sol 2>/dev/null | xargs -n1 basename | sed 's/.s.sol$/  /' || echo "  (none found)"
+}
+
+# Verify we're in project root
+if [[ "$(pwd)" != "$PROJECT_ROOT" ]]; then
+  echo "Error: Must run from project root: $PROJECT_ROOT" >&2
+  echo "Current directory: $(pwd)" >&2
+  exit 1
+fi
+
+# Defaults
+NETWORK="mainnet"
+SALT="harbor_v1"
+SCRIPT_NAME=""
+USE_LOCAL=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --help | -h)
+      show_help
+      exit 0
+      ;;
+    --network)
+      NETWORK="$2"
+      shift 2
+      ;;
+    --salt)
+      SALT="$2"
+      shift 2
+      ;;
+    --local)
+      USE_LOCAL="1"
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      SCRIPT_NAME="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$SCRIPT_NAME" ]]; then
+  show_help
+  exit 1
+fi
+
+SCRIPT_PATH="script/${SCRIPT_NAME}.s.sol"
+
+if [[ ! -f "$SCRIPT_PATH" ]]; then
+  echo "Error: Script not found: $SCRIPT_PATH" >&2
+  exit 1
+fi
+
+# Determine output directory and filename
+if [[ -n "$USE_LOCAL" ]]; then
+  OUTPUT_DIR="deployments/local/${NETWORK}/batch"
+  OUTPUT_FILE="${OUTPUT_DIR}/${SCRIPT_NAME}.json"
+else
+  OUTPUT_DIR="deployments/${NETWORK}/batch"
+  TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  OUTPUT_FILE="${OUTPUT_DIR}/${SCRIPT_NAME}_${TIMESTAMP}.json"
+fi
+
+echo "Running batch script: $SCRIPT_NAME" >&2
+echo "  Network: $NETWORK" >&2
+echo "  Salt: $SALT" >&2
+echo "  Output: $OUTPUT_FILE" >&2
+echo "" >&2
+
+# Run forge, capturing JSON from console.log output
+mkdir -p "$OUTPUT_DIR"
+forge script "$SCRIPT_PATH" \
+  --fork-url "$NETWORK" \
+  --sig "run(string)" "$SALT" \
+  2>/dev/null | grep '{"version"' | jq . >"$OUTPUT_FILE"
+
+echo "Batch saved to: $OUTPUT_FILE" >&2
+echo "Transactions: $(jq '.transactions | length' "$OUTPUT_FILE")" >&2

@@ -3,9 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IMinter} from "src/interfaces/IMinter.sol";
 
-/// @notice Volatility configuration for 130% rebalance threshold markets (Month 1 fees).
-/// @dev Higher redeem leveraged fees for initial month after launch.
-abstract contract ConfigPriceVolatility_130 {
+/// @notice Volatility configuration for 130% rebalance threshold markets.
+abstract contract ConfigPriceVolatility_130_stable {
     function rebalanceThreshold() public pure virtual returns (uint256) {
         return 1.30e18;
     }
@@ -73,11 +72,11 @@ abstract contract ConfigPriceVolatility_130 {
         int256[] memory redeemLeveragedRatios = new int256[](7);
         redeemLeveragedRatios[0] = 1e18;
         redeemLeveragedRatios[1] = 4e16;
-        redeemLeveragedRatios[2] = 2.5e16;
-        redeemLeveragedRatios[3] = 2e16;
-        redeemLeveragedRatios[4] = 1.5e16;
-        redeemLeveragedRatios[5] = 1.25e16;
-        redeemLeveragedRatios[6] = 1e16;
+        redeemLeveragedRatios[2] = 2e16;
+        redeemLeveragedRatios[3] = 1.5e16;
+        redeemLeveragedRatios[4] = 1e16;
+        redeemLeveragedRatios[5] = 0.75e16;
+        redeemLeveragedRatios[6] = 0.66e16;
 
         return
             IMinter.Config({
