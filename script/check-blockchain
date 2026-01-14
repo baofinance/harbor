@@ -1,0 +1,481 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Validate Harbor minter deployments against blockchain state
+#
+# This script verifies:
+#   1. All addresses in state file have deployed code
+#   2. Proxies are valid UUPS proxies (have upgradeToAndCall, owner)
+#   3. Proxy owner is the expected treasury address
+#   4. ERC1967 implementation slot matches state file
+#   5. Proxy implementations are NOT the UUPSProxyDeployStub (upgrade completed)
+#   6. All remaining implementations (not in active proxies) also have code
+
+# ── Constants ──────────────────────────────────────────────────────────────
+
+CAST=cast
+BAO_FACTORY=0xD696E56b3A054734d4C6DCBD32E11a278b0EC458
+EXPECTED_OWNER=0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
+
+# UUPSProxyDeployStub bytecode signature (first ~100 bytes excluding constructor-injected owner)
+# The stub has a very specific bytecode pattern. We check for the presence of function selectors
+# that are unique to the stub: owner() + upgradeTo() + upgradeToAndCall() + proxiableUUID()
+# but NOT implementation() (which real implementations have).
+# We detect the stub by checking if cast call to a real implementation function fails.
+
+# ── Shared variables ───────────────────────────────────────────────────────
+
+CHAIN_ID=""
+STATE_FILE=""
+RPC_URL=""
+NETWORK=""
+
+# ── Library functions ──────────────────────────────────────────────────────
+
+has_code() {
+  local addr=$1
+  local code
+  code=$("$CAST" code "$addr" --rpc-url "$RPC_URL" 2>/dev/null | head -n 1 || echo "0x")
+  [[ "$code" != "0x" ]]
+}
+
+# Check if contract is a UUPS proxy by reading the ERC1967 implementation slot.
+# Both OpenZeppelin and Solady UUPS proxies use the same slot for storing the implementation.
+# This is more robust than calling UUPS-specific functions which differ between implementations:
+#   - OZ has UPGRADE_INTERFACE_VERSION() callable through proxy
+#   - Solady's proxiableUUID() reverts through proxy due to notDelegated modifier
+is_uups_proxy() {
+  local addr=$1
+  local impl
+  impl=$("$CAST" implementation "$addr" --rpc-url "$RPC_URL" 2>/dev/null || echo "")
+  [[ -n "$impl" && "$impl" != "0x0000000000000000000000000000000000000000" ]]
+}
+
+# Get owner from contract
+get_owner() {
+  local addr=$1
+  "$CAST" call "$addr" "owner()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo ""
+}
+
+# Read ERC1967 implementation slot
+get_erc1967_implementation() {
+  local proxy=$1
+  local impl
+  impl=$("$CAST" implementation "$proxy" --rpc-url "$RPC_URL" 2>/dev/null)
+  if [[ -z "$impl" || "$impl" == "0x0000000000000000000000000000000000000000" ]]; then
+    echo ""
+    return 1
+  fi
+  "$CAST" to-check-sum-address "$impl"
+}
+
+# Check if implementation is the UUPSProxyDeployStub
+# The stub is a minimal contract that only has: owner(), upgradeTo(), upgradeToAndCall(), proxiableUUID()
+# Real implementations have many more functions. We detect the stub by checking:
+# 1. It has owner() and upgradeToAndCall()
+# 2. It does NOT have typical implementation functions like name(), symbol(), decimals(), etc.
+is_uups_stub() {
+  local impl_addr=$1
+
+  # Check if it has owner() - the stub always has this
+  if ! "$CAST" call "$impl_addr" "owner()(address)" --rpc-url "$RPC_URL" &>/dev/null; then
+    return 1  # Not a stub (doesn't even have owner)
+  fi
+
+  # The stub's owner() returns the deployer (test harness), not the treasury
+  # Real upgraded implementations return the treasury
+  local impl_owner
+  impl_owner=$("$CAST" call "$impl_addr" "owner()(address)" --rpc-url "$RPC_URL" 2>/dev/null || echo "")
+
+  # Try a function that real implementations have but the stub doesn't
+  # The stub bytecode is very small (~500 bytes), real implementations are much larger
+  local code_size
+  code_size=$("$CAST" code "$impl_addr" --rpc-url "$RPC_URL" 2>/dev/null | wc -c)
+
+  # Stub bytecode is roughly 500-800 chars (hex), real impls are 10000+ chars
+  if [[ "$code_size" -lt 2000 ]]; then
+    return 0  # Likely the stub (very small bytecode)
+  fi
+
+  return 1  # Not a stub
+}
+
+# Predict proxy address from salt string using BaoFactory
+predict_proxy_address() {
+  local salt_str=$1
+  local salt_b32
+  salt_b32=$("$CAST" keccak "$("$CAST" from-utf8 "$salt_str")")
+  "$CAST" call "$BAO_FACTORY" "predictAddress(bytes32)(address)" "$salt_b32" --rpc-url "$RPC_URL"
+}
+
+# Get all proxy keys
+get_proxy_keys() {
+  local state_file=$1
+  jq -r '.proxies | keys[]' "$state_file" 2>/dev/null || echo ""
+}
+
+# Get all implementation addresses
+get_implementation_addresses() {
+  local state_file=$1
+  jq -r '.implementations | keys[]' "$state_file" 2>/dev/null | sort || echo ""
+}
+
+# Get implementation info by address
+get_implementation_info() {
+  local state_file=$1
+  local addr=$2
+  local field=$3
+  jq -r --arg addr "$addr" --arg field "$field" '.implementations[$addr][$field] // "-"' "$state_file"
+}
+
+# Get proxy info by key
+get_proxy_info() {
+  local state_file=$1
+  local key=$2
+  local field=$3
+  jq -r --arg key "$key" --arg field "$field" '.proxies[$key][$field] // "-"' "$state_file"
+}
+
+check_project_root() {
+  if [[ ! -f "foundry.toml" ]] || [[ ! -d "src" ]]; then
+    echo "❌ Must be run from the project root (missing foundry.toml or src/)" >&2
+    exit 1
+  fi
+}
+
+# ── Usage ──────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage:
+  $0 --network <network> --salt <salt> [--local]
+
+Required:
+  --network     Network name (mainnet, arbitrum, base)
+  --salt        Salt prefix (e.g., harbor_v1, test3)
+
+Optional:
+  --local       Use local anvil node (--rpc-url local, deployments/local/<network>/)
+  --summary     Just print a summary of the minters and price aggregators existence
+
+Examples:
+  $0 --network mainnet --salt harbor_v1
+  $0 --network mainnet --salt harbor_v1 --local
+
+State file: deployments/<network>/<salt>.state.json
+       or:  deployments/local/<network>/<salt>.state.json (with --local)
+
+Checks performed:
+  1. All addresses have deployed code
+  2. Proxies have ERC1967 implementation slot (UUPS pattern)
+  3. Proxy owner() returns expected treasury address
+  4. ERC1967 implementation slot matches state file
+  5. Implementations are NOT the UUPSProxyDeployStub (upgrade completed)
+  6. Proxy address matches salt prediction from BaoFactory
+EOF
+}
+
+# ── Argument parsing ───────────────────────────────────────────────────────
+
+NETWORK=""
+SALT=""
+USE_LOCAL=false
+SUMMARY_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --network)
+      NETWORK=${2:-}
+      shift 2
+      ;;
+    --local)
+      USE_LOCAL=true
+      shift
+      ;;
+    --summary)
+      SUMMARY_ONLY=true
+      shift
+      ;;
+    --salt)
+      SALT=${2:-}
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "❌ Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      echo "❌ Unexpected argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ── Validation ─────────────────────────────────────────────────────────────
+
+check_project_root
+
+if [[ -z "$NETWORK" ]]; then
+  echo "❌ Missing --network" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ -z "$SALT" ]]; then
+  echo "❌ Missing --salt" >&2
+  usage >&2
+  exit 1
+fi
+
+# ── Initialize ─────────────────────────────────────────────────────────────
+
+if [[ "$USE_LOCAL" == true ]]; then
+  RPC_URL="local"
+  STATE_FILE="deployments/local/${NETWORK}/${SALT}.state.json"
+else
+  RPC_URL="$NETWORK"
+  STATE_FILE="deployments/${NETWORK}/${SALT}.state.json"
+fi
+
+if ! CHAIN_ID=$("$CAST" chain-id --rpc-url "$RPC_URL" 2>&1); then
+  echo "❌ Failed to fetch chainId from RPC '$RPC_URL'" >&2
+  echo "   $CHAIN_ID" >&2
+  exit 1
+fi
+if [[ ! -f "$STATE_FILE" ]]; then
+  echo "❌ State file not found: $STATE_FILE" >&2
+  exit 1
+fi
+
+# Validate network matches
+state_network=$(jq -r '.network // empty' "$STATE_FILE")
+if [[ -n "$state_network" && "$state_network" != "$NETWORK" ]]; then
+  echo "❌ State file network mismatch: $state_network (expected $NETWORK)" >&2
+  exit 1
+fi
+
+# ── Main ───────────────────────────────────────────────────────────────────
+
+echo ""
+echo "═══════════════════════════════════════════════════════════"
+echo "  BLOCKCHAIN VALIDATION"
+echo "  Network: $NETWORK (chainId: $CHAIN_ID)"
+echo "  State:   $STATE_FILE"
+echo "  Owner:   $EXPECTED_OWNER"
+echo "═══════════════════════════════════════════════════════════"
+echo ""
+
+proxy_passed=0
+proxy_failed=0
+impl_passed=0
+impl_failed=0
+
+# Track which implementation addresses we've checked
+declare -A checked_impls
+
+# Get keys for validation
+proxy_keys=$(get_proxy_keys "$STATE_FILE")
+impl_addrs=$(get_implementation_addresses "$STATE_FILE")
+
+# ── Markets Summary ────────────────────────────────────────────────────────
+
+# Extract unique markets (collateral::peg) from proxy keys, sorted by collateral then peg
+markets=$(jq -r '.proxies | keys[] | split("::") | select(length >= 3) | .[0:2] | join("::")' "$STATE_FILE" | sort -u -t: -k1,1 -k3,3)
+
+echo "── MARKETS ──────────────────────────────────────────────────"
+echo ""
+for market in $markets; do
+
+  peg=${market%%::*}
+  collateral=${market#*::}
+  echo "  $collateral/$peg"
+  aggregator_salt="${SALT}::${collateral}::${peg}::wrappedPriceAggregator"
+  aggregator_addr=$(predict_proxy_address "$aggregator_salt")
+  if has_code "$aggregator_addr"; then
+    echo "    ✓ $aggregator_salt deployed at $aggregator_addr"
+  else
+    echo "    ❌ $aggregator_salt NOT deployed (expected at $aggregator_addr)"
+    failed=true
+  fi
+  minter_salt="${SALT}::${peg}::${collateral}::minter"
+  minter_addr=$(predict_proxy_address "$minter_salt")
+  if has_code "$minter_addr"; then
+    echo "    ✓ $minter_salt deployed at $minter_addr"
+  else
+    echo "    ❌  $minter_salt NOT deployed (expected at $minter_addr)"
+    failed=true
+  fi
+done
+if [[ "$failed" == true ]]; then
+  echo "  ❌ FAILED"
+else
+  echo "  ✅ PASSED"
+fi
+
+if [[ "$SUMMARY_ONLY" = true ]]; then
+  if [[ "$failed" == true ]]; then
+    exit 1
+  else
+    exit 0
+  fi
+fi
+echo ""
+
+# ── Check Proxies ──────────────────────────────────────────────────────────
+
+if [[ -n "$proxy_keys" ]]; then
+  echo "── PROXIES ──────────────────────────────────────────────────"
+  echo ""
+
+  for key in $proxy_keys; do
+    echo "── $key ────────────────────────────────────────"
+    failed=false
+
+    # Get proxy address and salt from state
+    proxy_addr=$(get_proxy_info "$STATE_FILE" "$key" address)
+    salt=$(get_proxy_info "$STATE_FILE" "$key" salt)
+    expected_impl=$(get_proxy_info "$STATE_FILE" "$key" implementation)
+
+    echo "  Proxy: $proxy_addr"
+    echo "  Salt:  $salt"
+
+    # Check 1: Verify address matches predicted from salt
+    predicted_addr=$(predict_proxy_address "$salt")
+    if [[ "${proxy_addr,,}" != "${predicted_addr,,}" ]]; then
+      echo "  ❌ Address/salt mismatch!"
+      echo "     State address:      $proxy_addr"
+      echo "     Predicted from salt: $predicted_addr"
+      failed=true
+    else
+      echo "  ✓ Salt prediction matches"
+    fi
+
+    # Check 2: Proxy has code
+    if ! has_code "$proxy_addr"; then
+      echo "  ❌ No code at proxy address"
+      failed=true
+    else
+      echo "  ✓ Has deployed code"
+    fi
+
+    # Check 3: Has ERC1967 implementation slot (UUPS proxy)
+    if ! is_uups_proxy "$proxy_addr"; then
+      echo "  ❌ No ERC1967 implementation slot - not a UUPS proxy"
+      failed=true
+    else
+      echo "  ✓ Has ERC1967 implementation slot (UUPS)"
+    fi
+
+    # Check 4: Owner is expected address
+    actual_owner=$(get_owner "$proxy_addr")
+    if [[ -z "$actual_owner" ]]; then
+      echo "  ❌ Failed to read owner()"
+      failed=true
+    elif [[ "${actual_owner,,}" != "${EXPECTED_OWNER,,}" ]]; then
+      echo "  ❌ Owner mismatch!"
+      echo "     Expected: $EXPECTED_OWNER"
+      echo "     Actual:   $actual_owner"
+      failed=true
+    else
+      echo "  ✓ Owner is treasury ($EXPECTED_OWNER)"
+    fi
+
+    # Check 5: ERC1967 implementation matches state
+    actual_impl=$(get_erc1967_implementation "$proxy_addr")
+    if [[ -z "$actual_impl" ]]; then
+      echo "  ❌ Failed to read ERC1967 implementation slot"
+      failed=true
+    elif [[ "${actual_impl,,}" != "${expected_impl,,}" ]]; then
+      echo "  ❌ Implementation mismatch!"
+      echo "     Expected: $expected_impl"
+      echo "     Actual:   $actual_impl"
+      failed=true
+    else
+      echo "  ✓ Implementation matches state ($actual_impl)"
+    fi
+
+    # Check 6: Implementation is NOT the UUPSProxyDeployStub
+    if [[ -n "$actual_impl" ]]; then
+      if is_uups_stub "$actual_impl"; then
+        echo "  ❌ Implementation is still UUPSProxyDeployStub (upgrade not completed)"
+        failed=true
+      else
+        echo "  ✓ Implementation is not UUPSProxyDeployStub"
+      fi
+      checked_impls["${actual_impl,,}"]=1
+    fi
+
+    if [[ "$failed" == true ]]; then
+      echo "  ❌ FAILED"
+      ((++proxy_failed))
+    else
+      echo "  ✅ PASSED"
+      ((++proxy_passed))
+    fi
+    echo ""
+  done
+else
+  echo "ℹ No proxies in state file."
+  echo ""
+fi
+
+# ── Check Remaining Implementations ────────────────────────────────────────
+
+# Find implementations not used by any proxy
+remaining_impls=()
+for addr in $impl_addrs; do
+  if [[ -z "${checked_impls[${addr,,}]:-}" ]]; then
+    remaining_impls+=("$addr")
+  fi
+done
+
+if [[ ${#remaining_impls[@]} -gt 0 ]]; then
+  echo "── REMAINING IMPLEMENTATIONS ────────────────────────────────"
+  echo ""
+  echo "These implementations are not currently used by any proxy."
+  echo ""
+
+  for addr in "${remaining_impls[@]}"; do
+    role=$(get_implementation_info "$STATE_FILE" "$addr" proxy)
+    contract_type=$(get_implementation_info "$STATE_FILE" "$addr" contractType)
+
+    echo "── $role ────────────────────────────────────────"
+    echo "  Implementation: $addr"
+    echo "  Contract: $contract_type"
+
+    if ! has_code "$addr"; then
+      echo "  ❌ No code at implementation address"
+      ((++impl_failed))
+    else
+      echo "  ✓ Has deployed code"
+      echo "  ✅ PASSED"
+      ((++impl_passed))
+    fi
+    echo ""
+  done
+fi
+
+# ── Summary ────────────────────────────────────────────────────────────────
+
+total_failed=$((proxy_failed + impl_failed))
+
+echo "═══════════════════════════════════════════════════════════"
+echo "  SUMMARY"
+echo "═══════════════════════════════════════════════════════════"
+echo "  Proxies:                  $proxy_passed passed, $proxy_failed failed"
+echo "  Remaining Implementations: $impl_passed passed, $impl_failed failed"
+echo ""
+
+if [[ "$total_failed" -gt 0 ]]; then
+  echo "❌ VALIDATION FAILED ($total_failed failures)"
+  exit 1
+else
+  echo "✅ ALL CHECKS PASSED"
+  exit 0
+fi

@@ -1,40 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Check Harbor minter deployments and generate Etherscan verification report
+# Generate Etherscan verification report for Harbor minter deployments
 #
-# This script:
-#   1. Iterates proxies: checks deployment, verifies impl matches state
-#   2. Iterates implementations: checks deployment if not covered by proxy
-#   3. Generates Etherscan verification report
+# This script reads the state file and generates a markdown report with
+# Etherscan verification status and links for all proxies and remaining
+# implementations (those not currently used by any proxy).
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
 CAST=cast
-BAO_FACTORY=0xD696E56b3A054734d4C6DCBD32E11a278b0EC458
-OWNER=0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
 
 # ── Shared variables ───────────────────────────────────────────────────────
 
 CHAIN_ID=""
 STATE_FILE=""
+RPC_URL=""
+NETWORK=""
 
 # ── Library functions ──────────────────────────────────────────────────────
-
-has_code() {
-  local addr=$1
-  local code
-  code=$("$CAST" code "$addr" --rpc-url "$NETWORK" 2>/dev/null | head -n 1 || echo "0x")
-  [[ "$code" != "0x" ]]
-}
-
-# Predict proxy address from salt string using BaoFactory
-predict_proxy_address() {
-  local salt_str=$1
-  local salt_b32
-  salt_b32=$("$CAST" keccak "$("$CAST" from-utf8 "$salt_str")")
-  "$CAST" call "$BAO_FACTORY" "predictAddress(bytes32)(address)" "$salt_b32" --rpc-url "$NETWORK"
-}
 
 # Get all proxy keys (e.g., "BTC::fxUSD::minter", "EUR::pegged")
 get_proxy_keys() {
@@ -49,8 +33,6 @@ get_implementation_addresses() {
 }
 
 # Get implementation info by address
-# Usage: get_implementation_info STATE_FILE ADDRESS FIELD
-# FIELD: proxy, contractSource, contractType, deploymentTime
 get_implementation_info() {
   local state_file=$1
   local addr=$2
@@ -59,8 +41,6 @@ get_implementation_info() {
 }
 
 # Get proxy info by key
-# Usage: get_proxy_info STATE_FILE KEY FIELD
-# FIELD: address, implementation, salt, deploymentTime
 get_proxy_info() {
   local state_file=$1
   local key=$2
@@ -80,21 +60,22 @@ check_project_root() {
 usage() {
   cat <<EOF
 Usage:
-  $0 --network <network> --salt <salt> [--output <file>] [--skip-test]
+  $0 --network <network> --salt <salt> [--local]
 
 Required:
   --network     Network name (mainnet, arbitrum, base)
   --salt        Salt prefix (e.g., harbor_v1, test3)
 
-Options:
-  --output      Output markdown file (default: <state_file>.md)
-  --skip-test   Skip deployment checks, only generate Etherscan report
+Optional:
+  --local       Use local anvil node (--rpc-url local, deployments/local/<network>/)
 
 Examples:
   $0 --network mainnet --salt harbor_v1
-  $0 --network mainnet --salt test3 --skip-test
+  $0 --network mainnet --salt harbor_v1 --local
 
 State file: deployments/<network>/<salt>.state.json
+       or:  deployments/local/<network>/<salt>.state.json (with --local)
+Output:     deployments/<network>/<salt>.state.md
 EOF
 }
 
@@ -102,8 +83,7 @@ EOF
 
 NETWORK=""
 SALT=""
-OUTPUT_FILE=""
-SKIP_TEST=false
+USE_LOCAL=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -111,17 +91,13 @@ while [[ $# -gt 0 ]]; do
       NETWORK=${2:-}
       shift 2
       ;;
+    --local)
+      USE_LOCAL=true
+      shift
+      ;;
     --salt)
       SALT=${2:-}
       shift 2
-      ;;
-    --output)
-      OUTPUT_FILE=${2:-}
-      shift 2
-      ;;
-    --skip-test)
-      SKIP_TEST=true
-      shift
       ;;
     -h | --help)
       usage
@@ -158,8 +134,16 @@ fi
 
 # ── Initialize ─────────────────────────────────────────────────────────────
 
-if ! CHAIN_ID=$("$CAST" chain-id --rpc-url "$NETWORK" 2>&1); then
-  echo "❌ Failed to fetch chainId from RPC '$NETWORK'" >&2
+if [[ "$USE_LOCAL" == true ]]; then
+  RPC_URL="local"
+  STATE_FILE="deployments/local/${NETWORK}/${SALT}.state.json"
+else
+  RPC_URL="$NETWORK"
+  STATE_FILE="deployments/${NETWORK}/${SALT}.state.json"
+fi
+
+if ! CHAIN_ID=$("$CAST" chain-id --rpc-url "$RPC_URL" 2>&1); then
+  echo "❌ Failed to fetch chainId from RPC '$RPC_URL'" >&2
   echo "   $CHAIN_ID" >&2
   exit 1
 fi
@@ -179,9 +163,7 @@ fi
 
 ETHERSCAN_API_KEY=$(forge config --json 2>/dev/null | jq -r '.etherscan_api_key // empty')
 
-if [[ -z "$OUTPUT_FILE" ]]; then
-  OUTPUT_FILE="${STATE_FILE%.json}.md"
-fi
+OUTPUT_FILE="${STATE_FILE%.json}.md"
 
 case "$NETWORK" in
   mainnet) EXPLORER_URL="https://etherscan.io" ;;
@@ -191,18 +173,6 @@ case "$NETWORK" in
 esac
 
 # ── Helper functions ───────────────────────────────────────────────────────
-
-erc1967_impl_address() {
-  local proxy=$1
-  local impl
-  impl=$("$CAST" implementation "$proxy" --rpc-url "$NETWORK" 2>/dev/null)
-  if [[ -z "$impl" || "$impl" == "0x0000000000000000000000000000000000000000" ]]; then
-    echo ""
-    return 1
-  fi
-  # Return checksummed address
-  "$CAST" to-check-sum-address "$impl"
-}
 
 # Check proxy verification status on Etherscan
 # Returns: source_verified|impl_linked|proxy_flag (1 or 0 for each)
@@ -248,195 +218,29 @@ check_impl_etherscan() {
   if [[ "$status" == "1" ]]; then echo "1"; else echo "0"; fi
 }
 
-# Run basic checks on a contract
-# Arguments: target_address contract_type
-# Returns: 0 on pass, 1 on fail
-run_contract_checks() {
-  local target=$1
-  local contract_type=$2
-
-  # Check owner (most contracts have this)
-  if owner=$("$CAST" call "$target" "owner()(address)" --rpc-url "$NETWORK" 2>/dev/null); then
-    echo "  owner: $owner"
-    if [[ "${owner,,}" != "${OWNER,,}" ]]; then
-      echo "  ⚠ Owner mismatch (expected $OWNER)"
-    fi
-  fi
-
-  return 0
-}
-
 # ── Main ───────────────────────────────────────────────────────────────────
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  CHECK MINTER DEPLOYMENTS"
+echo "  ETHERSCAN VERIFICATION REPORT"
 echo "  Network: $NETWORK (chainId: $CHAIN_ID)"
 echo "  State:   $STATE_FILE"
 echo "  Report:  $OUTPUT_FILE"
-if [[ "$SKIP_TEST" == true ]]; then
-  echo "  Mode:    Etherscan report only (--skip-test)"
-fi
 echo "═══════════════════════════════════════════════════════════"
 echo ""
-
-proxy_passed=0
-proxy_failed=0
-impl_passed=0
-impl_failed=0
-impl_skipped=0
-
-# Track which implementation addresses we've checked
-declare -A checked_impls
 
 # Get keys for use in report generation
 proxy_keys=$(get_proxy_keys "$STATE_FILE")
 impl_addrs=$(get_implementation_addresses "$STATE_FILE")
 
-if [[ "$SKIP_TEST" != true ]]; then
-
-# ── Check Proxies ──────────────────────────────────────────────────────────
-
-if [[ -n "$proxy_keys" ]]; then
-  echo "── PROXIES ──────────────────────────────────────────────────"
-  echo ""
-
-  for key in $proxy_keys; do
-    echo "── $key ────────────────────────────────────────"
-
-    # Get proxy address and salt from state
-    proxy_addr=$(get_proxy_info "$STATE_FILE" "$key" address)
-    salt=$(get_proxy_info "$STATE_FILE" "$key" salt)
-    echo "  Proxy: $proxy_addr"
-    echo "  Salt:  $salt"
-
-    # Verify address matches predicted from salt
-    predicted_addr=$(predict_proxy_address "$salt")
-    if [[ "${proxy_addr,,}" != "${predicted_addr,,}" ]]; then
-      echo "  ❌ Address/salt mismatch!"
-      echo "    State address:     $proxy_addr"
-      echo "    Predicted from salt: $predicted_addr"
-      ((++proxy_failed))
-      echo ""
-      continue
-    fi
-
-    # Check proxy has code
-    if ! has_code "$proxy_addr"; then
-      echo "  ❌ No code at proxy address"
-      ((++proxy_failed))
-      echo ""
-      continue
-    fi
-
-    # Read implementation from ERC1967 slot
-    actual_impl=$(erc1967_impl_address "$proxy_addr")
-    if [[ -z "$actual_impl" ]] || [[ "${actual_impl,,}" == "0x0000000000000000000000000000000000000000" ]]; then
-      echo "  ❌ Failed to read implementation from proxy"
-      ((++proxy_failed))
-      echo ""
-      continue
-    fi
-
-    # Get expected implementation from state
-    expected_impl=$(get_proxy_info "$STATE_FILE" "$key" implementation)
-
-    echo "  Implementation: $actual_impl"
-
-    # Check implementation matches state (case-insensitive comparison)
-    if [[ "${actual_impl,,}" != "${expected_impl,,}" ]]; then
-      echo "  ⚠ Implementation mismatch!"
-      echo "    Expected: $expected_impl"
-      echo "    Actual:   $actual_impl"
-    fi
-
-    # Get contract type for context
-    contract_type=$(get_implementation_info "$STATE_FILE" "$expected_impl" contractType)
-    echo "  Contract: $contract_type"
-
-    # Run basic checks via proxy
-    if run_contract_checks "$proxy_addr" "$contract_type"; then
-      echo "  ✅ Passed"
-      ((++proxy_passed))
-    else
-      ((++proxy_failed))
-    fi
-
-    # Mark this implementation as checked
-    checked_impls["${actual_impl,,}"]=1
-
-    echo ""
-  done
-else
-  echo "ℹ No proxies in state file."
-  echo ""
-fi
-
-# ── Check Implementations ──────────────────────────────────────────────────
-
-if [[ -n "$impl_addrs" ]]; then
-  echo "── IMPLEMENTATIONS ──────────────────────────────────────────"
-  echo ""
-
-  for addr in $impl_addrs; do
-    role=$(get_implementation_info "$STATE_FILE" "$addr" proxy)
-    contract_type=$(get_implementation_info "$STATE_FILE" "$addr" contractType)
-
-    # Check if already covered by proxy check (case-insensitive)
-    if [[ -n "${checked_impls[${addr,,}]:-}" ]]; then
-      echo "── $role ($addr) ────"
-      echo "  ℹ Already checked via proxy"
-      ((++impl_skipped))
-      echo ""
-      continue
-    fi
-
-    echo "── $role ────────────────────────────────────────"
-    echo "  Implementation: $addr"
-    echo "  Contract: $contract_type"
-
-    # Check if this impl has a proxy pointing to it
-    proxy_for_role=$(get_proxy_info "$STATE_FILE" "$role" address 2>/dev/null || echo "")
-    if [[ -z "$proxy_for_role" || "$proxy_for_role" == "-" ]]; then
-      echo "  ℹ No proxy deployed for this role yet"
-    fi
-
-    # Check implementation has code
-    if ! has_code "$addr"; then
-      echo "  ❌ No code at implementation address"
-      ((++impl_failed))
-      echo ""
-      continue
-    fi
-
-    # Run basic checks directly on impl
-    if run_contract_checks "$addr" "$contract_type"; then
-      echo "  ✅ Passed"
-      ((++impl_passed))
-    else
-      ((++impl_failed))
-    fi
-
-    checked_impls["${addr,,}"]=1
-    echo ""
-  done
-else
-  echo "ℹ No implementations in state file."
-  echo ""
-fi
-
-# ── Summary ────────────────────────────────────────────────────────────────
-
-echo "═══════════════════════════════════════════════════════════"
-echo "  SUMMARY"
-echo "═══════════════════════════════════════════════════════════"
-echo "  Proxies:         $proxy_passed passed, $proxy_failed failed"
-echo "  Implementations: $impl_passed passed, $impl_failed failed, $impl_skipped skipped (covered by proxy)"
-echo ""
-
-fi # end SKIP_TEST
-
-total_failed=$((proxy_failed + impl_failed))
+# Build set of implementations currently used by proxies
+declare -A used_impls
+for key in $proxy_keys; do
+  impl=$(get_proxy_info "$STATE_FILE" "$key" implementation)
+  if [[ -n "$impl" && "$impl" != "-" ]]; then
+    used_impls["${impl,,}"]=1
+  fi
+done
 
 # ── Generate Etherscan Report ──────────────────────────────────────────────
 
@@ -465,17 +269,17 @@ echo "Generating Etherscan verification report..."
 
   for key in $proxy_keys; do
     proxy_addr=$(get_proxy_info "$STATE_FILE" "$key" address)
-    actual_impl=$(erc1967_impl_address "$proxy_addr" 2>/dev/null || echo "")
+    expected_impl=$(get_proxy_info "$STATE_FILE" "$key" implementation)
 
-    if [[ -n "$actual_impl" && "${actual_impl,,}" != "0x0000000000000000000000000000000000000000" ]]; then
+    if [[ -n "$expected_impl" && "$expected_impl" != "-" ]]; then
       proxy_status=$(check_proxy_etherscan "$proxy_addr")
       IFS='|' read -r src_ok impl_ok proxy_ok <<<"$proxy_status"
-      impl_verified=$(check_impl_etherscan "$actual_impl")
+      impl_verified=$(check_impl_etherscan "$expected_impl")
 
       # Build linked ticks
       proxy_code_url="$EXPLORER_URL/address/$proxy_addr#code"
       proxy_checker_url="$EXPLORER_URL/proxyContractChecker?a=$proxy_addr"
-      impl_code_url="$EXPLORER_URL/address/$actual_impl#code"
+      impl_code_url="$EXPLORER_URL/address/$expected_impl#code"
 
       if [[ "$src_ok" == "1" ]]; then src_tick="[✓]($proxy_code_url)"; else src_tick="[✗]($proxy_code_url)"; fi
       if [[ "$impl_ok" == "1" ]]; then impl_tick="[✓]($proxy_checker_url)"; else impl_tick="[✗]($proxy_checker_url)"; fi
@@ -489,32 +293,36 @@ echo "Generating Etherscan verification report..."
     fi
   done
 
-  echo ""
-  echo "## Implementations"
-  echo ""
-  echo "| Role | Contract | Verified |"
-  echo "|------|----------|----------|"
-
+  # Find remaining implementations (not used by any proxy)
+  remaining_impls=()
   for addr in $impl_addrs; do
-    role=$(get_implementation_info "$STATE_FILE" "$addr" proxy)
-    contract_type=$(get_implementation_info "$STATE_FILE" "$addr" contractType)
-    impl_verified=$(check_impl_etherscan "$addr")
-    impl_code_url="$EXPLORER_URL/address/$addr#code"
-    if [[ "$impl_verified" == "1" ]]; then impl_tick="[✓]($impl_code_url)"; else impl_tick="[✗]($impl_code_url)"; fi
-    echo "| [$role]($impl_code_url) | $contract_type | $impl_tick |"
+    if [[ -z "${used_impls[${addr,,}]:-}" ]]; then
+      remaining_impls+=("$addr")
+    fi
   done
 
-  echo ""
-  echo "## Quick Links"
-  echo ""
-  echo "- [Proxy Contract Checker]($EXPLORER_URL/proxyContractChecker)"
-  echo ""
+  if [[ ${#remaining_impls[@]} -gt 0 ]]; then
+    echo ""
+    echo "## Remaining Implementations"
+    echo ""
+    echo "These implementations are recorded in the state file but are not currently"
+    echo "used by any proxy (e.g., previous versions after upgrade, or implementations"
+    echo "awaiting proxy deployment)."
+    echo ""
+    echo "| Role | Contract | Verified |"
+    echo "|------|----------|----------|"
+
+    for addr in "${remaining_impls[@]}"; do
+      role=$(get_implementation_info "$STATE_FILE" "$addr" proxy)
+      contract_type=$(get_implementation_info "$STATE_FILE" "$addr" contractType)
+      impl_verified=$(check_impl_etherscan "$addr")
+      impl_code_url="$EXPLORER_URL/address/$addr#code"
+      if [[ "$impl_verified" == "1" ]]; then impl_tick="[✓]($impl_code_url)"; else impl_tick="[✗]($impl_code_url)"; fi
+      echo "| [$role]($impl_code_url) | $contract_type | $impl_tick |"
+    done
+  fi
 
 } >"$OUTPUT_FILE"
 
 echo "📄 Report written to: $OUTPUT_FILE"
 echo ""
-
-if [[ "$total_failed" -gt 0 ]]; then
-  exit 1
-fi

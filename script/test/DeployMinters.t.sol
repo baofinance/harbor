@@ -50,16 +50,6 @@ contract TestDeployMintersHarness is Deploy_BTC_Minter {
         (, Config_MinterMarket[] memory markets) = createBTCMintersConfig();
         return IWellKnownAddresses(address(markets[0])).getWellKnownAddresses();
     }
-
-    /// @notice Build salt string for tests (exposes _saltString helper).
-    function buildSaltString(string memory a, string memory b) external view returns (string memory) {
-        return _saltString(a, b);
-    }
-
-    /// @notice Build salt string for tests (exposes _saltString helper).
-    function buildSaltString(string memory a, string memory b, string memory c) external view returns (string memory) {
-        return _saltString(a, b, c);
-    }
 }
 
 /// @notice Test harness for deploying ALL pegs (ETH, BTC, GOLD, EUR).
@@ -117,7 +107,7 @@ contract DeployMintersTest is BaoTest {
 
     /// @notice Market specification with constituent parts (peg and collateral).
     struct MarketSpec {
-        string peg;        // e.g., "BTC"
+        string peg; // e.g., "BTC"
         string collateral; // e.g., "fxUSD"
     }
 
@@ -129,7 +119,7 @@ contract DeployMintersTest is BaoTest {
     function _buildContractSpecs(
         string[] memory pegs,
         MarketSpec[] memory markets
-    ) private view returns (ContractSpec[] memory specs) {
+    ) private pure returns (ContractSpec[] memory specs) {
         // pegs.length pegged + markets.length leveraged + markets.length × 6 infrastructure
         uint256 totalSpecs = pegs.length + markets.length + markets.length * 6;
         specs = new ContractSpec[](totalSpecs);
@@ -146,7 +136,7 @@ contract DeployMintersTest is BaoTest {
 
         // Leveraged tokens (one per market)
         for (uint256 i = 0; i < markets.length; i++) {
-            string memory marketKey = harness.buildSaltString(markets[i].peg, markets[i].collateral);
+            string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
             specs[idx++] = ContractSpec({
                 salt: string.concat(marketKey, "::leveraged"),
                 artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
@@ -156,7 +146,7 @@ contract DeployMintersTest is BaoTest {
 
         // Per-market infrastructure contracts
         for (uint256 i = 0; i < markets.length; i++) {
-            string memory marketKey = harness.buildSaltString(markets[i].peg, markets[i].collateral);
+            string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
             // Order matches ownership transfer list
             specs[idx++] = ContractSpec({
                 salt: string.concat(marketKey, "::reservePool"),
@@ -417,6 +407,10 @@ contract DeployMintersTest is BaoTest {
                 console.log(mismatchDetails[i]);
             }
         }
+
+        // Fail the test if there are any diffs or mismatches
+        assertEq(agg.passed, agg.total, "Not all view functions matched between reference and candidate");
+        assertEq(mismatchDetails.length, 0, "There are contract mismatches (missing code, etc.)");
     }
 
     /// @notice Build global address-to-salt mapping for ALL contracts in both deployments.
@@ -464,7 +458,12 @@ contract DeployMintersTest is BaoTest {
 
         // Add price oracle addresses for each market (not deployed by us, but needed for matching)
         for (uint256 i = 0; i < markets.length; i++) {
-            string memory oracleSalt = harness.buildSaltString(markets[i].collateral, markets[i].peg, "wrappedPriceAggregator");
+            string memory oracleSalt = string.concat(
+                markets[i].collateral,
+                "::",
+                markets[i].peg,
+                "::wrappedPriceAggregator"
+            );
 
             bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", oracleSalt));
             bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", oracleSalt));
@@ -828,7 +827,7 @@ contract DeployMintersTest is BaoTest {
         uint256 idx;
         for (uint256 i = 0; i < markets.length; i++) {
             if (keccak256(bytes(markets[i].peg)) != keccak256(bytes(peg))) continue;
-            string memory marketKey = harness.buildSaltString(markets[i].peg, markets[i].collateral);
+            string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
             addrs[idx] = IBaoFactory(_baoFactory).predictAddress(
                 keccak256(abi.encodePacked(systemSalt, "::", marketKey, "::minter"))
             );
