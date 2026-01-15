@@ -5,7 +5,6 @@ import {console2 as console} from "forge-std/console2.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
@@ -30,20 +29,20 @@ abstract contract PeggedToken is HarborFactoryDeployer {
         string memory pegKey = pegConfig.key();
         string memory tokenKey = string.concat(pegKey, "::pegged");
 
-        console.log("  > %s", tokenKey);
+        console.log("    > %s", tokenKey);
 
         // Check if pegged token already exists at predicted address
         peggedToken = _predictAddress(tokenKey);
         bool alreadyDeployed = peggedToken.code.length > 0;
 
         if (alreadyDeployed) {
-            console.log("      Already deployed at: %s", peggedToken);
+            console.log("        Already deployed at: %s", peggedToken);
         } else {
-            console.log("      Name:   %s", pegConfig.name());
-            console.log("      Symbol: %s", pegConfig.symbol());
+            console.log("        Name:   %s", pegConfig.name());
+            console.log("        Symbol: %s", pegConfig.symbol());
 
             address impl = address(new MintableBurnableERC20_v1());
-            console.log("      Impl:   %s", impl);
+            console.log("        Impl:   %s", impl);
 
             bytes memory initData = abi.encodeCall(
                 MintableBurnableERC20_v1.initialize,
@@ -61,7 +60,6 @@ abstract contract PeggedToken is HarborFactoryDeployer {
         }
 
         // Grant minter roles for each market
-        console.log("      Roles:");
         for (uint256 i = 0; i < marketConfigs.length; i++) {
             Config_MinterMarket market = marketConfigs[i];
             string memory configPeg = MinterMarketConfigLib.peg(market);
@@ -72,20 +70,12 @@ abstract contract PeggedToken is HarborFactoryDeployer {
 
             string memory marketKey = MinterMarketConfigLib.salt(marketConfigs[i]);
             address minter = _predictAddress(marketKey, "minter");
-            console.log("        MINTER -> %s", marketKey);
+            uint256 roles = IMintableRole(peggedToken).MINTER_ROLE() | IBurnableRole(peggedToken).BURNER_ROLE();
 
             if (alreadyDeployed) {
-                // Log the manual transaction required
-                uint256 roles = IMintableRole(peggedToken).MINTER_ROLE() | IBurnableRole(peggedToken).BURNER_ROLE();
-                console.log("          MANUAL TX REQUIRED: [");
-                console.log("            To:   %s", peggedToken);
-                console.log("            call: grantRoles");
-                console.log("            call: %s", minter);
-                console.log("            call: %s", roles);
-                console.log("          ]");
+                _logManualRoleGrant(tokenKey, peggedToken, minter, marketKey, roles, "MINTER | BURNER");
             } else {
-                uint256 roles = IMintableRole(peggedToken).MINTER_ROLE() | IBurnableRole(peggedToken).BURNER_ROLE();
-                IBaoRoles(peggedToken).grantRoles(minter, roles);
+                _grantRoles(tokenKey, peggedToken, minter, marketKey, roles, "MINTER | BURNER");
             }
         }
     }

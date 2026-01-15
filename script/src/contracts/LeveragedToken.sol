@@ -5,7 +5,6 @@ import {console2 as console} from "forge-std/console2.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
@@ -19,7 +18,7 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
     // ========== LEVERAGED TOKEN DEPLOYMENT ==========
 
     /// @notice Deploy a leveraged token and grant minter roles.
-    function deployLeveragedTokenWithRoles(
+    function _deployLeveragedTokenWithRoles(
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig
     ) internal returns (address leveragedToken) {
@@ -31,12 +30,12 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
         string memory tokenName = string.concat("Harbor sail: variable leveraged long ", collateral, " against ", peg);
         string memory tokenSymbol = string.concat("hs", collateral.upper(), "-", peg.upper());
 
-        console.log("  > %s", leveragedKey);
-        console.log("      Name:   %s", tokenName);
-        console.log("      Symbol: %s", tokenSymbol);
+        console.log("    > %s", leveragedKey);
+        console.log("        Name:   %s", tokenName);
+        console.log("        Symbol: %s", tokenSymbol);
 
         address impl = address(new MintableBurnableERC20_v1());
-        console.log("      Impl:   %s", impl);
+        console.log("        Impl:   %s", impl);
 
         bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), tokenName, tokenSymbol));
 
@@ -50,10 +49,8 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
         );
 
         // Grant minter roles
-        console.log("      Roles:");
         address minter = _predictAddress(marketKey, "minter");
-        console.log("        MINTER -> %s", marketKey);
         uint256 roles = IMintableRole(leveragedToken).MINTER_ROLE() | IBurnableRole(leveragedToken).BURNER_ROLE();
-        IBaoRoles(leveragedToken).grantRoles(minter, roles);
+        _grantRoles(leveragedKey, leveragedToken, minter, marketKey, roles, "MINTER | BURNER");
     }
 }

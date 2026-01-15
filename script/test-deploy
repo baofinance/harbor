@@ -1,0 +1,71 @@
+#!/bin/bash
+# Wrapper script for running DeployMinters tests
+# Usage:
+#   ./run-deploy-test.sh --list              # List all tests
+#   ./run-deploy-test.sh BTC                 # Run test_BTC_mainnetFork_
+#   ./run-deploy-test.sh test_BTC            # Run test_BTC_mainnetFork_
+#   ./run-deploy-test.sh --list BTC          # List tests matching BTC
+#   ./run-deploy-test.sh --list test_SILVER  # List tests matching test_SILVER
+
+set -e
+
+TEST_PATH="script/test/DeployMinters.t.sol"
+
+show_usage() {
+  echo "Usage: $0 [--list] [test_name]"
+  echo ""
+  echo "Options:"
+  echo "  --list        List available tests (optionally filtered by test_name)"
+  echo "  test_name     Test to run (e.g., BTC, SILVER, OG, or test_BTC_mainnetFork_)"
+  echo ""
+  echo "Examples:"
+  echo "  $0 --list              # List all tests"
+  echo "  $0 BTC                 # Run test_BTC_mainnetFork_"
+  echo "  $0 test_OG             # Run test_OG_mainnetFork_"
+  echo "  $0 --list SILVER       # List tests matching SILVER"
+}
+
+# Parse arguments
+LIST_MODE=false
+TEST_NAME=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --list | -l)
+      LIST_MODE=true
+      shift
+      ;;
+    --help | -h)
+      show_usage
+      exit 0
+      ;;
+    -*)
+      echo "unexpected arg: $1"
+      exit 1
+      ;;
+    *)
+      TEST_NAME="$1"
+      shift
+      ;;
+  esac
+done
+
+# Execute based on mode
+export DEPLOY_STATE_SUBDIR="internal" # write to deployments/internal/<network>
+if [[ "$LIST_MODE" == true ]]; then
+  if [[ -n "$TEST_NAME" ]]; then
+    forge test --mp "$TEST_PATH" --list 2>/dev/null | grep -i "$TEST_NAME" || echo "No tests matching '$TEST_NAME'"
+  else
+    forge test --mp "$TEST_PATH" --list
+  fi
+elif [[ -n "$TEST_NAME" ]]; then
+  # If TEST_NAME doesn't start with test_, prepend it
+  if [[ ! "$TEST_NAME" =~ ^test_ ]]; then
+    TEST_NAME="test_${TEST_NAME}"
+  fi
+  echo "Running: forge test --ffi --mp $TEST_PATH --mt $TEST_NAME -vv"
+  forge test --ffi --mp "$TEST_PATH" --mt "$TEST_NAME" -vv
+else
+  show_usage
+  exit 1
+fi

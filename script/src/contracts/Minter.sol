@@ -7,7 +7,6 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
 import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
@@ -68,10 +67,22 @@ abstract contract Minter is HarborFactoryDeployer {
     }
 
     /// @notice Grant Minter roles to downstream contracts.
-    function grantMinterRoles(address minterProxy, address stabilityPoolManager, address genesis) internal {
+    function grantMinterRoles(
+        string memory minterKey,
+        address minterProxy,
+        address stabilityPoolManager,
+        address genesis
+    ) internal {
         Minter_v1 minter = Minter_v1(minterProxy);
-        minter.grantRoles(stabilityPoolManager, minter.HARVESTER_ROLE());
-        minter.grantRoles(genesis, minter.ZERO_FEE_ROLE());
+        _grantRoles(
+            minterKey,
+            minterProxy,
+            stabilityPoolManager,
+            "stabilityPoolManager",
+            minter.HARVESTER_ROLE(),
+            "HARVESTER"
+        );
+        _grantRoles(minterKey, minterProxy, genesis, "genesis", minter.ZERO_FEE_ROLE(), "ZERO_FEE");
     }
 
     // ========== RESERVE POOL DEPLOYMENT ==========
@@ -100,9 +111,9 @@ abstract contract Minter is HarborFactoryDeployer {
     }
 
     /// @notice Grant ReservePool REQUESTER_ROLE to Minter.
-    function grantReservePoolRoles(address reservePoolProxy, address minter) internal {
+    function grantReservePoolRoles(string memory reservePoolKey, address reservePoolProxy, address minter) internal {
         ReservePool_v1 reservePool = ReservePool_v1(reservePoolProxy);
-        reservePool.grantRoles(minter, reservePool.REQUESTER_ROLE());
+        _grantRoles(reservePoolKey, reservePoolProxy, minter, "minter", reservePool.REQUESTER_ROLE(), "REQUESTER");
     }
 
     // ========== FEE RECEIVER (TOKEN DISTRIBUTOR) DEPLOYMENT ==========

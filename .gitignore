@@ -41,6 +41,7 @@ results/*.png
 /broadcast/**/dry-run/
 /broadcast
 
+deployments/internal/
 deployments/local*/
 deployments/*/local/*.json
 deployments/*/*/latest.json

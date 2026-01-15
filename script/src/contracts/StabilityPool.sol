@@ -102,9 +102,21 @@ abstract contract StabilityPool is HarborFactoryDeployer {
     }
 
     /// @notice Grant StabilityPool roles to StabilityPoolManager.
-    function grantStabilityPoolRoles(address stabilityPoolProxy, address stabilityPoolManager) internal {
+    function grantStabilityPoolRoles(
+        string memory stabilityPoolKey,
+        address stabilityPoolProxy,
+        address stabilityPoolManager
+    ) internal {
         StabilityPool_v1 pool = StabilityPool_v1(stabilityPoolProxy);
-        pool.grantRoles(stabilityPoolManager, pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE());
+        uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
+        _grantRoles(
+            stabilityPoolKey,
+            stabilityPoolProxy,
+            stabilityPoolManager,
+            "stabilityPoolManager",
+            roles,
+            "REBALANCER | REWARD_DEPOSITOR"
+        );
     }
 
     // ========== ADDRESS PREDICTION ==========

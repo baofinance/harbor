@@ -8,6 +8,7 @@ import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
 import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
 import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
 import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
+import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
@@ -86,14 +87,37 @@ contract TestDeployAllMintersHarness is Deploy_ETH_Minter, Deploy_BTC_Minter, De
     }
 }
 
+/// @notice Test harness for SILVER minter deployment.
+contract TestDeploySILVERMintersHarness is Deploy_SILVER_Minter {
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    function baoFactory() public pure override returns (address) {
+        return BaoFactoryBytecode.PREDICTED_PROXY;
+    }
+
+    function _shouldPersistState() internal pure override returns (bool) {
+        return false;
+    }
+
+    /// @notice Deploy SILVER minter contracts (tokens + infrastructure).
+    function deployAllMintersWrapper(string memory saltPrefix, string memory network) external {
+        _setSaltPrefix(saltPrefix);
+        (ConfigPeg peg, Config_MinterMarket[] memory markets) = createSILVERMintersConfig();
+        deployAllForPeg(peg, markets, network);
+    }
+
+    /// @notice Return well-known addresses from the market config.
+    function queryWellKnownAddresses() external returns (WellKnownAddress[] memory) {
+        (, Config_MinterMarket[] memory markets) = createSILVERMintersConfig();
+        return IWellKnownAddresses(address(markets[0])).getWellKnownAddresses();
+    }
+}
+
 contract DeployMintersTest is BaoTest {
     using stdJson for string;
 
-    string private constant REFERENCE_SALT = "harbor_v1";
-    string private constant CANDIDATE_SALT = "test";
-
-    // Compute max label width for aligned output (harbor_v1 = 9, test = 4, so use 9)
-    uint256 private constant LABEL_WIDTH = 9;
+    // Label width for aligned output (longest salt prefix like "harbor_v1_candidate" = 19)
+    uint256 private constant LABEL_WIDTH = 19;
 
     // BaoFactory address, set up in setUp()
     address internal _baoFactory;
@@ -197,20 +221,22 @@ contract DeployMintersTest is BaoTest {
         TupleKind
     }
 
-    // Populated per-token to support mismatch diagnostics.
-    address[] private currentKnownAddrs;
-    string[] private currentKnownSalts;
+    // Populated per-deployment to support mismatch diagnostics and address-arg view testing.
+    // Reference addresses (from reference deployment or well-known)
+    address[] private refKnownAddrs;
+    // Candidate addresses (corresponding to refKnownAddrs by index)
+    address[] private candKnownAddrs;
+    // Salt/label for each address pair
+    string[] private knownSalts;
 
     // Test harnesses - declared at contract level for use in helper functions
     TestDeployMintersHarness private harness;
     TestDeployAllMintersHarness private allHarness;
+    TestDeploySILVERMintersHarness private silverHarness;
 
     struct TokenCompareState {
         address refToken;
         address candToken;
-        address[] refMinters;
-        address[] candMinters;
-        string[] minterKeys;
     }
 
     struct CompareTotals {
@@ -237,74 +263,21 @@ contract DeployMintersTest is BaoTest {
         vm.stopPrank();
     }
 
-    function test_deployBTCMinters_mainnetFork_() public {
-        vm.skip(true); // Skip - use test_compareAllMintersAgainstReference for full testing
-        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
-        vm.selectFork(forkId);
-
-        // Re-initialize harness on the forked mainnet state
-        harness = new TestDeployMintersHarness();
-        vm.prank(IBaoFactory(_baoFactory).owner());
-        IBaoFactory(_baoFactory).setOperator(address(harness), 365 days);
-
-        harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet");
-
-        // Verify BTC pegged token was deployed
-        address peggedToken = IBaoFactory(_baoFactory).predictAddress(
-            keccak256(abi.encodePacked(CANDIDATE_SALT, "::", "BTC::pegged"))
-        );
-        assertTrue(peggedToken != address(0), "Pegged token address should not be zero");
-        assertTrue(_hasCode(peggedToken), "Pegged token should have code");
-        _verifyTokenViaABI(peggedToken, "Harbor anchored BTC", "haBTC");
-
-        // Verify BTC leveraged tokens were deployed (2 markets: fxUSD and stETH)
-        address leveragedFxUSD = IBaoFactory(_baoFactory).predictAddress(
-            keccak256(abi.encodePacked(CANDIDATE_SALT, "::", "BTC::fxUSD::leveraged"))
-        );
-        address leveragedStETH = IBaoFactory(_baoFactory).predictAddress(
-            keccak256(abi.encodePacked(CANDIDATE_SALT, "::", "BTC::stETH::leveraged"))
-        );
-        assertTrue(_hasCode(leveragedFxUSD), "Leveraged fxUSD token should have code");
-        assertTrue(_hasCode(leveragedStETH), "Leveraged stETH token should have code");
-        _verifyTokenViaABI(leveragedFxUSD, "Harbor sail: variable leveraged long fxUSD against BTC", "hsFXUSD-BTC");
-        _verifyTokenViaABI(leveragedStETH, "Harbor sail: variable leveraged long stETH against BTC", "hsSTETH-BTC");
-    }
-
-    function test_compareBTCMintersAgainstReference_mainnetFork_() public {
-        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
-        vm.selectFork(forkId);
-
-        // Re-initialize harness on the forked mainnet state
-        harness = new TestDeployMintersHarness();
-        vm.prank(IBaoFactory(_baoFactory).owner());
-        IBaoFactory(_baoFactory).setOperator(address(harness), 365 days);
-
-        harness.deployAllMintersWrapper(CANDIDATE_SALT, "mainnet");
-
-        // BTC-only: 1 peg, 2 markets
+    function test_BTC() public {
+        string memory refSalt = "harbor_v1";
         string[] memory pegs = new string[](1);
         pegs[0] = "BTC";
         MarketSpec[] memory markets = new MarketSpec[](2);
         markets[0] = MarketSpec({peg: "BTC", collateral: "fxUSD"});
         markets[1] = MarketSpec({peg: "BTC", collateral: "stETH"});
-        _compareMintersAgainstReference(REFERENCE_SALT, CANDIDATE_SALT, pegs, markets);
+
+        _forkAndSetupHarness();
+        harness.deployAllMintersWrapper(string.concat(refSalt, "_candidate"), "mainnet");
+        _compareMintersAgainstReference(refSalt, pegs, markets);
     }
 
-    function test_compareAllMintersAgainstReference_mainnetFork_() public {
-        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
-        vm.selectFork(forkId);
-
-        // Re-initialize harnesses on the forked mainnet state
-        // (harness is needed for queryWellKnownAddresses in _compareMintersAgainstReference)
-        harness = new TestDeployMintersHarness();
-        allHarness = new TestDeployAllMintersHarness();
-        vm.prank(IBaoFactory(_baoFactory).owner());
-        IBaoFactory(_baoFactory).setOperator(address(allHarness), 365 days);
-
-        allHarness.deployAllPegsWrapper(CANDIDATE_SALT, "mainnet");
-
-        // All pegs with markets that exist on mainnet as reference
-        // (excludes GOLD::stETH, EUR::stETH which aren't deployed on mainnet yet)
+    function test_OG() public {
+        string memory refSalt = "harbor_v1";
         string[] memory pegs = new string[](4);
         pegs[0] = "ETH";
         pegs[1] = "BTC";
@@ -316,20 +289,67 @@ contract DeployMintersTest is BaoTest {
         markets[2] = MarketSpec({peg: "BTC", collateral: "stETH"});
         markets[3] = MarketSpec({peg: "GOLD", collateral: "fxUSD"});
         markets[4] = MarketSpec({peg: "EUR", collateral: "fxUSD"});
-        _compareMintersAgainstReference(REFERENCE_SALT, CANDIDATE_SALT, pegs, markets);
+
+        _forkAndSetupHarness();
+        allHarness = new TestDeployAllMintersHarness();
+        vm.prank(IBaoFactory(_baoFactory).owner());
+        IBaoFactory(_baoFactory).setOperator(address(allHarness), 365 days);
+        allHarness.deployAllPegsWrapper(string.concat(refSalt, "_candidate"), "mainnet");
+        _compareMintersAgainstReference(refSalt, pegs, markets);
     }
 
-    /// @dev Compare freshly deployed minters (candidateSalt) against existing deployment (referenceSalt).
+    function test_SILVER() public {
+        string memory refSalt = "test3";
+        string[] memory pegs = new string[](1);
+        pegs[0] = "SILVER";
+        MarketSpec[] memory markets = new MarketSpec[](2);
+        markets[0] = MarketSpec({peg: "SILVER", collateral: "fxUSD"});
+        markets[1] = MarketSpec({peg: "SILVER", collateral: "stETH"});
+
+        _forkAndSetupHarness();
+        silverHarness = new TestDeploySILVERMintersHarness();
+        vm.prank(IBaoFactory(_baoFactory).owner());
+        IBaoFactory(_baoFactory).setOperator(address(silverHarness), 365 days);
+        silverHarness.deployAllMintersWrapper(string.concat(refSalt, "_candidate"), "mainnet");
+        _compareMintersAgainstReference(refSalt, pegs, markets);
+    }
+
+    /// @dev Fork mainnet and set up the base harness (needed for queryWellKnownAddresses).
+    function _forkAndSetupHarness() private {
+        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
+        vm.selectFork(forkId);
+        harness = new TestDeployMintersHarness();
+        vm.prank(IBaoFactory(_baoFactory).owner());
+        IBaoFactory(_baoFactory).setOperator(address(harness), 365 days);
+    }
+
+    /// @dev Log all addresses from the global mapping (well-known + deployed contracts).
+    function _logAllKnownAddresses() private view {
+        console.log("All known addresses:");
+        for (uint256 i = 0; i < knownSalts.length; i++) {
+            if (refKnownAddrs[i] != address(0)) {
+                if (refKnownAddrs[i] == candKnownAddrs[i]) {
+                    // Well-known address (same for both)
+                    console.log("  %s: %s", knownSalts[i], refKnownAddrs[i]);
+                } else {
+                    // Deployed address (different for ref/cand)
+                    console.log("  %s: ref=%s cand=%s", knownSalts[i], refKnownAddrs[i], candKnownAddrs[i]);
+                }
+            }
+        }
+    }
+
+    /// @dev Compare freshly deployed minters against existing reference deployment.
+    /// @dev Candidate salt is derived as referenceSalt + "_candidate".
     /// @param referenceSalt Salt prefix for reference deployment (e.g., "harbor_v1")
-    /// @param candidateSalt Salt prefix for candidate deployment (e.g., "test")
     /// @param pegs Array of peg identifiers to compare (e.g., ["ETH", "BTC"])
     /// @param markets Array of market specifications with peg and collateral
     function _compareMintersAgainstReference(
         string memory referenceSalt,
-        string memory candidateSalt,
         string[] memory pegs,
         MarketSpec[] memory markets
     ) private {
+        string memory candidateSalt = string.concat(referenceSalt, "_candidate");
         delete diffLog;
         delete mismatchDetails;
 
@@ -338,6 +358,9 @@ contract DeployMintersTest is BaoTest {
 
         // Build global address-to-salt mapping for ALL contracts in both deployments
         _buildGlobalAddressMapping(specs, referenceSalt, candidateSalt, markets);
+
+        // Log all addresses (well-known + deployed)
+        _logAllKnownAddresses();
 
         for (uint256 i = 0; i < specs.length; i++) {
             ContractSpec memory spec = specs[i];
@@ -363,25 +386,7 @@ contract DeployMintersTest is BaoTest {
             s.refToken = refAddr;
             s.candToken = candAddr;
 
-            // Set up minter addresses for role comparison (for address-arg view functions)
-            if (bytes(spec.marketKey).length > 0) {
-                s.refMinters = new address[](1);
-                s.candMinters = new address[](1);
-                s.minterKeys = new string[](1);
-                s.refMinters[0] = IBaoFactory(_baoFactory).predictAddress(
-                    keccak256(abi.encodePacked(referenceSalt, "::", spec.marketKey, "::minter"))
-                );
-                s.candMinters[0] = IBaoFactory(_baoFactory).predictAddress(
-                    keccak256(abi.encodePacked(candidateSalt, "::", spec.marketKey, "::minter"))
-                );
-                s.minterKeys[0] = spec.marketKey;
-            } else {
-                // Pegged tokens: find all minters for this peg
-                string memory peg = _extractPegFromSalt(spec.salt);
-                (s.refMinters, s.minterKeys) = _predictMintersForPeg(referenceSalt, peg, markets);
-                (s.candMinters, ) = _predictMintersForPeg(candidateSalt, peg, markets);
-            }
-
+            // Address-arg views use all known addresses from the global mapping
             CompareTotals memory contractTotals = _processContract(fullRefSalt, s, spec.artifact);
             agg.total += contractTotals.total;
             agg.passed += contractTotals.passed;
@@ -414,7 +419,7 @@ contract DeployMintersTest is BaoTest {
     }
 
     /// @notice Build global address-to-salt mapping for ALL contracts in both deployments.
-    /// @dev This allows address resolution in any context, not just the current contract being compared.
+    /// @dev Creates parallel arrays: refKnownAddrs[i] and candKnownAddrs[i] are the same logical entity.
     /// @dev Well-known addresses are queried from the harness (which inherits chain config).
     function _buildGlobalAddressMapping(
         ContractSpec[] memory specs,
@@ -426,37 +431,37 @@ contract DeployMintersTest is BaoTest {
         WellKnownAddress[] memory wellKnown = harness.queryWellKnownAddresses();
         uint256 wellKnownCount = wellKnown.length;
 
-        // Price oracles for each market
-        uint256 priceOracleCount = markets.length * 2; // ref + candidate per market
+        // Price oracles for each market (one entry per market, not two)
+        uint256 priceOracleCount = markets.length;
 
-        // Each spec creates 2 entries (ref + candidate) + well-known + price oracles
-        uint256 totalEntries = specs.length * 2 + wellKnownCount + priceOracleCount;
-        currentKnownAddrs = new address[](totalEntries);
-        currentKnownSalts = new string[](totalEntries);
+        // Each spec creates 1 entry (ref/cand pair) + well-known + price oracles
+        uint256 totalEntries = specs.length + wellKnownCount + priceOracleCount;
+        refKnownAddrs = new address[](totalEntries);
+        candKnownAddrs = new address[](totalEntries);
+        knownSalts = new string[](totalEntries);
 
         uint256 idx;
 
-        // Add well-known external addresses from harness config query
+        // Add well-known external addresses (same for both ref and cand)
         for (uint256 i = 0; i < wellKnownCount; i++) {
-            currentKnownAddrs[idx] = wellKnown[i].addr;
-            currentKnownSalts[idx++] = wellKnown[i].label;
+            refKnownAddrs[idx] = wellKnown[i].addr;
+            candKnownAddrs[idx] = wellKnown[i].addr; // Same address for both
+            knownSalts[idx++] = wellKnown[i].label;
         }
 
-        // Add all deployed contracts
+        // Add all deployed contracts (ref/cand pairs)
         for (uint256 i = 0; i < specs.length; i++) {
             ContractSpec memory spec = specs[i];
 
             bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", spec.salt));
             bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", spec.salt));
 
-            currentKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(refSaltHash);
-            currentKnownSalts[idx++] = string.concat(referenceSalt, "::", spec.salt);
-
-            currentKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(candSaltHash);
-            currentKnownSalts[idx++] = string.concat(candidateSalt, "::", spec.salt);
+            refKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(refSaltHash);
+            candKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(candSaltHash);
+            knownSalts[idx++] = spec.salt; // Use salt tail only (without prefix)
         }
 
-        // Add price oracle addresses for each market (not deployed by us, but needed for matching)
+        // Add price oracle addresses for each market (ref/cand pairs)
         for (uint256 i = 0; i < markets.length; i++) {
             string memory oracleSalt = string.concat(
                 markets[i].collateral,
@@ -468,11 +473,9 @@ contract DeployMintersTest is BaoTest {
             bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", oracleSalt));
             bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", oracleSalt));
 
-            currentKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(refSaltHash);
-            currentKnownSalts[idx++] = string.concat(referenceSalt, "::", oracleSalt);
-
-            currentKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(candSaltHash);
-            currentKnownSalts[idx++] = string.concat(candidateSalt, "::", oracleSalt);
+            refKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(refSaltHash);
+            candKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(candSaltHash);
+            knownSalts[idx++] = oracleSalt;
         }
     }
 
@@ -504,10 +507,11 @@ contract DeployMintersTest is BaoTest {
         string memory artifactPath
     ) private returns (CompareTotals memory) {
         FuncSpec[] memory sigs = _loadAddressViewFunctions(artifactPath);
-        if (s.refMinters.length != s.candMinters.length) return totals;
+        // Test with ALL known addresses (well-known + deployed contracts)
         for (uint256 i = 0; i < sigs.length; i++) {
-            for (uint256 j = 0; j < s.refMinters.length; j++) {
-                totals = _compareCallAddressArg(label, sigs[i], s, s.refMinters[j], s.candMinters[j], j, totals);
+            for (uint256 j = 0; j < knownSalts.length; j++) {
+                if (refKnownAddrs[j] == address(0)) continue;
+                totals = _compareCallAddressArg(label, sigs[i], s, refKnownAddrs[j], candKnownAddrs[j], j, totals);
             }
         }
         return totals;
@@ -587,6 +591,14 @@ contract DeployMintersTest is BaoTest {
         bytes32 h = keccak256(bytes(name));
         // Skip genesis claimable - depends on minter address which differs between deployments
         if (h == keccak256("claimable")) return true;
+        // Skip balance/state queries - values depend on actual usage, not deployment config
+        if (h == keccak256("balanceOf")) return true;
+        if (h == keccak256("assetBalanceOf")) return true;
+        if (h == keccak256("getWithdrawalRequest")) return true;
+        if (h == keccak256("pendingRewards")) return true;
+        if (h == keccak256("rewardData")) return true;
+        if (h == keccak256("rewardReceiver")) return true;
+        if (h == keccak256("nonces")) return true;
         return false;
     }
 
@@ -780,7 +792,7 @@ contract DeployMintersTest is BaoTest {
         uint256 argIndex,
         CompareTotals memory totals
     ) private returns (CompareTotals memory) {
-        string memory sigWithArg = string.concat(spec.sig, " arg#", vm.toString(argIndex));
+        string memory sigWithArg = string.concat(spec.sig, " ", knownSalts[argIndex]);
         ++totals.total;
         bool ok = _compareAddressOutputs(label, sigWithArg, s.refToken, s.candToken, spec, refArg, candArg);
         if (ok) ++totals.passed;
@@ -809,46 +821,6 @@ contract DeployMintersTest is BaoTest {
                 _logMismatch(label, sigWithArg, refOut, candOut, _addressArgContext(refArg, candArg), spec.kind);
             }
         }
-    }
-
-    // --- Prediction Helpers ---
-
-    function _predictMintersForPeg(
-        string memory systemSalt,
-        string memory peg,
-        MarketSpec[] memory markets
-    ) private view returns (address[] memory addrs, string[] memory keys) {
-        uint256 count;
-        for (uint256 i = 0; i < markets.length; i++) {
-            if (keccak256(bytes(markets[i].peg)) == keccak256(bytes(peg))) ++count;
-        }
-        addrs = new address[](count);
-        keys = new string[](count);
-        uint256 idx;
-        for (uint256 i = 0; i < markets.length; i++) {
-            if (keccak256(bytes(markets[i].peg)) != keccak256(bytes(peg))) continue;
-            string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
-            addrs[idx] = IBaoFactory(_baoFactory).predictAddress(
-                keccak256(abi.encodePacked(systemSalt, "::", marketKey, "::minter"))
-            );
-            keys[idx] = marketKey;
-            ++idx;
-        }
-    }
-
-    /// @notice Extract the peg portion from a salt like "ETH::pegged" → "ETH"
-    function _extractPegFromSalt(string memory salt) private pure returns (string memory) {
-        bytes memory b = bytes(salt);
-        for (uint256 i = 0; i + 1 < b.length; i++) {
-            if (b[i] == ":" && b[i + 1] == ":") {
-                bytes memory peg = new bytes(i);
-                for (uint256 j = 0; j < i; j++) {
-                    peg[j] = b[j];
-                }
-                return string(peg);
-            }
-        }
-        return salt;
     }
 
     // --- Logging Helpers ---
@@ -887,8 +859,8 @@ contract DeployMintersTest is BaoTest {
             // Simple types: format with aligned labels
             string memory refStr = _formatReturn(refOut, kind);
             string memory candStr = _formatReturn(candOut, kind);
-            string memory refLine = string.concat("    ", _padLabel(REFERENCE_SALT), ": ", refStr);
-            string memory candLine = string.concat("    ", _padLabel(CANDIDATE_SALT), ": ", candStr);
+            string memory refLine = string.concat("    ", _padLabel("ref"), ": ", refStr);
+            string memory candLine = string.concat("    ", _padLabel("cand"), ": ", candStr);
             mismatchDetails.push(refLine);
             mismatchDetails.push(candLine);
         }
@@ -903,17 +875,13 @@ contract DeployMintersTest is BaoTest {
         uint256 candLen = candAddrs.length;
         uint256 maxLen = refLen > candLen ? refLen : candLen;
 
-        mismatchDetails.push(
-            string.concat("    ", _padLabel(REFERENCE_SALT), " (", vm.toString(refLen), " elements):")
-        );
+        mismatchDetails.push(string.concat("    ", _padLabel("ref"), " (", vm.toString(refLen), " elements):"));
         for (uint256 i = 0; i < refLen; i++) {
             string memory salt = _findSalt(refAddrs[i]);
             mismatchDetails.push(string.concat("      [", vm.toString(i), "] ", _formatAddr(refAddrs[i], salt)));
         }
 
-        mismatchDetails.push(
-            string.concat("    ", _padLabel(CANDIDATE_SALT), " (", vm.toString(candLen), " elements):")
-        );
+        mismatchDetails.push(string.concat("    ", _padLabel("cand"), " (", vm.toString(candLen), " elements):"));
         for (uint256 i = 0; i < candLen; i++) {
             string memory salt = _findSalt(candAddrs[i]);
             mismatchDetails.push(string.concat("      [", vm.toString(i), "] ", _formatAddr(candAddrs[i], salt)));
@@ -975,8 +943,8 @@ contract DeployMintersTest is BaoTest {
 
                 string memory idxStr = string.concat("[field ", vm.toString(i), "]");
                 mismatchDetails.push(string.concat("    ", idxStr));
-                mismatchDetails.push(string.concat("      ", _padLabel(REFERENCE_SALT), ": ", refFormatted));
-                mismatchDetails.push(string.concat("      ", _padLabel(CANDIDATE_SALT), ": ", candFormatted));
+                mismatchDetails.push(string.concat("      ", _padLabel("ref"), ": ", refFormatted));
+                mismatchDetails.push(string.concat("      ", _padLabel("cand"), ": ", candFormatted));
             }
         }
     }
@@ -1050,10 +1018,8 @@ contract DeployMintersTest is BaoTest {
 
         if (hasDiff) {
             mismatchDetails.push(string.concat("    [", fieldName, "]"));
-            mismatchDetails.push(string.concat("      ", _padLabel(REFERENCE_SALT), ": ", _formatIncentiveConfig(ref)));
-            mismatchDetails.push(
-                string.concat("      ", _padLabel(CANDIDATE_SALT), ": ", _formatIncentiveConfig(cand))
-            );
+            mismatchDetails.push(string.concat("      ", _padLabel("ref"), ": ", _formatIncentiveConfig(ref)));
+            mismatchDetails.push(string.concat("      ", _padLabel("cand"), ": ", _formatIncentiveConfig(cand)));
         }
     }
 
@@ -1364,9 +1330,9 @@ contract DeployMintersTest is BaoTest {
     }
 
     function _findSalt(address addr) private view returns (string memory salt) {
-        for (uint256 i = 0; i < currentKnownAddrs.length; i++) {
-            if (currentKnownAddrs[i] == addr) {
-                return currentKnownSalts[i];
+        for (uint256 i = 0; i < knownSalts.length; i++) {
+            if (refKnownAddrs[i] == addr || candKnownAddrs[i] == addr) {
+                return knownSalts[i];
             }
         }
         return "";

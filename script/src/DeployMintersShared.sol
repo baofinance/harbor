@@ -63,9 +63,8 @@ abstract contract DeployMintersShared is
     function _finalizeDeploy(DeploymentTypes.State memory stateData) internal {
         _transferAllOwnerships();
 
-        if (_shouldPersistState()) {
-            DeploymentState.save(stateData);
-        }
+        saveState(stateData);
+
         console.log("=== Minter Deployment Done ===");
     }
 
@@ -75,6 +74,39 @@ abstract contract DeployMintersShared is
         _deployPegAndMarkets(stateData, peg, markets);
         _finalizeDeploy(stateData);
     }
+
+    // ========== GRANULAR DEPLOYMENT FUNCTIONS (for tests and selective deployments) ==========
+
+    /// @notice Deploy pegged token with roles for all markets that will use it.
+    /// @param state Deployment state (modified in place).
+    /// @param peg Peg configuration.
+    /// @param markets All markets that will use this peg (for role grants).
+    function deployPeg(
+        DeploymentTypes.State memory state,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory markets
+    ) internal {
+        console.log("");
+        console.log("--- Deploying %s Pegged Token ---", peg.key());
+        deployPeggedTokenWithRoles(state, peg, markets);
+    }
+
+    /// @notice Transfer ownerships for all deployed contracts.
+    function finalize() internal {
+        console.log("");
+        console.log("--- Transferring Ownerships ---");
+        _transferAllOwnerships();
+        console.log("=== Minter Deployment Done ===");
+    }
+
+    /// @notice Save state to JSON file (respects _shouldPersistState).
+    function saveState(DeploymentTypes.State memory state) internal {
+        if (_shouldPersistState()) {
+            DeploymentState.save(state);
+        }
+    }
+
+    // ========== INTERNAL DEPLOYMENT HELPERS ==========
 
     /// @notice Deploy pegged token and all markets for a peg.
     function _deployPegAndMarkets(
@@ -88,12 +120,14 @@ abstract contract DeployMintersShared is
         deployPeggedTokenWithRoles(stateData, peg, markets);
 
         for (uint256 i = 0; i < markets.length; i++) {
-            _deployMinterForMarket(stateData, markets[i]);
+            deployMinter(stateData, markets[i]);
         }
     }
 
-    /// @notice Deploy complete minter infrastructure for a single market.
-    function _deployMinterForMarket(DeploymentTypes.State memory stateData, Config_MinterMarket market) internal {
+    /// @notice Deploy infrastructure for a single market.
+    /// @param state Deployment state (modified in place).
+    /// @param market Market configuration.
+    function deployMinter(DeploymentTypes.State memory state, Config_MinterMarket market) internal {
         IFullMinterConfig cfg = IFullMinterConfig(address(market));
         string memory marketKey = MinterMarketConfigLib.salt(market);
 
@@ -101,31 +135,27 @@ abstract contract DeployMintersShared is
         console.log("  > Market: %s", marketKey);
 
         // Deploy LeveragedToken
-        deployLeveragedTokenWithRoles(stateData, market);
+        _deployLeveragedTokenWithRoles(state, market);
 
         // Deploy ReservePool
-        _deployReservePool(stateData, marketKey);
+        deployReservePool(state, marketKey);
 
         // Deploy Minter
-        _deployMinter(stateData, cfg, marketKey);
+        _deployMinter(state, cfg, marketKey);
 
         // Deploy Stability Pools
-        _deployStabilityPools(stateData, cfg, marketKey);
+        _deployStabilityPools(state, cfg, marketKey);
 
         // Deploy StabilityPoolManager
-        _deployStabilityPoolManager(stateData, cfg, marketKey);
+        _deployStabilityPoolManager(state, cfg, marketKey);
 
         // Deploy Genesis
-        _deployGenesis(stateData, cfg, marketKey);
+        _deployGenesis(state, cfg, marketKey);
 
         // Configure Minter and grant roles
         _configureMinter(market, marketKey);
 
         console.log("    [complete]");
-    }
-
-    function _deployReservePool(DeploymentTypes.State memory stateData, string memory marketKey) internal {
-        deployReservePool(stateData, marketKey);
     }
 
     function _deployMinter(
@@ -201,10 +231,10 @@ abstract contract DeployMintersShared is
         Minter_v1(minter).updatePriceOracle(priceOracle);
 
         // Grant roles
-        grantReservePoolRoles(reservePool, minter);
-        grantMinterRoles(minter, spm, genesis);
-        grantStabilityPoolRoles(spCollateral, spm);
-        grantStabilityPoolRoles(spLeveraged, spm);
+        grantReservePoolRoles(string.concat(marketKey, "::reservePool"), reservePool, minter);
+        grantMinterRoles(string.concat(marketKey, "::minter"), minter, spm, genesis);
+        grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolCollateral"), spCollateral, spm);
+        grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolLeveraged"), spLeveraged, spm);
 
         // Register reward tokens
         StabilityPool_v1(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
