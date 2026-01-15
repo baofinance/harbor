@@ -1,12 +1,12 @@
 #!/bin/bash
 # Generate Safe Transaction Builder JSON for batch operations using Solidity scripts.
 #
-# Usage: ./script/generate-safe-batch <script-name> [--network <network>] [--salt <salt>] [--local]
+# Usage: ./script/generate-safe-batch <script-name> --salt <salt> [--network <network>] [--local] [-m <message>]
 #
 # Examples:
-#   ./script/generate-safe-batch UpdateVolatility_Example
+#   ./script/generate-safe-batch UpdateVolatility_Example --salt harbor_v1
 #   ./script/generate-safe-batch UpdateVolatility_Example --network mainnet --salt harbor_v1
-#   ./script/generate-safe-batch UpdateTo140_Test --local  # outputs to deployments/local/<network>/batch/
+#   ./script/generate-safe-batch UpdateTo140_Test --salt harbor_v1 --local
 
 set -euo pipefail
 
@@ -24,8 +24,9 @@ Arguments:
 
 Options:
   --network <n>  Network name (default: mainnet)
-  --salt <s>     Salt prefix (default: harbor_v1)
+  --salt <s>     Salt prefix (required)
   --local        Output to deployments/local/<network>/batch/ without timestamp
+  -m, --message  Override the batch description (max 256 chars)
   --help, -h     Show this help message
 
 Available batch scripts:
@@ -42,9 +43,10 @@ fi
 
 # Defaults
 NETWORK="mainnet"
-SALT="harbor_v1"
+SALT=""
 SCRIPT_NAME=""
 USE_LOCAL=""
+MESSAGE=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -65,6 +67,10 @@ while [[ $# -gt 0 ]]; do
       USE_LOCAL="1"
       shift
       ;;
+    -m | --message)
+      MESSAGE="$2"
+      shift 2
+      ;;
     -*)
       echo "Unknown option: $1" >&2
       exit 1
@@ -78,6 +84,11 @@ done
 
 if [[ -z "$SCRIPT_NAME" ]]; then
   show_help
+  exit 1
+fi
+
+if [[ -z "$SALT" ]]; then
+  echo "Error: --salt is required" >&2
   exit 1
 fi
 
@@ -98,18 +109,30 @@ else
   OUTPUT_FILE="${OUTPUT_DIR}/${SCRIPT_NAME}_${TIMESTAMP}.json"
 fi
 
+# Build description (max 256 chars)
+if [[ -n "$MESSAGE" ]]; then
+  DESCRIPTION="$MESSAGE"
+else
+  DESCRIPTION="generate-safe-batch ${SCRIPT_NAME} --salt ${SALT}"
+fi
+if [[ ${#DESCRIPTION} -gt 256 ]]; then
+  DESCRIPTION="${DESCRIPTION:0:253}..."
+fi
+
 echo "Running batch script: $SCRIPT_NAME" >&2
 echo "  Network: $NETWORK" >&2
 echo "  Salt: $SALT" >&2
+echo "  Message: $DESCRIPTION" >&2
 echo "  Output: $OUTPUT_FILE" >&2
 echo "" >&2
 
 # Run forge, capturing JSON from console.log output
 mkdir -p "$OUTPUT_DIR"
 forge script "$SCRIPT_PATH" \
+  --tc "$SCRIPT_NAME" \
   --fork-url "$NETWORK" \
   --sig "run(string)" "$SALT" \
-  2>/dev/null | grep '{"version"' | jq . >"$OUTPUT_FILE"
+  2>/dev/null | grep '{"version"' | jq --arg desc "$DESCRIPTION" '.meta.description = $desc' >"$OUTPUT_FILE"
 
 echo "Batch saved to: $OUTPUT_FILE" >&2
 echo "Transactions: $(jq '.transactions | length' "$OUTPUT_FILE")" >&2
