@@ -5,7 +5,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @notice Volatility configuration for 115% rebalance threshold markets (Month 1 fees).
 /// @dev Higher redeem leveraged fees for initial month after launch.
-abstract contract ConfigPriceVolatility_115 {
+contract ConfigPriceVolatility_115 {
     function rebalanceThreshold() public pure virtual returns (uint256) {
         return 1.15e18;
     }

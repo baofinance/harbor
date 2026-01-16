@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @notice Volatility configuration for 130% rebalance threshold markets.
-abstract contract ConfigPriceVolatility_130_stable {
+contract ConfigPriceVolatility_130_stable {
     function rebalanceThreshold() public pure virtual returns (uint256) {
         return 1.30e18;
     }

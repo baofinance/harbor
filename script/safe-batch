@@ -113,7 +113,7 @@ fi
 if [[ -n "$MESSAGE" ]]; then
   DESCRIPTION="$MESSAGE"
 else
-  DESCRIPTION="generate-safe-batch ${SCRIPT_NAME} --salt ${SALT}"
+  DESCRIPTION="safe-batch ${SCRIPT_NAME} --salt ${SALT}"
 fi
 if [[ ${#DESCRIPTION} -gt 256 ]]; then
   DESCRIPTION="${DESCRIPTION:0:253}..."
@@ -128,11 +128,15 @@ echo "" >&2
 
 # Run forge, capturing JSON from console.log output
 mkdir -p "$OUTPUT_DIR"
-forge script "$SCRIPT_PATH" \
+forge script "$SCRIPT_PATH" -vv \
   --tc "$SCRIPT_NAME" \
   --fork-url "$NETWORK" \
-  --sig "run(string)" "$SALT" \
-  2>/dev/null | grep '{"version"' | jq --arg desc "$DESCRIPTION" '.meta.description = $desc' >"$OUTPUT_FILE"
+  --sig "run(string)" "$SALT" |
+  tee >(grep -v '{"version"' >&2) |
+  grep '{"version"' |
+  jq --arg desc "$DESCRIPTION" '.meta.description = $desc' \
+    >"$OUTPUT_FILE"
 
+echo "" >&2
 echo "Batch saved to: $OUTPUT_FILE" >&2
 echo "Transactions: $(jq '.transactions | length' "$OUTPUT_FILE")" >&2

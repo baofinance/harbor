@@ -63,7 +63,7 @@ abstract contract DeployMintersShared is
     function _finalizeDeploy(DeploymentTypes.State memory stateData) internal {
         _transferAllOwnerships();
 
-        saveState(stateData);
+        _saveState(stateData);
 
         console.log("=== Minter Deployment Done ===");
     }
@@ -97,13 +97,6 @@ abstract contract DeployMintersShared is
         console.log("--- Transferring Ownerships ---");
         _transferAllOwnerships();
         console.log("=== Minter Deployment Done ===");
-    }
-
-    /// @notice Save state to JSON file (respects _shouldPersistState).
-    function saveState(DeploymentTypes.State memory state) internal {
-        if (_shouldPersistState()) {
-            DeploymentState.save(state);
-        }
     }
 
     // ========== INTERNAL DEPLOYMENT HELPERS ==========
@@ -254,7 +247,7 @@ abstract contract DeployMintersShared is
         );
     }
 
-    function _shouldPersistState() internal pure virtual returns (bool) {
+    function _shouldPersistState() internal pure virtual override returns (bool) {
         return true;
     }
 
