@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 import {PeggedToken} from "./contracts/PeggedToken.sol";
 import {LeveragedToken} from "./contracts/LeveragedToken.sol";
 import {Minter} from "./contracts/Minter.sol";
@@ -46,81 +47,115 @@ abstract contract DeployMintersShared is
     StabilityPoolManager,
     Genesis
 {
-    // Shared helper functions for state management
+    using LibString for string;
 
-    function _loadOrSeedState(string memory network) internal returns (DeploymentTypes.State memory stateData) {
-        stateData = _shouldPersistState()
-            ? DeploymentState.load(network, saltPrefix(), "")
-            : _seedEphemeralState(saltPrefix(), network);
-        stateData.baoFactory = baoFactory();
+    // ========== MARKET LOOKUP ==========
+
+    /// @notice Find a market config by collateral name.
+    /// @param markets Array of market configurations.
+    /// @param collateral Collateral name to find.
+    /// @return The matching market config.
+    /// @dev Reverts if not found.
+    function findMarket(
+        Config_MinterMarket[] memory markets,
+        string memory collateral
+    ) internal view returns (Config_MinterMarket) {
+        bytes32 target = keccak256(bytes(collateral));
+        for (uint256 i = 0; i < markets.length; i++) {
+            if (keccak256(bytes(MinterMarketConfigLib.collateral(markets[i]))) == target) {
+                return markets[i];
+            }
+        }
+        revert(string.concat("Market not found for collateral: ", collateral));
+    }
+
+    /// @notice Parse collateral filter string into array of markets.
+    /// @param allMarkets All configured markets.
+    /// @param collateralFilter "*" for all, or single collateral name.
+    /// @return Filtered array of markets.
+    function parseCollateralFilter(
+        Config_MinterMarket[] memory allMarkets,
+        string memory collateralFilter
+    ) internal view returns (Config_MinterMarket[] memory) {
+        if (collateralFilter.eq("*")) {
+            return allMarkets;
+        }
+        if (bytes(collateralFilter).length == 0) {
+            return new Config_MinterMarket[](0);
+        }
+        Config_MinterMarket[] memory result = new Config_MinterMarket[](1);
+        result[0] = findMarket(allMarkets, collateralFilter);
+        return result;
+    }
+
+    // ========== MAIN ENTRY POINT ==========
+
+    /// @notice Deploy pegged token and/or markets for a peg.
+    /// @param saltPrefix Salt prefix for CREATE3 deployment namespacing.
+    /// @param peg Peg configuration.
+    /// @param allMarkets All configured markets for this peg (used for role grants).
+    /// @param network Network name (e.g., "mainnet").
+    /// @param deployPeg Whether to deploy the pegged token.
+    /// @param marketsToDeploy Markets to deploy (empty array = none).
+    function deployForPeg(
+        string memory saltPrefix,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        string memory network,
+        bool deployPeg,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) internal {
+        _setSaltPrefix(saltPrefix);
+
+        // Load or seed state
+        DeploymentTypes.State memory state = _shouldPersistState()
+            ? DeploymentState.load(network, saltPrefix, "")
+            : DeploymentTypes.State({
+                network: network,
+                saltPrefix: saltPrefix,
+                directoryPrefix: "",
+                implementations: new DeploymentTypes.ImplementationRecord[](0),
+                proxies: new DeploymentTypes.ProxyRecord[](0),
+                baoFactory: address(0)
+            });
+        state.baoFactory = baoFactory();
 
         console.log("=== Deploying Minter Contracts ===");
-        console.log("  Salt:    %s", saltPrefix());
+        console.log("  Salt:    %s", saltPrefix);
         console.log("  Network: %s", network);
-        return stateData;
-    }
 
-    function _finalizeDeploy(DeploymentTypes.State memory stateData) internal {
-        _transferAllOwnerships();
+        if (deployPeg) {
+            _deployPegWithRoles(state, peg, allMarkets);
+        }
 
-        _saveState(stateData);
+        for (uint256 i = 0; i < marketsToDeploy.length; i++) {
+            _deployMinterInfrastructure(state, marketsToDeploy[i]);
+        }
 
-        console.log("=== Minter Deployment Done ===");
-    }
-
-    /// @notice Deploy pegged token and all markets for a peg (public entry point).
-    function deployAllForPeg(ConfigPeg peg, Config_MinterMarket[] memory markets, string memory network) internal {
-        DeploymentTypes.State memory stateData = _loadOrSeedState(network);
-        _deployPegAndMarkets(stateData, peg, markets);
-        _finalizeDeploy(stateData);
-    }
-
-    // ========== GRANULAR DEPLOYMENT FUNCTIONS (for tests and selective deployments) ==========
-
-    /// @notice Deploy pegged token with roles for all markets that will use it.
-    /// @param state Deployment state (modified in place).
-    /// @param peg Peg configuration.
-    /// @param markets All markets that will use this peg (for role grants).
-    function deployPeg(
-        DeploymentTypes.State memory state,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory markets
-    ) internal {
-        console.log("");
-        console.log("--- Deploying %s Pegged Token ---", peg.key());
-        deployPeggedTokenWithRoles(state, peg, markets);
-    }
-
-    /// @notice Transfer ownerships for all deployed contracts.
-    function finalize() internal {
+        // Finalize: transfer ownerships and save state
         console.log("");
         console.log("--- Transferring Ownerships ---");
         _transferAllOwnerships();
+        _saveState(state);
         console.log("=== Minter Deployment Done ===");
     }
 
-    // ========== INTERNAL DEPLOYMENT HELPERS ==========
-
-    /// @notice Deploy pegged token and all markets for a peg.
-    function _deployPegAndMarkets(
-        DeploymentTypes.State memory stateData,
+    function _deployPegWithRoles(
+        DeploymentTypes.State memory state,
         ConfigPeg peg,
-        Config_MinterMarket[] memory markets
-    ) internal {
+        Config_MinterMarket[] memory allMarkets
+    ) private {
         console.log("");
-        console.log("--- Deploying %s Peg and Markets ---", peg.key());
-
-        deployPeggedTokenWithRoles(stateData, peg, markets);
-
-        for (uint256 i = 0; i < markets.length; i++) {
-            deployMinter(stateData, markets[i]);
-        }
+        console.log("--- Deploying %s Pegged Token ---", peg.key());
+        deployPeggedTokenWithRoles(state, peg, allMarkets);
     }
+
+    // ========== MINTER INFRASTRUCTURE DEPLOYMENT ==========
 
     /// @notice Deploy infrastructure for a single market.
     /// @param state Deployment state (modified in place).
     /// @param market Market configuration.
-    function deployMinter(DeploymentTypes.State memory state, Config_MinterMarket market) internal {
+    function _deployMinterInfrastructure(DeploymentTypes.State memory state, Config_MinterMarket market) private {
         IFullMinterConfig cfg = IFullMinterConfig(address(market));
         string memory marketKey = MinterMarketConfigLib.salt(market);
 
@@ -249,14 +284,5 @@ abstract contract DeployMintersShared is
 
     function _shouldPersistState() internal pure virtual override returns (bool) {
         return true;
-    }
-
-    function _seedEphemeralState(
-        string memory saltPrefix,
-        string memory network
-    ) internal pure returns (DeploymentTypes.State memory stateData) {
-        stateData.network = network;
-        stateData.saltPrefix = saltPrefix;
-        return stateData;
     }
 }

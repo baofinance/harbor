@@ -6,21 +6,20 @@ import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
-/// @notice Deploy Harbor BTC pegged token and all BTC markets.
+/// @notice Deploy Harbor BTC pegged token and BTC markets.
 contract Deploy_BTC_mainnet is Deploy_BTC_Minter, Script {
     /// @notice Deploy BTC pegged token, leveraged tokens, and minter infrastructure.
     /// @param saltPrefix System salt for CREATE3 deployment (e.g., "harbor_v1").
     /// @param network Network name (e.g., "mainnet", "arbitrum").
-    function run(string memory saltPrefix, string memory network) external {
-        // Set the salt prefix for CREATE3 deployment namespacing
-        _setSaltPrefix(saltPrefix);
-
+    /// @param deployPeg Whether to deploy the pegged token.
+    /// @param collateral Collateral name to deploy (e.g., "stETH"), "*" for all, or "" for none.
+    function run(string memory saltPrefix, string memory network, bool deployPeg, string memory collateral) external {
         // Create config BEFORE broadcast - config contracts NOT deployed on-chain
-        (ConfigPeg peg, Config_MinterMarket[] memory markets) = createBTCMintersConfig();
+        (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createBTCMintersConfig();
+        Config_MinterMarket[] memory marketsToDeploy = parseCollateralFilter(allMarkets, collateral);
 
         vm.startBroadcast();
-        // Only actual contracts deployed here
-        deployAllForPeg(peg, markets, network);
+        deployForPeg(saltPrefix, peg, allMarkets, network, deployPeg, marketsToDeploy);
         vm.stopBroadcast();
     }
 }

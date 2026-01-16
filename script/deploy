@@ -12,23 +12,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<EOF
 Usage:
-  $0 --network <net> --salt <salt> [--account <name>] [--local] [--peg <peg>]
+  $0 --network <net> --salt <salt> --peg <peg> [--deploy-peg] [--collateral <name>] [--account <name>] [--local]
 
 Required:
   --network <net>   Network name from foundry.toml [rpc_endpoints] (e.g., mainnet) but not local.
-	--salt <salt>     System salt for CREATE3 deployment (e.g., harbor_v1)
+  --salt <salt>     Salt prefix for CREATE3 deployment (e.g., harbor_v1)
   --peg <peg>       Which peg to deploy. There must be a corresponding Deploy_<peg>_<network>.s.sol script.
 
 Options:
-  --account <name>  Foundry keystore account name (required for non-local)
-  --local           Use local anvil (auto-impersonate, state in local directory)
-  --timestamp       Add timestamp to local state directory (requires --local)
-  -h, --help        Show this help message
+  --deploy-peg         Deploy the pegged token (default: false)
+  --collateral <name>  Collateral to deploy (e.g., stETH, fxUSD). Default: "*" (all markets)
+  --account <name>     Foundry keystore account name (required for non-local)
+  --local              Use local anvil (auto-impersonate, state in local directory)
+  --timestamp          Add timestamp to local state directory (requires --local)
+  -h, --help           Show this help message
 EOF
 }
 
 # Common argument parsing for deployment scripts
-# Sets: NETWORK, SALT, ACCOUNT, USE_LOCAL, USE_TIMESTAMP, PEG
+# Sets: NETWORK, SALT, ACCOUNT, USE_LOCAL, USE_TIMESTAMP, PEG, DEPLOY_PEG
 NETWORK=""
 SALT=""
 USE_LOCAL=false
@@ -36,6 +38,8 @@ USE_TIMESTAMP=false
 FORGE_ARGS=()
 ACCOUNT=""
 PEG=""
+DEPLOY_PEG=false
+COLLATERAL="*"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -61,6 +65,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --peg)
       PEG=$2
+      shift 2
+      ;;
+    --deploy-peg)
+      DEPLOY_PEG=true
+      shift
+      ;;
+    --collateral)
+      COLLATERAL=$2
       shift 2
       ;;
     --resume)
@@ -144,6 +156,8 @@ echo "======================================================"
 echo "Salt:       $SALT"
 echo "Network:    $NETWORK"
 echo "Peg:        $PEG"
+echo "Deploy peg: $DEPLOY_PEG"
+echo "Collateral: $COLLATERAL"
 echo "rpc-url:    $RPC_URL"
 echo "script:     $SCRIPT_PATH"
 echo "forge args: ${FORGE_ARGS[*]}"
@@ -151,7 +165,7 @@ echo "forge args: ${FORGE_ARGS[*]}"
 START_TIME=$(date +%s)
 
 forge script "$SCRIPT_PATH" \
-  --sig 'run(string,string)' "$SALT" "$NETWORK" \
+  --sig 'run(string,string,bool,string)' "$SALT" "$NETWORK" "$DEPLOY_PEG" "$COLLATERAL" \
   "${FORGE_ARGS[@]}"
 
 END_TIME=$(date +%s)

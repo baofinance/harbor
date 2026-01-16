@@ -168,45 +168,20 @@ contract DeployMintersTest is
         _baoFactory = _ensureBaoFactory();
     }
 
-    /// @notice Find a market config by collateral name.
-    /// @dev Reverts if not found.
-    function _findMarket(
-        Config_MinterMarket[] memory mktConfigs,
-        string memory collateral
-    ) private view returns (Config_MinterMarket) {
-        bytes32 target = keccak256(bytes(collateral));
-        for (uint256 i = 0; i < mktConfigs.length; i++) {
-            if (keccak256(bytes(mktConfigs[i].collateral())) == target) {
-                return mktConfigs[i];
-            }
-        }
-        revert(string.concat("Market not found for collateral: ", collateral));
-    }
-
-    function _findMarket1(
-        Config_MinterMarket[] memory mktConfigs,
-        string memory collateral
-    ) private view returns (Config_MinterMarket[] memory result) {
-        result = new Config_MinterMarket[](1);
-        result[0] = _findMarket(mktConfigs, collateral);
-    }
-
     function test_BTC() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createBTCMintersConfig();
-        deployAllForPeg(peg, mktConfigs, "mainnet");
+        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, mktConfigs);
         _compareMintersAgainstReference(refSalt, peg, mktConfigs);
     }
 
     function test_OG_BTC() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
 
         (ConfigPeg btcPeg, Config_MinterMarket[] memory btcMkts) = createBTCMintersConfig();
-        deployAllForPeg(btcPeg, btcMkts, "mainnet");
+        deployForPeg(string.concat(refSalt, "_candidate"), btcPeg, btcMkts, "mainnet", true, btcMkts);
 
         _compareMintersAgainstReference(refSalt, btcPeg, btcMkts);
     }
@@ -214,79 +189,61 @@ contract DeployMintersTest is
     function test_OG_ETH() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
 
         (ConfigPeg ethPeg, Config_MinterMarket[] memory ethMkts) = createETHMintersConfig();
-        deployAllForPeg(ethPeg, ethMkts, "mainnet");
+        deployForPeg(string.concat(refSalt, "_candidate"), ethPeg, ethMkts, "mainnet", true, ethMkts);
 
         _compareMintersAgainstReference(refSalt, ethPeg, ethMkts);
     }
     function test_OG_EUR() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
 
         (ConfigPeg eurPeg, Config_MinterMarket[] memory eurMkts) = createEURMintersConfig();
-        eurMkts = _findMarket1(eurMkts, "fxUSD");
-        deployAllForPeg(eurPeg, eurMkts, "mainnet");
+        Config_MinterMarket[] memory fxUSDMarkets = parseCollateralFilter(eurMkts, "fxUSD");
+        deployForPeg(string.concat(refSalt, "_candidate"), eurPeg, eurMkts, "mainnet", true, fxUSDMarkets);
 
-        _compareMintersAgainstReference(refSalt, eurPeg, eurMkts);
+        _compareMintersAgainstReference(refSalt, eurPeg, fxUSDMarkets);
     }
 
     function test_OG_GOLD() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
 
         (ConfigPeg goldPeg, Config_MinterMarket[] memory goldMkts) = createGOLDMintersConfig();
-        goldMkts = _findMarket1(goldMkts, "fxUSD");
-        deployAllForPeg(goldPeg, goldMkts, "mainnet");
+        Config_MinterMarket[] memory fxUSDMarkets = parseCollateralFilter(goldMkts, "fxUSD");
+        deployForPeg(string.concat(refSalt, "_candidate"), goldPeg, goldMkts, "mainnet", true, fxUSDMarkets);
 
-        _compareMintersAgainstReference(refSalt, goldPeg, goldMkts);
+        _compareMintersAgainstReference(refSalt, goldPeg, fxUSDMarkets);
     }
 
     function test_SILVER_peg() public {
         string memory refSalt = "test3";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
-        DeploymentTypes.State memory state = _loadOrSeedState("mainnet");
-        deployPeg(state, peg, mktConfigs);
-        finalize();
-        // Compare peg only (no markets deployed)
+        // Deploy peg only, no markets
         Config_MinterMarket[] memory noMarkets = new Config_MinterMarket[](0);
+        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, noMarkets);
         _compareMintersAgainstReference(refSalt, peg, noMarkets);
     }
 
     function test_SILVER_fxUSD() public {
         string memory refSalt = "test3";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
-        DeploymentTypes.State memory state = _loadOrSeedState("mainnet");
-        deployPeg(state, peg, mktConfigs);
-        Config_MinterMarket fxUSDMarket = _findMarket(mktConfigs, "fxUSD");
-        deployMinter(state, fxUSDMarket);
-        finalize();
-        // Compare peg + fxUSD market only
-        Config_MinterMarket[] memory fxUSDOnly = new Config_MinterMarket[](1);
-        fxUSDOnly[0] = fxUSDMarket;
+        // Deploy peg + fxUSD market only
+        Config_MinterMarket[] memory fxUSDOnly = parseCollateralFilter(mktConfigs, "fxUSD");
+        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, fxUSDOnly);
         _compareMintersAgainstReference(refSalt, peg, fxUSDOnly);
     }
 
     function test_SILVER_stETH() public {
         string memory refSalt = "test3";
         _forkAndSetup();
-        _setSaltPrefix(string.concat(refSalt, "_candidate"));
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
-        DeploymentTypes.State memory state = _loadOrSeedState("mainnet");
-        deployPeg(state, peg, mktConfigs);
-        Config_MinterMarket stETHMarket = _findMarket(mktConfigs, "stETH");
-        deployMinter(state, stETHMarket);
-        finalize();
-        // Compare peg + stETH market only
-        Config_MinterMarket[] memory stETHOnly = new Config_MinterMarket[](1);
-        stETHOnly[0] = stETHMarket;
+        // Deploy peg + stETH market only
+        Config_MinterMarket[] memory stETHOnly = parseCollateralFilter(mktConfigs, "stETH");
+        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, stETHOnly);
         _compareMintersAgainstReference(refSalt, peg, stETHOnly);
     }
 
