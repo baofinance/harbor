@@ -91,4 +91,41 @@ else
   echo "Forking mainnet at latest block"
 fi
 
+# Handle deployment state files based on block spec
+LOCAL_STATE_DIR="$SCRIPT_DIR/../deployments/local/mainnet"
+MAINNET_STATE_DIR="$SCRIPT_DIR/../deployments/mainnet"
+
+case "$BLOCK_SPEC" in
+  latest)
+    echo ""
+    echo "Block is 'latest' - local state should mirror mainnet state."
+    read -rp "Copy deployments/mainnet/*.json to deployments/local/mainnet/? [Yn] " response
+    if [[ ! "$response" =~ ^[Nn]$ ]]; then
+      mkdir -p "$LOCAL_STATE_DIR"
+      cp "$MAINNET_STATE_DIR"/*.json "$LOCAL_STATE_DIR/"
+      echo "Copied mainnet state files to local."
+    fi
+    ;;
+  factory)
+    echo ""
+    echo "Block is 'factory' - starting from a clean state."
+    if ls "$LOCAL_STATE_DIR"/*.json >/dev/null 2>&1; then
+      read -rp "Delete deployments/local/mainnet/*.json? [Yn] " response
+      if [[ ! "$response" =~ ^[Nn]$ ]]; then
+        rm -f "$LOCAL_STATE_DIR"/*.json
+        echo "Deleted local state files."
+      fi
+    fi
+    ;;
+  *)
+    echo ""
+    echo "WARNING: Using custom block $BLOCK - state files in deployments/local/mainnet may not be correct."
+    read -rp "Continue anyway? [Yn] " response
+    if [[ "$response" =~ ^[Nn]$ ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+    ;;
+esac
+
 exec anvil "${ANVIL_ARGS[@]}" "${PASSTHROUGH[@]}"
