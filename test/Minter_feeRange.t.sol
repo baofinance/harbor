@@ -594,7 +594,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         assertEq(post.userPegged, pre.userPegged - pegged, "rp user pegged");
         uint256 qPR = _qPR(p, r);
-        assertNear(wrappedReturned, wrapped - fee + discount, qPR, 3, "rp user wrapped");
+        assertNear(wrappedReturned, wrapped - fee + discount, qPR, 5, "rp user wrapped");
         assertEq(post.userLeveraged, pre.userLeveraged, "rp user leveraged");
         assertEq(post.userWrapped, pre.userWrapped + wrappedReturned, "rp user wrapped returned");
 

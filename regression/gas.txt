@@ -1,3 +1,45 @@
+script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol:ConfigMarket_BTC_fxUSD_mainnet
+| function name   |       max |
+|-----------------|-----------|
+| collateral      | 5.210e+02 |
+| peg             | 5.230e+02 |
+
+script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol:ConfigMarket_BTC_stETH_mainnet
+| function name   |       max |
+|-----------------|-----------|
+| collateral      | 5.210e+02 |
+| peg             | 5.230e+02 |
+
+script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol:ConfigMarket_ETH_fxUSD_mainnet
+| function name   |       max |
+|-----------------|-----------|
+| collateral      | 5.210e+02 |
+| peg             | 5.230e+02 |
+
+script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol:ConfigMarket_EUR_fxUSD_mainnet
+| function name   |       max |
+|-----------------|-----------|
+| collateral      | 5.210e+02 |
+| peg             | 5.230e+02 |
+
+script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol:ConfigMarket_EUR_stETH_mainnet
+| function name   |       max |
+|-----------------|-----------|
+| collateral      | 5.210e+02 |
+| peg             | 5.230e+02 |
+
+script/config/markets/ConfigMarket_GOLD_fxUSD_mainnet.sol:ConfigMarket_GOLD_fxUSD_mainnet
+| function name   |       max |
+|-----------------|-----------|
+| collateral      | 5.210e+02 |
+| peg             | 5.230e+02 |
+
+script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol:ConfigMarket_GOLD_stETH_mainnet
+| function name   |       max |
+|-----------------|-----------|
+| collateral      | 5.210e+02 |
+| peg             | 5.230e+02 |
+
 src/minter/Genesis_v1.sol:Genesis_v1
 | function name            |       max |
 |--------------------------|-----------|

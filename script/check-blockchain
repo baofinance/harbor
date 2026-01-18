@@ -79,7 +79,7 @@ is_uups_stub() {
 
   # Check if it has owner() - the stub always has this
   if ! "$CAST" call "$impl_addr" "owner()(address)" --rpc-url "$RPC_URL" &>/dev/null; then
-    return 1  # Not a stub (doesn't even have owner)
+    return 1 # Not a stub (doesn't even have owner)
   fi
 
   # The stub's owner() returns the deployer (test harness), not the treasury
@@ -94,10 +94,10 @@ is_uups_stub() {
 
   # Stub bytecode is roughly 500-800 chars (hex), real impls are 10000+ chars
   if [[ "$code_size" -lt 2000 ]]; then
-    return 0  # Likely the stub (very small bytecode)
+    return 0 # Likely the stub (very small bytecode)
   fi
 
-  return 1  # Not a stub
+  return 1 # Not a stub
 }
 
 # Predict proxy address from salt string using BaoFactory
@@ -291,6 +291,7 @@ markets=$(jq -r '.proxies | keys[] | split("::") | select(length >= 3) | .[0:2] 
 
 echo "── MARKETS ──────────────────────────────────────────────────"
 echo ""
+failed=false
 for market in $markets; do
 
   peg=${market%%::*}
