@@ -1,10 +1,10 @@
-[![Zhenglong](doc/ZhenglongBanner.png)](https://www.zhenglong.finance/)
+[![Harbor](doc/HarborBanner.png)](https://www.harborfinance.io/)
 
 # Build status
 
 ### bao-minter
 
-[![CI](https://github.com/baofinance/bao-minter/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-minter/actions/workflows/test.yml)
+[![CI](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/harbor/actions/workflows/test.yml)
 
 ### bao-base
 
@@ -12,7 +12,7 @@
 
 # Introduction
 
-Zhenglong is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD or anything that has a price feed
+Harbor is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD or anything that has a price feed
 These pegged tokens are minted in exchange for a capital efficient amount of collateral tokens.
 In addition, there are leveraged tokens whose total value is the difference in the value of the collateral and the pegged tokens.
 Pegged tokens and Leveraged tokens can be both minted and redeemed by users.
@@ -93,12 +93,12 @@ This provides a gas efficient and general pause mechanism for all UUPS upgradeab
 Provides discounts for collateral ration beneficial user actions.
 The reserve pool is funded by a portion of the fees collected, and can be filled by other mechanisms, e.g. simply transferring the collateral token to it.
 
-## Pegged Tokens, or zheTokens
+## Anchored haTokens - the pegged tokens
 
-Pegged tokens can be any ERC20 token and can be minted by other means not just by Zhenglong. Pegged tokens can therefore be minted by some other means and redeemed in Zhenglong, or in a Zhenglong on another chain.
+Pegged, tokens can be any ERC20 token and can be minted by other means not just by Harbor. Pegged tokens can therefore be minted by some other means and redeemed in Harbor, or in a Harbor on another chain.
 The Minter contract maintains a count of how many have been minted and redeemed by the Minter contract itself and ensures that no more are redeemed than are minted by the Minter contract itself.
 
-## Leveraged Tokens, or steamedTokens
+## Sail hsTokens - the leveraged Tokens
 
 Leveraged tokens operate on a one-to-one basis with the Minter contract. Only the Minter contract can mint them and redeem them.
 Leverage token's value is derived from the difference between the value of collateral and the value of the total number of pegged tokens minted by the Minter contract and not redeemed.
@@ -158,10 +158,10 @@ $ yarn CI
 which runs all the scripts. It actually runs the github actions locally under docker.
 
 ```sh
-$ yarn deploy:local
+$ script/deploy --local
 ```
 
-which deploys the **Zhenglong** contracts, correctly connected up, on a local anvil instance.
+which deploys the **Harbor** contracts, correctly connected up, on a local anvil instance.
 
 Also note that config files for [wake](https://ackee.xyz/wake/docs/4.11.0/) are provided.
 

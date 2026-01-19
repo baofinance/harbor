@@ -12,7 +12,6 @@
     "fmt:check": "yarn prettier --check",
     "fmt:bash": "yarn prettier:bash --write",
     "test": "mkdir -p results; ./lib/bao-base/run test",
-    "test:deploy": "forge test -vvv --summary --mp script/**/*.t.sol",
     "gas": "./lib/bao-base/run regression-of gas",
     "coverage": "./lib/bao-base/run regression-of coverage",
     "wake": "wake detect all",
