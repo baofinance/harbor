@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "testEUR",
+  "network": "mainnet",
+  "chainId": 1,
+  "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "lastUpdated": "2026-01-19T15:34:59Z",
+  "implementations": {
+    "0x88fE6b38033d0C10DCD4ABC1e3877aF484b17E4a": {
+      "proxy": "EUR::pegged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x2616a934679B60f6442f8312Bb65835e7a511164": {
+      "proxy": "EUR::fxUSD::genesis",
+      "contractSource": "@harbor/minter/Genesis_v1.sol",
+      "contractType": "Genesis_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x11F46BA73Ded7476cDc362310a839B52c3d86De3": {
+      "proxy": "EUR::fxUSD::leveraged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x92642f2Eb00ED2ab495991fdb0C30DDdbE8A9bcC": {
+      "proxy": "EUR::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v1.sol",
+      "contractType": "Minter_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x82C7a7951f656Aa91235c0D5a76C04c35Ef16014": {
+      "proxy": "EUR::fxUSD::reservePool",
+      "contractSource": "@harbor/minter/ReservePool_v1.sol",
+      "contractType": "ReservePool_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x95b98BB8FF58C3E3D5e447211FdCe46962d4Cf62": {
+      "proxy": "EUR::fxUSD::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v1.sol",
+      "contractType": "StabilityPool_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x746D128eED524d470D4d2F11Ee5a14707B476FD6": {
+      "proxy": "EUR::fxUSD::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v1.sol",
+      "contractType": "StabilityPool_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x07f08F85BF7cC11B2a308fF5191f273F6fc0b9A1": {
+      "proxy": "EUR::fxUSD::stabilityPoolManager",
+      "contractSource": "@harbor/minter/StabilityPoolManager_v1.sol",
+      "contractType": "StabilityPoolManager_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0xcb67cDAD6443961b7703e4eab1a0E7afDdDcB743": {
+      "proxy": "EUR::stETH::genesis",
+      "contractSource": "@harbor/minter/Genesis_v1.sol",
+      "contractType": "Genesis_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x1644Ce893c46bBbc3d753F7F5C36fD911E424dF1": {
+      "proxy": "EUR::stETH::leveraged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0xD59B1db2e489e1D913D3Da878D4148E75c0bA9ca": {
+      "proxy": "EUR::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v1.sol",
+      "contractType": "Minter_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x24d8a059f7C42e1C96040dfa9A69323e2bBF6F44": {
+      "proxy": "EUR::stETH::reservePool",
+      "contractSource": "@harbor/minter/ReservePool_v1.sol",
+      "contractType": "ReservePool_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0xc44eE597641a88A232f9AEce2c33363AfbdD53A0": {
+      "proxy": "EUR::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v1.sol",
+      "contractType": "StabilityPool_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x94f024880e8D36225b23801F4E3E1eDbb9E52c24": {
+      "proxy": "EUR::stETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v1.sol",
+      "contractType": "StabilityPool_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "0x544D66ce26218027fD4060AD1A8911A6dC7C5429": {
+      "proxy": "EUR::stETH::stabilityPoolManager",
+      "contractSource": "@harbor/minter/StabilityPoolManager_v1.sol",
+      "contractType": "StabilityPoolManager_v1",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    }
+  },
+  "proxies": {
+    "EUR::pegged": {
+      "address": "0xFfD8AC7E72F56B4ec78C20d549700E5956765816",
+      "implementation": "0x88fE6b38033d0C10DCD4ABC1e3877aF484b17E4a",
+      "salt": "testEUR::EUR::pegged",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::fxUSD::genesis": {
+      "address": "0xb97D346DBC599e78C9c33B86BE6C796f2D141EcC",
+      "implementation": "0x2616a934679B60f6442f8312Bb65835e7a511164",
+      "salt": "testEUR::EUR::fxUSD::genesis",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::fxUSD::leveraged": {
+      "address": "0x545b84B6b38F223C52e014Db38d70dae58223343",
+      "implementation": "0x11F46BA73Ded7476cDc362310a839B52c3d86De3",
+      "salt": "testEUR::EUR::fxUSD::leveraged",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::fxUSD::minter": {
+      "address": "0x625F6a8720ADF2757Ef92739E324a965b380b623",
+      "implementation": "0x92642f2Eb00ED2ab495991fdb0C30DDdbE8A9bcC",
+      "salt": "testEUR::EUR::fxUSD::minter",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::fxUSD::reservePool": {
+      "address": "0x51a02EB5Fd8e51d3B7977455d7D9Ba03a40e96A5",
+      "implementation": "0x82C7a7951f656Aa91235c0D5a76C04c35Ef16014",
+      "salt": "testEUR::EUR::fxUSD::reservePool",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::fxUSD::stabilityPoolCollateral": {
+      "address": "0x07b36FB22887C6aDCF2F2dF58de57d939a2f430F",
+      "implementation": "0x95b98BB8FF58C3E3D5e447211FdCe46962d4Cf62",
+      "salt": "testEUR::EUR::fxUSD::stabilityPoolCollateral",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::fxUSD::stabilityPoolLeveraged": {
+      "address": "0xee21EBd088cA9F497C704061564d6F80C29F62Da",
+      "implementation": "0x746D128eED524d470D4d2F11Ee5a14707B476FD6",
+      "salt": "testEUR::EUR::fxUSD::stabilityPoolLeveraged",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::fxUSD::stabilityPoolManager": {
+      "address": "0x6d6A34706FB345121F9C96Ae9821Dca857285497",
+      "implementation": "0x07f08F85BF7cC11B2a308fF5191f273F6fc0b9A1",
+      "salt": "testEUR::EUR::fxUSD::stabilityPoolManager",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::stETH::genesis": {
+      "address": "0xD2858dda2025e2fb31069705D905E860CebFcFEF",
+      "implementation": "0xcb67cDAD6443961b7703e4eab1a0E7afDdDcB743",
+      "salt": "testEUR::EUR::stETH::genesis",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::stETH::leveraged": {
+      "address": "0x554DD5d0C6775b3Ec22bcbe88AD75C5393D0bCdD",
+      "implementation": "0x1644Ce893c46bBbc3d753F7F5C36fD911E424dF1",
+      "salt": "testEUR::EUR::stETH::leveraged",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::stETH::minter": {
+      "address": "0x4121983289A6a3C2b6b31BF73dEF2F5732aECcaa",
+      "implementation": "0xD59B1db2e489e1D913D3Da878D4148E75c0bA9ca",
+      "salt": "testEUR::EUR::stETH::minter",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::stETH::reservePool": {
+      "address": "0x1a6A26522AB0bbe0e3b03e5C45B2eCE0d7Cc2D03",
+      "implementation": "0x24d8a059f7C42e1C96040dfa9A69323e2bBF6F44",
+      "salt": "testEUR::EUR::stETH::reservePool",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::stETH::stabilityPoolCollateral": {
+      "address": "0xc0661F721B9E3c187a58e11eFfF577E1566772BB",
+      "implementation": "0xc44eE597641a88A232f9AEce2c33363AfbdD53A0",
+      "salt": "testEUR::EUR::stETH::stabilityPoolCollateral",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::stETH::stabilityPoolLeveraged": {
+      "address": "0xD9796a19E43EE74DC533aCc9B78245D0b070BAeb",
+      "implementation": "0x94f024880e8D36225b23801F4E3E1eDbb9E52c24",
+      "salt": "testEUR::EUR::stETH::stabilityPoolLeveraged",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    },
+    "EUR::stETH::stabilityPoolManager": {
+      "address": "0x0Df9b94793Bc7b88FDa5286B472FeABE83Edf578",
+      "implementation": "0x544D66ce26218027fD4060AD1A8911A6dC7C5429",
+      "salt": "testEUR::EUR::stETH::stabilityPoolManager",
+      "deploymentTime": "2026-01-19T15:21:11Z"
+    }
+  }
+}

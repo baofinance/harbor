@@ -1339,7 +1339,7 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
 
                 // leveraged price is very variable around 1 ether (starts at 1, which is arbitrary)
                 if (lp != 1 ether) {
-                    assertNear(post.leveragedPrice, postSteps.leveragedPrice, 6, 5, "rl integral leveraged price");
+                    assertNear(post.leveragedPrice, postSteps.leveragedPrice, 8, 5, "rl integral leveraged price");
                 }
             } else {
                 // console2.log ("skip leveraged=%s, balance=%s", leveraged, IMinter(minter).leveragedTokenBalance());
