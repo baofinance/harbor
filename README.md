@@ -1,4 +1,18 @@
-[![Harbor](doc/HarborBanner.png)](https://www.harborfinance.io/)
+<p align="center">
+  <a href="https://www.harborfinance.io/">
+    <img src="https://github.com/baofinance/harbor-app/raw/main/public/logo.svg"
+         alt="Harbor Protocol - A Safer Harbor For Leverage, Uncharted Waters For Yield"
+         width="480"
+         style="max-width:100%; height:auto;">
+  </a>
+</p>
+
+<p align="center">
+  <br>
+  <i>A Safer Harbor For Leverage, Uncharted Waters For Yield.</i><br>
+</p>
+
+<br>
 
 # Build status
 
