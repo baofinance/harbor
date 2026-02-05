@@ -30,7 +30,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         address minter,
         address wrappedCollateral,
         StabilityPoolConfig memory config
-    ) internal returns (address proxy) {
+    ) internal virtual returns (address proxy) {
         string memory spKey = string.concat(marketKey, "::stabilityPoolCollateral");
         console.log("    > %s", spKey);
 
@@ -69,7 +69,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         address minter,
         address leveragedToken,
         StabilityPoolConfig memory config
-    ) internal returns (address proxy) {
+    ) internal virtual returns (address proxy) {
         string memory spKey = string.concat(marketKey, "::stabilityPoolLeveraged");
         console.log("    > %s", spKey);
 

@@ -32,7 +32,7 @@ abstract contract Minter is HarborFactoryDeployer {
         address wrappedCollateral,
         address peggedToken,
         address leveragedToken
-    ) internal returns (address proxy) {
+    ) internal virtual returns (address proxy) {
         string memory minterKey = string.concat(marketKey, "::minter");
         console.log("    > %s", minterKey);
 
