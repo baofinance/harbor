@@ -34,7 +34,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 // solhint-disable-next-line contract-name-camelcase
-contract StabilityPool_v1 is
+contract StabilityPool_v2 is
     Initializable,
     UUPSUpgradeable,
     MultipleRewardCompoundingAccumulator,
@@ -191,8 +191,6 @@ contract StabilityPool_v1 is
     constructor(
         address minter_,
         address liquidationToken_,
-        uint256 earlyWithdrawalFee_,
-        address feeAddress_,
         uint256 withdrawalStartDelay_,
         uint256 withdrawalEndWindow_,
         uint256 minTotalAssetSupply
@@ -211,13 +209,6 @@ contract StabilityPool_v1 is
         }
         LIQUIDATION_TOKEN = liquidationToken_;
 
-        // early withdrawal settings validations (for implementation construct-only tests)
-        if (earlyWithdrawalFee_ > _MAX_EARLY_WITHDRAWAL_FEE) {
-            revert InvalidFee(earlyWithdrawalFee_);
-        }
-        if (feeAddress_ == address(0)) {
-            revert InvalidFeeAddress(feeAddress_);
-        }
         if (withdrawalEndWindow_ == 0) {
             revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
         }

@@ -14,7 +14,7 @@ import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
 
 /// @title StabilityPoolSpec
-/// @notice Specification tests for the StabilityPool_v1 contract
+/// @notice Specification tests for the StabilityPool_v2 contract
 /// @dev Based on the testing approach from rebalance-pool
 contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     MockERC20 liquidationToken;

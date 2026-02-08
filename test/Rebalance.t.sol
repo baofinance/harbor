@@ -8,7 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
+import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -41,38 +41,18 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         IERC20(wrappedCollateralToken).approve(stabilityPoolCollateral, 100 ether);
 
         stabilityPoolCollateralEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPool_v1(
-                    minter,
-                    wrappedCollateralToken,
-                    0.025 ether,
-                    0x3dFc49e5112005179Da613BdE5973229082dAc35,
-                    3600,
-                    90000,
-                    1 ether
-                )
-            ),
+            address(new StabilityPool_v2(minter, wrappedCollateralToken, 3600, 90000, 1 ether)),
             abi.encodeCall(
-                StabilityPool_v1.initialize,
+                StabilityPool_v2.initialize,
                 (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
             )
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
 
         stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPool_v1(
-                    minter,
-                    leveragedToken,
-                    0.025 ether,
-                    0x3dFc49e5112005179Da613BdE5973229082dAc35,
-                    3600,
-                    90000,
-                    1 ether
-                )
-            ),
+            address(new StabilityPool_v2(minter, leveragedToken, 3600, 90000, 1 ether)),
             abi.encodeCall(
-                StabilityPool_v1.initialize,
+                StabilityPool_v2.initialize,
                 (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
             )
         );

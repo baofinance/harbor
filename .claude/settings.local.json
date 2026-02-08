@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(forge test:*)",
+      "Bash(cat:*)",
+      "WebFetch(domain:dashboard.tenderly.co)",
+      "Bash(/tmp/investigate_contract.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(bash:*)",
+      "Bash(forge inspect:*)",
+      "Bash(cast call:*)",
+      "Bash(forge clean:*)",
+      "Bash(forge build:*)"
+    ]
+  }
+}

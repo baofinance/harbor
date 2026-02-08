@@ -77,7 +77,7 @@ def deploy_stability_pool_environment() -> StabilityPoolContext:
     assert transfers is not None
     assert transfers > 0
 
-    stability_pool = StabilityPool_v1(stability_pool_address)
+    stability_pool = StabilityPool_v2(stability_pool_address)
     pegged_token = MintableBurnableERC20_v1(pegged_token_address)
     liquidation_token = MockERC20(liquidation_token_address)
     reward_accumulator = IMultipleRewardAccumulator(stability_pool.address)

@@ -15,7 +15,7 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
-import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
+import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @notice Extended market config interface with methods from collateral and chain configs.
@@ -265,9 +265,9 @@ abstract contract DeployMintersShared is
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolLeveraged"), spLeveraged, spm);
 
         // Register reward tokens
-        StabilityPool_v1(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
-        StabilityPool_v1(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
-        StabilityPool_v1(spLeveraged).registerRewardToken(leveragedToken);
+        StabilityPool_v2(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
+        StabilityPool_v2(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
+        StabilityPool_v2(spLeveraged).registerRewardToken(leveragedToken);
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(

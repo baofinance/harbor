@@ -6,9 +6,9 @@ import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
-import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
+import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 
-/// @notice Harbor StabilityPool_v1 deployment logic.
+/// @notice Harbor StabilityPool_v2 deployment logic.
 /// @dev Each market has TWO stability pools: Collateral (wrapped collateral) and Leveraged (leveraged token).
 /// @dev Both pools grant: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE to StabilityPoolManager.
 abstract contract StabilityPool is HarborFactoryDeployer {
@@ -35,11 +35,9 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         console.log("    > %s", spKey);
 
         address impl = address(
-            new StabilityPool_v1(
+            new StabilityPool_v2(
                 minter,
                 wrappedCollateral,
-                1, // placeholder
-                address(0xdeadbeef), // placeholder
                 config.withdrawalDelay,
                 config.withdrawalPeriod,
                 config.minTotalAssetSupply
@@ -48,7 +46,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         console.log("        Impl:  %s", impl);
 
         bytes memory initData = abi.encodeCall(
-            StabilityPool_v1.initialize,
+            StabilityPool_v2.initialize,
             (owner(), config.earlyWithdrawalFeeRatio, config.treasury)
         );
 
@@ -74,11 +72,9 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         console.log("    > %s", spKey);
 
         address impl = address(
-            new StabilityPool_v1(
+            new StabilityPool_v2(
                 minter,
                 leveragedToken,
-                1, // placeholder
-                address(0xdeadbeef), // placeholder
                 config.withdrawalDelay,
                 config.withdrawalPeriod,
                 config.minTotalAssetSupply
@@ -87,7 +83,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         console.log("        Impl:  %s", impl);
 
         bytes memory initData = abi.encodeCall(
-            StabilityPool_v1.initialize,
+            StabilityPool_v2.initialize,
             (owner(), config.earlyWithdrawalFeeRatio, config.treasury)
         );
 
@@ -107,7 +103,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         address stabilityPoolProxy,
         address stabilityPoolManager
     ) internal {
-        StabilityPool_v1 pool = StabilityPool_v1(stabilityPoolProxy);
+        StabilityPool_v2 pool = StabilityPool_v2(stabilityPoolProxy);
         uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
         _grantRoles(
             stabilityPoolKey,
