@@ -10,7 +10,8 @@
       "Bash(forge inspect:*)",
       "Bash(cast call:*)",
       "Bash(forge clean:*)",
-      "Bash(forge build:*)"
+      "Bash(forge build:*)",
+      "Bash(./script/check_pool_overflow_risk.py:*)"
     ]
   }
 }

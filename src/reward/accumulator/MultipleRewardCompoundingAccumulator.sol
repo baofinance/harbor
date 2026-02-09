@@ -11,6 +11,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
+import "forge-std/console.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -483,25 +484,53 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
     /// @inheritdoc LinearMultipleRewardDistributor
     function _accumulateReward(address token, uint256 amount) internal virtual override {
+        console.log("      [MultipleRewardCompoundingAccumulator._accumulateReward] START");
+        console.log("        token:", token);
+        console.log("        amount:", amount);
         // slither-disable-next-line incorrect-equality
         if (amount == 0) {
+            console.log("        amount is 0, returning early");
             return;
         }
 
+        console.log("        Calling _getTotalPoolShare()...");
         (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
+        console.log("        currentProd (raw uint128):", uint256(currentProd));
+        console.log("        totalShare:", totalShare);
+
         if (totalShare == 0) {
+            console.log("        totalShare is 0, queuing rewards");
             // no deposits, queue rewards
             _getRewardData(token).queued += uint96(amount);
             return;
         }
 
+        console.log("        Calling currentProd.exponent()...");
         uint8 exponent = currentProd.exponent();
+        console.log("        exponent:", exponent);
+
+        console.log("        Calling currentProd.magnitude()...");
+        uint256 magnitude = uint256(currentProd.magnitude());
+        console.log("        magnitude:", magnitude);
 
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         uint192 integral = $.tokenToExponentToIntegral[token][exponent];
-        integral += uint192(Math.mulDiv(amount * _REWARD_PRECISION, uint256(currentProd.magnitude()), totalShare));
+        console.log("        Current integral:", integral);
+
+        console.log("        Computing: amount * _REWARD_PRECISION...");
+        uint256 amountScaled = amount * _REWARD_PRECISION;
+        console.log("        amountScaled:", amountScaled);
+
+        console.log("        Computing: Math.mulDiv(amountScaled, magnitude, totalShare)...");
+        uint256 toAdd = Math.mulDiv(amountScaled, magnitude, totalShare);
+        console.log("        toAdd:", toAdd);
+
+        console.log("        Adding to integral...");
+        integral += uint192(toAdd);
+        console.log("        New integral:", integral);
 
         $.tokenToExponentToIntegral[token][exponent] = integral;
+        console.log("      [MultipleRewardCompoundingAccumulator._accumulateReward] END");
     }
 
     /// @dev Internal function to get the total pool shares.

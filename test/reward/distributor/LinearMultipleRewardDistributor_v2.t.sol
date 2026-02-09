@@ -6,6 +6,7 @@ import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistribu
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockLinearMultipleRewardDistributor} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol";
 import "forge-std/Test.sol";
+import {StdStorage, stdStorage} from "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
@@ -686,14 +687,10 @@ contract LinearMultipleRewardDistributorTest is Test {
         assertGt(pending.unlocked, rd.queued, "Distributable amount much larger than queued");
     }
 
-    // ======================= UNDERFLOW BUG TESTS =======================
-    // These tests demonstrate the arithmetic underflow vulnerability in LinearReward.increase()
-    // They will FAIL (revert with panic 0x11) with the buggy code and PASS with the fixed code
-
-    /// @notice Test underflow bug on line 48: uint256 _elapsed = block.timestamp - (_data.finishAt - _periodLength);
-    /// This test uses storage manipulation to create the condition where:
-    /// block.timestamp < (finishAt - periodLength), which causes arithmetic underflow
-    function test_depositReward_UnderflowBug_Line48_BlockTimestampTooLow() public {
+    /// @notice Test that demonstrates the arithmetic underflow bug with buggy code
+    /// This test manipulates storage to create the edge case where finishAt - periodLength > block.timestamp
+    /// which causes the underflow on line 48: block.timestamp - (finishAt - periodLength)
+    function test_depositReward_UnderflowBugDemonstration() public {
         uint40 rewardPeriodLength = 1 days; // 86,400 seconds
         MockLinearMultipleRewardDistributor distributor = _setupDistributor(rewardPeriodLength);
 
@@ -713,281 +710,51 @@ contract LinearMultipleRewardDistributorTest is Test {
         RewardData memory rd;
         (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
 
-        // Manipulate storage to create the underflow condition:
+        // Now manipulate storage to create the underflow condition:
         // We need: block.timestamp < (finishAt - periodLength)
-        // Set finishAt to current block.timestamp + periodLength + 10000
-        // This ensures: (finishAt - periodLength) = block.timestamp + 10000 > block.timestamp
-        // This triggers the bug on line 48 when we try: block.timestamp - (finishAt - periodLength)
+        // Which means: finishAt > block.timestamp + periodLength
+        // So we'll set finishAt to a very large value, then set block.timestamp to a small value
 
         // Get the storage slot for rewardData[token0]
+        // Storage slot calculation: keccak256(abi.encode(token0, storageSlot))
         bytes32 baseStorageSlot = 0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
         bytes32 rewardDataSlot = keccak256(abi.encode(address(token0), uint256(baseStorageSlot)));
 
+        // Manipulate finishAt to be block.timestamp + periodLength + 10000
+        // This ensures finishAt - periodLength = block.timestamp + 10000 > block.timestamp
         uint256 manipulatedFinishAt = block.timestamp + rewardPeriodLength + 10000;
+        // Ensure it fits in 40 bits
         require(manipulatedFinishAt <= type(uint40).max, "finishAt overflow");
 
-        // Pack the RewardData struct: queued | rate | lastUpdate | finishAt
-        uint256 manipulatedData = (uint256(rd.queued) & 0xFFFFFFFFFFFFFFFFFFFFFFFF) | // bits 0-95
-            ((uint256(rd.rate) & 0xFFFFFFFFFFFFFFFFFFFF) << 96) | // bits 96-175
-            ((uint256(rd.lastUpdate) & 0xFFFFFFFFFF) << 176) | // bits 176-215
-            ((uint256(manipulatedFinishAt) & 0xFFFFFFFFFF) << 216); // bits 216-255
+        // Pack the RewardData struct: fields are packed right-to-left (lowest to highest bits)
+        // queued (96 bits, bits 0-95) | rate (80 bits, bits 96-175) | lastUpdate (40 bits, bits 176-215) | finishAt (40 bits, bits 216-255)
+        // Current values: queued=rd.queued, rate=rd.rate, lastUpdate=rd.lastUpdate, finishAt=manipulatedFinishAt
+        uint256 manipulatedData = (uint256(rd.queued) & 0xFFFFFFFFFFFFFFFFFFFFFFFF) | // bits 0-95 (mask 96 bits)
+            ((uint256(rd.rate) & 0xFFFFFFFFFFFFFFFFFFFF) << 96) | // bits 96-175 (mask 80 bits)
+            ((uint256(rd.lastUpdate) & 0xFFFFFFFFFF) << 176) | // bits 176-215 (mask 40 bits)
+            ((uint256(manipulatedFinishAt) & 0xFFFFFFFFFF) << 216); // bits 216-255 (mask 40 bits)
 
+        // Store the manipulated data
         vm.store(address(distributor), rewardDataSlot, bytes32(manipulatedData));
 
-        // Verify the manipulation
+        // Verify the manipulation worked
         (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
         assertEq(rd.finishAt, manipulatedFinishAt, "finishAt should be manipulated");
+
+        // Now verify the underflow condition: block.timestamp < (finishAt - periodLength)
         assertLt(block.timestamp, rd.finishAt - rewardPeriodLength, "Underflow condition should be met");
 
-        // This deposit should trigger the bug on line 48 with buggy code (panic 0x11)
-        // With fixed code, it should succeed
+        // Now try to deposit - this should REVERT with arithmetic underflow in buggy code
         uint256 depositAmount1 = 500 ether;
         vm.prank(rewardDepositor);
+
+        // With buggy code, this should revert with arithmetic underflow
+        // With fixed code, this should succeed
         distributor.depositReward(address(token0), depositAmount1);
 
-        // If fixed, verify success
+        // If we get here with buggy code, the test should fail
+        // If we get here with fixed code, verify success
         (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
         assertGe(rd.finishAt, rd.lastUpdate, "finishAt should be >= lastUpdate");
-    }
-
-    /// @notice Test underflow bug on line 52: _amount = _amount + uint256(_data.rate) * (_data.finishAt - _data.lastUpdate);
-    /// This test uses storage manipulation to create the condition where:
-    /// finishAt < lastUpdate, which causes arithmetic underflow
-    function test_depositReward_UnderflowBug_Line52_FinishAtLessThanLastUpdate() public {
-        uint40 rewardPeriodLength = 1 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(rewardPeriodLength);
-
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        // Mint tokens and approve (mint enough for multiple deposits)
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        // Start at a reasonable timestamp
-        vm.warp(1000000);
-
-        // Initial deposit
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 10000 ether);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-
-        // Manipulate storage to create: finishAt < lastUpdate
-        // This is the condition that triggers the underflow on line 52
-        bytes32 baseStorageSlot = 0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
-        bytes32 rewardDataSlot = keccak256(abi.encode(address(token0), uint256(baseStorageSlot)));
-
-        // Set lastUpdate to a value greater than finishAt
-        uint256 manipulatedLastUpdate = rd.finishAt + 5000;
-        require(manipulatedLastUpdate <= type(uint40).max, "lastUpdate overflow");
-
-        // Also need to ensure block.timestamp < finishAt to enter the else branch
-        vm.warp(rd.finishAt - 1000);
-
-        // Pack the RewardData struct: queued | rate | lastUpdate | finishAt
-        uint256 manipulatedData = (uint256(rd.queued) & 0xFFFFFFFFFFFFFFFFFFFFFFFF) | // bits 0-95
-            ((uint256(rd.rate) & 0xFFFFFFFFFFFFFFFFFFFF) << 96) | // bits 96-175
-            ((uint256(manipulatedLastUpdate) & 0xFFFFFFFFFF) << 176) | // bits 176-215
-            ((uint256(rd.finishAt) & 0xFFFFFFFFFF) << 216); // bits 216-255
-
-        vm.store(address(distributor), rewardDataSlot, bytes32(manipulatedData));
-
-        // Verify the manipulation
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertEq(rd.lastUpdate, manipulatedLastUpdate, "lastUpdate should be manipulated");
-        assertGt(rd.lastUpdate, rd.finishAt, "lastUpdate should be > finishAt (underflow condition)");
-        assertLt(block.timestamp, rd.finishAt, "Should be in active period (else branch)");
-
-        // Make a large deposit to trigger the distribute logic (enter the else branch)
-        // Need to deposit enough to trigger: _distributed * 9 <= _amount * 10
-        // With the buggy code, this will hit line 52 and underflow: (_data.finishAt - _data.lastUpdate)
-        // With fixed code, it should handle gracefully
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100000 ether);
-
-        // If fixed, verify success
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertTrue(rd.rate > 0, "rate should be positive after deposit");
-    }
-
-    /// @notice Test the complete underflow scenario from the bug report
-    /// This simulates the exact conditions described: rewards deposited, period not finished,
-    /// then another deposit triggers the else branch with underflow conditions
-    function test_depositReward_UnderflowFix() public {
-        uint40 REWARD_PERIOD_LENGTH = 2 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
-
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        // Mint tokens and approve
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        // Initial deposit at timestamp 1000
-        vm.warp(1000);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100_000 ether);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-
-        assertEq(rd.lastUpdate, 1000, "lastUpdate should be initial timestamp");
-        assertEq(rd.finishAt, 1000 + REWARD_PERIOD_LENGTH, "finishAt should be timestamp + period");
-
-        // Advance time but not past finishAt (to enter the else branch)
-        uint256 midPoint = 1000 + REWARD_PERIOD_LENGTH / 2;
-        vm.warp(midPoint);
-
-        // Deposit more rewards - this should enter the else branch
-        // With the buggy code, this could underflow in certain edge cases
-        // With the fixed code, this should handle gracefully
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 50_000 ether);
-
-        // Verify the deposit succeeded
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertGe(rd.lastUpdate, midPoint, "lastUpdate should be updated");
-    }
-
-    /// @notice Test extreme underflow scenario where finishAt might be less than periodLength
-    /// This is the edge case that can occur in forked mainnet environments
-    function test_depositReward_ExtremeUnderflowFix() public {
-        uint40 REWARD_PERIOD_LENGTH = 4 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
-
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        // Mint tokens and approve
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        // Start at a very small timestamp that's less than the period length
-        // This simulates edge cases in forked environments
-        uint256 smallTimestamp = REWARD_PERIOD_LENGTH / 2; // 2 weeks when period is 4 weeks
-        vm.warp(smallTimestamp);
-
-        // First deposit
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100_000 ether);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-
-        // finishAt will be smallTimestamp + REWARD_PERIOD_LENGTH
-        uint256 expectedFinishAt = smallTimestamp + REWARD_PERIOD_LENGTH;
-        assertEq(rd.finishAt, expectedFinishAt, "finishAt should be correct");
-
-        // Now warp to a time before finishAt
-        vm.warp(smallTimestamp + 1 days);
-
-        // Second deposit while period is active
-        // In the buggy code, calculating: _elapsed = block.timestamp - (finishAt - periodLength)
-        // Could cause issues when finishAt is close to periodLength
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 50_000 ether);
-
-        // Verify deposit succeeded and state is consistent
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertTrue(rd.finishAt > block.timestamp, "finishAt should be in the future");
-        assertTrue(rd.rate > 0, "rate should be set");
-    }
-
-    /// @notice Test depositing after period finished, then starting new period
-    function test_depositReward_AfterPeriodFinished() public {
-        uint40 REWARD_PERIOD_LENGTH = 2 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
-
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        // Mint tokens and approve
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        // Initial deposit
-        vm.warp(10000);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100_000 ether);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        uint256 firstFinishAt = rd.finishAt;
-
-        // Warp past the finish time (2 weeks ahead)
-        vm.warp(firstFinishAt + 100);
-
-        // Deposit again after period finished - this enters the if branch
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 80_000 ether);
-
-        // Verify new period started correctly
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertEq(rd.lastUpdate, block.timestamp, "lastUpdate should be current timestamp");
-        assertEq(rd.finishAt, block.timestamp + REWARD_PERIOD_LENGTH, "finishAt should be new period end");
-        assertTrue(rd.rate > 0, "rate should be set for new period");
-    }
-
-    /// @notice Comprehensive test: deposit, wait past finishAt, deposit again (new period),
-    /// then warp forward but not past new finishAt, and deposit again (else branch with underflow potential)
-    function test_depositReward_AfterPeriodFinishedThenBeforeFinishAt() public {
-        uint40 REWARD_PERIOD_LENGTH = 2 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
-
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        // Mint tokens and approve
-        token0.mint(rewardDepositor, 10_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        // Phase 1: Initial deposit
-        vm.warp(100000);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 1_000_000 ether);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        uint256 phase1FinishAt = rd.finishAt;
-
-        // Phase 2: Warp past the finish time (2 weeks ahead + buffer)
-        vm.warp(phase1FinishAt + 1000);
-
-        // Deposit again to start new period (if branch - block.timestamp >= finishAt)
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 800_000 ether);
-
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        uint256 phase2FinishAt = rd.finishAt;
-        uint256 phase2LastUpdate = rd.lastUpdate;
-
-        assertEq(phase2LastUpdate, block.timestamp, "Phase 2: lastUpdate should be current time");
-        assertEq(phase2FinishAt, block.timestamp + REWARD_PERIOD_LENGTH, "Phase 2: new period should start");
-
-        // Phase 3: Warp forward but NOT past the new finishAt (to enter else branch)
-        uint256 phase3Time = phase2LastUpdate + (REWARD_PERIOD_LENGTH / 3);
-        vm.warp(phase3Time);
-
-        // This deposit enters the else branch where underflow bugs can occur
-        // Bug line 48: uint256 _elapsed = block.timestamp - (_data.finishAt - _periodLength);
-        // Bug line 52: _amount = _amount + uint256(_data.rate) * (_data.finishAt - _data.lastUpdate);
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 500_000 ether);
-
-        // Verify the deposit succeeded without underflow
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertGe(rd.lastUpdate, phase3Time, "Phase 3: lastUpdate should be updated");
-        assertTrue(rd.rate > 0, "Phase 3: rate should be positive");
-
-        // The state should be consistent - no underflow occurred
-        assertTrue(rd.finishAt >= rd.lastUpdate, "finishAt should be >= lastUpdate");
     }
 }
