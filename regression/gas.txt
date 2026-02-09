@@ -86,14 +86,14 @@ src/minter/Minter_v1.sol:Minter_v1
 | mintLeveragedTokenDryRun           | 7.337e+04 |
 | mintLeveragedTokenIncentiveRatio   | 3.108e+04 |
 | mintPeggedToken                    | 1.909e+05 |
-| mintPeggedTokenDryRun              | 6.334e+04 |
+| mintPeggedTokenDryRun              | 6.338e+04 |
 | mintPeggedTokenIncentiveRatio      | 3.012e+04 |
 | owner                              | 2.380e+03 |
 | peggedTokenBalance                 | 2.409e+03 |
 | peggedTokenPrice                   | 1.923e+04 |
 | priceOracle                        | 2.427e+03 |
 | redeemLeveragedToken               | 1.277e+05 |
-| redeemLeveragedTokenDryRun         | 6.318e+04 |
+| redeemLeveragedTokenDryRun         | 6.317e+04 |
 | redeemLeveragedTokenIncentiveRatio | 2.924e+04 |
 | redeemPeggedForCollateralRatio     | 1.958e+04 |
 | redeemPeggedToken                  | 1.323e+05 |
@@ -126,14 +126,14 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | function name              |       max |
 |----------------------------|-----------|
 | feeReceiver                | 2.441e+03 |
-| harvest                    | 4.442e+05 |
+| harvest                    | 4.441e+05 |
 | harvestBountyRatio         | 2.369e+03 |
 | harvestCutRatio            | 2.371e+03 |
 | harvestable                | 3.052e+04 |
 | hasStabilityPool           | 5.370e+02 |
 | initialize                 | 7.069e+04 |
 | owner                      | 2.423e+03 |
-| rebalance                  | 5.187e+05 |
+| rebalance                  | 5.186e+05 |
 | rebalanceBountyRatio       | 2.354e+03 |
 | rebalanceThreshold         | 2.347e+03 |
 | rebalanceable              | 2.926e+04 |
@@ -156,14 +156,14 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | activeRewardTokens    | 7.416e+03 |
 | assetBalanceOf        | 8.049e+03 |
 | deposit               | 2.577e+05 |
-| depositReward         | 6.719e+04 |
+| depositReward         | 6.693e+04 |
 | grantRoles            | 2.636e+04 |
 | initialize            | 2.041e+05 |
 | owner                 | 2.424e+03 |
 | proxiableUUID         | 3.410e+02 |
 | totalAssetSupply      | 2.489e+03 |
 | transferOwnership     | 1.207e+04 |
-| withdraw              | 2.222e+05 |
+| withdraw              | 2.217e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |       max |
@@ -192,36 +192,87 @@ test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockM
 | REWARD_MANAGER_ROLE       | 2.830e+02 |
 | REWARD_PERIOD_LENGTH      | 2.710e+02 |
 | activeRewardTokens        | 9.672e+03 |
-| checkpoint                | 3.536e+05 |
-| claimable                 | 2.227e+04 |
+| checkpoint                | 2.793e+05 |
+| claimable                 | 1.983e+04 |
+| claimed                   | 2.848e+03 |
+| depositReward             | 1.442e+05 |
+| grantRoles                | 4.791e+04 |
+| historicalRewardTokens    | 2.833e+03 |
+| initialize                | 9.180e+04 |
+| owner                     | 2.380e+03 |
+| reentrantCall             | 2.400e+04 |
+| registerRewardToken       | 9.651e+04 |
+| rewardReceiver            | 2.683e+03 |
+| setRewardReceiver         | 4.601e+04 |
+| setTotalPoolShare         | 6.621e+04 |
+| setUserPoolShare          | 6.621e+04 |
+| tokenToExponentToIntegral | 2.767e+03 |
+| unregisterRewardToken     | 1.137e+05 |
+| userRewardSnapshot        | 5.475e+03 |
+
+test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v2.sol:MockMultipleRewardCompoundingAccumulator_v2
+| function name             |       max |
+|---------------------------|-----------|
+| REWARD_MANAGER_ROLE       | 2.830e+02 |
+| REWARD_PERIOD_LENGTH      | 2.710e+02 |
+| activeRewardTokens        | 9.672e+03 |
+| checkpoint                | 3.529e+05 |
+| claimable                 | 2.203e+04 |
 | claimed                   | 7.479e+03 |
-| depositReward             | 1.443e+05 |
+| depositReward             | 1.442e+05 |
 | grantRoles                | 4.791e+04 |
 | historicalRewardTokens    | 2.833e+03 |
 | initialize                | 9.178e+04 |
 | owner                     | 2.380e+03 |
 | reentrantCall             | 2.400e+04 |
 | registerRewardToken       | 9.651e+04 |
+| rewardData                | 2.913e+03 |
 | rewardReceiver            | 2.683e+03 |
 | setRewardReceiver         | 4.601e+04 |
-| setTotalPoolShare         | 6.614e+04 |
-| setUserPoolShare          | 6.614e+04 |
+| setTotalPoolShare         | 6.621e+04 |
+| setUserPoolShare          | 6.621e+04 |
 | tokenToExponentToIntegral | 2.765e+03 |
-| unregisterRewardToken     | 1.139e+05 |
+| unregisterRewardToken     | 1.137e+05 |
 | userRewardSnapshot        | 7.580e+03 |
 
 test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol:MockLinearMultipleRewardDistributor
 | function name          |       max |
 |------------------------|-----------|
+| REWARD_DEPOSITOR_ROLE  | 2.610e+02 |
+| REWARD_MANAGER_ROLE    | 2.400e+02 |
+| REWARD_PERIOD_LENGTH   | 2.490e+02 |
 | activeRewardTokens     | 9.672e+03 |
-| depositReward          | 1.210e+05 |
+| depositReward          | 1.209e+05 |
+| getRewardDataStorage   | 2.846e+03 |
 | grantRoles             | 4.790e+04 |
-| hasAnyRole             | 2.592e+03 |
-| historicalRewardTokens | 9.647e+03 |
-| initialize             | 9.158e+04 |
-| owner                  | 2.345e+03 |
-| pendingRewards         | 3.549e+03 |
-| registerRewardToken    | 9.649e+04 |
-| rewardData             | 2.912e+03 |
+| hasAnyRole             | 2.635e+03 |
+| historicalRewardTokens | 9.692e+03 |
+| initialize             | 9.156e+04 |
+| isActiveRewardToken    | 2.698e+03 |
+| owner                  | 2.389e+03 |
+| pendingRewards         | 3.491e+03 |
+| registerRewardToken    | 9.646e+04 |
+| rewardData             | 2.890e+03 |
+| transferOwnership      | 2.868e+04 |
+| unregisterRewardToken  | 1.138e+05 |
+
+test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v2.sol:MockLinearMultipleRewardDistributor_v2
+| function name          |       max |
+|------------------------|-----------|
+| REWARD_DEPOSITOR_ROLE  | 2.610e+02 |
+| REWARD_MANAGER_ROLE    | 2.400e+02 |
+| REWARD_PERIOD_LENGTH   | 2.490e+02 |
+| activeRewardTokens     | 9.672e+03 |
+| depositReward          | 1.209e+05 |
+| getRewardDataStorage   | 2.846e+03 |
+| grantRoles             | 4.790e+04 |
+| hasAnyRole             | 2.635e+03 |
+| historicalRewardTokens | 9.692e+03 |
+| initialize             | 9.156e+04 |
+| isActiveRewardToken    | 2.698e+03 |
+| owner                  | 2.389e+03 |
+| pendingRewards         | 3.491e+03 |
+| registerRewardToken    | 9.646e+04 |
+| rewardData             | 2.890e+03 |
 | transferOwnership      | 2.868e+04 |
 | unregisterRewardToken  | 1.138e+05 |

@@ -8,7 +8,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @title Mainnet Upgrade Test
 /// @notice Comprehensive test that:

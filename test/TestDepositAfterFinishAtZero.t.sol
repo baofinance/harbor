@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockLinearMultipleRewardDistributor_v2} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v2.sol";
 import "forge-std/Test.sol";
-
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @title Test Deposit After finishAt is Zero
 /// @notice This test creates the exact mainnet scenario (finishAt=0) and then tries to deposit
@@ -73,7 +69,7 @@ contract TestDepositAfterFinishAtZeroTest is Test {
         distributor.depositReward(address(token0), 100_000 ether);
 
         // Check token1 state
-        (uint256 lastUpdate1, uint256 finishAt1,,) = distributor.rewardData(address(token1));
+        (uint256 lastUpdate1, uint256 finishAt1, , ) = distributor.rewardData(address(token1));
         console.log("Token1 state after first deposit:");
         console.log("  lastUpdate:", lastUpdate1);
         console.log("  finishAt:", finishAt1);
@@ -95,7 +91,7 @@ contract TestDepositAfterFinishAtZeroTest is Test {
         console.log("*** SUCCESS: Second deposit worked despite token1 having finishAt=0! ***");
 
         // Verify token1 state hasn't changed (still has finishAt=0 but lastUpdate updated)
-        (lastUpdate1, finishAt1,,) = distributor.rewardData(address(token1));
+        (lastUpdate1, finishAt1, , ) = distributor.rewardData(address(token1));
         console.log("");
         console.log("Token1 state after second deposit:");
         console.log("  lastUpdate:", lastUpdate1);
