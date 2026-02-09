@@ -15,8 +15,6 @@ import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/Multi
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
-import "forge-std/console.sol";
-
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -302,18 +300,12 @@ contract StabilityPool_v2 is
         address receiver,
         uint256 minAmount
     ) external nonReentrant returns (uint256 assetsDeposited) {
-        console.log("=== [StabilityPool_v2.deposit] START ===");
-        console.log("  sender:", _msgSender());
-        console.log("  receiver:", receiver);
-        console.log("  assetAmount:", assetAmount);
-
         if (receiver == address(0)) {
             revert InvalidReceiver(address(0));
         }
         address sender = _msgSender();
 
         assetsDeposited = Token.allOf(sender, ASSET_TOKEN, assetAmount);
-        console.log("  assetsDeposited:", assetsDeposited);
         if (assetsDeposited < minAmount) {
             revert DepositAmountLessThanMinimum(assetsDeposited, minAmount);
         }
@@ -338,14 +330,12 @@ contract StabilityPool_v2 is
 
         // get the assets from the sender
         IERC20(ASSET_TOKEN).safeTransferFrom(sender, address(this), assetsDeposited);
-        console.log("  Assets transferred, calling _checkpoint...");
         // send their representative to the gauge, if one
         _checkpoint(receiver);
 
         // do the deposit
         // update the global record
         // It should never exceed `type(uint104).max`.
-        console.log("  Updating balances...");
         TokenBalance memory supply = $.totalAssetSupply;
         supply.amount += uint104(assetsDeposited);
         supply.updatedAt = uint40(block.timestamp);
@@ -357,7 +347,6 @@ contract StabilityPool_v2 is
         balance.amount += uint104(assetsDeposited);
         $.assetBalances[receiver] = balance;
         emit UserDepositChange(receiver, balance.amount, 0);
-        console.log("=== [StabilityPool_v2.deposit] SUCCESS ===");
     }
 
     /// @inheritdoc IStabilityPool
@@ -368,11 +357,6 @@ contract StabilityPool_v2 is
         address receiver,
         uint256 minAmount
     ) external virtual nonReentrant returns (uint256 assetsWithdrawn) {
-        console.log("=== [StabilityPool_v2.withdraw] START ===");
-        console.log("  sender:", _msgSender());
-        console.log("  receiver:", receiver);
-        console.log("  assetAmount:", assetAmount);
-
         if (receiver == address(0)) {
             revert InvalidReceiver(address(0));
         }
@@ -380,10 +364,8 @@ contract StabilityPool_v2 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         address sender = _msgSender();
-        console.log("  Calling _checkpoint...");
         // slither-disable-next-line reentrancy-no-eth
         _checkpoint(sender);
-        console.log("  Returned from _checkpoint");
 
         // Read any existing withdrawal request (optional)
         WithdrawalRequest memory request = $.withdrawalRequests[sender];
@@ -481,13 +463,9 @@ contract StabilityPool_v2 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator
     // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
-        console.log("  [StabilityPool_v2._checkpoint] START");
-        console.log("    account:", account);
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        console.log("    Calling super._checkpoint (MultipleRewardCompoundingAccumulator)...");
         super._checkpoint(account);
-        console.log("    Returned from super._checkpoint");
 
         if (account != address(0)) {
             TokenBalance memory supply = $.totalAssetSupply;
@@ -500,7 +478,6 @@ contract StabilityPool_v2 is
             balance = TokenBalance({amount: newBalance, product: supply.product, updatedAt: uint40(block.timestamp)});
             $.assetBalances[account] = balance;
         }
-        console.log("  [StabilityPool_v2._checkpoint] END");
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator

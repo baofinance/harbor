@@ -12,7 +12,6 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {LinearReward} from "./LinearReward.sol";
-import "forge-std/console.sol";
 
 // solhint-disable no-empty-blocks
 // solhint-disable not-rely-on-time
@@ -234,42 +233,26 @@ abstract contract LinearMultipleRewardDistributor is
 
     /// @dev Internal function to distribute all pending reward tokens.
     function _distributePendingReward() internal {
-        console.log("[LinearMultipleRewardDistributor._distributePendingReward] START");
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
         // If the reward period length is zero, we distribute rewards immediately.
         // If there are no active reward tokens, we do nothing.
         if (REWARD_PERIOD_LENGTH == 0 || $.activeRewardTokens.length() == 0) {
-            console.log("  Early return: REWARD_PERIOD_LENGTH==0 or no active tokens");
             return;
         }
         address[] memory activeRewardTokens_ = $.activeRewardTokens.values();
-        console.log("  Active reward tokens count:", activeRewardTokens_.length);
         for (uint256 i = 0; i < activeRewardTokens_.length; i++) {
             address token = activeRewardTokens_[i];
-            console.log("  Processing token", i, ":", token);
-
-            LinearReward.RewardData memory data = $.rewardData[token];
-            console.log("    Before pending() call:");
-            console.log("      lastUpdate:", data.lastUpdate);
-            console.log("      finishAt:", data.finishAt);
-            console.log("      rate:", data.rate);
-            console.log("      queued:", data.queued);
 
             // slither-disable-next-line unused-return
             (uint256 pending, ) = $.rewardData[token].pending();
-            console.log("    After pending() call:");
-            console.log("      pending:", pending);
 
             $.rewardData[token].lastUpdate = uint40(block.timestamp);
-            console.log("      Updated lastUpdate to:", block.timestamp);
 
             if (pending > 0) {
-                console.log("      Calling _accumulateReward with amount:", pending);
                 _accumulateReward(token, pending);
             }
         }
-        console.log("[LinearMultipleRewardDistributor._distributePendingReward] END");
     }
 
     function _getRewardData(address token) internal view returns (LinearReward.RewardData storage) {

@@ -169,7 +169,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             t.userPoolShare = 456 ether;
 
             uint256[3] memory timestamp;
-            uint192 globalSnapshot;
+            uint256 globalSnapshot;
 
             (MockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 t.rewardCount,

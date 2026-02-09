@@ -59,7 +59,7 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
     }
 
     // expose some internal functions for testing
-    function tokenToExponentToIntegral(address token, uint8 exponent) public view returns (uint192 globalIntegral) {
+    function tokenToExponentToIntegral(address token, uint8 exponent) public view returns (uint256 globalIntegral) {
         globalIntegral = _tokenToExponentToIntegral(token, exponent);
     }
 
@@ -67,18 +67,15 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
     /// @param account The address of user to query.
     /// @param token The address of reward token to query.
     /// @return timestamp The timestamp when the snapshot is updated
-    /// @return integral The reward integral until now.
+    /// @return integral The reward integral until now (uint256, widened from uint192).
     /// @return pending The number of pending rewards.
     /// @return claimed_ The number of claimed rewards.
-    /// @dev The integral is defined as 1e18 * ∫(rate(t) * prod(t) / totalPoolShare(t) dt).
     function userRewardSnapshot(
         address account,
         address token
-    ) public view returns (uint64 timestamp, uint192 integral, uint128 pending, uint128 claimed_) {
-        UserRewardSnapshot memory snapshot = _userRewardSnapshot(account, token);
-        timestamp = snapshot.checkpoint.timestamp;
-        integral = snapshot.checkpoint.integral;
-        pending = snapshot.rewards.pending;
-        claimed_ = snapshot.rewards.claimed;
+    ) public view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
+        (pending, integral) = _getUserRewardData(account, token);
+        claimed_ = _getClaimedRewards(account, token);
+        timestamp = _getUserRewardTimestamp(account, token);
     }
 }
