@@ -86,7 +86,7 @@ src/minter/Minter_v1.sol:Minter_v1
 | mintLeveragedTokenDryRun           | 7.337e+04 |
 | mintLeveragedTokenIncentiveRatio   | 3.108e+04 |
 | mintPeggedToken                    | 1.909e+05 |
-| mintPeggedTokenDryRun              | 6.338e+04 |
+| mintPeggedTokenDryRun              | 6.335e+04 |
 | mintPeggedTokenIncentiveRatio      | 3.012e+04 |
 | owner                              | 2.380e+03 |
 | peggedTokenBalance                 | 2.409e+03 |
@@ -147,6 +147,28 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | updateRebalanceThreshold   | 2.571e+04 |
 | upgradeToAndCall           | 1.087e+04 |
 
+src/minter/StabilityPool_v1.sol:StabilityPool_v1
+| function name         |       max |
+|-----------------------|-----------|
+| ASSET_TOKEN           | 3.270e+02 |
+| REBALANCER_ROLE       | 2.620e+02 |
+| REWARD_DEPOSITOR_ROLE | 2.840e+02 |
+| REWARD_MANAGER_ROLE   | 3.270e+02 |
+| assetBalanceOf        | 8.053e+03 |
+| claim                 | 1.209e+05 |
+| claimable             | 2.096e+04 |
+| claimed               | 2.848e+03 |
+| deposit               | 2.693e+05 |
+| depositReward         | 6.533e+04 |
+| grantRoles            | 2.636e+04 |
+| initialize            | 2.041e+05 |
+| notifyLiquidation     | 1.373e+05 |
+| registerRewardToken   | 7.292e+04 |
+| sweep                 | 4.020e+04 |
+| totalAssetSupply      | 2.489e+03 |
+| transferOwnership     | 1.207e+04 |
+| upgradeToAndCall      | 1.090e+04 |
+
 src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | function name         |       max |
 |-----------------------|-----------|
@@ -155,12 +177,18 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | REWARD_DEPOSITOR_ROLE | 2.840e+02 |
 | activeRewardTokens    | 7.416e+03 |
 | assetBalanceOf        | 8.049e+03 |
-| deposit               | 2.577e+05 |
+| checkpoint            | 1.893e+05 |
+| claim                 | 2.672e+05 |
+| claimable             | 2.550e+04 |
+| claimed               | 9.798e+03 |
+| deposit               | 2.800e+05 |
 | depositReward         | 6.693e+04 |
 | grantRoles            | 2.636e+04 |
 | initialize            | 2.041e+05 |
+| notifyLiquidation     | 1.079e+05 |
 | owner                 | 2.424e+03 |
 | proxiableUUID         | 3.410e+02 |
+| sweep                 | 4.020e+04 |
 | totalAssetSupply      | 2.489e+03 |
 | transferOwnership     | 1.207e+04 |
 | withdraw              | 2.217e+05 |
