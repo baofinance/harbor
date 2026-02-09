@@ -5,10 +5,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMockMultipleRewardCompoundingAccumulator} from "test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
 
-import "forge-std/Test.sol";
-import "@bao-test/mocks/MockERC20.sol";
-import "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v2.sol";
+import {Test, Vm} from "forge-std/Test.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {MockMultipleRewardCompoundingAccumulator_v2} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v2.sol";
 
 contract MultipleRewardCompoundingAccumulatorTest is Test {
     // Addresses
@@ -37,12 +38,20 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         rewardCounts[1] = 3;
     }
 
+    function createMultipleRewardCompoundingAccumulator(
+        uint40 periodLength
+    ) internal virtual returns (IMockMultipleRewardCompoundingAccumulator) {
+        return IMockMultipleRewardCompoundingAccumulator(
+            address(new MockMultipleRewardCompoundingAccumulator_v2(periodLength))
+        );
+    }
+
     function _setupAccumulator(
         uint256 rewardCount,
         uint40 periodLength
-    ) internal returns (MockMultipleRewardCompoundingAccumulator_v2 accumulator, address[] memory tokenAddresses) {
+    ) internal returns (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) {
         // Deploy accumulator
-        accumulator = new MockMultipleRewardCompoundingAccumulator_v2(periodLength);
+        accumulator = createMultipleRewardCompoundingAccumulator(periodLength);
         accumulator.initialize(address(this));
 
         // Grant manager role
@@ -71,7 +80,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, address[] memory tokenAddresses) = _setupAccumulator(
+            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 rewardCount,
                 periodLength
             );
@@ -99,7 +108,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, ) = _setupAccumulator(rewardCount, periodLength);
+            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(rewardCount, periodLength);
 
             vm.expectRevert(REENTRANT_ERROR);
             accumulator.reentrantCall(abi.encodeWithSelector(accumulator.checkpoint.selector, abi.encode(address(0))));
@@ -111,7 +120,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, ) = _setupAccumulator(rewardCount, periodLength);
+            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(rewardCount, periodLength);
 
             // Test claim()
             vm.expectRevert(REENTRANT_ERROR);
@@ -134,7 +143,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, ) = _setupAccumulator(rewardCount, periodLength);
+            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(rewardCount, periodLength);
 
             address[] memory emptyArray = new address[](0);
 
@@ -171,7 +180,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256[3] memory timestamp;
             uint256 globalSnapshot;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, address[] memory tokenAddresses) = _setupAccumulator(
+            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 t.rewardCount,
                 t.periodLength
             );
@@ -287,7 +296,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, ) = _setupAccumulator(rewardCount, periodLength);
+            (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(rewardCount, periodLength);
 
             // Initial value should be zero address
             assertEq(accumulator.rewardReceiver(deployer), address(0));
@@ -318,7 +327,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, address[] memory tokenAddresses) = _setupAccumulator(
+            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 rewardCount,
                 periodLength
             );
@@ -486,7 +495,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, address[] memory tokenAddresses) = _setupAccumulator(
+            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 rewardCount,
                 periodLength
             );
@@ -651,7 +660,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, address[] memory tokenAddresses) = _setupAccumulator(
+            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 rewardCount,
                 periodLength
             );
@@ -788,7 +797,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (MockMultipleRewardCompoundingAccumulator_v2 accumulator, address[] memory tokenAddresses) = _setupAccumulator(
+            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
                 rewardCount,
                 periodLength
             );
@@ -919,6 +928,18 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
             }
         }
+    }
+}
+
+import {MockMultipleRewardCompoundingAccumulator} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol";
+
+contract MultipleRewardCompoundingAccumulatorTest_v1 is MultipleRewardCompoundingAccumulatorTest {
+    function createMultipleRewardCompoundingAccumulator(
+        uint40 periodLength
+    ) internal override returns (IMockMultipleRewardCompoundingAccumulator) {
+        return IMockMultipleRewardCompoundingAccumulator(
+            address(new MockMultipleRewardCompoundingAccumulator(periodLength))
+        );
     }
 }
 

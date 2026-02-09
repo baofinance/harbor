@@ -2,12 +2,11 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
-// import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {MultipleRewardCompoundingAccumulator as MultipleRewardCompoundingAccumulator_v2} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol";
+import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol";
 
-contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleRewardCompoundingAccumulator_v2 {
+contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewardCompoundingAccumulator {
     event AccumulateReward(address token, uint256 amount);
 
     uint256 public totalPoolShare;
@@ -15,15 +14,12 @@ contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleR
     uint256 public userPoolShare;
     uint128 public userProduct;
 
-    constructor(uint40 period) MultipleRewardCompoundingAccumulator_v2(_ROLE_0, _ROLE_1, period) {}
+    constructor(uint40 period) MultipleRewardCompoundingAccumulator(_ROLE_0, _ROLE_1, period) {}
 
     function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
         __ReentrancyGuardTransient_init();
-        // __MultipleRewardCompoundingAccumulator_init();
     }
-
-    // function _authorizeUpgrade(address newImplementation) internal virtual override {}
 
     function setTotalPoolShare(uint256 _totalPoolShare, uint128 _product) external {
         totalPoolShare = _totalPoolShare;
@@ -36,8 +32,7 @@ contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleR
     }
 
     function reentrantCall(bytes calldata _data) external nonReentrant {
-        (bool _success, ) = address(this).call(_data);
-        // below lines will propagate inner error up
+        (bool _success,) = address(this).call(_data);
         if (!_success) {
             // solhint-disable-next-line no-inline-assembly
             assembly {
@@ -57,22 +52,18 @@ contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleR
         return (userProduct, userPoolShare);
     }
 
-    // expose some internal functions for testing
     function tokenToExponentToIntegral(address token, uint8 exponent) public view returns (uint256 globalIntegral) {
-        globalIntegral = _tokenToExponentToIntegral(token, exponent);
+        globalIntegral = uint256(_tokenToExponentToIntegral(token, exponent));
     }
 
-    /// @notice Get the user reward snapshot for a specific account and token.
-    /// @param account The address of user to query.
-    /// @param token The address of reward token to query.
-    /// @return timestamp The timestamp when the snapshot is updated
-    /// @return integral The reward integral until now (uint256, widened from uint192).
-    /// @return pending The number of pending rewards.
-    /// @return claimed_ The number of claimed rewards.
     function userRewardSnapshot(
         address account,
         address token
     ) public view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
-        (timestamp, integral, pending, claimed_) = _getUserRewardSnapshot(account, token);
+        UserRewardSnapshot memory snapshot = _userRewardSnapshot(account, token);
+        timestamp = snapshot.checkpoint.timestamp;
+        integral = uint256(snapshot.checkpoint.integral);
+        pending = snapshot.rewards.pending;
+        claimed_ = snapshot.rewards.claimed;
     }
 }
