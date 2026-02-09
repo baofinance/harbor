@@ -45,14 +45,11 @@ library LinearReward {
         } else {
             // If the new rewards (including queued) are at least 90% of what has already been distributed, then
             // start a new period and recalculate the rate. Otherwise, add the new rewards to the queue.
-            // Safe subtraction to prevent underflow when finishAt < periodLength or finishAt < lastUpdate
-            uint256 periodStart = _data.finishAt >= _periodLength ? _data.finishAt - _periodLength : 0;
-            uint256 _elapsed = block.timestamp >= periodStart ? block.timestamp - periodStart : 0;
+            uint256 _elapsed = block.timestamp - (_data.finishAt - _periodLength);
             uint256 _distributed = uint256(_data.rate) * _elapsed;
             if (_distributed * 9 <= _amount * 10) {
                 // APR increase, or drop no more than 10%, distribute
-                uint256 timeSinceLastUpdate = _data.finishAt >= _data.lastUpdate ? _data.finishAt - _data.lastUpdate : 0;
-                _amount = _amount + uint256(_data.rate) * timeSinceLastUpdate;
+                _amount = _amount + uint256(_data.rate) * (_data.finishAt - _data.lastUpdate);
                 _data.rate = (_amount / _periodLength).toUint80();
                 _data.queued = uint96(_amount - (_data.rate * _periodLength)); // keep rounding error
                 _data.finishAt = uint40(block.timestamp + _periodLength);
@@ -75,14 +72,12 @@ library LinearReward {
             // finishAt >= lastUpdate will happen, if `_notifyReward` is not called during current period.
             _elapsed = _data.finishAt >= _data.lastUpdate ? _data.finishAt - _data.lastUpdate : 0;
         } else {
-            // Safe subtraction to prevent underflow when lastUpdate > block.timestamp
-            _elapsed = block.timestamp >= _data.lastUpdate ? block.timestamp - _data.lastUpdate : 0;
-            _left = uint256(_data.finishAt) >= block.timestamp ? uint256(_data.finishAt) - block.timestamp : 0;
+            unchecked {
+                _elapsed = block.timestamp - _data.lastUpdate;
+                _left = uint256(_data.finishAt) - block.timestamp;
+            }
         }
 
-        uint256 distributable = uint256(_data.rate) * _elapsed;
-        uint256 undistributed = uint256(_data.rate) * _left;
-
-        return (distributable, undistributed);
+        return (uint256(_data.rate) * _elapsed, uint256(_data.rate) * _left);
     }
 }

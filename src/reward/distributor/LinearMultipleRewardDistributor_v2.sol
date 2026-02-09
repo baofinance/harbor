@@ -243,8 +243,10 @@ abstract contract LinearMultipleRewardDistributor is
         address[] memory activeRewardTokens_ = $.activeRewardTokens.values();
         for (uint256 i = 0; i < activeRewardTokens_.length; i++) {
             address token = activeRewardTokens_[i];
+
             // slither-disable-next-line unused-return
             (uint256 pending, ) = $.rewardData[token].pending();
+
             $.rewardData[token].lastUpdate = uint40(block.timestamp);
 
             if (pending > 0) {

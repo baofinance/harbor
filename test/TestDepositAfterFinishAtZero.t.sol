@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockLinearMultipleRewardDistributor} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol";
+import {MockLinearMultipleRewardDistributor_v2} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v2.sol";
 import "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -33,8 +33,8 @@ contract TestDepositAfterFinishAtZeroTest is Test {
         token1 = new MockERC20("R1", "R1", 18);
     }
 
-    function _setupDistributor(uint40 rewardPeriodLength) internal returns (MockLinearMultipleRewardDistributor) {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+    function _setupDistributor(uint40 rewardPeriodLength) internal returns (MockLinearMultipleRewardDistributor_v2) {
+        MockLinearMultipleRewardDistributor_v2 distributor = new MockLinearMultipleRewardDistributor_v2(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             rewardPeriodLength
@@ -50,7 +50,7 @@ contract TestDepositAfterFinishAtZeroTest is Test {
 
     function test_DepositAfterCreatingProblematicState() public {
         uint40 REWARD_PERIOD_LENGTH = 1 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        MockLinearMultipleRewardDistributor_v2 distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         // Register two reward tokens
         vm.startPrank(manager);

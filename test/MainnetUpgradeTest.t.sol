@@ -27,7 +27,7 @@ contract MainnetUpgradeTest is Test {
     address constant ANCHORED = 0x25bA4A826E1A1346dcA2Ab530831dbFF9C08bEA7; // haBTC
     uint256 constant FORK_BLOCK = 24404265;
 
-    string MAINNET_RPC_URL = vm.envString("MAINNET_RPC_URL");
+    string mainnet = vm.rpcUrl("mainnet");
 
     // Known addresses that might have the pegged token for testing
     address userWithTokens;
@@ -125,7 +125,7 @@ contract MainnetUpgradeTest is Test {
 
     function setUp() public {
         // Fork mainnet at the problematic block
-        vm.createSelectFork(MAINNET_RPC_URL, FORK_BLOCK);
+        vm.createSelectFork(mainnet, FORK_BLOCK);
 
         // Find the reward depositor by checking who has the REWARD_DEPOSITOR_ROLE
         // For now, we'll use a test address and deal tokens to it
@@ -182,7 +182,7 @@ contract MainnetUpgradeTest is Test {
         console.log("");
 
         // Fork to the latest block
-        vm.createSelectFork(MAINNET_RPC_URL);
+        vm.createSelectFork(mainnet);
         console.log("Forked to latest block:", block.number);
         _doFailingTransactions(FAIL);
     }
@@ -193,7 +193,7 @@ contract MainnetUpgradeTest is Test {
         console.log("");
 
         // First do the upgrade (reusing logic from test 4)
-        vm.createSelectFork(MAINNET_RPC_URL, FORK_BLOCK);
+        vm.createSelectFork(mainnet, FORK_BLOCK);
 
         StabilityPool_v2 currentProxy = StabilityPool_v2(STABILITY_POOL);
 

@@ -2,9 +2,10 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMockLinearMultipleRewardDistributor} from "test/mocks/IMockLinearMultipleRewardDistributor.sol";
+import {MockLinearMultipleRewardDistributor_v2} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v2.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockLinearMultipleRewardDistributor} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol";
 import "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -27,6 +28,17 @@ contract LinearMultipleRewardDistributorTest is Test {
     address constant ZERO_ADDRESS = address(0);
     uint256 constant MAX_UINT = type(uint256).max;
 
+    function createLinearMultipleRewardDistributor(
+        uint256 rewardManagerRole,
+        uint256 rewardDepositorRole,
+        uint40 period
+    ) internal virtual returns (IMockLinearMultipleRewardDistributor) {
+        return
+            IMockLinearMultipleRewardDistributor(
+                address(new MockLinearMultipleRewardDistributor_v2(rewardManagerRole, rewardDepositorRole, period))
+            );
+    }
+
     function setUp() public {
         owner = makeAddr("owner"); // need to transferOwnership for this to be the actual owner
         manager = makeAddr("manager");
@@ -44,71 +56,71 @@ contract LinearMultipleRewardDistributorTest is Test {
 
     function test_constructor_RevertOnInvalidPeriodLength() public {
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1));
-        new MockLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 1);
+        createLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 1);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 1 days - 1));
-        new MockLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 1 days - 1);
+        createLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 1 days - 1);
 
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.InvalidPeriodLength.selector, 4 weeks + 1));
-        new MockLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 4 weeks + 1);
+        createLinearMultipleRewardDistributor(REWARD_MANAGER_ROLE, REWARD_DEPOSITOR_ROLE, 4 weeks + 1);
     }
 
     function test_constructor_SucceedsWithValidPeriodLength_Zero() public {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+        IMockLinearMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             0
         );
         // there is no easy way to check the reward period length
         // TODO: maybe warp forward and check it's function?
-        // assertEq(distributor.REWARD_PERIOD_LENGTH(), 0);
+        assertEq(distributor.REWARD_PERIOD_LENGTH(), 0);
         assert(address(distributor) != address(0));
     }
 
     function test_constructor_SucceedsWithValidPeriodLength_OneDay() public {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+        IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             1 days
         );
-        // TODO: assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 days);
+        assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 days);
         assert(address(distributor) != address(0));
     }
 
     function test_constructor_SucceedsWithValidPeriodLength_OneWeek() public {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+        IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             1 weeks
         );
-        // TODO: assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 weeks);
+        assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 weeks);
         assert(address(distributor) != address(0));
     }
 
     function test_constructor_SucceedsWithValidPeriodLength_TwoWeeks() public {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+        IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             2 weeks
         );
-        // TODO: assertEq(distributor.REWARD_PERIOD_LENGTH(), 2 weeks);
+        assertEq(distributor.REWARD_PERIOD_LENGTH(), 2 weeks);
         assert(address(distributor) != address(0));
     }
 
     function test_constructor_SucceedsWithValidPeriodLength_FourWeeks() public {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+        IMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             4 weeks
         );
-        // TODO: assertEq(distributor.REWARD_PERIOD_LENGTH(), 4 weeks);
+        assertEq(distributor.REWARD_PERIOD_LENGTH(), 4 weeks);
         assert(address(distributor) != address(0));
     }
 
     // ======================= INITIALIZATION TESTS =======================
 
     function test_initialization_ZeroPeriod() public {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+        IMockLinearMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             0
@@ -117,14 +129,14 @@ contract LinearMultipleRewardDistributorTest is Test {
         distributor.transferOwnership(owner);
         assertEq(distributor.owner(), owner);
 
-        // TODO: assertEq(distributor.REWARD_PERIOD_LENGTH(), 0);
+        assertEq(distributor.REWARD_PERIOD_LENGTH(), 0);
         assertEq(distributor.activeRewardTokens().length, 0);
         assertEq(distributor.historicalRewardTokens().length, 0);
         assertFalse(distributor.hasAnyRole(address(this), REWARD_MANAGER_ROLE));
     }
 
     function test_initialization_WithPeriod() public {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+        IMockLinearMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             1 days
@@ -133,7 +145,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         distributor.transferOwnership(owner);
         assertEq(distributor.owner(), owner);
 
-        // TODO: assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 days);
+        assertEq(distributor.REWARD_PERIOD_LENGTH(), 1 days);
         assertEq(distributor.activeRewardTokens().length, 0);
         assertEq(distributor.historicalRewardTokens().length, 0);
         assertFalse(distributor.hasAnyRole(address(this), REWARD_MANAGER_ROLE));
@@ -141,8 +153,8 @@ contract LinearMultipleRewardDistributorTest is Test {
 
     // ======================= REWARD TOKEN MANAGEMENT TESTS =======================
 
-    function _setupDistributor(uint40 rewardPeriodLength) internal returns (MockLinearMultipleRewardDistributor) {
-        MockLinearMultipleRewardDistributor distributor = new MockLinearMultipleRewardDistributor(
+    function _setupDistributor(uint40 rewardPeriodLength) internal returns (IMockLinearMultipleRewardDistributor) {
+        IMockLinearMultipleRewardDistributor distributor = createLinearMultipleRewardDistributor(
             REWARD_MANAGER_ROLE,
             REWARD_DEPOSITOR_ROLE,
             rewardPeriodLength
@@ -157,14 +169,14 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_registerRewardToken_RevertWhenNonManagerCall() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         distributor.registerRewardToken(address(token0));
     }
 
     function test_registerRewardToken_RevertWhenTokenIsZero() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardTokenIsZero.selector));
@@ -172,7 +184,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_registerRewardToken_RevertWhenDuplicated() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
 
@@ -187,7 +199,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_registerRewardToken_SucceedWithNewTokens() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
 
@@ -225,7 +237,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_unregisterRewardToken_Success() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
 
@@ -278,7 +290,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_unregisterRewardToken_RevertWhenNonManagerCall() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -288,7 +300,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_unregisterRewardToken_RevertWhenNotActive() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.startPrank(manager);
         distributor.registerRewardToken(address(token0));
@@ -302,7 +314,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     function test_unregisterRewardToken_RevertWhenDistributionNotFinished() public {
         // Skip test for zero period since it doesn't apply
         uint40 REWARD_PERIOD_LENGTH = 1 days;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
         distributor.registerRewardToken(address(token0));
@@ -326,7 +338,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     // ======================= DEPOSIT REWARD TESTS =======================
 
     function test_depositReward_RevertWhenTokenNotActive() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -337,7 +349,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_depositReward_RevertWhenCallerNotDistributor() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -347,7 +359,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     }
 
     function test_depositReward_SucceedsWithZeroPeriod() public {
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(0);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(0);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -362,7 +374,7 @@ contract LinearMultipleRewardDistributorTest is Test {
 
         vm.prank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        emit MockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), depositAmount);
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), depositAmount);
         vm.expectEmit(address(distributor));
         emit IMultipleRewardDistributor.DepositReward(address(token0), depositAmount);
         distributor.depositReward(address(token0), depositAmount);
@@ -384,7 +396,7 @@ contract LinearMultipleRewardDistributorTest is Test {
 
     function test_depositReward_SucceedsWithPeriod() public {
         uint40 rewardPeriodLength = 1 days;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(rewardPeriodLength);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(rewardPeriodLength);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -435,7 +447,7 @@ contract LinearMultipleRewardDistributorTest is Test {
 
         vm.prank(rewardDepositor);
         vm.expectEmit(address(distributor));
-        emit MockLinearMultipleRewardDistributor._accumulateReward_called(
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(
             address(token0),
             expectedRate0 * oneThirdPeriod
         );
@@ -482,7 +494,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     /// the token equivalent of the reward period length (uint40, time in seconds).
     function test_unregisterRewardToken_WithSmallQueuedAmount_TypeMismatch() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
         distributor.registerRewardToken(address(token0));
@@ -551,7 +563,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     /// This shows that for most realistic scenarios, queued < REWARD_PERIOD_LENGTH due to modulo math
     function test_unregisterRewardToken_WithNormalQueuedAmount_TypeMismatch() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
         distributor.registerRewardToken(address(token0));
@@ -633,7 +645,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     /// @notice Test what happens when queued is near the maximum possible value (edge case)
     function test_unregisterRewardToken_QueuedNearRewardPeriod() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days; // 86,400 seconds
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.startPrank(manager);
         distributor.registerRewardToken(address(token0));
@@ -686,139 +698,12 @@ contract LinearMultipleRewardDistributorTest is Test {
         assertGt(pending.unlocked, rd.queued, "Distributable amount much larger than queued");
     }
 
-    // ======================= UNDERFLOW BUG TESTS =======================
-    // These tests demonstrate the arithmetic underflow vulnerability in LinearReward.increase()
-    // They will FAIL (revert with panic 0x11) with the buggy code and PASS with the fixed code
-
-    /// @notice Test underflow bug on line 48: uint256 _elapsed = block.timestamp - (_data.finishAt - _periodLength);
-    /// This test uses storage manipulation to create the condition where:
-    /// block.timestamp < (finishAt - periodLength), which causes arithmetic underflow
-    function test_depositReward_UnderflowBug_Line48_BlockTimestampTooLow() public {
-        uint40 rewardPeriodLength = 1 days; // 86,400 seconds
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(rewardPeriodLength);
-
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        // Mint tokens and approve
-        token0.mint(rewardDepositor, 100_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        // Initial deposit
-        uint256 depositAmount0 = 1000 ether;
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), depositAmount0);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-
-        // Manipulate storage to create the underflow condition:
-        // We need: block.timestamp < (finishAt - periodLength)
-        // Set finishAt to current block.timestamp + periodLength + 10000
-        // This ensures: (finishAt - periodLength) = block.timestamp + 10000 > block.timestamp
-        // This triggers the bug on line 48 when we try: block.timestamp - (finishAt - periodLength)
-
-        // Get the storage slot for rewardData[token0]
-        bytes32 baseStorageSlot = 0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
-        bytes32 rewardDataSlot = keccak256(abi.encode(address(token0), uint256(baseStorageSlot)));
-
-        uint256 manipulatedFinishAt = block.timestamp + rewardPeriodLength + 10000;
-        require(manipulatedFinishAt <= type(uint40).max, "finishAt overflow");
-
-        // Pack the RewardData struct: queued | rate | lastUpdate | finishAt
-        uint256 manipulatedData = (uint256(rd.queued) & 0xFFFFFFFFFFFFFFFFFFFFFFFF) | // bits 0-95
-            ((uint256(rd.rate) & 0xFFFFFFFFFFFFFFFFFFFF) << 96) | // bits 96-175
-            ((uint256(rd.lastUpdate) & 0xFFFFFFFFFF) << 176) | // bits 176-215
-            ((uint256(manipulatedFinishAt) & 0xFFFFFFFFFF) << 216); // bits 216-255
-
-        vm.store(address(distributor), rewardDataSlot, bytes32(manipulatedData));
-
-        // Verify the manipulation
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertEq(rd.finishAt, manipulatedFinishAt, "finishAt should be manipulated");
-        assertLt(block.timestamp, rd.finishAt - rewardPeriodLength, "Underflow condition should be met");
-
-        // This deposit should trigger the bug on line 48 with buggy code (panic 0x11)
-        // With fixed code, it should succeed
-        uint256 depositAmount1 = 500 ether;
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), depositAmount1);
-
-        // If fixed, verify success
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertGe(rd.finishAt, rd.lastUpdate, "finishAt should be >= lastUpdate");
-    }
-
-    /// @notice Test underflow bug on line 52: _amount = _amount + uint256(_data.rate) * (_data.finishAt - _data.lastUpdate);
-    /// This test uses storage manipulation to create the condition where:
-    /// finishAt < lastUpdate, which causes arithmetic underflow
-    function test_depositReward_UnderflowBug_Line52_FinishAtLessThanLastUpdate() public {
-        uint40 rewardPeriodLength = 1 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(rewardPeriodLength);
-
-        vm.prank(manager);
-        distributor.registerRewardToken(address(token0));
-
-        // Mint tokens and approve (mint enough for multiple deposits)
-        token0.mint(rewardDepositor, 1_000_000 ether);
-        vm.prank(rewardDepositor);
-        token0.approve(address(distributor), MAX_UINT);
-
-        // Start at a reasonable timestamp
-        vm.warp(1000000);
-
-        // Initial deposit
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 10000 ether);
-
-        RewardData memory rd;
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-
-        // Manipulate storage to create: finishAt < lastUpdate
-        // This is the condition that triggers the underflow on line 52
-        bytes32 baseStorageSlot = 0xe9dd8489e2940f6fb582767a094c112cfce2739b7a5f3357b085cab0a6a7d300;
-        bytes32 rewardDataSlot = keccak256(abi.encode(address(token0), uint256(baseStorageSlot)));
-
-        // Set lastUpdate to a value greater than finishAt
-        uint256 manipulatedLastUpdate = rd.finishAt + 5000;
-        require(manipulatedLastUpdate <= type(uint40).max, "lastUpdate overflow");
-
-        // Also need to ensure block.timestamp < finishAt to enter the else branch
-        vm.warp(rd.finishAt - 1000);
-
-        // Pack the RewardData struct: queued | rate | lastUpdate | finishAt
-        uint256 manipulatedData = (uint256(rd.queued) & 0xFFFFFFFFFFFFFFFFFFFFFFFF) | // bits 0-95
-            ((uint256(rd.rate) & 0xFFFFFFFFFFFFFFFFFFFF) << 96) | // bits 96-175
-            ((uint256(manipulatedLastUpdate) & 0xFFFFFFFFFF) << 176) | // bits 176-215
-            ((uint256(rd.finishAt) & 0xFFFFFFFFFF) << 216); // bits 216-255
-
-        vm.store(address(distributor), rewardDataSlot, bytes32(manipulatedData));
-
-        // Verify the manipulation
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertEq(rd.lastUpdate, manipulatedLastUpdate, "lastUpdate should be manipulated");
-        assertGt(rd.lastUpdate, rd.finishAt, "lastUpdate should be > finishAt (underflow condition)");
-        assertLt(block.timestamp, rd.finishAt, "Should be in active period (else branch)");
-
-        // Make a large deposit to trigger the distribute logic (enter the else branch)
-        // Need to deposit enough to trigger: _distributed * 9 <= _amount * 10
-        // With the buggy code, this will hit line 52 and underflow: (_data.finishAt - _data.lastUpdate)
-        // With fixed code, it should handle gracefully
-        vm.prank(rewardDepositor);
-        distributor.depositReward(address(token0), 100000 ether);
-
-        // If fixed, verify success
-        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
-        assertTrue(rd.rate > 0, "rate should be positive after deposit");
-    }
-
     /// @notice Test the complete underflow scenario from the bug report
     /// This simulates the exact conditions described: rewards deposited, period not finished,
     /// then another deposit triggers the else branch with underflow conditions
     function test_depositReward_UnderflowFix() public {
         uint40 REWARD_PERIOD_LENGTH = 2 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -858,7 +743,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     /// This is the edge case that can occur in forked mainnet environments
     function test_depositReward_ExtremeUnderflowFix() public {
         uint40 REWARD_PERIOD_LENGTH = 4 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -902,7 +787,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     /// @notice Test depositing after period finished, then starting new period
     function test_depositReward_AfterPeriodFinished() public {
         uint40 REWARD_PERIOD_LENGTH = 2 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -939,7 +824,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     /// then warp forward but not past new finishAt, and deposit again (else branch with underflow potential)
     function test_depositReward_AfterPeriodFinishedThenBeforeFinishAt() public {
         uint40 REWARD_PERIOD_LENGTH = 2 weeks;
-        MockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
 
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
@@ -989,5 +874,20 @@ contract LinearMultipleRewardDistributorTest is Test {
 
         // The state should be consistent - no underflow occurred
         assertTrue(rd.finishAt >= rd.lastUpdate, "finishAt should be >= lastUpdate");
+    }
+}
+
+import {MockLinearMultipleRewardDistributor} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol";
+
+contract LinearMultipleRewardDistributorTest_v1 is LinearMultipleRewardDistributorTest {
+    function createLinearMultipleRewardDistributor(
+        uint256 rewardManagerRole,
+        uint256 rewardDepositorRole,
+        uint40 period
+    ) internal override returns (IMockLinearMultipleRewardDistributor) {
+        return
+            IMockLinearMultipleRewardDistributor(
+                address(new MockLinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, period))
+            );
     }
 }

@@ -10,7 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
+import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -480,13 +480,18 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
             for (uint256 i = 0; i < totalLength; i++) {
                 address token = (i < activeLength) ? activeTokens[i] : historicalTokens[i - activeLength];
-                (, uint256 snapIntegral, uint128 snapPending, uint128 snapClaimed) =
-                    _getUserRewardSnapshot(account, token);
-                uint128 newPending =
-                    uint128(_claimableFrom(account, token, false, snapIntegral, snapPending));
+                (, uint256 snapIntegral, uint128 snapPending, uint128 snapClaimed) = _getUserRewardSnapshot(
+                    account,
+                    token
+                );
+                uint128 newPending = uint128(_claimableFrom(account, token, false, snapIntegral, snapPending));
                 _setUserRewardSnapshot(
-                    account, token, uint64(block.timestamp),
-                    _tokenToExponentToIntegral(token, exponent), newPending, snapClaimed
+                    account,
+                    token,
+                    uint64(block.timestamp),
+                    _tokenToExponentToIntegral(token, exponent),
+                    newPending,
+                    snapClaimed
                 );
             }
         }
