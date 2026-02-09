@@ -521,4 +521,74 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     function test_upgradeFromV1_MultiUserLazyMigration_CompleteLiquidation() public {
         _test_upgradeFromV1_MultiUserLazyMigration(false, true);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 7. RarePath — V2 integral=0 with V2 timestamp!=0 (Path 2 coverage)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Tests the rare migration path where V2 integral=0 but V2 timestamp!=0.
+    ///         This occurs when a user is checkpointed at a new exponent (after complete
+    ///         liquidation shifts the exponent) where no rewards have been distributed yet.
+    ///         Verifies: Path 3->2 migration, Path 2 read, Path 2->1 transition, Path 1 read.
+    function test_upgradeFromV1_RarePath_ZeroIntegralAfterExponentShift() public {
+        // Build state on v1: deposit, earn rewards, claim
+        _deposit(user1, 100 ether);
+        _depositReward(steam, 10 ether);
+        vm.warp(block.timestamp + 1 weeks);
+        _depositReward(steam, 0); // distribute pending
+        vm.prank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
+        uint256 v1Claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
+        assertGt(v1Claimed, 0, "V1 claimed > 0 before liquidation");
+
+        // Complete liquidation shifts exponent (e.g. 0 -> 1)
+        _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
+
+        // Upgrade to v2 BEFORE re-depositing - V1 data still untouched
+        _upgradeToV2();
+
+        // Re-deposit triggers _checkpoint on v2:
+        // - Reads V1 data via Path 3 (V2 mapping empty)
+        // - User has 0 shares (complete liquidation), so claimable = pending = 0
+        // - Writes V2: integral = tokenToExponentToIntegral(steam, newExponent) = 0
+        // - V2 now has: integral=0, timestamp=now, pending=0, claimed=v1Claimed
+        // -> Path 2 is active for subsequent reads
+        _deposit(user1, 50 ether);
+
+        // Verify claimed preserved through lazy migration
+        uint256 v2Claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
+        assertEq(v2Claimed, v1Claimed, "Claimed preserved through Path 3 -> Path 2 migration");
+
+        // No new rewards yet - claimable should be 0
+        uint256 claimableBeforeRewards = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        assertEq(claimableBeforeRewards, 0, "No claimable before new rewards (Path 2 read)");
+
+        // Distribute new rewards at new exponent - global integral becomes > 0
+        _depositReward(steam, 10 ether);
+        vm.warp(block.timestamp + 1 weeks);
+        _depositReward(steam, 0);
+
+        // Path 2 read: user's V2 integral=0, global integral > 0 -> delta > 0 -> claimable > 0
+        uint256 path2Claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        assertGt(path2Claimable, 0, "Path 2 read works: claimable with integral=0 base");
+
+        // Checkpoint transitions Path 2 -> Path 1 (writes integral > 0)
+        vm.prank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(user1);
+
+        // Distribute more rewards - verify Path 1 works
+        _depositReward(steam, 10 ether);
+        vm.warp(block.timestamp + 1 weeks);
+        _depositReward(steam, 0);
+
+        // path1Claimable includes path2Claimable (in pending) plus new rewards
+        uint256 path1Claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
+        assertGt(path1Claimable, path2Claimable, "Path 1 read: includes pending from Path 2 + new rewards");
+
+        // Claim everything and verify total
+        vm.prank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
+        uint256 totalClaimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
+        assertEq(totalClaimed, v1Claimed + path1Claimable, "Total claimed = v1 + all post-upgrade rewards");
+    }
 }
