@@ -32,7 +32,7 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
     }
 
     function reentrantCall(bytes calldata _data) external nonReentrant {
-        (bool _success,) = address(this).call(_data);
+        (bool _success, ) = address(this).call(_data);
         if (!_success) {
             // solhint-disable-next-line no-inline-assembly
             assembly {

@@ -912,8 +912,9 @@ contract LinearMultipleRewardDistributorTest is Test {
         (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
 
         RewardData memory rdStorage;
-        (rdStorage.lastUpdate, rdStorage.finishAt, rdStorage.rate, rdStorage.queued) =
-            distributor.getRewardDataStorage(address(token0));
+        (rdStorage.lastUpdate, rdStorage.finishAt, rdStorage.rate, rdStorage.queued) = distributor.getRewardDataStorage(
+            address(token0)
+        );
 
         assertEq(rdStorage.lastUpdate, rd.lastUpdate);
         assertEq(rdStorage.finishAt, rd.finishAt);

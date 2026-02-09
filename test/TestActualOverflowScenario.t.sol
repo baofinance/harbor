@@ -43,7 +43,6 @@ contract TestActualOverflowScenario is Test {
                 }
             }
         }
-
         console.log("");
         console.log("=== Analysis ===");
         console.log("The overflow happens because:");

@@ -13,8 +13,7 @@ contract StorageV1 is Initializable, UUPSUpgradeable {
         mapping(address => mapping(uint8 => uint192)) values;
     }
 
-    bytes32 private constant STORAGE_LOCATION =
-        0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+    bytes32 private constant STORAGE_LOCATION = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
 
     function _getStorage() private pure returns (StorageV1Data storage $) {
         assembly {
@@ -44,8 +43,7 @@ contract StorageV2_Incompatible is Initializable, UUPSUpgradeable {
         mapping(address => mapping(uint8 => uint256)) values; // CHANGED from uint192 to uint256
     }
 
-    bytes32 private constant STORAGE_LOCATION =
-        0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+    bytes32 private constant STORAGE_LOCATION = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
 
     function _getStorage() private pure returns (StorageV1Data storage $) {
         assembly {
@@ -138,8 +136,12 @@ contract TestStorageCompatibility is Test {
             console.log("  [OK] Values MATCH (storage is compatible)");
         } else {
             console.log("  [FAIL] Values DO NOT MATCH (storage is INCOMPATIBLE)");
-            console.log("  Difference:", uint256(originalValue) > readBackV2 ?
-                uint256(originalValue) - readBackV2 : readBackV2 - uint256(originalValue));
+            console.log(
+                "  Difference:",
+                uint256(originalValue) > readBackV2
+                    ? uint256(originalValue) - readBackV2
+                    : readBackV2 - uint256(originalValue)
+            );
         }
         console.log("");
 

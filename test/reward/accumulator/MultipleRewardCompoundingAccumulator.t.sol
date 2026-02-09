@@ -41,9 +41,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     function createMultipleRewardCompoundingAccumulator(
         uint40 periodLength
     ) internal virtual returns (IMockMultipleRewardCompoundingAccumulator) {
-        return IMockMultipleRewardCompoundingAccumulator(
-            address(new MockMultipleRewardCompoundingAccumulator_v2(periodLength))
-        );
+        return
+            IMockMultipleRewardCompoundingAccumulator(
+                address(new MockMultipleRewardCompoundingAccumulator_v2(periodLength))
+            );
     }
 
     function _setupAccumulator(
@@ -80,10 +81,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
 
-            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
-                rewardCount,
-                periodLength
-            );
+            (
+                IMockMultipleRewardCompoundingAccumulator accumulator,
+                address[] memory tokenAddresses
+            ) = _setupAccumulator(rewardCount, periodLength);
 
             // Verify initialization
             assertEq(accumulator.REWARD_PERIOD_LENGTH(), periodLength);
@@ -180,10 +181,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256[3] memory timestamp;
             uint256 globalSnapshot;
 
-            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
-                t.rewardCount,
-                t.periodLength
-            );
+            (
+                IMockMultipleRewardCompoundingAccumulator accumulator,
+                address[] memory tokenAddresses
+            ) = _setupAccumulator(t.rewardCount, t.periodLength);
 
             // Set pool shares
             accumulator.setTotalPoolShare(t.totalPoolShare, 1 ether);
@@ -327,10 +328,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
-                rewardCount,
-                periodLength
-            );
+            (
+                IMockMultipleRewardCompoundingAccumulator accumulator,
+                address[] memory tokenAddresses
+            ) = _setupAccumulator(rewardCount, periodLength);
 
             // Setup reward state
             accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
@@ -495,10 +496,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
-                rewardCount,
-                periodLength
-            );
+            (
+                IMockMultipleRewardCompoundingAccumulator accumulator,
+                address[] memory tokenAddresses
+            ) = _setupAccumulator(rewardCount, periodLength);
 
             // Setup reward state
             accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
@@ -660,10 +661,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
-                rewardCount,
-                periodLength
-            );
+            (
+                IMockMultipleRewardCompoundingAccumulator accumulator,
+                address[] memory tokenAddresses
+            ) = _setupAccumulator(rewardCount, periodLength);
 
             // Setup reward state
             accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
@@ -797,10 +798,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             uint256 totalPoolShare = 1234 * 1 ether;
             uint256 userPoolShare = 456 * 1 ether;
 
-            (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) = _setupAccumulator(
-                rewardCount,
-                periodLength
-            );
+            (
+                IMockMultipleRewardCompoundingAccumulator accumulator,
+                address[] memory tokenAddresses
+            ) = _setupAccumulator(rewardCount, periodLength);
 
             // Setup reward state
             accumulator.setTotalPoolShare(totalPoolShare, 1 ether);
@@ -997,8 +998,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         uint40 periodLength = 1 weeks;
 
         // Setup with 2 tokens — token1 will never receive deposits (mainnet scenario)
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(2, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            2,
+            periodLength
+        );
 
         // Tiny totalPoolShare amplifies integral growth: toAdd ≈ pending * 1e36
         accumulator.setTotalPoolShare(1, 1 ether);
@@ -1021,7 +1024,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
 
         // Integral should be near but below uint192 max
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        assertGt(integral, uint256(type(uint192).max) * 90 / 100, "Should be close to uint192 max");
+        assertGt(integral, (uint256(type(uint192).max) * 90) / 100, "Should be close to uint192 max");
         assertLe(integral, uint256(type(uint192).max), "Should still be under uint192 max");
 
         // 7th cycle: pushes integral past uint192 max — v2 succeeds (uint256)
@@ -1036,8 +1039,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     ///   delta = rewardAmount * 1e54 / totalPoolShare (at magnitude = 1e36)
     function test_integralGrowth_MatchesFormula() public {
         uint40 periodLength = 1 weeks;
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(1, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            periodLength
+        );
 
         // Fresh pool: magnitude = 1e36 (MAGNITUDE_PRECISION), exponent = 0
         accumulator.setTotalPoolShare(1 ether, uint128(1e36));
@@ -1058,8 +1063,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     /// Demonstrates Table 1: at 100% APY, v1 safe for 6,277 years.
     function test_integralBounds_100pctAPY_52Weeks() public {
         uint40 periodLength = 1 weeks;
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(1, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            periodLength
+        );
 
         uint256 poolSize = 100_000 ether;
         accumulator.setTotalPoolShare(poolSize, uint128(1e36));
@@ -1084,14 +1091,16 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     /// 10 years uses ~1.6% of the v1 budget (1e56 / 6.277e57).
     function test_integralBounds_1000pctAPY_10Years() public {
         uint40 periodLength = 1 weeks;
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(1, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            periodLength
+        );
 
         uint256 poolSize = 1_000 ether;
         accumulator.setTotalPoolShare(poolSize, uint128(1e36));
 
         // 1000% APY: annual reward = 10 * poolSize, weekly = 10 * poolSize / 52
-        uint256 weeklyReward = poolSize * 10 / 52;
+        uint256 weeklyReward = (poolSize * 10) / 52;
 
         accumulator.depositReward(tokens[0], weeklyReward);
         for (uint256 i = 0; i < 520; i++) {
@@ -1111,8 +1120,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     /// v2 survives. v1 override expects Panic(0x11).
     function test_integralBounds_MinPool_RealisticOverflow() public virtual {
         uint40 periodLength = 1 weeks;
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(1, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            periodLength
+        );
 
         accumulator.setTotalPoolShare(1e13, uint128(1e36));
 
@@ -1128,7 +1139,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         }
 
         uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
-        assertGt(integral, uint256(type(uint192).max) * 90 / 100, "Near uint192 max after 6 weeks");
+        assertGt(integral, (uint256(type(uint192).max) * 90) / 100, "Near uint192 max after 6 weeks");
         assertLe(integral, type(uint192).max, "Still under uint192 max");
 
         // 7th week: v2 survives past uint192 max
@@ -1144,8 +1155,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     /// Verifies precision floor: the system handles extreme reward/pool ratios.
     function test_integralBounds_PrecisionFloor() public {
         uint40 periodLength = 1 weeks;
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(1, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            periodLength
+        );
 
         uint256 poolSize = 1e25; // very large pool
         accumulator.setTotalPoolShare(poolSize, uint128(1e36));
@@ -1177,9 +1190,10 @@ contract MultipleRewardCompoundingAccumulatorTest_v1 is MultipleRewardCompoundin
     function createMultipleRewardCompoundingAccumulator(
         uint40 periodLength
     ) internal override returns (IMockMultipleRewardCompoundingAccumulator) {
-        return IMockMultipleRewardCompoundingAccumulator(
-            address(new MockMultipleRewardCompoundingAccumulator(periodLength))
-        );
+        return
+            IMockMultipleRewardCompoundingAccumulator(
+                address(new MockMultipleRewardCompoundingAccumulator(periodLength))
+            );
     }
 
     /// @notice v1 override: realistic params (BTC MIN_DEPOSIT, magnitude=1e36),
@@ -1187,8 +1201,10 @@ contract MultipleRewardCompoundingAccumulatorTest_v1 is MultipleRewardCompoundin
     function test_integralBounds_MinPool_RealisticOverflow() public override {
         uint40 periodLength = 1 weeks;
 
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(1, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            periodLength
+        );
 
         accumulator.setTotalPoolShare(1e13, uint128(1e36));
 
@@ -1211,8 +1227,10 @@ contract MultipleRewardCompoundingAccumulatorTest_v1 is MultipleRewardCompoundin
     function test_accumulateReward_Uint192Overflow() public override {
         uint40 periodLength = 1 weeks;
 
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
-            _setupAccumulator(2, periodLength);
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            2,
+            periodLength
+        );
 
         accumulator.setTotalPoolShare(1, 1 ether);
 

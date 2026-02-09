@@ -31,7 +31,8 @@ contract TestUint192CastOverflow is Test {
         console.log("");
 
         // Value exceeding uint192 max (this is the mainnet scenario)
-        uint256 tooLargeValue = uint192Max + 773_195_876_288_659_793_814_432_989_690_721_649_484_536_082_474_226_803_123;
+        uint256 tooLargeValue = uint192Max +
+            773_195_876_288_659_793_814_432_989_690_721_649_484_536_082_474_226_803_123;
         console.log("Test 3: Cast value > uint192 max");
         console.log("  Value:", tooLargeValue);
         console.log("  Attempting cast...");

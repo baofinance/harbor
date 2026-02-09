@@ -16,7 +16,7 @@ contract TestUint192Overflow is Test {
 
         // Scenario: Small BTC deposit, large USD-denominated rewards
         uint256 totalShare = 0.097e18; // 0.097 BTC deposited
-        uint256 rewardAmount = 75e18;  // 75 tokens reward (e.g., fxSAVE)
+        uint256 rewardAmount = 75e18; // 75 tokens reward (e.g., fxSAVE)
 
         console.log("Initial state:");
         console.log("  totalShare (BTC):", totalShare);
@@ -122,11 +122,11 @@ contract TestUint192Overflow is Test {
 
         // Test different totalShare values
         uint256[] memory shares = new uint256[](5);
-        shares[0] = 0.01e18;  // 0.01 BTC
-        shares[1] = 0.1e18;   // 0.1 BTC
-        shares[2] = 1e18;     // 1 BTC
-        shares[3] = 10e18;    // 10 BTC
-        shares[4] = 100e18;   // 100 BTC
+        shares[0] = 0.01e18; // 0.01 BTC
+        shares[1] = 0.1e18; // 0.1 BTC
+        shares[2] = 1e18; // 1 BTC
+        shares[3] = 10e18; // 10 BTC
+        shares[4] = 100e18; // 100 BTC
 
         for (uint i = 0; i < shares.length; i++) {
             uint256 totalShare = shares[i];

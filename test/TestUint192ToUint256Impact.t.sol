@@ -8,15 +8,15 @@ import "forge-std/Test.sol";
 contract TestUint192ToUint256Impact is Test {
     /// @notice Current RewardSnapshot struct (uint192)
     struct RewardSnapshot_V1 {
-        uint64 timestamp;   // 8 bytes
-        uint192 integral;   // 24 bytes
+        uint64 timestamp; // 8 bytes
+        uint192 integral; // 24 bytes
         // Total: 32 bytes = FITS IN 1 SLOT
     }
 
     /// @notice Proposed RewardSnapshot struct (uint256)
     struct RewardSnapshot_V2 {
-        uint64 timestamp;   // 8 bytes
-        uint256 integral;   // 32 bytes
+        uint64 timestamp; // 8 bytes
+        uint256 integral; // 32 bytes
         // Total: 40 bytes = REQUIRES 2 SLOTS
     }
 
