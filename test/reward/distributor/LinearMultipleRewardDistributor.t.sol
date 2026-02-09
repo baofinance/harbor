@@ -1171,6 +1171,79 @@ contract LinearMultipleRewardDistributorTest is Test {
 
     // ======================= FINISHAT BOUNDARY =======================
 
+    // ======================= FINISHAT=0 EDGE CASE =======================
+
+    /// @notice Replicates the mainnet bug where _distributePendingReward() updates lastUpdate
+    /// for ALL active tokens, even those that never received deposits, creating a
+    /// finishAt=0, lastUpdate>0 state. See ExplainFinishAtZero.t.sol for full analysis.
+    ///
+    /// At the distributor level this state is handled gracefully by the ternary check
+    /// in LinearReward.pending(). The actual revert happens in the accumulator layer
+    /// (uint192 integral overflow in MultipleRewardCompoundingAccumulator._accumulateReward).
+    function test_finishAtZero_StateCreatedByDistributePendingReward() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 weeks;
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+
+        // Register two reward tokens — token1 will NEVER receive deposits
+        vm.startPrank(manager);
+        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(address(token1));
+        vm.stopPrank();
+
+        token0.mint(rewardDepositor, 1_000_000 ether);
+        vm.prank(rewardDepositor);
+        token0.approve(address(distributor), MAX_UINT);
+
+        // Initial state: both tokens have finishAt=0, lastUpdate=0
+        RewardData memory rd1;
+        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
+        assertEq(rd1.lastUpdate, 0);
+        assertEq(rd1.finishAt, 0);
+
+        // Deposit to token0 only — triggers _distributePendingReward which updates ALL tokens
+        vm.warp(1769153363);
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 100_000 ether);
+
+        // Token1: lastUpdate was set by _distributePendingReward, but finishAt remains 0
+        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
+        assertEq(rd1.finishAt, 0, "finishAt should remain 0 - no deposits to token1");
+        assertEq(rd1.lastUpdate, block.timestamp, "lastUpdate updated by _distributePendingReward");
+        assertEq(rd1.rate, 0);
+        assertEq(rd1.queued, 0);
+
+        // More deposits to token0 keep advancing token1's lastUpdate while finishAt stays 0
+        vm.warp(1769315855);
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 50_000 ether);
+
+        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
+        assertEq(rd1.finishAt, 0, "finishAt still 0 after second deposit");
+        assertEq(rd1.lastUpdate, block.timestamp, "lastUpdate keeps advancing");
+
+        // pending() handles the finishAt=0 state gracefully via ternary check
+        PendingRewards memory p;
+        (p.unlocked, p.locked) = distributor.pendingRewards(address(token1));
+        assertEq(p.unlocked, 0, "No pending rewards for never-deposited token");
+        assertEq(p.locked, 0, "No locked rewards for never-deposited token");
+
+        // A first deposit to token1 works — increase() takes the if branch (block.timestamp >= 0)
+        token1.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
+        token1.approve(address(distributor), MAX_UINT);
+
+        vm.warp(1769608823);
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token1), 10_000 ether);
+
+        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
+        assertEq(rd1.lastUpdate, block.timestamp, "lastUpdate set by increase()");
+        assertEq(rd1.finishAt, block.timestamp + REWARD_PERIOD_LENGTH, "finishAt now set");
+        assertGt(rd1.rate, 0, "rate now positive");
+    }
+
+    // ======================= FINISHAT BOUNDARY =======================
+
     function test_depositReward_AtExactFinishAt() public {
         uint40 REWARD_PERIOD_LENGTH = 1 days;
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);

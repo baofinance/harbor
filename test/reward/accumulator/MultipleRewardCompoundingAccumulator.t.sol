@@ -929,6 +929,246 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             }
         }
     }
+    /// ═══════════════════════════════════════════════════════════════════════════════
+    /// INTEGRAL OVERFLOW BOUNDS ANALYSIS
+    /// ═══════════════════════════════════════════════════════════════════════════════
+    ///
+    /// Core formula (fresh pool, magnitude = MAGNITUDE_PRECISION = 1e36):
+    ///   integral_delta = rewardAmount * 1e18 * 1e36 / totalPoolShare
+    ///                  = rewardAmount * 1e54 / totalPoolShare
+    ///
+    /// Max cumulative reward/pool ratio before overflow:
+    ///   v1 (uint192):  6.277e57 / 1e54 = 6,277
+    ///   v2 (uint256):  1.158e77 / 1e54 = 1.158e23
+    ///
+    /// ─── TABLE 1: APY Model (reward proportional to pool) ──────────────────────
+    /// Price-INDEPENDENT. Identical for all assets at any price.
+    ///
+    ///   APY     │  v1 years to overflow  │  v2 years
+    ///  ─────────┼────────────────────────┼───────────
+    ///    10%    │          62,770        │   never
+    ///   100%    │           6,277        │   never
+    ///  1000%    │             628        │   never
+    ///
+    ///  Formula: v1_years = 627,700 / APY
+    ///
+    /// ─── TABLE 2: Fixed Weekly Reward to MIN_DEPOSIT Pool (v1 only) ────────────
+    /// Worst case: pool has exactly MIN_DEPOSIT, reward is a fixed USD amount
+    /// independent of pool size. v2 is "never" for ALL rows.
+    ///
+    /// The asset price affects MIN_DEPOSIT's USD value (fixed in wei at deployment).
+    /// Range spans from 1,000,000x BTC price to IRR (1M per USD).
+    ///
+    ///  Asset (config)         │ Token Price      │ MIN_DEP $  │ $100/wk  │ $1k/wk  │ $10k/wk
+    ///  ──────────────────────┼──────────────────┼────────────┼──────────┼─────────┼─────────
+    ///  BTC-peg at 1Mx price  │ $60,000,000,000  │ $600,000   │ 72.4M yr │ 7.24M yr│ 724k yr
+    ///  BTC-peg at 1000x      │ $60,000,000      │ $600       │ 72.4k yr │ 7,240 yr│ 724 yr
+    ///  BTC-peg (current)     │ $60,000          │ $0.60      │ 0.72 yr  │  27 days│ 2.6 days
+    ///  ETH-peg (current)     │ $2,500           │ $0.50      │ 0.60 yr  │  22 days│ 2.2 days
+    ///  EUR / stablecoin      │ $1.00            │ $1.00      │ 1.21 yr  │  44 days│ 4.4 days
+    ///  IRR-peg (1M per USD)  │ $0.000001        │ $1.00 (*)  │ 1.21 yr  │  44 days│ 4.4 days
+    ///  BTC-peg at 1/1Mx price│ $0.06            │ $6e-7      │  23 sec  │  2.3 sec│ <1 sec
+    ///
+    ///  (*) IRR MIN_DEPOSIT set to ~$1 at deployment (1e24 wei at $0.000001/token)
+    ///
+    ///  Formula: v1_years = 120.7 * MIN_DEPOSIT_$ / weekly_reward_$
+    ///
+    ///  Context: BTC $1k/wk to $0.60 pool = 8,666,667% effective APY.
+    ///           These overflow fast because the reward/pool ratio is extreme.
+    ///
+    /// ─── KEY INSIGHTS ──────────────────────────────────────────────────────────
+    /// 1. APY model: v1 safe for centuries at realistic rates. v2 is unlimited.
+    /// 2. Fixed-reward risk: small pools receiving disproportionate rewards
+    ///    overflow v1 rapidly. $1k/wk to BTC MIN_DEPOSIT pool = 27 days.
+    /// 3. v2 (uint256 integral) eliminates integral overflow entirely.
+    /// 4. The ratio reward/pool is what matters - asset price only affects
+    ///    this through the MIN_DEPOSIT configuration (its USD value drifts).
+    /// 5. Price appreciation makes existing pools safer (MIN_DEPOSIT $ rises).
+    ///    Price depreciation makes them more vulnerable.
+    /// 6. Other type limits (uint80 rate, uint96 queued, uint128 pending)
+    ///    are generous and not practical constraints for any realistic scenario.
+    /// ═══════════════════════════════════════════════════════════════════════════════
+
+    /// @notice Replicates the mainnet failure: uint192 integral overflow in _accumulateReward.
+    /// Two tokens registered, only token0 gets deposits. Token1 develops finishAt=0 state.
+    /// After enough deposit cycles, token0's integral exceeds uint192 max.
+    /// v2 (uint256 integral): succeeds. v1 (uint192 integral): reverts with Panic(0x11).
+    function test_accumulateReward_Uint192Overflow() public virtual {
+        uint40 periodLength = 1 weeks;
+
+        // Setup with 2 tokens — token1 will never receive deposits (mainnet scenario)
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(2, periodLength);
+
+        // Tiny totalPoolShare amplifies integral growth: toAdd ≈ pending * 1e36
+        accumulator.setTotalPoolShare(1, 1 ether);
+
+        uint256 depositAmount = 1000 ether;
+
+        // First deposit to token0 only: sets rate, no accumulation yet
+        accumulator.depositReward(tokens[0], depositAmount);
+
+        // Verify token1 has finishAt=0 but lastUpdate>0 (the mainnet precondition)
+        (uint256 lastUpdate1, uint256 finishAt1, , ) = accumulator.rewardData(tokens[1]);
+        assertEq(finishAt1, 0, "token1: finishAt should remain 0");
+        assertEq(lastUpdate1, block.timestamp, "token1: lastUpdate set by _distributePendingReward");
+
+        // 6 weekly cycles: each accumulates ~1e57, total ~6e57 < uint192.max (6.277e57)
+        for (uint256 i = 0; i < 6; i++) {
+            vm.warp(block.timestamp + periodLength);
+            accumulator.depositReward(tokens[0], depositAmount);
+        }
+
+        // Integral should be near but below uint192 max
+        uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        assertGt(integral, uint256(type(uint192).max) * 90 / 100, "Should be close to uint192 max");
+        assertLe(integral, uint256(type(uint192).max), "Should still be under uint192 max");
+
+        // 7th cycle: pushes integral past uint192 max — v2 succeeds (uint256)
+        vm.warp(block.timestamp + periodLength);
+        accumulator.depositReward(tokens[0], depositAmount);
+
+        integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        assertGt(integral, type(uint192).max, "v2: integral should exceed uint192 max");
+    }
+
+    /// @notice Verify integral growth matches the theoretical formula:
+    ///   delta = rewardAmount * 1e54 / totalPoolShare (at magnitude = 1e36)
+    function test_integralGrowth_MatchesFormula() public {
+        uint40 periodLength = 1 weeks;
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(1, periodLength);
+
+        // Fresh pool: magnitude = 1e36 (MAGNITUDE_PRECISION), exponent = 0
+        accumulator.setTotalPoolShare(1 ether, uint128(1e36));
+
+        uint256 reward = 1000 ether;
+        accumulator.depositReward(tokens[0], reward);
+
+        // Warp 1 full period, then trigger accumulation
+        vm.warp(block.timestamp + periodLength);
+        accumulator.depositReward(tokens[0], reward);
+
+        uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        // Expected: reward * 1e54 / poolSize = 1e21 * 1e54 / 1e18 = 1e57
+        assertApproxEqRel(integral, 1e57, 0.001e18, "delta = reward * 1e54 / poolSize");
+    }
+
+    /// @notice 52 weeks at 100% APY: integral ~ 1e54, safe for both v1 and v2.
+    /// Demonstrates Table 1: at 100% APY, v1 safe for 6,277 years.
+    function test_integralBounds_100pctAPY_52Weeks() public {
+        uint40 periodLength = 1 weeks;
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(1, periodLength);
+
+        uint256 poolSize = 100_000 ether;
+        accumulator.setTotalPoolShare(poolSize, uint128(1e36));
+
+        // 100% APY: annual reward = poolSize, weekly = poolSize / 52
+        uint256 weeklyReward = poolSize / 52;
+
+        accumulator.depositReward(tokens[0], weeklyReward);
+        for (uint256 i = 0; i < 52; i++) {
+            vm.warp(block.timestamp + periodLength);
+            accumulator.depositReward(tokens[0], weeklyReward);
+        }
+
+        uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        // After 52 weeks at 100% APY: integral ~ 52 * (poolSize/52) * 1e54 / poolSize = 1e54
+        assertApproxEqRel(integral, 1e54, 0.01e18, "52wk at 100% APY: integral ~ 1e54");
+        assertLt(integral, type(uint192).max, "Well within v1 uint192 bounds");
+    }
+
+    /// @notice 1000% APY for 10 years (520 weeks): integral ~ 1e56.
+    /// Demonstrates Table 1: at 1000% APY, v1 has 628 years of headroom.
+    /// 10 years uses ~1.6% of the v1 budget (1e56 / 6.277e57).
+    function test_integralBounds_1000pctAPY_10Years() public {
+        uint40 periodLength = 1 weeks;
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(1, periodLength);
+
+        uint256 poolSize = 1_000 ether;
+        accumulator.setTotalPoolShare(poolSize, uint128(1e36));
+
+        // 1000% APY: annual reward = 10 * poolSize, weekly = 10 * poolSize / 52
+        uint256 weeklyReward = poolSize * 10 / 52;
+
+        accumulator.depositReward(tokens[0], weeklyReward);
+        for (uint256 i = 0; i < 520; i++) {
+            vm.warp(block.timestamp + periodLength);
+            accumulator.depositReward(tokens[0], weeklyReward);
+        }
+
+        uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        // After 520 weeks at 1000% APY: integral ~ 520 * (10 * poolSize/52) * 1e54 / poolSize = 1e56
+        assertApproxEqRel(integral, 1e56, 0.01e18, "10yr at 1000% APY: integral ~ 1e56");
+        assertLt(integral, type(uint192).max, "Still within v1 uint192 bounds (62x headroom)");
+    }
+
+    /// @notice Realistic mainnet scenario: BTC MIN_DEPOSIT pool (1e13 wei) with
+    /// fresh product (magnitude=1e36) receiving 1e16/week (~$600 at BTC $60k).
+    /// Demonstrates Table 2: $600/wk to BTC MIN_DEPOSIT pool overflows v1 in ~7 weeks.
+    /// v2 survives. v1 override expects Panic(0x11).
+    function test_integralBounds_MinPool_RealisticOverflow() public virtual {
+        uint40 periodLength = 1 weeks;
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(1, periodLength);
+
+        accumulator.setTotalPoolShare(1e13, uint128(1e36));
+
+        // 0.01 BTC/week ~ $600 at $60k/BTC (1,000x the $0.60 MIN_DEPOSIT pool)
+        uint256 weeklyReward = 1e16;
+
+        accumulator.depositReward(tokens[0], weeklyReward);
+
+        // 6 weekly cycles: each adds ~1e57 to integral, total ~6e57 < uint192 max (6.277e57)
+        for (uint256 i = 0; i < 6; i++) {
+            vm.warp(block.timestamp + periodLength);
+            accumulator.depositReward(tokens[0], weeklyReward);
+        }
+
+        uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        assertGt(integral, uint256(type(uint192).max) * 90 / 100, "Near uint192 max after 6 weeks");
+        assertLe(integral, type(uint192).max, "Still under uint192 max");
+
+        // 7th week: v2 survives past uint192 max
+        vm.warp(block.timestamp + periodLength);
+        accumulator.depositReward(tokens[0], weeklyReward);
+
+        integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        assertGt(integral, type(uint192).max, "v2: integral exceeds uint192 max");
+    }
+
+    /// @notice Minimum meaningful reward (rate=1/sec) to a large pool still
+    /// produces non-zero integral and non-zero claimable.
+    /// Verifies precision floor: the system handles extreme reward/pool ratios.
+    function test_integralBounds_PrecisionFloor() public {
+        uint40 periodLength = 1 weeks;
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(1, periodLength);
+
+        uint256 poolSize = 1e25; // very large pool
+        accumulator.setTotalPoolShare(poolSize, uint128(1e36));
+        accumulator.setUserPoolShare(poolSize, uint128(1e36)); // single user owns all
+
+        // Minimum reward to get rate=1: periodLength + 1 (so rate = 1 per second)
+        uint256 minReward = uint256(periodLength) + 1;
+        accumulator.depositReward(tokens[0], minReward);
+
+        vm.warp(block.timestamp + periodLength);
+        accumulator.checkpoint(deployer); // triggers accumulation + user checkpoint
+
+        uint256 integral = accumulator.tokenToExponentToIntegral(tokens[0], 0);
+        // rate=1, accumulated=604800, delta = 604800 * 1e54 / 1e25 = 6.048e34
+        assertGt(integral, 0, "Integral non-zero even at minimum rate");
+        assertApproxEqRel(integral, 6.048e34, 0.001e18, "Integral matches minimum rate prediction");
+
+        // Verify user can claim a non-zero amount
+        uint256 claimable = accumulator.claimable(deployer, tokens[0]);
+        // claimable = shares * delta / (magnitude * 1e18) = 1e25 * 6.048e34 / 1e54 = 604800
+        assertGt(claimable, 0, "User has non-zero claimable at minimum rate");
+        assertApproxEqAbs(claimable, 604800, 10, "Claimable matches accumulated amount");
+    }
 }
 
 import {MockMultipleRewardCompoundingAccumulator} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol";
@@ -940,6 +1180,57 @@ contract MultipleRewardCompoundingAccumulatorTest_v1 is MultipleRewardCompoundin
         return IMockMultipleRewardCompoundingAccumulator(
             address(new MockMultipleRewardCompoundingAccumulator(periodLength))
         );
+    }
+
+    /// @notice v1 override: realistic params (BTC MIN_DEPOSIT, magnitude=1e36),
+    /// $600/wk reward overflows uint192 integral on the 7th week.
+    function test_integralBounds_MinPool_RealisticOverflow() public override {
+        uint40 periodLength = 1 weeks;
+
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(1, periodLength);
+
+        accumulator.setTotalPoolShare(1e13, uint128(1e36));
+
+        uint256 weeklyReward = 1e16;
+
+        accumulator.depositReward(tokens[0], weeklyReward);
+
+        for (uint256 i = 0; i < 6; i++) {
+            vm.warp(block.timestamp + periodLength);
+            accumulator.depositReward(tokens[0], weeklyReward);
+        }
+
+        // 7th week: uint192 overflow
+        vm.warp(block.timestamp + periodLength);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        accumulator.depositReward(tokens[0], weeklyReward);
+    }
+
+    /// @notice v1 override: the 7th cycle reverts because uint192 integral overflows.
+    function test_accumulateReward_Uint192Overflow() public override {
+        uint40 periodLength = 1 weeks;
+
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) =
+            _setupAccumulator(2, periodLength);
+
+        accumulator.setTotalPoolShare(1, 1 ether);
+
+        uint256 depositAmount = 1000 ether;
+
+        // First deposit: sets rate
+        accumulator.depositReward(tokens[0], depositAmount);
+
+        // 6 weekly cycles: integral grows to ~6e57 < uint192.max
+        for (uint256 i = 0; i < 6; i++) {
+            vm.warp(block.timestamp + periodLength);
+            accumulator.depositReward(tokens[0], depositAmount);
+        }
+
+        // 7th cycle: uint192 overflow — Panic(0x11)
+        vm.warp(block.timestamp + periodLength);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        accumulator.depositReward(tokens[0], depositAmount);
     }
 }
 
