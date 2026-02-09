@@ -875,6 +875,331 @@ contract LinearMultipleRewardDistributorTest is Test {
         // The state should be consistent - no underflow occurred
         assertTrue(rd.finishAt >= rd.lastUpdate, "finishAt should be >= lastUpdate");
     }
+
+    // ======================= VIEW FUNCTION COVERAGE =======================
+
+    function test_isActiveRewardToken() public {
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+
+        assertFalse(distributor.isActiveRewardToken(address(token0)));
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(token0));
+        assertTrue(distributor.isActiveRewardToken(address(token0)));
+        assertFalse(distributor.isActiveRewardToken(address(token1)));
+
+        vm.prank(manager);
+        distributor.unregisterRewardToken(address(token0));
+        assertFalse(distributor.isActiveRewardToken(address(token0)));
+    }
+
+    function test_getRewardDataStorage() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days;
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(token0));
+
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
+        token0.approve(address(distributor), MAX_UINT);
+
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 1000 ether);
+
+        // getRewardDataStorage (internal _getRewardData) should match rewardData (public)
+        RewardData memory rd;
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+
+        RewardData memory rdStorage;
+        (rdStorage.lastUpdate, rdStorage.finishAt, rdStorage.rate, rdStorage.queued) =
+            distributor.getRewardDataStorage(address(token0));
+
+        assertEq(rdStorage.lastUpdate, rd.lastUpdate);
+        assertEq(rdStorage.finishAt, rd.finishAt);
+        assertEq(rdStorage.rate, rd.rate);
+        assertEq(rdStorage.queued, rd.queued);
+    }
+
+    function test_roleGetters() public {
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        assertEq(distributor.REWARD_MANAGER_ROLE(), REWARD_MANAGER_ROLE);
+        assertEq(distributor.REWARD_DEPOSITOR_ROLE(), REWARD_DEPOSITOR_ROLE);
+    }
+
+    function test_pendingRewards_NonExistentToken() public {
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+        PendingRewards memory p;
+        (p.unlocked, p.locked) = distributor.pendingRewards(address(token0));
+        assertEq(p.unlocked, 0);
+        assertEq(p.locked, 0);
+    }
+
+    // ======================= RE-REGISTRATION =======================
+
+    function test_registerRewardToken_ReRegisterHistoricalToken() public {
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+
+        vm.startPrank(manager);
+        distributor.registerRewardToken(address(token0));
+        distributor.unregisterRewardToken(address(token0));
+
+        assertEq(distributor.activeRewardTokens().length, 0);
+        assertEq(distributor.historicalRewardTokens().length, 1);
+
+        // Re-register should remove from historical and add back to active
+        vm.expectEmit(address(distributor));
+        emit IMultipleRewardDistributor.RegisterRewardToken(address(token0));
+        distributor.registerRewardToken(address(token0));
+
+        assertEq(distributor.activeRewardTokens().length, 1);
+        assertEq(distributor.historicalRewardTokens().length, 0);
+        assertTrue(distributor.isActiveRewardToken(address(token0)));
+        vm.stopPrank();
+    }
+
+    // ======================= OWNER ACCESS =======================
+
+    function test_registerRewardToken_ByOwner() public {
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+
+        vm.prank(owner);
+        distributor.registerRewardToken(address(token0));
+        assertEq(distributor.activeRewardTokens().length, 1);
+    }
+
+    function test_depositReward_ByOwner() public {
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(token0));
+
+        token0.mint(owner, 1000 ether);
+        vm.startPrank(owner);
+        token0.approve(address(distributor), MAX_UINT);
+        distributor.depositReward(address(token0), 1000 ether);
+        vm.stopPrank();
+
+        assertEq(token0.balanceOf(address(distributor)), 1000 ether);
+    }
+
+    // ======================= ZERO AMOUNT DEPOSIT =======================
+
+    function test_depositReward_ZeroAmount() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days;
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(token0));
+
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
+        token0.approve(address(distributor), MAX_UINT);
+
+        // Deposit actual amount
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 1000 ether);
+
+        uint256 halfPeriod = REWARD_PERIOD_LENGTH / 2;
+        vm.warp(block.timestamp + halfPeriod);
+
+        // Check pending before zero deposit
+        PendingRewards memory p;
+        (p.unlocked, p.locked) = distributor.pendingRewards(address(token0));
+        assertGt(p.unlocked, 0, "Should have pending rewards");
+
+        // Zero-amount deposit triggers _distributePendingReward
+        vm.prank(rewardDepositor);
+        vm.expectEmit(address(distributor));
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), p.unlocked);
+        vm.expectEmit(address(distributor));
+        emit IMultipleRewardDistributor.DepositReward(address(token0), 0);
+        distributor.depositReward(address(token0), 0);
+
+        // No extra tokens transferred
+        assertEq(token0.balanceOf(address(distributor)), 1000 ether);
+
+        // lastUpdate should be updated
+        RewardData memory rd;
+        (rd.lastUpdate, , , ) = distributor.rewardData(address(token0));
+        assertEq(rd.lastUpdate, block.timestamp);
+    }
+
+    // ======================= UNREGISTER AFTER FULL DISTRIBUTION =======================
+
+    function test_unregisterRewardToken_SucceedsAfterFullDistribution() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days;
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(token0));
+
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
+        token0.approve(address(distributor), MAX_UINT);
+
+        // Deposit
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 1000 ether);
+
+        // Wait for period to finish
+        RewardData memory rd;
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        vm.warp(rd.finishAt + 1);
+
+        // Distribute pending via zero-amount deposit
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 0);
+
+        // Verify pending is now zero
+        PendingRewards memory p;
+        (p.unlocked, p.locked) = distributor.pendingRewards(address(token0));
+        assertEq(p.unlocked, 0);
+        assertEq(p.locked, 0);
+
+        // Unregister should succeed (rounding error in queued gets cleared)
+        vm.prank(manager);
+        vm.expectEmit(address(distributor));
+        emit IMultipleRewardDistributor.UnregisterRewardToken(address(token0));
+        distributor.unregisterRewardToken(address(token0));
+
+        assertEq(distributor.activeRewardTokens().length, 0);
+        assertEq(distributor.historicalRewardTokens().length, 1);
+    }
+
+    // ======================= QUEUED >= REWARD_PERIOD_LENGTH =======================
+
+    function test_unregisterRewardToken_RevertWhenQueuedExceedsPeriodLength() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days;
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(token0));
+
+        token0.mint(rewardDepositor, 10_000_000 ether);
+        vm.prank(rewardDepositor);
+        token0.approve(address(distributor), MAX_UINT);
+
+        // Large deposit to establish rate
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 1_000_000 ether);
+
+        // Advance slightly within period
+        vm.warp(block.timestamp + 100);
+
+        // Small deposit triggers APR >10% decrease, entire amount gets queued
+        // queued ≈ 0.5 ether = 5e17 wei >> REWARD_PERIOD_LENGTH (86400)
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 0.5 ether);
+
+        RewardData memory rd;
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        assertGe(rd.queued, REWARD_PERIOD_LENGTH, "Queued should exceed REWARD_PERIOD_LENGTH");
+
+        // Wait for period to finish
+        vm.warp(rd.finishAt + 1);
+
+        // Unregister reverts — queued is NOT zeroed since >= REWARD_PERIOD_LENGTH
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSelector(IMultipleRewardDistributor.RewardDistributionNotFinished.selector));
+        distributor.unregisterRewardToken(address(token0));
+    }
+
+    // ======================= MULTIPLE TOKENS CONCURRENT =======================
+
+    function test_depositReward_MultipleTokensConcurrentDistribution() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days;
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+
+        vm.startPrank(manager);
+        distributor.registerRewardToken(address(token0));
+        distributor.registerRewardToken(address(token1));
+        vm.stopPrank();
+
+        token0.mint(rewardDepositor, 100_000 ether);
+        token1.mint(rewardDepositor, 100_000 ether);
+        vm.startPrank(rewardDepositor);
+        token0.approve(address(distributor), MAX_UINT);
+        token1.approve(address(distributor), MAX_UINT);
+        vm.stopPrank();
+
+        uint256 amount0 = 1000 ether;
+        uint256 amount1 = 2000 ether;
+
+        // Deposit to both tokens
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), amount0);
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token1), amount1);
+
+        // Verify independent rates
+        RewardData memory rd0;
+        RewardData memory rd1;
+        (rd0.lastUpdate, rd0.finishAt, rd0.rate, rd0.queued) = distributor.rewardData(address(token0));
+        (rd1.lastUpdate, rd1.finishAt, rd1.rate, rd1.queued) = distributor.rewardData(address(token1));
+
+        assertEq(rd0.rate, amount0 / REWARD_PERIOD_LENGTH);
+        assertEq(rd1.rate, amount1 / REWARD_PERIOD_LENGTH);
+
+        // Advance halfway
+        uint256 halfPeriod = REWARD_PERIOD_LENGTH / 2;
+        vm.warp(block.timestamp + halfPeriod);
+
+        // Check independent pending
+        PendingRewards memory p0;
+        PendingRewards memory p1;
+        (p0.unlocked, p0.locked) = distributor.pendingRewards(address(token0));
+        (p1.unlocked, p1.locked) = distributor.pendingRewards(address(token1));
+
+        assertEq(p0.unlocked, rd0.rate * halfPeriod);
+        assertEq(p1.unlocked, rd1.rate * halfPeriod);
+
+        // Deposit to token0 distributes pending for BOTH tokens via _distributePendingReward
+        vm.prank(rewardDepositor);
+        vm.expectEmit(address(distributor));
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token0), p0.unlocked);
+        vm.expectEmit(address(distributor));
+        emit IMockLinearMultipleRewardDistributor._accumulateReward_called(address(token1), p1.unlocked);
+        distributor.depositReward(address(token0), 500 ether);
+
+        // Both lastUpdates should be current
+        (rd0.lastUpdate, , , ) = distributor.rewardData(address(token0));
+        (rd1.lastUpdate, , , ) = distributor.rewardData(address(token1));
+        assertEq(rd0.lastUpdate, block.timestamp);
+        assertEq(rd1.lastUpdate, block.timestamp);
+    }
+
+    // ======================= FINISHAT BOUNDARY =======================
+
+    function test_depositReward_AtExactFinishAt() public {
+        uint40 REWARD_PERIOD_LENGTH = 1 days;
+        IMockLinearMultipleRewardDistributor distributor = _setupDistributor(REWARD_PERIOD_LENGTH);
+
+        vm.prank(manager);
+        distributor.registerRewardToken(address(token0));
+
+        token0.mint(rewardDepositor, 100_000 ether);
+        vm.prank(rewardDepositor);
+        token0.approve(address(distributor), MAX_UINT);
+
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 1000 ether);
+
+        RewardData memory rd;
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+
+        // Warp to exactly finishAt (block.timestamp == finishAt)
+        vm.warp(rd.finishAt);
+
+        // At exactly finishAt, increase() takes the >= branch (new period starts)
+        vm.prank(rewardDepositor);
+        distributor.depositReward(address(token0), 500 ether);
+
+        (rd.lastUpdate, rd.finishAt, rd.rate, rd.queued) = distributor.rewardData(address(token0));
+        assertEq(rd.lastUpdate, block.timestamp);
+        assertEq(rd.finishAt, block.timestamp + REWARD_PERIOD_LENGTH);
+        assertTrue(rd.rate > 0);
+    }
 }
 
 import {MockLinearMultipleRewardDistributor} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol";

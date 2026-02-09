@@ -10,4 +10,8 @@ interface IMockLinearMultipleRewardDistributor is IMultipleRewardDistributor, IB
     event _accumulateReward_called(address token, uint256 amount);
 
     function initialize(address owner_) external;
+
+    function getRewardDataStorage(
+        address token
+    ) external view returns (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued);
 }
