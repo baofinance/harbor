@@ -74,8 +74,6 @@ contract MockMultipleRewardCompoundingAccumulator is Initializable, MultipleRewa
         address account,
         address token
     ) public view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
-        (pending, integral) = _getUserRewardData(account, token);
-        claimed_ = _getClaimedRewards(account, token);
-        timestamp = _getUserRewardTimestamp(account, token);
+        (timestamp, integral, pending, claimed_) = _getUserRewardSnapshot(account, token);
     }
 }

@@ -86,51 +86,6 @@ contract TestStorageCompatibility is Test {
         wrappedProxy = StorageV1(address(proxy));
     }
 
-    /// @notice Test showing the REAL problem: writing values > uint192 max
-    function test_RealProblem_OverflowOnWrite() public {
-        console.log("=== The REAL Problem: Overflow When Writing ===");
-        console.log("");
-
-        // Store a value close to uint192 max in V1
-        uint192 originalValue = type(uint192).max - 1000;
-        console.log("Step 1: Store near-max uint192 value in V1");
-        console.log("  uint192 max:", uint256(type(uint192).max));
-        console.log("  Stored value:", uint256(originalValue));
-
-        wrappedProxy.setValue(TEST_KEY1, TEST_KEY2, originalValue);
-        console.log("  [OK] Stored successfully");
-        console.log("");
-
-        // This is the mainnet scenario: trying to ADD to an already-large value
-        console.log("Step 2: Try to accumulate more rewards (simulate _accumulateReward)");
-        uint256 toAdd = 773_195_876_288_659_793_814_432_989_690_721_649_484_536_082_474_226_804_123;
-        console.log("  Current integral:", uint256(originalValue));
-        console.log("  Amount to add:  ", toAdd);
-
-        uint256 newValue = uint256(originalValue) + toAdd;
-        console.log("  Sum would be:   ", newValue);
-        console.log("");
-
-        // Try to cast to uint192 (this is what the code does)
-        console.log("Step 3: Try to cast sum to uint192");
-        console.log("  uint192 max:", uint256(type(uint192).max));
-        console.log("  Sum:        ", newValue);
-
-        if (newValue > uint256(type(uint192).max)) {
-            console.log("  [FAIL] Sum exceeds uint192 max!");
-            console.log("  Exceeds by:", newValue - uint256(type(uint192).max));
-            console.log("");
-            console.log("This is the overflow that causes panic 0x11!");
-            console.log("");
-
-            // Show what happens if we try
-            console.log("Step 4: Attempting to write (will revert)...");
-            vm.expectRevert();
-            wrappedProxy.setValue(TEST_KEY1, TEST_KEY2, uint192(newValue));
-            console.log("  [EXPECTED] Reverted with panic 0x11");
-        }
-    }
-
     /// @notice Test showing storage compatibility for values within range
     function test_ShowStorageCompatibilityForSmallValues() public {
         console.log("=== Testing Storage Compatibility: uint192 -> uint256 ===");

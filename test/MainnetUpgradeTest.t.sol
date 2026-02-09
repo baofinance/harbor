@@ -7,6 +7,7 @@ import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistribu
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @title Mainnet Upgrade Test
@@ -212,8 +213,13 @@ contract MainnetUpgradeTest is Test {
         );
 
         address proxyOwner = IBaoOwnable(STABILITY_POOL).owner();
-        vm.prank(proxyOwner);
+        vm.startPrank(proxyOwner);
         StabilityPool_v2(STABILITY_POOL).upgradeToAndCall(address(newImplementation), "");
+
+        // Grant REWARD_DEPOSITOR_ROLE to our test depositor so depositReward can succeed
+        uint256 depositorRole = IMultipleRewardDistributor(STABILITY_POOL).REWARD_DEPOSITOR_ROLE();
+        IBaoRoles(STABILITY_POOL).grantRoles(rewardDepositor, depositorRole);
+        vm.stopPrank();
 
         console.log("Upgrade completed. Testing user deposit...");
         console.log("");

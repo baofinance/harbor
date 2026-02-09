@@ -189,46 +189,51 @@ abstract contract MultipleRewardCompoundingAccumulator is
         globalIntegral = $.tokenToExponentToIntegral[token][exponent];
     }
 
-    /// @dev Returns per-user reward data with V2-first migration detection.
-    /// Fast path (migrated, integral > 0): 2 SLOADs from V2.
+    /// @dev Returns the full user reward snapshot with V2-first migration detection.
+    /// Centralises all migration logic in one place so callers don't need to know about V1/V2.
+    /// Fast path (migrated, integral > 0): 3 SLOADs from V2.
     /// Rare path (migrated, integral = 0): 3 SLOADs from V2.
     /// Fallback (unmigrated): 2 SLOADs from V1.
-    function _getUserRewardData(
+    function _getUserRewardSnapshot(
         address account,
         address token
-    ) internal view returns (uint128 pending, uint256 checkpointIntegral) {
+    ) internal view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
         // Fast path: check V2 integral (1 SLOAD)
         uint256 v2Integral = $.userRewardSnapshotV2[account][token].integral;
         if (v2Integral != 0) {
-            return ($.userRewardSnapshotV2[account][token].rewards.pending, v2Integral);
+            UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
+            return (v2.timestamp, v2Integral, v2.rewards.pending, v2.rewards.claimed);
         }
 
         // Rare path: V2 integral is 0 — check if V2 is populated via timestamp (2 SLOADs)
-        if ($.userRewardSnapshotV2[account][token].timestamp != 0) {
-            return ($.userRewardSnapshotV2[account][token].rewards.pending, 0);
+        uint64 v2Timestamp = $.userRewardSnapshotV2[account][token].timestamp;
+        if (v2Timestamp != 0) {
+            UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
+            return (v2Timestamp, 0, v2.rewards.pending, v2.rewards.claimed);
         }
 
         // Not migrated: fall back to V1 (2 SLOADs from different mapping)
         UserRewardSnapshot storage v1 = $.userRewardSnapshot[account][token];
-        return (v1.rewards.pending, uint256(v1.checkpoint.integral));
+        return (v1.checkpoint.timestamp, uint256(v1.checkpoint.integral), v1.rewards.pending, v1.rewards.claimed);
     }
 
-    /// @dev Returns the user reward timestamp with V2-first fallback.
-    function _getUserRewardTimestamp(address account, address token) internal view returns (uint64) {
+    /// @dev Writes the user reward snapshot to V2 storage. Always writes to V2.
+    function _setUserRewardSnapshot(
+        address account,
+        address token,
+        uint64 timestamp,
+        uint256 integral,
+        uint128 pending,
+        uint128 claimed_
+    ) internal {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        uint64 v2Timestamp = $.userRewardSnapshotV2[account][token].timestamp;
-        if (v2Timestamp != 0) return v2Timestamp;
-        return $.userRewardSnapshot[account][token].checkpoint.timestamp;
-    }
-
-    /// @dev Returns claimed rewards with V2-first fallback.
-    function _getClaimedRewards(address account, address token) internal view returns (uint128) {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        uint128 v2Claimed = $.userRewardSnapshotV2[account][token].rewards.claimed;
-        if (v2Claimed != 0) return v2Claimed;
-        return $.userRewardSnapshot[account][token].rewards.claimed;
+        UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
+        v2.rewards.pending = pending;
+        v2.rewards.claimed = claimed_;
+        v2.timestamp = timestamp;
+        v2.integral = integral;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.MultipleRewardCompoundingAccumulator")) - 1)) & ~bytes32(uint256(0xff))'
@@ -284,7 +289,8 @@ abstract contract MultipleRewardCompoundingAccumulator is
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimed(address account, address token) external view returns (uint256) {
-        return _getClaimedRewards(account, token);
+        (, , , uint128 claimedAmount) = _getUserRewardSnapshot(account, token);
+        return claimedAmount;
     }
 
     /****************************
@@ -398,10 +404,22 @@ abstract contract MultipleRewardCompoundingAccumulator is
         address account,
         address token,
         bool includeTemporalPending
+    ) internal view virtual returns (uint256) {
+        (, uint256 userCheckpointIntegral, uint128 userPending, ) = _getUserRewardSnapshot(account, token);
+        return _claimableFrom(account, token, includeTemporalPending, userCheckpointIntegral, userPending);
+    }
+
+    /// @dev Core claimable calculation that accepts pre-read snapshot data.
+    /// Avoids re-reading the user snapshot when the caller already has it.
+    function _claimableFrom(
+        address account,
+        address token,
+        bool includeTemporalPending,
+        uint256 userCheckpointIntegral,
+        uint128 userPending
     ) internal view virtual returns (uint256 claimable_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
-        (uint128 userPending, uint256 userCheckpointIntegral) = _getUserRewardData(account, token);
         claimable_ = uint256(userPending);
         (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
 
@@ -457,17 +475,19 @@ abstract contract MultipleRewardCompoundingAccumulator is
                 return;
             }
 
-            MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
             (uint128 currentProd, ) = _getTotalPoolShare();
             uint8 exponent = currentProd.exponent();
 
             for (uint256 i = 0; i < totalLength; i++) {
                 address token = (i < activeLength) ? activeTokens[i] : historicalTokens[i - activeLength];
-                UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
-                v2.rewards.pending = uint128(_claimable(account, token, false));
-                v2.rewards.claimed = _getClaimedRewards(account, token);
-                v2.timestamp = uint64(block.timestamp);
-                v2.integral = $.tokenToExponentToIntegral[token][exponent];
+                (, uint256 snapIntegral, uint128 snapPending, uint128 snapClaimed) =
+                    _getUserRewardSnapshot(account, token);
+                uint128 newPending =
+                    uint128(_claimableFrom(account, token, false, snapIntegral, snapPending));
+                _setUserRewardSnapshot(
+                    account, token, uint64(block.timestamp),
+                    _tokenToExponentToIntegral(token, exponent), newPending, snapClaimed
+                );
             }
         }
     }
@@ -498,13 +518,10 @@ abstract contract MultipleRewardCompoundingAccumulator is
     /// @param token The address of reward token.
     /// @param receiver The address of recipient of the reward token.
     function _claimSingle(address account, address token, address receiver) internal virtual returns (uint256) {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        ClaimData memory rewards = $.userRewardSnapshotV2[account][token].rewards;
-        uint256 amount = rewards.pending;
+        (uint64 ts, uint256 integral, uint128 pending, uint128 claimed_) = _getUserRewardSnapshot(account, token);
+        uint256 amount = pending;
         if (amount > 0) {
-            rewards.claimed += rewards.pending;
-            rewards.pending = 0;
-            $.userRewardSnapshotV2[account][token].rewards = rewards;
+            _setUserRewardSnapshot(account, token, ts, integral, 0, claimed_ + pending);
 
             IERC20(token).safeTransfer(receiver, amount);
 
