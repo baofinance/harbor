@@ -129,7 +129,9 @@ abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
                 block.chainid.toString(),
                 '","createdAt":',
                 (block.timestamp * 1000).toString(),
-                ',"meta":{"description":"', description, '"},"transactions":',
+                ',"meta":{"description":"',
+                description,
+                '"},"transactions":',
                 txArray,
                 "}"
             );
