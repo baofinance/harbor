@@ -5,21 +5,13 @@ import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 
 /// @notice Base contract for generating Safe Transaction Builder JSON batches.
-/// @dev Inherit from this contract and override `build()` to specify transactions.
-///
-/// Example:
-/// ```solidity
-/// contract MyBatch is SafeBatchBase {
-///     function build() internal override {
-///         string memory salt = _saltString("BTC", "fxUSD", "minter");
-///         queue(salt, abi.encodeCall(IMinter.updateConfig, (cfg)), "updateConfig(130)");
-///     }
-/// }
-/// ```
+/// @dev Provides queue() helpers and JSON generation. Does not impose a build()/run() pattern.
+/// For the build()/run() pattern, inherit from SafeBatch instead.
 abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
     using LibString for string;
     using LibString for address;
@@ -36,25 +28,6 @@ abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
     }
 
     Transaction[] internal _transactions;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Abstract - Override in derived contracts
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Override to define transactions.
-    function build() internal virtual;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Entry Point
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Main entry point. Run with: forge script <contract> --sig "run(string)" <salt>
-    /// @param salt_ The salt prefix (e.g., "harbor_v1")
-    function run(string memory salt_) public {
-        _setSaltPrefix(salt_);
-        build();
-        console.log(_buildSafeJson());
-    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // DSL: Transaction Building
@@ -116,10 +89,31 @@ abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
     // }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Persistence
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Save queued transactions as a Safe batch JSON file alongside the deployment state.
+    /// @param network Network name (e.g., "mainnet").
+    /// @param name Batch name (e.g., "Deploy_StabilityPool_v2"). Used in filename for identification.
+    function _saveTransactions(string memory network, string memory name) internal {
+        if (_transactions.length == 0) return;
+        string memory path = string.concat(
+            DeploymentState.resolveDirectory(network, ""),
+            "/",
+            name,
+            ".",
+            block.timestamp.toString(),
+            ".safe-batch.json"
+        );
+        vm.writeJson(_buildSafeJson(name), path);
+        console.log("Safe batch saved to: %s", path);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Internal: JSON Generation
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _buildSafeJson() internal view returns (string memory) {
+    function _buildSafeJson(string memory description) internal view returns (string memory) {
         string memory txArray = "[";
         for (uint256 i = 0; i < _transactions.length; i++) {
             if (i > 0) {
@@ -135,7 +129,7 @@ abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
                 block.chainid.toString(),
                 '","createdAt":',
                 (block.timestamp * 1000).toString(),
-                ',"meta":{"description":""},"transactions":',
+                ',"meta":{"description":"', description, '"},"transactions":',
                 txArray,
                 "}"
             );
