@@ -125,7 +125,9 @@ abstract contract DeployMintersShared is
         console.log("  Network: %s", network);
 
         if (deployPeg) {
-            _deployPegWithRoles(state, peg, allMarkets);
+            console.log("");
+            console.log("--- Deploying %s Pegged Token ---", peg.key());
+            deployPeggedTokenWithRoles(state, peg, allMarkets);
         }
 
         for (uint256 i = 0; i < marketsToDeploy.length; i++) {
@@ -138,16 +140,6 @@ abstract contract DeployMintersShared is
         _transferAllOwnerships();
         _saveState(state);
         console.log("=== Minter Deployment Done ===");
-    }
-
-    function _deployPegWithRoles(
-        DeploymentTypes.State memory state,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory allMarkets
-    ) private {
-        console.log("");
-        console.log("--- Deploying %s Pegged Token ---", peg.key());
-        deployPeggedTokenWithRoles(state, peg, allMarkets);
     }
 
     // ========== MINTER INFRASTRUCTURE DEPLOYMENT ==========
@@ -198,25 +190,43 @@ abstract contract DeployMintersShared is
         deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);
     }
 
+    function _extractStabilityPoolConfig(IFullMinterConfig cfg) internal view returns (StabilityPoolConfig memory) {
+        return
+            StabilityPoolConfig({
+                earlyWithdrawalFeeRatio: cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
+                withdrawalDelay: cfg.stabilityPoolWithdrawalDelay(),
+                withdrawalPeriod: cfg.stabilityPoolWithdrawalPeriod(),
+                minTotalAssetSupply: cfg.minTotalSupply(),
+                treasury: treasury()
+            });
+    }
+
     function _deployStabilityPools(
         DeploymentTypes.State memory stateData,
         IFullMinterConfig cfg,
         string memory marketKey
     ) internal {
         address minter = _predictAddress(marketKey, "minter");
-        address leveragedToken = _predictAddress(marketKey, "leveraged");
 
-        StabilityPoolConfig memory spConfig = StabilityPoolConfig({
-            earlyWithdrawalFeeRatio: cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
-            withdrawalDelay: cfg.stabilityPoolWithdrawalDelay(),
-            withdrawalPeriod: cfg.stabilityPoolWithdrawalPeriod(),
-            minTotalAssetSupply: cfg.minTotalSupply(),
-            treasury: treasury()
-        });
+        StabilityPoolConfig memory spConfig = _extractStabilityPoolConfig(cfg);
 
-        deployStabilityPoolCollateral(stateData, marketKey, minter, cfg.wrappedCollateralToken(), spConfig);
+        deployStabilityPool(
+            StabilityPoolCollateral,
+            stateData,
+            marketKey,
+            minter,
+            cfg.wrappedCollateralToken(),
+            spConfig
+        );
 
-        deployStabilityPoolLeveraged(stateData, marketKey, minter, leveragedToken, spConfig);
+        deployStabilityPool(
+            StabilityPoolLeveraged,
+            stateData,
+            marketKey,
+            minter,
+            _predictAddress(marketKey, "leveraged"),
+            spConfig
+        );
     }
 
     function _deployStabilityPoolManager(

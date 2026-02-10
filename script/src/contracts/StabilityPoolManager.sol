@@ -105,26 +105,4 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
         distributor.setDistribution(recipients, shares);
     }
-
-    // ========== ADDRESS PREDICTION ==========
-
-    /// @notice Predict stability pool manager contract address from salt.
-    function predictStabilityPoolManagerAddress(
-        address baoFactoryAddr,
-        string memory saltPrefix,
-        string memory marketKey
-    ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(saltPrefix, "::", marketKey, "::stabilityPoolManager"));
-        return IBaoFactory(baoFactoryAddr).predictAddress(salt);
-    }
-
-    /// @notice Predict SPM fee receiver contract address from salt.
-    function predictSPMFeeReceiverAddress(
-        address baoFactoryAddr,
-        string memory saltPrefix,
-        string memory marketKey
-    ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(saltPrefix, "::", marketKey, "::spmFeeReceiver"));
-        return IBaoFactory(baoFactoryAddr).predictAddress(salt);
-    }
 }
