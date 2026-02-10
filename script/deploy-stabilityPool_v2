@@ -12,16 +12,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<EOF
 Usage:
-  $0 --network <net> --salt <salt> --peg <peg> [--deploy-peg] [--collateral <name>] [--account <name>] [--local]
+  $0 --network <net> --salt <salt> [--account <name>] [--local]
 
 Required:
   --network <net>   Network name from foundry.toml [rpc_endpoints] (e.g., mainnet) but not local.
   --salt <salt>     Salt prefix for CREATE3 deployment (e.g., harbor_v1)
-  --peg <peg>       Which peg to deploy. There must be a corresponding Deploy_<peg>_<network>.s.sol script.
 
 Options:
-  --deploy-peg         Deploy the pegged token (default: false)
-  --collateral <name>  Collateral to deploy (e.g., stETH, fxUSD). Default: "*" (all markets)
   --account <name>     Foundry keystore account name (required for non-local)
   --local              Use local anvil (auto-impersonate, state in local directory)
   --timestamp          Add timestamp to local state directory (requires --local)
@@ -29,17 +26,12 @@ Options:
 EOF
 }
 
-# Common argument parsing for deployment scripts
-# Sets: NETWORK, SALT, ACCOUNT, USE_LOCAL, USE_TIMESTAMP, PEG, DEPLOY_PEG
 NETWORK=""
 SALT=""
 USE_LOCAL=false
 USE_TIMESTAMP=false
 FORGE_ARGS=()
 ACCOUNT=""
-PEG=""
-DEPLOY_PEG=false
-COLLATERAL="*"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -62,18 +54,6 @@ while [[ $# -gt 0 ]]; do
     --timestamp)
       USE_TIMESTAMP=true
       shift
-      ;;
-    --peg)
-      PEG=$2
-      shift 2
-      ;;
-    --deploy-peg)
-      DEPLOY_PEG=true
-      shift
-      ;;
-    --collateral)
-      COLLATERAL=$2
-      shift 2
       ;;
     --resume)
       FORGE_ARGS+=(--resume)
@@ -102,10 +82,6 @@ done
 }
 [[ -n "$SALT" ]] || {
   echo "❌ --salt required" >&2
-  exit 1
-}
-[[ -n "$PEG" ]] || {
-  echo "❌ --peg required" >&2
   exit 1
 }
 [[ "$USE_LOCAL" == true || -n "$ACCOUNT" ]] || {
@@ -147,17 +123,13 @@ FORGE_ARGS+=(--broadcast --slow) # leaving out the --slow arg means it is unreli
 FORGE_ARGS+=(--ffi)              # needed for reliable state file saving
 [[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--verify)
 
-PEG_UPPER=$(echo "$PEG" | tr '[:lower:]' '[:upper:]')
-SCRIPT_PATH="script/Deploy_${PEG_UPPER}_${NETWORK}.s.sol:Deploy_${PEG_UPPER}_${NETWORK}"
+SCRIPT_PATH="script/Deploy_StabilityPool_v2.s.sol:Deploy_StabilityPool_v2_${NETWORK}"
 
 echo "======================================================"
-echo "DEPLOYING MINTERS"
+echo "DEPLOYING STABILITY POOL V2"
 echo "======================================================"
 echo "Salt:       $SALT"
 echo "Network:    $NETWORK"
-echo "Peg:        $PEG"
-echo "Deploy peg: $DEPLOY_PEG"
-echo "Collateral: $COLLATERAL"
 echo "rpc-url:    $RPC_URL"
 echo "script:     $SCRIPT_PATH"
 echo "forge args: ${FORGE_ARGS[*]}"
@@ -165,7 +137,7 @@ echo "forge args: ${FORGE_ARGS[*]}"
 START_TIME=$(date +%s)
 
 forge script "$SCRIPT_PATH" \
-  --sig 'run(string,string,bool,string)' "$SALT" "$NETWORK" "$DEPLOY_PEG" "$COLLATERAL" \
+  --sig 'run(string,string)' "$SALT" "$NETWORK" \
   "${FORGE_ARGS[@]}"
 
 END_TIME=$(date +%s)

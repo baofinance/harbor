@@ -108,6 +108,7 @@ abstract contract DeployMintersShared is
         _setSaltPrefix(saltPrefix);
 
         // Load or seed state
+        // TODO: tidy up the baoFactory part - it is always baoFactory()
         DeploymentTypes.State memory state = _shouldPersistState()
             ? DeploymentState.load(network, saltPrefix, "")
             : DeploymentTypes.State({
@@ -190,17 +191,6 @@ abstract contract DeployMintersShared is
         deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);
     }
 
-    function _extractStabilityPoolConfig(IFullMinterConfig cfg) internal view returns (StabilityPoolConfig memory) {
-        return
-            StabilityPoolConfig({
-                earlyWithdrawalFeeRatio: cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
-                withdrawalDelay: cfg.stabilityPoolWithdrawalDelay(),
-                withdrawalPeriod: cfg.stabilityPoolWithdrawalPeriod(),
-                minTotalAssetSupply: cfg.minTotalSupply(),
-                treasury: treasury()
-            });
-    }
-
     function _deployStabilityPools(
         DeploymentTypes.State memory stateData,
         IFullMinterConfig cfg,
@@ -208,15 +198,13 @@ abstract contract DeployMintersShared is
     ) internal {
         address minter = _predictAddress(marketKey, "minter");
 
-        StabilityPoolConfig memory spConfig = _extractStabilityPoolConfig(cfg);
-
         deployStabilityPool(
             StabilityPoolCollateral,
             stateData,
             marketKey,
             minter,
             cfg.wrappedCollateralToken(),
-            spConfig
+            address(cfg)
         );
 
         deployStabilityPool(
@@ -225,7 +213,7 @@ abstract contract DeployMintersShared is
             marketKey,
             minter,
             _predictAddress(marketKey, "leveraged"),
-            spConfig
+            address(cfg)
         );
     }
 
@@ -290,9 +278,5 @@ abstract contract DeployMintersShared is
                 feeReceiver: treasury()
             })
         );
-    }
-
-    function _shouldPersistState() internal pure virtual override returns (bool) {
-        return true;
     }
 }
