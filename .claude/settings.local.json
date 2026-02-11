@@ -15,7 +15,8 @@
       "Bash(find:*)",
       "Bash(yarn coverage:*)",
       "Bash(git ls-tree:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(python3:*)"
     ]
   }
 }
