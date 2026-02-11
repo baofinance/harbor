@@ -137,7 +137,7 @@ echo "forge args: ${FORGE_ARGS[*]}"
 START_TIME=$(date +%s)
 
 forge script "$SCRIPT_PATH" \
-  --sig 'run(string,string)' "$SALT" "$NETWORK" \
+  --sig 'run(string,string,bool)' "$SALT" "$NETWORK" "$USE_LOCAL" \
   "${FORGE_ARGS[@]}"
 
 END_TIME=$(date +%s)

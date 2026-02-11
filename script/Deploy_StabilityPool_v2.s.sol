@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
+import {console2 as console} from "forge-std/console2.sol";
 
 import {LibString} from "@solady/utils/LibString.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
@@ -22,6 +23,7 @@ import {ConfigCollateral_fxUSD_mainnet} from "script/config/collaterals/ConfigCo
 
 import {ConfigStabilityPool} from "script/config/stabilitypool/ConfigStabilityPool.sol";
 import {SafeBatchBase} from "script/safe/SafeBatchBase.s.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 // TODO: put this in a file and have everything share it (or break it up or something)
 interface IFullMinterConfig {
@@ -72,7 +74,10 @@ contract Deploy_StabilityPool_v2_mainnet is Script, SafeBatchBase, Deploy_GOLD_M
 
     /// @param saltPrefix System salt for CREATE3 deployment (e.g., "harbor_v1").
     /// @param network Network name (e.g., "mainnet", "arbitrum").
-    function run(string memory saltPrefix, string memory network) external {
+    /// @param executeLocal When true, execute upgrade transactions directly against
+    ///        local anvil (requires --auto-impersonate). When false, generate Safe
+    ///        batch JSON for multisig execution.
+    function run(string memory saltPrefix, string memory network, bool executeLocal) external {
         _setSaltPrefix(saltPrefix);
         DeploymentTypes.State memory state = DeploymentState.load(network, saltPrefix);
         state.baoFactory = baoFactory();
@@ -88,6 +93,19 @@ contract Deploy_StabilityPool_v2_mainnet is Script, SafeBatchBase, Deploy_GOLD_M
         vm.stopBroadcast();
 
         _saveState(state);
-        _saveTransactions(network, "Deploy_StabilityPool_v2");
+
+        if (executeLocal) {
+            address owner = IBaoOwnable(_transactions[0].target).owner();
+            for (uint i = 0; i < _transactions.length; i++) {
+                console.log("Executing upgrade:", _transactions[i].description);
+                vm.prank(owner);
+                (bool ok, bytes memory ret) = _transactions[i].target.call(_transactions[i].data);
+                if (!ok) {
+                    assembly { revert(add(ret, 32), mload(ret)) }
+                }
+            }
+        } else {
+            _saveTransactions(network, "Deploy_StabilityPool_v2");
+        }
     }
 }

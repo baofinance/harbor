@@ -7,6 +7,7 @@ are NOT part of CI -- run them manually during the upgrade deployment workflow.
 ## Output
 
 Each run produces two files in `tmp/`:
+
 - `{version}_pre.json` -- state snapshot before any interactions
 - `{version}_post.json` -- interaction results + state snapshot after interactions
 
@@ -14,8 +15,10 @@ Each run produces two files in `tmp/`:
 
 ### 1. Start anvil fork and capture v1 state
 
+A good block number would be 24433566, just before the actual deploy and upgrade
+
 ```bash
-anvil -f mainnet --fork-block-number <BLOCK>
+anvil -f mainnet --fork-block-number <BLOCK> --auto-impersonate
 ```
 
 Note the block number from anvil's output -- you'll need it for step 3.
@@ -25,7 +28,7 @@ In a separate terminal:
 ```bash
 VERSION=v1 forge test \
   --match-path script/test/MainnetForkUpgradeTest.t.sol \
-  --fork-url http://localhost:8545 -vvv
+  --fork-url local -vvv
 ```
 
 Output: `tmp/v1_pre.json` and `tmp/v1_post.json`
@@ -35,7 +38,7 @@ Stop anvil (Ctrl+C).
 ### 2. Start fresh anvil fork and deploy the upgrade
 
 ```bash
-anvil -f mainnet --fork-block-number <SAME BLOCK AS STEP 1>
+anvil -f mainnet --fork-block-number <SAME BLOCK AS STEP 1> --auto-impersonate
 ```
 
 Deploy the upgrade against the local fork:
@@ -49,7 +52,7 @@ Deploy the upgrade against the local fork:
 ```bash
 VERSION=v2 forge test \
   --match-path script/test/MainnetForkUpgradeTest.t.sol \
-  --fork-url http://localhost:8545 -vvv
+  --fork-url local -vvv
 ```
 
 Output: `tmp/v2_pre.json` and `tmp/v2_post.json`
@@ -78,26 +81,53 @@ jq --sort-keys . tmp/v2_post.json > /tmp/v2_post.json
 diff --color /tmp/v1_post.json /tmp/v2_post.json
 ```
 
+## Environment variables
+
+| Variable      | Default | Description                                                    |
+| ------------- | ------- | -------------------------------------------------------------- |
+| `VERSION`     | `v1`    | Labels the output files (`v1` or `v2`)                         |
+| `POOL_FILTER` | (none)  | Substring filter on pool labels -- only matching pools run     |
+
+`POOL_FILTER` examples:
+
+```bash
+# Only BTC pools
+POOL_FILTER=BTC VERSION=v1 forge test ...
+
+# Only collateral pools
+POOL_FILTER=_col VERSION=v1 forge test ...
+
+# Single pool
+POOL_FILTER=GOLD_fxUSD_lev VERSION=v1 forge test ...
+```
+
+Pool labels: `BTC_fxUSD_col`, `BTC_fxUSD_lev`, `BTC_stETH_col`, `BTC_stETH_lev`,
+`ETH_fxUSD_col`, `ETH_fxUSD_lev`, `EUR_fxUSD_col`, `EUR_fxUSD_lev`,
+`EUR_stETH_col`, `EUR_stETH_lev`, `GOLD_fxUSD_col`, `GOLD_fxUSD_lev`,
+`GOLD_stETH_col`, `GOLD_stETH_lev`, `MCAP_fxUSD_col`, `MCAP_fxUSD_lev`,
+`MCAP_stETH_col`, `MCAP_stETH_lev`, `SILVER_fxUSD_col`, `SILVER_fxUSD_lev`,
+`SILVER_stETH_col`, `SILVER_stETH_lev`
+
 ## Expected differences
 
 ### Pre files (`v1_pre.json` vs `v2_pre.json`)
 
-| Key | v1 | v2 | Meaning |
-|-----|----|----|---------|
-| `version` | `"v1"` | `"v2"` | Test metadata |
+| Key                            | v1        | v2       | Meaning                                          |
+| ------------------------------ | --------- | -------- | ------------------------------------------------ |
+| `version`                      | `"v1"`    | `"v2"`   | Test metadata                                    |
 | `*_reward_*_pendingRewards_ok` | `"false"` | `"true"` | pendingRewards no longer reverts on broken pools |
 
 Everything else should be **identical** -- proves the upgrade preserves all state.
 
 ### Post files (`v1_post.json` vs `v2_post.json`)
 
-| Key | v1 | v2 | Meaning |
-|-----|----|----|---------|
-| `version` | `"v1"` | `"v2"` | Test metadata |
-| `*_interact_deposit_success` | `"false"` | `"true"` | Broken pools now accept deposits |
-| `*_interact_depositReward_success` | `"false"` | `"true"` | Broken pools now accept rewards |
-| `*_interact_withdraw_success` | `"false"` | `"true"` | Broken pools now allow withdrawals |
-| post-interaction state | differs | differs | State for newly-fixed pools reflects successful interactions |
+| Key                                | v1        | v2       | Meaning                                                      |
+| ---------------------------------- | --------- | -------- | ------------------------------------------------------------ |
+| `version`                          | `"v1"`    | `"v2"`   | Test metadata                                                |
+| `*_interact_deposit_success`       | `"false"` | `"true"` | Broken pools now accept deposits                             |
+| `*_interact_depositReward_success` | `"false"` | `"true"` | Broken pools now accept rewards                              |
+| `*_interact_withdraw_success`      | `"false"` | `"true"` | Broken pools now allow withdrawals                           |
+| post-interaction state             | differs   | differs  | State for newly-fixed pools reflects successful interactions |
 
 ## Adding depositors
 
