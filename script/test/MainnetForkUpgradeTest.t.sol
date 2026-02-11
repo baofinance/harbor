@@ -15,9 +15,9 @@ import {LibString} from "@solady/utils/LibString.sol";
 /// and diff the output files to verify the upgrade preserves all state and behavior.
 /// @dev NOT part of CI -- run manually via the workflow in script/test/README.md
 ///
-/// Produces two files per run:
-///   tmp/{version}_pre.json  -- state snapshot before any interactions
-///   tmp/{version}_post.json -- interaction results + state snapshot after interactions
+/// Produces per-pool files in:
+///   tmp/{version}/pre/{label}.json  -- state snapshot before any interactions
+///   tmp/{version}/post/{label}.json -- interaction results + state snapshot after
 contract MainnetForkUpgradeTest is Test {
     using LibString for string;
 
@@ -27,7 +27,7 @@ contract MainnetForkUpgradeTest is Test {
         string label;
     }
 
-    /// @dev Mutable JSON object key -- switched between "pre" and "post" phases
+    /// @dev Mutable JSON object key -- unique per pool per phase (e.g., "pre_0", "post_3")
     string private _jsonKey;
 
     PoolConfig[] pools;
@@ -579,53 +579,77 @@ contract MainnetForkUpgradeTest is Test {
 
     /// @notice Capture all view function results and interaction outcomes to JSON files.
     /// @dev Run with VERSION=v1 or VERSION=v2 environment variable.
-    /// Produces two files: tmp/{version}_pre.json and tmp/{version}_post.json
+    /// Writes one file per pool: tmp/{version}/pre/{label}.json and tmp/{version}/post/{label}.json
+    /// Compare with: meld tmp/v1/pre tmp/v2/pre
     function test_captureState() public {
         string memory version = vm.envOr("VERSION", string("v1"));
         string memory poolFilter = vm.envOr("POOL_FILTER", string(""));
 
-        // ================================================================
-        // PRE FILE: state snapshot before any interactions
-        // ================================================================
-        _jsonKey = "pre";
-        _serializeHeader(version);
+        string memory preDir = string.concat("tmp/", version, "/pre");
+        string memory postDir = string.concat("tmp/", version, "/post");
+        vm.createDir(preDir, true);
+        vm.createDir(postDir, true);
+
         uint256 activeCount = 0;
+
+        // ================================================================
+        // PRE FILES: state snapshot before any interactions (one per pool)
+        // ================================================================
         for (uint256 i = 0; i < pools.length; i++) {
             if (bytes(poolFilter).length > 0 && !pools[i].label.contains(poolFilter)) continue;
             activeCount++;
-            vm.serializeString(_jsonKey, string.concat(pools[i].label, "_proxy"), vm.toString(pools[i].proxy));
-            _serializePoolState(pools[i].proxy, poolDepositors[pools[i].proxy], pools[i].label);
+
+            _jsonKey = string.concat("pre_", vm.toString(i));
+            _serializeHeader(version);
+            vm.serializeString(_jsonKey, "proxy", vm.toString(pools[i].proxy));
+            vm.serializeString(_jsonKey, "minter", vm.toString(pools[i].minter));
+            vm.serializeString(_jsonKey, "label", pools[i].label);
+            _serializePoolState(pools[i].proxy, poolDepositors[pools[i].proxy], "state");
+
+            vm.writeJson(
+                vm.serializeString(_jsonKey, "_complete", "true"),
+                string.concat(preDir, "/", pools[i].label, ".json")
+            );
+            console.log("Pre:", pools[i].label);
         }
-        vm.writeJson(vm.serializeString(_jsonKey, "_complete", "true"), string.concat("tmp/", version, "_pre.json"));
-        console.log("Pre-interaction state:", string.concat("tmp/", version, "_pre.json"));
 
         // ================================================================
         // INTERACTIONS: deposit, depositReward, warp, claim, withdraw
-        // (serialized into the "post" JSON object below)
+        // (serialized into per-pool "post_N" JSON objects)
         // ================================================================
-        _jsonKey = "post";
-        _serializeHeader(version);
         for (uint256 i = 0; i < pools.length; i++) {
             if (bytes(poolFilter).length > 0 && !pools[i].label.contains(poolFilter)) continue;
-            _doInteractions(pools[i].proxy, string.concat(pools[i].label, "_interact"));
+
+            _jsonKey = string.concat("post_", vm.toString(i));
+            _serializeHeader(version);
+            vm.serializeString(_jsonKey, "proxy", vm.toString(pools[i].proxy));
+            vm.serializeString(_jsonKey, "minter", vm.toString(pools[i].minter));
+            vm.serializeString(_jsonKey, "label", pools[i].label);
+            _doInteractions(pools[i].proxy, "interact");
         }
 
         // ================================================================
-        // POST FILE: interaction results + state after interactions
+        // POST FILES: interaction results + state after interactions (one per pool)
         // ================================================================
         for (uint256 i = 0; i < pools.length; i++) {
             if (bytes(poolFilter).length > 0 && !pools[i].label.contains(poolFilter)) continue;
+
+            _jsonKey = string.concat("post_", vm.toString(i));
             address[] memory depositors = poolDepositors[pools[i].proxy];
             address[] memory postDepositors = new address[](depositors.length + 1);
             for (uint256 j = 0; j < depositors.length; j++) {
                 postDepositors[j] = depositors[j];
             }
             postDepositors[depositors.length] = testUser;
-            vm.serializeString(_jsonKey, string.concat(pools[i].label, "_proxy"), vm.toString(pools[i].proxy));
-            _serializePoolState(pools[i].proxy, postDepositors, pools[i].label);
+            _serializePoolState(pools[i].proxy, postDepositors, "state");
+
+            vm.writeJson(
+                vm.serializeString(_jsonKey, "_complete", "true"),
+                string.concat(postDir, "/", pools[i].label, ".json")
+            );
+            console.log("Post:", pools[i].label);
         }
-        vm.writeJson(vm.serializeString(_jsonKey, "_complete", "true"), string.concat("tmp/", version, "_post.json"));
-        console.log("Post-interaction state:", string.concat("tmp/", version, "_post.json"));
+
         console.log("Pool count:", activeCount);
     }
 }

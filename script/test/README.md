@@ -6,10 +6,12 @@ are NOT part of CI -- run them manually during the upgrade deployment workflow.
 
 ## Output
 
-Each run produces two files in `tmp/`:
+Each run produces one JSON file per pool in two directories:
 
-- `{version}_pre.json` -- state snapshot before any interactions
-- `{version}_post.json` -- interaction results + state snapshot after interactions
+```
+tmp/{version}/pre/{label}.json   -- state snapshot before any interactions
+tmp/{version}/post/{label}.json  -- interaction results + state snapshot after
+```
 
 ## Workflow
 
@@ -31,7 +33,7 @@ VERSION=v1 forge test \
   --fork-url local -vvv
 ```
 
-Output: `tmp/v1_pre.json` and `tmp/v1_post.json`
+Output: `tmp/v1/pre/*.json` and `tmp/v1/post/*.json`
 
 Stop anvil (Ctrl+C).
 
@@ -55,37 +57,42 @@ VERSION=v2 forge test \
   --fork-url local -vvv
 ```
 
-Output: `tmp/v2_pre.json` and `tmp/v2_post.json`
+Output: `tmp/v2/pre/*.json` and `tmp/v2/post/*.json`
 
 Stop anvil.
 
 ### 4. Compare
 
+Using meld (recommended -- shows all pools side by side):
+
 ```bash
 # State before interactions -- should be identical
-diff tmp/v1_pre.json tmp/v2_pre.json
+meld tmp/v1/pre tmp/v2/pre
 
 # Interactions + post-interaction state -- broken pools now work
-diff tmp/v1_post.json tmp/v2_post.json
+meld tmp/v1/post tmp/v2/post
 ```
 
-For a more readable diff:
+Using diff:
 
 ```bash
-jq --sort-keys . tmp/v1_pre.json > /tmp/v1_pre.json
-jq --sort-keys . tmp/v2_pre.json > /tmp/v2_pre.json
-diff --color /tmp/v1_pre.json /tmp/v2_pre.json
+diff -ru tmp/v1/pre tmp/v2/pre
+diff -ru tmp/v1/post tmp/v2/post
+```
 
-jq --sort-keys . tmp/v1_post.json > /tmp/v1_post.json
-jq --sort-keys . tmp/v2_post.json > /tmp/v2_post.json
-diff --color /tmp/v1_post.json /tmp/v2_post.json
+Single pool with sorted keys:
+
+```bash
+jq --sort-keys . tmp/v1/pre/BTC_fxUSD_col.json > /tmp/v1.json
+jq --sort-keys . tmp/v2/pre/BTC_fxUSD_col.json > /tmp/v2.json
+diff --color /tmp/v1.json /tmp/v2.json
 ```
 
 ## Environment variables
 
 | Variable      | Default | Description                                                    |
 | ------------- | ------- | -------------------------------------------------------------- |
-| `VERSION`     | `v1`    | Labels the output files (`v1` or `v2`)                         |
+| `VERSION`     | `v1`    | Labels the output directories (`v1` or `v2`)                   |
 | `POOL_FILTER` | (none)  | Substring filter on pool labels -- only matching pools run     |
 
 `POOL_FILTER` examples:
@@ -110,24 +117,24 @@ Pool labels: `BTC_fxUSD_col`, `BTC_fxUSD_lev`, `BTC_stETH_col`, `BTC_stETH_lev`,
 
 ## Expected differences
 
-### Pre files (`v1_pre.json` vs `v2_pre.json`)
+### Pre files (`v1/pre/*.json` vs `v2/pre/*.json`)
 
-| Key                            | v1        | v2       | Meaning                                          |
-| ------------------------------ | --------- | -------- | ------------------------------------------------ |
-| `version`                      | `"v1"`    | `"v2"`   | Test metadata                                    |
-| `*_reward_*_pendingRewards_ok` | `"false"` | `"true"` | pendingRewards no longer reverts on broken pools |
+| Key                               | v1        | v2       | Meaning                                          |
+| --------------------------------- | --------- | -------- | ------------------------------------------------ |
+| `version`                         | `"v1"`    | `"v2"`   | Test metadata                                    |
+| `state_reward_*_pendingRewards_ok` | `"false"` | `"true"` | pendingRewards no longer reverts on broken pools |
 
 Everything else should be **identical** -- proves the upgrade preserves all state.
 
-### Post files (`v1_post.json` vs `v2_post.json`)
+### Post files (`v1/post/*.json` vs `v2/post/*.json`)
 
-| Key                                | v1        | v2       | Meaning                                                      |
-| ---------------------------------- | --------- | -------- | ------------------------------------------------------------ |
-| `version`                          | `"v1"`    | `"v2"`   | Test metadata                                                |
-| `*_interact_deposit_success`       | `"false"` | `"true"` | Broken pools now accept deposits                             |
-| `*_interact_depositReward_success` | `"false"` | `"true"` | Broken pools now accept rewards                              |
-| `*_interact_withdraw_success`      | `"false"` | `"true"` | Broken pools now allow withdrawals                           |
-| post-interaction state             | differs   | differs  | State for newly-fixed pools reflects successful interactions |
+| Key                                   | v1        | v2       | Meaning                                                      |
+| ------------------------------------- | --------- | -------- | ------------------------------------------------------------ |
+| `version`                             | `"v1"`    | `"v2"`   | Test metadata                                                |
+| `interact_deposit_success`            | `"false"` | `"true"` | Broken pools now accept deposits                             |
+| `interact_depositReward_success`      | `"false"` | `"true"` | Broken pools now accept rewards                              |
+| `interact_withdraw_success`           | `"false"` | `"true"` | Broken pools now allow withdrawals                           |
+| post-interaction state                | differs   | differs  | State for newly-fixed pools reflects successful interactions |
 
 ## Adding depositors
 
