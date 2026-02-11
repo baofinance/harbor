@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+
+cd "$PROJECT_ROOT"
+
+# ── Configuration ──────────────────────────────────────────────────────────────
+
+BLOCK=24433566  # just before the actual deploy and upgrade
+POOL_FILTER="${POOL_FILTER:-}"
+FORGE_VERBOSITY="${FORGE_VERBOSITY:--vvv}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --include)
+      POOL_FILTER="$2"
+      shift 2
+      ;;
+    -h | --help)
+      echo "Usage: $(basename "$0") [--include <filter>]"
+      echo ""
+      echo "Options:"
+      echo "  --include <filter>  Substring filter on pool labels (e.g., BTC, _col, GOLD_fxUSD_lev)"
+      echo ""
+      echo "Environment variables:"
+      echo "  POOL_FILTER         Same as --include (--include takes precedence)"
+      echo "  FORGE_VERBOSITY     Forge verbosity flag (default: -vvv)"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Usage: $(basename "$0") [--include <filter>]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+prompt() {
+  local msg="$1"
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "$msg"
+  echo "──────────────────────────────────────────────────────────────"
+  read -rn1 -p "Ready? [Y/n] " response
+  echo ""
+  if [[ "$response" =~ ^[Nn]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+}
+
+run_capture() {
+  local version="$1"
+  local env_args=(
+    START_TIMESTAMP="$START_TIMESTAMP"
+    VERSION="$version"
+  )
+  if [[ -n "$POOL_FILTER" ]]; then
+    env_args+=(POOL_FILTER="$POOL_FILTER")
+  fi
+
+  echo ""
+  echo "Running $version capture..."
+  env "${env_args[@]}" forge test \
+    --match-path script/test/MainnetForkUpgradeTest.t.sol \
+    --fork-url local $FORGE_VERBOSITY
+  echo ""
+  echo "$version capture complete. Files in tmp/$version/"
+}
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+echo "======================================================================"
+echo "  StabilityPool v2 Upgrade Verification"
+echo "======================================================================"
+echo ""
+echo "Fork block:  $BLOCK"
+if [[ -n "$POOL_FILTER" ]]; then
+  echo "Pool filter: $POOL_FILTER"
+fi
+
+# Compute START_TIMESTAMP from the fork block
+echo ""
+echo "Computing START_TIMESTAMP from block $BLOCK..."
+TS=$(cast block --rpc-url mainnet "$BLOCK" -f timestamp)
+START_TIMESTAMP=$((TS + 12000))
+echo "Fork block timestamp: $TS"
+echo "START_TIMESTAMP:      $START_TIMESTAMP  (+12000s buffer)"
+
+# ── Step 1: v1 capture ────────────────────────────────────────────────────────
+
+prompt "Start anvil fork:  script/anvil --block upgrade"
+
+run_capture v1
+
+# ── Step 2: Deploy upgrade ────────────────────────────────────────────────────
+
+prompt "Cycle anvil (Ctrl+C, then:  script/anvil --block upgrade)"
+
+echo ""
+echo "Deploying StabilityPool v2 upgrade..."
+./script/deploy-stabilityPool_v2 --network mainnet --salt harbor_v1 --local
+
+# ── Step 3: v2 capture (same anvil instance) ──────────────────────────────────
+
+run_capture v2
+
+# ── Step 4: Compare ──────────────────────────────────────────────────────────
+
+echo ""
+echo "======================================================================"
+echo "  Comparison"
+echo "======================================================================"
+echo ""
+
+if command -v meld >/dev/null 2>&1; then
+  echo "Opening meld (v1 vs v2)..."
+  meld tmp/v1 tmp/v2
+else
+  echo "meld not found -- using diff:"
+  echo ""
+  echo "--- Pre-interaction (should be identical) ---"
+  diff -ru tmp/v1/pre tmp/v2/pre || true
+  echo ""
+  echo "--- Post-interaction (broken pools now work) ---"
+  diff -ru tmp/v1/post tmp/v2/post || true
+fi
+
+echo ""
+echo "Done. See script/test/README.md for expected differences."

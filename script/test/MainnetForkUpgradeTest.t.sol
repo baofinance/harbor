@@ -309,17 +309,14 @@ contract MainnetForkUpgradeTest is Test {
     // HELPERS (called many times across pools/phases)
     // ========================================================================
 
-    /// @dev Serialize a uint256 as both decimal and 32-byte hex (full bit pattern).
+    /// @dev Serialize a uint256 as a decimal string.
     function _serializeUint(string memory key, uint256 value) internal {
         vm.serializeString(_jsonKey, key, vm.toString(value));
-        vm.serializeString(_jsonKey, string.concat(key, "_hex"), vm.toString(bytes32(value)));
     }
 
     /// @dev Serialize metadata and field descriptions into the current JSON object.
     /// Called twice: once for the pre file and once for the post file.
-    function _serializeHeader(string memory version) internal {
-        vm.serializeString(_jsonKey, "version", version);
-        _serializeUint("block_number", block.number);
+    function _serializeHeader(string memory /*version*/) internal {
         _serializeUint("block_timestamp", block.timestamp);
 
         vm.serializeString(_jsonKey, "desc_totalAssetSupply", "Total deposited assets in pool (wei)");
@@ -340,7 +337,6 @@ contract MainnetForkUpgradeTest is Test {
             "desc_pendingRewards_ok",
             "Whether pendingRewards() succeeded (false = broken pool)"
         );
-        vm.serializeString(_jsonKey, "desc_hex", "Full 32-byte bit pattern of the value");
     }
 
     /// @dev Serialize reward token data for one token. Called per-token per-pool per-phase.
@@ -584,6 +580,21 @@ contract MainnetForkUpgradeTest is Test {
     function test_captureState() public {
         string memory version = vm.envOr("VERSION", string("v1"));
         string memory poolFilter = vm.envOr("POOL_FILTER", string(""));
+
+        // Normalize timestamp so v1 and v2 runs start from the same point.
+        // The v2 run has extra blocks from the deployment, which shifts
+        // block.timestamp and causes timing-sensitive values (reward accrual) to differ.
+        // Roll one block forward then warp to the target timestamp.
+        {
+            uint256 startTimestamp = vm.envOr("START_TIMESTAMP", uint256(0));
+            console.log("Current block:", block.number, "timestamp:", block.timestamp);
+            if (startTimestamp > 0) {
+                require(startTimestamp >= block.timestamp, "START_TIMESTAMP is in the past");
+                vm.roll(block.number + 1);
+                vm.warp(startTimestamp);
+            }
+            console.log("Normalized block:", block.number, "timestamp:", block.timestamp);
+        }
 
         string memory preDir = string.concat("tmp/", version, "/pre");
         string memory postDir = string.concat("tmp/", version, "/post");

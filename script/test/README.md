@@ -13,22 +13,51 @@ tmp/{version}/pre/{label}.json   -- state snapshot before any interactions
 tmp/{version}/post/{label}.json  -- interaction results + state snapshot after
 ```
 
-## Workflow
+## Quick start (automated)
+
+The `run-upgrade-test` script orchestrates the full workflow. It prompts you to
+start and stop anvil manually between steps:
+
+```bash
+script/test/run-upgrade-test
+```
+
+It will:
+1. Compute `START_TIMESTAMP` from the fork block
+2. Prompt you to start anvil, then capture v1 state
+3. Prompt you to restart anvil, then deploy the upgrade and capture v2 state
+4. Open meld (or diff) to compare the results
+
+Optional environment variables:
+
+```bash
+# Only test BTC pools
+POOL_FILTER=BTC script/test/run-upgrade-test
+
+# Less verbose forge output
+FORGE_VERBOSITY=-vv script/test/run-upgrade-test
+```
+
+## Manual workflow
 
 ### 1. Start anvil fork and capture v1 state
 
-A good block number would be 24433566, just before the actual deploy and upgrade
-
 ```bash
-anvil -f mainnet --fork-block-number <BLOCK> --auto-impersonate
+script/anvil --block upgrade
 ```
 
-Note the block number from anvil's output -- you'll need it for step 3.
+Compute normalized starting timestamp (use same value for both runs):
+
+```bash
+BLOCK=24433566
+TS=$(cast block --rpc-url local $BLOCK -f timestamp)
+export START_TIMESTAMP=$((TS + 12000))
+```
 
 In a separate terminal:
 
 ```bash
-VERSION=v1 forge test \
+START_TIMESTAMP=$START_TIMESTAMP VERSION=v1 forge test \
   --match-path script/test/MainnetForkUpgradeTest.t.sol \
   --fork-url local -vvv
 ```
@@ -40,7 +69,7 @@ Stop anvil (Ctrl+C).
 ### 2. Start fresh anvil fork and deploy the upgrade
 
 ```bash
-anvil -f mainnet --fork-block-number <SAME BLOCK AS STEP 1> --auto-impersonate
+script/anvil --block upgrade
 ```
 
 Deploy the upgrade against the local fork:
@@ -52,7 +81,7 @@ Deploy the upgrade against the local fork:
 ### 3. Capture v2 state (same anvil instance, post-upgrade)
 
 ```bash
-VERSION=v2 forge test \
+START_TIMESTAMP=$START_TIMESTAMP VERSION=v2 forge test \
   --match-path script/test/MainnetForkUpgradeTest.t.sol \
   --fork-url local -vvv
 ```
@@ -90,10 +119,22 @@ diff --color /tmp/v1.json /tmp/v2.json
 
 ## Environment variables
 
-| Variable      | Default | Description                                                    |
-| ------------- | ------- | -------------------------------------------------------------- |
-| `VERSION`     | `v1`    | Labels the output directories (`v1` or `v2`)                   |
-| `POOL_FILTER` | (none)  | Substring filter on pool labels -- only matching pools run     |
+| Variable          | Default        | Description                                                |
+| ----------------- | -------------- | ---------------------------------------------------------- |
+| `VERSION`         | `v1`           | Labels the output directories (`v1` or `v2`)               |
+| `POOL_FILTER`     | (none)         | Substring filter on pool labels -- only matching pools run |
+| `START_TIMESTAMP` | (current)      | Normalize to this timestamp (use same value for v1/v2)     |
+
+`START_TIMESTAMP` eliminates diffs caused by the v2 deployment adding blocks
+(and therefore advancing `block.timestamp`) on anvil. The test rolls one block
+forward then warps to the target timestamp. Pick a value above the fork block's
+timestamp and pass the same one to both runs:
+
+```bash
+BLOCK=24433566
+TS=$(cast block --rpc-url mainnet $BLOCK -f timestamp)
+START_TIMESTAMP=$((TS + 12000)) VERSION=v1 forge test ...
+```
 
 `POOL_FILTER` examples:
 
