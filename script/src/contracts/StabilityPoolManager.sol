@@ -33,7 +33,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
         address treasury,
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
-    ) internal returns (address proxy) {
+    ) internal virtual returns (address proxy) {
         string memory spmKey = string.concat(marketKey, "::stabilityPoolManager");
         console.log("    > %s", spmKey);
 

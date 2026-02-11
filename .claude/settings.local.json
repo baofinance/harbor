@@ -13,7 +13,9 @@
       "Bash(forge build:*)",
       "Bash(./script/check_pool_overflow_risk.py:*)",
       "Bash(find:*)",
-      "Bash(yarn coverage:*)"
+      "Bash(yarn coverage:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git add:*)"
     ]
   }
 }

@@ -18,7 +18,7 @@
 
 ### bao-minter
 
-[![CI](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/harbor/actions/workflows/test.yml)
+[![CI](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml)
 
 ### bao-base
 
