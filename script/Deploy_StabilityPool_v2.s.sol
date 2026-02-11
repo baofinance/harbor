@@ -7,21 +7,17 @@ import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "script/config/ConfigBase.sol";
+import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {StabilityPool} from "script/src/contracts/StabilityPool.sol";
+
 import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
+import {Deploy_MCAP_Minter} from "script/src/Deploy_MCAP_Minter.sol";
+import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
 
-import {ConfigMarket_BTC_fxUSD_mainnet} from "script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol";
-import {ConfigMarket_BTC_stETH_mainnet} from "script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
-
-import {ConfigPeg_BTC} from "script/config/pegs/ConfigPeg_BTC.sol";
-import {ConfigCollateral_stETH_mainnet} from "script/config/collaterals/ConfigCollateral_stETH_mainnet.sol";
-import {ConfigCollateral_fxUSD_mainnet} from "script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
-
-import {ConfigStabilityPool} from "script/config/stabilitypool/ConfigStabilityPool.sol";
 import {SafeBatchBase} from "script/safe/SafeBatchBase.s.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
@@ -30,8 +26,17 @@ interface IFullMinterConfig {
     function wrappedCollateralToken() external view returns (address);
 }
 
-/// @notice Deploy Harbor BTC pegged token and BTC markets.
-contract Deploy_StabilityPool_v2_mainnet is Script, SafeBatchBase, Deploy_BTC_Minter {
+/// @notice Deploy StabilityPool v2 implementations and queue upgrade transactions for all minters.
+contract Deploy_StabilityPool_v2_mainnet is
+    Script,
+    SafeBatchBase,
+    Deploy_BTC_Minter,
+    Deploy_ETH_Minter,
+    Deploy_EUR_Minter,
+    Deploy_GOLD_Minter,
+    Deploy_MCAP_Minter,
+    Deploy_SILVER_Minter
+{
     using LibString for address;
 
     function _doOneMinter(DeploymentTypes.State memory state, Config_MinterMarket[] memory markets) internal {
@@ -82,13 +87,27 @@ contract Deploy_StabilityPool_v2_mainnet is Script, SafeBatchBase, Deploy_BTC_Mi
         DeploymentTypes.State memory state = DeploymentState.load(network, saltPrefix);
         state.baoFactory = baoFactory();
 
-        // BTC
-        Config_MinterMarket[] memory BTCMarkets;
-        (, BTCMarkets) = createBTCMintersConfig();
+        Config_MinterMarket[] memory markets;
 
         vm.startBroadcast();
 
-        _doOneMinter(state, BTCMarkets);
+        (, markets) = createBTCMintersConfig();
+        _doOneMinter(state, markets);
+
+        (, markets) = createETHMintersConfig();
+        _doOneMinter(state, markets);
+
+        (, markets) = createEURMintersConfig();
+        _doOneMinter(state, markets);
+
+        (, markets) = createGOLDMintersConfig();
+        _doOneMinter(state, markets);
+
+        (, markets) = createMCAPMintersConfig();
+        _doOneMinter(state, markets);
+
+        (, markets) = createSILVERMintersConfig();
+        _doOneMinter(state, markets);
 
         vm.stopBroadcast();
 
