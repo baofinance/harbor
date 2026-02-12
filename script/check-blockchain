@@ -4,24 +4,21 @@ set -euo pipefail
 # Validate Harbor minter deployments against blockchain state
 #
 # This script verifies:
-#   1. All addresses in state file have deployed code
-#   2. Proxies are valid UUPS proxies (have upgradeToAndCall, owner)
-#   3. Proxy owner is the expected treasury address
-#   4. ERC1967 implementation slot matches state file
-#   5. Proxy implementations are NOT the UUPSProxyDeployStub (upgrade completed)
-#   6. All remaining implementations (not in active proxies) also have code
+#   1. Proxy address matches salt prediction from BaoFactory
+#   2. All addresses have deployed code
+#   3. Proxies have ERC1967 implementation slot (UUPS pattern)
+#   4. Proxy owner() returns expected treasury address
+#   5. ERC1967 implementation slot matches state file
+#   6. Implementations are NOT the UUPSProxyDeployStub (upgrade completed)
+#   7. wrappedPriceAggregator is deployed for each market
+#
+# Items are grouped by peg, then by market (peg::collateral).
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
 CAST=cast
 BAO_FACTORY=0xD696E56b3A054734d4C6DCBD32E11a278b0EC458
 EXPECTED_OWNER=0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
-
-# UUPSProxyDeployStub bytecode signature (first ~100 bytes excluding constructor-injected owner)
-# The stub has a very specific bytecode pattern. We check for the presence of function selectors
-# that are unique to the stub: owner() + upgradeTo() + upgradeToAndCall() + proxiableUUID()
-# but NOT implementation() (which real implementations have).
-# We detect the stub by checking if cast call to a real implementation function fails.
 
 # ── Shared variables ───────────────────────────────────────────────────────
 
@@ -108,32 +105,12 @@ predict_proxy_address() {
   "$CAST" call "$BAO_FACTORY" "predictAddress(bytes32)(address)" "$salt_b32" --rpc-url "$RPC_URL"
 }
 
-# Get all proxy keys
-get_proxy_keys() {
-  local state_file=$1
-  jq -r '.proxies | keys[]' "$state_file" 2>/dev/null || echo ""
-}
-
-# Get all implementation addresses
-get_implementation_addresses() {
-  local state_file=$1
-  jq -r '.implementations | keys[]' "$state_file" 2>/dev/null | sort || echo ""
-}
-
 # Get implementation info by address
 get_implementation_info() {
   local state_file=$1
   local addr=$2
   local field=$3
   jq -r --arg addr "$addr" --arg field "$field" '.implementations[$addr][$field] // "-"' "$state_file"
-}
-
-# Get proxy info by key
-get_proxy_info() {
-  local state_file=$1
-  local key=$2
-  local field=$3
-  jq -r --arg key "$key" --arg field "$field" '.proxies[$key][$field] // "-"' "$state_file"
 }
 
 check_project_root() {
@@ -143,35 +120,44 @@ check_project_root() {
   fi
 }
 
+# Check if a named check is enabled. Called 6x per proxy in the main loop.
+check_enabled() {
+  local name=$1
+  [[ -z "$CHECKS" ]] || [[ ",$CHECKS," == *",$name,"* ]]
+}
+
 # ── Usage ──────────────────────────────────────────────────────────────────
 
 usage() {
   cat <<EOF
 Usage:
-  $0 --network <network> --salt <salt> [--local]
+  $0 --network <network> --salt <salt> [options]
 
 Required:
-  --network     Network name (mainnet, arbitrum, base)
-  --salt        Salt prefix (e.g., harbor_v1, test3)
+  --network       Network name (mainnet, arbitrum, base)
+  --salt          Salt prefix (e.g., harbor_v1, test3)
 
 Optional:
-  --local       Use local anvil node (--rpc-url local, deployments/local/<network>/)
-  --summary     Just print a summary of the minters and price aggregators existence
+  --local         Use local anvil node (--rpc-url local, deployments/local/<network>/)
+  --verbose, -v   Show passing check details (default: only show failures)
+  --since [WHEN]  Only check items deployed since WHEN (default: 1 day)
+                    Relative:  2 hours, 3 days, 1 week, 1 year
+                    Absolute:  11-Feb-2026
+                    Special:   yesterday (since midnight local time)
+  --full          With --since: check all items in qualifying markets
+                    (default: only check updated items + aggregator if minter changed)
+  --check NAMES   Only run specific checks (comma-separated, default: all)
+                    Available: salt, code, uups, owner, implementation, stub
 
 Examples:
   $0 --network mainnet --salt harbor_v1
+  $0 --network mainnet --salt harbor_v1 --since
+  $0 --network mainnet --salt harbor_v1 --since 2 days
+  $0 --network mainnet --salt harbor_v1 --since yesterday --check implementation,owner
   $0 --network mainnet --salt harbor_v1 --local
 
 State file: deployments/<network>/<salt>.state.json
        or:  deployments/local/<network>/<salt>.state.json (with --local)
-
-Checks performed:
-  1. All addresses have deployed code
-  2. Proxies have ERC1967 implementation slot (UUPS pattern)
-  3. Proxy owner() returns expected treasury address
-  4. ERC1967 implementation slot matches state file
-  5. Implementations are NOT the UUPSProxyDeployStub (upgrade completed)
-  6. Proxy address matches salt prediction from BaoFactory
 EOF
 }
 
@@ -180,7 +166,10 @@ EOF
 NETWORK=""
 SALT=""
 USE_LOCAL=false
-SUMMARY_ONLY=false
+SINCE_SPEC=""
+CHECKS=""
+VERBOSE=false
+FULL=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -188,17 +177,50 @@ while [[ $# -gt 0 ]]; do
       NETWORK=${2:-}
       shift 2
       ;;
+    --salt)
+      SALT=${2:-}
+      shift 2
+      ;;
     --local)
       USE_LOCAL=true
       shift
       ;;
-    --summary)
-      SUMMARY_ONLY=true
+    --check)
+      CHECKS=${2:-}
+      shift 2
+      ;;
+    --verbose | -v)
+      VERBOSE=true
       shift
       ;;
-    --salt)
-      SALT=${2:-}
-      shift 2
+    --full)
+      FULL=true
+      shift
+      ;;
+    --since)
+      next="${2:-}"
+      if [[ -z "$next" || "$next" == --* ]]; then
+        SINCE_SPEC="1 day"
+        shift
+      elif [[ "$next" == "yesterday" ]]; then
+        SINCE_SPEC="yesterday"
+        shift 2
+      elif [[ "$next" =~ ^[0-9]+$ ]]; then
+        unit="${3:-}"
+        if [[ "$unit" =~ ^(hours?|days?|weeks?|months?|years?)$ ]]; then
+          SINCE_SPEC="$next $unit"
+          shift 3
+        else
+          SINCE_SPEC="$next days"
+          shift 2
+        fi
+      elif [[ "$next" =~ ^[0-9]+\ (hours?|days?|weeks?|months?|years?)$ ]]; then
+        SINCE_SPEC="$next"
+        shift 2
+      else
+        SINCE_SPEC="$next"
+        shift 2
+      fi
       ;;
     -h | --help)
       usage
@@ -233,6 +255,21 @@ if [[ -z "$SALT" ]]; then
   exit 1
 fi
 
+# Validate --check names
+if [[ -n "$CHECKS" ]]; then
+  IFS=',' read -ra check_list <<<"$CHECKS"
+  for c in "${check_list[@]}"; do
+    case "$c" in
+      salt | code | uups | owner | implementation | stub) ;;
+      *)
+        echo "❌ Unknown check: $c" >&2
+        echo "   Available: salt, code, uups, owner, implementation, stub" >&2
+        exit 1
+        ;;
+    esac
+  done
+fi
+
 # ── Initialize ─────────────────────────────────────────────────────────────
 
 if [[ "$USE_LOCAL" == true ]]; then
@@ -260,6 +297,23 @@ if [[ -n "$state_network" && "$state_network" != "$NETWORK" ]]; then
   exit 1
 fi
 
+# ── Parse --since ──────────────────────────────────────────────────────────
+
+SINCE_CUTOFF=""
+if [[ -n "$SINCE_SPEC" ]]; then
+  if [[ "$SINCE_SPEC" == "yesterday" ]]; then
+    SINCE_CUTOFF=$(date -d "yesterday 00:00:00" -u +%Y-%m-%dT%H:%M:%SZ)
+  elif [[ "$SINCE_SPEC" =~ ^[0-9]+\ (hours?|days?|weeks?|months?|years?)$ ]]; then
+    SINCE_CUTOFF=$(date -d "$SINCE_SPEC ago" -u +%Y-%m-%dT%H:%M:%SZ)
+  else
+    if ! SINCE_CUTOFF=$(date -d "$SINCE_SPEC" -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null); then
+      echo "❌ Cannot parse --since value: $SINCE_SPEC" >&2
+      echo "   Supported: N hour/day/week/month/year, yesterday, DD-Mon-YYYY" >&2
+      exit 1
+    fi
+  fi
+fi
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 echo ""
@@ -269,213 +323,393 @@ echo "  Network: $NETWORK (chainId: $CHAIN_ID)"
 echo "  RPC:     $RPC_URL"
 echo "  State:   $STATE_FILE"
 echo "  Owner:   $EXPECTED_OWNER"
+if [[ -n "$SINCE_CUTOFF" ]]; then
+  if [[ "$FULL" == true ]]; then
+    echo "  Since:   $SINCE_CUTOFF ($SINCE_SPEC) [full]"
+  else
+    echo "  Since:   $SINCE_CUTOFF ($SINCE_SPEC) [updated only]"
+  fi
+fi
+if [[ -n "$CHECKS" ]]; then
+  echo "  Checks:  $CHECKS"
+fi
 echo "═══════════════════════════════════════════════════════════"
-echo ""
 
-proxy_passed=0
-proxy_failed=0
-impl_passed=0
-impl_failed=0
+passed=0
+failed=0
+failure_summary=""
 
-# Track which implementation addresses we've checked
-declare -A checked_impls
+# ── Build items, add aggregators, filter, sort — all in one jq call ───────
+# Outputs pre-sorted TSV: PEG  MARKET  ITEM_TYPE  TIMESTAMP  KEY_SUFFIX  PROXY_ADDR  IMPL_ADDR  SALT  CONTRACT_TYPE
+# MARKET = "_peg" for pegged proxies, collateral name for market items.
+# ITEM_TYPE = "proxy", "aggregator", "remaining"
+# Items are sorted by: peg (most recent market desc), _peg first then markets
+# (most recent desc), aggregator then proxy (by key) then remaining (by key).
 
-# Get keys for validation
-proxy_keys=$(get_proxy_keys "$STATE_FILE")
-impl_addrs=$(get_implementation_addresses "$STATE_FILE")
+FULL_ARG=false; [[ "$FULL" == true ]] && FULL_ARG=true
+sorted_items=$(jq -r --arg salt "$SALT" --arg cutoff "${SINCE_CUTOFF:-}" --argjson full "$FULL_ARG" '
+  .proxies as $proxies | .implementations as $impls |
+  ($proxies | [.[].implementation]) as $active |
 
-# ── Markets Summary ────────────────────────────────────────────────────────
-
-# Extract unique markets (collateral::peg) from proxy keys, sorted by collateral then peg
-markets=$(jq -r '.proxies | keys[] | split("::") | select(length >= 3) | .[0:2] | join("::")' "$STATE_FILE" | sort -u -t: -k1,1 -k3,3)
-
-echo "── MARKETS ──────────────────────────────────────────────────"
-echo ""
-failed=false
-for market in $markets; do
-
-  peg=${market%%::*}
-  collateral=${market#*::}
-  echo "  $collateral/$peg"
-  aggregator_salt="${SALT}::${collateral}::${peg}::wrappedPriceAggregator"
-  aggregator_addr=$(predict_proxy_address "$aggregator_salt")
-  if has_code "$aggregator_addr"; then
-    echo "    ✓ $aggregator_salt deployed at $aggregator_addr"
-  else
-    echo "    ❌ $aggregator_salt NOT deployed (expected at $aggregator_addr)"
-    failed=true
-  fi
-  minter_salt="${SALT}::${peg}::${collateral}::minter"
-  minter_addr=$(predict_proxy_address "$minter_salt")
-  if has_code "$minter_addr"; then
-    echo "    ✓ $minter_salt deployed at $minter_addr"
-  else
-    echo "    ❌  $minter_salt NOT deployed (expected at $minter_addr)"
-    failed=true
-  fi
-done
-if [[ "$failed" == true ]]; then
-  echo "  ❌ FAILED"
-else
-  echo "  ✅ PASSED"
-fi
-
-if [[ "$SUMMARY_ONLY" = true ]]; then
-  if [[ "$failed" == true ]]; then
-    exit 1
-  else
-    exit 0
-  fi
-fi
-echo ""
-
-# ── Check Proxies ──────────────────────────────────────────────────────────
-
-if [[ -n "$proxy_keys" ]]; then
-  echo "── PROXIES ──────────────────────────────────────────────────"
-  echo ""
-
-  for key in $proxy_keys; do
-    echo "── $key ────────────────────────────────────────"
-    failed=false
-
-    # Get proxy address and salt from state
-    proxy_addr=$(get_proxy_info "$STATE_FILE" "$key" address)
-    salt=$(get_proxy_info "$STATE_FILE" "$key" salt)
-    expected_impl=$(get_proxy_info "$STATE_FILE" "$key" implementation)
-
-    echo "  Proxy: $proxy_addr"
-    echo "  Salt:  $salt"
-
-    # Check 1: Verify address matches predicted from salt
-    predicted_addr=$(predict_proxy_address "$salt")
-    if [[ "${proxy_addr,,}" != "${predicted_addr,,}" ]]; then
-      echo "  ❌ Address/salt mismatch!"
-      echo "     State address:      $proxy_addr"
-      echo "     Predicted from salt: $predicted_addr"
-      failed=true
-    else
-      echo "  ✓ Salt prediction matches"
-    fi
-
-    # Check 2: Proxy has code
-    if ! has_code "$proxy_addr"; then
-      echo "  ❌ No code at proxy address"
-      failed=true
-    else
-      echo "  ✓ Has deployed code"
-    fi
-
-    # Check 3: Has ERC1967 implementation slot (UUPS proxy)
-    if ! is_uups_proxy "$proxy_addr"; then
-      echo "  ❌ No ERC1967 implementation slot - not a UUPS proxy"
-      failed=true
-    else
-      echo "  ✓ Has ERC1967 implementation slot (UUPS)"
-    fi
-
-    # Check 4: Owner is expected address
-    actual_owner=$(get_owner "$proxy_addr")
-    if [[ -z "$actual_owner" ]]; then
-      echo "  ❌ Failed to read owner()"
-      failed=true
-    elif [[ "${actual_owner,,}" != "${EXPECTED_OWNER,,}" ]]; then
-      echo "  ❌ Owner mismatch!"
-      echo "     Expected: $EXPECTED_OWNER"
-      echo "     Actual:   $actual_owner"
-      failed=true
-    else
-      echo "  ✓ Owner is treasury ($EXPECTED_OWNER)"
-    fi
-
-    # Check 5: ERC1967 implementation matches state
-    actual_impl=$(get_erc1967_implementation "$proxy_addr")
-    if [[ -z "$actual_impl" ]]; then
-      echo "  ❌ Failed to read ERC1967 implementation slot"
-      failed=true
-    elif [[ "${actual_impl,,}" != "${expected_impl,,}" ]]; then
-      echo "  ❌ Implementation mismatch!"
-      echo "     Expected: $expected_impl"
-      echo "     Actual:   $actual_impl"
-      failed=true
-    else
-      echo "  ✓ Implementation matches state ($actual_impl)"
-    fi
-
-    # Check 6: Implementation is NOT the UUPSProxyDeployStub
-    if [[ -n "$actual_impl" ]]; then
-      if is_uups_stub "$actual_impl"; then
-        echo "  ❌ Implementation is still UUPSProxyDeployStub (upgrade not completed)"
-        failed=true
+  # ── Build all items ──
+  [
+    ($proxies | to_entries[] |
+      (.key | split("::")) as $parts |
+      .value.implementation as $impl_addr |
+      if ($parts | length) == 2 then
+        { peg: $parts[0], market: "_peg", type: "proxy",
+          ts: ($impls[$impl_addr].deploymentTime // "-"),
+          key: $parts[1], proxy: .value.address, impl: $impl_addr,
+          salt: .value.salt, contract: ($impls[$impl_addr].contractType // "-") }
       else
-        echo "  ✓ Implementation is not UUPSProxyDeployStub"
-      fi
-      checked_impls["${actual_impl,,}"]=1
-    fi
+        { peg: $parts[0], market: $parts[1], type: "proxy",
+          ts: ($impls[$impl_addr].deploymentTime // "-"),
+          key: $parts[2], proxy: .value.address, impl: $impl_addr,
+          salt: .value.salt, contract: ($impls[$impl_addr].contractType // "-") }
+      end
+    ),
+    ($impls | to_entries[] |
+      select((.key) as $k | ($active | index($k)) | not) |
+      ((.value.proxy // "") | split("::")) as $parts |
+      if ($parts | length) == 2 then
+        { peg: $parts[0], market: "_peg", type: "remaining",
+          ts: (.value.deploymentTime // "-"),
+          key: $parts[1], proxy: "-", impl: .key, salt: "-",
+          contract: (.value.contractType // "-") }
+      elif ($parts | length) >= 3 then
+        { peg: $parts[0], market: $parts[1], type: "remaining",
+          ts: (.value.deploymentTime // "-"),
+          key: $parts[2], proxy: "-", impl: .key, salt: "-",
+          contract: (.value.contractType // "-") }
+      else
+        empty
+      end
+    )
+  ] |
 
-    if [[ "$failed" == true ]]; then
-      echo "  ❌ FAILED"
-      ((++proxy_failed))
-    else
-      echo "  ✅ PASSED"
-      ((++proxy_passed))
-    fi
-    echo ""
-  done
-else
-  echo "ℹ No proxies in state file."
+  # ── Add synthetic aggregator for each unique market ──
+  ([ .[] | select(.market != "_peg") | { peg, market } ] | unique) as $markets |
+  . + [ $markets[] |
+    { peg, market, type: "aggregator", ts: "-", key: "wrappedPriceAggregator",
+      proxy: "-", impl: "-",
+      salt: ($salt + "::" + .market + "::" + .peg + "::wrappedPriceAggregator"),
+      contract: "-" }
+  ] |
+
+  # ── Group by market, compute max timestamps ──
+  group_by([.peg, .market]) |
+  map({
+    peg: .[0].peg, market: .[0].market, items: .,
+    max_ts: ([ .[].ts | select(. != "" and . != "-") ] | if length > 0 then max else "" end)
+  }) |
+
+  # ── Group by peg, compute peg-level max timestamp ──
+  group_by(.peg) |
+  map({
+    peg: .[0].peg, markets: .,
+    peg_max_ts: ([ .[] | select(.market != "_peg") | .max_ts | select(. != "" and . != "-") ]
+                 | if length > 0 then max else "" end)
+  }) |
+
+  # ── Apply --since filter at market level ──
+  (if $cutoff != "" then
+    [ .[] | select(.peg_max_ts >= $cutoff) |
+      .markets = [ .markets[] | select(.market == "_peg" or .max_ts >= $cutoff) ]
+    ]
+  else . end) |
+
+  # ── Item-level filter: only check updated items (unless --full) ──
+  # Per-key max timestamp: if a remaining impl is recent, also check its proxy.
+  # If any minter key is recent, also include the aggregator for that market.
+  (if $cutoff != "" and ($full | not) then
+    [ .[] |
+      .markets = [ .markets[] |
+        ([.items[] | {key: .key, ts: .ts}] | group_by(.key) |
+         map({key: .[0].key, value: ([.[].ts | select(. != "" and . != "-")] |
+           if length > 0 then max else "" end)}) | from_entries) as $key_max |
+        ($key_max["minter"] // "" | . >= $cutoff) as $has_recent_minter |
+        .items = [ .items[] | select(
+          ($key_max[.key] // "") >= $cutoff or
+          (.type == "aggregator" and $has_recent_minter)
+        )]
+      | select((.items | length) > 0) ]
+    | select((.markets | length) > 0) ]
+  else . end) |
+
+  # ── Sort pegs by max timestamp desc ──
+  sort_by(.peg_max_ts) | reverse |
+
+  # ── Sort markets within peg: _peg first, then by max_ts desc ──
+  # ── Sort items within market: aggregator, proxy (by key), remaining (by key) ──
+  [ .[] |
+    .markets = (
+      [ .markets[] | select(.market == "_peg") ] +
+      ([ .markets[] | select(.market != "_peg") ] | sort_by(.max_ts) | reverse)
+    ) |
+    .markets = [ .markets[] |
+      .items = (
+        [ .items[] | select(.type == "aggregator") ] +
+        ([ .items[] | select(.type == "proxy") ] | sort_by(.key)) +
+        ([ .items[] | select(.type == "remaining") ] | sort_by(.key))
+      )
+    ]
+  ] |
+
+  # ── Flatten to sorted TSV ──
+  .[] | .markets[] | .items[] |
+  [.peg, .market, .type, .ts, .key, .proxy, .impl, .salt, .contract] | @tsv
+' "$STATE_FILE")
+
+if [[ -z "$sorted_items" ]]; then
   echo ""
-fi
-
-# ── Check Remaining Implementations ────────────────────────────────────────
-
-# Find implementations not used by any proxy
-remaining_impls=()
-for addr in $impl_addrs; do
-  if [[ -z "${checked_impls[${addr,,}]:-}" ]]; then
-    remaining_impls+=("$addr")
+  if [[ -n "$SINCE_CUTOFF" ]]; then
+    echo "No markets deployed since $SINCE_CUTOFF"
+  else
+    echo "No items found in state file."
   fi
-done
-
-if [[ ${#remaining_impls[@]} -gt 0 ]]; then
-  echo "── REMAINING IMPLEMENTATIONS ────────────────────────────────"
   echo ""
-  echo "These implementations are not currently used by any proxy."
-  echo ""
-
-  for addr in "${remaining_impls[@]}"; do
-    role=$(get_implementation_info "$STATE_FILE" "$addr" proxy)
-    contract_type=$(get_implementation_info "$STATE_FILE" "$addr" contractType)
-
-    echo "── $role ────────────────────────────────────────"
-    echo "  Implementation: $addr"
-    echo "  Contract: $contract_type"
-
-    if ! has_code "$addr"; then
-      echo "  ❌ No code at implementation address"
-      ((++impl_failed))
-    else
-      echo "  ✓ Has deployed code"
-      echo "  ✅ PASSED"
-      ((++impl_passed))
-    fi
-    echo ""
-  done
+  echo "✅ ALL CHECKS PASSED"
+  exit 0
 fi
+
+# ── Iterate pre-sorted items ─────────────────────────────────────────────
+
+current_peg=""
+current_market=""
+in_remaining=false
+
+while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr impl_addr salt contract_type; do
+  [[ -z "$item_type" ]] && continue
+
+  # ── Peg change → print peg header ──
+  if [[ "$peg" != "$current_peg" ]]; then
+    current_peg="$peg"
+    current_market=""
+    echo ""
+    echo "══ $peg ════════════════════════════════════════════════════"
+  fi
+
+  # ── Market change → print market header ──
+  if [[ "$market" != "$current_market" ]]; then
+    current_market="$market"
+    in_remaining=false
+    echo ""
+    if [[ "$market" == "_peg" ]]; then
+      echo "── ${peg}::pegged ──────────────────────────────────────"
+    else
+      echo "── ${peg}::${market} ──────────────────────────────────────"
+    fi
+  fi
+
+  # ── "not active" separator ──
+  if [[ "$item_type" == "remaining" && "$in_remaining" == false ]]; then
+    in_remaining=true
+    echo "  ── not active ──"
+  fi
+
+  # ── Full key for failure summary ──
+  if [[ "$market" == "_peg" ]]; then
+    full_key="${peg}::${key_suffix}"
+  else
+    full_key="${peg}::${market}::${key_suffix}"
+  fi
+  ts_short="${timestamp%%T*}"
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Proxy / Aggregator checks
+    # ══════════════════════════════════════════════════════════════════════
+    if [[ "$item_type" == "proxy" || "$item_type" == "aggregator" ]]; then
+
+      # For aggregator, predict the proxy address from salt
+      if [[ "$item_type" == "aggregator" ]]; then
+        proxy_addr=$(predict_proxy_address "$salt")
+      fi
+
+      item_failed=false
+      item_failures=""
+      item_passes=""
+
+      # Check 1: Salt prediction (proxy only — aggregator has no state address to compare)
+      if [[ "$item_type" == "proxy" ]] && check_enabled salt; then
+        predicted_addr=$(predict_proxy_address "$salt")
+        if [[ "${proxy_addr,,}" != "${predicted_addr,,}" ]]; then
+          item_failures+="      Address/salt mismatch"$'\n'
+          item_failures+="         State address:      $proxy_addr"$'\n'
+          item_failures+="         Predicted from salt: $predicted_addr"$'\n'
+          item_failed=true
+        else
+          item_passes+="      ✓ Salt prediction matches"$'\n'
+        fi
+      fi
+
+      # Check 2: Has deployed code
+      if check_enabled code; then
+        if ! has_code "$proxy_addr"; then
+          item_failures+="      No code at address $proxy_addr"$'\n'
+          item_failed=true
+        else
+          item_passes+="      ✓ Has deployed code"$'\n'
+        fi
+      fi
+
+      # Check 3: Has ERC1967 implementation slot (UUPS proxy)
+      if check_enabled uups; then
+        if ! is_uups_proxy "$proxy_addr"; then
+          item_failures+="      No ERC1967 implementation slot - not a UUPS proxy"$'\n'
+          item_failed=true
+        else
+          item_passes+="      ✓ Has ERC1967 implementation slot (UUPS)"$'\n'
+        fi
+      fi
+
+      # Check 4: Owner is expected address
+      if check_enabled owner; then
+        actual_owner=$(get_owner "$proxy_addr")
+        if [[ -z "$actual_owner" ]]; then
+          item_failures+="      Failed to read owner()"$'\n'
+          item_failed=true
+        elif [[ "${actual_owner,,}" != "${EXPECTED_OWNER,,}" ]]; then
+          item_failures+="      Owner mismatch"$'\n'
+          item_failures+="         Expected: $EXPECTED_OWNER"$'\n'
+          item_failures+="         Actual:   $actual_owner"$'\n'
+          item_failed=true
+        else
+          item_passes+="      ✓ Owner is treasury ($EXPECTED_OWNER)"$'\n'
+        fi
+      fi
+
+      # Check 5: ERC1967 implementation matches state (proxy only)
+      if [[ "$item_type" == "proxy" ]] && check_enabled implementation; then
+        actual_impl=$(get_erc1967_implementation "$proxy_addr")
+        if [[ -z "$actual_impl" ]]; then
+          item_failures+="      Failed to read ERC1967 implementation slot"$'\n'
+          item_failed=true
+        elif [[ "${actual_impl,,}" != "${impl_addr,,}" ]]; then
+          actual_contract_type=$(get_implementation_info "$STATE_FILE" "$actual_impl" contractType)
+          item_failures+="      Implementation mismatch"$'\n'
+          item_failures+="         Expected: $impl_addr ($contract_type)"$'\n'
+          item_failures+="         Actual:   $actual_impl ($actual_contract_type)"$'\n'
+          item_failed=true
+        else
+          item_passes+="      ✓ Implementation matches state ($actual_impl)"$'\n'
+        fi
+      fi
+
+      # Check 6: Implementation is NOT the UUPSProxyDeployStub
+      if check_enabled stub; then
+        stub_target="$impl_addr"
+        if [[ "$item_type" == "aggregator" ]]; then
+          stub_target=$(get_erc1967_implementation "$proxy_addr" 2>/dev/null || echo "")
+        fi
+        if [[ -n "$stub_target" && "$stub_target" != "-" ]] && is_uups_stub "$stub_target"; then
+          item_failures+="      Implementation is still UUPSProxyDeployStub (upgrade not completed)"$'\n'
+          item_failed=true
+        else
+          item_passes+="      ✓ Implementation is not UUPSProxyDeployStub"$'\n'
+        fi
+      fi
+
+      # ── Output ──
+      if [[ "$VERBOSE" == true ]]; then
+        echo "  ── $key_suffix ──────────────────────────────────"
+        if [[ "$item_type" == "aggregator" ]]; then
+          echo "    Address:  $proxy_addr (predicted from salt)"
+          echo "    Salt:     $salt"
+        else
+          echo "    Proxy:          $proxy_addr"
+          echo "    Salt:           $salt"
+          echo "    Implementation: $impl_addr ($contract_type)"
+          echo "    Deployed:       $timestamp"
+        fi
+        printf "%s" "$item_passes"
+        printf "%s" "$item_failures"
+        if [[ "$item_failed" == true ]]; then
+          echo "    ❌ FAILED"
+        else
+          echo "    ✅ PASSED"
+        fi
+      else
+        if [[ "$item_type" == "aggregator" ]]; then
+          if [[ "$item_failed" == true ]]; then
+            echo "  ❌ FAILED ─ $key_suffix"
+          else
+            echo "  ✅ PASSED ─ $key_suffix"
+          fi
+        else
+          if [[ "$item_failed" == true ]]; then
+            echo "  ❌ FAILED ─ $key_suffix ─ $contract_type ─ $ts_short"
+          else
+            echo "  ✅ PASSED ─ $key_suffix ─ $contract_type ─ $ts_short"
+          fi
+        fi
+        if [[ "$item_failed" == true ]]; then
+          printf "%s" "$item_failures"
+        fi
+      fi
+
+      if [[ "$item_failed" == true ]]; then
+        ((++failed))
+        failure_summary+="  FAILED $full_key ($contract_type)"$'\n'
+        failure_summary+="$item_failures"
+      else
+        ((++passed))
+      fi
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Remaining implementation (not active) — code check only
+    # ══════════════════════════════════════════════════════════════════════
+    else
+      impl_has_code=true
+      if check_enabled code && ! has_code "$impl_addr"; then
+        impl_has_code=false
+      fi
+
+      if [[ "$VERBOSE" == true ]]; then
+        echo "  ── $key_suffix ──────────────────────────────────"
+        echo "    Implementation: $impl_addr ($contract_type)"
+        echo "    Deployed:       $timestamp"
+        if [[ "$impl_has_code" == true ]]; then
+          echo "    ✓ Has deployed code"
+          echo "    ✅ PASSED"
+        else
+          echo "    ❌ No code at implementation address"
+        fi
+      else
+        if [[ "$impl_has_code" == true ]]; then
+          echo "  ✅ PASSED ─ $key_suffix ─ $contract_type ─ $ts_short"
+        else
+          echo "  ❌ FAILED ─ $key_suffix ─ $contract_type ─ $ts_short"
+          echo "      No code at implementation address"
+        fi
+      fi
+
+      if [[ "$impl_has_code" == true ]]; then
+        ((++passed))
+      else
+        ((++failed))
+        failure_summary+="  FAILED $full_key (not active) ($contract_type)"$'\n'
+        failure_summary+="    No code at implementation address"$'\n'
+      fi
+    fi
+
+done <<< "$sorted_items"
 
 # ── Summary ────────────────────────────────────────────────────────────────
 
-total_failed=$((proxy_failed + impl_failed))
-
+echo ""
 echo "═══════════════════════════════════════════════════════════"
 echo "  SUMMARY"
 echo "═══════════════════════════════════════════════════════════"
-echo "  Proxies:                  $proxy_passed passed, $proxy_failed failed"
-echo "  Remaining Implementations: $impl_passed passed, $impl_failed failed"
+echo "  Passed: $passed"
+echo "  Failed: $failed"
 echo ""
 
-if [[ "$total_failed" -gt 0 ]]; then
-  echo "❌ VALIDATION FAILED ($total_failed failures)"
+if [[ "$failed" -gt 0 ]]; then
+  echo "Failing items:"
+  echo ""
+  printf "%s" "$failure_summary"
+  echo ""
+  echo "❌ VALIDATION FAILED ($failed failures)"
   exit 1
 else
   echo "✅ ALL CHECKS PASSED"

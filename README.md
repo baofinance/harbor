@@ -172,10 +172,29 @@ $ yarn CI
 which runs all the scripts. It actually runs the github actions locally under docker.
 
 ```sh
-$ script/deploy --local
+$ script/deploy --peg BTC --network mainnet --salt harbor_v1 --local
 ```
 
-which deploys the **Harbor** contracts, correctly connected up, on a local anvil instance.
+which deploys a **Harbor** minter on a local anvil fork.
+
+`script/run-script` is the universal forge script runner used by both deploy and safe-batch scripts:
+
+```sh
+$ script/run-script Deploy_StabilityPool_v2_mainnet --network mainnet --salt harbor_v1 --broadcast --local
+```
+
+`script/check-blockchain` validates deployed contracts against the state file (salt prediction, deployed code, UUPS proxy, owner, implementation, stub):
+
+```sh
+$ script/check-blockchain --network mainnet --salt harbor_v1
+$ script/check-blockchain --network mainnet --salt harbor_v1 --since 2 days --check implementation,owner
+```
+
+`script/check-etherscan` generates an Etherscan verification report for all proxies and implementations:
+
+```sh
+$ script/check-etherscan --network mainnet --salt harbor_v1
+```
 
 Also note that config files for [wake](https://ackee.xyz/wake/docs/4.11.0/) are provided.
 

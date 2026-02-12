@@ -5,7 +5,7 @@
   "network": "mainnet",
   "chainId": 1,
   "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
-  "lastUpdated": "2026-01-17T11:56:59Z",
+  "lastUpdated": "2026-02-11T17:07:59Z",
   "implementations": {
     "0x8d6B59B2D07C1e70BE2B167a4fD07807df133582": {
       "proxy": "BTC::pegged",
@@ -55,6 +55,12 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
     },
+    "0xfA20ABE7F5b32Af6871414b7B71f780EcfDB1497": {
+      "proxy": "BTC::fxUSD::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x9755FEcC9F86a719b850eb4B20066dfea0f2FeC0": {
       "proxy": "BTC::fxUSD::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
@@ -66,6 +72,12 @@
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
+    },
+    "0xaFE9DF05bba2D93e78920860e4372Ef912b523C7": {
+      "proxy": "BTC::fxUSD::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x77C6665c67cbBB8cc1DB30213b5ab4449ef364F5": {
       "proxy": "BTC::fxUSD::stabilityPoolManager",
@@ -121,6 +133,12 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
     },
+    "0x5AcEcff04Bb9e50630c96b083b367440CBdd9339": {
+      "proxy": "BTC::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0xb71F39140FAa63a9C32105Ef717aC79a58878025": {
       "proxy": "BTC::stETH::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
@@ -132,6 +150,12 @@
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
+    },
+    "0xfC9929eABc8264A989593A2f851eF74363cE888F": {
+      "proxy": "BTC::stETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0xF7aAF7D417cCabe0EB0aE36ff469311A5b6815da": {
       "proxy": "BTC::stETH::stabilityPoolManager",
@@ -193,6 +217,12 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
     },
+    "0x7e2348c9FBf9008483fF61182095d3DE65b3e0b9": {
+      "proxy": "ETH::fxUSD::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x12d24Ca4F99b883B26fA7D51847A9fd756455F04": {
       "proxy": "ETH::fxUSD::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
@@ -204,6 +234,12 @@
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
+    },
+    "0x6C0D48839A0B1c9D79dDD4Ad3f407709E0f44be1": {
+      "proxy": "ETH::fxUSD::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x9C6a6B61b1ac3A344584c3747597964c0DD65C7D": {
       "proxy": "ETH::fxUSD::stabilityPoolManager",
@@ -259,11 +295,23 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2025-12-19T22:23:35Z"
     },
+    "0x509a33f3594E7dAb8ad8252915d562D01f9557f4": {
+      "proxy": "EUR::fxUSD::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0xEA8e632d20235c7450C9d49fbf868bdb2B981df8": {
       "proxy": "EUR::fxUSD::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2025-12-19T22:23:35Z"
+    },
+    "0x85c911b1249f02947a7D66271089797788f967bC": {
+      "proxy": "EUR::fxUSD::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0xF625E8147C07DDF5a488FCB5C95c91ACef46E22E": {
       "proxy": "EUR::fxUSD::stabilityPoolManager",
@@ -307,11 +355,23 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T09:54:11Z"
     },
+    "0x84ce6c641FE73711fc20442ea3D7f618471C88e0": {
+      "proxy": "EUR::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x3D59162AEcd92Ca5EF89de64001F7190B0325cC0": {
       "proxy": "EUR::stETH::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T09:54:11Z"
+    },
+    "0x971505844766137Ed2bee2833D16A2F9d3ed7161": {
+      "proxy": "EUR::stETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x64920f948B09f7384D36f298C5d613d44AE8b77d": {
       "proxy": "EUR::stETH::stabilityPoolManager",
@@ -367,6 +427,12 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
     },
+    "0x9016897e4ffDD345BAfc407c762A3c7A00ba2Eff": {
+      "proxy": "GOLD::fxUSD::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x64647EA21a5750E406cA90A114639D6b1388A904": {
       "proxy": "GOLD::fxUSD::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
@@ -378,6 +444,12 @@
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-03T22:13:59Z"
+    },
+    "0x608447859007967e950D9FdB931F05279DE539e7": {
+      "proxy": "GOLD::fxUSD::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x5c96077BB55376b66670B937F7bBdDBBc63A8564": {
       "proxy": "GOLD::fxUSD::stabilityPoolManager",
@@ -421,11 +493,23 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T11:56:35Z"
     },
+    "0x3CE39338f09Cc94EA8346ebe9267929E74da821F": {
+      "proxy": "GOLD::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x0BdA9cb0566657afbED5651f5355Ed9Fd0f0c7Aa": {
       "proxy": "GOLD::stETH::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T11:56:35Z"
+    },
+    "0x8a2f8815463EA064Db1056D22d3a931793E8d5Aa": {
+      "proxy": "GOLD::stETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x2FaBe53693B3f0b084C3b1001563f04f06F92340": {
       "proxy": "GOLD::stETH::stabilityPoolManager",
@@ -469,11 +553,23 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T08:39:11Z"
     },
+    "0x9AED2267655aDA9C514454e93019201282B309e0": {
+      "proxy": "MCAP::fxUSD::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x770872A09c642b3bBA93FC7488df3Fdae11e9093": {
       "proxy": "MCAP::fxUSD::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T08:39:11Z"
+    },
+    "0x95fbaEc01aE1646F7BD4C7ceFdF08328d4b848AE": {
+      "proxy": "MCAP::fxUSD::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x6565718F0C203B4Dc59F51090472bDDD0fD54f80": {
       "proxy": "MCAP::fxUSD::stabilityPoolManager",
@@ -511,11 +607,23 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T08:39:11Z"
     },
+    "0xA72FC7dd6DEB1c039C71E79A1eDa9e640f9f2d6f": {
+      "proxy": "MCAP::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0xd071831d985eA55C4bF05f17cec40CF8819c753F": {
       "proxy": "MCAP::stETH::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-17T08:39:11Z"
+    },
+    "0x9002104eBA42Af428DF0Be8EdbE53be6F1b27D41": {
+      "proxy": "MCAP::stETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x1F35232B40eeed56f7CD57c29f2d3F91000B6d64": {
       "proxy": "MCAP::stETH::stabilityPoolManager",
@@ -559,11 +667,23 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-16T22:00:23Z"
     },
+    "0x20544A0776BC1bCA289B00EE693CF80F9a5B6198": {
+      "proxy": "SILVER::fxUSD::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x223622e02b337f2CEE93a70781bdcF3638d4f75B": {
       "proxy": "SILVER::fxUSD::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-16T22:00:23Z"
+    },
+    "0xA10A027d163A7A2C849aF202e242705206983c03": {
+      "proxy": "SILVER::fxUSD::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0xe6937cBc92d017ac11762946F163a0208A4a4e56": {
       "proxy": "SILVER::fxUSD::stabilityPoolManager",
@@ -601,11 +721,23 @@
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-16T22:00:23Z"
     },
+    "0x15cfE62D2C50Ea94a38dDd93D4a79C626d391638": {
+      "proxy": "SILVER::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
+    },
     "0x65A87F606bb1a4C4e556519AeC854Be8a9D027cc": {
       "proxy": "SILVER::stETH::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/StabilityPool_v1.sol",
       "contractType": "StabilityPool_v1",
       "deploymentTime": "2026-01-16T22:00:23Z"
+    },
+    "0x882698a4F0284e1DfBc2Ef7C55297bDd48a12eeb": {
+      "proxy": "SILVER::stETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-02-11T17:07:59Z"
     },
     "0x13D7Bb5D7f48a7E49082203566a8bC1ba44dCA0a": {
       "proxy": "SILVER::stETH::stabilityPoolManager",

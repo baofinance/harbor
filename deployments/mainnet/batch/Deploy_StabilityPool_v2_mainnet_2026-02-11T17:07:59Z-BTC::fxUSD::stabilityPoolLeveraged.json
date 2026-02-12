@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1770829679000,
+  "meta": {
+    "description": "Deploy_StabilityPool_v2 BTC::fxUSD::stabilityPoolLeveraged"
+  },
+  "transactions": [
+    {
+      "to": "0x9e56f1e1e80ebf165a1daa99f9787b41cd5bfe40",
+      "value": "0",
+      "data": "0x4f1ef286000000000000000000000000afe9df05bba2d93e78920860e4372ef912b523c700000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

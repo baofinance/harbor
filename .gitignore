@@ -16,7 +16,7 @@ cache/
 out/
 lcov.info
 log/
-tmp/
+tmp*/
 
 # yarn files (see https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored)
 .pnp.*

@@ -42,11 +42,11 @@ def deploy_stability_pool_manager_environment() -> StabilityPoolManagerContext:
 
     collateral_tx = harbor.deployStabilityPoolCollateralFromConfig(from_=deployer)
     collateral_tx.wait()
-    collateral_pool = StabilityPool_v1(collateral_tx.return_value)
+    collateral_pool = StabilityPool_v2(collateral_tx.return_value)
 
     leveraged_tx = harbor.deployStabilityPoolLeveragedFromConfig(from_=deployer)
     leveraged_tx.wait()
-    leveraged_pool = StabilityPool_v1(leveraged_tx.return_value)
+    leveraged_pool = StabilityPool_v2(leveraged_tx.return_value)
 
     manager_tx = harbor.deployStabilityPoolManagerFromConfig(from_=deployer)
     manager_tx.wait()

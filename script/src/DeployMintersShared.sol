@@ -15,7 +15,7 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
-import {StabilityPool_v1} from "@harbor/minter/StabilityPool_v1.sol";
+import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @notice Extended market config interface with methods from collateral and chain configs.
@@ -108,6 +108,7 @@ abstract contract DeployMintersShared is
         _setSaltPrefix(saltPrefix);
 
         // Load or seed state
+        // TODO: tidy up the baoFactory part - it is always baoFactory()
         DeploymentTypes.State memory state = _shouldPersistState()
             ? DeploymentState.load(network, saltPrefix, "")
             : DeploymentTypes.State({
@@ -125,7 +126,9 @@ abstract contract DeployMintersShared is
         console.log("  Network: %s", network);
 
         if (deployPeg) {
-            _deployPegWithRoles(state, peg, allMarkets);
+            console.log("");
+            console.log("--- Deploying %s Pegged Token ---", peg.key());
+            deployPeggedTokenWithRoles(state, peg, allMarkets);
         }
 
         for (uint256 i = 0; i < marketsToDeploy.length; i++) {
@@ -138,16 +141,6 @@ abstract contract DeployMintersShared is
         _transferAllOwnerships();
         _saveState(state);
         console.log("=== Minter Deployment Done ===");
-    }
-
-    function _deployPegWithRoles(
-        DeploymentTypes.State memory state,
-        ConfigPeg peg,
-        Config_MinterMarket[] memory allMarkets
-    ) private {
-        console.log("");
-        console.log("--- Deploying %s Pegged Token ---", peg.key());
-        deployPeggedTokenWithRoles(state, peg, allMarkets);
     }
 
     // ========== MINTER INFRASTRUCTURE DEPLOYMENT ==========
@@ -204,19 +197,24 @@ abstract contract DeployMintersShared is
         string memory marketKey
     ) internal {
         address minter = _predictAddress(marketKey, "minter");
-        address leveragedToken = _predictAddress(marketKey, "leveraged");
 
-        StabilityPoolConfig memory spConfig = StabilityPoolConfig({
-            earlyWithdrawalFeeRatio: cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
-            withdrawalDelay: cfg.stabilityPoolWithdrawalDelay(),
-            withdrawalPeriod: cfg.stabilityPoolWithdrawalPeriod(),
-            minTotalAssetSupply: cfg.minTotalSupply(),
-            treasury: treasury()
-        });
+        deployStabilityPool(
+            StabilityPoolCollateral,
+            stateData,
+            marketKey,
+            minter,
+            cfg.wrappedCollateralToken(),
+            address(cfg)
+        );
 
-        deployStabilityPoolCollateral(stateData, marketKey, minter, cfg.wrappedCollateralToken(), spConfig);
-
-        deployStabilityPoolLeveraged(stateData, marketKey, minter, leveragedToken, spConfig);
+        deployStabilityPool(
+            StabilityPoolLeveraged,
+            stateData,
+            marketKey,
+            minter,
+            _predictAddress(marketKey, "leveraged"),
+            address(cfg)
+        );
     }
 
     function _deployStabilityPoolManager(
@@ -265,9 +263,9 @@ abstract contract DeployMintersShared is
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolLeveraged"), spLeveraged, spm);
 
         // Register reward tokens
-        StabilityPool_v1(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
-        StabilityPool_v1(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
-        StabilityPool_v1(spLeveraged).registerRewardToken(leveragedToken);
+        StabilityPool_v2(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
+        StabilityPool_v2(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
+        StabilityPool_v2(spLeveraged).registerRewardToken(leveragedToken);
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(
@@ -280,9 +278,5 @@ abstract contract DeployMintersShared is
                 feeReceiver: treasury()
             })
         );
-    }
-
-    function _shouldPersistState() internal pure virtual override returns (bool) {
-        return true;
     }
 }

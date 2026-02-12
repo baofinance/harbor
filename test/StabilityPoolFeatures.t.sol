@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
+import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 contract StabilityPoolFeatures is TestStabilityPoolSetUp {
@@ -107,7 +107,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(2 * price, user1, 0);
 
         // Grant exemption role to user1 (owner-only)
-        uint256 exemptRole = StabilityPool_v1(stabilityPoolCollateral).EXEMPT_WITHDRAWAL_FEE_ROLE();
+        uint256 exemptRole = StabilityPool_v2(stabilityPoolCollateral).EXEMPT_WITHDRAWAL_FEE_ROLE();
         vm.prank(owner);
         IBaoRoles(stabilityPoolCollateral).grantRoles(user1, exemptRole);
 

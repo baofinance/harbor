@@ -5,22 +5,29 @@ import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
+import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @notice Base contract for generating Safe Transaction Builder JSON batches.
-/// @dev Inherit from this contract and override `build()` to specify transactions.
+/// @dev Inherit from this contract and override `build()` to define transactions.
+///
+/// Environment variables (set by script/run-script):
+///   NETWORK                  Network name (required)
+///   SAFE_BATCH_NAME          Filename prefix for the batch JSON
+///   SAFE_BATCH_DESCRIPTION   Description field in the batch JSON
+///   SAFE_BATCH_TIMESTAMP     ISO 8601 timestamp for filename
+///   EXECUTE_LOCAL            When "true", execute queued transactions on local anvil
 ///
 /// Example:
 /// ```solidity
-/// contract MyBatch is SafeBatchBase {
+/// contract MyBatch is SafeBatch {
 ///     function build() internal override {
 ///         string memory salt = _saltString("BTC", "fxUSD", "minter");
 ///         queue(salt, abi.encodeCall(IMinter.updateConfig, (cfg)), "updateConfig(130)");
 ///     }
 /// }
 /// ```
-abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
+abstract contract SafeBatch is Script, HarborFactoryDeployer {
     using LibString for string;
     using LibString for address;
     using LibString for uint256;
@@ -38,31 +45,11 @@ abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
     Transaction[] internal _transactions;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Abstract - Override in derived contracts
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Override to define transactions.
-    function build() internal virtual;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Entry Point
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Main entry point. Run with: forge script <contract> --sig "run(string)" <salt>
-    /// @param salt_ The salt prefix (e.g., "harbor_v1")
-    function run(string memory salt_) public {
-        _setSaltPrefix(salt_);
-        build();
-        console.log(_buildSafeJson());
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     // DSL: Transaction Building
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Queue a transaction to be included in the batch.
     function queue(address target, bytes memory data, string memory description) internal {
-        // console.log("Queuing tx: %s", target.toHexString());
         _transactions.push(Transaction({target: target, data: data, description: description}));
     }
 
@@ -71,61 +58,84 @@ abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
     /// @param data The encoded call data
     /// @param description Description to append after salt
     function queue(string memory fullSalt, bytes memory data, string memory description) internal {
-        // console.log("Queuing tx: %s.%s", fullSalt, description);
         queue(_predictAddressFromFullSalt(fullSalt), data, string.concat(fullSalt, ".", description));
     }
 
     /// @notice Queue a transaction with auto-generated description.
     function queue(address target, bytes memory data) internal {
-        // console.log("Queuing tx: %s", target.toHexString());
         queue(target, data, target.toHexString());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // DSL: Address Resolution (uses FactoryDeployer._predictAddress)
+    // build()/run() pattern
     // ─────────────────────────────────────────────────────────────────────────
 
-    // /// @notice Get minter address for a market (e.g., "BTC::fxUSD")
-    // function minter(string memory market) internal view returns (address) {
-    //     return _predictAddress(market, "minter");
-    // }
+    /// @notice Override to define transactions.
+    function build() internal virtual;
 
-    // /// @notice Get stabilityPoolManager address for a market
-    // function stabilityPoolManager(string memory market) internal view returns (address) {
-    //     return _predictAddress(market, "stabilityPoolManager");
-    // }
+    /// @notice Main entry point. Run with: script/run-script <contract> --salt <salt> --network <net>
+    /// @param salt_ The salt prefix (e.g., "harbor_v1")
+    function run(string memory salt_) public {
+        _setSaltPrefix(salt_);
+        build();
+        _saveBatch();
 
-    // /// @notice Get reservePool address for a market
-    // function reservePool(string memory market) internal view returns (address) {
-    //     return _predictAddress(market, "reservePool");
-    // }
+        if (vm.envOr("EXECUTE_LOCAL", false)) {
+            address owner = IBaoOwnable(_transactions[0].target).owner();
+            vm.startBroadcast(owner);
+            for (uint256 i = 0; i < _transactions.length; i++) {
+                console.log("Executing:", _transactions[i].description);
+                (bool ok, bytes memory ret) = _transactions[i].target.call(_transactions[i].data);
+                if (!ok) {
+                    assembly {
+                        revert(add(ret, 32), mload(ret))
+                    }
+                }
+            }
+            vm.stopBroadcast();
+        }
+    }
 
-    // /// @notice Get genesis address for a market
-    // function genesis(string memory market) internal view returns (address) {
-    //     return _predictAddress(market, "genesis");
-    // }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Persistence
+    // ─────────────────────────────────────────────────────────────────────────
 
-    // /// @notice Get leveraged token address for a market
-    // function leveraged(string memory market) internal view returns (address) {
-    //     return _predictAddress(market, "leveraged");
-    // }
-
-    // /// @notice Get pegged token address for a peg (e.g., "BTC")
-    // function pegged(string memory peg) internal view returns (address) {
-    //     return _predictAddress(peg, "pegged");
-    // }
+    /// @notice Save queued transactions as a Safe batch JSON file in the batch/ subdirectory.
+    /// @dev Reads from environment: NETWORK (required), SAFE_BATCH_NAME, SAFE_BATCH_DESCRIPTION,
+    ///      SAFE_BATCH_TIMESTAMP. Uses DeploymentState.resolveDirectory() so DEPLOY_STATE_SUBDIR
+    ///      is respected for local/timestamped state directories.
+    function _saveBatch() internal {
+        if (_transactions.length == 0) return;
+        string memory network = vm.envString("NETWORK");
+        string memory name = vm.envOr("SAFE_BATCH_NAME", string("batch"));
+        string memory description = vm.envOr("SAFE_BATCH_DESCRIPTION", string(""));
+        string memory timestamp = vm.envOr("SAFE_BATCH_TIMESTAMP", block.timestamp.toString());
+        string memory batchDir = string.concat(DeploymentState.resolveDirectory(network, ""), "/batch");
+        vm.createDir(batchDir, true);
+        string memory path = string.concat(batchDir, "/", name, "_", timestamp, ".json");
+        vm.writeJson(_buildSafeJson(description), path);
+        console.log("Safe batch saved to: %s", path);
+        console.log("  Transactions:", _transactions.length);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Internal: JSON Generation
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _buildSafeJson() internal view returns (string memory) {
+    function _buildSafeJson(string memory description) internal view returns (string memory) {
         string memory txArray = "[";
         for (uint256 i = 0; i < _transactions.length; i++) {
             if (i > 0) {
                 txArray = string.concat(txArray, ",");
             }
-            txArray = string.concat(txArray, _buildTxObject(_transactions[i]));
+            txArray = string.concat(
+                txArray,
+                '{"to":"',
+                _transactions[i].target.toHexString(),
+                '","value":"0","data":"',
+                vm.toString(_transactions[i].data),
+                '"}'
+            );
         }
         txArray = string.concat(txArray, "]");
 
@@ -135,14 +145,11 @@ abstract contract SafeBatchBase is Script, HarborFactoryDeployer {
                 block.chainid.toString(),
                 '","createdAt":',
                 (block.timestamp * 1000).toString(),
-                ',"meta":{"description":""},"transactions":',
+                ',"meta":{"description":"',
+                description,
+                '"},"transactions":',
                 txArray,
                 "}"
             );
-    }
-
-    function _buildTxObject(Transaction memory tx_) internal pure returns (string memory) {
-        return
-            string.concat('{"to":"', tx_.target.toHexString(), '","value":"0","data":"', vm.toString(tx_.data), '"}');
     }
 }

@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(forge test:*)",
+      "Bash(cat:*)",
+      "WebFetch(domain:dashboard.tenderly.co)",
+      "Bash(/tmp/investigate_contract.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(bash:*)",
+      "Bash(forge inspect:*)",
+      "Bash(cast call:*)",
+      "Bash(forge clean:*)",
+      "Bash(forge build:*)",
+      "Bash(./script/check_pool_overflow_risk.py:*)",
+      "Bash(find:*)",
+      "Bash(yarn coverage:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git add:*)",
+      "Bash(python3:*)",
+      "Bash(cast sig-event:*)",
+      "Bash(TOPIC0=0x5548c837ab068cf56a2c2479df0882a4922fd203edb7517321831d95078c5f62)",
+      "Bash(cast logs:*)",
+      "Bash(jq:*)",
+      "Bash(script/check-blockchain:*)",
+      "Bash(echo:*)"
+    ]
+  }
+}

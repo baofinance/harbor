@@ -17,7 +17,7 @@ import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
+import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
@@ -29,22 +29,12 @@ import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
 
 // New version for testing upgrades
-contract StabilityPool_v2 is StabilityPool_v1 {
+contract StabilityPool_vN is StabilityPool_v2 {
     // Keep the same constructor signature
     constructor(
         address minter_,
         address liquidationToken_
-    )
-        StabilityPool_v1(
-            minter_,
-            liquidationToken_,
-            0.025 ether,
-            0x3dFc49e5112005179Da613BdE5973229082dAc35,
-            3600,
-            90000,
-            1 ether
-        )
-    {}
+    ) StabilityPool_v2(minter_, liquidationToken_, 3600, 90000, 1 ether) {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {
@@ -53,21 +43,11 @@ contract StabilityPool_v2 is StabilityPool_v1 {
 }
 
 // used to expose internal functions
-contract MockStabilityPool is StabilityPool_v1 {
+contract MockStabilityPool is StabilityPool_v2 {
     constructor(
         address minter_,
         address liquidationToken_
-    )
-        StabilityPool_v1(
-            minter_,
-            liquidationToken_,
-            0.025 ether,
-            0x3dFc49e5112005179Da613BdE5973229082dAc35,
-            3600,
-            90000,
-            1 ether
-        )
-    {}
+    ) StabilityPool_v2(minter_, liquidationToken_, 3600, 90000, 1 ether) {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
@@ -133,7 +113,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         vm.label(stabilityPool, SPName);
 
@@ -189,7 +169,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     }
 
     function test_initOnly(address sp, address liquidateTo) internal view {
-        assertEq(StabilityPool_v1(sp).owner(), owner);
+        assertEq(StabilityPool_v2(sp).owner(), owner);
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
         assertEq(IStabilityPool(sp).totalAssetSupply(), 0);
@@ -211,7 +191,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(0), "");
 
         // Create the V2 implementation
-        StabilityPool_v2 implementationV2 = new StabilityPool_v2(minter, wrappedCollateralToken);
+        StabilityPool_vN implementationV2 = new StabilityPool_vN(minter, wrappedCollateralToken);
 
         // Perform the upgrade as the owner
         vm.prank(owner);
@@ -219,7 +199,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
 
         // Verify the upgrade was successful by calling the new version function
         assertEq(
-            StabilityPool_v2(stabilityPoolCollateral).version(),
+            StabilityPool_vN(stabilityPoolCollateral).version(),
             "v2",
             "Upgrade should succeed and new function should be available"
         );
@@ -243,29 +223,13 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
         address(
-            new StabilityPool_v1(
-                minter,
-                wrappedCollateralToken,
-                EARLY_WITHDRAWAL_FEE,
-                FEE_ADDRESS,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether
-            )
+            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
         );
     }
 
     function test_initEvents(address liquidateTo) internal {
         address sp = address(
-            new StabilityPool_v1(
-                minter,
-                liquidateTo,
-                EARLY_WITHDRAWAL_FEE,
-                FEE_ADDRESS,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether
-            )
+            new StabilityPool_v2(minter, liquidateTo, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
         );
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
@@ -276,7 +240,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v1.sol",
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(spProxy).transferOwnership(owner);
 
@@ -293,39 +257,23 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
     function test_initialize_invalidFee_reverts() public {
         address spImpl = address(
-            new StabilityPool_v1(
-                minter,
-                wrappedCollateralToken,
-                EARLY_WITHDRAWAL_FEE,
-                FEE_ADDRESS,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether
-            )
+            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
         );
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, 1 ether + 1, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v2.initialize, (owner, 1 ether + 1, FEE_ADDRESS))
         );
     }
 
     function test_initialize_invalidFeeAddress_reverts() public {
         address spImpl = address(
-            new StabilityPool_v1(
-                minter,
-                wrappedCollateralToken,
-                EARLY_WITHDRAWAL_FEE,
-                FEE_ADDRESS,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether
-            )
+            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
         );
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, address(0)))
+            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, address(0)))
         );
     }
 }
@@ -447,7 +395,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // Deploy a fresh pool proxy but skip configuring window/fee
         address unconfigured = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, wrappedCollateralToken)),
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(unconfigured).transferOwnership(owner);
 

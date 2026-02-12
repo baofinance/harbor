@@ -157,36 +157,4 @@ abstract contract Minter is HarborFactoryDeployer {
 
         distributor.setDistribution(recipients, shares);
     }
-
-    // ========== ADDRESS PREDICTION ==========
-
-    /// @notice Predict minter contract address from salt.
-    function predictMinterAddress(
-        address baoFactoryAddr,
-        string memory systemSalt,
-        string memory marketKey
-    ) internal view returns (address) {
-        bytes32 minterSalt = keccak256(abi.encodePacked(systemSalt, "::", marketKey, "::minter"));
-        return IBaoFactory(baoFactoryAddr).predictAddress(minterSalt);
-    }
-
-    /// @notice Predict reserve pool contract address from salt.
-    function predictReservePoolAddress(
-        address baoFactoryAddr,
-        string memory systemSalt,
-        string memory marketKey
-    ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", marketKey, "::reservePool"));
-        return IBaoFactory(baoFactoryAddr).predictAddress(salt);
-    }
-
-    /// @notice Predict minter fee receiver contract address from salt.
-    function predictMinterFeeReceiverAddress(
-        address baoFactoryAddr,
-        string memory systemSalt,
-        string memory marketKey
-    ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(systemSalt, "::", marketKey, "::minterFeeReceiver"));
-        return IBaoFactory(baoFactoryAddr).predictAddress(salt);
-    }
 }
