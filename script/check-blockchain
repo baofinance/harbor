@@ -146,6 +146,10 @@ Optional:
                     Special:   yesterday (since midnight local time)
   --full          With --since: check all items in qualifying markets
                     (default: only check updated items + aggregator if minter changed)
+  --update        Interactively update state file when implementation
+                    mismatches a known on-chain address
+  --filter TERMS  Only show items whose salt contains all TERMS (case-insensitive)
+                    e.g., --filter BTC Leverag
   --check NAMES   Only run specific checks (comma-separated, default: all)
                     Available: salt, code, uups, owner, implementation, stub
 
@@ -170,6 +174,8 @@ SINCE_SPEC=""
 CHECKS=""
 VERBOSE=false
 FULL=false
+UPDATE=false
+FILTER_TERMS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -196,6 +202,17 @@ while [[ $# -gt 0 ]]; do
     --full)
       FULL=true
       shift
+      ;;
+    --update)
+      UPDATE=true
+      shift
+      ;;
+    --filter)
+      shift
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        FILTER_TERMS+=("$1")
+        shift
+      done
       ;;
     --since)
       next="${2:-}"
@@ -330,6 +347,9 @@ if [[ -n "$SINCE_CUTOFF" ]]; then
     echo "  Since:   $SINCE_CUTOFF ($SINCE_SPEC) [updated only]"
   fi
 fi
+if (( ${#FILTER_TERMS[@]} > 0 )); then
+  echo "  Filter:  ${FILTER_TERMS[*]}"
+fi
 if [[ -n "$CHECKS" ]]; then
   echo "  Checks:  $CHECKS"
 fi
@@ -347,7 +367,11 @@ failure_summary=""
 # (most recent desc), aggregator then proxy (by key) then remaining (by key).
 
 FULL_ARG=false; [[ "$FULL" == true ]] && FULL_ARG=true
-sorted_items=$(jq -r --arg salt "$SALT" --arg cutoff "${SINCE_CUTOFF:-}" --argjson full "$FULL_ARG" '
+FILTER_JSON="[]"
+if (( ${#FILTER_TERMS[@]} > 0 )); then
+  FILTER_JSON=$(printf '%s\n' "${FILTER_TERMS[@]}" | jq -R 'ascii_downcase' | jq -s '.')
+fi
+sorted_items=$(jq -r --arg salt "$SALT" --arg cutoff "${SINCE_CUTOFF:-}" --argjson full "$FULL_ARG" --argjson filter "$FILTER_JSON" '
   .proxies as $proxies | .implementations as $impls |
   ($proxies | [.[].implementation]) as $active |
 
@@ -395,6 +419,14 @@ sorted_items=$(jq -r --arg salt "$SALT" --arg cutoff "${SINCE_CUTOFF:-}" --argjs
       salt: ($salt + "::" + .market + "::" + .peg + "::wrappedPriceAggregator"),
       contract: "-" }
   ] |
+
+  # ── Apply --filter (case-insensitive match on peg::market::key) ──
+  (if ($filter | length) > 0 then
+    [ .[] | select(
+      ((.peg + "::" + .market + "::" + .key) | ascii_downcase) as $match |
+      all($filter[]; . as $term | ($match | contains($term)))
+    )]
+  else . end) |
 
   # ── Group by market, compute max timestamps ──
   group_by([.peg, .market]) |
@@ -477,6 +509,7 @@ fi
 current_peg=""
 current_market=""
 in_remaining=false
+pending_updates=()
 
 while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr impl_addr salt contract_type; do
   [[ -z "$item_type" ]] && continue
@@ -489,8 +522,23 @@ while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr imp
     echo "══ $peg ════════════════════════════════════════════════════"
   fi
 
-  # ── Market change → print market header ──
+  # ── Market change → flush pending updates, print market header ──
   if [[ "$market" != "$current_market" ]]; then
+    for upd in "${pending_updates[@]}"; do
+      IFS='|' read -r upd_key upd_addr upd_type <<< "$upd"
+      echo ""
+      printf "  Update %s to %s (%s)? [y/N] " "$upd_key" "$upd_addr" "$upd_type" >/dev/tty
+      read -r answer </dev/tty
+      if [[ "$answer" == [yY] ]]; then
+        jq --arg key "$upd_key" --arg addr "$upd_addr" \
+          '.proxies[$key].implementation = $addr' "$STATE_FILE" > "${STATE_FILE}.tmp" \
+          && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+        echo "  Updated." >/dev/tty
+        ((--failed))
+        ((++passed))
+      fi
+    done
+    pending_updates=()
     current_market="$market"
     in_remaining=false
     echo ""
@@ -590,6 +638,9 @@ while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr imp
           item_failures+="         Expected: $impl_addr ($contract_type)"$'\n'
           item_failures+="         Actual:   $actual_impl ($actual_contract_type)"$'\n'
           item_failed=true
+          if [[ "$UPDATE" == true && "$actual_contract_type" != "-" ]]; then
+            pending_updates+=("${full_key}|${actual_impl}|${actual_contract_type}")
+          fi
         else
           item_passes+="      ✓ Implementation matches state ($actual_impl)"$'\n'
         fi
@@ -631,15 +682,15 @@ while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr imp
       else
         if [[ "$item_type" == "aggregator" ]]; then
           if [[ "$item_failed" == true ]]; then
-            echo "  ❌ FAILED ─ $key_suffix"
+            echo "  ❌ FAILED ─ $proxy_addr ─ $key_suffix"
           else
-            echo "  ✅ PASSED ─ $key_suffix"
+            echo "  ✅ PASSED ─ $proxy_addr ─ $key_suffix"
           fi
         else
           if [[ "$item_failed" == true ]]; then
-            echo "  ❌ FAILED ─ $key_suffix ─ $contract_type ─ $ts_short"
+            echo "  ❌ FAILED ─ $proxy_addr ─ $key_suffix ─ $contract_type ─ $ts_short"
           else
-            echo "  ✅ PASSED ─ $key_suffix ─ $contract_type ─ $ts_short"
+            echo "  ✅ PASSED ─ $proxy_addr ─ $key_suffix ─ $contract_type ─ $ts_short"
           fi
         fi
         if [[ "$item_failed" == true ]]; then
@@ -676,9 +727,9 @@ while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr imp
         fi
       else
         if [[ "$impl_has_code" == true ]]; then
-          echo "  ✅ PASSED ─ $key_suffix ─ $contract_type ─ $ts_short"
+          echo "  ✅ PASSED ─ $impl_addr ─ $key_suffix ─ $contract_type ─ $ts_short"
         else
-          echo "  ❌ FAILED ─ $key_suffix ─ $contract_type ─ $ts_short"
+          echo "  ❌ FAILED ─ $impl_addr ─ $key_suffix ─ $contract_type ─ $ts_short"
           echo "      No code at implementation address"
         fi
       fi
@@ -693,6 +744,23 @@ while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr imp
     fi
 
 done <<< "$sorted_items"
+
+# ── Flush remaining pending updates ──
+for upd in "${pending_updates[@]}"; do
+  IFS='|' read -r upd_key upd_addr upd_type <<< "$upd"
+  echo ""
+  printf "  Update %s to %s (%s)? [y/N] " "$upd_key" "$upd_addr" "$upd_type" >/dev/tty
+  read -r answer </dev/tty
+  if [[ "$answer" == [yY] ]]; then
+    jq --arg key "$upd_key" --arg addr "$upd_addr" \
+      '.proxies[$key].implementation = $addr' "$STATE_FILE" > "${STATE_FILE}.tmp" \
+      && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+    echo "  Updated." >/dev/tty
+    ((--failed))
+    ((++passed))
+  fi
+done
+pending_updates=()
 
 # ── Summary ────────────────────────────────────────────────────────────────
 
