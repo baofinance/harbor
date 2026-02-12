@@ -2,7 +2,7 @@
 
 - **Network:** mainnet (chainId: 1)
 - **Salt:** harbor_v1
-- **Generated:** 2026-01-17 13:37:57 UTC
+- **Generated:** 2026-02-11 18:52:49 UTC
 - **State file:** deployments/mainnet/harbor_v1.state.json
 
 ## Verification Legend
@@ -119,10 +119,32 @@ awaiting proxy deployment).
 | Role | Contract | Verified |
 |------|----------|----------|
 | [ETH::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0x12d24Ca4F99b883B26fA7D51847A9fd756455F04#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0x12d24Ca4F99b883B26fA7D51847A9fd756455F04#code) |
+| [SILVER::stETH::stabilityPoolCollateral](https://etherscan.io/address/0x15cfE62D2C50Ea94a38dDd93D4a79C626d391638#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x15cfE62D2C50Ea94a38dDd93D4a79C626d391638#code) |
+| [SILVER::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0x20544A0776BC1bCA289B00EE693CF80F9a5B6198#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x20544A0776BC1bCA289B00EE693CF80F9a5B6198#code) |
+| [GOLD::stETH::stabilityPoolCollateral](https://etherscan.io/address/0x3CE39338f09Cc94EA8346ebe9267929E74da821F#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x3CE39338f09Cc94EA8346ebe9267929E74da821F#code) |
+| [EUR::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0x509a33f3594E7dAb8ad8252915d562D01f9557f4#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x509a33f3594E7dAb8ad8252915d562D01f9557f4#code) |
+| [BTC::stETH::stabilityPoolCollateral](https://etherscan.io/address/0x5AcEcff04Bb9e50630c96b083b367440CBdd9339#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x5AcEcff04Bb9e50630c96b083b367440CBdd9339#code) |
+| [GOLD::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0x608447859007967e950D9FdB931F05279DE539e7#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x608447859007967e950D9FdB931F05279DE539e7#code) |
 | [GOLD::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0x64647EA21a5750E406cA90A114639D6b1388A904#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0x64647EA21a5750E406cA90A114639D6b1388A904#code) |
+| [ETH::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0x6C0D48839A0B1c9D79dDD4Ad3f407709E0f44be1#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x6C0D48839A0B1c9D79dDD4Ad3f407709E0f44be1#code) |
 | [BTC::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0x7C59d965BD7d26daCE3f85c35D56D7EebCe57EbF#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0x7C59d965BD7d26daCE3f85c35D56D7EebCe57EbF#code) |
+| [ETH::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0x7e2348c9FBf9008483fF61182095d3DE65b3e0b9#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x7e2348c9FBf9008483fF61182095d3DE65b3e0b9#code) |
+| [EUR::stETH::stabilityPoolCollateral](https://etherscan.io/address/0x84ce6c641FE73711fc20442ea3D7f618471C88e0#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x84ce6c641FE73711fc20442ea3D7f618471C88e0#code) |
+| [EUR::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0x85c911b1249f02947a7D66271089797788f967bC#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x85c911b1249f02947a7D66271089797788f967bC#code) |
+| [SILVER::stETH::stabilityPoolLeveraged](https://etherscan.io/address/0x882698a4F0284e1DfBc2Ef7C55297bDd48a12eeb#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x882698a4F0284e1DfBc2Ef7C55297bDd48a12eeb#code) |
+| [GOLD::stETH::stabilityPoolLeveraged](https://etherscan.io/address/0x8a2f8815463EA064Db1056D22d3a931793E8d5Aa#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x8a2f8815463EA064Db1056D22d3a931793E8d5Aa#code) |
+| [MCAP::stETH::stabilityPoolLeveraged](https://etherscan.io/address/0x9002104eBA42Af428DF0Be8EdbE53be6F1b27D41#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x9002104eBA42Af428DF0Be8EdbE53be6F1b27D41#code) |
+| [GOLD::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0x9016897e4ffDD345BAfc407c762A3c7A00ba2Eff#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x9016897e4ffDD345BAfc407c762A3c7A00ba2Eff#code) |
 | [BTC::stETH::stabilityPoolCollateral](https://etherscan.io/address/0x932cAeb990f39B95CeAD349446C767f6bEc0C5d1#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0x932cAeb990f39B95CeAD349446C767f6bEc0C5d1#code) |
+| [MCAP::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0x95fbaEc01aE1646F7BD4C7ceFdF08328d4b848AE#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x95fbaEc01aE1646F7BD4C7ceFdF08328d4b848AE#code) |
+| [EUR::stETH::stabilityPoolLeveraged](https://etherscan.io/address/0x971505844766137Ed2bee2833D16A2F9d3ed7161#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x971505844766137Ed2bee2833D16A2F9d3ed7161#code) |
 | [BTC::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0x9755FEcC9F86a719b850eb4B20066dfea0f2FeC0#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0x9755FEcC9F86a719b850eb4B20066dfea0f2FeC0#code) |
+| [MCAP::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0x9AED2267655aDA9C514454e93019201282B309e0#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0x9AED2267655aDA9C514454e93019201282B309e0#code) |
 | [GOLD::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0xA041d39ceD4aBAE2e50427712653f8a79d08bd2D#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0xA041d39ceD4aBAE2e50427712653f8a79d08bd2D#code) |
+| [SILVER::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0xA10A027d163A7A2C849aF202e242705206983c03#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0xA10A027d163A7A2C849aF202e242705206983c03#code) |
+| [MCAP::stETH::stabilityPoolCollateral](https://etherscan.io/address/0xA72FC7dd6DEB1c039C71E79A1eDa9e640f9f2d6f#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0xA72FC7dd6DEB1c039C71E79A1eDa9e640f9f2d6f#code) |
 | [ETH::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0xa3BAe4ed645bfdD089978C8780a06F1786dD8957#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0xa3BAe4ed645bfdD089978C8780a06F1786dD8957#code) |
+| [BTC::fxUSD::stabilityPoolLeveraged](https://etherscan.io/address/0xaFE9DF05bba2D93e78920860e4372Ef912b523C7#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0xaFE9DF05bba2D93e78920860e4372Ef912b523C7#code) |
 | [BTC::stETH::stabilityPoolLeveraged](https://etherscan.io/address/0xb71F39140FAa63a9C32105Ef717aC79a58878025#code) | StabilityPool_v1 | [✓](https://etherscan.io/address/0xb71F39140FAa63a9C32105Ef717aC79a58878025#code) |
+| [BTC::fxUSD::stabilityPoolCollateral](https://etherscan.io/address/0xfA20ABE7F5b32Af6871414b7B71f780EcfDB1497#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0xfA20ABE7F5b32Af6871414b7B71f780EcfDB1497#code) |
+| [BTC::stETH::stabilityPoolLeveraged](https://etherscan.io/address/0xfC9929eABc8264A989593A2f851eF74363cE888F#code) | StabilityPool_v2 | [✓](https://etherscan.io/address/0xfC9929eABc8264A989593A2f851eF74363cE888F#code) |

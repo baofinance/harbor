@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 import {LibString} from "@solady/utils/LibString.sol";
@@ -18,8 +17,7 @@ import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
 
-import {SafeBatchBase} from "script/safe/SafeBatchBase.s.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {SafeBatch} from "script/safe/SafeBatch.s.sol";
 
 // TODO: put this in a file and have everything share it (or break it up or something)
 interface IFullMinterConfig {
@@ -27,9 +25,10 @@ interface IFullMinterConfig {
 }
 
 /// @notice Deploy StabilityPool v2 implementations and queue upgrade transactions for all minters.
+/// @dev Broadcasts implementation deployments, then queues UUPS upgrade calls as a Safe batch.
+///      Run via: script/run-script Deploy_StabilityPool_v2_mainnet --salt harbor_v1 --network mainnet --broadcast
 contract Deploy_StabilityPool_v2_mainnet is
-    Script,
-    SafeBatchBase,
+    SafeBatch,
     Deploy_BTC_Minter,
     Deploy_ETH_Minter,
     Deploy_EUR_Minter,
@@ -77,14 +76,9 @@ contract Deploy_StabilityPool_v2_mainnet is
         }
     }
 
-    /// @param saltPrefix System salt for CREATE3 deployment (e.g., "harbor_v1").
-    /// @param network Network name (e.g., "mainnet", "arbitrum").
-    /// @param executeLocal When true, execute upgrade transactions directly against
-    ///        local anvil (requires --auto-impersonate). When false, generate Safe
-    ///        batch JSON for multisig execution.
-    function run(string memory saltPrefix, string memory network, bool executeLocal) external {
-        _setSaltPrefix(saltPrefix);
-        DeploymentTypes.State memory state = DeploymentState.load(network, saltPrefix);
+    function build() internal override {
+        string memory network = vm.envString("NETWORK");
+        DeploymentTypes.State memory state = DeploymentState.load(network, saltPrefix());
         state.baoFactory = baoFactory();
 
         Config_MinterMarket[] memory markets;
@@ -112,24 +106,5 @@ contract Deploy_StabilityPool_v2_mainnet is
         vm.stopBroadcast();
 
         _saveState(state);
-
-        console.log("");
-        _saveTransactions(network, "Deploy_StabilityPool_v2");
-        console.log("");
-
-        if (executeLocal) {
-            address owner = IBaoOwnable(_transactions[0].target).owner();
-            vm.startBroadcast(owner);
-            for (uint i = 0; i < _transactions.length; i++) {
-                console.log("Executing upgrade:", _transactions[i].description);
-                (bool ok, bytes memory ret) = _transactions[i].target.call(_transactions[i].data);
-                if (!ok) {
-                    assembly {
-                        revert(add(ret, 32), mload(ret))
-                    }
-                }
-            }
-            vm.stopBroadcast();
-        }
     }
 }

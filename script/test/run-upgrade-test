@@ -103,7 +103,7 @@ prompt "Cycle anvil (Ctrl+C, then:  script/anvil --block upgrade)"
 
 echo ""
 echo "Deploying StabilityPool v2 upgrade..."
-./script/deploy-stabilityPool_v2 --network mainnet --salt harbor_v1 --local
+./script/run-script Deploy_StabilityPool_v2_mainnet --network mainnet --salt harbor_v1 --broadcast --local
 
 # ── Step 3: v2 capture (same anvil instance) ──────────────────────────────────
 
