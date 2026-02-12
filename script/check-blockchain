@@ -4,24 +4,20 @@ set -euo pipefail
 # Validate Harbor minter deployments against blockchain state
 #
 # This script verifies:
-#   1. All addresses in state file have deployed code
-#   2. Proxies are valid UUPS proxies (have upgradeToAndCall, owner)
-#   3. Proxy owner is the expected treasury address
-#   4. ERC1967 implementation slot matches state file
-#   5. Proxy implementations are NOT the UUPSProxyDeployStub (upgrade completed)
-#   6. All remaining implementations (not in active proxies) also have code
+#   1. Proxy address matches salt prediction from BaoFactory
+#   2. All addresses have deployed code
+#   3. Proxies have ERC1967 implementation slot (UUPS pattern)
+#   4. Proxy owner() returns expected treasury address
+#   5. ERC1967 implementation slot matches state file
+#   6. Implementations are NOT the UUPSProxyDeployStub (upgrade completed)
+#
+# Items are grouped by deployment date, newest first.
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
 CAST=cast
 BAO_FACTORY=0xD696E56b3A054734d4C6DCBD32E11a278b0EC458
 EXPECTED_OWNER=0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
-
-# UUPSProxyDeployStub bytecode signature (first ~100 bytes excluding constructor-injected owner)
-# The stub has a very specific bytecode pattern. We check for the presence of function selectors
-# that are unique to the stub: owner() + upgradeTo() + upgradeToAndCall() + proxiableUUID()
-# but NOT implementation() (which real implementations have).
-# We detect the stub by checking if cast call to a real implementation function fails.
 
 # ── Shared variables ───────────────────────────────────────────────────────
 
@@ -108,18 +104,6 @@ predict_proxy_address() {
   "$CAST" call "$BAO_FACTORY" "predictAddress(bytes32)(address)" "$salt_b32" --rpc-url "$RPC_URL"
 }
 
-# Get all proxy keys
-get_proxy_keys() {
-  local state_file=$1
-  jq -r '.proxies | keys[]' "$state_file" 2>/dev/null || echo ""
-}
-
-# Get all implementation addresses
-get_implementation_addresses() {
-  local state_file=$1
-  jq -r '.implementations | keys[]' "$state_file" 2>/dev/null | sort || echo ""
-}
-
 # Get implementation info by address
 get_implementation_info() {
   local state_file=$1
@@ -143,35 +127,43 @@ check_project_root() {
   fi
 }
 
+# Check if a named check is enabled. Called 6x per proxy in the main loop.
+check_enabled() {
+  local name=$1
+  [[ -z "$CHECKS" ]] || [[ ",$CHECKS," == *",$name,"* ]]
+}
+
 # ── Usage ──────────────────────────────────────────────────────────────────
 
 usage() {
   cat <<EOF
 Usage:
-  $0 --network <network> --salt <salt> [--local]
+  $0 --network <network> --salt <salt> [options]
 
 Required:
-  --network     Network name (mainnet, arbitrum, base)
-  --salt        Salt prefix (e.g., harbor_v1, test3)
+  --network       Network name (mainnet, arbitrum, base)
+  --salt          Salt prefix (e.g., harbor_v1, test3)
 
 Optional:
-  --local       Use local anvil node (--rpc-url local, deployments/local/<network>/)
-  --summary     Just print a summary of the minters and price aggregators existence
+  --local         Use local anvil node (--rpc-url local, deployments/local/<network>/)
+  --summary       Just print a summary of the minters and price aggregators existence
+  --verbose, -v   Show passing check details (default: only show failures)
+  --since [WHEN]  Only check items deployed since WHEN (default: 1 day)
+                    Relative:  2 hours, 3 days, 1 week, 1 year
+                    Absolute:  11-Feb-2026
+                    Special:   yesterday (since midnight local time)
+  --check NAMES   Only run specific checks (comma-separated, default: all)
+                    Available: salt, code, uups, owner, implementation, stub
 
 Examples:
   $0 --network mainnet --salt harbor_v1
+  $0 --network mainnet --salt harbor_v1 --since
+  $0 --network mainnet --salt harbor_v1 --since 2 days
+  $0 --network mainnet --salt harbor_v1 --since yesterday --check implementation,owner
   $0 --network mainnet --salt harbor_v1 --local
 
 State file: deployments/<network>/<salt>.state.json
        or:  deployments/local/<network>/<salt>.state.json (with --local)
-
-Checks performed:
-  1. All addresses have deployed code
-  2. Proxies have ERC1967 implementation slot (UUPS pattern)
-  3. Proxy owner() returns expected treasury address
-  4. ERC1967 implementation slot matches state file
-  5. Implementations are NOT the UUPSProxyDeployStub (upgrade completed)
-  6. Proxy address matches salt prediction from BaoFactory
 EOF
 }
 
@@ -181,11 +173,18 @@ NETWORK=""
 SALT=""
 USE_LOCAL=false
 SUMMARY_ONLY=false
+SINCE_SPEC=""
+CHECKS=""
+VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --network)
       NETWORK=${2:-}
+      shift 2
+      ;;
+    --salt)
+      SALT=${2:-}
       shift 2
       ;;
     --local)
@@ -196,9 +195,38 @@ while [[ $# -gt 0 ]]; do
       SUMMARY_ONLY=true
       shift
       ;;
-    --salt)
-      SALT=${2:-}
+    --check)
+      CHECKS=${2:-}
       shift 2
+      ;;
+    --verbose | -v)
+      VERBOSE=true
+      shift
+      ;;
+    --since)
+      next="${2:-}"
+      if [[ -z "$next" || "$next" == --* ]]; then
+        SINCE_SPEC="1 day"
+        shift
+      elif [[ "$next" == "yesterday" ]]; then
+        SINCE_SPEC="yesterday"
+        shift 2
+      elif [[ "$next" =~ ^[0-9]+$ ]]; then
+        unit="${3:-}"
+        if [[ "$unit" =~ ^(hours?|days?|weeks?|months?|years?)$ ]]; then
+          SINCE_SPEC="$next $unit"
+          shift 3
+        else
+          SINCE_SPEC="$next days"
+          shift 2
+        fi
+      elif [[ "$next" =~ ^[0-9]+\ (hours?|days?|weeks?|months?|years?)$ ]]; then
+        SINCE_SPEC="$next"
+        shift 2
+      else
+        SINCE_SPEC="$next"
+        shift 2
+      fi
       ;;
     -h | --help)
       usage
@@ -233,6 +261,21 @@ if [[ -z "$SALT" ]]; then
   exit 1
 fi
 
+# Validate --check names
+if [[ -n "$CHECKS" ]]; then
+  IFS=',' read -ra check_list <<<"$CHECKS"
+  for c in "${check_list[@]}"; do
+    case "$c" in
+      salt | code | uups | owner | implementation | stub) ;;
+      *)
+        echo "❌ Unknown check: $c" >&2
+        echo "   Available: salt, code, uups, owner, implementation, stub" >&2
+        exit 1
+        ;;
+    esac
+  done
+fi
+
 # ── Initialize ─────────────────────────────────────────────────────────────
 
 if [[ "$USE_LOCAL" == true ]]; then
@@ -260,6 +303,23 @@ if [[ -n "$state_network" && "$state_network" != "$NETWORK" ]]; then
   exit 1
 fi
 
+# ── Parse --since ──────────────────────────────────────────────────────────
+
+SINCE_CUTOFF=""
+if [[ -n "$SINCE_SPEC" ]]; then
+  if [[ "$SINCE_SPEC" == "yesterday" ]]; then
+    SINCE_CUTOFF=$(date -d "yesterday 00:00:00" -u +%Y-%m-%dT%H:%M:%SZ)
+  elif [[ "$SINCE_SPEC" =~ ^[0-9]+\ (hours?|days?|weeks?|months?|years?)$ ]]; then
+    SINCE_CUTOFF=$(date -d "$SINCE_SPEC ago" -u +%Y-%m-%dT%H:%M:%SZ)
+  else
+    if ! SINCE_CUTOFF=$(date -d "$SINCE_SPEC" -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null); then
+      echo "❌ Cannot parse --since value: $SINCE_SPEC" >&2
+      echo "   Supported: N hour/day/week/month/year, yesterday, DD-Mon-YYYY" >&2
+      exit 1
+    fi
+  fi
+fi
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 echo ""
@@ -269,6 +329,12 @@ echo "  Network: $NETWORK (chainId: $CHAIN_ID)"
 echo "  RPC:     $RPC_URL"
 echo "  State:   $STATE_FILE"
 echo "  Owner:   $EXPECTED_OWNER"
+if [[ -n "$SINCE_CUTOFF" ]]; then
+  echo "  Since:   $SINCE_CUTOFF ($SINCE_SPEC)"
+fi
+if [[ -n "$CHECKS" ]]; then
+  echo "  Checks:  $CHECKS"
+fi
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 
@@ -277,13 +343,6 @@ proxy_failed=0
 impl_passed=0
 impl_failed=0
 
-# Track which implementation addresses we've checked
-declare -A checked_impls
-
-# Get keys for validation
-proxy_keys=$(get_proxy_keys "$STATE_FILE")
-impl_addrs=$(get_implementation_addresses "$STATE_FILE")
-
 # ── Markets Summary ────────────────────────────────────────────────────────
 
 # Extract unique markets (collateral::peg) from proxy keys, sorted by collateral then peg
@@ -291,7 +350,7 @@ markets=$(jq -r '.proxies | keys[] | split("::") | select(length >= 3) | .[0:2] 
 
 echo "── MARKETS ──────────────────────────────────────────────────"
 echo ""
-failed=false
+market_failed=false
 for market in $markets; do
 
   peg=${market%%::*}
@@ -303,7 +362,7 @@ for market in $markets; do
     echo "    ✓ $aggregator_salt deployed at $aggregator_addr"
   else
     echo "    ❌ $aggregator_salt NOT deployed (expected at $aggregator_addr)"
-    failed=true
+    market_failed=true
   fi
   minter_salt="${SALT}::${peg}::${collateral}::minter"
   minter_addr=$(predict_proxy_address "$minter_salt")
@@ -311,17 +370,17 @@ for market in $markets; do
     echo "    ✓ $minter_salt deployed at $minter_addr"
   else
     echo "    ❌  $minter_salt NOT deployed (expected at $minter_addr)"
-    failed=true
+    market_failed=true
   fi
 done
-if [[ "$failed" == true ]]; then
+if [[ "$market_failed" == true ]]; then
   echo "  ❌ FAILED"
 else
   echo "  ✅ PASSED"
 fi
 
 if [[ "$SUMMARY_ONLY" = true ]]; then
-  if [[ "$failed" == true ]]; then
+  if [[ "$market_failed" == true ]]; then
     exit 1
   else
     exit 0
@@ -329,138 +388,222 @@ if [[ "$SUMMARY_ONLY" = true ]]; then
 fi
 echo ""
 
-# ── Check Proxies ──────────────────────────────────────────────────────────
+# ── Build combined items list ──────────────────────────────────────────────
 
-if [[ -n "$proxy_keys" ]]; then
-  echo "── PROXIES ──────────────────────────────────────────────────"
-  echo ""
+# Produce tab-separated items: TYPE TIMESTAMP KEY PROXY_ADDR IMPL_ADDR SALT CONTRACT_TYPE
+# Sorted by timestamp descending, then key ascending within same timestamp.
+items=$(jq -r '
+  .proxies as $proxies | .implementations as $impls |
+  ($proxies | [.[].implementation]) as $active |
+  (
+    ($proxies | to_entries[] |
+      .value.implementation as $impl_addr |
+      [
+        "proxy",
+        ($impls[$impl_addr].deploymentTime // "1970-01-01T00:00:00Z"),
+        .key,
+        .value.address,
+        $impl_addr,
+        .value.salt,
+        ($impls[$impl_addr].contractType // "-")
+      ] | @tsv
+    ),
+    ($impls | to_entries[] |
+      select((.key) as $k | ($active | index($k)) | not) |
+      [
+        "remaining",
+        (.value.deploymentTime // "1970-01-01T00:00:00Z"),
+        (.value.proxy // "-"),
+        "-",
+        .key,
+        "-",
+        (.value.contractType // "-")
+      ] | @tsv
+    )
+  )
+' "$STATE_FILE" | sort -t$'\t' -rk2,2 -k3,3)
 
-  for key in $proxy_keys; do
-    echo "── $key ────────────────────────────────────────"
+# Apply --since filter
+if [[ -n "$SINCE_CUTOFF" ]]; then
+  items=$(echo "$items" | awk -F'\t' -v cutoff="$SINCE_CUTOFF" 'NF > 0 && $2 >= cutoff')
+fi
+
+# ── Iterate items by deployment batch ──────────────────────────────────────
+
+current_batch=""
+failure_summary=""
+
+while IFS=$'\t' read -r item_type timestamp key proxy_addr impl_addr salt contract_type; do
+  [[ -z "$item_type" ]] && continue
+
+  # Print batch header when date changes
+  item_date="${timestamp%%T*}"
+  if [[ "$item_date" != "$current_batch" ]]; then
+    current_batch="$item_date"
+    echo "── $current_batch ──────────────────────────────────────────"
+    echo ""
+  fi
+
+  if [[ "$item_type" == "proxy" ]]; then
     failed=false
-
-    # Get proxy address and salt from state
-    proxy_addr=$(get_proxy_info "$STATE_FILE" "$key" address)
-    salt=$(get_proxy_info "$STATE_FILE" "$key" salt)
-    expected_impl=$(get_proxy_info "$STATE_FILE" "$key" implementation)
-
-    echo "  Proxy: $proxy_addr"
-    echo "  Salt:  $salt"
+    failures=""
+    passes=""
 
     # Check 1: Verify address matches predicted from salt
-    predicted_addr=$(predict_proxy_address "$salt")
-    if [[ "${proxy_addr,,}" != "${predicted_addr,,}" ]]; then
-      echo "  ❌ Address/salt mismatch!"
-      echo "     State address:      $proxy_addr"
-      echo "     Predicted from salt: $predicted_addr"
-      failed=true
-    else
-      echo "  ✓ Salt prediction matches"
+    if check_enabled salt; then
+      predicted_addr=$(predict_proxy_address "$salt")
+      if [[ "${proxy_addr,,}" != "${predicted_addr,,}" ]]; then
+        failures+="    Address/salt mismatch"$'\n'
+        failures+="       State address:      $proxy_addr"$'\n'
+        failures+="       Predicted from salt: $predicted_addr"$'\n'
+        failed=true
+      else
+        passes+="    ✓ Salt prediction matches"$'\n'
+      fi
     fi
 
     # Check 2: Proxy has code
-    if ! has_code "$proxy_addr"; then
-      echo "  ❌ No code at proxy address"
-      failed=true
-    else
-      echo "  ✓ Has deployed code"
+    if check_enabled code; then
+      if ! has_code "$proxy_addr"; then
+        failures+="    No code at proxy address"$'\n'
+        failed=true
+      else
+        passes+="    ✓ Has deployed code"$'\n'
+      fi
     fi
 
     # Check 3: Has ERC1967 implementation slot (UUPS proxy)
-    if ! is_uups_proxy "$proxy_addr"; then
-      echo "  ❌ No ERC1967 implementation slot - not a UUPS proxy"
-      failed=true
-    else
-      echo "  ✓ Has ERC1967 implementation slot (UUPS)"
+    if check_enabled uups; then
+      if ! is_uups_proxy "$proxy_addr"; then
+        failures+="    No ERC1967 implementation slot - not a UUPS proxy"$'\n'
+        failed=true
+      else
+        passes+="    ✓ Has ERC1967 implementation slot (UUPS)"$'\n'
+      fi
     fi
 
     # Check 4: Owner is expected address
-    actual_owner=$(get_owner "$proxy_addr")
-    if [[ -z "$actual_owner" ]]; then
-      echo "  ❌ Failed to read owner()"
-      failed=true
-    elif [[ "${actual_owner,,}" != "${EXPECTED_OWNER,,}" ]]; then
-      echo "  ❌ Owner mismatch!"
-      echo "     Expected: $EXPECTED_OWNER"
-      echo "     Actual:   $actual_owner"
-      failed=true
-    else
-      echo "  ✓ Owner is treasury ($EXPECTED_OWNER)"
+    if check_enabled owner; then
+      actual_owner=$(get_owner "$proxy_addr")
+      if [[ -z "$actual_owner" ]]; then
+        failures+="    Failed to read owner()"$'\n'
+        failed=true
+      elif [[ "${actual_owner,,}" != "${EXPECTED_OWNER,,}" ]]; then
+        failures+="    Owner mismatch"$'\n'
+        failures+="       Expected: $EXPECTED_OWNER"$'\n'
+        failures+="       Actual:   $actual_owner"$'\n'
+        failed=true
+      else
+        passes+="    ✓ Owner is treasury ($EXPECTED_OWNER)"$'\n'
+      fi
     fi
 
     # Check 5: ERC1967 implementation matches state
-    actual_impl=$(get_erc1967_implementation "$proxy_addr")
-    if [[ -z "$actual_impl" ]]; then
-      echo "  ❌ Failed to read ERC1967 implementation slot"
-      failed=true
-    elif [[ "${actual_impl,,}" != "${expected_impl,,}" ]]; then
-      echo "  ❌ Implementation mismatch!"
-      echo "     Expected: $expected_impl"
-      echo "     Actual:   $actual_impl"
-      failed=true
-    else
-      echo "  ✓ Implementation matches state ($actual_impl)"
+    if check_enabled implementation; then
+      actual_impl=$(get_erc1967_implementation "$proxy_addr")
+      if [[ -z "$actual_impl" ]]; then
+        failures+="    Failed to read ERC1967 implementation slot"$'\n'
+        failed=true
+      elif [[ "${actual_impl,,}" != "${impl_addr,,}" ]]; then
+        actual_contract_type=$(get_implementation_info "$STATE_FILE" "$actual_impl" contractType)
+        failures+="    Implementation mismatch"$'\n'
+        failures+="       Expected: $impl_addr ($contract_type)"$'\n'
+        failures+="       Actual:   $actual_impl ($actual_contract_type)"$'\n'
+        failed=true
+      else
+        passes+="    ✓ Implementation matches state ($actual_impl)"$'\n'
+      fi
     fi
 
     # Check 6: Implementation is NOT the UUPSProxyDeployStub
-    if [[ -n "$actual_impl" ]]; then
-      if is_uups_stub "$actual_impl"; then
-        echo "  ❌ Implementation is still UUPSProxyDeployStub (upgrade not completed)"
+    if check_enabled stub; then
+      if is_uups_stub "$impl_addr"; then
+        failures+="    Implementation is still UUPSProxyDeployStub (upgrade not completed)"$'\n'
         failed=true
       else
-        echo "  ✓ Implementation is not UUPSProxyDeployStub"
+        passes+="    ✓ Implementation is not UUPSProxyDeployStub"$'\n'
       fi
-      checked_impls["${actual_impl,,}"]=1
+    fi
+
+    # Output results
+    if [[ "$VERBOSE" == true ]]; then
+      echo "── $key ────────────────────────────────────────"
+      echo "  State file:"
+      echo "    Proxy:          $proxy_addr"
+      echo "    Salt:           $salt"
+      echo "    Implementation: $impl_addr ($contract_type)"
+      echo "    Deployed:       $timestamp"
+      echo "  Blockchain:"
+      printf "%s" "$passes"
+      printf "%s" "$failures"
+      if [[ "$failed" == true ]]; then
+        echo "    ❌ FAILED"
+      else
+        echo "    ✅ PASSED"
+      fi
+    else
+      if [[ "$failed" == true ]]; then
+        echo "── ❌ FAILED ─ $key ─ $contract_type ─ $timestamp ─"
+        printf "%s" "$failures"
+      else
+        echo "── ✅ PASSED ─ $key ─ $contract_type ─ $timestamp ─"
+      fi
     fi
 
     if [[ "$failed" == true ]]; then
-      echo "  ❌ FAILED"
       ((++proxy_failed))
+      failure_summary+="  FAILED $key ($contract_type)"$'\n'
+      failure_summary+="$failures"
     else
-      echo "  ✅ PASSED"
       ((++proxy_passed))
     fi
-    echo ""
-  done
-else
-  echo "ℹ No proxies in state file."
-  echo ""
-fi
 
-# ── Check Remaining Implementations ────────────────────────────────────────
-
-# Find implementations not used by any proxy
-remaining_impls=()
-for addr in $impl_addrs; do
-  if [[ -z "${checked_impls[${addr,,}]:-}" ]]; then
-    remaining_impls+=("$addr")
-  fi
-done
-
-if [[ ${#remaining_impls[@]} -gt 0 ]]; then
-  echo "── REMAINING IMPLEMENTATIONS ────────────────────────────────"
-  echo ""
-  echo "These implementations are not currently used by any proxy."
-  echo ""
-
-  for addr in "${remaining_impls[@]}"; do
-    role=$(get_implementation_info "$STATE_FILE" "$addr" proxy)
-    contract_type=$(get_implementation_info "$STATE_FILE" "$addr" contractType)
-
-    echo "── $role ────────────────────────────────────────"
-    echo "  Implementation: $addr"
-    echo "  Contract: $contract_type"
-
-    if ! has_code "$addr"; then
-      echo "  ❌ No code at implementation address"
-      ((++impl_failed))
-    else
-      echo "  ✓ Has deployed code"
-      echo "  ✅ PASSED"
-      ((++impl_passed))
+  else
+    # Remaining implementation (not currently used by any proxy)
+    impl_has_code=true
+    if ! has_code "$impl_addr"; then
+      impl_has_code=false
     fi
-    echo ""
-  done
+
+    if [[ "$VERBOSE" == true ]]; then
+      echo "── $key (not active) ────────────────────────────"
+      echo "    Implementation: $impl_addr ($contract_type)"
+      echo "    Deployed:       $timestamp"
+      if [[ "$impl_has_code" == true ]]; then
+        echo "    ✓ Has deployed code"
+        echo "    ✅ PASSED"
+        ((++impl_passed))
+      else
+        echo "    ❌ No code at implementation address"
+        ((++impl_failed))
+      fi
+    else
+      if [[ "$impl_has_code" == true ]]; then
+        echo "── ✅ PASSED ─ $key (not active) ─ $contract_type ─ $timestamp ─"
+        ((++impl_passed))
+      else
+        echo "── ❌ FAILED ─ $key (not active) ─ $contract_type ─ $timestamp ─"
+        echo "    No code at implementation address"
+        ((++impl_failed))
+      fi
+    fi
+
+    if [[ "$impl_has_code" == false ]]; then
+      failure_summary+="  FAILED $key (not active) ($contract_type)"$'\n'
+      failure_summary+="    No code at implementation address"$'\n'
+    fi
+  fi
+
+done <<<"$items"
+
+# Handle empty results
+if [[ -z "$current_batch" ]]; then
+  if [[ -n "$SINCE_CUTOFF" ]]; then
+    echo "No items deployed since $SINCE_CUTOFF"
+  else
+    echo "No items found in state file."
+  fi
+  echo ""
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────
@@ -470,11 +613,15 @@ total_failed=$((proxy_failed + impl_failed))
 echo "═══════════════════════════════════════════════════════════"
 echo "  SUMMARY"
 echo "═══════════════════════════════════════════════════════════"
-echo "  Proxies:                  $proxy_passed passed, $proxy_failed failed"
-echo "  Remaining Implementations: $impl_passed passed, $impl_failed failed"
+echo "  Proxies:               $proxy_passed passed, $proxy_failed failed"
+echo "  Other Implementations: $impl_passed passed, $impl_failed failed"
 echo ""
 
 if [[ "$total_failed" -gt 0 ]]; then
+  echo "Failing items:"
+  echo ""
+  printf "%s" "$failure_summary"
+  echo ""
   echo "❌ VALIDATION FAILED ($total_failed failures)"
   exit 1
 else

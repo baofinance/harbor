@@ -314,6 +314,72 @@ contract MainnetForkUpgradeTest is Test {
         vm.serializeString(_jsonKey, key, vm.toString(value));
     }
 
+    /// @dev Serialize totalAssetSupply + per-user assetBalanceOf. Called 2x per pool (pre/post deposit).
+    function _serializeBalances(address proxy, address[] memory users, string memory prefix) internal {
+        _serializeUint(string.concat(prefix, "_totalAssetSupply"), IStabilityPool(proxy).totalAssetSupply());
+        for (uint256 i = 0; i < users.length; i++) {
+            _serializeUint(
+                string.concat(prefix, "_user_", vm.toString(i), "_assetBalance"),
+                IStabilityPool(proxy).assetBalanceOf(users[i])
+            );
+        }
+    }
+
+    /// @dev Serialize per-user per-token claimable. Called 6x per pool (before/after reward, half/full claim).
+    function _serializeClaimables(
+        address proxy,
+        address[] memory users,
+        address[] memory tokens,
+        string memory prefix
+    ) internal {
+        for (uint256 u = 0; u < users.length; u++) {
+            for (uint256 t = 0; t < tokens.length; t++) {
+                _serializeUint(
+                    string.concat(prefix, "_user_", vm.toString(u), "_reward_", vm.toString(t), "_claimable"),
+                    IMultipleRewardAccumulator(proxy).claimable(users[u], tokens[t])
+                );
+            }
+        }
+    }
+
+    /// @dev Claim for each user via try/catch, recording success/failure and per-token balance deltas.
+    /// Called 2x per pool (half/full period). Records deltas instead of absolute balances to avoid
+    /// cross-pool contamination when the same user appears in multiple pools.
+    function _claimAllWithDeltas(
+        address proxy,
+        address[] memory users,
+        address[] memory tokens,
+        string memory prefix
+    ) internal {
+        // Snapshot balances before claims
+        uint256[] memory balancesBefore = new uint256[](users.length * tokens.length);
+        for (uint256 u = 0; u < users.length; u++) {
+            for (uint256 t = 0; t < tokens.length; t++) {
+                balancesBefore[u * tokens.length + t] = IERC20(tokens[t]).balanceOf(users[u]);
+            }
+        }
+
+        // Claim for each user
+        for (uint256 i = 0; i < users.length; i++) {
+            vm.prank(users[i]);
+            try IMultipleRewardAccumulator(proxy).claim(users[i]) {
+                vm.serializeString(_jsonKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "true");
+            } catch {
+                vm.serializeString(_jsonKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "false");
+            }
+        }
+
+        // Record balance deltas
+        for (uint256 u = 0; u < users.length; u++) {
+            for (uint256 t = 0; t < tokens.length; t++) {
+                _serializeUint(
+                    string.concat(prefix, "_user_", vm.toString(u), "_reward_", vm.toString(t), "_delta"),
+                    IERC20(tokens[t]).balanceOf(users[u]) - balancesBefore[u * tokens.length + t]
+                );
+            }
+        }
+    }
+
     /// @dev Serialize metadata and field descriptions into the current JSON object.
     /// Called twice: once for the pre file and once for the post file.
     function _serializeHeader(string memory /*version*/) internal {
@@ -402,6 +468,7 @@ contract MainnetForkUpgradeTest is Test {
     /// Called 4x per pool (pre + post for each of the two files across v1/v2 runs).
     function _serializePoolState(address proxy, address[] memory depositors, string memory prefix) internal {
         // Pool-global views
+        vm.serializeString(_jsonKey, string.concat(prefix, "_owner"), vm.toString(IBaoOwnable(proxy).owner()));
         {
             IStabilityPool pool = IStabilityPool(proxy);
             _serializeUint(string.concat(prefix, "_totalAssetSupply"), pool.totalAssetSupply());
@@ -460,10 +527,23 @@ contract MainnetForkUpgradeTest is Test {
         }
     }
 
-    /// @dev Try all interactions on a pool. Called once per pool = 22x total.
-    /// Records success/failure and amounts into the current JSON object.
+    /// @dev Try all interactions on a pool with before/after snapshots. Called once per pool = 22x total.
+    /// Records success/failure, amounts, and per-user balances/claimables at each stage.
     function _doInteractions(address proxy, string memory prefix) internal {
-        // 1. Deposit
+        // Build allUsers = existing depositors + testUser
+        address[] memory depositors = poolDepositors[proxy];
+        address[] memory allUsers = new address[](depositors.length + 1);
+        for (uint256 i = 0; i < depositors.length; i++) {
+            allUsers[i] = depositors[i];
+        }
+        allUsers[depositors.length] = testUser;
+
+        address[] memory activeTokens = IMultipleRewardDistributor(proxy).activeRewardTokens();
+
+        // 1. Pre-deposit balances
+        _serializeBalances(proxy, allUsers, string.concat(prefix, "_preDeposit"));
+
+        // 2. Deposit
         {
             address assetToken = IStabilityPool(proxy).ASSET_TOKEN();
             deal(assetToken, testUser, 100 ether);
@@ -478,7 +558,33 @@ contract MainnetForkUpgradeTest is Test {
             _serializeUint(string.concat(prefix, "_deposit_amount"), 100 ether);
         }
 
-        // 2. Deposit reward (prank owner who already has depositor role)
+        // 2b. Existing depositor deposit (exercises checkpoint with historical reward integral)
+        if (depositors.length > 0) {
+            address existingDepositor = depositors[0];
+            address assetToken2 = IStabilityPool(proxy).ASSET_TOKEN();
+            deal(assetToken2, existingDepositor, 100 ether);
+            vm.startPrank(existingDepositor);
+            IERC20(assetToken2).approve(proxy, type(uint256).max);
+            try IStabilityPool(proxy).deposit(100 ether, existingDepositor, 0) {
+                vm.serializeString(_jsonKey, string.concat(prefix, "_existingDepositorDeposit_success"), "true");
+            } catch {
+                vm.serializeString(_jsonKey, string.concat(prefix, "_existingDepositorDeposit_success"), "false");
+            }
+            vm.stopPrank();
+            vm.serializeString(
+                _jsonKey,
+                string.concat(prefix, "_existingDepositorDeposit_user"),
+                vm.toString(existingDepositor)
+            );
+        }
+
+        // 3. Post-deposit balances
+        _serializeBalances(proxy, allUsers, string.concat(prefix, "_postDeposit"));
+
+        // 4. Pre-depositReward claimables
+        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_preReward"));
+
+        // 5. Deposit reward (prank owner who already has depositor role)
         {
             address liquidationToken = IStabilityPool(proxy).LIQUIDATION_TOKEN();
             address owner = IBaoOwnable(proxy).owner();
@@ -495,52 +601,42 @@ contract MainnetForkUpgradeTest is Test {
             _serializeUint(string.concat(prefix, "_depositReward_amount"), 10 ether);
         }
 
-        // 3. Warp half period and capture mid-period reward state
-        {
-            uint256 halfPeriod = uint256(IMultipleRewardDistributor(proxy).REWARD_PERIOD_LENGTH()) / 2;
-            vm.warp(block.timestamp + halfPeriod);
-            _serializeUint(string.concat(prefix, "_warp_half_seconds"), halfPeriod);
+        // 6. Post-depositReward claimables
+        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_postReward"));
 
-            address[] memory activeTokens = IMultipleRewardDistributor(proxy).activeRewardTokens();
-            for (uint256 t = 0; t < activeTokens.length; t++) {
-                string memory mt = string.concat(prefix, "_mid_reward_", vm.toString(t));
-                _serializeUint(
-                    string.concat(mt, "_testUser_claimable"),
-                    IMultipleRewardAccumulator(proxy).claimable(testUser, activeTokens[t])
-                );
-                // Also capture mid-period claimable for existing depositors
-                address[] memory depositors = poolDepositors[proxy];
-                for (uint256 d = 0; d < depositors.length; d++) {
-                    _serializeUint(
-                        string.concat(mt, "_user_", vm.toString(d), "_claimable"),
-                        IMultipleRewardAccumulator(proxy).claimable(depositors[d], activeTokens[t])
-                    );
+        // 7. Warp half period
+        uint256 halfPeriod = uint256(IMultipleRewardDistributor(proxy).REWARD_PERIOD_LENGTH()) / 2;
+        vm.warp(block.timestamp + halfPeriod);
+        _serializeUint(string.concat(prefix, "_warp_half_seconds"), halfPeriod);
+
+        // 8-10. Half-period: claimable before, claim all (with balance deltas), claimable after
+        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_half_preClaim"));
+        _claimAllWithDeltas(proxy, allUsers, activeTokens, string.concat(prefix, "_half_claim"));
+        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_half_postClaim"));
+
+        // 11. Warp remaining half period
+        vm.warp(block.timestamp + halfPeriod);
+        _serializeUint(string.concat(prefix, "_warp_total_seconds"), halfPeriod * 2);
+
+        // 12-14. Full-period: claimable before, claim all (with balance deltas), claimable after
+        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_full_preClaim"));
+        _claimAllWithDeltas(proxy, allUsers, activeTokens, string.concat(prefix, "_full_claim"));
+        _serializeClaimables(proxy, allUsers, activeTokens, string.concat(prefix, "_full_postClaim"));
+
+        // 15. Assert all claimable == 0 after full period
+        {
+            bool allZero = true;
+            for (uint256 u = 0; u < allUsers.length && allZero; u++) {
+                for (uint256 t = 0; t < activeTokens.length && allZero; t++) {
+                    if (IMultipleRewardAccumulator(proxy).claimable(allUsers[u], activeTokens[t]) > 0) {
+                        allZero = false;
+                    }
                 }
             }
+            vm.serializeString(_jsonKey, string.concat(prefix, "_full_allClaimableZero"), allZero ? "true" : "false");
         }
 
-        // 4. Warp remaining half period
-        {
-            uint256 halfPeriod = uint256(IMultipleRewardDistributor(proxy).REWARD_PERIOD_LENGTH()) / 2;
-            vm.warp(block.timestamp + halfPeriod);
-            _serializeUint(string.concat(prefix, "_warp_total_seconds"), halfPeriod * 2);
-        }
-
-        // 5. Claim for existing depositors
-        {
-            address[] memory depositors = poolDepositors[proxy];
-            for (uint256 i = 0; i < depositors.length; i++) {
-                string memory ci = string.concat(prefix, "_claim_user_", vm.toString(i));
-                vm.prank(depositors[i]);
-                try IMultipleRewardAccumulator(proxy).claim(depositors[i]) {
-                    vm.serializeString(_jsonKey, string.concat(ci, "_success"), "true");
-                } catch {
-                    vm.serializeString(_jsonKey, string.concat(ci, "_success"), "false");
-                }
-            }
-        }
-
-        // 6. Withdraw for test user (request, warp into window, withdraw)
+        // 16. Withdraw for test user (request, warp into window, withdraw)
         vm.startPrank(testUser);
         try IStabilityPool(proxy).requestWithdrawal() {
             vm.serializeString(_jsonKey, string.concat(prefix, "_requestWithdrawal_success"), "true");
