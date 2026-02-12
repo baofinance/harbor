@@ -25,6 +25,7 @@ contract MainnetUpgradeTest is Test {
     address constant REWARD_SAIL = 0x9567c243F647f9Ac37efb7Fc26BD9551Dce0BE1B; // hsBTC-fxUSD
     address constant ANCHORED = 0x25bA4A826E1A1346dcA2Ab530831dbFF9C08bEA7; // haBTC
     uint256 constant FORK_BLOCK = 24404265;
+    uint256 constant LATER_BLOCK = 24433566;
 
     string mainnet = vm.rpcUrl("mainnet");
 
@@ -181,7 +182,7 @@ contract MainnetUpgradeTest is Test {
         console.log("");
 
         // Fork to the latest block
-        vm.createSelectFork(mainnet);
+        vm.createSelectFork(mainnet, LATER_BLOCK);
         console.log("Forked to latest block:", block.number);
         _doFailingTransactions(FAIL);
     }

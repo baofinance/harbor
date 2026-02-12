@@ -791,7 +791,7 @@
     },
     "BTC::fxUSD::stabilityPoolLeveraged": {
       "address": "0x9e56F1E1E80EBf165A1dAa99F9787B41cD5bFE40",
-      "implementation": "0x189760Ff79f5f8de22894E0760c61d4706F59E57",
+      "implementation": "0xaFE9DF05bba2D93e78920860e4372Ef912b523C7",
       "salt": "harbor_v1::BTC::fxUSD::stabilityPoolLeveraged",
       "deploymentTime": "2025-12-19T21:38:23Z"
     },
