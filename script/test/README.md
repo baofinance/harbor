@@ -1,10 +1,27 @@
-# Manual Upgrade Verification Tests
+# Manual Test Scripts
+
+## Deploy test
+
+`test-deploy` is a convenience wrapper for running `DeployMinters.t.sol` tests:
+
+```bash
+# List all tests
+script/test/test-deploy --list
+
+# Run BTC deploy test
+script/test/test-deploy BTC
+
+# List tests matching SILVER
+script/test/test-deploy --list SILVER
+```
+
+## Upgrade verification test
 
 These tests verify that upgrading StabilityPool v1 to v2 preserves all on-chain
 state and produces identical behavior. They run against a local anvil fork and
 are NOT part of CI -- run them manually during the upgrade deployment workflow.
 
-## Output
+### Output
 
 Each run produces one JSON file per pool in two directories:
 
@@ -13,7 +30,7 @@ tmp/{version}/pre/{label}.json   -- state snapshot before any interactions
 tmp/{version}/post/{label}.json  -- interaction results + state snapshot after
 ```
 
-## Quick start (automated)
+### Quick start (automated)
 
 The `run-upgrade-test` script orchestrates the full workflow. It prompts you to
 start and stop anvil manually between steps:
@@ -38,9 +55,9 @@ POOL_FILTER=BTC script/test/run-upgrade-test
 FORGE_VERBOSITY=-vv script/test/run-upgrade-test
 ```
 
-## Manual workflow
+### Manual workflow
 
-### 1. Start anvil fork and capture v1 state
+#### 1. Start anvil fork and capture v1 state
 
 ```bash
 script/anvil --block upgrade
@@ -66,7 +83,7 @@ Output: `tmp/v1/pre/*.json` and `tmp/v1/post/*.json`
 
 Stop anvil (Ctrl+C).
 
-### 2. Start fresh anvil fork and deploy the upgrade
+#### 2. Start fresh anvil fork and deploy the upgrade
 
 ```bash
 script/anvil --block upgrade
@@ -75,10 +92,10 @@ script/anvil --block upgrade
 Deploy the upgrade against the local fork:
 
 ```bash
-./script/deploy-stabilityPool_v2 --network mainnet --salt harbor_v1 --local
+./script/run-script Deploy_StabilityPool_v2_mainnet --network mainnet --salt harbor_v1 --broadcast --local
 ```
 
-### 3. Capture v2 state (same anvil instance, post-upgrade)
+#### 3. Capture v2 state (same anvil instance, post-upgrade)
 
 ```bash
 START_TIMESTAMP=$START_TIMESTAMP VERSION=v2 forge test \
@@ -90,7 +107,7 @@ Output: `tmp/v2/pre/*.json` and `tmp/v2/post/*.json`
 
 Stop anvil.
 
-### 4. Compare
+#### 4. Compare
 
 Using meld (recommended -- shows all pools side by side):
 
@@ -117,7 +134,7 @@ jq --sort-keys . tmp/v2/pre/BTC_fxUSD_col.json > /tmp/v2.json
 diff --color /tmp/v1.json /tmp/v2.json
 ```
 
-## Environment variables
+### Environment variables
 
 | Variable          | Default        | Description                                                |
 | ----------------- | -------------- | ---------------------------------------------------------- |
@@ -156,9 +173,9 @@ Pool labels: `BTC_fxUSD_col`, `BTC_fxUSD_lev`, `BTC_stETH_col`, `BTC_stETH_lev`,
 `MCAP_stETH_col`, `MCAP_stETH_lev`, `SILVER_fxUSD_col`, `SILVER_fxUSD_lev`,
 `SILVER_stETH_col`, `SILVER_stETH_lev`
 
-## Expected differences
+### Expected differences
 
-### Pre files (`v1/pre/*.json` vs `v2/pre/*.json`)
+#### Pre files (`v1/pre/*.json` vs `v2/pre/*.json`)
 
 | Key                               | v1        | v2       | Meaning                                          |
 | --------------------------------- | --------- | -------- | ------------------------------------------------ |
@@ -167,7 +184,7 @@ Pool labels: `BTC_fxUSD_col`, `BTC_fxUSD_lev`, `BTC_stETH_col`, `BTC_stETH_lev`,
 
 Everything else should be **identical** -- proves the upgrade preserves all state.
 
-### Post files (`v1/post/*.json` vs `v2/post/*.json`)
+#### Post files (`v1/post/*.json` vs `v2/post/*.json`)
 
 | Key                                   | v1        | v2       | Meaning                                                      |
 | ------------------------------------- | --------- | -------- | ------------------------------------------------------------ |
@@ -177,7 +194,7 @@ Everything else should be **identical** -- proves the upgrade preserves all stat
 | `interact_withdraw_success`           | `"false"` | `"true"` | Broken pools now allow withdrawals                           |
 | post-interaction state                | differs   | differs  | State for newly-fixed pools reflects successful interactions |
 
-## Adding depositors
+### Adding depositors
 
 The test currently has one hardcoded depositor. To discover more:
 
