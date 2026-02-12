@@ -21,7 +21,8 @@
       "Bash(TOPIC0=0x5548c837ab068cf56a2c2479df0882a4922fd203edb7517321831d95078c5f62)",
       "Bash(cast logs:*)",
       "Bash(jq:*)",
-      "Bash(script/check-blockchain:*)"
+      "Bash(script/check-blockchain:*)",
+      "Bash(echo:*)"
     ]
   }
 }
