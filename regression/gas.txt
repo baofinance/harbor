@@ -160,10 +160,12 @@ src/minter/StabilityPool_v1.sol:StabilityPool_v1
 | claimed               | 2.848e+03 |
 | deposit               | 2.693e+05 |
 | depositReward         | 6.533e+04 |
+| getWithdrawalRequest  | 2.745e+03 |
 | grantRoles            | 2.636e+04 |
 | initialize            | 2.041e+05 |
 | notifyLiquidation     | 1.373e+05 |
 | registerRewardToken   | 7.292e+04 |
+| requestWithdrawal     | 2.504e+04 |
 | sweep                 | 4.020e+04 |
 | totalAssetSupply      | 2.489e+03 |
 | transferOwnership     | 1.207e+04 |
@@ -183,15 +185,16 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | claimed               | 9.798e+03 |
 | deposit               | 2.800e+05 |
 | depositReward         | 6.693e+04 |
+| getWithdrawalRequest  | 2.745e+03 |
 | grantRoles            | 2.636e+04 |
 | initialize            | 2.041e+05 |
-| notifyLiquidation     | 1.079e+05 |
+| notifyLiquidation     | 1.107e+05 |
 | owner                 | 2.424e+03 |
 | proxiableUUID         | 3.410e+02 |
 | sweep                 | 4.020e+04 |
 | totalAssetSupply      | 2.489e+03 |
 | transferOwnership     | 1.207e+04 |
-| withdraw              | 2.217e+05 |
+| withdraw              | 3.013e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |       max |
