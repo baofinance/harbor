@@ -528,14 +528,17 @@ while IFS=$'\t' read -r peg market item_type timestamp key_suffix proxy_addr imp
       IFS='|' read -r upd_key upd_addr upd_type <<< "$upd"
       echo ""
       printf "  Update %s to %s (%s)? [y/N] " "$upd_key" "$upd_addr" "$upd_type" >/dev/tty
-      read -r answer </dev/tty
+      read -n1 -r answer </dev/tty
+      echo "" >/dev/tty
       if [[ "$answer" == [yY] ]]; then
         jq --arg key "$upd_key" --arg addr "$upd_addr" \
           '.proxies[$key].implementation = $addr' "$STATE_FILE" > "${STATE_FILE}.tmp" \
           && mv "${STATE_FILE}.tmp" "$STATE_FILE"
-        echo "  Updated." >/dev/tty
-        ((--failed))
-        ((++passed))
+        echo "  ✅ Updated." >/dev/tty
+        failed=$((failed - 1))
+        passed=$((passed + 1))
+      else
+        echo "  Skipped." >/dev/tty
       fi
     done
     pending_updates=()
@@ -750,14 +753,17 @@ for upd in "${pending_updates[@]}"; do
   IFS='|' read -r upd_key upd_addr upd_type <<< "$upd"
   echo ""
   printf "  Update %s to %s (%s)? [y/N] " "$upd_key" "$upd_addr" "$upd_type" >/dev/tty
-  read -r answer </dev/tty
+  read -n1 -r answer </dev/tty
+  echo "" >/dev/tty
   if [[ "$answer" == [yY] ]]; then
     jq --arg key "$upd_key" --arg addr "$upd_addr" \
       '.proxies[$key].implementation = $addr' "$STATE_FILE" > "${STATE_FILE}.tmp" \
       && mv "${STATE_FILE}.tmp" "$STATE_FILE"
-    echo "  Updated." >/dev/tty
-    ((--failed))
-    ((++passed))
+    echo "  ✅ Updated." >/dev/tty
+    failed=$((failed - 1))
+    passed=$((passed + 1))
+  else
+    echo "  Skipped." >/dev/tty
   fi
 done
 pending_updates=()
