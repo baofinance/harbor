@@ -8,7 +8,7 @@
 
 ## 1. The Goal: Predictable Leverage
 
-Variable leverage sail (doc 1) drifts with collateral price. When collateral rises, leverage falls; when it falls, leverage rises. For some users this is acceptable or even desirable — but others need predictable, constant leverage:
+Variable leverage sail [1-variable-leveraged-sail.md](1-variable-leveraged-sail.md) drifts with collateral price. When collateral rises, leverage falls; when it falls, leverage rises. For some users this is acceptable or even desirable — but others need predictable, constant leverage:
 
 - Portfolio managers allocating a fixed beta
 - Hedgers who need to offset a known exposure
