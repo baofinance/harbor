@@ -37,11 +37,14 @@ Typical range: 1.3 to 3.0
 ```
 
 **Relationship to sail value:**
+
 ```
 S = C - A = A(CR - 1)
 
 ∴ Sail value = Anchored value × (CR - 1)
 ```
+
+![Sail Value vs Collateral](charts/sail-value-vs-collateral.png)
 
 ---
 
@@ -50,11 +53,13 @@ S = C - A = A(CR - 1)
 ### 2.1 Sail Token Value
 
 **Total sail value:**
+
 ```
 S(C, A) = C - A
 ```
 
 **Per-token value:**
+
 ```
 s(C, A, n) = (C - A) / n
 
@@ -62,6 +67,7 @@ Where n = sail token supply
 ```
 
 **Properties:**
+
 - Linear in C
 - Linear in A (negative)
 - Inversely proportional to n
@@ -77,30 +83,36 @@ L(C, A) = C / (C - A) = C / S = CR / (CR - 1)
 ```
 
 **Properties:**
+
 - L → ∞ as C → A (approaching wipeout)
 - L decreases as C increases (de-leveraging when winning)
 - L increases as C decreases (leveraging when losing)
 
 **Typical values:**
 
-| CR | Leverage L |
-|----|-----------|
-| 1.3 | 4.33x |
-| 1.5 | 3.0x |
-| 2.0 | 2.0x |
-| 3.0 | 1.5x |
+| CR  | Leverage L |
+| --- | ---------- |
+| 1.3 | 4.33x      |
+| 1.5 | 3.0x       |
+| 2.0 | 2.0x       |
+| 3.0 | 1.5x       |
+
+![Leverage vs Collateral](charts/leverage-vs-collateral.png)
+
+_Note: Leverage decreases hyperbolically as collateral increases. Near wipeout (C→A), leverage→∞. This nonlinearity creates the "negative gamma" effect._
 
 ---
 
 ## 3. Delta Analysis (First-Order Sensitivities)
 
-**Important:** C, A, and S are linked by the invariant C = A + S. You cannot change one independently - all changes occur through specific operations (minting/redeeming). The deltas below show mathematical relationships, but see Section 5 for how they combine in actual operations.
+**Important:** C, A, and S are linked by the invariant C = A + S. You cannot change one independently - all changes occur through specific operations (minting/redeeming). The deltas below show mathematical relationships, but see Section 4 for how they combine in actual operations.
 
 ### 3.1 Fundamental Relationships
 
 From the invariant S = C - A, we have:
 
 **Sail value sensitivity to collateral (holding A constant):**
+
 ```
 ∂S/∂C = 1
 
@@ -109,6 +121,7 @@ sail value increases by $1.
 ```
 
 **Sail value sensitivity to anchored supply (holding C constant):**
+
 ```
 ∂S/∂A = -1
 
@@ -116,40 +129,7 @@ Interpretation: If anchored supply increases by $1 and collateral stays fixed,
 sail value decreases by $1.
 ```
 
-**Note:** These are partial derivatives showing mathematical relationships. In practice, you cannot change A without changing C (minting anchored requires depositing collateral). See Section 5 for actual operation effects.
-
----
-
-### 3.2 Leverage Deltas
-
-**Leverage sensitivity to collateral (holding A constant):**
-```
-∂L/∂C = ∂(C/S)/∂C = ∂(C/(C-A))/∂C = -A / (C - A)² = -A / S²
-
-Sign: Negative (leverage decreases as collateral increases)
-
-Magnitude: Inversely proportional to S² (larger when sail value is small)
-```
-
-**Example calculation:**
-
-C = $100, A = $40, S = $60
-
-```
-∂L/∂C = -40 / 60² = -0.0111
-
-Meaning: If C increases by $1 (with A held fixed), leverage decreases by ~0.0111.
-At current L = 1.67x, this represents a -0.67% relative change.
-```
-
-**Leverage sensitivity to anchored supply (holding C constant):**
-```
-∂L/∂A = ∂(C/S)/∂A = ∂(C/(C-A))/∂A = C / (C - A)² = C / S²
-
-Sign: Positive (leverage increases as anchored supply increases)
-```
-
-**Again:** These show how L changes with C or A individually. Real operations change both simultaneously - see Section 4.
+**Note:** These are partial derivatives showing mathematical relationships. In practice, you cannot change A without changing C (minting anchored requires depositing collateral). See Section 4 for actual operation effects.
 
 ---
 
@@ -187,6 +167,7 @@ Leverage INCREASES!
 C = $100, A = $40, S = $60, L = 1.67x
 
 User mints $10 anchored:
+
 - C_new = $110, A_new = $50, S_new = $60 (unchanged)
 - L_new = 110/60 = 1.83x (leverage increased from 1.67x to 1.83x)
 
@@ -221,6 +202,7 @@ Leverage DECREASES
 C = $100, A = $40, S = $60, L = 1.67x
 
 User redeems $10 anchored:
+
 - C_new = $90, A_new = $30, S_new = $60 (unchanged)
 - L_new = 90/60 = 1.5x (leverage decreased from 1.67x to 1.5x)
 
@@ -383,14 +365,71 @@ L₁ = 3.0x
 
 ### 4.6 Operations Summary Table
 
-| Operation | ΔC | ΔA | ΔS | ΔL | Notes |
-|-----------|----|----|----|----|-------|
-| **Mint anchored** | +ΔA | +ΔA | 0 | + | Sail value unchanged, leverage increases |
-| **Redeem anchored** | -ΔA | -ΔA | 0 | - | Sail value unchanged, leverage decreases |
-| **Mint sail** | +ΔC | 0 | +ΔC | - | Per-token value preserved (if fair), leverage decreases |
-| **Redeem sail** | -ΔC | 0 | -ΔC | + | Per-token value preserved (if fair), leverage increases |
-| **Price increase** | +ΔC | 0 | +ΔC | - | Sail gains, leverage decreases (de-leveraging) |
-| **Price decrease** | -ΔC | 0 | -ΔC | + | Sail loses, leverage increases (re-leveraging) |
+| Operation           | ΔC  | ΔA  | ΔS  | ΔL  | Notes                                                   |
+| ------------------- | --- | --- | --- | --- | ------------------------------------------------------- |
+| **Mint anchored**   | +ΔA | +ΔA | 0   | +   | Sail value unchanged, leverage increases                |
+| **Redeem anchored** | -ΔA | -ΔA | 0   | -   | Sail value unchanged, leverage decreases                |
+| **Mint sail**       | +ΔC | 0   | +ΔC | -   | Per-token value preserved (if fair), leverage decreases |
+| **Redeem sail**     | -ΔC | 0   | -ΔC | +   | Per-token value preserved (if fair), leverage increases |
+| **Price increase**  | +ΔC | 0   | +ΔC | -   | Sail gains, leverage decreases (de-leveraging)          |
+| **Price decrease**  | -ΔC | 0   | -ΔC | +   | Sail loses, leverage increases (re-leveraging)          |
+
+---
+
+### 4.7 Relative Impact Analysis (TVL Scaling)
+
+**Key insight:** Operation impact scales with size as % of TVL. Large protocols are more stable against individual operations.
+
+#### 4.7.1 Relative Leverage Changes
+
+For an operation of size α (as fraction of current collateral C):
+
+**Mint anchored:**
+
+```
+ΔL/L = α
+
+Example: 10% mint → 10% leverage increase
+```
+
+**Mint sail:**
+
+```
+ΔL/L = α(1 - L)
+
+Example at L=2x: 10% mint → -10% leverage change
+Example at L=3x: 10% mint → -20% leverage change
+```
+
+**Key finding:** Impact is **proportional to operation size**, independent of absolute TVL!
+
+#### 4.7.2 Mint Anchored Impact vs Operation Size
+
+![Mint Anchored Leverage Impact](charts/mint-anchored-leverage-impact.png)
+
+_Note: Perfect linear relationship - a 10% mint increases leverage by 10% regardless of protocol size._
+
+#### 4.7.3 Mint Sail Impact at Different Leverage Levels
+
+![Mint Sail Leverage Impact](charts/mint-sail-leverage-impact.png)
+
+_Note: Higher initial leverage → larger deleveraging effect. At L=4x, a 10% sail mint reduces leverage by 30%!_
+
+#### 4.7.4 Practical Implications
+
+**For small protocols (TVL < $10M):**
+
+- Single $1M operation = 10%+ impact → significant leverage changes
+- Protocol vulnerable to whale behavior
+- Need careful monitoring of large operations
+
+**For large protocols (TVL > $100M):**
+
+- Single $1M operation = 1% impact → minimal leverage change
+- More stable leverage ratios
+- Individual users have negligible system-wide impact
+
+**Design consideration:** Larger TVL provides natural stability against manipulation and extreme leverage swings from individual operations.
 
 ---
 
@@ -399,6 +438,7 @@ L₁ = 3.0x
 ### 5.1 Sail Value Gammas
 
 **Gamma with respect to collateral:**
+
 ```
 ∂²S/∂C² = 0
 
@@ -406,6 +446,7 @@ Interpretation: Sail value is LINEAR in collateral. No convexity.
 ```
 
 **Gamma with respect to anchored supply:**
+
 ```
 ∂²S/∂A² = 0
 
@@ -419,6 +460,7 @@ Interpretation: Sail value is LINEAR in anchored supply. No convexity.
 ### 5.2 Leverage Gammas
 
 **Gamma with respect to collateral:**
+
 ```
 ∂²L/∂C² = 2A / (C - A)³ = 2A / S³
 
@@ -442,11 +484,13 @@ Meaning: Second derivative is positive → leverage change accelerates as C decl
 **Physical interpretation:**
 
 When collateral drops:
+
 1. First-order: Leverage increases (negative delta)
 2. Second-order: Rate of increase accelerates (positive gamma)
 3. Result: "Negative gamma" for sail holders (losses accelerate)
 
 **Gamma with respect to anchored supply:**
+
 ```
 ∂²L/∂A² = 2C / (C - A)³ = 2C / S³
 
@@ -454,6 +498,10 @@ Sign: Positive
 
 Interpretation: Leverage increase accelerates as anchored supply grows
 ```
+
+![Leverage Gamma](charts/leverage-gamma.png)
+
+_Note: Gamma is positive but extremely small at high C, growing rapidly as C→A. Values shown ×1000 for visibility. This acceleration means losses compound faster during drawdowns._
 
 ---
 
@@ -483,120 +531,15 @@ Taking second derivative:
 ```
 
 **Interpretation:** Sail token returns exhibit negative convexity:
+
 - Gains decelerate when collateral rises (leverage decreases)
 - Losses accelerate when collateral falls (leverage increases)
 
 ---
-## 6. Plotting Functions
 
-### 6.1 Python Code for Value Plots
+## 6. Chart Generation
 
-```python
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Parameters
-A = 40  # Anchored token value ($40M)
-C_range = np.linspace(40, 200, 1000)  # Collateral from $40M to $200M
-
-# Calculate sail value and leverage
-S = C_range - A
-S = np.maximum(S, 0)  # Can't be negative (wipeout at C = A)
-
-L = np.divide(C_range, S, where=S>0, out=np.full_like(S, np.inf))
-
-# Plot 1: Sail Value vs Collateral
-fig, axes = plt.subplots(3, 1, figsize=(10, 12))
-
-axes[0].plot(C_range, S, 'b-', linewidth=2)
-axes[0].axhline(y=0, color='k', linestyle='--', alpha=0.3)
-axes[0].axvline(x=A, color='r', linestyle='--', alpha=0.3, label='Wipeout (C=A)')
-axes[0].set_xlabel('Collateral Value C ($M)')
-axes[0].set_ylabel('Sail Value S ($M)')
-axes[0].set_title('Sail Value vs Collateral (A = $40M)')
-axes[0].grid(True, alpha=0.3)
-axes[0].legend()
-
-# Plot 2: Leverage vs Collateral
-axes[1].plot(C_range[S>0], L[S>0], 'g-', linewidth=2)
-axes[1].axvline(x=A, color='r', linestyle='--', alpha=0.3, label='Wipeout (C=A)')
-axes[1].axhline(y=1, color='k', linestyle='--', alpha=0.3, label='No leverage')
-axes[1].set_xlabel('Collateral Value C ($M)')
-axes[1].set_ylabel('Leverage L (ratio)')
-axes[1].set_title('Leverage vs Collateral (A = $40M)')
-axes[1].set_ylim([0, 10])
-axes[1].grid(True, alpha=0.3)
-axes[1].legend()
-
-# Plot 3: Delta (∂L/∂C) vs Collateral
-dL_dC = -A / (S**2)
-dL_dC[S <= 0] = np.nan
-
-axes[2].plot(C_range, dL_dC, 'r-', linewidth=2)
-axes[2].axhline(y=0, color='k', linestyle='--', alpha=0.3)
-axes[2].axvline(x=A, color='r', linestyle='--', alpha=0.3, label='Wipeout (C=A)')
-axes[2].set_xlabel('Collateral Value C ($M)')
-axes[2].set_ylabel('∂L/∂C (leverage delta)')
-axes[2].set_title('Leverage Delta vs Collateral (A = $40M)')
-axes[2].set_ylim([-0.1, 0])
-axes[2].grid(True, alpha=0.3)
-axes[2].legend()
-
-plt.tight_layout()
-plt.savefig('sail_value_leverage_delta.png', dpi=150)
-plt.show()
-```
-
-### 6.2 Gamma Plot
-
-```python
-# Plot 4: Gamma (∂²L/∂C²) vs Collateral
-fig, ax = plt.subplots(figsize=(10, 6))
-
-d2L_dC2 = 2 * A / (S**3)
-d2L_dC2[S <= 0] = np.nan
-
-ax.plot(C_range, d2L_dC2, 'm-', linewidth=2)
-ax.axhline(y=0, color='k', linestyle='--', alpha=0.3)
-ax.axvline(x=A, color='r', linestyle='--', alpha=0.3, label='Wipeout (C=A)')
-ax.set_xlabel('Collateral Value C ($M)')
-ax.set_ylabel('∂²L/∂C² (leverage gamma)')
-ax.set_title('Leverage Gamma vs Collateral (A = $40M)')
-ax.set_yscale('log')
-ax.grid(True, alpha=0.3, which='both')
-ax.legend()
-
-plt.tight_layout()
-plt.savefig('sail_leverage_gamma.png', dpi=150)
-plt.show()
-```
-
-### 6.3 Heatmap: Sail Value vs (C, A)
-
-```python
-# Create 2D grid
-C_vals = np.linspace(50, 200, 100)
-A_vals = np.linspace(20, 100, 100)
-C_grid, A_grid = np.meshgrid(C_vals, A_vals)
-
-# Calculate S for each (C, A) pair
-S_grid = C_grid - A_grid
-S_grid[S_grid < 0] = 0  # Wipeout region
-
-# Plot heatmap
-fig, ax = plt.subplots(figsize=(10, 8))
-im = ax.contourf(C_grid, A_grid, S_grid, levels=20, cmap='viridis')
-ax.plot([20, 200], [20, 200], 'r--', linewidth=2, label='Wipeout line (C=A)')
-ax.set_xlabel('Collateral C ($M)')
-ax.set_ylabel('Anchored A ($M)')
-ax.set_title('Sail Value S = C - A')
-cbar = plt.colorbar(im, ax=ax)
-cbar.set_label('Sail Value ($M)')
-ax.legend()
-plt.tight_layout()
-plt.savefig('sail_value_heatmap.png', dpi=150)
-plt.show()
-```
+All charts in this document are generated from the formulas above by [`charts/generate-all.py`](charts/generate-all.py). The script defines each formula as a plain Python function and uses adaptive sampling to produce smooth curves automatically. Run it from the `charts/` directory to regenerate all SVGs.
 
 ---
 
@@ -604,31 +547,31 @@ plt.show()
 
 ### 7.1 Value Functions
 
-| Function | Formula | Type |
-|----------|---------|------|
-| Sail value | S = C - A | Linear |
-| Per-token sail | s = (C - A) / n | Hyperbolic in n |
-| Leverage | L = C / (C - A) | Rational |
-| Collateral ratio | CR = C / A | Linear in C |
+| Function         | Formula         | Type            |
+| ---------------- | --------------- | --------------- |
+| Sail value       | S = C - A       | Linear          |
+| Per-token sail   | s = (C - A) / n | Hyperbolic in n |
+| Leverage         | L = C / (C - A) | Rational        |
+| Collateral ratio | CR = C / A      | Linear in C     |
 
 ### 7.2 First Derivatives (Deltas)
 
-| Derivative | Formula | Sign |
-|------------|---------|------|
-| ∂S/∂C | 1 | Positive |
-| ∂S/∂A | -1 | Negative |
-| ∂L/∂C | -A / S² | Negative |
-| ∂L/∂A | C / S² | Positive |
-| ∂s/∂n | -s / n | Negative |
+| Derivative | Formula | Sign     |
+| ---------- | ------- | -------- |
+| ∂S/∂C      | 1       | Positive |
+| ∂S/∂A      | -1      | Negative |
+| ∂L/∂C      | -A / S² | Negative |
+| ∂L/∂A      | C / S²  | Positive |
+| ∂s/∂n      | -s / n  | Negative |
 
 ### 7.3 Second Derivatives (Gammas)
 
-| Derivative | Formula | Sign |
-|------------|---------|------|
-| ∂²S/∂C² | 0 | Zero |
-| ∂²S/∂A² | 0 | Zero |
-| ∂²L/∂C² | 2A / S³ | Positive |
-| ∂²L/∂A² | 2C / S³ | Positive |
+| Derivative | Formula | Sign     |
+| ---------- | ------- | -------- |
+| ∂²S/∂C²    | 0       | Zero     |
+| ∂²S/∂A²    | 0       | Zero     |
+| ∂²L/∂C²    | 2A / S³ | Positive |
+| ∂²L/∂A²    | 2C / S³ | Positive |
 
 ---
 

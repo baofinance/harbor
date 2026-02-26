@@ -22,7 +22,15 @@
       "Bash(cast logs:*)",
       "Bash(jq:*)",
       "Bash(script/check-blockchain:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(gnuplot:*)",
+      "Bash(ls:*)",
+      "Bash(/home/tfras/github/baofinance/harbor/doc/packaging-harbor-tokens/charts/leverage-vs-collateral.gp << 'EOF'\nset terminal svg size 1000,600 font \"Arial,14\" background \"#ffffff\"\nset output \"leverage-vs-collateral.svg\"\n\nset title \"Leverage L = C/S vs Collateral \\(A = $40M\\) - Hyperbolic Decline\" font \"Arial,20\"\nset xlabel \"Collateral C \\($M\\)\" font \"Arial,18\"\nset ylabel \"Leverage \\(ratio\\)\" font \"Arial,18\"\nset yrange [0:5.5]\nset grid\nset key top right\n\nset style line 1 lc rgb \"#2563eb\" lw 2\n\nplot '-' using 1:2 with linespoints ls 1 notitle\n50  5.0\n60  3.0\n70  2.33\n80  2.0\n90  1.8\n100 1.67\n120 1.5\n140 1.4\n160 1.33\n180 1.29\n200 1.25\ne\nEOF)",
+      "Bash(/home/tfras/github/baofinance/harbor/doc/packaging-harbor-tokens/charts/mint-anchored-leverage-impact.gp << 'EOF'\nset terminal svg size 1000,600 font \"Arial,14\" background \"#ffffff\"\nset output \"mint-anchored-leverage-impact.svg\"\n\nset title \"Mint Anchored: Relative Leverage Impact \\(ΔL/L = α\\)\" font \"Arial,20\"\nset xlabel \"Operation Size \\(% of Collateral\\)\" font \"Arial,18\"\nset ylabel \"Leverage Change \\(%\\)\" font \"Arial,18\"\nset yrange [0:20]\nset grid\nset key top left\n\nset style line 1 lc rgb \"#10b981\" lw 2\n\nplot '-' using 1:2 with linespoints ls 1 notitle\n0  0\n2  2\n4  4\n6  6\n8  8\n10 10\n12 12\n14 14\n16 16\n18 18\n20 20\ne\nEOF)",
+      "Bash(/home/tfras/github/baofinance/harbor/doc/packaging-harbor-tokens/charts/fixed-senior-junior-variable-leverage.gp << 'EOF'\nset terminal svg size 1000,600 font \"Arial,14\" background \"#ffffff\"\nset output \"fixed-senior-junior-variable-leverage.svg\"\n\nset title \"Leverage Evolution: Senior Fixed at 2x, Junior Variable\" font \"Arial,20\"\nset xlabel \"Collateral C \\($M\\)\" font \"Arial,18\"\nset ylabel \"Leverage \\(ratio\\)\" font \"Arial,18\"\nset yrange [0:10]\nset grid\nset key top right\n\nset style line 1 lc rgb \"#2563eb\" lw 2\nset style line 2 lc rgb \"#10b981\" lw 2\n\nplot '-' using 1:2 with linespoints ls 1 title \"Senior \\(2x fixed\\)\", \\\\\n     '-' using 1:2 with linespoints ls 2 title \"Junior \\(variable\\)\"\n80  2\n90  2\n100 2\n110 2\n120 2\n130 2\n140 2\n150 2\n160 2\ne\n80  0\n90  8\n100 4\n110 2.67\n120 2\n130 1.6\n140 1.33\n150 1.14\n160 1\ne\nEOF)",
+      "Bash(/home/tfras/github/baofinance/harbor/doc/packaging-harbor-tokens/charts/generate-charts.py:*)",
+      "Bash(/home/tfras/github/baofinance/harbor/doc/packaging-harbor-tokens/charts/generate-all.sh)"
     ]
   }
 }
