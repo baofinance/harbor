@@ -602,8 +602,151 @@ This mathematical foundation applies to:
 3. **Tiered risk sail**: Splits S into senior/junior with loss priorities
 4. **Short leverage**: Creates tokens with ∂S/∂C < 0
 5. **Dual-harbor products**: Combines (C₁, A₁, S₁) with (C₂, A₂, S₂) for custom profiles
+6. **Auto-compounding anchored token (hyUSD)**: Yield-bearing wrapper on haUSD — see Section 10
 
 Each product document will reference these core equations and build specific variations.
+
+---
+
+## 10. Variant: Auto-Compounding Anchored Token (hyUSD)
+
+### 10.1 Motivation
+
+In the base system, haUSD in the stability pool sits idle between rebalancing events. It earns BAO emissions and receives collateral at a discount during rebalancing, but the haUSD principal itself is uninvested. The auto-compounding variant deploys that idle capital into external yield-bearing protocols (Aave, Compound, or similar), earning continuous yield on the deposited value.
+
+The result is a second anchored token — hyUSD — whose price in haUSD terms increases over time. One hyUSD is always redeemable for more than one haUSD (after inception), because the underlying has been earning yield.
+
+### 10.2 Architecture
+
+The Harbor system continues to operate as described in Sections 1–8, issuing haUSD (non-rebasing, $1 peg) from the Minter. hyUSD is a wrapper contract external to the Minter:
+
+```
+[User] -- deposit haUSD --> [hyUSD contract]
+                                    |
+                          convert haUSD --> aUSDC (or equivalent)
+                                    |
+                           hold aUSDC, earn yield continuously
+                                    |
+[User] -- redeem hyUSD --> receive haUSD at current exchange rate R(t)
+```
+
+The Harbor Minter is unaware of hyUSD. It continues to record A as the total supply of haUSD tokens (wherever those tokens are held). The invariant C = A + S at the Minter level is unchanged.
+
+The hyUSD contract accepts one or more yield-bearing equivalents:
+
+```
+haUSD  -->  aUSDC  (Aave USDC)
+       -->  sDAI   (Spark/MakerDAO savings DAI)
+       -->  ...    (any sufficiently liquid yield-bearing stablecoin)
+```
+
+The contract can hold a portfolio of these instruments, selecting allocations based on yield, liquidity, and counterparty risk.
+
+### 10.3 Exchange Rate
+
+Let R(t) denote the exchange rate between hyUSD and haUSD at time t:
+
+```
+1 hyUSD = R(t) haUSD
+
+R(0) = 1  (at inception, 1:1)
+R(t) ≥ 1  for all t ≥ 0  (rate only increases)
+```
+
+The rate evolves as the underlying yield accrues. For a portfolio earning blended yield y(t):
+
+```
+dR/dt = y(t) × R(t)
+
+R(T) = exp( ∫₀ᵀ y(t) dt )
+
+For constant yield y:  R(T) = e^(yT)
+```
+
+**Example.** A user deposits 1,000 haUSD at inception. At 5% annual yield after one year:
+
+```
+R(1) = e^(0.05 × 1) ≈ 1.05127
+
+Redemption value = 1,000 / 1 × R(1) = 1,051.27 haUSD
+```
+
+The yield is sourced entirely from the external protocol (aUSDC interest, sDAI savings rate). No additional haUSD is minted — the gain comes from haUSD already in circulation being returned to the redeemer.
+
+### 10.4 Rebalancing with hyUSD
+
+When a rebalancing event is triggered (CR < threshold), the stability pool must absorb undercollateralisation by burning anchored tokens. If the stability pool holds hyUSD rather than haUSD, the mechanics are:
+
+```
+Standard rebalancing (haUSD):
+  Burn X haUSD → absorb X USD of debt → receive wstETH at discount
+
+Rebalancing with hyUSD:
+  Burn Y hyUSD → convert to X = Y × R(t) haUSD → absorb X USD of debt → receive wstETH at discount
+```
+
+The debt absorption amount is identical (X USD). The hyUSD holder burns fewer tokens to achieve the same absorption, scaled by R(t). Their proportional gain from the collateral discount is unchanged.
+
+The contract redeems the required aUSDC back to haUSD (or equivalent USD value) at the moment of rebalancing. This redemption must be executable within the same transaction or within a short window — aUSDC redemptions via Aave are generally instant on-chain.
+
+**Liquidity constraint.** If the hyUSD contract holds a portfolio of yield-bearing tokens, some may have redemption delays (e.g. withdrawal queues on Lido, etc.). The contract must maintain a sufficient liquid buffer (e.g. a minimum fraction in instantly redeemable aUSDC) to cover a rebalancing event without delay. The maximum realistic rebalancing draw can be estimated from the system's CR distribution.
+
+### 10.5 Effect on the Core Invariant
+
+From the Minter's perspective, haUSD locked in the hyUSD contract is still haUSD: it counts fully towards A. The invariant is unchanged:
+
+```
+C = A + S
+
+A = total haUSD supply (including haUSD held by hyUSD contract)
+```
+
+However, there is an indirect effect on S through a subtlety: the hyUSD contract is earning yield by deploying haUSD into Aave. The haUSD deposited does not leave circulation — it is lent out, and the lender (hyUSD contract) holds aUSDC as a receipt. If the haUSD is lent to a borrower who then redeems it from the Minter for collateral, A decreases and S increases. This is a normal user operation (redeeming haUSD for collateral) and is already covered by Section 4.2.
+
+The hyUSD yield does not generate new haUSD — it represents interest paid by borrowers of the deployed haUSD (ultimately coming from DeFi lending demand). The total haUSD in circulation is unchanged by yield accrual. R(t) simply re-distributes who among the hyUSD holders has claim to which haUSD.
+
+### 10.6 Effect on Sail Tokens
+
+hyUSD has no direct mathematical effect on sail tokens. The quantities C, A, n (sail supply) in the sail value formula S = C − A / n are determined by the Minter, which is unaware of the hyUSD wrapper.
+
+There is one indirect effect: if hyUSD becomes popular and many users hold it, the haUSD locked in the hyUSD contract is not being redeemed from the Minter. This is equivalent to haUSD being "sticky" — it reduces the rate of redemption pressure on the Minter. Reduced redemption pressure maintains higher C/A ratios for longer, which (all else equal) keeps sail leverage lower and the system more stable.
+
+### 10.7 Multiple Yield-Bearing Equivalents
+
+The hyUSD contract can hold a portfolio of yield-bearing instruments rather than a single one:
+
+```
+Portfolio:
+  w₁ × aUSDC  (weight w₁, yield y₁, instant liquidity)
+  w₂ × sDAI   (weight w₂, yield y₂, instant liquidity)
+  w₃ × ...    (weight w₃, yield y₃, liquidity profile)
+
+w₁ + w₂ + w₃ + ... = 1
+
+Blended yield: y(t) = Σ wᵢ × yᵢ(t)
+```
+
+The weights can be fixed (governance-set) or dynamically adjusted (yield optimiser). Dynamic adjustment requires:
+
+- A trusted yield source comparison oracle
+- Rebalancing logic (with associated gas and slippage costs)
+- Minimum liquidity constraint at all times (for rebalancing events)
+
+The per-protocol allocation also introduces counterparty risk from each yield source. A failure of Aave (or a depeg of aUSDC) would reduce the value of the hyUSD contract's holdings. The haUSD-equivalent value of the portfolio could fall below the face value of haUSD owed — a loss that would be borne by hyUSD holders.
+
+This is analogous to the stability pool already bearing counterparty risk on Harbor itself (their haUSD could be used in a rebalancing that receives less-than-expected collateral). The hyUSD adds a layer of external protocol risk in exchange for continuous yield.
+
+### 10.8 Summary of Mathematical Additions
+
+| Quantity | Symbol | Formula |
+| --- | --- | --- |
+| Exchange rate | R(t) | exp(∫₀ᵗ y(s) ds) |
+| hyUSD NAV | v(t) | R(t) USD per hyUSD |
+| haUSD equivalent of Y hyUSD | H | Y × R(t) |
+| Rebalancing burn (hyUSD) | Y_burn | X_debt / R(t) |
+| Portfolio yield | y(t) | Σ wᵢ × yᵢ(t) |
+
+The Harbor core invariant C = A + S is unchanged. The hyUSD system is additive — it augments the stability pool's yield without altering the mathematics of the anchored or sail tokens themselves.
 
 ---
 
