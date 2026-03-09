@@ -21,7 +21,7 @@ Usage:
 Required:
   --network <net>      Network name (e.g., mainnet)
   --salt <salt>        Salt prefix (e.g., harbor_v1)
-  --peg <peg>          Which peg to deploy (BTC, ETH, EUR, GOLD, MCAP, SILVER)
+  --peg <peg>          Which peg to deploy (BTC, ETH, EUR, GOLD, HYPE, MCAP, SILVER, SOL, USD, XAU)
 
 Options:
   --deploy-peg         Deploy the pegged token (default: false)

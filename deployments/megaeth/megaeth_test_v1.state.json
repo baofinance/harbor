@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "megaeth_test_v1",
+  "network": "megaeth",
+  "chainId": 4326,
+  "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "lastUpdated": "2026-03-09T21:51:31Z",
+  "implementations": {
+    "0xAA6eefA3F85C02da65513F257Da752731Ae2A3c3": {
+      "proxy": "USD::pegged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x436785E7582dA45BaAb87Cd1a02dE2e7269cde74": {
+      "proxy": "USD::BTC::genesis",
+      "contractSource": "@harbor/minter/Genesis_v1.sol",
+      "contractType": "Genesis_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x6fbf25Cf4fA05e9Bf49a5288C4a66bD98a042755": {
+      "proxy": "USD::BTC::leveraged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x31cB93b926162bcD1Db398914080d4C031581814": {
+      "proxy": "USD::BTC::minter",
+      "contractSource": "@harbor/minter/Minter_v1.sol",
+      "contractType": "Minter_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x70bd551e3b069B905B5fadb09eA3F30DBef35061": {
+      "proxy": "USD::BTC::reservePool",
+      "contractSource": "@harbor/minter/ReservePool_v1.sol",
+      "contractType": "ReservePool_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x76D5EbFE459643326149B488841A0228bD67d0D7": {
+      "proxy": "USD::BTC::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x0bf83673216B435Ed896C71763868344C86C1Fbf": {
+      "proxy": "USD::BTC::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x2E36d436fF3469a0a6d03d44e3c67dC63Bb9642c": {
+      "proxy": "USD::BTC::stabilityPoolManager",
+      "contractSource": "@harbor/minter/StabilityPoolManager_v1.sol",
+      "contractType": "StabilityPoolManager_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0xc7D8b6b170E0FCf4182fa29b47F35F48C402bF0F": {
+      "proxy": "USD::wstETH::genesis",
+      "contractSource": "@harbor/minter/Genesis_v1.sol",
+      "contractType": "Genesis_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0xE574E5B31F8d151A8E487fA2CDBA7409AcB9D72D": {
+      "proxy": "USD::wstETH::leveraged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x4abCE5dFB2664F46b7b9a35e72B339e60a35E5E9": {
+      "proxy": "USD::wstETH::minter",
+      "contractSource": "@harbor/minter/Minter_v1.sol",
+      "contractType": "Minter_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x7Fe8438A6175D1CB9602abc5e8302b979285Beba": {
+      "proxy": "USD::wstETH::reservePool",
+      "contractSource": "@harbor/minter/ReservePool_v1.sol",
+      "contractType": "ReservePool_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0xF998d46efF00685D5AF71Cbf9D47A4CAeB611675": {
+      "proxy": "USD::wstETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x2F146258e8298c5cAA26d3B9306C9E8472435318": {
+      "proxy": "USD::wstETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    },
+    "0x062d030b47d941C4e8ea9277548EBeA535dD2917": {
+      "proxy": "USD::wstETH::stabilityPoolManager",
+      "contractSource": "@harbor/minter/StabilityPoolManager_v1.sol",
+      "contractType": "StabilityPoolManager_v1",
+      "deploymentTime": "2026-03-09T21:46:43Z"
+    }
+  },
+  "proxies": {
+    "USD::pegged": {
+      "address": "0x0ab2dC552B3fbC8FdD19f36bb7837602cc4414c5",
+      "implementation": "0xAA6eefA3F85C02da65513F257Da752731Ae2A3c3",
+      "salt": "megaeth_test_v1::USD::pegged",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::BTC::genesis": {
+      "address": "0x7dC5Ed845cD3A0754Ff0FCb01c7B7bcD305eCeCf",
+      "implementation": "0x436785E7582dA45BaAb87Cd1a02dE2e7269cde74",
+      "salt": "megaeth_test_v1::USD::BTC::genesis",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::BTC::leveraged": {
+      "address": "0xbd8ad08f61442300BbbeB777DA74386cB0F26a3A",
+      "implementation": "0x6fbf25Cf4fA05e9Bf49a5288C4a66bD98a042755",
+      "salt": "megaeth_test_v1::USD::BTC::leveraged",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::BTC::minter": {
+      "address": "0x26C3DF97df2d3f3D8f5F787e3332Bc213f39a96b",
+      "implementation": "0x31cB93b926162bcD1Db398914080d4C031581814",
+      "salt": "megaeth_test_v1::USD::BTC::minter",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::BTC::reservePool": {
+      "address": "0xFEA934efCc46758227bF5551b7d48c76B40a5c5D",
+      "implementation": "0x70bd551e3b069B905B5fadb09eA3F30DBef35061",
+      "salt": "megaeth_test_v1::USD::BTC::reservePool",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::BTC::stabilityPoolCollateral": {
+      "address": "0x91C4B59658776d704cb5Bd99B13aF83a20C13737",
+      "implementation": "0x76D5EbFE459643326149B488841A0228bD67d0D7",
+      "salt": "megaeth_test_v1::USD::BTC::stabilityPoolCollateral",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::BTC::stabilityPoolLeveraged": {
+      "address": "0x6A4BfAF9e7C7268F954a83B56085ff0277D1b94B",
+      "implementation": "0x0bf83673216B435Ed896C71763868344C86C1Fbf",
+      "salt": "megaeth_test_v1::USD::BTC::stabilityPoolLeveraged",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::BTC::stabilityPoolManager": {
+      "address": "0x5B4962f3D4462908D289D0B44253F62Ed85a7C3E",
+      "implementation": "0x2E36d436fF3469a0a6d03d44e3c67dC63Bb9642c",
+      "salt": "megaeth_test_v1::USD::BTC::stabilityPoolManager",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::wstETH::genesis": {
+      "address": "0x384343cb6F2309D0fF2f7d96087635b9C18bDe43",
+      "implementation": "0xc7D8b6b170E0FCf4182fa29b47F35F48C402bF0F",
+      "salt": "megaeth_test_v1::USD::wstETH::genesis",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::wstETH::leveraged": {
+      "address": "0x1f6cd1895f28Ad7837724292dA82C2c5729f37B5",
+      "implementation": "0xE574E5B31F8d151A8E487fA2CDBA7409AcB9D72D",
+      "salt": "megaeth_test_v1::USD::wstETH::leveraged",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::wstETH::minter": {
+      "address": "0x0f88bD3Bbe465c618DbB32dB07B77C2745a32c24",
+      "implementation": "0x4abCE5dFB2664F46b7b9a35e72B339e60a35E5E9",
+      "salt": "megaeth_test_v1::USD::wstETH::minter",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::wstETH::reservePool": {
+      "address": "0xF7239F06345ba805700ED94D5bb240564B131980",
+      "implementation": "0x7Fe8438A6175D1CB9602abc5e8302b979285Beba",
+      "salt": "megaeth_test_v1::USD::wstETH::reservePool",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::wstETH::stabilityPoolCollateral": {
+      "address": "0x5EefF77A7937883FDaDbc167B4Bce9791ccDE02b",
+      "implementation": "0xF998d46efF00685D5AF71Cbf9D47A4CAeB611675",
+      "salt": "megaeth_test_v1::USD::wstETH::stabilityPoolCollateral",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::wstETH::stabilityPoolLeveraged": {
+      "address": "0xCb01320C53Bd514a63E9149354ECFf26285A7827",
+      "implementation": "0x2F146258e8298c5cAA26d3B9306C9E8472435318",
+      "salt": "megaeth_test_v1::USD::wstETH::stabilityPoolLeveraged",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    },
+    "USD::wstETH::stabilityPoolManager": {
+      "address": "0x6569d9Cbe1ce9713Ff64Bd3F68f8bD3Ffe17471D",
+      "implementation": "0x062d030b47d941C4e8ea9277548EBeA535dD2917",
+      "salt": "megaeth_test_v1::USD::wstETH::stabilityPoolManager",
+      "deploymentTime": "2026-03-09T21:46:08Z"
+    }
+  }
+}

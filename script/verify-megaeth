@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+#
+# Verify Harbor deployment on MegaETH via Etherscan API v2 (chainid=4326).
+# Reads implementations from the state file and submits source verification.
+#
+# Aligned with bao-factory script/bao-factory verify flow: same compiler pin,
+# same API params. Differences: we batch from state file; we use sourceCode@file;
+# we don't poll checkverifystatus (run again or check explorer).
+#
+# Usage:
+#   script/verify-megaeth --state deployments/megaeth/<salt>.state.json --etherscan <API_KEY>
+#   MEGAETH_RPC_URL and ETHERSCAN_KEY can be set in .env
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CHAIN_ID=4326
+EXPLORER_BASE="https://mega.etherscan.io"
+API_URL="${MEGAETH_ETHERSCAN_API_URL:-https://api.etherscan.io/v2/api}"
+
+# Must match the compiler used to build the deployed contracts (single source of truth for verify)
+SOLC_VERSION="${HARBOR_VERIFY_SOLC_VERSION:-0.8.30}"
+COMPILER_VERSION="v${SOLC_VERSION}+commit.73712a01"
+OPTIMIZER_RUNS=700
+EVM_VERSION=cancun
+
+usage() {
+  cat <<EOF
+Usage: $0 --state <path> [--etherscan <key>] [--verify-proxies]
+
+Verify implementation contracts (and optionally proxy contracts) from a MegaETH deployment state file.
+
+Required:
+  --state <path>   Path to state JSON (e.g. deployments/megaeth/megaeth_test_v1.state.json)
+  --etherscan <key>  Etherscan API key (or set ETHERSCAN_KEY)
+
+Optional:
+  --verify-proxies   Also verify proxy contracts (ERC1967Proxy). Requires UUPS_PROXY_DEPLOY_STUB_ADDRESS.
+
+Environment:
+  MEGAETH_RPC_URL   Required for forge
+  ETHERSCAN_KEY     Used if --etherscan not provided
+  UUPS_PROXY_DEPLOY_STUB_ADDRESS  Required for --verify-proxies (stub address from deploy; same for all proxies)
+EOF
+  exit "${1:-0}"
+}
+
+STATE_FILE=""
+ETHERSCAN_KEY=""
+VERIFY_PROXIES=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --state)    STATE_FILE="$2"; shift 2 ;;
+    --etherscan) ETHERSCAN_KEY="$2"; shift 2 ;;
+    --verify-proxies) VERIFY_PROXIES=true; shift ;;
+    -h|--help) usage 0 ;;
+    *) echo "Unknown option: $1" >&2; usage 1 ;;
+  esac
+done
+
+[[ -n "$STATE_FILE" ]] || STATE_FILE="$PROJECT_ROOT/deployments/megaeth/megaeth_test_v1.state.json"
+[[ -f "$STATE_FILE" ]] || { echo "State file not found: $STATE_FILE" >&2; exit 1; }
+if [[ -z "$ETHERSCAN_KEY" ]]; then
+  ETHERSCAN_KEY="$(forge config --json 2>/dev/null | jq -r '.etherscan_api_key // empty')"
+fi
+[[ -n "$ETHERSCAN_KEY" ]] || { echo "Set ETHERSCAN_KEY or pass --etherscan" >&2; usage 1; }
+[[ -n "${MEGAETH_RPC_URL:-}" ]] || { echo "MEGAETH_RPC_URL is required" >&2; exit 1; }
+
+# Map contractSource from state to forge path (path:ContractName)
+# contractSource: "@bao/MintableBurnableERC20_v1.sol" or "@harbor/minter/Minter_v1.sol"
+# contractType: "MintableBurnableERC20_v1", "Minter_v1", etc.
+map_contract_path() {
+  local src="$1" type="$2"
+  if [[ "$src" == @bao/* ]]; then
+    echo "lib/bao-base-audit-2025-07/src/${src#@bao/}:$type"
+  elif [[ "$src" == @harbor/* ]]; then
+    echo "src/${src#@harbor/}:$type"
+  else
+    echo ""; return 1
+  fi
+}
+
+# Get unique implementation addresses (state has duplicates per proxy)
+impl_addrs=$(jq -r '.implementations | keys[]' "$STATE_FILE" 2>/dev/null | sort -u)
+count=0
+ok=0
+fail=0
+skip=0
+for addr in $impl_addrs; do
+  contract_source=$(jq -r --arg a "$addr" '.implementations[$a].contractSource' "$STATE_FILE")
+  contract_type=$(jq -r --arg a "$addr" '.implementations[$a].contractType' "$STATE_FILE")
+  contract_path=$(map_contract_path "$contract_source" "$contract_type") || continue
+  code=$(cast code "$addr" --rpc-url megaeth 2>/dev/null || true)
+  if [[ -z "$code" || "$code" == "0x" ]]; then
+    echo "==> Skipping $contract_type at $addr (no code at address)"
+    skip=$((skip + 1))
+    continue
+  fi
+  count=$((count + 1))
+  echo "==> [$count] Verifying $contract_type at $addr"
+  temp_json=$(mktemp)
+  trap "rm -f '$temp_json'" RETURN
+  raw=$(cd "$PROJECT_ROOT" && forge verify-contract \
+    --rpc-url megaeth \
+    --show-standard-json-input \
+    --compiler-version "$SOLC_VERSION" \
+    "$addr" \
+    "$contract_path" 2>&1) || true
+  json_content=""
+  if echo "$raw" | jq -c '.' 2>/dev/null | jq -e '.sources' >/dev/null 2>&1; then
+    json_content=$(echo "$raw" | jq -c '.')
+  else
+    line=""; count_line=0
+    while IFS= read -r line; do
+      count_line=$((count_line + 1))
+      candidate=$(echo "$raw" | tail -n +"$count_line" | jq -c '.' 2>/dev/null)
+      if [[ -n "${candidate:-}" ]] && echo "$candidate" | jq -e '.sources' >/dev/null 2>&1; then
+        json_content=$candidate
+        break
+      fi
+    done <<< "$raw"
+    if [[ -z "$json_content" ]]; then
+      last_line=$(echo "$raw" | tail -1)
+      candidate=$(echo "$last_line" | jq -c '.' 2>/dev/null)
+      [[ -n "${candidate:-}" ]] && echo "$candidate" | jq -e '.sources' >/dev/null 2>&1 && json_content=$candidate
+    fi
+  fi
+  if [[ -z "$json_content" ]] || ! echo "$json_content" | jq -e '.sources' >/dev/null 2>&1; then
+    echo "  Warning: Could not get standard-json-input, skipping" >&2
+    fail=$((fail + 1))
+    continue
+  fi
+  echo "$json_content" > "$temp_json"
+  api_contractname="$contract_path"
+  response=$(curl -s -X POST "${API_URL}?apikey=${ETHERSCAN_KEY}&chainid=${CHAIN_ID}&module=contract&action=verifysourcecode" \
+    --data-urlencode "contractaddress=$addr" \
+    --data-urlencode "sourceCode@$temp_json" \
+    --data-urlencode "codeformat=solidity-standard-json-input" \
+    --data-urlencode "contractname=$api_contractname" \
+    --data-urlencode "compilerversion=$COMPILER_VERSION" \
+    --data-urlencode "optimizationUsed=1" \
+    --data-urlencode "runs=$OPTIMIZER_RUNS" \
+    --data-urlencode "evmVersion=$EVM_VERSION" \
+    --data-urlencode "licenseType=3" 2>/dev/null) || true
+  status=$(echo "$response" | jq -r '.status // ""')
+  if [[ "$status" == "1" ]]; then
+    echo "  Submitted. Check ${EXPLORER_BASE}/address/${addr} in 1-2 min."
+    ok=$((ok + 1))
+  elif echo "$response" | grep -qi "already verified"; then
+    echo "  Already verified."
+    ok=$((ok + 1))
+  else
+    err_msg=$(echo "$response" | jq -r 'if .result != "" and .result != null then .result else .message // "unknown" end' 2>/dev/null)
+    echo "  Failed: $err_msg" >&2
+    if [[ -n "${HARBOR_VERIFY_DEBUG:-}" ]]; then
+      echo "  Full API response:" >&2
+      echo "$response" | jq '.' 2>/dev/null || echo "$response" >&2
+    fi
+    fail=$((fail + 1))
+  fi
+  rm -f "$temp_json"
+  trap - RETURN
+  # Avoid Etherscan rate limiting
+  sleep 2
+done
+echo ""
+echo "Done: $ok submitted/verified, $fail failed, $skip skipped (no code)"
+
+# Optional: verify proxy contracts (ERC1967Proxy). Proxies were deployed with (UUPSProxyDeployStub, "").
+if [[ "$VERIFY_PROXIES" == "true" ]]; then
+  stub="${UUPS_PROXY_DEPLOY_STUB_ADDRESS:-}"
+  [[ -n "$stub" ]] || { echo "Skipping proxy verification: set UUPS_PROXY_DEPLOY_STUB_ADDRESS (stub from deploy)" >&2; exit 0; }
+  ERC1967_PROXY_PATH="lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy"
+  constructor_args=$(cast abi-encode "constructor(address,bytes)" "$stub" 0x 2>/dev/null) || true
+  [[ -n "$constructor_args" ]] || { echo "Failed to encode proxy constructor args" >&2; exit 1; }
+  proxy_keys=$(jq -r '.proxies | keys[]' "$STATE_FILE" 2>/dev/null | sort -u)
+  pcount=0
+  pok=0
+  pfail=0
+  echo ""
+  echo "=== Verifying proxy contracts (ERC1967Proxy) ==="
+  for key in $proxy_keys; do
+    addr=$(jq -r --arg k "$key" '.proxies[$k].address' "$STATE_FILE")
+    [[ -n "$addr" && "$addr" != "null" ]] || continue
+    code=$(cast code "$addr" --rpc-url megaeth 2>/dev/null || true)
+    if [[ -z "$code" || "$code" == "0x" ]]; then
+      echo "==> Skipping proxy $key at $addr (no code)"
+      continue
+    fi
+    pcount=$((pcount + 1))
+    echo "==> [$pcount] Verifying proxy $key at $addr"
+    temp_json=$(mktemp)
+    trap "rm -f '$temp_json'" RETURN
+    raw=$(cd "$PROJECT_ROOT" && forge verify-contract \
+      --rpc-url megaeth \
+      --show-standard-json-input \
+      --compiler-version "$SOLC_VERSION" \
+      --constructor-args "$constructor_args" \
+      "$addr" \
+      "$ERC1967_PROXY_PATH" 2>&1) || true
+    json_content=""
+    if echo "$raw" | jq -c '.' 2>/dev/null | jq -e '.sources' >/dev/null 2>&1; then
+      json_content=$(echo "$raw" | jq -c '.')
+    else
+      last_line=$(echo "$raw" | tail -1)
+      candidate=$(echo "$last_line" | jq -c '.' 2>/dev/null)
+      [[ -n "${candidate:-}" ]] && echo "$candidate" | jq -e '.sources' >/dev/null 2>&1 && json_content=$candidate
+    fi
+    if [[ -z "$json_content" ]] || ! echo "$json_content" | jq -e '.sources' >/dev/null 2>&1; then
+      echo "  Warning: Could not get standard-json-input, skipping" >&2
+      pfail=$((pfail + 1))
+      rm -f "$temp_json"
+      trap - RETURN
+      sleep 2
+      continue
+    fi
+    echo "$json_content" > "$temp_json"
+    api_contractname="$ERC1967_PROXY_PATH"
+    response=$(curl -s -X POST "${API_URL}?apikey=${ETHERSCAN_KEY}&chainid=${CHAIN_ID}&module=contract&action=verifysourcecode" \
+      --data-urlencode "contractaddress=$addr" \
+      --data-urlencode "sourceCode@$temp_json" \
+      --data-urlencode "codeformat=solidity-standard-json-input" \
+      --data-urlencode "contractname=$api_contractname" \
+      --data-urlencode "compilerversion=$COMPILER_VERSION" \
+      --data-urlencode "optimizationUsed=1" \
+      --data-urlencode "runs=$OPTIMIZER_RUNS" \
+      --data-urlencode "evmVersion=$EVM_VERSION" \
+      --data-urlencode "licenseType=3" 2>/dev/null) || true
+    status=$(echo "$response" | jq -r '.status // ""')
+    if [[ "$status" == "1" ]]; then
+      echo "  Submitted. Check ${EXPLORER_BASE}/address/${addr} in 1-2 min."
+      pok=$((pok + 1))
+    elif echo "$response" | grep -qi "already verified"; then
+      echo "  Already verified."
+      pok=$((pok + 1))
+    else
+      err_msg=$(echo "$response" | jq -r 'if .result != "" and .result != null then .result else .message // "unknown" end' 2>/dev/null)
+      echo "  Failed: $err_msg" >&2
+      pfail=$((pfail + 1))
+    fi
+    rm -f "$temp_json"
+    trap - RETURN
+    sleep 2
+  done
+  echo ""
+  echo "Proxies: $pok submitted/verified, $pfail failed"
+fi

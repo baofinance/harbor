@@ -4,6 +4,11 @@ out = "out"
 libs = ["lib"]
 evm_version = "cancun"
 
+# Pin compiler for reproducible builds and Etherscan verification (script/verify-megaeth uses same version)
+solc_version = "0.8.30"
+bytecode_hash = "none"
+cbor_metadata = false
+
 auto_detect_remappings = false # remappings seem to cause problems
 optimizer = true
 
@@ -81,10 +86,16 @@ optimize = "gas"
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }
+# MegaETH and Monad use Etherscan API v2 (chainid in URL). For verify-contract,
+# use the same approach as bao-factory/script/bao-factory (verify_etherscan_v2_direct).
+megaeth = { key = "${ETHERSCAN_KEY}", url = "https://api.etherscan.io/v2/api", chain = 4326 }
+monad = { key = "${ETHERSCAN_KEY}", url = "https://api.etherscan.io/v2/api", chain = 143 }
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
 mainnet = "${MAINNET_RPC_URL}"
+megaeth = "${MEGAETH_RPC_URL}"
+monad = "${MONAD_RPC_URL}"
 local = "${LOCAL_URL}"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

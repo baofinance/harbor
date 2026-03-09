@@ -63,7 +63,7 @@ Usage:
   $0 --network <network> --salt <salt>
 
 Required:
-  --network     Network name (mainnet, arbitrum, base)
+  --network     Network name (mainnet, arbitrum, base, megaeth, monad)
   --salt        Salt prefix (e.g., harbor_v1, test3)
 
 Examples:
@@ -154,6 +154,8 @@ case "$NETWORK" in
   mainnet) EXPLORER_URL="https://etherscan.io" ;;
   arbitrum) EXPLORER_URL="https://arbiscan.io" ;;
   base) EXPLORER_URL="https://basescan.org" ;;
+  megaeth) EXPLORER_URL="https://mega.etherscan.io" ;;
+  monad) EXPLORER_URL="https://monadscan.com" ;;
   *) EXPLORER_URL="https://etherscan.io" ;;
 esac
 

@@ -119,7 +119,17 @@ fi
 
 if [[ "$USE_BROADCAST" == true ]]; then
   FORGE_ARGS+=(--broadcast --slow --ffi)
-  [[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--verify)
+  # MegaETH and Monad use Etherscan API v2 (chainid in URL); skip default Forge verify (Sourcify doesn't support 4326/143).
+  # Verify those separately via Etherscan API v2 (see doc/DEPLOY-NEW-MARKETS-PREP.md and bao-factory script).
+  if [[ "$USE_LOCAL" == true ]]; then
+    :
+  elif [[ "$NETWORK" == "megaeth" || "$NETWORK" == "monad" ]]; then
+    :
+  else
+    FORGE_ARGS+=(--verify)
+  fi
+  # Skip simulation on broadcast to avoid "intrinsic gas too low" on L2s (MegaETH, etc.)
+  FORGE_ARGS+=(--skip-simulation)
 fi
 
 # ── Environment for Solidity ──────────────────────────────────────────────
