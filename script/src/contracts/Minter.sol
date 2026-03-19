@@ -8,12 +8,12 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
-import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
+import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
 import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
 import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-/// @notice Harbor Minter_v1 deployment logic (including ReservePool and FeeReceiver).
+/// @notice Harbor Minter_v2 deployment logic (including ReservePool and FeeReceiver).
 /// @dev File Organization Pattern (see deployment2-design.md Section 3.3.2):
 /// @dev - This file: contract-specific deployment for Minter, ReservePool, MinterFeeReceiver
 /// @dev - Uses DeploymentOwnership pattern: register deployed contracts, transfer at end
@@ -36,17 +36,17 @@ abstract contract Minter is HarborFactoryDeployer {
         string memory minterKey = string.concat(marketKey, "::minter");
         console.log("    > %s", minterKey);
 
-        address impl = address(new Minter_v1(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
+        address impl = address(new Minter_v2(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
         console.log("        Impl:  %s", impl);
 
-        bytes memory initData = abi.encodeCall(Minter_v1.initialize, (owner()));
+        bytes memory initData = abi.encodeCall(Minter_v2.initialize, (owner()));
 
         proxy = _deployProxyAndRecord(
             stateData,
             minterKey,
             impl,
-            "@harbor/minter/Minter_v1.sol",
-            "Minter_v1",
+            "@harbor/minter/Minter_v2.sol",
+            "Minter_v2",
             initData
         );
     }
@@ -59,7 +59,7 @@ abstract contract Minter is HarborFactoryDeployer {
         address priceOracle,
         address reservePool
     ) internal {
-        Minter_v1 minter = Minter_v1(minterProxy);
+        Minter_v2 minter = Minter_v2(minterProxy);
         minter.updateConfig(config);
         minter.updateFeeReceiver(feeReceiver);
         minter.updatePriceOracle(priceOracle);
@@ -73,14 +73,14 @@ abstract contract Minter is HarborFactoryDeployer {
         address stabilityPoolManager,
         address genesis
     ) internal {
-        Minter_v1 minter = Minter_v1(minterProxy);
+        Minter_v2 minter = Minter_v2(minterProxy);
         _grantRoles(
             minterKey,
             minterProxy,
             stabilityPoolManager,
             "stabilityPoolManager",
-            minter.HARVESTER_ROLE(),
-            "HARVESTER"
+            minter.HARVESTER_ROLE() | minter.ZERO_FEE_ROLE(),
+            "HARVESTER | ZERO_FEE"
         );
         _grantRoles(minterKey, minterProxy, genesis, "genesis", minter.ZERO_FEE_ROLE(), "ZERO_FEE");
     }

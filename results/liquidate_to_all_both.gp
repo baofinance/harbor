@@ -4,9 +4,9 @@ set datafile separator comma
 
 set key autotitle columnheader noenhanced below title " "
 set terminal svg enhanced size 700 600 background rgb "gray90"
-# set terminal pngcairo size 500 300
 # set terminal pdf background rgb "gray90"
-# set output "liquidate_to_partial_both.pdf"
+# set output "liquidate_to_all_both.pdf"
+
 set autoscale
 set xlabel "Collateral Ratio (driven by collateral price)"
 set xrange [0:1.6]

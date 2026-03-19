@@ -66,6 +66,11 @@ gas_limit = "18446744073709551615"
 exclude_lints = ["mixed-case-function", "mixed-case-variable"]
 severity = ["gas"]
 
+
+# coverage generates instrumentation warnings, so disable deny for those
+[profile.coverage]
+deny = "never"
+
 # slither building profile - removes vyper
 [profile.novyper]
 skip = ["**/*.vy"]
@@ -81,10 +86,12 @@ optimize = "gas"
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }
+megaeth = { key = "${ETHERSCAN_API_KEY}", url = "${MEGAETH_ETHERSCAN_API_URL}" }
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
 mainnet = "${MAINNET_RPC_URL}"
+megaeth = "${MEGAETH_RPC_URL}"
 local = "${LOCAL_URL}"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

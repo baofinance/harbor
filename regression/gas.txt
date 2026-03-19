@@ -59,6 +59,31 @@ src/minter/Genesis_v1.sol:Genesis_v1
 | withdraw                 | 4.335e+04 |
 
 src/minter/Minter_v1.sol:Minter_v1
+| function name            |       max |
+|--------------------------|-----------|
+| ZERO_FEE_ROLE            | 2.850e+02 |
+| collateralRatio          | 1.912e+04 |
+| collateralTokenBalance   | 2.358e+03 |
+| config                   | 3.370e+04 |
+| freeMintLeveragedToken   | 1.096e+05 |
+| freeMintPeggedToken      | 1.549e+05 |
+| freeRedeemLeveragedToken | 7.282e+04 |
+| freeRedeemPeggedToken    | 6.824e+04 |
+| grantRoles               | 2.633e+04 |
+| hasAnyRole               | 2.636e+03 |
+| initialize               | 1.844e+05 |
+| leverageRatio            | 1.956e+04 |
+| leveragedTokenPrice      | 2.967e+04 |
+| peggedTokenBalance       | 2.409e+03 |
+| peggedTokenPrice         | 1.923e+04 |
+| transferOwnership        | 1.207e+04 |
+| updateConfig             | 2.092e+05 |
+| updateFeeReceiver        | 2.635e+04 |
+| updatePriceOracle        | 2.636e+04 |
+| updateReservePool        | 2.631e+04 |
+| upgradeToAndCall         | 1.094e+04 |
+
+src/minter/Minter_v2.sol:Minter_v2
 | function name                      |       max |
 |------------------------------------|-----------|
 | HARVESTER_ROLE                     | 2.830e+02 |
@@ -66,14 +91,14 @@ src/minter/Minter_v1.sol:Minter_v1
 | PEGGED_TOKEN                       | 2.830e+02 |
 | WRAPPED_COLLATERAL_TOKEN           | 3.280e+02 |
 | ZERO_FEE_ROLE                      | 2.850e+02 |
-| collateralRatio                    | 1.912e+04 |
+| collateralRatio                    | 7.109e+04 |
 | collateralTokenBalance             | 2.358e+03 |
 | config                             | 4.895e+04 |
 | feeReceiver                        | 2.442e+03 |
 | freeMintLeveragedToken             | 1.438e+05 |
 | freeMintPeggedToken                | 1.549e+05 |
 | freeRedeemLeveragedToken           | 8.668e+04 |
-| freeRedeemPeggedToken              | 1.079e+05 |
+| freeRedeemPeggedToken              | 1.355e+05 |
 | grantRoles                         | 2.633e+04 |
 | harvestable                        | 2.254e+04 |
 | hasAllRoles                        | 2.637e+03 |
@@ -81,17 +106,18 @@ src/minter/Minter_v1.sol:Minter_v1
 | initialize                         | 1.844e+05 |
 | leverageRatio                      | 1.957e+04 |
 | leveragedTokenBalance              | 1.042e+04 |
-| leveragedTokenPrice                | 2.997e+04 |
+| leveragedTokenPrice                | 8.165e+04 |
 | mintLeveragedToken                 | 1.494e+05 |
 | mintLeveragedTokenDryRun           | 7.337e+04 |
 | mintLeveragedTokenIncentiveRatio   | 3.108e+04 |
 | mintPeggedToken                    | 1.909e+05 |
-| mintPeggedTokenDryRun              | 6.335e+04 |
+| mintPeggedTokenDryRun              | 6.337e+04 |
 | mintPeggedTokenIncentiveRatio      | 3.012e+04 |
 | owner                              | 2.380e+03 |
 | peggedTokenBalance                 | 2.409e+03 |
 | peggedTokenPrice                   | 1.923e+04 |
 | priceOracle                        | 2.427e+03 |
+| proxiableUUID                      | 3.860e+02 |
 | redeemLeveragedToken               | 1.277e+05 |
 | redeemLeveragedTokenDryRun         | 6.317e+04 |
 | redeemLeveragedTokenIncentiveRatio | 2.924e+04 |
@@ -133,7 +159,8 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | hasStabilityPool           | 5.370e+02 |
 | initialize                 | 7.069e+04 |
 | owner                      | 2.423e+03 |
-| rebalance                  | 5.186e+05 |
+| proxiableUUID              | 3.080e+02 |
+| rebalance                  | 6.803e+05 |
 | rebalanceBountyRatio       | 2.354e+03 |
 | rebalanceThreshold         | 2.347e+03 |
 | rebalanceable              | 2.926e+04 |

@@ -85,7 +85,7 @@ abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
 /// @title TestStabilityPoolRebalance
 /// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool_v2 contract.
 /// It extends the TestStabilityPoolSetUp to include more complex scenarios and edge cases.
-/// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool_v1
+/// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool_v2
 contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     // Constants for testing
     uint256 constant DEPOSIT_AMOUNT = 100 ether;

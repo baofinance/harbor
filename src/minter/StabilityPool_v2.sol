@@ -32,6 +32,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 /// @author rootminus0x1 mostly copied from Aladdin's Fx framework
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
+/// @custom:oz-upgrades-from src/minter/StabilityPool_v1.sol:StabilityPool_v1
 // solhint-disable-next-line contract-name-capwords
 contract StabilityPool_v2 is
     Initializable,
