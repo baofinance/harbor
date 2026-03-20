@@ -8,7 +8,9 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 
 /// @notice Verify that all deployed StabilityPoolManagers have the expected
 /// roles on their minters. This catches missing role grants in deploy scripts.
-/// @dev Forks mainnet at latest block. NOT part of CI -- requires mainnet RPC.
+/// @dev Run against any fork:
+///   forge test --mp script/test/MainnetRoles.t.sol --fork-url mainnet -vv
+///   forge test --mp script/test/MainnetRoles.t.sol --fork-url local -vv
 contract MainnetRoles is Test, HarborFactoryDeployer {
     struct Market {
         string peg;
@@ -18,7 +20,11 @@ contract MainnetRoles is Test, HarborFactoryDeployer {
     Market[] markets;
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        // Use --fork-url to select the target (mainnet, local anvil, etc.)
+        // Only create a fork if one isn't already active (i.e. no --fork-url was passed)
+        if (block.chainid != 1) {
+            vm.createSelectFork(vm.rpcUrl("mainnet"));
+        }
 
         _setSaltPrefix("harbor_v1");
 

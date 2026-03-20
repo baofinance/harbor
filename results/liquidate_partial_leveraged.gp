@@ -11,7 +11,7 @@ set y2range [0:25000]
 set ytics nomirror
 set y2tics 5000
 
-set ylabel "Collateral Ratio after a liquidate"
+set ylabel "Collateral Ratio / Leveraged price"
 set y2label "Pegged token balance"
 depeg = 1
 set arrow from depeg, graph 0 to depeg, graph 1 nohead linetype 1 dashtype 2 linecolor"red"
@@ -22,4 +22,6 @@ plot \
      datafile using ($1):($2) axes x1y1 with lines linewidth 1 linetype 1 dashtype 2, \
      datafile using ($1):($3) axes x1y1 with lines linewidth 1 linetype 1, \
      datafile using ($1):($4) axes x1y2 with lines linewidth 1 linetype 2 dashtype 2, \
-     datafile using ($1):($5) axes x1y2 with lines linewidth 1 linetype 2 dashtype 3
+     datafile using ($1):($5) axes x1y2 with lines linewidth 1 linetype 2 dashtype 3, \
+     datafile using ($1):($10) axes x1y1 with lines linewidth 2 linetype 7 dashtype 2 title "before leveraged price", \
+     datafile using ($1):($11) axes x1y1 with lines linewidth 2 linetype 7 title "after leveraged price"

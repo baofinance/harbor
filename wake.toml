@@ -49,7 +49,7 @@ enable = false
 
 [detectors]
 # ignore_paths = ["test"]
-# exclude_paths = ["node_modules", "lib", "script"]
+exclude_paths = ["node_modules", "lib"]
 only = []
 #exclude = [
 #  "abi-encode-with-signature",

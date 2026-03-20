@@ -32,7 +32,7 @@
 | script/src/HarborFactoryDeployer.sol                               | X   0% (0/11)      | X   0% (0/7)       | ✓ 100% (0/0)     | X   0% (0/4)     |
 | script/src/contracts/Genesis.sol                                   | X   0% (0/10)      | X   0% (0/12)      | ✓ 100% (0/0)     | X   0% (0/2)     |
 | script/src/contracts/LeveragedToken.sol                            | X   0% (0/17)      | X   0% (0/27)      | ✓ 100% (0/0)     | X   0% (0/1)     |
-| script/src/contracts/Minter.sol                                    | X   0% (0/39)      | X   0% (0/44)      | ✓ 100% (0/0)     | X   0% (0/7)     |
+| script/src/contracts/Minter.sol                                    | X   0% (0/42)      | X   0% (0/46)      | ✓ 100% (0/0)     | X   0% (0/8)     |
 | script/src/contracts/PeggedToken.sol                               | X   0% (0/24)      | X   0% (0/33)      | X   0% (0/6)     | X   0% (0/1)     |
 | script/src/contracts/StabilityPool.sol                             | X   0% (0/18)      | X   0% (0/25)      | ✓ 100% (0/0)     | X   0% (0/3)     |
 | script/src/contracts/StabilityPoolManager.sol                      | X   0% (0/26)      | X   0% (0/30)      | ✓ 100% (0/0)     | X   0% (0/4)     |
@@ -57,4 +57,4 @@
 | src/reward/distributor/LinearReward.sol                            | ✓ 100% (25/25)     | ✓ 100% (27/27)     | ✓ 100% (6/6)     | ✓ 100% (2/2)     |
 | src/util/FmtLib.sol                                                | X   0% (0/19)      | X   0% (0/26)      | X   0% (0/4)     | X   0% (0/1)     |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
-| Total                                                              | X  65% (3965/6093) | X  64% (4157/6493) | X  60% (401/666) | X  68% (611/900) |
+| Total                                                              | X  65% (3976/6148) | X  64% (4166/6557) | X  60% (401/666) | X  68% (611/905) |

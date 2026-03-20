@@ -170,8 +170,8 @@ fi
 # ── Broadcast mode ────────────────────────────────────────────────────────
 
 if [[ "$USE_BROADCAST" == true ]]; then
-  FORGE_ARGS+=(--broadcast --slow)
-  [[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--verify)
+  FORGE_ARGS+=(--broadcast)
+  [[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--slow --verify)
 fi
 
 # ── Environment for Solidity ──────────────────────────────────────────────

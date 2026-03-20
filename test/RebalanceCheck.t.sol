@@ -187,3 +187,87 @@ contract RebalanceCheck_v2 is RebalanceCheckBase {
         _assert_leveragedMint_doesNotExceedPeggedBurned();
     }
 }
+
+/// @notice Quantifies the over-minting from the v1 bug and tests the underlyingCollateral
+/// adjustment as a remediation strategy.
+contract RebalanceCheck_remediation is RebalanceCheckBase {
+    function setUp() public {
+        _forkAndPredict();
+        _upgradeSpm();
+    }
+
+    /// @notice Runs rebalance under v1 and v2, logs the delta in leveraged supply
+    /// and underlyingCollateral, showing the exact over-minting.
+    function test_log_overminting_delta() public {
+        // --- snapshot v1 rebalance ---
+        uint256 snap = vm.snapshotState();
+
+        uint256 v1_collateralBefore = IMinter(minter).collateralTokenBalance();
+        uint256 v1_levSupplyBefore = IERC20(leveraged).totalSupply();
+        uint256 v1_priceBefore = IMinter(minter).leveragedTokenPrice();
+
+        StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+
+        uint256 v1_collateralAfter = IMinter(minter).collateralTokenBalance();
+        uint256 v1_levSupplyAfter = IERC20(leveraged).totalSupply();
+        uint256 v1_priceAfter = IMinter(minter).leveragedTokenPrice();
+
+        vm.revertToState(snap);
+
+        // --- upgrade to v2 and rebalance ---
+        _upgradeMinterV2();
+
+        uint256 v2_priceBefore = IMinter(minter).leveragedTokenPrice();
+
+        StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+
+        uint256 v2_collateralAfter = IMinter(minter).collateralTokenBalance();
+        uint256 v2_levSupplyAfter = IERC20(leveraged).totalSupply();
+        uint256 v2_priceAfter = IMinter(minter).leveragedTokenPrice();
+
+        // --- log results ---
+        uint256 excessLeveraged = v1_levSupplyAfter - v2_levSupplyAfter;
+        uint256 collateralDelta = v1_collateralAfter - v2_collateralAfter;
+
+        emit log_named_uint("v1 leveraged price BEFORE rebalance", v1_priceBefore);
+        emit log_named_uint("v1 leveraged price AFTER  rebalance", v1_priceAfter);
+        emit log_named_uint("v2 leveraged price BEFORE rebalance", v2_priceBefore);
+        emit log_named_uint("v2 leveraged price AFTER  rebalance", v2_priceAfter);
+        emit log_named_uint("v1 leveraged minted", v1_levSupplyAfter - v1_levSupplyBefore);
+        emit log_named_uint("v2 leveraged minted", v2_levSupplyAfter - v1_levSupplyBefore);
+        emit log_named_uint("EXCESS leveraged tokens minted by v1", excessLeveraged);
+        emit log_named_uint("v1 underlyingCollateral after", v1_collateralAfter);
+        emit log_named_uint("v2 underlyingCollateral after", v2_collateralAfter);
+        emit log_named_uint("underlyingCollateral DELTA (v1 too high by)", collateralDelta);
+        emit log_named_uint("v1 collateral removed", v1_collateralBefore - v1_collateralAfter);
+        emit log_named_uint("v2 collateral removed", v1_collateralBefore - v2_collateralAfter);
+    }
+
+    /// @notice Confirms that the v1 bug is purely excess leveraged token supply,
+    /// NOT a collateral accounting error. underlyingCollateral is identical.
+    function test_confirm_collateralDelta_isZero() public {
+        uint256 snapInit = vm.snapshotState();
+
+        // --- Run v2 (correct) rebalance ---
+        _upgradeMinterV2();
+        StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+        uint256 v2_collateralAfter = IMinter(minter).collateralTokenBalance();
+        uint256 v2_levSupply = IERC20(leveraged).totalSupply();
+
+        // --- Revert and run v1 (buggy) rebalance ---
+        vm.revertToState(snapInit);
+        StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+        uint256 v1_collateralAfter = IMinter(minter).collateralTokenBalance();
+        uint256 v1_levSupply = IERC20(leveraged).totalSupply();
+
+        // underlyingCollateral is identical — the bug doesn't affect collateral accounting
+        assertEq(v1_collateralAfter, v2_collateralAfter, "collateral must be identical");
+
+        // The ONLY difference is excess leveraged tokens minted
+        uint256 excess = v1_levSupply - v2_levSupply;
+        assertGt(excess, 0, "v1 must over-mint leveraged tokens");
+
+        emit log_named_uint("excess leveraged tokens", excess);
+        emit log_named_uint("v1 leveraged price", IMinter(minter).leveragedTokenPrice());
+    }
+}

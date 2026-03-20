@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+
+cd "$PROJECT_ROOT"
+
+# ── Configuration ──────────────────────────────────────────────────────────────
+
+BLOCK=24687073  # just before the minter upgrade
+FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help)
+      echo "Usage: $(basename "$0")"
+      echo ""
+      echo "Runs the Minter v2 upgrade verification workflow:"
+      echo "  1. Start anvil fork"
+      echo "  2. Deploy Minter v2 upgrade"
+      echo "  3. Run assertions against post-deploy state"
+      echo ""
+      echo "Environment variables:"
+      echo "  FORGE_VERBOSITY     Forge verbosity flag (default: -vv)"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+prompt() {
+  local msg="$1"
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "$msg"
+  echo "──────────────────────────────────────────────────────────────"
+  read -rn1 -p "Ready? [Y/n] " response
+  echo ""
+  if [[ "$response" =~ ^[Nn]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+}
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+echo "======================================================================"
+echo "  Minter v2 Upgrade Verification"
+echo "======================================================================"
+echo ""
+echo "Fork block:  $BLOCK"
+
+# ── Step 1: Start anvil ──────────────────────────────────────────────────────
+
+prompt "Start anvil fork:  script/anvil --block $BLOCK"
+
+# ── Step 2: Deploy upgrade ────────────────────────────────────────────────────
+
+echo ""
+echo "Deploying Minter v2 upgrade..."
+./script/run-script Deploy_Minter_v2_mainnet --network mainnet --salt harbor_v1 --broadcast --local
+
+# ── Step 3: Grant missing ZERO_FEE_ROLE ──────────────────────────────────────
+
+echo ""
+echo "Granting ZERO_FEE_ROLE to all SPMs..."
+./script/run-script Grant_Minter_ZeroFeeRoles_mainnet --network mainnet --salt harbor_v1 --broadcast --local
+
+# ── Step 4: Run assertions ────────────────────────────────────────────────────
+
+echo ""
+echo "Checking roles..."
+forge test \
+  --match-path script/test/MainnetRoles.t.sol \
+  --fork-url local $FORGE_VERBOSITY
+
+echo ""
+echo "Checking rebalance..."
+forge test \
+  --match-path script/test/MinterUpgradeTest.t.sol \
+  --fork-url local $FORGE_VERBOSITY
+
+echo ""
+echo "Done. See script/test/upgrade-Minter_v2.md for details."
