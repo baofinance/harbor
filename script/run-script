@@ -9,7 +9,10 @@ set -euo pipefail
 # Default entry point: run(string) with the salt prefix.
 # Use -- to override the forge --sig (e.g., for legacy deploy scripts).
 
-[[ -f "foundry.toml" ]] || { echo "❌ Run from project root" >&2; exit 1; }
+[[ -f "foundry.toml" ]] || {
+  echo "❌ Run from project root" >&2
+  exit 1
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -60,30 +63,79 @@ while [[ $# -gt 0 ]]; do
       EXTRA_FORGE_ARGS=("$@")
       break
       ;;
-    --network)   NETWORK=$2;       shift 2 ;;
-    --salt)      SALT=$2;          shift 2 ;;
-    --broadcast) USE_BROADCAST=true; shift ;;
-    --account)   ACCOUNT=$2;       shift 2 ;;
-    --local)     USE_LOCAL=true;    shift ;;
-    --timestamp) USE_TIMESTAMP=true; shift ;;
-    --resume)    FORGE_EXTRA+=(--resume); shift ;;
-    -m|--message) MESSAGE=$2;      shift 2 ;;
-    -h|--help)   usage; exit 0 ;;
-    -*)          echo "❌ Unknown option: $1" >&2; exit 1 ;;
-    *)           SCRIPT_NAME="$1"; shift ;;
+    --network)
+      NETWORK=$2
+      shift 2
+      ;;
+    --salt)
+      SALT=$2
+      shift 2
+      ;;
+    --broadcast)
+      USE_BROADCAST=true
+      shift
+      ;;
+    --account)
+      ACCOUNT=$2
+      shift 2
+      ;;
+    --local)
+      USE_LOCAL=true
+      shift
+      ;;
+    --timestamp)
+      USE_TIMESTAMP=true
+      shift
+      ;;
+    --resume)
+      FORGE_EXTRA+=(--resume)
+      shift
+      ;;
+    -m | --message)
+      MESSAGE=$2
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "❌ Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      SCRIPT_NAME="$1"
+      shift
+      ;;
   esac
 done
 
 # ── Validation ────────────────────────────────────────────────────────────
 
-[[ -n "$SCRIPT_NAME" ]] || { echo "❌ Script name required" >&2; usage >&2; exit 1; }
-[[ -n "$NETWORK" ]]     || { echo "❌ --network required" >&2; exit 1; }
-[[ -n "$SALT" ]]        || { echo "❌ --salt required" >&2; exit 1; }
-[[ "$USE_TIMESTAMP" == false || "$USE_LOCAL" == true ]] || { echo "❌ --timestamp requires --local" >&2; exit 1; }
-[[ "$USE_BROADCAST" == true || "$USE_LOCAL" == true || -n "$ACCOUNT" ]] || true  # account optional
+[[ -n "$SCRIPT_NAME" ]] || {
+  echo "❌ Script name required" >&2
+  usage >&2
+  exit 1
+}
+[[ -n "$NETWORK" ]] || {
+  echo "❌ --network required" >&2
+  exit 1
+}
+[[ -n "$SALT" ]] || {
+  echo "❌ --salt required" >&2
+  exit 1
+}
+[[ "$USE_TIMESTAMP" == false || "$USE_LOCAL" == true ]] || {
+  echo "❌ --timestamp requires --local" >&2
+  exit 1
+}
+[[ "$USE_BROADCAST" == true || "$USE_LOCAL" == true || -n "$ACCOUNT" ]] || true # account optional
 
 SCRIPT_PATH="script/${SCRIPT_NAME}.s.sol"
-[[ -f "$SCRIPT_PATH" ]] || { echo "❌ Script not found: $SCRIPT_PATH" >&2; exit 1; }
+[[ -f "$SCRIPT_PATH" ]] || {
+  echo "❌ Script not found: $SCRIPT_PATH" >&2
+  exit 1
+}
 
 # ── RPC and state directory ───────────────────────────────────────────────
 
@@ -118,7 +170,7 @@ fi
 # ── Broadcast mode ────────────────────────────────────────────────────────
 
 if [[ "$USE_BROADCAST" == true ]]; then
-  FORGE_ARGS+=(--broadcast --slow --ffi)
+  FORGE_ARGS+=(--broadcast --slow)
   [[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--verify)
 fi
 
@@ -144,7 +196,7 @@ fi
 
 # ── Append extra forge flags ──────────────────────────────────────────────
 
-FORGE_ARGS+=("${FORGE_EXTRA[@]}")
+FORGE_ARGS+=("${FORGE_EXTRA[@]}" "--ffi")
 
 # ── Display ───────────────────────────────────────────────────────────────
 

@@ -1,11 +1,11 @@
 #!/bin/bash
 # Wrapper script for running DeployMinters tests
 # Usage:
-#   ./run-deploy-test.sh --list              # List all tests
-#   ./run-deploy-test.sh BTC                 # Run test_BTC_mainnetFork_
-#   ./run-deploy-test.sh test_BTC            # Run test_BTC_mainnetFork_
-#   ./run-deploy-test.sh --list BTC          # List tests matching BTC
-#   ./run-deploy-test.sh --list test_SILVER  # List tests matching test_SILVER
+#   script/test/test-deploy --list              # List all tests
+#   script/test/test-deploy BTC                 # Run test_BTC_mainnetFork_
+#   script/test/test-deploy test_BTC            # Run test_BTC_mainnetFork_
+#   script/test/test-deploy --list BTC          # List tests matching BTC
+#   script/test/test-deploy --list test_SILVER  # List tests matching test_SILVER
 
 set -e
 

@@ -25,6 +25,31 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 abstract contract Minter is HarborFactoryDeployer {
     // ========== MINTER DEPLOYMENT ==========
 
+    function deployMinterImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory marketKey,
+        address wrappedCollateral,
+        address peggedToken,
+        address leveragedToken
+    ) internal returns (address impl, string memory minterKey) {
+        minterKey = string.concat(marketKey, "::minter");
+        console.log("    > %s", minterKey);
+
+        impl = address(new Minter_v2(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
+        console.log("        Impl:  %s", impl);
+
+        DeploymentState.recordImplementation(
+            stateData,
+            DeploymentTypes.ImplementationRecord({
+                proxy: minterKey,
+                contractSource: "@harbor/minter/Minter_v2.sol",
+                contractType: "Minter_v2",
+                implementation: impl,
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+    }
+
     /// @notice Deploy Minter impl+proxy, record both in state, register for ownership transfer.
     function deployMinter(
         DeploymentTypes.State memory stateData,
@@ -33,22 +58,17 @@ abstract contract Minter is HarborFactoryDeployer {
         address peggedToken,
         address leveragedToken
     ) internal virtual returns (address proxy) {
-        string memory minterKey = string.concat(marketKey, "::minter");
-        console.log("    > %s", minterKey);
-
-        address impl = address(new Minter_v2(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
-        console.log("        Impl:  %s", impl);
+        (address impl, string memory minterKey) = deployMinterImplementation(
+            stateData,
+            marketKey,
+            wrappedCollateral,
+            peggedToken,
+            leveragedToken
+        );
 
         bytes memory initData = abi.encodeCall(Minter_v2.initialize, (owner()));
 
-        proxy = _deployProxyAndRecord(
-            stateData,
-            minterKey,
-            impl,
-            "@harbor/minter/Minter_v2.sol",
-            "Minter_v2",
-            initData
-        );
+        proxy = _deployProxyAndRecord(stateData, minterKey, impl, initData);
     }
 
     /// @notice Configure a deployed Minter with its operational parameters.
