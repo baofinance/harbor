@@ -5,7 +5,7 @@
   "network": "mainnet",
   "chainId": 1,
   "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
-  "lastUpdated": "2026-02-11T17:07:59Z",
+  "lastUpdated": "2026-03-20T18:11:23Z",
   "implementations": {
     "0x8d6B59B2D07C1e70BE2B167a4fD07807df133582": {
       "proxy": "BTC::pegged",
@@ -30,6 +30,12 @@
       "contractSource": "@harbor/minter/Minter_v1.sol",
       "contractType": "Minter_v1",
       "deploymentTime": "2025-12-19T21:38:23Z"
+    },
+    "0x9b79036B535e349D23b5d309eaB3aB5103dA40D5": {
+      "proxy": "BTC::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
     },
     "0xeE8D6D850Be79A4Fb6f829FC9BB0d28Dfa8515Df": {
       "proxy": "BTC::fxUSD::minterFeeReceiver",
@@ -108,6 +114,12 @@
       "contractSource": "@harbor/minter/Minter_v1.sol",
       "contractType": "Minter_v1",
       "deploymentTime": "2025-12-19T21:17:47Z"
+    },
+    "0xf45b9Ca940e1d5F803Be2CdFdE3792e355F9D16d": {
+      "proxy": "BTC::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
     },
     "0x72c20fbB8EdC199ABaB9086C1B42958A185da255": {
       "proxy": "BTC::stETH::minterFeeReceiver",
@@ -193,6 +205,12 @@
       "contractType": "Minter_v1",
       "deploymentTime": "2025-12-19T22:00:59Z"
     },
+    "0xb821c4240082d16EA7bB8eBc035d6c3E2d7174CE": {
+      "proxy": "ETH::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
+    },
     "0xEC0646d6a08A4409908DA1fABc26969AE135EA97": {
       "proxy": "ETH::fxUSD::minterFeeReceiver",
       "contractSource": "@harbor/minter/TokenDistributor_v1.sol",
@@ -277,6 +295,12 @@
       "contractType": "Minter_v1",
       "deploymentTime": "2025-12-19T22:23:35Z"
     },
+    "0xE21b07E958818642e59402F5B5d506A9CF1C3B79": {
+      "proxy": "EUR::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
+    },
     "0x07F9194fE7c847472Ef6D984DdE0D447fd4b76B1": {
       "proxy": "EUR::fxUSD::minterFeeReceiver",
       "contractSource": "@harbor/minter/TokenDistributor_v1.sol",
@@ -343,6 +367,12 @@
       "contractType": "Minter_v1",
       "deploymentTime": "2026-01-17T09:54:11Z"
     },
+    "0xaf7520E4a2a0cB0fdaa7884453A69442fe834403": {
+      "proxy": "EUR::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
+    },
     "0x47D3F67eFD8A7d85b73D7450103109eFFf8D88C2": {
       "proxy": "EUR::stETH::reservePool",
       "contractSource": "@harbor/minter/ReservePool_v1.sol",
@@ -402,6 +432,12 @@
       "contractSource": "@harbor/minter/Minter_v1.sol",
       "contractType": "Minter_v1",
       "deploymentTime": "2025-12-19T22:48:23Z"
+    },
+    "0x763306FD8Adb50552BeC77b57EF31809717F7785": {
+      "proxy": "GOLD::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
     },
     "0x99f3CAC5F7a3c91134Dccd523560F553BA286E1b": {
       "proxy": "GOLD::fxUSD::minterFeeReceiver",
@@ -481,6 +517,12 @@
       "contractType": "Minter_v1",
       "deploymentTime": "2026-01-17T11:56:35Z"
     },
+    "0x7eC2C2466c19c371Db4a72D6170A37ADeCaCb238": {
+      "proxy": "GOLD::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
+    },
     "0x39B4cC40BCF01513Da9B5a23d904197429D1eb2E": {
       "proxy": "GOLD::stETH::reservePool",
       "contractSource": "@harbor/minter/ReservePool_v1.sol",
@@ -541,6 +583,12 @@
       "contractType": "Minter_v1",
       "deploymentTime": "2026-01-17T08:39:11Z"
     },
+    "0x8D52c63EfEAb424edAA67c338743954eC4eE05FB": {
+      "proxy": "MCAP::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
+    },
     "0x8B554b9A6E7b508549e8F1F1883646fB2e1B997A": {
       "proxy": "MCAP::fxUSD::reservePool",
       "contractSource": "@harbor/minter/ReservePool_v1.sol",
@@ -594,6 +642,12 @@
       "contractSource": "@harbor/minter/Minter_v1.sol",
       "contractType": "Minter_v1",
       "deploymentTime": "2026-01-17T08:39:11Z"
+    },
+    "0x9626032F223cf0F63b989d1548942d2F40c2BBCd": {
+      "proxy": "MCAP::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
     },
     "0xe9d82C1e79D8FA54675689C224B885B524075f84": {
       "proxy": "MCAP::stETH::reservePool",
@@ -655,6 +709,12 @@
       "contractType": "Minter_v1",
       "deploymentTime": "2026-01-16T22:00:23Z"
     },
+    "0x237368574053996FbB7073497E024Cd27038130c": {
+      "proxy": "SILVER::fxUSD::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
+    },
     "0x84e73F12157970fcfB146d536e44c050479D72b9": {
       "proxy": "SILVER::fxUSD::reservePool",
       "contractSource": "@harbor/minter/ReservePool_v1.sol",
@@ -708,6 +768,12 @@
       "contractSource": "@harbor/minter/Minter_v1.sol",
       "contractType": "Minter_v1",
       "deploymentTime": "2026-01-16T22:00:23Z"
+    },
+    "0xD4162dAb81572212d5499D10309Ea948D6cc5FB9": {
+      "proxy": "SILVER::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-03-20T18:11:11Z"
     },
     "0x15033f53CF5188aB6814c1A6E840cdC20f40Ca80": {
       "proxy": "SILVER::stETH::reservePool",
