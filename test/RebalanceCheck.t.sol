@@ -26,28 +26,16 @@ abstract contract RebalanceCheckBase is BaoTest, HarborFactoryDeployer {
 
     string mainnet = vm.rpcUrl("mainnet");
 
-    function _predictAndLabel(string memory a, string memory b) private returns (address addr) {
-        string memory salt = _saltString(a, b);
-        addr = _predictAddressFromFullSalt(salt);
-        vm.label(addr, salt);
-    }
-
-    function _predictAndLabel(string memory a, string memory b, string memory c) private returns (address addr) {
-        string memory salt = _saltString(a, b, c);
-        addr = _predictAddressFromFullSalt(salt);
-        vm.label(addr, salt);
-    }
-
     function _forkAndPredict() internal {
         vm.createSelectFork(mainnet, FORK_BLOCK);
 
         _setSaltPrefix("harbor_v1");
-        stabilityPoolManager = _predictAndLabel("ETH", "fxUSD", "stabilityPoolManager");
-        stabilityPoolCollateral = _predictAndLabel("ETH", "fxUSD", "stabilityPoolCollateral");
-        stabilityPoolLeveraged = _predictAndLabel("ETH", "fxUSD", "stabilityPoolLeveraged");
-        minter = _predictAndLabel("ETH", "fxUSD", "minter");
-        pegged = _predictAndLabel("ETH", "pegged");
-        leveraged = _predictAndLabel("ETH", "fxUSD", "leveraged");
+        stabilityPoolManager = _predictAddress("ETH", "fxUSD", "stabilityPoolManager");
+        stabilityPoolCollateral = _predictAddress("ETH", "fxUSD", "stabilityPoolCollateral");
+        stabilityPoolLeveraged = _predictAddress("ETH", "fxUSD", "stabilityPoolLeveraged");
+        minter = _predictAddress("ETH", "fxUSD", "minter");
+        pegged = _predictAddress("ETH", "pegged");
+        leveraged = _predictAddress("ETH", "fxUSD", "leveraged");
     }
 
     function _upgradeSpm() internal {
@@ -135,6 +123,28 @@ abstract contract RebalanceCheckBase is BaoTest, HarborFactoryDeployer {
         uint256 mintedValue = (leveragedMinted * priceBefore) / 1 ether;
         assertLe(mintedValue, peggedBurned, "minted leveraged value must not exceed pegged burned");
     }
+
+    /// @notice Verify that known leveraged token holders' total position value
+    /// (balance * price) does not decrease during rebalance.
+    /// Uses fixed addresses for CI stability.
+    function _assert_holderValues_preserved() internal {
+        // Known holders at FORK_BLOCK — SPL holds deposited tokens, USER holds directly
+        address[2] memory holders = [stabilityPoolLeveraged, USER];
+
+        uint256 priceBefore = IMinter(minter).leveragedTokenPrice();
+        uint256[2] memory valuesBefore;
+        for (uint256 i = 0; i < holders.length; i++) {
+            valuesBefore[i] = IERC20(leveraged).balanceOf(holders[i]) * priceBefore / 1 ether;
+        }
+
+        StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
+
+        uint256 priceAfter = IMinter(minter).leveragedTokenPrice();
+        for (uint256 i = 0; i < holders.length; i++) {
+            uint256 valueAfter = IERC20(leveraged).balanceOf(holders[i]) * priceAfter / 1 ether;
+            assertGe(valueAfter, valuesBefore[i], "holder value must not decrease during rebalance");
+        }
+    }
 }
 
 /// @notice Tests against the deployed Minter_v1 (no minter upgrade)
@@ -161,6 +171,11 @@ contract RebalanceCheck_v1 is RebalanceCheckBase {
         vm.skip(true);
         _assert_leveragedMint_doesNotExceedPeggedBurned();
     }
+
+    function test_v1_holderValues_preserved() public {
+        vm.skip(true);
+        _assert_holderValues_preserved();
+    }
 }
 
 /// @notice Tests after upgrading to Minter_v2
@@ -185,6 +200,10 @@ contract RebalanceCheck_v2 is RebalanceCheckBase {
 
     function test_v2_leveragedMint_doesNotExceedPeggedBurned() public {
         _assert_leveragedMint_doesNotExceedPeggedBurned();
+    }
+
+    function test_v2_holderValues_preserved() public {
+        _assert_holderValues_preserved();
     }
 }
 

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Collect all addresses that interacted with ETH::fxUSD pegged (haETH) and
+# leveraged (sailETH) tokens via Etherscan v2 API.
+#
+# Outputs a deduplicated, checksummed address list to stdout.
+# Requires ETHERSCAN_KEY in .env or environment.
+#
+# Usage:
+#   script/test/collect-holders                     # print to stdout
+#   script/test/collect-holders > tmp/holders.txt   # save to file
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Load env
+# shellcheck source=/dev/null
+[[ -f .env ]] && source .env
+
+: "${ETHERSCAN_KEY:?Set ETHERSCAN_KEY in .env or environment}"
+
+# ETH::fxUSD market tokens (from deployments/mainnet/harbor_v1.state.json)
+LEVERAGED=0x0Cd6BB1a0cfD95e2779EDC6D17b664B481f2EB4C  # sailETH
+PEGGED=0x7A53EBc85453DD006824084c4f4bE758FcF8a5B5     # haETH
+
+# First harbor deployment on mainnet (from deployment logs)
+START_BLOCK=24049000
+
+# Block used by RebalanceCheck fork tests
+END_BLOCK=${1:-latest}
+
+fetch_holders() {
+    local token=$1
+    local label=$2
+    curl -s "https://api.etherscan.io/v2/api?\
+chainid=1&\
+module=account&\
+action=tokentx&\
+contractaddress=${token}&\
+startblock=${START_BLOCK}&\
+endblock=${END_BLOCK}&\
+sort=asc&\
+apikey=${ETHERSCAN_KEY}" | LABEL="$label" python3 -c "
+import json, sys, os
+label = os.environ['LABEL']
+data = json.load(sys.stdin)
+if data['status'] != '1':
+    print(f'ERROR ({label}): {data.get(\"message\",\"\")} {data.get(\"result\",\"\")}', file=sys.stderr)
+    sys.exit(1)
+addrs = set()
+for tx in data['result']:
+    f, t = tx['from'], tx['to']
+    zero = '0x' + '0'*40
+    if f.lower() != zero: addrs.add(f)
+    if t.lower() != zero: addrs.add(t)
+print(f'# {label}: {len(addrs)} unique addresses from {len(data[\"result\"])} transfers', file=sys.stderr)
+for a in sorted(addrs, key=str.lower):
+    print(a)
+"
+}
+
+echo "# ETH::fxUSD token holder addresses" >&2
+echo "# Generated $(date -Iseconds)" >&2
+echo "# Blocks ${START_BLOCK} to ${END_BLOCK}" >&2
+
+# Fetch both token holder sets, combine, deduplicate, checksum
+{
+    fetch_holders "$LEVERAGED" "sailETH (leveraged)"
+    fetch_holders "$PEGGED" "haETH (pegged)"
+} | sort -uf | while read -r addr; do
+    # Checksum via cast
+    checksummed=$(cast to-check-sum-address "$addr" 2>/dev/null || echo "$addr")
+    echo "$checksummed"
+done

@@ -24,14 +24,14 @@ contract MinterUpgradeTest is BaoTest, HarborFactoryDeployer {
         _setSaltPrefix("harbor_v1");
     }
 
-    function _predict(string memory marketKey, string memory suffix) internal view returns (address) {
+    function _predict(string memory marketKey, string memory suffix) internal returns (address) {
         return _predictAddressFromFullSalt(_saltString(marketKey, suffix));
     }
 
     // ---- ETH::fxUSD rebalance tests (the market with known sub-threshold CR) ----
     // Role checks are in MainnetRoles.t.sol (shared between upgrade and deploy workflows)
 
-    function _ethFxUSD() internal view returns (address minter, address spm, address leveraged) {
+    function _ethFxUSD() internal returns (address minter, address spm, address leveraged) {
         string memory key = "ETH::fxUSD";
         minter = _predict(key, "minter");
         spm = _predict(key, "stabilityPoolManager");
