@@ -185,7 +185,7 @@ abstract contract DeployMintersShared is
         string memory marketKey
     ) internal {
         address wrappedCollateral = cfg.wrappedCollateralToken();
-        address peggedToken = _predictAddress(string.concat(cfg.peg(), "::pegged"));
+        address peggedToken = _predictAddress(cfg.peg(), "pegged");
         address leveragedToken = _predictAddress(marketKey, "leveraged");
 
         deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);

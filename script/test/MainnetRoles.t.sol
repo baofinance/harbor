@@ -41,7 +41,7 @@ contract MainnetRoles is Test, HarborFactoryDeployer {
         markets.push(Market("SILVER", "stETH"));
     }
 
-    function test_allSPMs_haveZeroFeeRole() public view {
+    function test_allSPMs_haveZeroFeeRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
             address minter = _predictAddressFromFullSalt(_saltString(marketKey, "minter"));
@@ -55,7 +55,7 @@ contract MainnetRoles is Test, HarborFactoryDeployer {
         }
     }
 
-    function test_allSPMs_haveHarvesterRole() public view {
+    function test_allSPMs_haveHarvesterRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
             address minter = _predictAddressFromFullSalt(_saltString(marketKey, "minter"));
@@ -69,7 +69,7 @@ contract MainnetRoles is Test, HarborFactoryDeployer {
         }
     }
 
-    function test_allGenesis_haveZeroFeeRole() public view {
+    function test_allGenesis_haveZeroFeeRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
             address minter = _predictAddressFromFullSalt(_saltString(marketKey, "minter"));

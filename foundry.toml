@@ -28,6 +28,7 @@ remappings = [
   # bao audited code
   "@bao/=lib/bao-base-audit-2025-07/src/",
   # bao latest
+  "@bao-latest/=lib/bao-base/src/",
   "@bao-test/=lib/bao-base/test/",
   "@bao-script/=lib/bao-base/script/",
   # bao-factory is a transitive dependency via bao-base

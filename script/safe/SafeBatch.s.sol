@@ -80,6 +80,10 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
         build();
         _saveBatch();
 
+        if (_transactions.length == 0) {
+            console.log("No transactions queued - nothing to execute");
+            return;
+        }
         if (vm.envOr("EXECUTE_LOCAL", false)) {
             address owner = IBaoOwnable(_transactions[0].target).owner();
             vm.startBroadcast(owner);
