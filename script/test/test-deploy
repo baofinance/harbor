@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Execute based on mode
-export DEPLOY_STATE_SUBDIR="internal" # write to deployments/internal/<network>
+export DEPLOY_STATE_DIR="$(pwd)/deployments/internal/mainnet"
 if [[ "$LIST_MODE" == true ]]; then
   if [[ -n "$TEST_NAME" ]]; then
     forge test --mp "$TEST_PATH" --list 2>/dev/null | grep -i "$TEST_NAME" || echo "No tests matching '$TEST_NAME'"

@@ -104,7 +104,8 @@ case "$BLOCK_SPEC" in
     if [[ ! "$response" =~ ^[Nn]$ ]]; then
       mkdir -p "$LOCAL_STATE_DIR"
       cp "$MAINNET_STATE_DIR"/*.json "$LOCAL_STATE_DIR/"
-      echo "Copied mainnet state files to local."
+      rm -rf "$LOCAL_STATE_DIR/batch"
+      echo "Copied mainnet state files to local (batch directory cleared)."
     fi
     ;;
   factory)
@@ -115,7 +116,8 @@ case "$BLOCK_SPEC" in
       echo
       if [[ ! "$response" =~ ^[Nn]$ ]]; then
         rm -f "$LOCAL_STATE_DIR"/*.json
-        echo "Deleted local state files."
+        rm -rf "$LOCAL_STATE_DIR/batch"
+        echo "Deleted local state files (batch directory cleared)."
       fi
     fi
     ;;

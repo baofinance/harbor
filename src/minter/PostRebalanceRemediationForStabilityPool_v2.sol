@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
+import {IMinter} from "../interfaces/IMinter.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {DecrementalFloatingPoint} from "../math/DecrementalFloatingPoint.sol";
 
@@ -40,12 +41,36 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
     // v2 held: 322,217,071,257,914,429 (v2_correct_state.csv: hs Held)
     // excess = v1 - v2
     address private constant CLAIMER = 0xb9ab9578a34a05c86124c399735fdE44dEc80E7F;
-    uint256 private constant CLAIMER_EXCESS = 52087080191248362;
+    uint256 private constant CLAIMER_EXCESS = 0.052087080191248362 ether;
+
+    // ── Bounty excess ─────────────────────────────────────────────────────
+    // Rebalance bounty tokens were sent to the bot that called rebalance().
+    // Under v1, the total bounty was 0.09163 sailETH; under v2 it would be 0.00158.
+    // Bounty receiver 1 (0xf1674..., ours): holds 89,169,424,352,193,203 sailETH
+    //   v2 correct share: 89169424352193203 * v2_bounty / v1_bounty = 1,537,044,323,051,756
+    //   excess = 89,169,424,352,193,203 - 1,537,044,323,051,756 = 87,632,380,029,141,447
+    // Bounty receiver 2 (0xc0ffee..., not ours): holds 2,460,730,881,928,232 (~$5, accepted loss)
+    address private constant BOUNTY_RECEIVER = 0xf1674FE69b2920b4de51E909cbf060dd78724CD8;
+    uint256 private constant BOUNTY_EXCESS = 0.087632380029141447 ether;
+
+    // ── Collateral gap ──────────────────────────────────────────────────────
+    // Two components:
+    // 1. Exiter extracted excess fxSAVE by redeeming at v1 (diluted) prices.
+    //    v1 collateral: 14463.82 fxSAVE (results/v1_replay.csv: collateralTokenBalance)
+    //    v2 collateral: 14528.15 fxSAVE (results/v2_correct_state.csv: collateralTokenBalance)
+    //    gap = 64.33 fxSAVE
+    // 2. Bounty receiver 2 (0xc0ffee, not ours) holds 0.00246 excess sailETH
+    //    that we can't burn. Compensate by depositing extra fxSAVE to increase
+    //    equity: v2_price * excess / oraclePrice = 18.13 fxSAVE
+    // Total: 64.33 + 18.13 = 82.47 fxSAVE
+    uint256 private constant COLLATERAL_GAP = 82.466171119621162782 ether;
 
     // ── Immutables ──────────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LIQUIDATION_TOKEN;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable MINTER;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address private immutable _OWNER;
 
@@ -88,9 +113,10 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
     // ── Constructor ─────────────────────────────────────────────────────────
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address liquidationToken_, address owner_) {
+    constructor(address liquidationToken_, address minter_, address owner_) {
         _disableInitializers();
         LIQUIDATION_TOKEN = liquidationToken_;
+        MINTER = minter_;
         _OWNER = owner_;
     }
 
@@ -130,8 +156,30 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
         }
 
         // 4. Burn excess from Claimer's wallet
+        //    Requires Claimer to have approved this contract for CLAIMER_EXCESS
         if (CLAIMER_EXCESS > 0) {
             IBurnableFrom(LIQUIDATION_TOKEN).burnFrom(CLAIMER, CLAIMER_EXCESS);
+        }
+
+        // 5. Burn excess bounty from bounty receiver (ours)
+        //    Requires bounty receiver to have approved this contract for BOUNTY_EXCESS
+        if (BOUNTY_EXCESS > 0) {
+            IBurnableFrom(LIQUIDATION_TOKEN).burnFrom(BOUNTY_RECEIVER, BOUNTY_EXCESS);
+        }
+
+        // 6. Restore missing collateral
+        //    Deposit fxSAVE into minter via freeMintLeveragedToken, then burn the minted sailETH.
+        //    This increases collateral without increasing supply.
+        //    Requires: ZERO_FEE_ROLE on minter, BURNER_ROLE on sailETH (already granted),
+        //    and treasury to have transferred COLLATERAL_GAP fxSAVE to this contract.
+        if (COLLATERAL_GAP > 0) {
+            address wrappedCollateral = IMinter(MINTER).WRAPPED_COLLATERAL_TOKEN();
+            uint256 fxSaveBal = IERC20(wrappedCollateral).balanceOf(address(this));
+            require(fxSaveBal >= COLLATERAL_GAP, "insufficient fxSAVE for collateral restoration");
+
+            IERC20(wrappedCollateral).approve(MINTER, COLLATERAL_GAP);
+            uint256 minted = IMinter(MINTER).freeMintLeveragedToken(COLLATERAL_GAP, address(this));
+            IBurnable(LIQUIDATION_TOKEN).burn(minted);
         }
     }
 }

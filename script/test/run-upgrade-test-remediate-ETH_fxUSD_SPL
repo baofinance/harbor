@@ -15,11 +15,15 @@ while [[ $# -gt 0 ]]; do
     -h | --help)
       echo "Usage: $(basename "$0")"
       echo ""
-      echo "Runs the ETH::fxUSD SPL remediation verification workflow:"
-      echo "  1. Start anvil fork at latest"
-      echo "  2. Pause the SPL (upgrade to BaoPauser)"
-      echo "  3. Deploy remediation contract, remediate, restore to SP_v2"
-      echo "  4. Run assertions against post-remediation state"
+      echo "Runs the ETH::fxUSD SPL remediation verification on local anvil."
+      echo "See doc/remediation-ETH-fxUSD-SPL.md for full details."
+      echo ""
+      echo "The SPL must already be paused on mainnet."
+      echo ""
+      echo "Steps:"
+      echo "  1. Start anvil fork"
+      echo "  2. Deploy and execute all 5 Safe batches locally"
+      echo "  3. Run assertions against v2 correct state"
       echo ""
       echo "Environment variables:"
       echo "  FORGE_VERBOSITY     Forge verbosity flag (default: -vv)"
@@ -56,21 +60,17 @@ echo "======================================================================"
 
 # ── Step 1: Start anvil ──────────────────────────────────────────────────────
 
-prompt "Start anvil fork at latest:  script/anvil --block latest"
+prompt "Start anvil fork (SPL already paused):  script/anvil --block latest"
 
-# ── Step 2: Pause ─────────────────────────────────────────────────────────────
-
-echo ""
-echo "Pausing ETH::fxUSD stabilityPoolLeveraged..."
-./script/run-script Pause_SPL_ETH_fxUSD --network mainnet --salt harbor_v1 --broadcast --local
-
-# ── Step 3: Remediate and restore ─────────────────────────────────────────────
+# ── Step 2: Deploy, approve, remediate, restore ──────────────────────────────
+# In --local mode, the script pranks as each signer (Claimer, bounty receiver,
+# multisig) to simulate all 5 batches end-to-end on the local anvil fork.
 
 echo ""
-echo "Deploying remediation, remediating, and restoring..."
+echo "Deploying remediation, executing all batches locally..."
 ./script/run-script Remediate_SPL_ETH_fxUSD --network mainnet --salt harbor_v1 --broadcast --local
 
-# ── Step 4: Run assertions ────────────────────────────────────────────────────
+# ── Step 3: Run assertions ────────────────────────────────────────────────────
 
 echo ""
 echo "Running post-remediation assertions..."
@@ -79,4 +79,4 @@ forge test \
   --fork-url local $FORGE_VERBOSITY
 
 echo ""
-echo "Done."
+echo "Done. See results/post_remediation.csv"

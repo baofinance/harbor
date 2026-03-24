@@ -77,8 +77,7 @@ contract Deploy_StabilityPool_v2_mainnet is
     }
 
     function build() internal override {
-        string memory network = vm.envString("NETWORK");
-        DeploymentTypes.State memory state = DeploymentState.load(network, saltPrefix());
+        DeploymentTypes.State memory state = DeploymentState.load(_stateFileRead());
         state.baoFactory = baoFactory();
 
         Config_MinterMarket[] memory markets;

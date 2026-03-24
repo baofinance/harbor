@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Execute a Safe Transaction Builder JSON batch file against a local anvil node.
+#
+# Reads each transaction from the JSON and executes it via cast send --unlocked.
+# The signer is determined by calling owner() on the first transaction's target,
+# or can be overridden with --from.
+#
+# Usage:
+#   script/run-batch <batch.json> [options]
+#
+# Options:
+#   --from <address>   Override the signer address (default: owner() of first target)
+#   --rpc-url <url>    RPC URL (default: local)
+#   --dry-run          Print transactions without executing
+#   -h, --help         Show this help
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") <batch.json> [options]
+
+Execute a Safe batch JSON file against a local anvil node.
+
+Options:
+  --from <address>   Override signer (default: owner() of first tx target)
+  --rpc-url <url>    RPC URL (default: local)
+  --dry-run          Print transactions without executing
+  -h, --help         Show this help
+EOF
+  exit 0
+}
+
+BATCH_FILE=""
+FROM=""
+RPC_URL="local"
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage ;;
+    --from)
+      FROM="$2"
+      shift 2
+      ;;
+    --rpc-url)
+      RPC_URL="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      BATCH_FILE="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$BATCH_FILE" ]]; then
+  echo "Error: batch file required" >&2
+  usage
+fi
+
+if [[ ! -f "$BATCH_FILE" ]]; then
+  echo "Error: file not found: $BATCH_FILE" >&2
+  exit 1
+fi
+
+# Parse batch
+TX_COUNT=$(jq '.transactions | length' "$BATCH_FILE")
+DESCRIPTION=$(jq -r '.meta.description // "-"' "$BATCH_FILE")
+CHAIN_ID=$(jq -r '.chainId // "-"' "$BATCH_FILE")
+
+if [[ "$TX_COUNT" -eq 0 ]]; then
+  echo "No transactions in batch file."
+  exit 0
+fi
+
+# Determine signer
+if [[ -z "$FROM" ]]; then
+  FIRST_TARGET=$(jq -r '.transactions[0].to' "$BATCH_FILE")
+  FROM=$(cast call "$FIRST_TARGET" "owner()(address)" --rpc-url "$RPC_URL" 2>/dev/null) || {
+    echo "Error: could not read owner() from $FIRST_TARGET" >&2
+    echo "Use --from <address> to specify the signer." >&2
+    exit 1
+  }
+fi
+
+echo "======================================================" >&2
+echo "  RUN BATCH: $(basename "$BATCH_FILE")" >&2
+echo "======================================================" >&2
+echo "  Description: $DESCRIPTION" >&2
+echo "  Chain ID:    $CHAIN_ID" >&2
+echo "  RPC:         $RPC_URL" >&2
+echo "  Signer:      $FROM" >&2
+echo "  Transactions: $TX_COUNT" >&2
+echo "" >&2
+
+PASSED=0
+FAILED=0
+
+for i in $(seq 0 $((TX_COUNT - 1))); do
+  TO=$(jq -r ".transactions[$i].to" "$BATCH_FILE")
+  DATA=$(jq -r ".transactions[$i].data" "$BATCH_FILE")
+  VALUE=$(jq -r ".transactions[$i].value // \"0\"" "$BATCH_FILE")
+
+  # Try to decode the function selector for display
+  SELECTOR="${DATA:0:10}"
+  LABEL="$SELECTOR"
+
+  printf "  [%d/%d] %s -> %s " "$((i + 1))" "$TX_COUNT" "$TO" "$LABEL" >&2
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "(dry run)" >&2
+    continue
+  fi
+
+  if cast send "$TO" "$DATA" \
+    --from "$FROM" --unlocked \
+    --value "$VALUE" \
+    --rpc-url "$RPC_URL" > /dev/null 2>&1; then
+    echo "OK" >&2
+    ((++PASSED))
+  else
+    echo "FAILED" >&2
+    ((++FAILED))
+    # Re-run to show the error
+    cast send "$TO" "$DATA" \
+      --from "$FROM" --unlocked \
+      --value "$VALUE" \
+      --rpc-url "$RPC_URL" >&2 || true
+  fi
+done
+
+echo "" >&2
+echo "======================================================" >&2
+if [[ "$DRY_RUN" == true ]]; then
+  echo "  DRY RUN: $TX_COUNT transactions" >&2
+elif [[ "$FAILED" -eq 0 ]]; then
+  echo "  COMPLETE: $PASSED/$TX_COUNT succeeded" >&2
+else
+  echo "  FAILED: $PASSED passed, $FAILED failed" >&2
+fi
+echo "======================================================" >&2
+
+[[ "$FAILED" -eq 0 ]]

@@ -307,19 +307,19 @@ contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
                 _usd(postValue), ",",
                 _signedUsd(change), ",");
             csv = string.concat(csv,
-                _sci(levBal), ",",
-                _sci(claimable), ",",
-                _sci(claimed), ",",
-                _sci(splDep), "\n");
+                vm.toString(levBal), ",",
+                vm.toString(claimable), ",",
+                vm.toString(claimed), ",",
+                vm.toString(splDep), "\n");
         }
 
         csv = string.concat(csv, "\nSystem\n");
-        csv = string.concat(csv, "leveragedTokenPrice before,", _sci(preLevPrice), "\n");
-        csv = string.concat(csv, "leveragedTokenPrice after,", _sci(postLevPrice), "\n");
-        csv = string.concat(csv, "leveragedTotalSupply,", _sci(IERC20(lev).totalSupply()), "\n");
-        csv = string.concat(csv, "peggedTokenBalance,", _sci(IMinter(minterAddr).peggedTokenBalance()), "\n");
-        csv = string.concat(csv, "collateralTokenBalance,", _sci(IMinter(minterAddr).collateralTokenBalance()), "\n");
-        csv = string.concat(csv, "SPL levBalance,", _sci(IERC20(lev).balanceOf(spl)), "\n");
+        csv = string.concat(csv, "leveragedTokenPrice before,", vm.toString(preLevPrice), "\n");
+        csv = string.concat(csv, "leveragedTokenPrice after,", vm.toString(postLevPrice), "\n");
+        csv = string.concat(csv, "leveragedTotalSupply,", vm.toString(IERC20(lev).totalSupply()), "\n");
+        csv = string.concat(csv, "peggedTokenBalance,", vm.toString(IMinter(minterAddr).peggedTokenBalance()), "\n");
+        csv = string.concat(csv, "collateralTokenBalance,", vm.toString(IMinter(minterAddr).collateralTokenBalance()), "\n");
+        csv = string.concat(csv, "SPL levBalance,", vm.toString(IERC20(lev).balanceOf(spl)), "\n");
 
         vm.createDir("results", true);
         vm.writeFile(string.concat("results/", filename), csv);

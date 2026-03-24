@@ -108,9 +108,8 @@ abstract contract DeployMintersShared is
         _setSaltPrefix(saltPrefix);
 
         // Load or seed state
-        // TODO: tidy up the baoFactory part - it is always baoFactory()
         DeploymentTypes.State memory state = _shouldPersistState()
-            ? DeploymentState.load(network, saltPrefix, "")
+            ? DeploymentState.load(_stateFileRead())
             : DeploymentTypes.State({
                 network: network,
                 saltPrefix: saltPrefix,

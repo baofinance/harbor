@@ -20,7 +20,7 @@ Two addresses partially/fully claimed their inflated rewards before the pause:
 - `0x31632636...`: claimed 0.228 sailETH (100% of allocation)
 - `0xb9ab9578...`: claimed 0.053 sailETH (partial, between rebalances)
 
-Total irrecoverable loss from claimed excess: ~$337 at ETH/$2151.
+Total cost to treasury: ~$82 of fxSAVE to restore missing collateral (see below).
 
 ## Fix
 
@@ -32,7 +32,7 @@ A full replay of the 5 rebalances plus all user transactions was performed under
 
 ### Affected users
 
-From the simulation CSVs (`tmp/v1_replay.csv`, `tmp/v2_correct_state.csv`):
+From the simulation CSVs (`results/v1_replay.csv`, `results/v2_correct_state.csv`):
 
 | User | Role | $ Before | $ After (v1) | $ After (v2) | Bug impact |
 |------|------|----------|-------------|-------------|------------|
@@ -54,51 +54,80 @@ Upgrade the sail stability pool proxy to `BaoPauser_v1` to prevent further claim
 ### Step 2: Remediate
 Upgrade the sail stability pool proxy to `PostRebalanceRemediationForStabilityPool_v2`, which executes the following in a single atomic `remediate()` call:
 
+The `remediate()` function executes 6 steps atomically:
+
 #### 2a. Correct the reward integral
 
-Scale down the global integral for the sailETH reward token by `V2_MINTED / V1_MINTED`:
-- `V1_MINTED = 8.828e18` (actual total minted across 5 rebalances)
-- `V2_MINTED = 3.809e17` (from `V2ReplaySimulation.t.sol`)
+Scale down the global integral for sailETH by `V2_DISTRIBUTED / V1_DISTRIBUTED`:
+- `V1_DISTRIBUTED = 9,071,385,368,178,022,436` -- total sailETH that entered SPL via `notifyLiquidation` under v1. Computed as: `v1_spl_balance_after_last_rebalance + claimer_claimed_from_spl` (from `V2ReplaySimulation.t.sol` steps).
+- `V2_DISTRIBUTED = 156,366,618,756,016,130` -- same under v2. Computed as: `v2_spl_final_balance + v2_claimer_claimed + v2_exiter_claimed` (from `results/v2_correct_state.csv`).
+- Ratio: 0.01724 (~1.7% of current integral).
 
-This proportionally reduces every depositor's claimable amount to the correct v2 level. Users who already claimed have their snapshot integral past the corrected value, so they get zero additional claimable.
+This proportionally reduces every depositor's claimable to the correct v2 level.
 
-#### 2b. Burn excess tokens from the pool
+#### 2b. Burn excess sailETH from the pool
 
-After integral reduction, the pool holds more sailETH than is owed. Burn the excess via `IBurnable.burn()`, reducing total supply and restoring the sailETH price.
+`tokensToKeep = poolBalance * correctedIntegral / currentIntegral`. The rest is burned via `IBurnable.burn()`.
 
-Requires `BURNER_ROLE` on sailETH, granted as part of the Safe batch.
+#### 2c. Burn excess sailETH from Claimer's wallet
 
-#### 2c. Adjust the Claimer's sailETH balance
+- Claimer v1 held: 374,304,151,449,162,791 -- Claimer v2 held: 322,217,071,257,914,429
+- Excess: 52,087,080,191,248,362 (~0.052 sailETH)
+- `burnFrom(claimer, excess)` -- requires Claimer to have approved SPL for this amount.
 
-The Claimer (`0xb9ab9578...`) claimed 0.053 sailETH (inflated) between rebalances. Under v2, they would have claimed ~0.0009 sailETH. They now hold 0.374 sailETH in their wallet, but should hold ~0.322 sailETH.
+#### 2d. Burn excess bounty from bounty receiver
 
-**Action on sailETH token**: Burn the excess from the Claimer's wallet.
-- Excess = v1 held (0.3743e17) - v2 held (0.3222e17) = 0.0521 sailETH
-- Requires `BURNER_ROLE` and calling `burnFrom(claimer, excess)`, or the remediation contract can be granted a role that allows this.
-- Alternatively: the Claimer's excess is small (~$110 at corrected price). We could skip this and accept the minor dilution.
+The rebalance bounty under v1 was ~23x larger than under v2.
+- Bounty receiver 1 (`0xf1674...`, TODO: confirm ours): holds 89,169,424,352,193,203 sailETH.
+  Excess: 87,632,380,029,141,447 (~0.088 sailETH).
+  `burnFrom(bountyReceiver, excess)` -- requires approval.
+- Bounty receiver 2 (`0xc0ffee...`, not ours): holds 2,460,730,881,928,232 (~0.0025 sailETH, ~$5). Accepted loss.
 
-#### 2d. Handle the Exiter
+#### 2e. Burn excess bounty from bounty receiver
 
-The Exiter (`0x31632636...`) fully exited the system -- they hold zero sailETH and zero haETH. They extracted ~$59 more fxSAVE from the minter than they should have under v2. This collateral is gone from the system.
+Rebalance bounty tokens under v1 were ~23x larger than under v2.
+- Bounty receiver 1 (`0xf1674...`, TODO: confirm ours): holds 0.0892 sailETH, excess 0.0876 sailETH.
+  `burnFrom(bountyReceiver, 0.087632380029141447 ether)` -- requires their approval.
+- Bounty receiver 2 (`0xc0ffee...`, not ours): holds 0.0025 sailETH (~$8). Cannot burn. Compensated via extra collateral deposit (see 2f).
 
-**Options**:
-1. **Accept the loss**: ~$59 is small. The remaining holders absorb this via a slightly lower price (less collateral in the minter).
-2. **Deposit additional collateral**: Treasury deposits ~$59 of fxSAVE into the minter to restore the missing collateral. This fully restores the price for all remaining holders.
+#### 2f. Restore missing collateral
+
+Treasury pre-transfers 82.47 fxSAVE (~$82) to the SPL. The remediation deposits it into the minter via `freeMintLeveragedToken`, then burns the minted sailETH. Net effect: collateral up, supply unchanged. This covers two components:
+1. **64.33 fxSAVE**: excess collateral extracted by the Exiter redeeming at v1 prices (from `results/v1_replay.csv` vs `v2_correct_state.csv` collateralTokenBalance difference).
+2. **18.13 fxSAVE**: compensates for the 0.0025 sailETH from bounty receiver 2 that we cannot burn. Increases equity so the extra supply does not depress the price.
+
+#### 2g. (implicit) All burns above reduce total supply, restoring `leveragedTokenPrice`.
 
 ### Step 3: Restore
-Upgrade the sail stability pool proxy back to `StabilityPool_v2`. The corrected integral, reduced token balance, and adjusted user balances persist in storage.
+Upgrade the sail stability pool proxy back to `StabilityPool_v2`. Revoke BURNER_ROLE and ZERO_FEE_ROLE.
 
-### Summary of remediation actions
+### Pre-requisites (off-chain, before Safe batch)
 
-| Action | Target contract | Method |
-|--------|----------------|--------|
-| Grant BURNER_ROLE to SPL on sailETH | sailETH token | `grantRoles(spl, BURNER_ROLE)` |
-| Upgrade SPL to remediation contract | SPL proxy | `upgradeToAndCall(remediation, abi.encodeCall(remediate))` |
-| -- correct integral | SPL storage | writes `tokenToExponentToIntegral` |
-| -- burn excess from pool | sailETH token | `burn(excess)` |
-| -- burn excess from Claimer (optional) | sailETH token | `burnFrom(claimer, excess)` or transfer+burn |
-| Upgrade SPL back to SP_v2 | SPL proxy | `upgradeToAndCall(existingImpl, "")` |
-| Deposit collateral for Exiter (optional) | Minter | treasury deposits fxSAVE |
+- Claimer (`0xb9ab9578...`) approves SPL for 0.052087080191248362 ether sailETH
+- Bounty receiver 1 (`0xf1674...`, TODO: confirm ours) approves SPL for 0.087632380029141447 ether sailETH
+- Treasury has at least 82.47 fxSAVE available (transferred to SPL in the batch)
+
+### Safe batch transaction sequence
+
+```
+1a. grantRoles(spl, BURNER_ROLE) on sailETH token
+1b. grantRoles(spl, ZERO_FEE_ROLE) on minter
+1c. transfer(spl, 82.466171119621162782 ether) fxSAVE from treasury
+2.  upgradeToAndCall(remediation_impl, remediate()) on SPL proxy
+    -- remediate() corrects integral, burns pool excess, burns Claimer excess,
+       burns bounty excess, deposits fxSAVE + mints + burns
+3.  upgradeToAndCall(existing_v2_impl, "") on SPL proxy
+4a. revokeRoles(spl, BURNER_ROLE) on sailETH token
+4b. revokeRoles(spl, ZERO_FEE_ROLE) on minter
+```
+
+### Results
+
+Post-remediation (`results/post_remediation.csv`):
+- sailETH price: 3.474 haETH (v2 target: 3.467 -- within 0.2%)
+- All 9 holder sailETH counts match v2 correct state within 1% tolerance
+- Remaining dilution: ~$8 from bounty receiver 2 (0.0025 excess sailETH, not ours)
+- Treasury cost: ~$82 of fxSAVE
 
 **Contract**: `src/minter/PostRebalanceRemediationForStabilityPool_v2.sol`
 **Script**: `script/Remediate_SPL_ETH_fxUSD.s.sol`
@@ -119,13 +148,13 @@ Values are displayed in USD using a fixed ETH/USD rate (~$2125) for readability.
 
 Replays the exact sequence of 15 on-chain events (5 rebalances + claims + withdrawals + redeems) from a single fork at block 24687073, using mock oracle prices queried from each actual mainnet block.
 
-- **`test_v1Replay`**: Replays under v1 code. Asserts exact match against mainnet state at all 15 steps (supply, SPL balance, Claimer balance, Exiter balance, Exiter deposit, leveragedTokenPrice). Produces `tmp/v1_replay.csv`.
+- **`test_v1Replay`**: Replays under v1 code. Asserts exact match against mainnet state at all 15 steps (supply, SPL balance, Claimer balance, Exiter balance, Exiter deposit, leveragedTokenPrice). Produces `results/v1_replay.csv`.
 
-- **`test_v2Replay`**: Replays under v2 code. Same event sequence but correct minter arithmetic. Produces `tmp/v2_correct_state.csv` -- the definitive "correct world" for comparison.
+- **`test_v2Replay`**: Replays under v2 code. Same event sequence but correct minter arithmetic. Produces `results/v2_correct_state.csv` -- the definitive "correct world" for comparison.
 
 ### SPLRemediationTest.t.sol
 
-Runs the pause -> remediate -> restore cycle and compares post-remediation state against both the pre-rebalance baseline and the v2 correct state.
+Forks at block 24699497 (last simulated event), runs the full remediation (grant roles, approve burns, remediate, restore, revoke), and verifies all 9 holders' sailETH (held + claimable) match `results/v2_correct_state.csv` within 1%. Produces `results/post_remediation.csv`.
 
 ### RebalanceCheck.t.sol
 

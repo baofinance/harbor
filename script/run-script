@@ -142,13 +142,18 @@ SCRIPT_PATH="script/${SCRIPT_NAME}.s.sol"
 if [[ "$USE_LOCAL" == true ]]; then
   RPC_URL="local"
   if [[ "$USE_TIMESTAMP" == true ]]; then
-    export DEPLOY_STATE_SUBDIR="local-$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    SUBDIR="local-$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   else
-    export DEPLOY_STATE_SUBDIR="local"
+    SUBDIR="local"
   fi
+  DEPLOY_STATE_DIR="$(pwd)/deployments/${SUBDIR}/${NETWORK}"
 else
   RPC_URL=$NETWORK
+  DEPLOY_STATE_DIR="$(pwd)/deployments/${NETWORK}"
 fi
+export DEPLOY_STATE_DIR
+export DEPLOY_STATE_FILE_READ="${DEPLOY_STATE_DIR}/${SALT}.state.json"
+export DEPLOY_STATE_FILE_WRITE="${DEPLOY_STATE_DIR}/${SALT}.state.json.pending"
 
 CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null) || {
   echo "❌ RPC failed: $RPC_URL" >&2
@@ -213,12 +218,46 @@ echo "" >&2
 
 START_TIME=$(date +%s)
 
+# ── State file management ────────────────────────────────────────────────
+# Solidity reads from DEPLOY_STATE_FILE_READ and writes to DEPLOY_STATE_FILE_WRITE
+# (a .pending file). This ensures forge's internal simulation pass never pollutes
+# the file that the broadcast pass reads. On success with --broadcast, the pending
+# file is promoted to the real state file. Otherwise it is deleted.
+
+# Clean up any .pending file left by a prior failed run.
+if [[ -f "$DEPLOY_STATE_FILE_WRITE" ]]; then
+  echo "  State:      cleaning up stale .pending from prior run" >&2
+  rm -f "$DEPLOY_STATE_FILE_WRITE"
+fi
+
 # Default: --sig "run(string)" with salt.
 # If -- was used and includes --sig, the caller controls the entry point.
 if [[ ${#EXTRA_FORGE_ARGS[@]} -gt 0 ]]; then
-  forge script "$SCRIPT_PATH" --tc "$SCRIPT_NAME" "${EXTRA_FORGE_ARGS[@]}" "${FORGE_ARGS[@]}"
+  FORGE_CMD=(forge script "$SCRIPT_PATH" --tc "$SCRIPT_NAME" "${EXTRA_FORGE_ARGS[@]}" "${FORGE_ARGS[@]}")
 else
-  forge script "$SCRIPT_PATH" --tc "$SCRIPT_NAME" --sig "run(string)" "$SALT" "${FORGE_ARGS[@]}"
+  FORGE_CMD=(forge script "$SCRIPT_PATH" --tc "$SCRIPT_NAME" --sig "run(string)" "$SALT" "${FORGE_ARGS[@]}")
+fi
+
+if ! "${FORGE_CMD[@]}"; then
+  echo "" >&2
+  echo "======================================================" >&2
+  echo "  FAILED" >&2
+  if [[ -f "$DEPLOY_STATE_FILE_WRITE" ]]; then
+    echo "  State:      .pending left for debugging at $DEPLOY_STATE_FILE_WRITE" >&2
+  fi
+  echo "======================================================" >&2
+  exit 1
+fi
+
+# Promote or discard the pending state file.
+if [[ -f "$DEPLOY_STATE_FILE_WRITE" ]]; then
+  if [[ "$USE_BROADCAST" == true ]]; then
+    mv "$DEPLOY_STATE_FILE_WRITE" "$DEPLOY_STATE_FILE_READ"
+    echo "  State:      promoted .pending -> $DEPLOY_STATE_FILE_READ" >&2
+  else
+    rm -f "$DEPLOY_STATE_FILE_WRITE"
+    echo "  State:      removed .pending (dry run)" >&2
+  fi
 fi
 
 END_TIME=$(date +%s)
