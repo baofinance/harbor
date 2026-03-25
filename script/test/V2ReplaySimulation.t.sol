@@ -55,21 +55,186 @@ contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
     Step[15] steps;
 
     function _initSteps() private {
-        steps[0]  = Step(24687074, 1773869531, 456157348740503, 1079654693991021390, 9288233300350354394, 8827773010867127157, 321340262873233811,                0, 20549016838011003, 171058457268324856); // rebalance #1
-        steps[1]  = Step(24687129, 1773870203, 453806599545179, 1079654693991021390, 9364262415083554865, 8903041834452995624, 321340262873233811,                0, 20242765329382950, 167181252548294929); // rebalance #2
-        steps[2]  = Step(24687671, 1773876755, 455692972302981, 1079654693991021390, 9364262415083554865, 8903041834452995624, 321340262873233811,                0, 20242765329382950, 170192638227862011); // Claimer claim SPC
-        steps[3]  = Step(24687673, 1773876779, 455692972302981, 1079654693991021390, 9364262415083554865, 8850077945877066644, 374304151449162791,                0, 20242765329382950, 170192638227862011); // Claimer claim SPL
-        steps[4]  = Step(24687779, 1773878063, 453348203154396, 1079654693991021390, 9378509517354262631, 8864182577125067333, 374304151449162791,                0, 20183617272428115, 166447421346637119); // rebalance #3
-        steps[5]  = Step(24688804, 1773890435, 450940541568587, 1079654693991021390, 9457787779369386130, 8942668056520039598, 374304151449162791,                0, 19873530393504445, 162557587478438970); // rebalance #4
-        steps[6]  = Step(24688832, 1773890771, 448641948991509, 1079654693991021390, 9534306388543177905, 9018421479602093456, 374304151449162791,                0, 19580408351166092, 158913752513332402); // rebalance #5
-        steps[7]  = Step(24699077, 1774014095, 468323881240092, 1079826826931326495, 9534306388543177905, 9018421479602093456, 374304151449162791,                0, 19580408351166092, 189123801845367388); // Exiter requestWithdrawal SPC
-        steps[8]  = Step(24699086, 1774014203, 468323881240092, 1079826826931326495, 9534306388543177905, 9018421479602093456, 374304151449162791,                0, 19580408351166092, 189123801845367388); // Exiter requestWithdrawal SPL
-        steps[9]  = Step(24699093, 1774014287, 468323881240092, 1079826826931326495, 9534306388543177905, 9018421479602093456, 374304151449162791,                0, 19580408351166092, 189123801845367388); // Exiter claim SPC
-        steps[10] = Step(24699098, 1774014347, 468323881240092, 1079826826931326495, 9534306388543177905, 8790311679740400961, 374304151449162791, 228109799861692495, 19580408351166092, 189123801845367388); // Exiter claim SPL
-        steps[11] = Step(24699444, 1774018499, 468123570204327, 1079826826931326495, 9534306388543177905, 8790311679740400961, 374304151449162791, 228109799861692495, 19580408351166092, 188816341876712769); // Exiter withdraw SPC
-        steps[12] = Step(24699446, 1774018523, 468123570204327, 1079826826931326495, 9534306388543177905, 8790311679740400961, 374304151449162791, 228109799861692495,                0, 188816341876712769); // Exiter withdraw SPL
-        steps[13] = Step(24699456, 1774018643, 468123570204327, 1079826826931326495, 9534306388543177905, 8790311679740400961, 374304151449162791, 228109799861692495,                0, 188816341876712769); // Exiter redeemPegged
-        steps[14] = Step(24699497, 1774019135, 470511631711623, 1079826826931326495, 9306196588681485410, 8790311679740400961, 374304151449162791,                0,                0, 192462471843639196); // Exiter redeemLev
+        steps[0] = Step(
+            24687074,
+            1773869531,
+            456157348740503,
+            1079654693991021390,
+            9288233300350354394,
+            8827773010867127157,
+            321340262873233811,
+            0,
+            20549016838011003,
+            171058457268324856
+        ); // rebalance #1
+        steps[1] = Step(
+            24687129,
+            1773870203,
+            453806599545179,
+            1079654693991021390,
+            9364262415083554865,
+            8903041834452995624,
+            321340262873233811,
+            0,
+            20242765329382950,
+            167181252548294929
+        ); // rebalance #2
+        steps[2] = Step(
+            24687671,
+            1773876755,
+            455692972302981,
+            1079654693991021390,
+            9364262415083554865,
+            8903041834452995624,
+            321340262873233811,
+            0,
+            20242765329382950,
+            170192638227862011
+        ); // Claimer claim SPC
+        steps[3] = Step(
+            24687673,
+            1773876779,
+            455692972302981,
+            1079654693991021390,
+            9364262415083554865,
+            8850077945877066644,
+            374304151449162791,
+            0,
+            20242765329382950,
+            170192638227862011
+        ); // Claimer claim SPL
+        steps[4] = Step(
+            24687779,
+            1773878063,
+            453348203154396,
+            1079654693991021390,
+            9378509517354262631,
+            8864182577125067333,
+            374304151449162791,
+            0,
+            20183617272428115,
+            166447421346637119
+        ); // rebalance #3
+        steps[5] = Step(
+            24688804,
+            1773890435,
+            450940541568587,
+            1079654693991021390,
+            9457787779369386130,
+            8942668056520039598,
+            374304151449162791,
+            0,
+            19873530393504445,
+            162557587478438970
+        ); // rebalance #4
+        steps[6] = Step(
+            24688832,
+            1773890771,
+            448641948991509,
+            1079654693991021390,
+            9534306388543177905,
+            9018421479602093456,
+            374304151449162791,
+            0,
+            19580408351166092,
+            158913752513332402
+        ); // rebalance #5
+        steps[7] = Step(
+            24699077,
+            1774014095,
+            468323881240092,
+            1079826826931326495,
+            9534306388543177905,
+            9018421479602093456,
+            374304151449162791,
+            0,
+            19580408351166092,
+            189123801845367388
+        ); // Exiter requestWithdrawal SPC
+        steps[8] = Step(
+            24699086,
+            1774014203,
+            468323881240092,
+            1079826826931326495,
+            9534306388543177905,
+            9018421479602093456,
+            374304151449162791,
+            0,
+            19580408351166092,
+            189123801845367388
+        ); // Exiter requestWithdrawal SPL
+        steps[9] = Step(
+            24699093,
+            1774014287,
+            468323881240092,
+            1079826826931326495,
+            9534306388543177905,
+            9018421479602093456,
+            374304151449162791,
+            0,
+            19580408351166092,
+            189123801845367388
+        ); // Exiter claim SPC
+        steps[10] = Step(
+            24699098,
+            1774014347,
+            468323881240092,
+            1079826826931326495,
+            9534306388543177905,
+            8790311679740400961,
+            374304151449162791,
+            228109799861692495,
+            19580408351166092,
+            189123801845367388
+        ); // Exiter claim SPL
+        steps[11] = Step(
+            24699444,
+            1774018499,
+            468123570204327,
+            1079826826931326495,
+            9534306388543177905,
+            8790311679740400961,
+            374304151449162791,
+            228109799861692495,
+            19580408351166092,
+            188816341876712769
+        ); // Exiter withdraw SPC
+        steps[12] = Step(
+            24699446,
+            1774018523,
+            468123570204327,
+            1079826826931326495,
+            9534306388543177905,
+            8790311679740400961,
+            374304151449162791,
+            228109799861692495,
+            0,
+            188816341876712769
+        ); // Exiter withdraw SPL
+        steps[13] = Step(
+            24699456,
+            1774018643,
+            468123570204327,
+            1079826826931326495,
+            9534306388543177905,
+            8790311679740400961,
+            374304151449162791,
+            228109799861692495,
+            0,
+            188816341876712769
+        ); // Exiter redeemPegged
+        steps[14] = Step(
+            24699497,
+            1774019135,
+            470511631711623,
+            1079826826931326495,
+            9306196588681485410,
+            8790311679740400961,
+            374304151449162791,
+            0,
+            0,
+            192462471843639196
+        ); // Exiter redeemLev
     }
 
     address[] holders;
@@ -120,10 +285,10 @@ contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
     function _holderValue(address h, uint256 levPrice) private view returns (uint256) {
         uint256 totalHs = IERC20(lev).balanceOf(h) + IMultipleRewardAccumulator(spl).claimable(h, lev);
         uint256 haInSpl = IStabilityPool(spl).assetBalanceOf(h);
-        uint256 value = totalHs * levPrice / 1 ether + haInSpl;
+        uint256 value = (totalHs * levPrice) / 1 ether + haInSpl;
         if (h == EXITER && exiterFxSaveReceived > 0) {
-            (uint256 oraclePrice,,,) = mockOracle.latestAnswer();
-            value += exiterFxSaveReceived * oraclePrice / 1 ether;
+            (uint256 oraclePrice, , , ) = mockOracle.latestAnswer();
+            value += (exiterFxSaveReceived * oraclePrice) / 1 ether;
         }
         return value;
     }
@@ -302,15 +467,28 @@ contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
 
             int256 change = int256(postValue) - int256(preValue);
 
-            csv = string.concat(csv, vm.toString(h), ",",
-                _usd(preValue), ",",
-                _usd(postValue), ",",
-                _signedUsd(change), ",");
-            csv = string.concat(csv,
-                vm.toString(levBal), ",",
-                vm.toString(claimable), ",",
-                vm.toString(claimed), ",",
-                vm.toString(splDep), "\n");
+            csv = string.concat(
+                csv,
+                vm.toString(h),
+                ",",
+                _usd(preValue),
+                ",",
+                _usd(postValue),
+                ",",
+                _signedUsd(change),
+                ","
+            );
+            csv = string.concat(
+                csv,
+                vm.toString(levBal),
+                ",",
+                vm.toString(claimable),
+                ",",
+                vm.toString(claimed),
+                ",",
+                vm.toString(splDep),
+                "\n"
+            );
         }
 
         csv = string.concat(csv, "\nSystem\n");
@@ -318,7 +496,12 @@ contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
         csv = string.concat(csv, "leveragedTokenPrice after,", vm.toString(postLevPrice), "\n");
         csv = string.concat(csv, "leveragedTotalSupply,", vm.toString(IERC20(lev).totalSupply()), "\n");
         csv = string.concat(csv, "peggedTokenBalance,", vm.toString(IMinter(minterAddr).peggedTokenBalance()), "\n");
-        csv = string.concat(csv, "collateralTokenBalance,", vm.toString(IMinter(minterAddr).collateralTokenBalance()), "\n");
+        csv = string.concat(
+            csv,
+            "collateralTokenBalance,",
+            vm.toString(IMinter(minterAddr).collateralTokenBalance()),
+            "\n"
+        );
         csv = string.concat(csv, "SPL levBalance,", vm.toString(IERC20(lev).balanceOf(spl)), "\n");
 
         vm.createDir("results", true);
@@ -331,7 +514,10 @@ contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
         if (v == 0) return "0";
         uint256 exp;
         uint256 tmp = v;
-        while (tmp >= 10) { tmp /= 10; exp++; }
+        while (tmp >= 10) {
+            tmp /= 10;
+            exp++;
+        }
         // Get 4 significant digits
         uint256 divisor = 1;
         if (exp >= 3) {
@@ -352,7 +538,7 @@ contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
 
     /// @dev Convert haETH wei to approximate USD string: "$1234.56"
     function _usd(uint256 haEthWei) private pure returns (string memory) {
-        uint256 cents = haEthWei * ETH_USD / 1e16;
+        uint256 cents = (haEthWei * ETH_USD) / 1e16;
         uint256 whole = cents / 100;
         uint256 frac = cents % 100;
         string memory fracStr = vm.toString(frac);

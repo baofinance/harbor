@@ -61,15 +61,52 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
     /// @dev V2 correct values per holder. Source: results/v2_correct_state.csv
     function _initExpected() internal {
         //                                                                    v2Held                       v2Claimable                  v2HaInSPL
-        expected.push(Expected(0x13F210c8bAf5f5DBAFf3E917E2e5A49E73BBAF12, 0,                            0.060311559463305742 ether,  0.300336372621867295 ether));
-        expected.push(Expected(0x1a9152528AEFbcD9E5df4E0770f4F510e7056913, 0,                            0.090912789787537255 ether,  0.452722790667278425 ether));
-        expected.push(Expected(0x1e085ff3CdD38b1E5F04Ace2345966056F0C85E4, 0.001515885365927426 ether,   0.000041497401864749 ether,  0.000206646607386655 ether));
-        expected.push(Expected(0x3Fdaf8A9af23D27C884e10820130eAB1dB6dDBeD, 0.006181459776411976 ether,   0,                           0));
-        expected.push(Expected(0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e, 0,                            0.000127808353298059 ether,  0.000636453402331065 ether));
-        expected.push(Expected(CLAIMER,                                     0.322217071257914429 ether,   0.000053411233151520 ether,  0.004632259358695266 ether));
-        expected.push(Expected(0xC9df4f62474Cf6cdE6c064DB29416a9F4f27EBdC, 0.039893782695968247 ether,   0,                           0));
-        expected.push(Expected(0xDC1330EF8dc913C39bd29F9523418eEEacEf03D6, 0.001465014951679706 ether,   0,                           0));
-        expected.push(Expected(0xDD0CDF8D98d9Ad3ADfaa49AaECD444Bfa01d9C9a, 0.000894459467812868 ether,   0.000110736322807779 ether,  0.000551438991223686 ether));
+        expected.push(
+            Expected(
+                0x13F210c8bAf5f5DBAFf3E917E2e5A49E73BBAF12,
+                0,
+                0.060311559463305742 ether,
+                0.300336372621867295 ether
+            )
+        );
+        expected.push(
+            Expected(
+                0x1a9152528AEFbcD9E5df4E0770f4F510e7056913,
+                0,
+                0.090912789787537255 ether,
+                0.452722790667278425 ether
+            )
+        );
+        expected.push(
+            Expected(
+                0x1e085ff3CdD38b1E5F04Ace2345966056F0C85E4,
+                0.001515885365927426 ether,
+                0.000041497401864749 ether,
+                0.000206646607386655 ether
+            )
+        );
+        expected.push(Expected(0x3Fdaf8A9af23D27C884e10820130eAB1dB6dDBeD, 0.006181459776411976 ether, 0, 0));
+        expected.push(
+            Expected(
+                0xAE7Dbb17bc40D53A6363409c6B1ED88d3cFdc31e,
+                0,
+                0.000127808353298059 ether,
+                0.000636453402331065 ether
+            )
+        );
+        expected.push(
+            Expected(CLAIMER, 0.322217071257914429 ether, 0.000053411233151520 ether, 0.004632259358695266 ether)
+        );
+        expected.push(Expected(0xC9df4f62474Cf6cdE6c064DB29416a9F4f27EBdC, 0.039893782695968247 ether, 0, 0));
+        expected.push(Expected(0xDC1330EF8dc913C39bd29F9523418eEEacEf03D6, 0.001465014951679706 ether, 0, 0));
+        expected.push(
+            Expected(
+                0xDD0CDF8D98d9Ad3ADfaa49AaECD444Bfa01d9C9a,
+                0.000894459467812868 ether,
+                0.000110736322807779 ether,
+                0.000551438991223686 ether
+            )
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -91,8 +128,8 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
         uint256 threshold = IStabilityPoolManager(spm).rebalanceThreshold();
         // Drop price to push ratio to 95% of threshold
         // ratio_new = ratio * factor, so factor = (0.95 * threshold) / ratio
-        (uint256 p,,uint256 r,) = mockOracle.latestAnswer();
-        uint256 targetPrice = p * 95 * threshold / (ratio * 100);
+        (uint256 p, , uint256 r, ) = mockOracle.latestAnswer();
+        uint256 targetPrice = (p * 95 * threshold) / (ratio * 100);
         mockOracle.setLatestAnswer(targetPrice, targetPrice, r, r);
 
         uint256 splLevBefore = IERC20(lev).balanceOf(spl);
@@ -112,8 +149,9 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
         uint256 feeReceiverBefore = IERC20(wrappedCollateral).balanceOf(feeReceiver);
 
         // Dry run BEFORE mint to get expected values at current state
-        (int256 incentive, uint256 expectedFee,, uint256 expectedPeg,,) =
-            IMinter(minter).mintPeggedTokenDryRun(fxSaveAmount);
+        (int256 incentive, uint256 expectedFee, , uint256 expectedPeg, , ) = IMinter(minter).mintPeggedTokenDryRun(
+            fxSaveAmount
+        );
         uint256 ratioBefore = IMinter(minter).collateralRatio();
 
         deal(wrappedCollateral, user, fxSaveAmount);
@@ -136,7 +174,11 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
         else console.log("    incentive (discount): -%d", uint256(-incentive));
         console.log("    mint peg: %d fxSAVE -> %d haETH (expected %d)", fxSaveAmount, pegMinted, expectedPeg);
         console.log("    fee: %d (expected %d), ratio after=%d", feeCollected, expectedFee, ratioAfter);
-        console.log("    feeReceiver bal: %d -> %d", feeReceiverBefore, IERC20(wrappedCollateral).balanceOf(feeReceiver));
+        console.log(
+            "    feeReceiver bal: %d -> %d",
+            feeReceiverBefore,
+            IERC20(wrappedCollateral).balanceOf(feeReceiver)
+        );
     }
 
     /// @dev Mint haETH from fxSAVE, then deposit into SPL.
@@ -271,8 +313,11 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
             vm.prank(h);
             IStabilityPool(spl).withdraw(type(uint256).max, h, 0);
             uint256 claimablePost = acc.claimable(h, lev);
-            assertEq(claimablePost >= claimablePre, true,
-                string.concat("claimable should not decrease for ", vm.toString(h)));
+            assertEq(
+                claimablePost >= claimablePre,
+                true,
+                string.concat("claimable should not decrease for ", vm.toString(h))
+            );
             uint256 balBefore = IERC20(lev).balanceOf(h);
             vm.prank(h);
             acc.claim();
@@ -391,7 +436,7 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
         vm.prank(alice);
         IStabilityPool(spl).requestWithdrawal();
         vm.warp(block.timestamp + IStabilityPoolImmutables(spl).WITHDRAWAL_START_DELAY() + 1);
-        (uint256 p,,uint256 r,) = mockOracle.latestAnswer();
+        (uint256 p, , uint256 r, ) = mockOracle.latestAnswer();
         mockOracle.setLatestAnswer(p, p, r, r);
         uint256 pegBefore = IERC20(peg).balanceOf(alice);
         vm.prank(alice);
@@ -499,11 +544,17 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
             address h = expected[i].holder;
             uint256 claimableAfter = acc.claimable(h, lev);
             if (_hasPoolBalance(i)) {
-                assertEq(claimableAfter >= claimableBefore[i], true,
-                    string.concat("pool holder claimable should not decrease: ", vm.toString(h)));
+                assertEq(
+                    claimableAfter >= claimableBefore[i],
+                    true,
+                    string.concat("pool holder claimable should not decrease: ", vm.toString(h))
+                );
             } else {
-                assertEq(claimableAfter, claimableBefore[i],
-                    string.concat("no-pool holder claimable unchanged: ", vm.toString(h)));
+                assertEq(
+                    claimableAfter,
+                    claimableBefore[i],
+                    string.concat("no-pool holder claimable unchanged: ", vm.toString(h))
+                );
             }
             uint256 balBefore = IERC20(lev).balanceOf(h);
             vm.prank(h);
@@ -596,11 +647,14 @@ contract SPLRemediationTest is SPLTestBase {
         vm.prank(BOUNTY_RECEIVER);
         IERC20(lev).approve(spl, 0.087632380029141447 ether);
         PostRebalanceRemediationForStabilityPool_v2 impl = new PostRebalanceRemediationForStabilityPool_v2(
-            lev, minter, proxyOwner
+            lev,
+            minter,
+            proxyOwner
         );
         vm.prank(proxyOwner);
         UUPSUpgradeable(spl).upgradeToAndCall(
-            address(impl), abi.encodeCall(PostRebalanceRemediationForStabilityPool_v2.remediate, ())
+            address(impl),
+            abi.encodeCall(PostRebalanceRemediationForStabilityPool_v2.remediate, ())
         );
         vm.prank(proxyOwner);
         UUPSUpgradeable(spl).upgradeToAndCall(existingV2Impl, "");
@@ -639,10 +693,19 @@ contract SPLRemediationTest is SPLTestBase {
             {
                 uint256 actualClaimable = acc.claimable(h, lev);
                 if (h == CLAIMER) {
-                    console.log("  [NOTE] Claimer claimable=%e (v2 target=%e, shortfall=%e)",
-                        actualClaimable, expected[i].v2Claimable, expected[i].v2Claimable - actualClaimable);
+                    console.log(
+                        "  [NOTE] Claimer claimable=%e (v2 target=%e, shortfall=%e)",
+                        actualClaimable,
+                        expected[i].v2Claimable,
+                        expected[i].v2Claimable - actualClaimable
+                    );
                 } else if (actualClaimable != expected[i].v2Claimable) {
-                    console.log("  FAIL claimable %s: actual=%e target=%e", h, actualClaimable, expected[i].v2Claimable);
+                    console.log(
+                        "  FAIL claimable %s: actual=%e target=%e",
+                        h,
+                        actualClaimable,
+                        expected[i].v2Claimable
+                    );
                     failures++;
                 }
             }

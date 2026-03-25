@@ -11,6 +11,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 
+interface Ownable {
+    function owner() external view returns (address);
+}
+
 /// @notice Deploy remediation implementation and queue a Safe batch transaction for
 /// the ETH::fxUSD sail stability pool (SPL) remediation.
 ///
@@ -38,10 +42,11 @@ contract Remediate_SPL_ETH_fxUSD is SafeBatch {
     // ── Addresses ────────────────────────────────────────────────────────
     address constant BAO_PAUSER = 0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61;
     address constant EXISTING_V2_IMPL = 0x6C0D48839A0B1c9D79dDD4Ad3f407709E0f44be1;
-    address constant LEVERAGED = 0x0Cd6BB1a0cfD95e2779EDC6D17b664B481f2EB4C;  // sailETH token
+    address constant LEVERAGED = 0x0Cd6BB1a0cfD95e2779EDC6D17b664B481f2EB4C; // sailETH token
     address constant MINTER = 0xd6E2F8e57b4aFB51C6fA4cbC012e1cE6aEad989F;
-    address constant WRAPPED_COLLATERAL = 0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39;  // fxSAVE
+    address constant WRAPPED_COLLATERAL = 0x7743e50F534a7f9F1791DdE7dCD89F7783Eefc39; // fxSAVE
     address constant SPL = 0x438B29EC7a1770dDbA37D792F1A6e76231Ef8E06;
+    address constant REMEDIATOR_IMPL = 0x1aE2baBA0c81CA98ae1F6B1dB87A367b8f13E112;
 
     // ── Burn targets ─────────────────────────────────────────────────────
     // Claimer claimed between v1 rebalances; holds 0.052 excess sailETH in wallet
@@ -79,13 +84,16 @@ contract Remediate_SPL_ETH_fxUSD is SafeBatch {
         require(currentImpl == BAO_PAUSER, "SPL is not paused - run Pause_SPL_ETH_fxUSD first");
 
         // Deploy remediation implementation
-        vm.startBroadcast();
-        PostRebalanceRemediationForStabilityPool_v2 remediationImpl = new PostRebalanceRemediationForStabilityPool_v2(
-            LEVERAGED,
-            MINTER,
-            owner()
-        );
-        vm.stopBroadcast();
+        // vm.startBroadcast();
+        // PostRebalanceRemediationForStabilityPool_v2 remediationImpl = new PostRebalanceRemediationForStabilityPool_v2(
+        //     LEVERAGED,
+        //     MINTER,
+        //     owner()
+        // );
+        // vm.stopBroadcast();
+        require(REMEDIATOR_IMPL.code.length != 0, "remediator implementation not deployed");
+        require(Ownable(REMEDIATOR_IMPL).owner() == Ownable(SPL).owner(), "remediator not owned correctly (vs SPL)");
+        require(Ownable(REMEDIATOR_IMPL).owner() == Ownable(MINTER).owner(), "remediator owner != minter");
 
         // Claimer and bounty receiver approvals already executed on mainnet.
 
@@ -96,37 +104,51 @@ contract Remediate_SPL_ETH_fxUSD is SafeBatch {
         uint256 BURNER_ROLE = IBurnableRole(LEVERAGED).BURNER_ROLE();
 
         // 1. Grant temporary roles
-        queue(LEVERAGED,
+        queue(
+            LEVERAGED,
             abi.encodeCall(IBaoRoles.grantRoles, (spl, BURNER_ROLE)),
-            "grant BURNER_ROLE to SPL on sailETH");
-        queue(MINTER,
+            "grant BURNER_ROLE to SPL on sailETH"
+        );
+        queue(
+            MINTER,
             abi.encodeCall(IBaoRoles.grantRoles, (spl, ZERO_FEE_ROLE)),
-            "grant ZERO_FEE_ROLE to SPL on minter");
+            "grant ZERO_FEE_ROLE to SPL on minter"
+        );
 
         // 2. Transfer fxSAVE to SPL for collateral restoration
-        queue(WRAPPED_COLLATERAL,
+        queue(
+            WRAPPED_COLLATERAL,
             abi.encodeCall(IERC20.transfer, (spl, COLLATERAL_GAP)),
-            "transfer 82.47 fxSAVE to SPL");
+            "transfer 82.47 fxSAVE to SPL"
+        );
 
         // 3. Upgrade SPL to remediation contract and execute remediate()
-        queue(splSalt,
-            abi.encodeCall(UUPSUpgradeable.upgradeToAndCall,
-                (address(remediationImpl), abi.encodeCall(PostRebalanceRemediationForStabilityPool_v2.remediate, ()))),
-            string.concat("remediate: ", address(remediationImpl).toHexString()));
+        queue(
+            splSalt,
+            abi.encodeCall(
+                UUPSUpgradeable.upgradeToAndCall,
+                (REMEDIATOR_IMPL, abi.encodeCall(PostRebalanceRemediationForStabilityPool_v2.remediate, ()))
+            ),
+            string.concat("remediate: ", REMEDIATOR_IMPL.toHexString())
+        );
 
         // 4. Restore SPL to StabilityPool_v2
-        queue(splSalt,
+        queue(
+            splSalt,
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (EXISTING_V2_IMPL, "")),
-            string.concat("restore SPL: ", EXISTING_V2_IMPL.toHexString()));
+            string.concat("restore SPL: ", EXISTING_V2_IMPL.toHexString())
+        );
 
         // 5. Revoke temporary roles
-        queue(LEVERAGED,
+        queue(
+            LEVERAGED,
             abi.encodeCall(IBaoRoles.revokeRoles, (spl, BURNER_ROLE)),
-            "revoke BURNER_ROLE from SPL on sailETH");
-        queue(MINTER,
+            "revoke BURNER_ROLE from SPL on sailETH"
+        );
+        queue(
+            MINTER,
             abi.encodeCall(IBaoRoles.revokeRoles, (spl, ZERO_FEE_ROLE)),
-            "revoke ZERO_FEE_ROLE from SPL on minter");
-
-        // No flush — run() saves and executes the single batch automatically.
+            "revoke ZERO_FEE_ROLE from SPL on minter"
+        );
     }
 }

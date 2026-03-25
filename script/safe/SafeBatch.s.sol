@@ -42,6 +42,7 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
     }
 
     Transaction[] internal _transactions;
+    Transaction[] internal _allTransactions; // accumulated across flushes for local execution
     address private _signer;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -103,15 +104,18 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
         _setSaltPrefix(salt_);
         build();
         _saveAndExecute("", vm.envOr("SAFE_BATCH_DESCRIPTION", string("")));
+        _executeLocal();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Persistence
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Save queued transactions to a JSON file and execute locally if configured.
+    /// @dev Save queued transactions to a JSON file and accumulate for local execution.
     /// Uses _signer if set via startSigner(), otherwise defaults to owner().
     /// Appends the signer's registered name (from nameSigner()) to the filename.
+    /// Local execution is deferred to _executeLocal() in run() so that all
+    /// transactions across multiple flushes execute in a single broadcast.
     function _saveAndExecute(string memory suffix, string memory description) internal {
         if (_transactions.length == 0) {
             console.log("No transactions queued - nothing to execute");
@@ -126,29 +130,35 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
         string memory batchDir = string.concat(DeploymentState.resolveDirectory(), "/batch");
         vm.createDir(batchDir, true);
         string memory signerLabel = _addressLabel(batchSigner);
-        string memory fileSuffix = bytes(suffix).length > 0
-            ? string.concat(suffix, "@", signerLabel)
-            : signerLabel;
+        string memory fileSuffix = bytes(suffix).length > 0 ? string.concat(suffix, "@", signerLabel) : signerLabel;
         string memory filename = string.concat(name, "_", timestamp, "_", fileSuffix, ".json");
         string memory path = string.concat(batchDir, "/", filename);
         vm.writeJson(_buildSafeJson(description), path);
         console.log("Safe batch saved to: %s", path);
         console.log("  Transactions:", _transactions.length);
 
-        // Execute locally if configured
-        if (vm.envOr("EXECUTE_LOCAL", false)) {
-            vm.startBroadcast(batchSigner);
-            for (uint256 i = 0; i < _transactions.length; i++) {
-                console.log("Executing:", _transactions[i].description);
-                (bool ok, bytes memory ret) = _transactions[i].target.call(_transactions[i].data);
-                if (!ok) {
-                    assembly {
-                        revert(add(ret, 32), mload(ret))
-                    }
+        // Accumulate for deferred local execution
+        for (uint256 i = 0; i < _transactions.length; i++) {
+            _allTransactions.push(_transactions[i]);
+        }
+    }
+
+    /// @dev Execute all accumulated transactions in a single broadcast.
+    /// Called once at the end of run() to ensure correct ordering.
+    function _executeLocal() internal {
+        if (!vm.envOr("EXECUTE_LOCAL", false) || _allTransactions.length == 0) return;
+
+        vm.startBroadcast(owner());
+        for (uint256 i = 0; i < _allTransactions.length; i++) {
+            console.log("Executing:", _allTransactions[i].description);
+            (bool ok, bytes memory ret) = _allTransactions[i].target.call(_allTransactions[i].data);
+            if (!ok) {
+                assembly {
+                    revert(add(ret, 32), mload(ret))
                 }
             }
-            vm.stopBroadcast();
         }
+        vm.stopBroadcast();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

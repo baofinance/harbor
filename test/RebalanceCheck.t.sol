@@ -134,14 +134,14 @@ abstract contract RebalanceCheckBase is BaoTest, HarborFactoryDeployer {
         uint256 priceBefore = IMinter(minter).leveragedTokenPrice();
         uint256[2] memory valuesBefore;
         for (uint256 i = 0; i < holders.length; i++) {
-            valuesBefore[i] = IERC20(leveraged).balanceOf(holders[i]) * priceBefore / 1 ether;
+            valuesBefore[i] = (IERC20(leveraged).balanceOf(holders[i]) * priceBefore) / 1 ether;
         }
 
         StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
 
         uint256 priceAfter = IMinter(minter).leveragedTokenPrice();
         for (uint256 i = 0; i < holders.length; i++) {
-            uint256 valueAfter = IERC20(leveraged).balanceOf(holders[i]) * priceAfter / 1 ether;
+            uint256 valueAfter = (IERC20(leveraged).balanceOf(holders[i]) * priceAfter) / 1 ether;
             assertGe(valueAfter, valuesBefore[i], "holder value must not decrease during rebalance");
         }
     }
