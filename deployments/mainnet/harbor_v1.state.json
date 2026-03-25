@@ -839,7 +839,7 @@
     },
     "BTC::fxUSD::minter": {
       "address": "0x33e32ff4d0677862fa31582CC654a25b9b1e4888",
-      "implementation": "0x3089421DED39761Cf326EC03521b08AAFbdBB444",
+      "implementation": "0x118036f2d885B2EA27DF39705fEf34F88aFA9901",
       "salt": "harbor_v1::BTC::fxUSD::minter",
       "deploymentTime": "2025-12-19T21:38:23Z"
     },
@@ -893,7 +893,7 @@
     },
     "BTC::stETH::minter": {
       "address": "0xF42516EB885E737780EB864dd07cEc8628000919",
-      "implementation": "0x203866Ab0626b872313E0B420aD392470a3AcdDA",
+      "implementation": "0x00E03920CaCde8333B58410822a7d3bb9ADAD7e9",
       "salt": "harbor_v1::BTC::stETH::minter",
       "deploymentTime": "2025-12-19T21:17:47Z"
     },
@@ -953,7 +953,7 @@
     },
     "ETH::fxUSD::minter": {
       "address": "0xd6E2F8e57b4aFB51C6fA4cbC012e1cE6aEad989F",
-      "implementation": "0x813ddD349a459137dC2Bf36B8Dc57508B63b5bCF",
+      "implementation": "0xd0b640Ff304E7a09d350DbC65142Be316105C189",
       "salt": "harbor_v1::ETH::fxUSD::minter",
       "deploymentTime": "2025-12-19T22:00:59Z"
     },
@@ -1013,7 +1013,7 @@
     },
     "EUR::fxUSD::minter": {
       "address": "0xDEFB2C04062350678965CBF38A216Cc50723B246",
-      "implementation": "0xc7E34ecD57975430aB9DDb535Df4f266Ba2Ec1d1",
+      "implementation": "0x05d429A852b04Bb0bb27A19CAD1b42548a21c71B",
       "salt": "harbor_v1::EUR::fxUSD::minter",
       "deploymentTime": "2025-12-19T22:23:35Z"
     },
@@ -1067,7 +1067,7 @@
     },
     "EUR::stETH::minter": {
       "address": "0x68911ea33E11bc77e07f6dA4db6cd23d723641cE",
-      "implementation": "0xD9c8Dc161312d8f6AB86F45Da7a5455055436a3b",
+      "implementation": "0xa6322b1c33E7905C1B855B5538343d8B84E327A9",
       "salt": "harbor_v1::EUR::stETH::minter",
       "deploymentTime": "2026-01-17T09:54:11Z"
     },
@@ -1115,7 +1115,7 @@
     },
     "GOLD::fxUSD::minter": {
       "address": "0x880600E0c803d836E305B7c242FC095Eed234A8f",
-      "implementation": "0xC2ee9f547123990e513403111F314B520C1DD812",
+      "implementation": "0x7Bcc5f7328892ff1Beef6B80E281884E5542e02E",
       "salt": "harbor_v1::GOLD::fxUSD::minter",
       "deploymentTime": "2025-12-19T22:48:23Z"
     },
@@ -1169,7 +1169,7 @@
     },
     "GOLD::stETH::minter": {
       "address": "0xB315DC4698DF45A477d8bb4B0Bc694C4D1Be91b5",
-      "implementation": "0xC60B0a3Bf5F12b08405887D2b09831caF12316dc",
+      "implementation": "0xAD84bD793De34298FaEeCFF18b8DDca426036b54",
       "salt": "harbor_v1::GOLD::stETH::minter",
       "deploymentTime": "2026-01-17T11:56:35Z"
     },
@@ -1217,7 +1217,7 @@
     },
     "MCAP::fxUSD::minter": {
       "address": "0x3d3EAe3a4Ee52ef703216c62EFEC3157694606dE",
-      "implementation": "0x4C4acF08A5022daa42b8F313f0d9326396D7509d",
+      "implementation": "0x2010F81E9A27a6768dea33523bfeaDbBC0F46345",
       "salt": "harbor_v1::MCAP::fxUSD::minter",
       "deploymentTime": "2026-01-17T08:39:11Z"
     },
@@ -1259,7 +1259,7 @@
     },
     "MCAP::stETH::minter": {
       "address": "0xe37e34Ab0AaaabAc0e20c911349c1dEfAD0691B6",
-      "implementation": "0xC8C63FD0772226d0918159185947Fd08d484D4bB",
+      "implementation": "0x8E5e4726De2E0D881080242Aac491d86889853c0",
       "salt": "harbor_v1::MCAP::stETH::minter",
       "deploymentTime": "2026-01-17T08:39:11Z"
     },
@@ -1307,7 +1307,7 @@
     },
     "SILVER::fxUSD::minter": {
       "address": "0x177bb50574CDA129BDd0B0F50d4E061d38AA75Ef",
-      "implementation": "0xD40Ed1012Ed106559c1c8EECD659C714e04d95A9",
+      "implementation": "0xb6c6c5b3f99b2FFE6406405cF81bF85e4E44141c",
       "salt": "harbor_v1::SILVER::fxUSD::minter",
       "deploymentTime": "2026-01-16T22:00:23Z"
     },
@@ -1349,7 +1349,7 @@
     },
     "SILVER::stETH::minter": {
       "address": "0x1c0067BEe039A293804b8BE951B368D2Ec65b3e9",
-      "implementation": "0x61841Fc118E691F860bBd686f32866f7CA4eD022",
+      "implementation": "0x5fbE14DF50a7E6D15BCbC938d06341f8602C6eDa",
       "salt": "harbor_v1::SILVER::stETH::minter",
       "deploymentTime": "2026-01-16T22:00:23Z"
     },
