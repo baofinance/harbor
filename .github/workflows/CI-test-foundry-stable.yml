@@ -39,27 +39,7 @@ jobs:
 
       - name: Verify audited sources unchanged
         shell: bash
-        run: |
-          # Space-separated list of audit tags. Add new tags as audits complete.
-          AUDIT_TAGS="audit-2025-07"
-
-          git fetch --tags
-          for tag in $AUDIT_TAGS; do
-            echo "Verifying src/ against tag: ${tag}"
-            git rev-parse --verify "${tag}^{commit}" >/dev/null
-            # --diff-filter=DMRT: fail on modified/deleted/renamed/type-changed files,
-            # but allow new files (additions) that didn't exist at the audit tag.
-            git diff --exit-code --stat --diff-filter=DMRT "${tag}" -- src
-
-            # Verify bao-base's src if corresponding submodule exists
-            if [ -d "lib/bao-base-${tag}" ]; then
-              echo "Verifying lib/bao-base-${tag}/src/ against tag: ${tag}"
-              pushd "lib/bao-base-${tag}" >/dev/null
-              git fetch --tags
-              git diff --exit-code --stat --diff-filter=DMRT "${tag}" -- src
-              popd >/dev/null
-            fi
-          done
+        run: lib/bao-base/bin/verify-audit audit-2025-07
 
       - name: Run Bao-base CI actions
         uses: ./lib/bao-base/.github/actions/test-foundry

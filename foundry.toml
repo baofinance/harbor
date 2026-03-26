@@ -25,10 +25,8 @@ remappings = [
   "@solady/=lib/solady/src/",
   # chainlink
   "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
-  # bao audited code
-  "@bao/=lib/bao-base-audit-2025-07/src/",
-  # bao latest
-  "@bao-latest/=lib/bao-base/src/",
+  # bao (audited code verified by CI via bin/verify-audit)
+  "@bao/=lib/bao-base/src/",
   "@bao-test/=lib/bao-base/test/",
   "@bao-script/=lib/bao-base/script/",
   # bao-factory is a transitive dependency via bao-base

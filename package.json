@@ -16,6 +16,7 @@
     "coverage": "./lib/bao-base/run regression-of coverage",
     "wake": "wake detect all",
     "slither": "./lib/bao-base/run slither --filter-paths 'PostRebalanceRemediationForStabilityPool_v2'",
+    "verify-audit": "lib/bao-base/run verify-audit",
     "validate": "./lib/bao-base/run validate",
     "script": "forge script --force --ffi",
     "disabled": "echo 'disabled tests:' && grep -n -e '^\\s*function\\s*test.*(.*).*private' test/**/*.t.sol",

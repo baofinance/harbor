@@ -2,12 +2,6 @@
   "lib/bao-base": {
     "rev": "2016ba72c99dc5a0c2cc46cd3f715160ca8a63d4"
   },
-  "lib/bao-base-audit-2025-07": {
-    "tag": {
-      "name": "audit-2025-07",
-      "rev": "2016ba72c99dc5a0c2cc46cd3f715160ca8a63d4"
-    }
-  },
   "lib/chainlink-brownie-contracts": {
     "rev": "5cb41fbc9b525338b6098da5ea7dd0b7e92f89e4"
   },
