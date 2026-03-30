@@ -10,6 +10,7 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
 
 /// @notice Config interface for stability pool deployment parameters.
 interface IStabilityPoolMarketConfig {
@@ -40,19 +41,12 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         string memory spKey = string.concat(marketKey, "::", spType);
         console.log("    > %s", spKey);
 
-        string memory liqSymbol = keccak256(bytes(spType)) == keccak256("stabilityPoolCollateral")
-            ? MinterMarketConfigLib.collateral(marketConfig)
-            : MinterMarketConfigLib.leveragedSymbol(marketConfig);
+        ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
+        bool isCollateral = keccak256(bytes(spType)) == keccak256("stabilityPoolCollateral");
+        string memory tokenName = isCollateral ? names.spCollateralName() : names.spLeveragedName();
+        string memory tokenSymbol = isCollateral ? names.spCollateralSymbol() : names.spLeveragedSymbol();
 
         IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(address(marketConfig));
-        string memory tokenName = string.concat(
-            "Harbor stability pool: ",
-            MinterMarketConfigLib.peggedSymbol(marketConfig),
-            " (",
-            liqSymbol,
-            ")"
-        );
-        string memory tokenSymbol = string.concat("hsp", MinterMarketConfigLib.peg(marketConfig), "(", liqSymbol, ")");
 
         impl = address(
             new StabilityPool_v3(

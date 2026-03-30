@@ -8,6 +8,7 @@ import {ConfigPriceVolatility_125_stable} from "../volatility/ConfigPriceVolatil
 import {ConfigStabilityPool} from "../stabilitypool/ConfigStabilityPool.sol";
 import {ConfigStabilityPoolManager} from "../stabilitypool/ConfigStabilityPoolManager.sol";
 import {Config_MinterMarket} from "../ConfigBase.sol";
+import {ConfigTokenNames} from "../ConfigTokenNames.sol";
 
 /// @notice Market configuration for BTC::stETH.
 contract ConfigMarket_BTC_stETH_mainnet is
@@ -17,5 +18,6 @@ contract ConfigMarket_BTC_stETH_mainnet is
     ConfigCollateral_stETH_mainnet,
     ConfigPriceVolatility_125_stable,
     ConfigStabilityPool,
-    ConfigStabilityPoolManager
+    ConfigStabilityPoolManager,
+    ConfigTokenNames
 {}

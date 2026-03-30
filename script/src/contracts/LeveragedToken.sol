@@ -8,6 +8,7 @@ import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
 /// @notice Harbor leveraged token deployment logic.
 /// @dev Leveraged tokens are unique per market (e.g., hsFXUSD-BTC for BTC::fxUSD market).
 abstract contract LeveragedToken is HarborFactoryDeployer {
@@ -21,8 +22,8 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
 
         string memory leveragedKey = string.concat(marketKey, "::leveraged");
-        string memory tokenName = MinterMarketConfigLib.leveragedName(marketConfig);
-        string memory tokenSymbol = MinterMarketConfigLib.leveragedSymbol(marketConfig);
+        string memory tokenName = ConfigTokenNames(address(marketConfig)).leveragedName();
+        string memory tokenSymbol = ConfigTokenNames(address(marketConfig)).leveragedSymbol();
 
         console.log("    > %s", leveragedKey);
         console.log("        Name:   %s", tokenName);

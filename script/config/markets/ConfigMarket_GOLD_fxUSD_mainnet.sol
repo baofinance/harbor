@@ -8,6 +8,7 @@ import {ConfigPriceVolatility_115} from "../volatility/ConfigPriceVolatility_115
 import {ConfigStabilityPool} from "../stabilitypool/ConfigStabilityPool.sol";
 import {ConfigStabilityPoolManager} from "../stabilitypool/ConfigStabilityPoolManager.sol";
 import {Config_MinterMarket} from "../ConfigBase.sol";
+import {ConfigTokenNames} from "../ConfigTokenNames.sol";
 
 /// @notice Market configuration for GOLD::fxUSD.
 contract ConfigMarket_GOLD_fxUSD_mainnet is
@@ -17,5 +18,6 @@ contract ConfigMarket_GOLD_fxUSD_mainnet is
     ConfigCollateral_fxUSD_mainnet,
     ConfigPriceVolatility_115,
     ConfigStabilityPool,
-    ConfigStabilityPoolManager
+    ConfigStabilityPoolManager,
+    ConfigTokenNames
 {}

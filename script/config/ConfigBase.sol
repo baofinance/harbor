@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {LibString} from "@solady/utils/LibString.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-
 /// @notice Base contract for all Harbor configuration contracts.
 /// @dev Config contracts provide keys via methods, not string parsing.
 abstract contract ConfigBase {
@@ -34,7 +31,6 @@ abstract contract Config_PriceMarket {}
 /// @notice Library for computing minter market identifiers from configuration.
 /// @dev Used by deployment scripts for salt, token names/symbols, and oracle keys.
 library MinterMarketConfigLib {
-    using LibString for string;
     /// @notice Get the peg identifier from a market config.
     /// @param config The minter market config contract.
     /// @return The peg identifier (e.g., "BTC", "ETH").
@@ -54,26 +50,6 @@ library MinterMarketConfigLib {
     /// @return The salt in "peg::collateral" format (e.g., "BTC::stETH").
     function salt(Config_MinterMarket config) internal view returns (string memory) {
         return string.concat(peg(config), "::", collateral(config));
-    }
-
-    /// @notice Pegged token name (e.g., "Harbor anchored ETH").
-    function peggedName(Config_MinterMarket config) internal view returns (string memory) {
-        return ConfigPeg(address(config)).name();
-    }
-
-    /// @notice Pegged token symbol (e.g., "haETH").
-    function peggedSymbol(Config_MinterMarket config) internal view returns (string memory) {
-        return ConfigPeg(address(config)).symbol();
-    }
-
-    /// @notice Leveraged token name (e.g., "Harbor sail: variable leveraged long stETH against ETH").
-    function leveragedName(Config_MinterMarket config) internal view returns (string memory) {
-        return string.concat("Harbor sail: variable leveraged long ", collateral(config), " against ", peg(config));
-    }
-
-    /// @notice Leveraged token symbol (e.g., "hsSTETH-ETH").
-    function leveragedSymbol(Config_MinterMarket config) internal view returns (string memory) {
-        return string.concat("hs", collateral(config).upper(), "-", peg(config).upper());
     }
 
     /// @notice Computes the price oracle key for a minter market config.
