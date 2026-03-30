@@ -12,9 +12,9 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
 
 /// @title TestStabilityPoolExtra
-/// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool_v2 contract.
+/// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool contract.
 /// It extends the TestStabilityPoolSetUp to include more complex scenarios and edge cases.
-/// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool_v2
+/// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool
 contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
     // Constants for testing
     uint256 constant DEPOSIT_AMOUNT = 100 ether;

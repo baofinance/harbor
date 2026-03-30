@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(2)",
+      "Read(//home/tfras/github/baofinance/harbor/**)"
     ]
   }
 }

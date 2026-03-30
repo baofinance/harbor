@@ -19,15 +19,16 @@ import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
 
 import {SafeBatch} from "script/safe/SafeBatch.s.sol";
 
-// TODO: put this in a file and have everything share it (or break it up or something)
 interface IFullMinterConfig {
     function wrappedCollateralToken() external view returns (address);
 }
 
-/// @notice Deploy StabilityPool v2 implementations and queue upgrade transactions for all minters.
-/// @dev Broadcasts implementation deployments, then queues UUPS upgrade calls as a Safe batch.
-///      Run via: script/run-script Deploy_StabilityPool_v2_mainnet --salt harbor_v1 --network mainnet --broadcast
-contract Deploy_StabilityPool_v2_mainnet is
+/// @notice Deploy StabilityPool_v3 implementations and queue upgrade transactions for all pools.
+/// @dev Prerequisite: Remediate_Accumulators must have been executed first to force-migrate
+///      all users from V1 to V2 accumulator storage.
+///
+/// Run via: script/run-script Deploy_StabilityPool_v3_mainnet --salt harbor_v1 --network mainnet --broadcast
+contract Deploy_StabilityPool_v3_mainnet is
     SafeBatch,
     Deploy_BTC_Minter,
     Deploy_ETH_Minter,
@@ -48,30 +49,29 @@ contract Deploy_StabilityPool_v2_mainnet is
             address implLeveraged = deployStabilityPoolImplementation(
                 StabilityPoolLeveraged,
                 state,
-                marketKey,
+                markets[i],
                 minter,
-                leveragedToken,
-                address(markets[i])
+                leveragedToken
             );
+
             address implCollateral = deployStabilityPoolImplementation(
                 StabilityPoolCollateral,
                 state,
-                marketKey,
+                markets[i],
                 minter,
-                collateralToken,
-                address(markets[i])
+                collateralToken
             );
 
             // Queue Safe upgrade transactions
             queue(
                 _saltString(marketKey, StabilityPoolLeveraged),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implLeveraged, "")),
-                string.concat("upgrade to StabilityPool_v2 ", implLeveraged.toHexString())
+                string.concat("upgrade to StabilityPool_v3 ", implLeveraged.toHexString())
             );
             queue(
                 _saltString(marketKey, StabilityPoolCollateral),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implCollateral, "")),
-                string.concat("upgrade to StabilityPool_v2 ", implCollateral.toHexString())
+                string.concat("upgrade to StabilityPool_v3 ", implCollateral.toHexString())
             );
         }
     }

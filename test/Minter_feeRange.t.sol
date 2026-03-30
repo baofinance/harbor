@@ -838,7 +838,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                     assertNear(
                         post.leveragedPrice,
                         post.minterLeveraged == 0 ? 1e18 : pre.leveragedPrice,
-                        400,
+                        400 * ((1 ether + measurePrice - 1) / measurePrice), // scale abs tolerance with inverse price
                         2000,
                         "rl leveraged price"
                     );

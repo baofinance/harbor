@@ -8,6 +8,8 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 
 /// @notice Config interface for stability pool deployment parameters.
 interface IStabilityPoolMarketConfig {
@@ -17,7 +19,7 @@ interface IStabilityPoolMarketConfig {
     function minTotalSupply() external view returns (uint256);
 }
 
-/// @notice Harbor StabilityPool_v2 deployment logic.
+/// @notice Harbor StabilityPool deployment logic.
 /// @dev Each market has TWO stability pools: Collateral (wrapped collateral) and Leveraged (leveraged token).
 /// @dev Both pools grant: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE to StabilityPoolManager.
 abstract contract StabilityPool is HarborFactoryDeployer {
@@ -30,32 +32,49 @@ abstract contract StabilityPool is HarborFactoryDeployer {
     function deployStabilityPoolImplementation(
         string memory spType,
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
+        Config_MinterMarket marketConfig,
         address minter,
-        address liquidationToken,
-        address configContract
+        address liquidationToken
     ) internal virtual returns (address impl) {
+        string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
         string memory spKey = string.concat(marketKey, "::", spType);
         console.log("    > %s", spKey);
 
-        IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(configContract);
+        string memory liqSymbol = keccak256(bytes(spType)) == keccak256("stabilityPoolCollateral")
+            ? MinterMarketConfigLib.collateral(marketConfig)
+            : MinterMarketConfigLib.leveragedSymbol(marketConfig);
+
+        IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(address(marketConfig));
+        string memory tokenName = string.concat(
+            "Harbor stability pool: ",
+            MinterMarketConfigLib.peggedSymbol(marketConfig),
+            " (",
+            liqSymbol,
+            ")"
+        );
+        string memory tokenSymbol = string.concat("hsp", MinterMarketConfigLib.peg(marketConfig), "(", liqSymbol, ")");
+
         impl = address(
-            new StabilityPool_v2(
+            new StabilityPool_v3(
                 minter,
                 liquidationToken,
                 cfg.stabilityPoolWithdrawalDelay(),
                 cfg.stabilityPoolWithdrawalPeriod(),
-                cfg.minTotalSupply()
+                cfg.minTotalSupply(),
+                tokenName,
+                tokenSymbol
             )
         );
-        console.log("        Impl:  %s", impl);
+        console.log("        Impl:   %s", impl);
+        console.log("          Name:   %s", tokenName);
+        console.log("          Symbol: %s", tokenSymbol);
 
         DeploymentState.recordImplementation(
             stateData,
             DeploymentTypes.ImplementationRecord({
                 proxy: spKey,
-                contractSource: "@harbor/minter/StabilityPool_v2.sol",
-                contractType: "StabilityPool_v2",
+                contractSource: "@harbor/minter/StabilityPool_v3.sol",
+                contractType: "StabilityPool_v3",
                 implementation: impl,
                 deploymentTime: uint64(block.timestamp)
             })
@@ -66,26 +85,19 @@ abstract contract StabilityPool is HarborFactoryDeployer {
     function deployStabilityPool(
         string memory spType,
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
+        Config_MinterMarket marketConfig,
         address minter,
-        address liquidationToken,
-        address configContract
+        address liquidationToken
     ) internal returns (address proxy) {
+        string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
         string memory spKey = string.concat(marketKey, "::", spType);
         console.log("    > %s", spKey);
 
-        address impl = deployStabilityPoolImplementation(
-            spType,
-            stateData,
-            marketKey,
-            minter,
-            liquidationToken,
-            configContract
-        );
+        address impl = deployStabilityPoolImplementation(spType, stateData, marketConfig, minter, liquidationToken);
 
-        IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(configContract);
+        IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(address(marketConfig));
         bytes memory initData = abi.encodeCall(
-            StabilityPool_v2.initialize,
+            StabilityPool_v3.initialize,
             (owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
         );
 

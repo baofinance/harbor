@@ -200,19 +200,17 @@ abstract contract DeployMintersShared is
         deployStabilityPool(
             StabilityPoolCollateral,
             stateData,
-            marketKey,
+            Config_MinterMarket(address(cfg)),
             minter,
-            cfg.wrappedCollateralToken(),
-            address(cfg)
+            cfg.wrappedCollateralToken()
         );
 
         deployStabilityPool(
             StabilityPoolLeveraged,
             stateData,
-            marketKey,
+            Config_MinterMarket(address(cfg)),
             minter,
-            _predictAddress(marketKey, "leveraged"),
-            address(cfg)
+            _predictAddress(marketKey, "leveraged")
         );
     }
 

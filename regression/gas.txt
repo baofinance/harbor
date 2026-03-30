@@ -1,44 +1,44 @@
 script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol:ConfigMarket_BTC_fxUSD_mainnet
 | function name   |       max |
 |-----------------|-----------|
-| collateral      | 5.210e+02 |
-| peg             | 5.230e+02 |
+| collateral      | 4.990e+02 |
+| peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol:ConfigMarket_BTC_stETH_mainnet
 | function name   |       max |
 |-----------------|-----------|
-| collateral      | 5.210e+02 |
-| peg             | 5.230e+02 |
+| collateral      | 4.990e+02 |
+| peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol:ConfigMarket_ETH_fxUSD_mainnet
 | function name   |       max |
 |-----------------|-----------|
-| collateral      | 5.210e+02 |
-| peg             | 5.230e+02 |
+| collateral      | 4.990e+02 |
+| peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol:ConfigMarket_EUR_fxUSD_mainnet
 | function name   |       max |
 |-----------------|-----------|
-| collateral      | 5.210e+02 |
-| peg             | 5.230e+02 |
+| collateral      | 4.990e+02 |
+| peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol:ConfigMarket_EUR_stETH_mainnet
 | function name   |       max |
 |-----------------|-----------|
-| collateral      | 5.210e+02 |
-| peg             | 5.230e+02 |
+| collateral      | 4.990e+02 |
+| peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_GOLD_fxUSD_mainnet.sol:ConfigMarket_GOLD_fxUSD_mainnet
 | function name   |       max |
 |-----------------|-----------|
-| collateral      | 5.210e+02 |
-| peg             | 5.230e+02 |
+| collateral      | 4.990e+02 |
+| peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol:ConfigMarket_GOLD_stETH_mainnet
 | function name   |       max |
 |-----------------|-----------|
-| collateral      | 5.210e+02 |
-| peg             | 5.230e+02 |
+| collateral      | 4.990e+02 |
+| peg             | 5.010e+02 |
 
 src/minter/Genesis_v1.sol:Genesis_v1
 | function name            |       max |
@@ -152,7 +152,7 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | function name              |       max |
 |----------------------------|-----------|
 | feeReceiver                | 2.441e+03 |
-| harvest                    | 4.441e+05 |
+| harvest                    | 4.442e+05 |
 | harvestBountyRatio         | 2.369e+03 |
 | harvestCutRatio            | 2.371e+03 |
 | harvestable                | 3.052e+04 |
@@ -202,7 +202,6 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | function name         |       max |
 |-----------------------|-----------|
 | ASSET_TOKEN           | 3.270e+02 |
-| LIQUIDATION_TOKEN     | 3.280e+02 |
 | REWARD_DEPOSITOR_ROLE | 2.840e+02 |
 | activeRewardTokens    | 7.416e+03 |
 | assetBalanceOf        | 8.049e+03 |
@@ -214,14 +213,22 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | depositReward         | 6.693e+04 |
 | getWithdrawalRequest  | 2.745e+03 |
 | grantRoles            | 2.636e+04 |
-| initialize            | 2.041e+05 |
 | notifyLiquidation     | 1.107e+05 |
-| owner                 | 2.424e+03 |
 | proxiableUUID         | 3.410e+02 |
 | sweep                 | 4.020e+04 |
 | totalAssetSupply      | 2.489e+03 |
-| transferOwnership     | 1.207e+04 |
 | withdraw              | 3.013e+05 |
+
+src/minter/StabilityPool_v3.sol:StabilityPool_v3
+| function name     |       max |
+|-------------------|-----------|
+| ASSET_TOKEN       | 3.490e+02 |
+| LIQUIDATION_TOKEN | 3.500e+02 |
+| grantRoles        | 2.638e+04 |
+| initialize        | 2.041e+05 |
+| owner             | 2.424e+03 |
+| totalAssetSupply  | 2.489e+03 |
+| transferOwnership | 1.207e+04 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |       max |

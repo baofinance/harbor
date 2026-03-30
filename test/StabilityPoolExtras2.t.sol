@@ -10,12 +10,12 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
-import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
 
 /// @title TestStabilityPoolExtra
-/// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool_v2 contract.
+/// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool_v3 contract.
 /// It extends the TestStabilityPoolSetUp to include more complex scenarios and edge cases.
-/// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool_v2
+/// @notice Test contract specifically designed to achieve 100% coverage for StabilityPool_v3
 contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
     address user3;
     address user4;
@@ -217,6 +217,6 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
     function testReinitializeContract() public {
         // Try to initialize again (contract is already initialized)
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        StabilityPool_v2(stabilityPoolCollateral).initialize(owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS);
+        StabilityPool_v3(stabilityPoolCollateral).initialize(owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS);
     }
 }
