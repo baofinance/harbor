@@ -104,7 +104,7 @@ This provides a gas efficient and general pause mechanism for all UUPS upgradeab
 
 ### Reserve pool
 
-Provides discounts for collateral ration beneficial user actions.
+Provides discounts for collateral ratio beneficial user actions.
 The reserve pool is funded by a portion of the fees collected, and can be filled by other mechanisms, e.g. simply transferring the collateral token to it.
 
 ## Anchored haTokens - the pegged tokens

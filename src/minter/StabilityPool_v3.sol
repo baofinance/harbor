@@ -5,32 +5,32 @@ pragma solidity 0.8.30;
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
+import {MultipleRewardCompoundingAccumulator_v3} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IStabilityPool_v3} from "src/interfaces/IStabilityPool_v3.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
 /// @title StabilityPool_v3
-/// @notice Stability pool with rebasing ERC20 interface and cleaned-up accumulator.
-/// `balanceOf` returns the compounded real value (same as `assetBalanceOf`).
-/// `totalSupply` returns `totalAssetSupply`. Transfers checkpoint both parties.
-/// Rebases downward on liquidation events (like stETH). The autocompounding vault
-/// serves as the non-rebasing wrapped version (like wstETH).
+/// @notice Stability pool with rebasing ERC20, selective claim, and reward alias support.
+/// Uses v3 accumulator and distributor which add alias detection and resolution.
+/// @notice This contract hold asset minted as pegged tokens by the Minter contract.
+/// Depositing pegged assets here results in:
+/// * wrapped collateral being deposited here automatically from the minter when wrapped collateral's value increases
+/// In the event of a rebalance, which occurs automatically, when the collateral ratio held by the Minter contract
+/// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
+/// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
 ///
-/// Uses the v3 accumulator which requires all users to have been force-migrated
-/// from the legacy uint192 integral format. No on-demand migration fallback.
-///
-/// @author rootminus0x1
+/// @author rootminus0x1 forked from Aladdin's Fx framework and significantly changed
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 /// @custom:oz-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
@@ -38,10 +38,11 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 contract StabilityPool_v3 is
     Initializable,
     UUPSUpgradeable,
-    MultipleRewardCompoundingAccumulator,
+    MultipleRewardCompoundingAccumulator_v3,
     TokenHolder,
     IStabilityPool,
-    IERC20Metadata
+    IERC20Metadata,
+    IStabilityPool_v3
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
@@ -74,20 +75,6 @@ contract StabilityPool_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LIQUIDATION_TOKEN;
 
-    /// @dev ERC20 name stored as two bytes32 (up to 64 characters)
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bytes32 private immutable _ERC20_NAME_0;
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bytes32 private immutable _ERC20_NAME_1;
-
-    /// @dev ERC20 symbol stored as bytes32 (up to 32 characters)
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bytes32 private immutable _ERC20_SYMBOL;
-
-    /// @dev ERC20 decimals, matching the ASSET_TOKEN
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint8 private immutable _ERC20_DECIMALS;
-
     /// @dev the pool cannot have less than this supply once it has reached that supply
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MIN_TOTAL_ASSET_SUPPLY;
@@ -103,6 +90,20 @@ contract StabilityPool_v3 is
     uint64 public immutable WITHDRAWAL_START_DELAY;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint64 public immutable WITHDRAWAL_END_WINDOW;
+
+    /// @dev ERC20 name stored as two bytes32 (up to 64 characters)
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable _ERC20_NAME_0;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable _ERC20_NAME_1;
+
+    /// @dev ERC20 symbol stored as bytes32 (up to 32 characters)
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable _ERC20_SYMBOL;
+
+    /// @dev ERC20 decimals, matching the ASSET_TOKEN
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint8 private immutable _ERC20_DECIMALS;
 
     /***********
      * Structs *
@@ -159,23 +160,6 @@ contract StabilityPool_v3 is
         FeePayment feePayment;
     }
 
-    /// @custom:storage-location erc7201:bao.storage.StabilityPool_v3
-    struct StabilityPoolERC20AllowancesStorage {
-        /// @dev ERC20 allowances: owner => spender => amount
-        mapping(address => mapping(address => uint256)) allowances;
-    }
-
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool_v3")) - 1)) & ~bytes32(uint256(0xff))'
-    bytes32 private constant _V3_STORAGE = 0xb4346888fe08dd20fe3aa583577b90a0e39bc6ca623364fcc9a4cf38a1ec7f00;
-
-    // internal as it is used in testing
-    function _getERC20Storage() internal pure returns (StabilityPoolERC20AllowancesStorage storage $) {
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            $.slot := _V3_STORAGE
-        }
-    }
-
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _STABILITYPOOL_STORAGE =
         0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
@@ -187,6 +171,30 @@ contract StabilityPool_v3 is
             $.slot := _STABILITYPOOL_STORAGE
         }
     }
+
+    /// @custom:storage-location erc7201:bao.storage.StabilityPool_v3
+    struct StabilityPoolERC20AllowancesStorage {
+        /// @dev ERC20 allowances: owner => spender => amount
+        mapping(address => mapping(address => uint256)) allowances;
+    }
+
+    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool_v3")) - 1)) & ~bytes32(uint256(0xff))'
+    bytes32 private constant _V3_STORAGE = 0xb4346888fe08dd20fe3aa583577b90a0e39bc6ca623364fcc9a4cf38a1ec7f00;
+
+    function _getERC20Storage() internal pure returns (StabilityPoolERC20AllowancesStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            $.slot := _V3_STORAGE
+        }
+    }
+
+    /**********
+     * Errors *
+     **********/
+
+    error TransferExceedsBalance(address from, uint256 amount, uint256 balance);
+    error InsufficientAllowance(address spender, uint256 currentAllowance, uint256 needed);
+    error StringTooLong();
 
     /***************
      * Constructor *
@@ -221,10 +229,6 @@ contract StabilityPool_v3 is
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
-    error TransferExceedsBalance(address from, uint256 amount, uint256 balance);
-    error InsufficientAllowance(address spender, uint256 currentAllowance, uint256 needed);
-    error StringTooLong();
-
     constructor(
         address minter_,
         address liquidationToken_,
@@ -233,9 +237,12 @@ contract StabilityPool_v3 is
         uint256 minTotalAssetSupply,
         string memory name_,
         string memory symbol_
-    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
+    ) MultipleRewardCompoundingAccumulator_v3(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
         _disableInitializers();
+        (_ERC20_NAME_0, _ERC20_NAME_1) = _packString64(name_);
+        (_ERC20_SYMBOL, ) = _packString64(symbol_);
         address asset = IMinter(minter_).PEGGED_TOKEN();
+        _ERC20_DECIMALS = IERC20Metadata(asset).decimals();
         Token.sanityCheckERC20Token(asset);
         // slither-disable-next-line missing-zero-check
         ASSET_TOKEN = asset;
@@ -248,20 +255,15 @@ contract StabilityPool_v3 is
         }
         LIQUIDATION_TOKEN = liquidationToken_;
 
-        (_ERC20_NAME_0, _ERC20_NAME_1) = _packString64(name_);
-        (_ERC20_SYMBOL, ) = _packString64(symbol_);
-        _ERC20_DECIMALS = IERC20Metadata(asset).decimals();
-
-        if (withdrawalEndWindow_ == 0) {
-            revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
-        }
-
         // set these two to the same thing, for public visibility
         // their purpose is the same thing - preventing a complete emptying of a non-empty pool
         MIN_TOTAL_ASSET_SUPPLY = minTotalAssetSupply;
         MIN_DEPOSIT = minTotalAssetSupply;
 
         // set immutable withdrawal window params
+        if (withdrawalStartDelay_ == 0 || withdrawalEndWindow_ == 0) {
+            revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
+        }
         WITHDRAWAL_START_DELAY = uint64(withdrawalStartDelay_);
         WITHDRAWAL_END_WINDOW = uint64(withdrawalEndWindow_);
     }
@@ -333,83 +335,6 @@ contract StabilityPool_v3 is
         startDelay = WITHDRAWAL_START_DELAY;
         endWindow = WITHDRAWAL_END_WINDOW;
     }
-    /***********************
-     * ERC20 View Functions *
-     ***********************/
-
-    /// @notice Returns the ERC20 name of this stability pool token.
-    function name() external view returns (string memory) {
-        return _unpackString64(_ERC20_NAME_0, _ERC20_NAME_1);
-    }
-
-    /// @notice Returns the ERC20 symbol of this stability pool token.
-    function symbol() external view returns (string memory) {
-        return _unpackString64(_ERC20_SYMBOL, bytes32(0));
-    }
-
-    /// @notice Returns the ERC20 decimals, matching the underlying asset token.
-    function decimals() external view returns (uint8) {
-        return _ERC20_DECIMALS;
-    }
-
-    /// @notice Returns the compounded balance of `account` (rebasing ERC20).
-    /// @dev Same as assetBalanceOf. Rebases downward on liquidation events.
-    function balanceOf(address account) external view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.assetBalances[account];
-        return _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
-    }
-
-    /// @notice Returns the total supply of stability pool tokens.
-    function totalSupply() external view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        return $.totalAssetSupply.amount;
-    }
-
-    /// @notice Returns the ERC20 allowance of `spender` for `owner_`.
-    function allowance(address owner_, address spender) external view returns (uint256) {
-        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
-        return $.allowances[owner_][spender];
-    }
-
-    /***************************
-     * ERC20 Mutator Functions *
-     ***************************/
-
-    /// @notice Transfer stability pool tokens to `to`. Checkpoints both parties.
-    function transfer(address to, uint256 amount) external nonReentrant returns (bool) {
-        _transferBalance(_msgSender(), to, amount);
-        return true;
-    }
-
-    /// @notice Transfer stability pool tokens from `from` to `to` using allowance.
-    function transferFrom(address from, address to, uint256 amount) external nonReentrant returns (bool) {
-        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
-        address spender = _msgSender();
-        uint256 currentAllowance = $.allowances[from][spender];
-        if (currentAllowance != type(uint256).max) {
-            if (currentAllowance < amount) {
-                revert InsufficientAllowance(spender, currentAllowance, amount);
-            }
-            unchecked {
-                $.allowances[from][spender] = currentAllowance - amount;
-            }
-        }
-        _transferBalance(from, to, amount);
-        return true;
-    }
-
-    /// @notice Approve `spender` to transfer up to `amount` of the caller's tokens.
-    /// @dev Since balanceOf rebases downward on liquidation, an approval may exceed
-    /// the owner's balance after a loss event. transferFrom transfers up to
-    /// min(allowance, balance). Same behavior as stETH.
-    function approve(address spender, uint256 amount) external returns (bool) {
-        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
-        $.allowances[_msgSender()][spender] = amount;
-        emit Approval(_msgSender(), spender, amount);
-        return true;
-    }
-
     /****************************
      * Public Mutator Functions *
      ****************************/
@@ -429,6 +354,11 @@ contract StabilityPool_v3 is
         assetsDeposited = Token.allOf(sender, ASSET_TOKEN, assetAmount);
         if (assetsDeposited < minAmount) {
             revert DepositAmountLessThanMinimum(assetsDeposited, minAmount);
+        }
+        // although not strictly necessary: it is only needed for the first deposit
+        // we enforce this limit on all deposits because it is a small amount (1$)
+        if (assetsDeposited < MIN_TOTAL_ASSET_SUPPLY) {
+            revert DepositAmountLessThanMinimum(assetsDeposited, MIN_TOTAL_ASSET_SUPPLY);
         }
 
         // Required for ERC20 compatibility - we're actually minting ourselves
@@ -454,9 +384,6 @@ contract StabilityPool_v3 is
         // It should never exceed `type(uint104).max`.
         TokenBalance memory supply = $.totalAssetSupply;
         supply.amount += uint104(assetsDeposited);
-        if (supply.amount < MIN_TOTAL_ASSET_SUPPLY) {
-            revert DepositAmountLessThanMinimum(assetsDeposited, MIN_TOTAL_ASSET_SUPPLY);
-        }
         supply.updatedAt = uint40(block.timestamp);
 
         _recordTotalSupply(supply);
@@ -504,14 +431,6 @@ contract StabilityPool_v3 is
             revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
 
-        // Floor the total supply at the minimum.
-        // assetsWithdrawn is the user's requested amount (or balance if max).
-        // Both assetsWithdrawn and any fee come out of total supply.
-        TokenBalance memory supply = $.totalAssetSupply;
-        if (supply.amount - assetsWithdrawn < MIN_TOTAL_ASSET_SUPPLY) {
-            assetsWithdrawn = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
-        }
-
         // Determine fee policy
         // - If no request: fee applies
         // - If request exists: fee applies outside [start, end]; no fee during window
@@ -521,13 +440,19 @@ contract StabilityPool_v3 is
         // Role-based fee exemption: addresses with EXEMPT_WITHDRAWAL_FEE_ROLE never pay early-withdrawal fees
         bool isExempt = hasAnyRole(sender, EXEMPT_WITHDRAWAL_FEE_ROLE);
         if (!inWindow && !isExempt) {
-            feeAmount = Math.mulDiv(
-                assetsWithdrawn,
-                uint256($.feePayment.earlyWithdrawalFee),
-                1 ether,
-                Math.Rounding.Ceil
-            );
+            feeAmount = (assetsWithdrawn * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
             assetsWithdrawn -= feeAmount;
+        }
+
+        // floor the total supply at the minimum
+        TokenBalance memory supply = $.totalAssetSupply;
+        if (supply.amount - assetsWithdrawn < MIN_TOTAL_ASSET_SUPPLY) {
+            assetsWithdrawn = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
+            // if fee pushed us below min, trim fee as well
+            if (supply.amount - assetsWithdrawn - feeAmount < MIN_TOTAL_ASSET_SUPPLY) {
+                uint256 maxFee = supply.amount - MIN_TOTAL_ASSET_SUPPLY - assetsWithdrawn;
+                if (feeAmount > maxFee) feeAmount = maxFee;
+            }
         }
 
         // Close any existing withdrawal request after successful withdrawal
@@ -567,10 +492,6 @@ contract StabilityPool_v3 is
     function requestWithdrawal() external nonReentrant {
         address sender = _msgSender();
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        // Guard against unconfigured window in implementation (constructor ensures > 0)
-        if (WITHDRAWAL_END_WINDOW == 0) {
-            revert InvalidWithdrawalWindow(WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW);
-        }
         uint64 start = uint64(block.timestamp + WITHDRAWAL_START_DELAY);
         uint64 end = uint64(start + WITHDRAWAL_END_WINDOW);
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
@@ -581,7 +502,7 @@ contract StabilityPool_v3 is
      * Internal Functions *
      **********************/
 
-    /// @inheritdoc MultipleRewardCompoundingAccumulator
+    /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
     // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -601,7 +522,7 @@ contract StabilityPool_v3 is
         }
     }
 
-    /// @inheritdoc MultipleRewardCompoundingAccumulator
+    /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
     function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
@@ -609,7 +530,7 @@ contract StabilityPool_v3 is
         totalShare = supply.amount;
     }
 
-    /// @inheritdoc MultipleRewardCompoundingAccumulator
+    /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
     function _getUserPoolShare(
         address account
     ) internal view virtual override returns (uint128 previousProd, uint256 share) {
@@ -691,11 +612,116 @@ contract StabilityPool_v3 is
         $.totalAssetSupply = supply;
     }
 
-    // ERC20 internal helpers
+    // Rebalancing support
     // -------------------------------------------------------
+    /// @notice function used to control access to the sweep function for extracting harvestable amounts
+    function _checkSweeper() internal view override(TokenHolder) {
+        _checkOwnerOrRoles(REBALANCER_ROLE);
+    }
 
-    /// @dev Transfer compounded balance between two accounts.
-    /// Checkpoints both parties to update rewards at pre-transfer balances, then moves the amount.
+    /// @inheritdoc IStabilityPool
+    // slither-disable-next-line reentrancy-no-eth,reentrancy-benign should only ever called from nonReentrant functions
+    function notifyLiquidation(uint256 liquidated, uint256 returned) external onlyRoles(REBALANCER_ROLE) {
+        // Emit liquidation event to record loss and conversion details
+        emit Liquidated(ASSET_TOKEN, liquidated, LIQUIDATION_TOKEN, returned);
+        // recalculate balances and
+        // make sure rewards in-flight rewards are distributed on the pre-loss balances
+        _checkpoint(address(0));
+
+        // capture the reward, distributed immediately, at the prior-to-loss balances
+        _accumulateReward(LIQUIDATION_TOKEN, returned);
+
+        // update balances due to loss
+        _notifyLoss(liquidated);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ERC20 View Functions
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function name() external view returns (string memory) {
+        return _unpackString64(_ERC20_NAME_0, _ERC20_NAME_1);
+    }
+
+    function symbol() external view returns (string memory) {
+        return _unpackString64(_ERC20_SYMBOL, bytes32(0));
+    }
+
+    function decimals() external view returns (uint8) {
+        return _ERC20_DECIMALS;
+    }
+
+    function balanceOf(address account) external view returns (uint256) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.assetBalances[account];
+        return _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
+    }
+
+    function totalSupply() external view returns (uint256) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        return $.totalAssetSupply.amount;
+    }
+
+    function allowance(address owner_, address spender) external view returns (uint256) {
+        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
+        return $.allowances[owner_][spender];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Selective Claim
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @inheritdoc IStabilityPool_v3
+    function claimSingle(address account, address token) external nonReentrant {
+        _checkpoint(account);
+        _claimSingle(account, token, account);
+    }
+
+    /// @inheritdoc IStabilityPool_v3
+    function claimSingle(address account, address token, address receiver) external nonReentrant {
+        if (account != _msgSender() && receiver != address(0)) {
+            revert ClaimOthersRewardToAnother();
+        }
+        _checkpoint(account);
+        _claimSingle(account, token, receiver);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ERC20 Mutator Functions
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function transfer(address to, uint256 amount) external nonReentrant returns (bool) {
+        _transferBalance(_msgSender(), to, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external nonReentrant returns (bool) {
+        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
+        address spender = _msgSender();
+        uint256 currentAllowance = $.allowances[from][spender];
+        if (currentAllowance != type(uint256).max) {
+            if (currentAllowance < amount) {
+                revert InsufficientAllowance(spender, currentAllowance, amount);
+            }
+            unchecked {
+                $.allowances[from][spender] = currentAllowance - amount;
+            }
+        }
+        _transferBalance(from, to, amount);
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
+        $.allowances[_msgSender()][spender] = amount;
+        emit Approval(_msgSender(), spender, amount);
+        return true;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ERC20 Internal Helpers
+    // ═══════════════════════════════════════════════════════════════════════
+
     function _transferBalance(address from, address to, uint256 amount) internal {
         if (from == address(0) || to == address(0)) {
             revert InvalidReceiver(address(0));
@@ -727,7 +753,6 @@ contract StabilityPool_v3 is
         emit Transfer(from, to, amount);
     }
 
-    /// @dev Pack a string (up to 64 chars) into two bytes32 values.
     function _packString64(string memory s) internal pure returns (bytes32 b0, bytes32 b1) {
         bytes memory b = bytes(s);
         if (b.length > 64) {
@@ -746,15 +771,18 @@ contract StabilityPool_v3 is
         }
     }
 
-    /// @dev Unpack two bytes32 values back to a string, trimming trailing zeros.
     function _unpackString64(bytes32 b0, bytes32 b1) internal pure returns (string memory) {
         uint256 len0;
         for (len0 = 32; len0 > 0; len0--) {
-            if (b0[len0 - 1] != 0) break;
+            if (b0[len0 - 1] != 0) {
+                break;
+            }
         }
         uint256 len1;
         for (len1 = 32; len1 > 0; len1--) {
-            if (b1[len1 - 1] != 0) break;
+            if (b1[len1 - 1] != 0) {
+                break;
+            }
         }
         bytes memory result = new bytes(len0 + len1);
         for (uint256 i = 0; i < len0; i++) {
@@ -764,29 +792,6 @@ contract StabilityPool_v3 is
             result[len0 + i] = b1[i];
         }
         return string(result);
-    }
-
-    // Rebalancing support
-    // -------------------------------------------------------
-    /// @notice function used to control access to the sweep function for extracting harvestable amounts
-    function _checkSweeper() internal view override(TokenHolder) {
-        _checkOwnerOrRoles(REBALANCER_ROLE);
-    }
-
-    /// @inheritdoc IStabilityPool
-    // slither-disable-next-line reentrancy-no-eth,reentrancy-benign should only ever called from nonReentrant functions
-    function notifyLiquidation(uint256 liquidated, uint256 returned) external onlyRoles(REBALANCER_ROLE) {
-        // Emit liquidation event to record loss and conversion details
-        emit Liquidated(ASSET_TOKEN, liquidated, LIQUIDATION_TOKEN, returned);
-        // recalculate balances and
-        // make sure rewards in-flight rewards are distributed on the pre-loss balances
-        _checkpoint(address(0));
-
-        // capture the reward, distributed immediately, at the prior-to-loss balances
-        _accumulateReward(LIQUIDATION_TOKEN, returned);
-
-        // update balances due to loss
-        _notifyLoss(liquidated);
     }
 }
 

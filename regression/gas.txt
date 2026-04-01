@@ -222,7 +222,7 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | function name     |       max |
 |-------------------|-----------|
-| ASSET_TOKEN       | 3.490e+02 |
+| ASSET_TOKEN       | 2.820e+02 |
 | LIQUIDATION_TOKEN | 3.500e+02 |
 | grantRoles        | 2.638e+04 |
 | initialize        | 2.041e+05 |

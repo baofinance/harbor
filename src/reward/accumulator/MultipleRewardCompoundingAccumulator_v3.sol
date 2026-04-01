@@ -10,7 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
+import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -112,9 +112,9 @@ import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMult
 /// @dev The method comes from liquity's StabilityPool, the paper is in
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
 
-abstract contract MultipleRewardCompoundingAccumulator is
+abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ReentrancyGuardTransientUpgradeable,
-    LinearMultipleRewardDistributor,
+    LinearMultipleRewardDistributor_v3,
     IMultipleRewardAccumulator
 {
     using SafeERC20 for IERC20;
@@ -128,6 +128,14 @@ abstract contract MultipleRewardCompoundingAccumulator is
     uint256 internal constant _REWARD_PRECISION = 1e18;
 
     /// @dev Compiler will pack this into single `uint256`.
+    struct RewardSnapshot {
+        // The timestamp when the snapshot is updated.
+        uint64 timestamp;
+        // The reward integral until now.
+        uint192 integral;
+    }
+
+    /// @dev Compiler will pack this into single `uint256`.
     struct ClaimData {
         // The number of pending rewards.
         uint128 pending;
@@ -135,13 +143,21 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint128 claimed;
     }
 
-    /// @dev User reward snapshot. Occupies 3 slots.
+    /// @dev Compiler will pack this into two `uint256`.
+    struct UserRewardSnapshot {
+        // The claim data for the user.
+        ClaimData rewards;
+        // The reward snapshot for user.
+        RewardSnapshot checkpoint;
+    }
+
+    /// @dev V2: widened integral from uint192 to uint256. Occupies 3 slots.
     struct UserRewardSnapshotV2 {
         // The claim data for the user.
         ClaimData rewards;
-        // The timestamp when the snapshot is updated.
+        // The timestamp when the snapshot is updated. Non-zero indicates V2 data is populated.
         uint64 timestamp;
-        // The reward integral until now.
+        // The reward integral until now (widened from uint192).
         uint256 integral;
     }
 
@@ -159,10 +175,12 @@ abstract contract MultipleRewardCompoundingAccumulator is
         ///
         /// @dev The integral is defined as 1e18 * ∫(rate(t) * prod(t) / totalPoolShare(t) dt).
         mapping(address => mapping(uint8 => uint256)) tokenToExponentToIntegral;
-        /// @dev V1 mapping slot. No longer read after force migration. Kept for storage layout.
-        mapping(address => mapping(address => bytes)) legacyUserRewardSnapshot;
-        /// @notice Mapping from user address to reward token address to user reward snapshot.
-        mapping(address => mapping(address => UserRewardSnapshotV2)) userRewardSnapshot;
+        /// @notice V1: Mapping from user address to reward token address to user reward snapshot.
+        /// @dev Kept for migration fallback. New data is written to userRewardSnapshotV2.
+        mapping(address => mapping(address => UserRewardSnapshot)) userRewardSnapshot;
+        /// @notice V2: Mapping from user address to reward token address to user reward snapshot.
+        /// @dev Uses widened uint256 integral. All new writes go here.
+        mapping(address => mapping(address => UserRewardSnapshotV2)) userRewardSnapshotV2;
     }
 
     // slither-disable-next-line dead-code
@@ -171,15 +189,37 @@ abstract contract MultipleRewardCompoundingAccumulator is
         globalIntegral = $.tokenToExponentToIntegral[token][exponent];
     }
 
+    /// @dev Returns the full user reward snapshot with V2-first migration detection.
+    /// Centralises all migration logic in one place so callers don't need to know about V1/V2.
+    /// Fast path (migrated, integral > 0): 3 SLOADs from V2.
+    /// Rare path (migrated, integral = 0): 3 SLOADs from V2.
+    /// Fallback (unmigrated): 2 SLOADs from V1.
     function _getUserRewardSnapshot(
         address account,
         address token
     ) internal view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        UserRewardSnapshotV2 storage v2 = $.userRewardSnapshot[account][token];
-        return (v2.timestamp, v2.integral, v2.rewards.pending, v2.rewards.claimed);
+
+        // Fast path: check V2 integral (1 SLOAD)
+        uint256 v2Integral = $.userRewardSnapshotV2[account][token].integral;
+        if (v2Integral != 0) {
+            UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
+            return (v2.timestamp, v2Integral, v2.rewards.pending, v2.rewards.claimed);
+        }
+
+        // Rare path: V2 integral is 0 — check if V2 is populated via timestamp (2 SLOADs)
+        uint64 v2Timestamp = $.userRewardSnapshotV2[account][token].timestamp;
+        if (v2Timestamp != 0) {
+            UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
+            return (v2Timestamp, 0, v2.rewards.pending, v2.rewards.claimed);
+        }
+
+        // Not migrated: fall back to V1 (2 SLOADs from different mapping)
+        UserRewardSnapshot storage v1 = $.userRewardSnapshot[account][token];
+        return (v1.checkpoint.timestamp, uint256(v1.checkpoint.integral), v1.rewards.pending, v1.rewards.claimed);
     }
 
+    /// @dev Writes the user reward snapshot to V2 storage. Always writes to V2.
     function _setUserRewardSnapshot(
         address account,
         address token,
@@ -189,7 +229,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint128 claimed_
     ) internal {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        UserRewardSnapshotV2 storage v2 = $.userRewardSnapshot[account][token];
+        UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
         v2.rewards.pending = pending;
         v2.rewards.claimed = claimed_;
         v2.timestamp = timestamp;
@@ -231,7 +271,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint256 rewardManagerRole,
         uint256 rewardDepositorRole,
         uint40 periodLength
-    ) LinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, periodLength) {}
+    ) LinearMultipleRewardDistributor_v3(rewardManagerRole, rewardDepositorRole, periodLength) {}
 
     /*************************
      * Public View Functions *
@@ -488,14 +528,14 @@ abstract contract MultipleRewardCompoundingAccumulator is
         if (amount > 0) {
             _setUserRewardSnapshot(account, token, ts, integral, 0, claimed_ + pending);
 
-            IERC20(token).safeTransfer(receiver, amount);
+            IERC20(_resolveUnderlying(token)).safeTransfer(receiver, amount);
 
             emit Claim(account, token, receiver, amount);
         }
         return amount;
     }
 
-    /// @inheritdoc LinearMultipleRewardDistributor
+    /// @inheritdoc LinearMultipleRewardDistributor_v3
     function _accumulateReward(address token, uint256 amount) internal virtual override {
         // slither-disable-next-line incorrect-equality
         if (amount == 0) {
@@ -503,6 +543,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         }
 
         (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
+
         if (totalShare == 0) {
             // no deposits, queue rewards
             _getRewardData(token).queued += uint96(amount);
@@ -510,10 +551,13 @@ abstract contract MultipleRewardCompoundingAccumulator is
         }
 
         uint8 exponent = currentProd.exponent();
+        uint256 magnitude = uint256(currentProd.magnitude());
 
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         uint256 integral = $.tokenToExponentToIntegral[token][exponent];
-        integral += Math.mulDiv(amount * _REWARD_PRECISION, uint256(currentProd.magnitude()), totalShare);
+
+        uint256 toAdd = Math.mulDiv(amount * _REWARD_PRECISION, magnitude, totalShare);
+        integral += toAdd;
 
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }

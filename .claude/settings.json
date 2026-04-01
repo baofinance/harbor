@@ -5,7 +5,10 @@
       "Bash(git log:*)",
       "Bash(2)",
       "Read(//home/tfras/github/baofinance/harbor/**)",
-      "Bash(find /home/tfras/github/baofinance/harbor/doc -type f \\\\\\(-name *.md -o -name *.txt \\\\\\) ! -path */.venv/* ! -path */node_modules/* ! -path */lib/*)"
+      "Bash(find /home/tfras/github/baofinance/harbor/doc -type f \\\\\\(-name *.md -o -name *.txt \\\\\\) ! -path */.venv/* ! -path */node_modules/* ! -path */lib/*)",
+      "Read(//home/tfras/github/baofinance/harbor-yield.wip-hytoken/**)",
+      "Bash(ls -la /home/tfras/github/baofinance/harbor-yield.wip-hytoken/*.md)",
+      "Bash(forge coverage:*)"
     ]
   }
 }

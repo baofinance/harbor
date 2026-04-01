@@ -8,6 +8,7 @@ import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistribu
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {IStabilityPool_v3} from "src/interfaces/IStabilityPool_v3.sol";
 import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
 
 contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
@@ -617,5 +618,85 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
             1e4,
             "User claimable after full liquidation: %s"
         );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // claimSingle tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function testClaimSingle_claimsOnlySpecifiedToken() public {
+        _depositForUsers();
+        _depositRewardAndWait(address(rewardToken1), 100 ether);
+        _depositRewardAndWait(address(rewardToken2), 200 ether);
+
+        uint256 claimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1));
+        uint256 claimable2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken2));
+        assertGt(claimable1, 0, "should have claimable rewardToken1");
+        assertGt(claimable2, 0, "should have claimable rewardToken2");
+
+        // Claim only rewardToken1
+        uint256 bal1Before = rewardToken1.balanceOf(user1);
+        uint256 bal2Before = rewardToken2.balanceOf(user1);
+        vm.prank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(user1, address(rewardToken1));
+
+        // rewardToken1 claimed
+        assertEq(rewardToken1.balanceOf(user1) - bal1Before, claimable1, "rewardToken1 claimed");
+        // rewardToken2 NOT claimed
+        assertEq(rewardToken2.balanceOf(user1), bal2Before, "rewardToken2 untouched");
+
+        // rewardToken2 still claimable
+        assertGt(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken2)),
+            0,
+            "rewardToken2 still claimable"
+        );
+    }
+
+    function testClaimSingle_withReceiver() public {
+        _depositForUsers();
+        _depositRewardAndWait(address(rewardToken1), 100 ether);
+
+        uint256 claimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1));
+        address receiver = makeAddr("receiver");
+
+        vm.prank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(user1, address(rewardToken1), receiver);
+
+        assertEq(rewardToken1.balanceOf(receiver), claimable1, "receiver got tokens");
+        assertEq(rewardToken1.balanceOf(user1), 0, "user1 got nothing");
+    }
+
+    function testClaimSingle_forOtherUser() public {
+        _depositForUsers();
+        _depositRewardAndWait(address(rewardToken1), 100 ether);
+
+        uint256 claimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken1));
+
+        // Anyone can trigger claim for user1 — tokens go to user1
+        vm.prank(user2);
+        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(user1, address(rewardToken1));
+
+        assertEq(rewardToken1.balanceOf(user1), claimable1, "user1 received tokens");
+    }
+
+    function testClaimSingle_cannotRedirectOthersReward() public {
+        _depositForUsers();
+        _depositRewardAndWait(address(rewardToken1), 100 ether);
+
+        address receiver = makeAddr("receiver");
+
+        // user2 cannot redirect user1's rewards to receiver
+        vm.prank(user2);
+        vm.expectRevert(IMultipleRewardAccumulator.ClaimOthersRewardToAnother.selector);
+        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(user1, address(rewardToken1), receiver);
+    }
+
+    function testClaimSingle_zeroClaimable() public {
+        _depositForUsers();
+        // No rewards deposited — claimSingle should not revert
+        vm.prank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(user1, address(rewardToken1));
+        assertEq(rewardToken1.balanceOf(user1), 0, "nothing claimed");
     }
 }

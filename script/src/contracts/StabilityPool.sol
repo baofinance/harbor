@@ -7,7 +7,7 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
-import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
@@ -104,7 +104,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         address stabilityPoolProxy,
         address stabilityPoolManager
     ) internal {
-        StabilityPool_v2 pool = StabilityPool_v2(stabilityPoolProxy);
+        StabilityPool_v3 pool = StabilityPool_v3(stabilityPoolProxy);
         uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
         _grantRoles(
             stabilityPoolKey,
