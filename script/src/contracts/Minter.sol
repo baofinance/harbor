@@ -8,12 +8,12 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
-import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
+import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
 import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-/// @notice Harbor Minter_v2 deployment logic (including ReservePool and FeeReceiver).
+/// @notice Harbor Minter_v3 deployment logic (including ReservePool and FeeReceiver).
 /// @dev File Organization Pattern (see deployment2-design.md Section 3.3.2):
 /// @dev - This file: contract-specific deployment for Minter, ReservePool, MinterFeeReceiver
 /// @dev - Uses DeploymentOwnership pattern: register deployed contracts, transfer at end
@@ -35,15 +35,15 @@ abstract contract Minter is HarborFactoryDeployer {
         minterKey = string.concat(marketKey, "::minter");
         console.log("    > %s", minterKey);
 
-        impl = address(new Minter_v2(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
+        impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
         console.log("        Impl:  %s", impl);
 
         DeploymentState.recordImplementation(
             stateData,
             DeploymentTypes.ImplementationRecord({
                 proxy: minterKey,
-                contractSource: "@harbor/minter/Minter_v2.sol",
-                contractType: "Minter_v2",
+                contractSource: "@harbor/minter/Minter_v3.sol",
+                contractType: "Minter_v3",
                 implementation: impl,
                 deploymentTime: uint64(block.timestamp)
             })
@@ -66,7 +66,7 @@ abstract contract Minter is HarborFactoryDeployer {
             leveragedToken
         );
 
-        bytes memory initData = abi.encodeCall(Minter_v2.initialize, (owner()));
+        bytes memory initData = abi.encodeCall(Minter_v3.initialize, (owner()));
 
         proxy = _deployProxyViaStubAndRecord(stateData, minterKey, impl, initData);
     }
@@ -79,11 +79,10 @@ abstract contract Minter is HarborFactoryDeployer {
         address priceOracle,
         address reservePool
     ) internal {
-        Minter_v2 minter = Minter_v2(minterProxy);
-        minter.updateConfig(config);
-        minter.updateFeeReceiver(feeReceiver);
-        minter.updatePriceOracle(priceOracle);
-        minter.updateReservePool(reservePool);
+        IMinter(minterProxy).updateConfig(config);
+        IMinter(minterProxy).updateFeeReceiver(feeReceiver);
+        IMinter(minterProxy).updatePriceOracle(priceOracle);
+        IMinter(minterProxy).updateReservePool(reservePool);
     }
 
     /// @notice Grant Minter roles to downstream contracts.
@@ -93,16 +92,15 @@ abstract contract Minter is HarborFactoryDeployer {
         address stabilityPoolManager,
         address genesis
     ) internal {
-        Minter_v2 minter = Minter_v2(minterProxy);
         _grantRoles(
             minterKey,
             minterProxy,
             stabilityPoolManager,
             "stabilityPoolManager",
-            minter.HARVESTER_ROLE() | minter.ZERO_FEE_ROLE(),
+            IMinter(minterProxy).HARVESTER_ROLE() | IMinter(minterProxy).ZERO_FEE_ROLE(),
             "HARVESTER | ZERO_FEE"
         );
-        _grantRoles(minterKey, minterProxy, genesis, "genesis", minter.ZERO_FEE_ROLE(), "ZERO_FEE");
+        _grantRoles(minterKey, minterProxy, genesis, "genesis", IMinter(minterProxy).ZERO_FEE_ROLE(), "ZERO_FEE");
     }
 
     // ========== RESERVE POOL DEPLOYMENT ==========
