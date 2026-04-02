@@ -1,26 +1,93 @@
 script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol:ConfigMarket_BTC_fxUSD_mainnet
-| function name   |       max |
-|-----------------|-----------|
-| collateral      | 4.990e+02 |
-| peg             | 5.010e+02 |
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| getWellKnownAddresses                | 3.698e+03 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 6.807e+03 |
+| minTotalSupply                       | 2.810e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.085e+03 |
+| spCollateralSymbol                   | 8.061e+03 |
+| spLeveragedName                      | 1.070e+04 |
+| spLeveragedSymbol                    | 1.074e+04 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
 
 script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol:ConfigMarket_BTC_stETH_mainnet
-| function name   |       max |
-|-----------------|-----------|
-| collateral      | 4.990e+02 |
-| peg             | 5.010e+02 |
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 6.807e+03 |
+| minTotalSupply                       | 2.810e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.085e+03 |
+| spCollateralSymbol                   | 8.061e+03 |
+| spLeveragedName                      | 1.070e+04 |
+| spLeveragedSymbol                    | 1.074e+04 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
 
 script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol:ConfigMarket_ETH_fxUSD_mainnet
-| function name   |       max |
-|-----------------|-----------|
-| collateral      | 4.990e+02 |
-| peg             | 5.010e+02 |
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| getWellKnownAddresses                | 3.698e+03 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 6.807e+03 |
+| minTotalSupply                       | 2.810e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.085e+03 |
+| spCollateralSymbol                   | 8.061e+03 |
+| spLeveragedName                      | 1.070e+04 |
+| spLeveragedSymbol                    | 1.074e+04 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
 
 script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol:ConfigMarket_EUR_fxUSD_mainnet
-| function name   |       max |
-|-----------------|-----------|
-| collateral      | 4.990e+02 |
-| peg             | 5.010e+02 |
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| getWellKnownAddresses                | 3.698e+03 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 6.807e+03 |
+| minTotalSupply                       | 2.700e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.085e+03 |
+| spCollateralSymbol                   | 8.061e+03 |
+| spLeveragedName                      | 1.070e+04 |
+| spLeveragedSymbol                    | 1.074e+04 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
 
 script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol:ConfigMarket_EUR_stETH_mainnet
 | function name   |       max |
@@ -29,10 +96,27 @@ script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol:ConfigMarket_EUR_stETH_
 | peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_GOLD_fxUSD_mainnet.sol:ConfigMarket_GOLD_fxUSD_mainnet
-| function name   |       max |
-|-----------------|-----------|
-| collateral      | 4.990e+02 |
-| peg             | 5.010e+02 |
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| getWellKnownAddresses                | 3.698e+03 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 6.893e+03 |
+| minTotalSupply                       | 2.810e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.171e+03 |
+| spCollateralSymbol                   | 8.144e+03 |
+| spLeveragedName                      | 1.087e+04 |
+| spLeveragedSymbol                    | 1.090e+04 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
 
 script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol:ConfigMarket_GOLD_stETH_mainnet
 | function name   |       max |
@@ -40,23 +124,113 @@ script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol:ConfigMarket_GOLD_stET
 | collateral      | 4.990e+02 |
 | peg             | 5.010e+02 |
 
+script/config/markets/ConfigMarket_SILVER_fxUSD_mainnet.sol:ConfigMarket_SILVER_fxUSD_mainnet
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| getWellKnownAddresses                | 3.698e+03 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 7.059e+03 |
+| minTotalSupply                       | 2.810e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.337e+03 |
+| spCollateralSymbol                   | 8.310e+03 |
+| spLeveragedName                      | 1.120e+04 |
+| spLeveragedSymbol                    | 1.124e+04 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
+
+script/config/markets/ConfigMarket_SILVER_stETH_mainnet.sol:ConfigMarket_SILVER_stETH_mainnet
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| getWellKnownAddresses                | 3.698e+03 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 7.059e+03 |
+| minTotalSupply                       | 2.810e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.337e+03 |
+| spCollateralSymbol                   | 8.310e+03 |
+| spLeveragedName                      | 1.120e+04 |
+| spLeveragedSymbol                    | 1.124e+04 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
+
+script/config/pegs/ConfigPeg_BTC.sol:ConfigPeg_BTC
+| function name   |       max |
+|-----------------|-----------|
+| key             | 4.270e+02 |
+| name            | 6.300e+02 |
+| peg             | 4.340e+02 |
+| symbol          | 1.155e+03 |
+
+script/config/pegs/ConfigPeg_ETH.sol:ConfigPeg_ETH
+| function name   |       max |
+|-----------------|-----------|
+| key             | 4.270e+02 |
+| name            | 6.300e+02 |
+| peg             | 4.340e+02 |
+| symbol          | 1.155e+03 |
+
+script/config/pegs/ConfigPeg_EUR.sol:ConfigPeg_EUR
+| function name   |       max |
+|-----------------|-----------|
+| key             | 4.270e+02 |
+| name            | 6.300e+02 |
+| peg             | 4.340e+02 |
+| symbol          | 1.155e+03 |
+
+script/config/pegs/ConfigPeg_GOLD.sol:ConfigPeg_GOLD
+| function name   |       max |
+|-----------------|-----------|
+| key             | 4.270e+02 |
+| name            | 6.300e+02 |
+| peg             | 4.340e+02 |
+| symbol          | 1.238e+03 |
+
+script/config/pegs/ConfigPeg_SILVER.sol:ConfigPeg_SILVER
+| function name   |       max |
+|-----------------|-----------|
+| key             | 4.270e+02 |
+| name            | 6.300e+02 |
+| peg             | 4.340e+02 |
+| symbol          | 1.404e+03 |
+
 src/minter/Genesis_v1.sol:Genesis_v1
-| function name            |       max |
-|--------------------------|-----------|
-| LEVERAGED_TOKEN          | 2.820e+02 |
-| MINTER                   | 3.030e+02 |
-| PEGGED_TOKEN             | 2.830e+02 |
-| WRAPPED_COLLATERAL_TOKEN | 2.820e+02 |
-| balanceOf                | 2.591e+03 |
-| claim                    | 8.751e+04 |
-| claimable                | 1.161e+04 |
-| deposit                  | 6.747e+04 |
-| endGenesis               | 3.490e+05 |
-| genesisIsEnded           | 2.349e+03 |
-| initialize               | 7.146e+04 |
-| owner                    | 2.401e+03 |
-| transferOwnership        | 1.202e+04 |
-| withdraw                 | 4.335e+04 |
+| function name             |       max |
+|---------------------------|-----------|
+| LEVERAGED_TOKEN           | 2.820e+02 |
+| MINTER                    | 3.030e+02 |
+| PEGGED_TOKEN              | 2.830e+02 |
+| STABILITY_POOL_COLLATERAL | 3.040e+02 |
+| STABILITY_POOL_LEVERAGED  | 2.610e+02 |
+| UPGRADE_INTERFACE_VERSION | 4.360e+02 |
+| WRAPPED_COLLATERAL_TOKEN  | 2.820e+02 |
+| balanceOf                 | 2.591e+03 |
+| claim                     | 8.751e+04 |
+| claimable                 | 1.161e+04 |
+| deposit                   | 6.747e+04 |
+| endGenesis                | 3.490e+05 |
+| genesisIsEnded            | 2.349e+03 |
+| initialize                | 7.146e+04 |
+| owner                     | 2.401e+03 |
+| proxiableUUID             | 3.300e+02 |
+| transferOwnership         | 1.202e+04 |
+| withdraw                  | 4.335e+04 |
 
 src/minter/Minter_v1.sol:Minter_v1
 | function name            |       max |
@@ -111,7 +285,7 @@ src/minter/Minter_v2.sol:Minter_v2
 | mintLeveragedTokenDryRun           | 7.337e+04 |
 | mintLeveragedTokenIncentiveRatio   | 3.108e+04 |
 | mintPeggedToken                    | 1.909e+05 |
-| mintPeggedTokenDryRun              | 6.337e+04 |
+| mintPeggedTokenDryRun              | 6.335e+04 |
 | mintPeggedTokenIncentiveRatio      | 3.012e+04 |
 | owner                              | 2.380e+03 |
 | peggedTokenBalance                 | 2.409e+03 |
@@ -135,24 +309,64 @@ src/minter/Minter_v2.sol:Minter_v2
 | updatePriceOracle                  | 2.636e+04 |
 | updateReservePool                  | 2.631e+04 |
 
+src/minter/Minter_v3.sol:Minter_v3
+| function name                  |       max |
+|--------------------------------|-----------|
+| HARVESTER_ROLE                 | 2.830e+02 |
+| LEVERAGED_TOKEN                | 2.830e+02 |
+| PEGGED_TOKEN                   | 3.050e+02 |
+| UPGRADE_INTERFACE_VERSION      | 4.590e+02 |
+| WRAPPED_COLLATERAL_TOKEN       | 2.830e+02 |
+| ZERO_FEE_ROLE                  | 2.850e+02 |
+| collateralRatio                | 1.912e+04 |
+| config                         | 7.187e+04 |
+| feeReceiver                    | 2.442e+03 |
+| freeMintLeveragedToken         | 1.150e+05 |
+| freeMintPeggedToken            | 1.674e+05 |
+| freeRedeemPeggedToken          | 1.346e+05 |
+| grantRoles                     | 2.633e+04 |
+| harvestable                    | 2.981e+04 |
+| initialize                     | 1.844e+05 |
+| owner                          | 2.402e+03 |
+| peggedTokenPrice               | 2.449e+03 |
+| proxiableUUID                  | 3.530e+02 |
+| redeemPeggedForCollateralRatio | 3.107e+03 |
+| reservePool                    | 2.411e+03 |
+| rolesOf                        | 2.609e+03 |
+| sweep                          | 3.645e+04 |
+| transferOwnership              | 1.207e+04 |
+| updateConfig                   | 2.740e+05 |
+| updateFeeReceiver              | 2.635e+04 |
+| updatePriceOracle              | 2.636e+04 |
+| updateReservePool              | 2.631e+04 |
+
 src/minter/ReservePool_v1.sol:ReservePool_v1
-| function name     |       max |
-|-------------------|-----------|
-| REQUESTER_ROLE    | 2.390e+02 |
-| grantRoles        | 2.633e+04 |
-| hasAnyRole        | 2.569e+03 |
-| initialize        | 7.031e+04 |
-| owner             | 2.389e+03 |
-| requestBonus      | 3.934e+04 |
-| supportsInterface | 8.420e+02 |
-| sweep             | 2.642e+03 |
-| transferOwnership | 1.204e+04 |
+| function name             |       max |
+|---------------------------|-----------|
+| REQUESTER_ROLE            | 2.390e+02 |
+| UPGRADE_INTERFACE_VERSION | 4.130e+02 |
+| grantRoles                | 2.633e+04 |
+| hasAnyRole                | 2.569e+03 |
+| initialize                | 7.031e+04 |
+| owner                     | 2.389e+03 |
+| proxiableUUID             | 2.860e+02 |
+| requestBonus              | 3.934e+04 |
+| rolesOf                   | 2.542e+03 |
+| supportsInterface         | 8.420e+02 |
+| sweep                     | 2.642e+03 |
+| transferOwnership         | 1.204e+04 |
 
 src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | function name              |       max |
 |----------------------------|-----------|
+| LEVERAGED_TOKEN            | 3.050e+02 |
+| MINTER                     | 3.250e+02 |
+| PEGGED_TOKEN               | 2.610e+02 |
+| TREASURY                   | 2.830e+02 |
+| UPGRADE_INTERFACE_VERSION  | 4.800e+02 |
+| WRAPPED_COLLATERAL_TOKEN   | 3.040e+02 |
 | feeReceiver                | 2.441e+03 |
-| harvest                    | 4.442e+05 |
+| harvest                    | 4.488e+05 |
 | harvestBountyRatio         | 2.369e+03 |
 | harvestCutRatio            | 2.371e+03 |
 | harvestable                | 3.052e+04 |
@@ -164,6 +378,7 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | rebalanceBountyRatio       | 2.354e+03 |
 | rebalanceThreshold         | 2.347e+03 |
 | rebalanceable              | 2.926e+04 |
+| rolesOf                    | 2.598e+03 |
 | stabilityPools             | 9.030e+02 |
 | supportsInterface          | 5.690e+02 |
 | transferOwnership          | 1.204e+04 |
@@ -220,15 +435,48 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | withdraw              | 3.013e+05 |
 
 src/minter/StabilityPool_v3.sol:StabilityPool_v3
-| function name     |       max |
-|-------------------|-----------|
-| ASSET_TOKEN       | 2.820e+02 |
-| LIQUIDATION_TOKEN | 3.500e+02 |
-| grantRoles        | 2.638e+04 |
-| initialize        | 2.041e+05 |
-| owner             | 2.424e+03 |
-| totalAssetSupply  | 2.489e+03 |
-| transferOwnership | 1.207e+04 |
+| function name              |       max |
+|----------------------------|-----------|
+| ASSET_TOKEN                | 2.820e+02 |
+| EXEMPT_WITHDRAWAL_FEE_ROLE | 2.860e+02 |
+| LIQUIDATION_TOKEN          | 3.500e+02 |
+| MIN_DEPOSIT                | 3.270e+02 |
+| MIN_TOTAL_ASSET_SUPPLY     | 2.620e+02 |
+| REBALANCER_ROLE            | 2.840e+02 |
+| REWARD_DEPOSITOR_ROLE      | 2.840e+02 |
+| REWARD_MANAGER_ROLE        | 3.050e+02 |
+| REWARD_PERIOD_LENGTH       | 2.710e+02 |
+| UPGRADE_INTERFACE_VERSION  | 4.800e+02 |
+| WITHDRAWAL_END_WINDOW      | 3.150e+02 |
+| WITHDRAWAL_START_DELAY     | 2.930e+02 |
+| activeRewardTokens         | 1.195e+04 |
+| assetBalanceOf             | 8.043e+03 |
+| claim                      | 2.762e+05 |
+| claimSingle                | 1.987e+05 |
+| claimable                  | 5.993e+04 |
+| deposit                    | 4.061e+05 |
+| depositReward              | 8.041e+04 |
+| getEarlyWithdrawalFee      | 2.395e+03 |
+| getFeeAddress              | 2.398e+03 |
+| getWithdrawalRequest       | 2.739e+03 |
+| getWithdrawalWindow        | 3.530e+02 |
+| grantRoles                 | 2.637e+04 |
+| historicalRewardTokens     | 2.877e+03 |
+| initialize                 | 2.041e+05 |
+| isActiveRewardToken        | 2.760e+03 |
+| lastAssetLossError         | 2.379e+03 |
+| name                       | 1.563e+04 |
+| notifyLiquidation          | 1.198e+05 |
+| owner                      | 2.424e+03 |
+| proxiableUUID              | 3.310e+02 |
+| registerRewardToken        | 1.704e+05 |
+| requestWithdrawal          | 2.503e+04 |
+| rolesOf                    | 2.604e+03 |
+| sweep                      | 3.605e+04 |
+| symbol                     | 1.584e+04 |
+| totalAssetSupply           | 2.489e+03 |
+| transferOwnership          | 1.206e+04 |
+| withdraw                   | 2.275e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |       max |
@@ -250,6 +498,14 @@ src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | sweep                | 4.108e+04 |
 | tokens               | 7.448e+03 |
 | transferOwnership    | 1.200e+04 |
+
+src/reward/RewardAlias.sol:RewardAlias
+| function name     |       max |
+|-------------------|-----------|
+| initialize        | 7.040e+04 |
+| owner             | 2.371e+03 |
+| transferOwnership | 1.202e+04 |
+| underlying        | 2.150e+02 |
 
 test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockMultipleRewardCompoundingAccumulator
 | function name             |       max |
