@@ -5,14 +5,13 @@ import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMinter_v3} from "src/interfaces/IMinter_v3.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
-
 
 /// @title MinterCappedMintTest
 /// @notice Tests for Minter_v3 fee-capped minting, deployed via production deployment scripts.
@@ -89,8 +88,7 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         deal(wrappedCollateral, alice, collateralIn);
 
         // Dry run
-        (,, uint256 dryCollUsed, uint256 dryPegged,,) =
-            IMinter(minter).mintPeggedTokenDryRun(collateralIn);
+        (, , uint256 dryCollUsed, uint256 dryPegged, , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
 
         // Actual mint
         vm.startPrank(alice);
@@ -116,14 +114,16 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         deal(wrappedCollateral, alice, collateralIn);
 
         // Get current fee ratio
-        (int256 incentiveRatio,,,,,) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
+        (int256 incentiveRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
 
         // Set cap well above current fee
         uint256 maxFeeRatio = uint256(incentiveRatio) * 2;
 
         // Capped dry run
-        (,, uint256 dryCollUsed, uint256 dryPegged,,) =
-            IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, maxFeeRatio);
+        (, , uint256 dryCollUsed, uint256 dryPegged, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            collateralIn,
+            maxFeeRatio
+        );
 
         // Actual capped mint
         vm.startPrank(alice);
@@ -172,16 +172,19 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         deal(wrappedCollateral, alice, collateralIn);
 
         // Get uncapped result
-        (,, uint256 uncappedCollUsed, uint256 uncappedPegged,,) =
-            IMinter(minter).mintPeggedTokenDryRun(collateralIn);
+        (, , uint256 uncappedCollUsed, uint256 uncappedPegged, , ) = IMinter(minter).mintPeggedTokenDryRun(
+            collateralIn
+        );
 
         // Set cap to half the uncapped fee ratio — should produce a partial mint
-        (int256 incentiveRatio,,,,,) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
+        (int256 incentiveRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
         uint256 maxFeeRatio = uint256(incentiveRatio) / 2;
 
         // Capped dry run
-        (,, uint256 dryCollUsed, uint256 dryPegged,,) =
-            IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, maxFeeRatio);
+        (, , uint256 dryCollUsed, uint256 dryPegged, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            collateralIn,
+            maxFeeRatio
+        );
 
         // Actual capped mint
         vm.startPrank(alice);
@@ -219,8 +222,10 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         deal(wrappedCollateral, alice, collateralIn);
 
         // Capped dry run
-        (,, uint256 dryCollUsed, uint256 dryPegged,,) =
-            IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, maxFeeRatio);
+        (, , uint256 dryCollUsed, uint256 dryPegged, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            collateralIn,
+            maxFeeRatio
+        );
 
         // Actual capped mint
         vm.startPrank(alice);
@@ -243,12 +248,15 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         maxFeeRatio = bound(maxFeeRatio, 0, 1 ether); // 0% to 100%
 
         // Uncapped dry run
-        (,, uint256 uncappedCollUsed, uint256 uncappedPegged,,) =
-            IMinter(minter).mintPeggedTokenDryRun(collateralIn);
+        (, , uint256 uncappedCollUsed, uint256 uncappedPegged, , ) = IMinter(minter).mintPeggedTokenDryRun(
+            collateralIn
+        );
 
         // Capped dry run
-        (,, uint256 cappedCollUsed, uint256 cappedPegged,,) =
-            IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, maxFeeRatio);
+        (, , uint256 cappedCollUsed, uint256 cappedPegged, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            collateralIn,
+            maxFeeRatio
+        );
 
         assertLe(cappedCollUsed, uncappedCollUsed, "capped uses <= uncapped collateral");
         assertLe(cappedPegged, uncappedPegged, "capped mints <= uncapped pegged");
@@ -265,8 +273,7 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         maxFeeRatio = bound(maxFeeRatio, 0.001 ether, 0.5 ether); // 0.1% to 50%
 
         // Capped dry run
-        (, uint256 dryFee,,,,) =
-            IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, maxFeeRatio);
+        (, uint256 dryFee, , , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, maxFeeRatio);
 
         // Absolute fee must not exceed the budget (maxFeeRatio * collateralIn)
         uint256 maxFee = (collateralIn * maxFeeRatio) / 1 ether;
@@ -283,12 +290,12 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         uint256 collateralIn = 50 ether;
 
         // Uncapped dry run (3-arg)
-        (int256 ir1, uint256 fee1, uint256 coll1, uint256 peg1, uint256 p1, uint256 r1) =
-            IMinter(minter).mintPeggedTokenDryRun(collateralIn);
+        (int256 ir1, uint256 fee1, uint256 coll1, uint256 peg1, uint256 p1, uint256 r1) = IMinter(minter)
+            .mintPeggedTokenDryRun(collateralIn);
 
         // Capped with max (4-arg)
-        (int256 ir2, uint256 fee2, uint256 coll2, uint256 peg2, uint256 p2, uint256 r2) =
-            IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, type(uint256).max);
+        (int256 ir2, uint256 fee2, uint256 coll2, uint256 peg2, uint256 p2, uint256 r2) = IMinter_v3(minter)
+            .mintPeggedTokenDryRun(collateralIn, type(uint256).max);
 
         assertEq(ir1, ir2, "incentive ratio matches");
         assertEq(fee1, fee2, "fee matches");

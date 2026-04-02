@@ -34,7 +34,7 @@ import {LinearReward} from "./LinearReward.sol";
 /// The contract uses a role-based access control system to manage distributors
 /// and supports immediate or time-based reward distribution depending on the
 /// configured period length.
-
+// solhint-disable-next-line contract-name-capwords
 abstract contract LinearMultipleRewardDistributor_v3 is
     Initializable,
     ContextUpgradeable,
@@ -194,6 +194,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         address underlying = _tryGetUnderlying(token);
         if (underlying != address(0)) {
             $.aliasUnderlying[token] = underlying;
+            // slither-disable-next-line unused-return
             $.underlyingAliases[underlying].add(token);
         }
 
@@ -289,6 +290,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
 
     /// @dev Try to read underlying() from a token. Returns address(0) if not an alias.
     function _tryGetUnderlying(address token) internal view returns (address underlying) {
+        // slither-disable-next-line low-level-calls
         (bool success, bytes memory data) = token.staticcall(abi.encodeCall(IRewardAlias.underlying, ()));
         if (success && data.length >= 32) {
             underlying = abi.decode(data, (address));

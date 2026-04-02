@@ -10,21 +10,24 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {HarborOwnable} from "@bao/HarborOwnable.sol";
 import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 
-/// @title RewardAlias
+/// @title RewardAlias_v1
 /// @notice A minimal UUPS-upgradeable contract that identifies itself as an alias for an underlying reward token.
 /// @dev Deploy via BaoFactory (CREATE3) at a predictable address.
 ///      The reward system detects aliases via IRewardAlias.underlying() during registration.
 ///      The alias address is used for integral tracking; the underlying is used for token transfers.
 // solhint-disable-next-line contract-name-capwords
-contract RewardAlias is Initializable, UUPSUpgradeable, HarborOwnable, IERC5313, IRewardAlias {
+contract RewardAlias_v1 is Initializable, UUPSUpgradeable, HarborOwnable, IERC5313, IRewardAlias {
     /// @notice The underlying reward token this alias represents.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable override underlying;
+    address internal immutable UNDERLYING; // solhint-disable-line immutable-vars-naming
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address underlying_) {
         _disableInitializers();
-        underlying = underlying_;
+        if (underlying_ == address(0)) {
+            revert ZeroAddress();
+        }
+        UNDERLYING = underlying_;
     }
 
     /// @notice Initialize ownership.
@@ -38,6 +41,11 @@ contract RewardAlias is Initializable, UUPSUpgradeable, HarborOwnable, IERC5313,
     /// @inheritdoc IERC5313
     function owner() public view override(HarborOwnable, IERC5313) returns (address owner_) {
         owner_ = HarborOwnable.owner();
+    }
+
+    /// @inheritdoc IRewardAlias
+    function underlying() external view returns (address) {
+        return UNDERLYING;
     }
 
     /// @inheritdoc IERC165

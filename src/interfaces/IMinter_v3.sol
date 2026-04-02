@@ -3,6 +3,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 /// @notice Minter v3 extensions: fee-capped minting.
+// solhint-disable-next-line contract-name-capwords
 interface IMinter_v3 {
     /// @notice Mint pegged tokens with a fee cap. Stops minting when cumulative fee would exceed maxFeeRatio.
     /// Returns (0, 0) gracefully if the fee exceeds the cap from the start (does not revert).

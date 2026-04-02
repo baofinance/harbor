@@ -57,9 +57,7 @@ contract TestStabilityPool_v3_ERC20 is TestStabilityPoolSetUp {
 
     function test_name_shortString() public {
         // < 32 chars
-        StabilityPool_v3 sp = new StabilityPool_v3(
-            minter, wrappedCollateralToken, 3600, 90000, 1 ether, "Short", "S"
-        );
+        StabilityPool_v3 sp = new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, "Short", "S");
         assertEq(sp.name(), "Short", "short name");
         assertEq(sp.symbol(), "S", "short symbol");
     }
@@ -68,9 +66,7 @@ contract TestStabilityPool_v3_ERC20 is TestStabilityPoolSetUp {
         // Exactly 32 chars
         string memory name32 = "12345678901234567890123456789012";
         assertEq(bytes(name32).length, 32, "sanity");
-        StabilityPool_v3 sp = new StabilityPool_v3(
-            minter, wrappedCollateralToken, 3600, 90000, 1 ether, name32, "S"
-        );
+        StabilityPool_v3 sp = new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, name32, "S");
         assertEq(sp.name(), name32, "32-char name");
     }
 
@@ -78,18 +74,14 @@ contract TestStabilityPool_v3_ERC20 is TestStabilityPoolSetUp {
         // 40 chars (between 32 and 64)
         string memory name40 = "1234567890123456789012345678901234567890";
         assertEq(bytes(name40).length, 40, "sanity");
-        StabilityPool_v3 sp = new StabilityPool_v3(
-            minter, wrappedCollateralToken, 3600, 90000, 1 ether, name40, "S"
-        );
+        StabilityPool_v3 sp = new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, name40, "S");
         assertEq(sp.name(), name40, "40-char name");
     }
 
     function test_name_exactly64chars() public {
         string memory name64 = "1234567890123456789012345678901234567890123456789012345678901234";
         assertEq(bytes(name64).length, 64, "sanity");
-        StabilityPool_v3 sp = new StabilityPool_v3(
-            minter, wrappedCollateralToken, 3600, 90000, 1 ether, name64, "S"
-        );
+        StabilityPool_v3 sp = new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, name64, "S");
         assertEq(sp.name(), name64, "64-char name");
     }
 
@@ -237,11 +229,7 @@ contract TestStabilityPool_v3_ERC20 is TestStabilityPoolSetUp {
         vm.prank(user2);
         IERC20(stabilityPoolCollateral).transferFrom(user1, user2, 3 ether);
 
-        assertEq(
-            IERC20(stabilityPoolCollateral).allowance(user1, user2),
-            type(uint256).max,
-            "infinite not deducted"
-        );
+        assertEq(IERC20(stabilityPoolCollateral).allowance(user1, user2), type(uint256).max, "infinite not deducted");
     }
 
     function test_transferFrom_insufficientAllowance_reverts() public {

@@ -7,6 +7,7 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 /// @notice Interface for StabilityPool_v3 additions (selective claim).
 /// @dev Extends IStabilityPool with single-token claim functions.
 ///      Parameter order matches claimable(address account, address token).
+// solhint-disable-next-line contract-name-capwords
 interface IStabilityPool_v3 is IStabilityPool {
     /// @notice Claim pending rewards of a single token for some user.
     /// @param account The address of the user.

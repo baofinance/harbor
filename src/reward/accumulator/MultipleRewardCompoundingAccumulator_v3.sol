@@ -111,7 +111,7 @@ import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearM
 ///
 /// @dev The method comes from liquity's StabilityPool, the paper is in
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
-
+// solhint-disable-next-line contract-name-capwords
 abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ReentrancyGuardTransientUpgradeable,
     LinearMultipleRewardDistributor_v3,

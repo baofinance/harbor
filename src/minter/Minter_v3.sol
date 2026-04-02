@@ -697,7 +697,10 @@ contract Minter_v3 is
         uint256 maxFeeRatio
     ) external nonReentrant returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
         (peggedOut, wrappedCollateralUsed) = _mintPeggedTokenCapped(
-            wrappedCollateralIn, receiver, minPeggedOut, maxFeeRatio
+            wrappedCollateralIn,
+            receiver,
+            minPeggedOut,
+            maxFeeRatio
         );
     }
 

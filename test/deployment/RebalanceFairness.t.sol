@@ -12,7 +12,6 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {Minter_v2} from "src/minter/Minter_v2.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
@@ -168,7 +167,7 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
 
     function _triggerHarvest() internal returns (uint256 harvested) {
         // Increase rate by 5% to simulate yield accrual
-        oracleRate = oracleRate * 105 / 100;
+        oracleRate = (oracleRate * 105) / 100;
         mockOracle.setLatestAnswer(oraclePrice, oracleRate);
         harvested = IStabilityPoolManager(stabilityPoolManager).harvest(makeAddr("bountyReceiver"), 0);
     }
@@ -209,7 +208,10 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
     function _logActor(string memory name, address who) internal view {
         console2.log("--- %s ---", name);
         console2.log("  pegged (wallet):               %e", IERC20(pegged).balanceOf(who));
-        console2.log("  Coll SP deposit:               %e", IStabilityPool(stabilityPoolCollateral).assetBalanceOf(who));
+        console2.log(
+            "  Coll SP deposit:               %e",
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(who)
+        );
         console2.log("  Lev SP deposit:                %e", IStabilityPool(stabilityPoolLeveraged).assetBalanceOf(who));
         console2.log("  fxSAVE (wallet):               %e", IERC20(wrappedCollateral).balanceOf(who));
         console2.log("  leveraged (wallet):            %e", IERC20(leveraged).balanceOf(who));
@@ -261,7 +263,12 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
                 ? current[i].levToken_levSP - preRebal[i].levToken_levSP
                 : current[i].levToken_levSP;
             console2.log("  %s", names[i]);
-            console2.log("    fxSAVE (coll SP): %e  |  fxSAVE (lev SP): %e  |  lev tokens: %e", fxSAVE_coll, fxSAVE_lev, levToken);
+            console2.log(
+                "    fxSAVE (coll SP): %e  |  fxSAVE (lev SP): %e  |  lev tokens: %e",
+                fxSAVE_coll,
+                fxSAVE_lev,
+                levToken
+            );
         }
     }
 

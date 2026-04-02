@@ -16,7 +16,6 @@ import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistribu
 import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Minter_v2} from "src/minter/Minter_v2.sol";
-import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title StabilityPoolAliasDeploymentTest
@@ -134,8 +133,12 @@ contract StabilityPoolAliasDeploymentTest is StabilityPoolAliasDeploymentSetUp {
         bool foundHarvest;
         bool foundRebalance;
         for (uint256 i = 0; i < tokens.length; i++) {
-            if (tokens[i] == collHarvestAlias) { foundHarvest = true; }
-            if (tokens[i] == collRebalanceAlias) { foundRebalance = true; }
+            if (tokens[i] == collHarvestAlias) {
+                foundHarvest = true;
+            }
+            if (tokens[i] == collRebalanceAlias) {
+                foundRebalance = true;
+            }
         }
         assertTrue(foundHarvest, "harvest alias registered on coll SP");
         assertTrue(foundRebalance, "rebalance alias registered on coll SP");
@@ -146,8 +149,12 @@ contract StabilityPoolAliasDeploymentTest is StabilityPoolAliasDeploymentSetUp {
         bool foundHarvest;
         bool foundRebalance;
         for (uint256 i = 0; i < tokens.length; i++) {
-            if (tokens[i] == levHarvestAlias) { foundHarvest = true; }
-            if (tokens[i] == levRebalanceAlias) { foundRebalance = true; }
+            if (tokens[i] == levHarvestAlias) {
+                foundHarvest = true;
+            }
+            if (tokens[i] == levRebalanceAlias) {
+                foundRebalance = true;
+            }
         }
         assertTrue(foundHarvest, "harvest alias registered on lev SP");
         assertTrue(foundRebalance, "rebalance alias registered on lev SP");
@@ -217,14 +224,23 @@ contract StabilityPoolAliasDeploymentTest is StabilityPoolAliasDeploymentSetUp {
         skip(8 days);
 
         // Each alias tracks separately
-        uint256 claimableHarvest = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(alice, collHarvestAlias);
-        uint256 claimableRebalance = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(alice, collRebalanceAlias);
+        uint256 claimableHarvest = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            alice,
+            collHarvestAlias
+        );
+        uint256 claimableRebalance = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            alice,
+            collRebalanceAlias
+        );
 
         assertApprox(claimableHarvest, harvestReward, 604800, "harvest alias tracked separately");
         assertApprox(claimableRebalance, rebalanceReward, 604800, "rebalance alias tracked separately");
 
         // Aggregated claimable for underlying should be sum of aliases
-        uint256 claimableTotal = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(alice, wrappedCollateral);
+        uint256 claimableTotal = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            alice,
+            wrappedCollateral
+        );
         assertApprox(claimableTotal, harvestReward + rebalanceReward, 2 * 604800, "aggregated claimable");
     }
 
