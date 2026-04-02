@@ -21,7 +21,7 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 /// ```solidity
 /// contract MyBatch is SafeBatch {
 ///     function build() internal override {
-///         string memory salt = _saltString("BTC", "fxUSD", "minter");
+///         string memory salt = _saltString(_key("BTC", "fxUSD", "minter"));
 ///         queue(salt, abi.encodeCall(IMinter.updateConfig, (cfg)), "updateConfig(130)");
 ///     }
 /// }

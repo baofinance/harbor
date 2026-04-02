@@ -12,7 +12,7 @@ contract Pause_SPL_ETH_fxUSD is SafeBatch {
 
     function build() internal override {
         queue(
-            _saltString("ETH", "fxUSD", "stabilityPoolLeveraged"),
+            _saltString(_key("ETH", "fxUSD", "stabilityPoolLeveraged")),
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (BAO_PAUSER, "")),
             "pause: upgrade to BaoPauser_v1"
         );

@@ -61,7 +61,7 @@ contract Remediate_Accumulators is
     }
 
     function _remediatePool(string memory marketKey, string memory spType) internal {
-        string memory fullSalt = _saltString(marketKey, spType);
+        string memory fullSalt = _saltString(_key(marketKey, spType));
         address pool = _predictAddressFromFullSalt(fullSalt);
 
         // Read current implementation (to restore after remediation)

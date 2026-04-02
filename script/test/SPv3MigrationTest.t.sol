@@ -76,9 +76,9 @@ contract SPv3MigrationTest is BaoTest, HarborFactoryDeployer {
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"));
         _setSaltPrefix("harbor_v1");
-        spc = _predictAddress("ETH", "fxUSD", "stabilityPoolCollateral");
-        minter = _predictAddress("ETH", "fxUSD", "minter");
-        peg = _predictAddress("ETH", "pegged");
+        spc = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
+        peg = _predictAddress(_key("ETH", "pegged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
         proxyOwner = IBaoOwnable(spc).owner();
 

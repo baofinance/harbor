@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {PostRebalanceRemediationForStabilityPool_v2} from "src/minter/PostRebalanceRemediationForStabilityPool_v2.sol";
+import {PostRebalanceRemediationForStabilityPool_v2} from "script/patch/PostRebalanceRemediationForStabilityPool_v2.sol";
 import {SafeBatch} from "script/safe/SafeBatch.s.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -69,11 +69,11 @@ contract Remediate_SPL_ETH_fxUSD is SafeBatch {
     }
 
     function build() internal override {
-        string memory splSalt = _saltString("ETH", "fxUSD", "stabilityPoolLeveraged");
+        string memory splSalt = _saltString(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
         address spl = _predictAddressFromFullSalt(splSalt);
 
         require(
-            LEVERAGED == _predictAddressFromFullSalt(_saltString("ETH", "fxUSD", "leveraged")),
+            LEVERAGED == _predictAddressFromFullSalt(_saltString(_key("ETH", "fxUSD", "leveraged"))),
             "LEVERAGED is not the correct address"
         );
 

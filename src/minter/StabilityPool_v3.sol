@@ -668,6 +668,20 @@ contract StabilityPool_v3 is
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // Alias-Aware Claimable
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice Returns claimable for a token. If the token has aliases, sums all aliases' claimable.
+    /// @dev Overrides the accumulator's claimable to aggregate across aliases.
+    function claimable(address account, address token) external view override returns (uint256 total) {
+        total = _claimable(account, token, true);
+        address[] memory aliases = _getAliases(token);
+        for (uint256 i = 0; i < aliases.length; i++) {
+            total += _claimable(account, aliases[i], true);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // Selective Claim
     // ═══════════════════════════════════════════════════════════════════════
 

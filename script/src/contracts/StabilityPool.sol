@@ -8,7 +8,8 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
-import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {RewardAlias} from "@harbor/reward/RewardAlias.sol";
+import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
 
@@ -95,7 +96,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
             (owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
         );
 
-        proxy = _deployProxyAndRecord(stateData, spKey, impl, initData);
+        proxy = _deployProxyViaStubAndRecord(stateData, spKey, impl, initData);
     }
 
     /// @notice Grant StabilityPool roles to StabilityPoolManager.
@@ -114,5 +115,51 @@ abstract contract StabilityPool is HarborFactoryDeployer {
             roles,
             "REBALANCER | REWARD_DEPOSITOR"
         );
+    }
+
+    // ========== REWARD ALIAS DEPLOYMENT ==========
+
+    /// @notice Deploy a reward alias at a predictable address.
+    /// @param stateData Deployment state for recording.
+    /// @param spKey The stability pool local key (e.g. _key(marketKey, StabilityPoolCollateral)).
+    /// @param aliasName Alias purpose suffix (e.g. "harvest", "rebalance").
+    /// @param underlying The underlying reward token address.
+    function deployRewardAlias(
+        DeploymentTypes.State memory stateData,
+        string memory spKey,
+        string memory aliasName,
+        address underlying
+    ) internal returns (address aliasProxy) {
+        string memory aliasKey = _key(spKey, aliasName);
+        console.log("    > %s", aliasKey);
+
+        address impl = address(new RewardAlias(underlying));
+        console.log("        Impl:       %s", impl);
+        console.log("        Underlying: %s", underlying);
+
+        bytes memory initData = abi.encodeCall(
+            RewardAlias.initialize,
+            (address(this), owner())
+        );
+
+        aliasProxy = _deployProxyAndRecord(
+            stateData,
+            aliasKey,
+            impl,
+            "@harbor/reward/RewardAlias.sol",
+            "RewardAlias",
+            initData
+        );
+    }
+
+    /// @notice Register a reward alias on a stability pool.
+    /// @dev The SP must be deployed. The alias address is predicted — doesn't need to be deployed yet.
+    /// @param spKey The stability pool local key.
+    /// @param aliasName Alias purpose suffix.
+    function registerRewardAlias(string memory spKey, string memory aliasName) internal {
+        address sp = _predictAddress(spKey);
+        address aliasAddr = _predictAddress(_key(spKey, aliasName));
+        IMultipleRewardDistributor(sp).registerRewardToken(aliasAddr);
+        console.log("    > Registered %s on %s", aliasName, spKey);
     }
 }

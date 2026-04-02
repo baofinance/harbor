@@ -73,12 +73,12 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
 
         // Resolve deployed addresses
         _setSaltPrefix("fairness_test");
-        minter = _predictAddress("ETH", "fxUSD", "minter");
-        stabilityPoolCollateral = _predictAddress("ETH", "fxUSD", "stabilityPoolCollateral");
-        stabilityPoolLeveraged = _predictAddress("ETH", "fxUSD", "stabilityPoolLeveraged");
-        stabilityPoolManager = _predictAddress("ETH", "fxUSD", "stabilityPoolManager");
-        pegged = _predictAddress("ETH", "pegged");
-        leveraged = _predictAddress("ETH", "fxUSD", "leveraged");
+        minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
+        stabilityPoolCollateral = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        stabilityPoolLeveraged = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
+        stabilityPoolManager = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolManager"));
+        pegged = _predictAddress(_key("ETH", "pegged"));
+        leveraged = _predictAddress(_key("ETH", "fxUSD", "leveraged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Install mock oracle so we can control price/rate

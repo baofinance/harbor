@@ -34,7 +34,7 @@ abstract contract Genesis is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (owner()));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             genesisKey,
             impl,

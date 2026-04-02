@@ -700,3 +700,237 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         assertEq(rewardToken1.balanceOf(user1), 0, "nothing claimed");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reward Alias Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+import {RewardAlias} from "src/reward/RewardAlias.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IStabilityPool_v3} from "src/interfaces/IStabilityPool_v3.sol";
+
+contract TestRewardAlias is TestStabilityPoolRebalanceSetUp {
+    MockERC20 aliasUnderlying;
+    RewardAlias harvestAlias;
+    RewardAlias boostAlias;
+
+    uint256 constant DEPOSIT_AMOUNT = 10 ether;
+
+    function setUp() public override {
+        super.setUp();
+
+        // Create a reward token and two aliases for it
+        aliasUnderlying = new MockERC20("Reward", "RWD", 18);
+        vm.label(address(aliasUnderlying), "AliasUnderlying");
+        harvestAlias = new RewardAlias(address(aliasUnderlying));
+        vm.label(address(harvestAlias), "HARVEST_ALIAS");
+        boostAlias = new RewardAlias(address(aliasUnderlying));
+        vm.label(address(boostAlias), "BOOST_ALIAS");
+
+        // Register both aliases as reward tokens
+        vm.startPrank(rewardManager);
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(harvestAlias));
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(boostAlias));
+        vm.stopPrank();
+
+        // Fund the depositor with the underlying reward token
+        aliasUnderlying.mint(rewardDepositor, 1000 ether);
+        vm.prank(rewardDepositor);
+        aliasUnderlying.approve(stabilityPoolCollateral, type(uint256).max);
+
+        // Deposit for users
+        deal(peggedToken, user1, DEPOSIT_AMOUNT * 10);
+        deal(peggedToken, user2, DEPOSIT_AMOUNT * 10);
+        setUp_collateral(100 ether, 100 ether);
+
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.prank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user2, 0);
+    }
+
+    function _depositRewardAndWait(address alias_, uint256 amount) internal {
+        vm.prank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(alias_, amount);
+        skip(8 days);
+    }
+
+    // ── Registration ────────────────────────────────────────────────────
+
+    function testAlias_registeredAsActiveToken() public view {
+        address[] memory active = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
+        bool foundHarvest;
+        bool foundBoost;
+        for (uint256 i = 0; i < active.length; i++) {
+            if (active[i] == address(harvestAlias)) {
+                foundHarvest = true;
+            }
+            if (active[i] == address(boostAlias)) {
+                foundBoost = true;
+            }
+        }
+        assertTrue(foundHarvest, "harvest alias registered");
+        assertTrue(foundBoost, "boost alias registered");
+    }
+
+    // ── Deposit via alias ───────────────────────────────────────────────
+
+    function testAlias_depositTransfersUnderlying() public {
+        uint256 spBalBefore = aliasUnderlying.balanceOf(stabilityPoolCollateral);
+        uint256 depositorBalBefore = aliasUnderlying.balanceOf(rewardDepositor);
+
+        vm.prank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(harvestAlias), 100 ether);
+
+        // The underlying token was transferred, not the alias
+        assertEq(aliasUnderlying.balanceOf(stabilityPoolCollateral) - spBalBefore, 100 ether, "SP received underlying");
+        assertEq(depositorBalBefore - aliasUnderlying.balanceOf(rewardDepositor), 100 ether, "depositor sent underlying");
+    }
+
+    // ── Claimable per alias ─────────────────────────────────────────────
+
+    function testAlias_claimableTrackedSeparately() public {
+        _depositRewardAndWait(address(harvestAlias), 100 ether);
+        _depositRewardAndWait(address(boostAlias), 200 ether);
+
+        uint256 claimHarvest = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(harvestAlias)
+        );
+        uint256 claimBoost = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(boostAlias)
+        );
+
+        // user1 has 50% of the pool → gets 50% of each alias's reward
+        assertApproxEqAbs(claimHarvest, 50 ether, 2 * 604800, "harvest claimable ~50 (tolerance: 2 periods of rate truncation)");
+        assertApproxEqAbs(claimBoost, 100 ether, 2 * 604800, "boost claimable ~100 (tolerance: 2 periods of rate truncation)");
+    }
+
+    // ── Claim via alias → transfers underlying ──────────────────────────
+
+    function testAlias_claimSingleTransfersUnderlying() public {
+        _depositRewardAndWait(address(harvestAlias), 100 ether);
+
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(harvestAlias)
+        );
+        assertGt(claimable, 0, "has claimable");
+
+        uint256 rwdBefore = aliasUnderlying.balanceOf(user1);
+        vm.prank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(user1, address(harvestAlias));
+
+        // User received the underlying token, not the alias
+        assertEq(aliasUnderlying.balanceOf(user1) - rwdBefore, claimable, "received underlying");
+    }
+
+    // ── Claim one alias doesn't affect another ──────────────────────────
+
+    function testAlias_claimOneDoesNotAffectOther() public {
+        _depositRewardAndWait(address(harvestAlias), 100 ether);
+        _depositRewardAndWait(address(boostAlias), 200 ether);
+
+        uint256 boostBefore = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(boostAlias)
+        );
+
+        // Claim only harvest
+        vm.prank(user1);
+        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(user1, address(harvestAlias));
+
+        // Boost should be unchanged
+        uint256 boostAfter = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(boostAlias)
+        );
+        assertEq(boostAfter, boostBefore, "boost unaffected by harvest claim");
+    }
+
+    // ── claim() claims all aliases, transferring underlying ─────────────
+
+    function testAlias_claimAllTransfersUnderlying() public {
+        _depositRewardAndWait(address(harvestAlias), 100 ether);
+        _depositRewardAndWait(address(boostAlias), 200 ether);
+
+        uint256 rwdBefore = aliasUnderlying.balanceOf(user1);
+        vm.prank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
+
+        uint256 received = aliasUnderlying.balanceOf(user1) - rwdBefore;
+        // Should have received harvest + boost combined (~150 ether for 50% of pool)
+        assertApproxEqAbs(received, 150 ether, 4 * 604800, "received total from both aliases (tolerance: 4 periods of rate truncation)");
+
+        // Both should be zero after claim
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(harvestAlias)),
+            0,
+            "harvest zeroed"
+        );
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(boostAlias)),
+            0,
+            "boost zeroed"
+        );
+    }
+
+    // ── RewardAlias contract ────────────────────────────────────────────
+
+    function testAlias_underlyingReturnsCorrectToken() public view {
+        assertEq(harvestAlias.underlying(), address(aliasUnderlying), "harvest underlying");
+        assertEq(boostAlias.underlying(), address(aliasUnderlying), "boost underlying");
+    }
+
+    function testAlias_differentAliasesDifferentAddresses() public view {
+        assertTrue(address(harvestAlias) != address(boostAlias), "different addresses");
+    }
+
+    // ── Aggregation: claimable(raw token) sums aliases ──────────────────
+
+    function testAlias_claimableAggregatesAliases() public {
+        _depositRewardAndWait(address(harvestAlias), 100 ether);
+        _depositRewardAndWait(address(boostAlias), 200 ether);
+
+        // Claimable for each alias individually
+        uint256 harvestOnly = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(harvestAlias)
+        );
+        uint256 boostOnly = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(boostAlias)
+        );
+
+        // Claimable for the raw underlying — should sum both aliases
+        uint256 aggregated = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(aliasUnderlying)
+        );
+
+        assertEq(aggregated, harvestOnly + boostOnly, "aggregated = harvest + boost");
+        assertGt(aggregated, 0, "non-zero aggregated");
+    }
+
+    function testAlias_claimableRawTokenWithNoAliases() public {
+        // Register a plain token (no alias) and deposit to it
+        MockERC20 plainToken = new MockERC20("Plain", "PLN", 18);
+        vm.prank(rewardManager);
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(plainToken));
+        plainToken.mint(rewardDepositor, 100 ether);
+        vm.prank(rewardDepositor);
+        plainToken.approve(stabilityPoolCollateral, 100 ether);
+        vm.prank(rewardDepositor);
+        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(plainToken), 100 ether);
+        skip(8 days);
+
+        // Claimable for a plain token with no aliases — should return its own claimable only
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user1, address(plainToken)
+        );
+        assertGt(claimable, 0, "plain token has claimable");
+
+        // No aliases exist for this token, so aggregation adds nothing
+        uint256 aliasCount = 0;
+        address[] memory active = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
+        for (uint256 i = 0; i < active.length; i++) {
+            if (active[i] == address(plainToken)) {
+                aliasCount++;
+            }
+        }
+        assertEq(aliasCount, 1, "plain token registered once");
+    }
+}

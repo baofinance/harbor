@@ -15,8 +15,8 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
-import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 /// @notice Extended market config interface with methods from collateral and chain configs.
 interface IFullMinterConfig {
@@ -166,6 +166,9 @@ abstract contract DeployMintersShared is
         // Deploy Stability Pools
         _deployStabilityPools(state, cfg, marketKey);
 
+        // Deploy reward aliases and register on SPs
+        _deployRewardAliases(state, cfg, marketKey);
+
         // Deploy StabilityPoolManager
         _deployStabilityPoolManager(state, cfg, marketKey);
 
@@ -184,8 +187,8 @@ abstract contract DeployMintersShared is
         string memory marketKey
     ) internal {
         address wrappedCollateral = cfg.wrappedCollateralToken();
-        address peggedToken = _predictAddress(cfg.peg(), "pegged");
-        address leveragedToken = _predictAddress(marketKey, "leveraged");
+        address peggedToken = _predictAddress(_key(cfg.peg(), "pegged"));
+        address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
 
         deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);
     }
@@ -195,7 +198,7 @@ abstract contract DeployMintersShared is
         IFullMinterConfig cfg,
         string memory marketKey
     ) internal {
-        address minter = _predictAddress(marketKey, "minter");
+        address minter = _predictAddress(_key(marketKey, "minter"));
 
         deployStabilityPool(
             StabilityPoolCollateral,
@@ -210,8 +213,31 @@ abstract contract DeployMintersShared is
             stateData,
             Config_MinterMarket(address(cfg)),
             minter,
-            _predictAddress(marketKey, "leveraged")
+            _predictAddress(_key(marketKey, "leveraged"))
         );
+    }
+
+    function _deployRewardAliases(
+        DeploymentTypes.State memory state,
+        IFullMinterConfig cfg,
+        string memory marketKey
+    ) internal {
+        string memory spCollKey = _key(marketKey, StabilityPoolCollateral);
+        string memory spLevKey = _key(marketKey, StabilityPoolLeveraged);
+        address wrappedCollateral = cfg.wrappedCollateralToken();
+        address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
+
+        // Collateral SP: harvest + rebalance aliases (both underlying = wrappedCollateral)
+        deployRewardAlias(state, spCollKey, "harvest", wrappedCollateral);
+        deployRewardAlias(state, spCollKey, "rebalance", wrappedCollateral);
+        registerRewardAlias(spCollKey, "harvest");
+        registerRewardAlias(spCollKey, "rebalance");
+
+        // Leveraged SP: harvest alias (underlying = wrappedCollateral), rebalance alias (underlying = leveragedToken)
+        deployRewardAlias(state, spLevKey, "harvest", wrappedCollateral);
+        deployRewardAlias(state, spLevKey, "rebalance", leveragedToken);
+        registerRewardAlias(spLevKey, "harvest");
+        registerRewardAlias(spLevKey, "rebalance");
     }
 
     function _deployStabilityPoolManager(
@@ -219,9 +245,9 @@ abstract contract DeployMintersShared is
         IFullMinterConfig,
         string memory marketKey
     ) internal {
-        address minter = _predictAddress(marketKey, "minter");
-        address spCollateral = _predictAddress(marketKey, "stabilityPoolCollateral");
-        address spLeveraged = _predictAddress(marketKey, "stabilityPoolLeveraged");
+        address minter = _predictAddress(_key(marketKey, "minter"));
+        address spCollateral = _predictAddress(_key(marketKey, "stabilityPoolCollateral"));
+        address spLeveraged = _predictAddress(_key(marketKey, "stabilityPoolLeveraged"));
 
         deployStabilityPoolManager(stateData, marketKey, minter, treasury(), spCollateral, spLeveraged);
     }
@@ -232,19 +258,18 @@ abstract contract DeployMintersShared is
         string memory marketKey
     ) internal {
         cfg;
-        address minter = _predictAddress(marketKey, "minter");
+        address minter = _predictAddress(_key(marketKey, "minter"));
         deployGenesis(stateData, marketKey, minter);
     }
 
     function _configureMinter(Config_MinterMarket market, string memory marketKey) internal {
         IFullMinterConfig cfg = IFullMinterConfig(address(market));
-        address minter = _predictAddress(marketKey, "minter");
-        address reservePool = _predictAddress(marketKey, "reservePool");
-        address spCollateral = _predictAddress(marketKey, "stabilityPoolCollateral");
-        address spLeveraged = _predictAddress(marketKey, "stabilityPoolLeveraged");
-        address spm = _predictAddress(marketKey, "stabilityPoolManager");
-        address genesis = _predictAddress(marketKey, "genesis");
-        address leveragedToken = _predictAddress(marketKey, "leveraged");
+        address minter = _predictAddress(_key(marketKey, "minter"));
+        address reservePool = _predictAddress(_key(marketKey, "reservePool"));
+        address spCollateral = _predictAddress(_key(marketKey, "stabilityPoolCollateral"));
+        address spLeveraged = _predictAddress(_key(marketKey, "stabilityPoolLeveraged"));
+        address spm = _predictAddress(_key(marketKey, "stabilityPoolManager"));
+        address genesis = _predictAddress(_key(marketKey, "genesis"));
         address priceOracle = _predictAddress(MinterMarketConfigLib.priceOracleKey(market));
 
         // Update minter configuration (incentive ratios)
@@ -259,10 +284,10 @@ abstract contract DeployMintersShared is
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolCollateral"), spCollateral, spm);
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolLeveraged"), spLeveraged, spm);
 
-        // Register reward tokens
-        StabilityPool_v2(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
-        StabilityPool_v2(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
-        StabilityPool_v2(spLeveraged).registerRewardToken(leveragedToken);
+        // Register raw reward tokens (needed for SPM's depositReward calls)
+        IMultipleRewardDistributor(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
+        IMultipleRewardDistributor(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
+        IMultipleRewardDistributor(spLeveraged).registerRewardToken(_predictAddress(_key(marketKey, "leveraged")));
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(

@@ -14,19 +14,19 @@ import {ConfigPriceVolatility_130} from "script/config/volatility/ConfigPriceVol
 contract UpdateVolatility_test3_SILVER is SafeBatch {
     function build() internal override {
         queue(
-            _saltString("SILVER", "fxUSD", "minter"),
+            _saltString(_key("SILVER", "fxUSD", "minter")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_125().minterConfig())),
             "updateConfig(125_month1)"
         );
 
         queue(
-            _saltString("SILVER", "fxUSD", "stabilityPoolManager"),
+            _saltString(_key("SILVER", "fxUSD", "stabilityPoolManager")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (125e16)),
             "updateRebalanceThreshold(125)"
         );
 
         queue(
-            _saltString("SILVER", "stETH", "minter"),
+            _saltString(_key("SILVER", "stETH", "minter")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_130().minterConfig())),
             "updateConfig(130_month1)"
         );

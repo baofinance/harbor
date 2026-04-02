@@ -68,7 +68,7 @@ abstract contract Minter is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(Minter_v2.initialize, (owner()));
 
-        proxy = _deployProxyAndRecord(stateData, minterKey, impl, initData);
+        proxy = _deployProxyViaStubAndRecord(stateData, minterKey, impl, initData);
     }
 
     /// @notice Configure a deployed Minter with its operational parameters.
@@ -120,7 +120,7 @@ abstract contract Minter is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(ReservePool_v1.initialize, (owner()));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             reservePoolKey,
             impl,
@@ -152,7 +152,7 @@ abstract contract Minter is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             feeReceiverKey,
             impl,

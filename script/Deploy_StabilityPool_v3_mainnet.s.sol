@@ -42,8 +42,8 @@ contract Deploy_StabilityPool_v3_mainnet is
     function _doOneMinter(DeploymentTypes.State memory state, Config_MinterMarket[] memory markets) internal {
         for (uint i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            address minter = _predictAddress(marketKey, "minter");
-            address leveragedToken = _predictAddress(marketKey, "leveraged");
+            address minter = _predictAddress(_key(marketKey, "minter"));
+            address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
             address collateralToken = IFullMinterConfig(address(markets[i])).wrappedCollateralToken();
 
             address implLeveraged = deployStabilityPoolImplementation(
@@ -64,12 +64,12 @@ contract Deploy_StabilityPool_v3_mainnet is
 
             // Queue Safe upgrade transactions
             queue(
-                _saltString(marketKey, StabilityPoolLeveraged),
+                _saltString(_key(marketKey, StabilityPoolLeveraged)),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implLeveraged, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implLeveraged.toHexString())
             );
             queue(
-                _saltString(marketKey, StabilityPoolCollateral),
+                _saltString(_key(marketKey, StabilityPoolCollateral)),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implCollateral, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implCollateral.toHexString())
             );

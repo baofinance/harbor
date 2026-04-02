@@ -49,7 +49,7 @@ abstract contract PeggedToken is HarborFactoryDeployer {
                 (owner(), pegConfig.name(), pegConfig.symbol())
             );
 
-            peggedToken = _deployProxyAndRecord(
+            peggedToken = _deployProxyViaStubAndRecord(
                 stateData,
                 tokenKey,
                 impl,
@@ -69,7 +69,7 @@ abstract contract PeggedToken is HarborFactoryDeployer {
             );
 
             string memory marketKey = MinterMarketConfigLib.salt(marketConfigs[i]);
-            address minter = _predictAddress(marketKey, "minter");
+            address minter = _predictAddress(_key(marketKey, "minter"));
             uint256 roles = IMintableRole(peggedToken).MINTER_ROLE() | IBurnableRole(peggedToken).BURNER_ROLE();
 
             if (alreadyDeployed) {

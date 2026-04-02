@@ -10,7 +10,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {PostRebalanceRemediationForStabilityPool_v2} from "src/minter/PostRebalanceRemediationForStabilityPool_v2.sol";
+import {PostRebalanceRemediationForStabilityPool_v2} from "script/patch/PostRebalanceRemediationForStabilityPool_v2.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
@@ -48,12 +48,12 @@ abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
 
     function _initAddresses() internal {
         _setSaltPrefix("harbor_v1");
-        spl = _predictAddress("ETH", "fxUSD", "stabilityPoolLeveraged");
-        spc = _predictAddress("ETH", "fxUSD", "stabilityPoolCollateral");
-        minter = _predictAddress("ETH", "fxUSD", "minter");
-        lev = _predictAddress("ETH", "fxUSD", "leveraged");
-        peg = _predictAddress("ETH", "pegged");
-        spm = _predictAddress("ETH", "fxUSD", "stabilityPoolManager");
+        spl = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
+        spc = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
+        lev = _predictAddress(_key("ETH", "fxUSD", "leveraged"));
+        peg = _predictAddress(_key("ETH", "pegged"));
+        spm = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolManager"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
         proxyOwner = IBaoOwnable(spl).owner();
     }

@@ -44,7 +44,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(StabilityPoolManager_v1.initialize, (owner()));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             spmKey,
             impl,
@@ -80,7 +80,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             feeReceiverKey,
             impl,

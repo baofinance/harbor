@@ -44,8 +44,8 @@ contract MainnetRoles is Test, HarborFactoryDeployer {
     function test_allSPMs_haveZeroFeeRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
-            address minter = _predictAddressFromFullSalt(_saltString(marketKey, "minter"));
-            address spm = _predictAddressFromFullSalt(_saltString(marketKey, "stabilityPoolManager"));
+            address minter = _predictAddressFromFullSalt(_saltString(_key(marketKey, "minter")));
+            address spm = _predictAddressFromFullSalt(_saltString(_key(marketKey, "stabilityPoolManager")));
 
             uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
             assertTrue(
@@ -58,8 +58,8 @@ contract MainnetRoles is Test, HarborFactoryDeployer {
     function test_allSPMs_haveHarvesterRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
-            address minter = _predictAddressFromFullSalt(_saltString(marketKey, "minter"));
-            address spm = _predictAddressFromFullSalt(_saltString(marketKey, "stabilityPoolManager"));
+            address minter = _predictAddressFromFullSalt(_saltString(_key(marketKey, "minter")));
+            address spm = _predictAddressFromFullSalt(_saltString(_key(marketKey, "stabilityPoolManager")));
 
             uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
             assertTrue(
@@ -72,8 +72,8 @@ contract MainnetRoles is Test, HarborFactoryDeployer {
     function test_allGenesis_haveZeroFeeRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = string.concat(markets[i].peg, "::", markets[i].collateral);
-            address minter = _predictAddressFromFullSalt(_saltString(marketKey, "minter"));
-            address genesis = _predictAddressFromFullSalt(_saltString(marketKey, "genesis"));
+            address minter = _predictAddressFromFullSalt(_saltString(_key(marketKey, "minter")));
+            address genesis = _predictAddressFromFullSalt(_saltString(_key(marketKey, "genesis")));
 
             uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
             assertTrue(

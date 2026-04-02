@@ -34,7 +34,7 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), tokenName, tokenSymbol));
 
-        leveragedToken = _deployProxyAndRecord(
+        leveragedToken = _deployProxyViaStubAndRecord(
             stateData,
             leveragedKey,
             impl,
@@ -44,7 +44,7 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
         );
 
         // Grant minter roles
-        address minter = _predictAddress(marketKey, "minter");
+        address minter = _predictAddress(_key(marketKey, "minter"));
         uint256 roles = IMintableRole(leveragedToken).MINTER_ROLE() | IBurnableRole(leveragedToken).BURNER_ROLE();
         _grantRoles(leveragedKey, leveragedToken, minter, marketKey, roles, "MINTER | BURNER");
     }
