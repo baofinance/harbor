@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "@harbor/../script/src/HarborFactoryDeployer.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";

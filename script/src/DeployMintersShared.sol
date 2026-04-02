@@ -14,7 +14,6 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
-import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
@@ -273,10 +272,10 @@ abstract contract DeployMintersShared is
         address priceOracle = _predictAddress(MinterMarketConfigLib.priceOracleKey(market));
 
         // Update minter configuration (incentive ratios)
-        Minter_v2(minter).updateConfig(cfg.minterConfig());
-        Minter_v2(minter).updateReservePool(reservePool);
-        Minter_v2(minter).updateFeeReceiver(treasury());
-        Minter_v2(minter).updatePriceOracle(priceOracle);
+        IMinter(minter).updateConfig(cfg.minterConfig());
+        IMinter(minter).updateReservePool(reservePool);
+        IMinter(minter).updateFeeReceiver(treasury());
+        IMinter(minter).updatePriceOracle(priceOracle);
 
         // Grant roles
         grantReservePoolRoles(string.concat(marketKey, "::reservePool"), reservePool, minter);

@@ -16,6 +16,7 @@ import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter_v3} from "src/interfaces/IMinter_v3.sol";
 
 // different ERC20 mint/burn interfaces
 import {IMintable} from "@bao/interfaces/IMintable.sol";
@@ -106,7 +107,8 @@ contract Minter_v3 is
     ReentrancyGuardTransientUpgradeable,
     BaoOwnableRoles,
     TokenHolder,
-    IMinter
+    IMinter,
+    IMinter_v3
 {
     using SafeERC20 for IERC20;
 
@@ -445,16 +447,41 @@ contract Minter_v3 is
             uint256 rate
         )
     {
+        return mintPeggedTokenDryRun(wrappedCollateralIn, type(uint256).max);
+    }
+
+    /// @notice Dry run of a capped mint: computes outcome if total fee is capped at maxFeeRatio of collateral used.
+    /// @param wrappedCollateralIn The proposed amount of wrapped collateral.
+    /// @param maxFeeRatio The maximum overall fee ratio (18 decimals). e.g. 0.05 ether = 5%.
+    function mintPeggedTokenDryRun(
+        uint256 wrappedCollateralIn,
+        uint256 maxFeeRatio
+    )
+        public
+        view
+        returns (
+            int256 incentiveRatio,
+            uint256 wrappedFee,
+            uint256 wrappedCollateralUsed,
+            uint256 peggedMinted,
+            uint256 price,
+            uint256 rate
+        )
+    {
         wrappedCollateralIn = Token.allOfQuiet(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
         MinterStorage storage $ = _getMinterStorage();
         OracleData memory oracle = _fetchMid($.priceOracle);
         price = oracle.price;
         rate = oracle.rate;
+        uint256 maxFeeE36 = maxFeeRatio == type(uint256).max
+            ? type(uint256).max
+            : Math.mulDiv(wrappedCollateralIn, maxFeeRatio, 1 ether) * oracle.rate;
         uint256 underlyingCollateralAdded;
         (wrappedFee, peggedMinted, wrappedCollateralUsed, underlyingCollateralAdded) = _mintPeggedAdjustments(
             $.incentiveConfig[Config_v1.MINT_PEGGED],
             wrappedCollateralIn,
-            CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance)
+            CollateralRatioData($.underlyingCollateral, oracle.price, oracle.rate, $.peggedTokenBalance),
+            maxFeeE36
         );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralUsed == 0
@@ -652,43 +679,75 @@ contract Minter_v3 is
         address receiver,
         uint256 minPeggedOut
     ) external override nonReentrant returns (uint256 peggedOut) {
+        (peggedOut, ) = _mintPeggedTokenCapped(wrappedCollateralIn, receiver, minPeggedOut, type(uint256).max);
+    }
+
+    /// @notice Mint pegged tokens with a fee cap. Stops minting when cumulative fee would exceed maxFeeRatio.
+    /// Returns (0, 0) gracefully if the fee exceeds the cap from the start (does not revert).
+    /// @param wrappedCollateralIn The amount of wrapped collateral to post. Use type(uint256).max for all.
+    /// @param receiver The address to receive minted pegged tokens.
+    /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.
+    /// @param maxFeeRatio Maximum overall fee ratio (18 decimals). e.g. 0.05 ether = 5%.
+    /// @return peggedOut The amount of pegged tokens minted.
+    /// @return wrappedCollateralUsed The amount of wrapped collateral actually consumed (collateral added + fee).
+    function mintPeggedToken(
+        uint256 wrappedCollateralIn,
+        address receiver,
+        uint256 minPeggedOut,
+        uint256 maxFeeRatio
+    ) external nonReentrant returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
+        (peggedOut, wrappedCollateralUsed) = _mintPeggedTokenCapped(
+            wrappedCollateralIn, receiver, minPeggedOut, maxFeeRatio
+        );
+    }
+
+    function _mintPeggedTokenCapped(
+        uint256 wrappedCollateralIn,
+        address receiver,
+        uint256 minPeggedOut,
+        uint256 maxFeeRatio
+    ) internal returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
         MinterStorage storage $ = _getMinterStorage();
-        // work out how much collateral to use
         OracleData memory oracle = _fetchMid($.priceOracle);
         wrappedCollateralIn = Token.allOf(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
 
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = $.underlyingCollateral;
 
-        // fee, etc. calculation
+        uint256 maxFeeE36 = maxFeeRatio == type(uint256).max
+            ? type(uint256).max
+            : Math.mulDiv(wrappedCollateralIn, maxFeeRatio, 1 ether) * oracle.rate;
+
         uint256 wrappedFee;
         uint256 underlyingCollateralAdded;
-        (wrappedFee, peggedOut, wrappedCollateralIn, underlyingCollateralAdded) = _mintPeggedAdjustments(
+        (wrappedFee, peggedOut, wrappedCollateralUsed, underlyingCollateralAdded) = _mintPeggedAdjustments(
             $.incentiveConfig[Config_v1.MINT_PEGGED],
             wrappedCollateralIn,
-            CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, peggedTokenBalance_)
+            CollateralRatioData(underlyingCollateral_, oracle.price, oracle.rate, peggedTokenBalance_),
+            maxFeeE36
         );
 
         // slither-disable-next-line incorrect-equality
-        if (wrappedCollateralIn == 0) {
-            revert MintZeroAmount(PEGGED_TOKEN);
+        if (wrappedCollateralUsed == 0) {
+            if (maxFeeRatio == type(uint256).max) {
+                // Uncapped: zero means minting is disallowed by config
+                revert MintZeroAmount(PEGGED_TOKEN);
+            }
+            // Capped: fee exceeds cap from the start — return (0, 0) gracefully
+            return (0, 0);
         }
 
-        // check the amounts involved
-        // slither-disable-next-line incorrect-equality
         if (peggedOut < minPeggedOut) {
             revert MintInsufficientAmount(PEGGED_TOKEN, peggedOut, minPeggedOut);
         }
 
-        // do the mint for collateral
-        _mintPeggedToken(wrappedCollateralIn, peggedOut, receiver);
+        // _mintPeggedToken pulls only wrappedCollateralUsed from sender via safeTransferFrom
+        _mintPeggedToken(wrappedCollateralUsed, peggedOut, receiver);
 
-        // take the fee
         if (wrappedFee > 0) {
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, wrappedFee);
         }
 
-        // update our records
         $.underlyingCollateral = underlyingCollateral_ + underlyingCollateralAdded;
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
     }
@@ -1214,6 +1273,8 @@ contract Minter_v3 is
         uint256 underlyingFeeE36;
         uint256 mintedE36;
         int256 feeErrorE54;
+        bool feeCapped;
+        uint256 peggedTokenPriceE36;
     }
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
@@ -1235,7 +1296,8 @@ contract Minter_v3 is
     function _mintPeggedAdjustments(
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 wrappedCollateralIn,
-        CollateralRatioData memory cr
+        CollateralRatioData memory cr,
+        uint256 maxFeeE36
     )
         internal
         pure
@@ -1255,7 +1317,7 @@ contract Minter_v3 is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         MintPeggedWorkspace memory w;
         w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
-        uint256 peggedTokenPriceE36 = _peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
+        w.peggedTokenPriceE36 = _peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
 
         w.underlyingCollateralInLeftE36 = wrappedCollateralIn * cr.rate; // scaled to 1e36
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1 ether; // scaled to 1e36
@@ -1295,6 +1357,16 @@ contract Minter_v3 is
                 );
                 collateralInBandE36 = Math.min(w.underlyingCollateralInLeftE36, collateralInBandE36);
             }
+            // Cap collateral to stay within fee budget (skip when uncapped)
+            if (maxFeeE36 != type(uint256).max) {
+                uint256 remainingFeeE36 = maxFeeE36 - w.underlyingFeeE36;
+                uint256 maxCollateralForFeeE36 = Math.mulDiv(remainingFeeE36, 1 ether, bandFeeRatio);
+                if (collateralInBandE36 > maxCollateralForFeeE36) {
+                    collateralInBandE36 = maxCollateralForFeeE36;
+                    w.feeCapped = true;
+                }
+            }
+
             uint256 bandFeeE36;
             (bandFeeE36, w.feeErrorE54) = _divAccumulateError(collateralInBandE36 * bandFeeRatio, w.feeErrorE54);
             w.underlyingFeeE36 += bandFeeE36;
@@ -1306,15 +1378,14 @@ contract Minter_v3 is
             uint256 peggedMintedInBandE36 = Math.mulDiv(
                 collateralAddedInBandE36,
                 cr.price * 1 ether,
-                peggedTokenPriceE36
+                w.peggedTokenPriceE36
             );
 
             w.mintedE36 += peggedMintedInBandE36;
 
             // slither-disable-next-line incorrect-equality
-            if (w.underlyingCollateralInLeftE36 == 0 || w.band == 0) {
-                // we have run out of collateral for the simulation
-                // or we are in the lowest band, so no more, so exit
+            if (w.feeCapped || w.underlyingCollateralInLeftE36 == 0 || w.band == 0) {
+                // we have hit the fee cap, run out of collateral, or are in the lowest band
                 break;
             }
             // still some collateral left and we're allowed to mint, so simulate

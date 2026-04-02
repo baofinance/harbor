@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {PostRebalanceRemediationForStabilityPool_v2} from "script/patch/PostRebalanceRemediationForStabilityPool_v2.sol";
+import {PostRebalanceRemediationForStabilityPool_v2} from "script/verify/spl-remediation/PostRebalanceRemediationForStabilityPool_v2.sol";
 import {SafeBatch} from "script/safe/SafeBatch.s.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";

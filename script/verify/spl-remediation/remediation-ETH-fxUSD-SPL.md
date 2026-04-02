@@ -129,7 +129,7 @@ Post-remediation (`results/post_remediation.csv`):
 - Remaining dilution: ~$8 from bounty receiver 2 (0.0025 excess sailETH, not ours)
 - Treasury cost: ~$82 of fxSAVE
 
-**Contract**: `script/patch/PostRebalanceRemediationForStabilityPool_v2.sol`
+**Contract**: `script/verify/spl-remediation/PostRebalanceRemediationForStabilityPool_v2.sol`
 **Script**: `script/Remediate_SPL_ETH_fxUSD.s.sol`
 
 ## Value Accounting

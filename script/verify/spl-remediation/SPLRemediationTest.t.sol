@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "@harbor/../script/src/HarborFactoryDeployer.sol";
+import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
@@ -10,7 +10,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {PostRebalanceRemediationForStabilityPool_v2} from "script/patch/PostRebalanceRemediationForStabilityPool_v2.sol";
+import {PostRebalanceRemediationForStabilityPool_v2} from "script/verify/spl-remediation/PostRebalanceRemediationForStabilityPool_v2.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";

@@ -57,7 +57,8 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
         address factory = _ensureBaoFactory();
 
         // Fork mainnet so real token contracts (fxSAVE, fxUSD, etc.) exist
-        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
+        // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for caching
+        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
         vm.selectFork(forkId);
 
         // Register as factory operator

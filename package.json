@@ -15,7 +15,7 @@
     "gas": "./lib/bao-base/run regression-of gas",
     "coverage": "./lib/bao-base/run regression-of coverage",
     "wake": "wake detect all",
-    "slither": "./lib/bao-base/run slither --filter-paths 'script/patch'",
+    "slither": "./lib/bao-base/run slither --filter-paths 'script/verify'",
     "verify-audit": "lib/bao-base/run verify-audit",
     "validate": "./lib/bao-base/run validate",
     "script": "forge script --force --ffi",

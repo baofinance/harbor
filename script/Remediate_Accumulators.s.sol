@@ -6,7 +6,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 
-import {ForceMigrateAccumulator_v1} from "script/patch/ForceMigrateAccumulator_v1.sol";
+import {ForceMigrateAccumulator_v1} from "script/verify/sp-v3-migration/ForceMigrateAccumulator_v1.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 
 import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
