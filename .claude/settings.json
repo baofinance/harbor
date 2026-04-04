@@ -9,7 +9,13 @@
       "Read(//home/tfras/github/baofinance/harbor-yield.wip-hytoken/**)",
       "Bash(ls -la /home/tfras/github/baofinance/harbor-yield.wip-hytoken/*.md)",
       "Bash(forge coverage:*)",
-      "Bash(yarn sizes:*)"
+      "Bash(yarn sizes:*)",
+      "WebSearch",
+      "Read(//home/tfras/github/AladdinDAO/aladdin-v3-contracts/**)",
+      "WebFetch(domain:fxprotocol.gitbook.io)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.openzeppelin.com)",
+      "Read(//home/tfras/github/AladdinDAO/fx-protocol-contracts/**)"
     ]
   }
 }

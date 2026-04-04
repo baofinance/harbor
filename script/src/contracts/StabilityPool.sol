@@ -148,15 +148,4 @@ abstract contract StabilityPool is HarborFactoryDeployer {
             initData
         );
     }
-
-    /// @notice Register a reward alias on a stability pool.
-    /// @dev The SP must be deployed. The alias address is predicted — doesn't need to be deployed yet.
-    /// @param spKey The stability pool local key.
-    /// @param aliasName Alias purpose suffix.
-    function registerRewardAlias(string memory spKey, string memory aliasName) internal {
-        address sp = _predictAddress(spKey);
-        address aliasAddr = _predictAddress(_key(spKey, aliasName));
-        IMultipleRewardDistributor(sp).registerRewardToken(aliasAddr);
-        console.log("    > Registered %s on %s", aliasName, spKey);
-    }
 }

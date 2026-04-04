@@ -74,10 +74,10 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         EnumerableSet.AddressSet activeRewardTokens;
         /// @dev The list of historical reward tokens.
         EnumerableSet.AddressSet historicalRewardTokens;
-        /// @dev Alias: token address => underlying token address. address(0) = not an alias.
-        mapping(address => address) aliasUnderlying;
-        /// @dev Reverse: underlying token => aliases pointing to it.
-        mapping(address => EnumerableSet.AddressSet) underlyingAliases;
+        /// @dev Alias address => underlying token address. Set at registration, used for token transfers.
+        mapping(address => address) aliasToUnderlying;
+        /// @dev Underlying token => ordered list of aliases (drain order for claimSingle(underlying)).
+        mapping(address => address[]) aliases;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff))'
@@ -179,30 +179,65 @@ abstract contract LinearMultipleRewardDistributor_v3 is
 
     /// @inheritdoc IMultipleRewardDistributor
     function registerRewardToken(address token) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
+        _registerRewardToken(token);
+    }
+
+    /// @notice Register a reward token with an ordered list of aliases.
+    /// @dev Each alias must implement IRewardAlias.underlying() returning `token`.
+    ///      Aliases are registered as active tokens with their own integrals.
+    ///      claimSingle(underlying) drains aliases in this order, then underlying's own.
+    /// @param token The underlying reward token.
+    /// @param tokenAliases Ordered list of alias addresses (drain order).
+    function registerRewardToken(
+        address token,
+        address[] calldata tokenAliases
+    ) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
+        _registerRewardToken(token);
+
+        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
+        for (uint256 i = 0; i < tokenAliases.length; i++) {
+            address alias_ = tokenAliases[i];
+            // Reverts if alias doesn't implement underlying() or returns wrong address
+            if (IRewardAlias(alias_).underlying() != token) {
+                revert AliasUnderlyingMismatch();
+            }
+            _registerRewardToken(alias_);
+            $.aliasToUnderlying[alias_] = token;
+            $.aliases[token].push(alias_);
+        }
+    }
+
+    function _registerRewardToken(address token) internal {
         if (token == address(0)) {
             revert RewardTokenIsZero();
         }
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
         if (!$.activeRewardTokens.add(token)) {
-            revert DuplicatedRewardToken(); // if value was not added then it already exists
+            revert DuplicatedRewardToken();
         }
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.remove(token); // wake-disable-line unchecked-return-value
-
-        // Detect alias: if token implements IRewardAlias.underlying() and returns non-zero
-        address underlying = _tryGetUnderlying(token);
-        if (underlying != address(0)) {
-            $.aliasUnderlying[token] = underlying;
-            // slither-disable-next-line unused-return
-            $.underlyingAliases[underlying].add(token);
-        }
 
         emit RegisterRewardToken(token);
     }
 
     /// @inheritdoc IMultipleRewardDistributor
     function unregisterRewardToken(address token) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
+        _unregisterRewardToken(token);
+
+        // If token has aliases, unregister them too (they're a unit)
+        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
+        address[] storage tokenAliases = $.aliases[token];
+        for (uint256 i = 0; i < tokenAliases.length; i++) {
+            address alias_ = tokenAliases[i];
+            _unregisterRewardToken(alias_);
+            delete $.aliasToUnderlying[alias_];
+        }
+        delete $.aliases[token];
+    }
+
+    function _unregisterRewardToken(address token) internal {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
         if (!$.activeRewardTokens.remove(token)) {
@@ -219,7 +254,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
             }
         }
 
-        // slither-disable-next-line unused-return we don't care if the the token was already in the set
+        // slither-disable-next-line unused-return
         $.historicalRewardTokens.add(token); // wake-disable-line unchecked-return-value
         emit UnregisterRewardToken(token);
     }
@@ -288,28 +323,16 @@ abstract contract LinearMultipleRewardDistributor_v3 is
     // Alias support
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @dev Try to read underlying() from a token. Returns address(0) if not an alias.
-    function _tryGetUnderlying(address token) internal view returns (address underlying) {
-        // slither-disable-next-line low-level-calls
-        (bool success, bytes memory data) = token.staticcall(abi.encodeCall(IRewardAlias.underlying, ()));
-        if (success && data.length >= 32) {
-            underlying = abi.decode(data, (address));
-        }
-    }
-
     /// @dev Returns the underlying token for transfers. If not an alias, returns the token itself.
     function _resolveUnderlying(address token) internal view returns (address) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        address underlying = $.aliasUnderlying[token];
-        if (underlying != address(0)) {
-            return underlying;
-        }
-        return token;
+        address underlying = $.aliasToUnderlying[token];
+        return underlying != address(0) ? underlying : token;
     }
 
-    /// @dev Returns all aliases registered for an underlying token.
-    function _getAliases(address underlying) internal view returns (address[] memory) {
+    /// @dev Returns the ordered alias list for an underlying token.
+    function _getAliases(address token) internal view returns (address[] memory) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        return $.underlyingAliases[underlying].values();
+        return $.aliases[token];
     }
 }

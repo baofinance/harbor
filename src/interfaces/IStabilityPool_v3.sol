@@ -19,4 +19,17 @@ interface IStabilityPool_v3 is IStabilityPool {
     /// @param token The reward token address to claim.
     /// @param receiver The address of the recipient.
     function claimSingle(address account, address token, address receiver) external;
+
+    /// @notice Claim up to maxAmount of a single token's pending rewards.
+    /// @param account The address of the user.
+    /// @param token The reward token address to claim.
+    /// @param maxAmount The maximum amount to claim. Remainder stays as pending.
+    function claimSingle(address account, address token, uint256 maxAmount) external;
+
+    /// @notice Claim up to maxAmount of a single token's pending rewards, transferring to receiver.
+    /// @param account The address of the user.
+    /// @param token The reward token address to claim.
+    /// @param receiver The address of the recipient.
+    /// @param maxAmount The maximum amount to claim. Remainder stays as pending.
+    function claimSingle(address account, address token, address receiver, uint256 maxAmount) external;
 }

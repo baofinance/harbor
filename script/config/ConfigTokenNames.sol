@@ -50,7 +50,9 @@ abstract contract ConfigTokenNames {
     }
 
     function _spStrings(Liquidation liquidation) private view returns (string memory name, string memory symbol) {
-        string memory liqSymbol = liquidation == Liquidation.Collateral ? _collateral() : leveragedSymbol();
+        string memory liqSymbol = liquidation == Liquidation.Collateral
+            ? _collateral()
+            : string.concat("hs", _collateral().upper());
 
         name = string.concat("Harbor stability pool: ", peggedSymbol(), " (", liqSymbol, ")");
         symbol = string.concat("hsp", _peg(), "(", liqSymbol, ")");

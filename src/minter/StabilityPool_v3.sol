@@ -688,7 +688,7 @@ contract StabilityPool_v3 is
     /// @inheritdoc IStabilityPool_v3
     function claimSingle(address account, address token) external nonReentrant {
         _checkpoint(account);
-        _claimSingle(account, token, account);
+        _claimSingle(account, token, account, type(uint256).max);
     }
 
     /// @inheritdoc IStabilityPool_v3
@@ -697,7 +697,22 @@ contract StabilityPool_v3 is
             revert ClaimOthersRewardToAnother();
         }
         _checkpoint(account);
-        _claimSingle(account, token, receiver);
+        _claimSingle(account, token, receiver, type(uint256).max);
+    }
+
+    /// @inheritdoc IStabilityPool_v3
+    function claimSingle(address account, address token, uint256 maxAmount) external nonReentrant {
+        _checkpoint(account);
+        _claimSingle(account, token, account, maxAmount);
+    }
+
+    /// @inheritdoc IStabilityPool_v3
+    function claimSingle(address account, address token, address receiver, uint256 maxAmount) external nonReentrant {
+        if (account != _msgSender() && receiver != address(0)) {
+            revert ClaimOthersRewardToAnother();
+        }
+        _checkpoint(account);
+        _claimSingle(account, token, receiver, maxAmount);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

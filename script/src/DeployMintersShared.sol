@@ -16,6 +16,7 @@ import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 
 /// @notice Extended market config interface with methods from collateral and chain configs.
 interface IFullMinterConfig {
@@ -226,17 +227,38 @@ abstract contract DeployMintersShared is
         address wrappedCollateral = cfg.wrappedCollateralToken();
         address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
 
-        // Collateral SP: harvest + rebalance aliases (both underlying = wrappedCollateral)
+        // Collateral SP: wrappedCollateral with harvest + rebalance aliases
         deployRewardAlias(state, spCollKey, "harvest", wrappedCollateral);
         deployRewardAlias(state, spCollKey, "rebalance", wrappedCollateral);
-        registerRewardAlias(spCollKey, "harvest");
-        registerRewardAlias(spCollKey, "rebalance");
+        {
+            address[] memory collAliases = new address[](2);
+            collAliases[0] = _predictAddress(_key(spCollKey, "harvest"));
+            collAliases[1] = _predictAddress(_key(spCollKey, "rebalance"));
+            LinearMultipleRewardDistributor_v3(_predictAddress(spCollKey)).registerRewardToken(
+                wrappedCollateral,
+                collAliases
+            );
+        }
 
-        // Leveraged SP: harvest alias (underlying = wrappedCollateral), rebalance alias (underlying = leveragedToken)
+        // Leveraged SP: wrappedCollateral with harvest alias, leveragedToken with rebalance alias
         deployRewardAlias(state, spLevKey, "harvest", wrappedCollateral);
         deployRewardAlias(state, spLevKey, "rebalance", leveragedToken);
-        registerRewardAlias(spLevKey, "harvest");
-        registerRewardAlias(spLevKey, "rebalance");
+        {
+            address[] memory levHarvestAliases = new address[](1);
+            levHarvestAliases[0] = _predictAddress(_key(spLevKey, "harvest"));
+            LinearMultipleRewardDistributor_v3(_predictAddress(spLevKey)).registerRewardToken(
+                wrappedCollateral,
+                levHarvestAliases
+            );
+        }
+        {
+            address[] memory levRebalAliases = new address[](1);
+            levRebalAliases[0] = _predictAddress(_key(spLevKey, "rebalance"));
+            LinearMultipleRewardDistributor_v3(_predictAddress(spLevKey)).registerRewardToken(
+                leveragedToken,
+                levRebalAliases
+            );
+        }
     }
 
     function _deployStabilityPoolManager(
@@ -282,11 +304,6 @@ abstract contract DeployMintersShared is
         grantMinterRoles(string.concat(marketKey, "::minter"), minter, spm, genesis);
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolCollateral"), spCollateral, spm);
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolLeveraged"), spLeveraged, spm);
-
-        // Register raw reward tokens (needed for SPM's depositReward calls)
-        IMultipleRewardDistributor(spCollateral).registerRewardToken(cfg.wrappedCollateralToken());
-        IMultipleRewardDistributor(spLeveraged).registerRewardToken(cfg.wrappedCollateralToken());
-        IMultipleRewardDistributor(spLeveraged).registerRewardToken(_predictAddress(_key(marketKey, "leveraged")));
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(

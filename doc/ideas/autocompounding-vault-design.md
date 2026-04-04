@@ -1,210 +1,406 @@
 # Autocompounding Vault: Design & Requirements
 
-## 1. Overview
+## 1. Nomenclature
 
-The system has two layers:
+| Symbol | Meaning | Example (USD peg) |
+|--------|---------|-------------------|
+| **haXXX** | Pegged token for peg XXX | haUSD |
+| **COLn** | Unwrapped collateral n | stETH (COL1), fxUSD (COL2) |
+| **wCOLn** | Wrapped collateral n (interest-bearing) | wstETH (wCOL1), fxSAVE (wCOL2) |
+| **hsXXX.COLn** | Leveraged (sail) token for collateral n | hsUSD.stETH |
+| **hpXXX.COLn** | Rebasing SP token -- collateral pool | hpUSD.stETH |
+| **hpXXX.hsCOLn** | Rebasing SP token -- leveraged pool | hpUSD.hsstETH |
+| **hcXXX.COLn** | Auto-compounder share -- collateral pool | hcUSD.stETH |
+| **hcXXX.hsCOLn** | Auto-compounder share -- leveraged pool | hcUSD.hsstETH |
+| **hyXXX** | Peg Vault share | hyUSD |
+| **wXXXn** | Interest-bearing equivalent for peg XXX | fxSAVE (wUSD1) |
+| **SP** | Stability Pool | |
+| **AC** | Auto-Compounder (Level 1 ERC4626) | |
+| **PV** | Peg Vault (Level 2 ERC4626/ERC-7575) | |
 
-- **SP Wrappers** — one per stability pool. Each wraps a single rebasing SP token (hpXXX.YYY) into a non-rebasing ERC4626 share. Handles compounding for that one SP.
+## 2. Architecture Overview
 
-- **Peg Vault** — one per peg (XXX). Combines all SP Wrappers for that peg plus equivalent token holdings into a single interest-bearing ERC4626 token. This is what users hold for composable, auto-compounding exposure to a peg.
+Three layers offering escalating pooling. Each level gives up control in exchange for convenience:
 
-A prerequisite: making the SP a rebasing ERC20 token with transferable positions.
+```mermaid
+graph TD
+    subgraph "Level 0: Raw Stability Pools"
+        SP_COL1["SP hpUSD.stETH<br/>(rebasing ERC20)"]
+        SP_COL2["SP hpUSD.fxUSD<br/>(rebasing ERC20)"]
+        SP_LEV1["SP hpUSD.hsstETH<br/>(rebasing ERC20)"]
+    end
 
-## 2. Token Naming & Structure
+    subgraph "Level 1: Auto-Compounders (one per SP)"
+        AC_COL1["AC hcUSD.stETH<br/>(non-rebasing ERC4626)"]
+        AC_COL2["AC hcUSD.fxUSD<br/>(non-rebasing ERC4626)"]
+        AC_LEV1["AC hcUSD.hsstETH<br/>(non-rebasing ERC4626)<br/>standalone, not in PV"]
+    end
 
-### Tokens
+    subgraph "Level 2: Peg Vault"
+        PV["PV hyUSD<br/>(ERC4626 / ERC-7575)<br/>holds: AC shares + wXXXn"]
+    end
 
-| Token | Type | Description | Example |
-|-------|------|-------------|---------|
-| `haXXX` | ERC20 | Pegged token | haETH, haBTC, haUSD |
-| `hpXXX.YYY` | Rebasing ERC20 | Stability pool token | hpUSD.fxUSD, hpETH.stETH, hpBTC.hsFXUSD |
-| SP Wrapper share | ERC4626 | Non-rebasing wrapper for one SP | One per hpXXX.YYY |
-| `wXXX1`, `wXXX2` | ERC4626 (or wrappable) | Interest-bearing equivalent tokens denominated in XXX | wstETH (ETH peg), fxSAVE (USD peg) |
-| Peg Vault share | ERC4626 | Combined interest-bearing token for peg XXX | One per peg |
+    User_L0["User: full control"] -->|"deposit haUSD"| SP_COL1
+    User_L1["User: auto-compound"] -->|"deposit hpUSD.stETH"| AC_COL1
+    User_L2["User: pooled + equivalents"] -->|"deposit haUSD / hpUSD.COLn / wCOLn / wXXXn"| PV
 
-### Stability Pool Naming
-
-`hpXXX.YYY` where XXX is the peg and YYY is the collateral or liquidation token:
-- `hpXXX.col1` — collateral pool, first collateral type
-- `hpXXX.lev1` — leveraged pool, first collateral type
-- `hpXXX.col2` — collateral pool, second collateral type
-- `hpXXX.lev2` — leveraged pool, second collateral type
-
-## 3. Architecture
-
-### Two-Layer Design
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Peg Vault (XXX)                           │
-│                    ERC4626 share                             │
-│                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────┐ ┌────────┐ │
-│  │ SP Wrapper    │  │ SP Wrapper    │  │ wXXX1  │ │ wXXX2  │ │
-│  │ hpXXX.col1   │  │ hpXXX.lev1   │  │(equiv) │ │(equiv) │ │
-│  │ ERC4626      │  │ ERC4626      │  │ERC4626 │ │ERC4626 │ │
-│  └──────┬───────┘  └──────┬───────┘  └────────┘ └────────┘ │
-│         │                  │                                 │
-│  ┌──────┴───────┐  ┌──────┴───────┐                        │
-│  │ SP Wrapper    │  │ SP Wrapper    │                        │
-│  │ hpXXX.col2   │  │ hpXXX.lev2   │                        │
-│  │ ERC4626      │  │ ERC4626      │                        │
-│  └──────┬───────┘  └──────┴───────┘                        │
-└─────────┼──────────────────┼────────────────────────────────┘
-          │                  │
-   ┌──────┴───────┐  ┌──────┴───────┐
-   │ StabilityPool │  │ StabilityPool │
-   │ hpXXX.col2    │  │ hpXXX.lev2   │
-   │ Rebasing ERC20│  │ Rebasing ERC20│
-   └───────────────┘  └──────────────┘
+    AC_COL1 --> SP_COL1
+    AC_COL2 --> SP_COL2
+    AC_LEV1 --> SP_LEV1
+    PV -->|"holds hcUSD.stETH"| AC_COL1
+    PV -->|"holds hcUSD.fxUSD"| AC_COL2
+    PV -->|"holds wXXXn directly"| wXXXn_pool["wXXXn (e.g. fxSAVE)"]
 ```
 
-### SP Wrapper
+**Level 0 -- Raw SP:** User chooses collateral type, manages claims manually. Rebasing ERC20. Full control.
 
-One per stability pool. Wraps a single rebasing hpXXX.YYY token into a non-rebasing ERC4626 share. The SP Wrapper:
+**Level 1 -- Auto-Compounder (AC):** User chooses collateral type, gets autocompounding. Non-rebasing ERC4626 (fixed share count, moving price -- same as stETH/wstETH). Losses and rewards within one SP only. Available for both collateral and leveraged SPs.
 
-- **Asset:** hpXXX.YYY (the rebasing SP token)
-- **Compounds:** claims harvest rewards from its SP, mints haXXX via the minter, deposits back into the SP
-- **Holds equivalent:** when minting fails (high fee), swaps collateral to preferred wXXX equivalent
-- **Share price:** increases via compounding, decreases on SP rebalance (loss passthrough)
+**Level 2 -- Peg Vault (PV):** User gives up collateral choice. Losses socialised across all collateral SPs. Holds AC shares + equivalent tokens (wXXXn). ERC-7575 multi-asset entry. Leveraged SPs NOT included (rebalance into hsXXX.COLn which is not liquid).
 
-Each SP Wrapper is independently compounded. The hpXXX.YYY tokens it wraps could also be wrapped in a standalone ERC4626 interface for users who want single-SP exposure without the Peg Vault.
+## 3. Level 0: Raw Stability Pool
 
-### Peg Vault
+### Deposit / Withdraw
 
-One per peg. Combines all SP Wrappers for that peg into a single ERC4626 token. The Peg Vault:
+```mermaid
+sequenceDiagram
+    participant User
+    participant SP as Stability Pool
 
-- **Holds:** SP Wrapper shares + equivalent tokens (wXXX1, wXXX2)
-- **totalAssets():** sum of all SP Wrapper values + equivalent token values, priced in haXXX terms
-- **Multiple entry points (EIP-7575):** accepts deposits of any hpXXX.YYY token (routed to the appropriate SP Wrapper) and issues one share token
+    Note over User,SP: Deposit haXXX → receive rebasing hpXXX.COLn position
+
+    User->>SP: approve(SP, amount)
+    User->>SP: deposit(amount, user, minSharesOut)
+    Note over SP: Transfer haXXX from user<br/>Mint hpXXX.COLn position to user<br/>(balance = deposit amount, rebases on loss/reward)
+    SP-->>User: hpXXX.COLn position active
+
+    Note over User,SP: Withdraw hpXXX.COLn → receive haXXX
+
+    User->>SP: requestWithdrawal()
+    Note over SP: Opens withdrawal window after delay
+    Note over User: Wait for window to open
+    User->>SP: withdraw(amount, user, minAmountOut)
+    Note over SP: Burn hpXXX.COLn position<br/>Transfer haXXX to user
+    SP-->>User: haXXX returned
+```
+
+### Claim
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant SP as Stability Pool
+
+    Note over User,SP: After harvest/rebalance, wCOLn is claimable
+
+    User->>SP: claimable(user, wCOLn)
+    SP-->>User: amount available
+    User->>SP: claimSingle(user, wCOLn)
+    SP-->>User: wCOLn transferred (all pending)
+
+    Note over User,SP: Fractional claim — take only part
+
+    User->>SP: claimSingle(user, wCOLn, maxAmount)
+    SP-->>User: min(pending, maxAmount) transferred
+    Note over SP: Remainder stays as pending,<br/>included in claimable()
+```
+
+---
+
+## 4. Level 1: Auto-Compounder
+
+### What it does
+
+Wraps a rebasing hpXXX.COLn into a non-rebasing hcXXX.COLn share. Non-rebasing because the ERC4626 share count is fixed on deposit -- the share *price* changes, driven by `totalAssets() / totalSupply()`.
+
+### Deposit / Withdraw
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant AC as Auto-Compounder
+    participant SP as Stability Pool
+
+    Note over User,SP: Deposit hpXXX.COLn → receive hcXXX.COLn shares
+
+    User->>SP: approve(AC, amount)
+    User->>AC: deposit(amount, user)
+    AC->>SP: transferFrom(user, AC, amount)
+    Note over AC: hcShares = amount * totalSupply / totalAssets
+    AC-->>User: hcXXX.COLn shares minted
+
+    Note over User,SP: Deposit haXXX (convenience) → deposits to SP first
+
+    User->>AC: depositPegged(haXXX_amount, user)
+    AC->>SP: deposit(haXXX_amount, AC)
+    Note over AC: AC's SP position grows
+    Note over AC: hcShares = hpAmount * totalSupply / totalAssets
+    AC-->>User: hcXXX.COLn shares minted
+
+    Note over User,SP: Withdraw hcXXX.COLn → receive hpXXX.COLn
+
+    User->>AC: redeem(hcShares, user, user)
+    Note over AC: hpAmount = hcShares * totalAssets / totalSupply
+    AC->>SP: transfer(user, hpAmount)
+    Note over AC: User receives rebasing hpXXX.COLn.<br/>Their share of the unclaimed queue<br/>is reflected in the higher hpAmount<br/>(totalAssets includes claimable).
+    AC-->>User: hpXXX.COLn transferred
+```
+
+### Compound flow
+
+```mermaid
+sequenceDiagram
+    participant Bot as Compound caller
+    participant AC as Auto-Compounder
+    participant SP as Stability Pool
+    participant Minter
+
+    Bot->>AC: compound()
+    AC->>SP: claimable(AC, wCOLn)
+    SP-->>AC: claimable_wCOLn
+    AC->>Minter: mintPeggedTokenDryRun(claimable_wCOLn, maxFeeRatio)
+    Minter-->>AC: (fee, collUsed, pegged, ...)
+
+    alt collUsed > 0 (profitable to mint)
+        AC->>SP: claimSingle(AC, wCOLn, collUsed)
+        Note over SP: Fractional claim: only transfers collUsed,<br/>leaves remainder as unclaimed
+        SP-->>AC: wCOLn (collUsed amount only)
+        AC->>Minter: mintPeggedToken(wCOLn, collUsed, AC, 0, maxFeeRatio)
+        Minter-->>AC: haXXX minted
+        AC->>SP: deposit(haXXX, AC)
+        Note over AC: SP position grows, share price up
+    else collUsed == 0 (fee too high)
+        Note over AC: Skip. wCOLn stays as unclaimed<br/>rewards in SP. Included in totalAssets<br/>via claimable(). No value lost.
+    end
+```
+
+### Share accounting
 
 ```
-User deposits hpXXX.col1  ──> SP Wrapper(col1) ──┐
-User deposits hpXXX.lev1  ──> SP Wrapper(lev1) ──┤──> Peg Vault(XXX) ──> vault shares
-User deposits hpXXX.col2  ──> SP Wrapper(col2) ──┤
-User deposits hpXXX.lev2  ──> SP Wrapper(lev2) ──┘
+totalAssets() =
+    SP.balanceOf(AC)                         // SP position (haXXX terms, rebasing)
+  + SP.claimable(AC, wCOLn) * oraclePrice   // unclaimed wCOLn valued in haXXX
 ```
 
-### ERC4626 Composability
+Oracle read from `IMinter(minter).priceOracle()` at runtime -- always in sync with the Minter.
 
-All components present an ERC4626 interface:
+### Rebalance impact
 
-- **SP Wrappers** — ERC4626 with asset = hpXXX.YYY
-- **Equivalent tokens** — wXXX1, wXXX2 are ERC4626-compatible (or trivially wrappable to be so). This means the Peg Vault holds a portfolio of ERC4626 tokens.
-- **Peg Vault** — ERC4626 that holds other ERC4626 tokens. A vault-of-vaults.
+**Collateral SP rebalance:** haXXX burned, wCOLn received via `_accumulateReward`. wCOLn is liquid and valued in totalAssets via claimable. AC share price holds through rebalance -- lost haXXX position is offset by gained claimable wCOLn. The AC auto-compounds this back to haXXX when fees are acceptable.
 
-This uniform interface means any ERC4626-aware protocol can integrate with any layer.
+**Leveraged SP rebalance:** haXXX burned, hsXXX.COLn received. hsXXX.COLn is NOT liquid. AC share price drops because leveraged tokens can't be easily converted back. The AC can only compound the harvest wCOLn; leveraged token rewards queue indefinitely until manually claimed. Included in totalAssets via `leveragedTokenPrice()`.
 
-### Contract Structure
+### Fractional claim
 
-Whether SP Wrappers are separate contracts or internal accounting within the Peg Vault is a gas/size trade-off:
+`claimSingle(account, token, maxAmount)` on SP_v3 -- claims up to maxAmount, leaves the rest as pending. Enables the AC to claim only what can be profitably minted. Remainder stays in SP reward accounting, included in `totalAssets()` via `claimable()`.
 
-- **Separate contracts:** cleaner separation, each SP Wrapper is independently deployable and usable. Users can hold SP Wrapper shares directly for single-SP exposure. More gas for cross-contract calls.
-- **Internal accounting:** single contract, less gas, but contract size may be prohibitive. Users can't hold individual SP Wrapper shares.
+### Fairness
 
-## 4. Motivation
+Standard ERC4626. `totalAssets()` includes all value (SP position + unclaimed queue at oracle price). Deposits buy at current `totalAssets/totalShares`. No dilution, no cross-subsidy regardless of queue size.
 
-### Problem
-SP depositors earn wrapped collateral from harvests but must manually claim and reinvest. This delivers simple interest.
+### No equivalents at AC level
 
-### Solution
-Automate claim-convert-redeposit. Compound interest. Long-term holders benefit more.
+The AC does NOT convert wCOLn to wXXXn. It either mints haXXX from wCOLn or leaves it unclaimed in the SP. No value transfers out of the AC. wXXXn equivalents exist only at the PV level (from direct user deposits). This resolves the fairness concern from the earlier options analysis -- no cross-subsidy between layers.
 
-### Fairness Guarantee
+### Deposit convenience
 
-`totalAssets()` includes pending claimable rewards via SP's `claimable()` view function. New depositors buy at correct price — no dilution.
+Core asset is hpXXX.COLn. Also accepts haXXX via `depositPegged(haXXX, amount)` which atomically deposits to SP then mints AC shares.
 
-## 5. Design Decisions
+## 5. Level 2: Peg Vault
+
+### What it does
+
+Combines all collateral AC shares for a peg + equivalent tokens (wXXXn) into a single hyXXX share. ERC-7575: multiple entry assets, one share token.
+
+### Deposit flows
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant PV as Peg Vault
+    participant AC as Auto-Compounder
+    participant SP as Stability Pool
+    participant Minter
+
+    alt deposit hpXXX.COLn
+        User->>PV: deposit(hpXXX.COLn, amount)
+        PV->>AC: deposit(hpXXX.COLn, amount)
+        AC-->>PV: hcXXX.COLn shares
+        PV-->>User: hyXXX shares
+    end
+
+    alt deposit haXXX
+        User->>PV: deposit(haXXX, amount)
+        PV->>SP: deposit(haXXX, PV)
+        SP-->>PV: hpXXX.COLn
+        PV->>AC: deposit(hpXXX.COLn)
+        AC-->>PV: hcXXX.COLn shares
+        PV-->>User: hyXXX shares
+    end
+
+    alt deposit wCOLn (wrapped collateral)
+        User->>PV: deposit(wCOLn, amount)
+        PV->>Minter: mintPeggedToken(wCOLn)
+        Minter-->>PV: haXXX
+        PV->>SP: deposit(haXXX, PV)
+        SP-->>PV: hpXXX.COLn
+        PV->>AC: deposit(hpXXX.COLn)
+        AC-->>PV: hcXXX.COLn shares
+        PV-->>User: hyXXX shares
+    end
+
+    alt deposit wXXXn (equivalent)
+        User->>PV: deposit(wXXXn, amount)
+        Note over PV: PV holds wXXXn directly,<br/>priced via oracle
+        PV-->>User: hyXXX shares
+    end
+```
+
+### Withdrawal
+
+User receives proportional mix of all PV holdings: hpXXX.COLn (via AC redeem) for each collateral + wXXXn.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant PV as Peg Vault
+    participant AC1 as AC (COL1)
+    participant AC2 as AC (COL2)
+    participant SP1 as SP (COL1)
+    participant SP2 as SP (COL2)
+
+    User->>PV: redeem(hyShares, user, user)
+
+    Note over PV: For each AC, redeem proportional hcXXX.COLn shares
+
+    PV->>AC1: redeem(hcAmount1, user, PV)
+    AC1->>SP1: transfer(user, hpAmount1)
+    SP1-->>User: hpXXX.COL1
+
+    PV->>AC2: redeem(hcAmount2, user, PV)
+    AC2->>SP2: transfer(user, hpAmount2)
+    SP2-->>User: hpXXX.COL2
+
+    Note over PV: Transfer proportional wXXXn directly
+
+    PV-->>User: wXXXn (proportional share)
+
+    Note over PV: Burn hyXXX shares
+    PV-->>User: Withdrawal complete:<br/>hpXXX.COL1 + hpXXX.COL2 + wXXXn
+```
+
+### Compound
+
+```mermaid
+sequenceDiagram
+    participant Bot as Compound caller
+    participant PV as Peg Vault
+    participant AC as Auto-Compounder (each)
+    participant Swapper as ISwapper
+    participant Minter
+    participant SP as Stability Pool
+
+    Bot->>PV: compound()
+
+    loop for each AC
+        PV->>AC: compound()
+        Note over AC: Claims profitable wCOLn,<br/>mints haXXX, redeposits
+    end
+
+    alt PV holds wXXXn and fees acceptable
+        PV->>Swapper: swap(wXXXn, wCOLn)
+        Swapper-->>PV: wCOLn
+        PV->>Minter: mintPeggedToken(wCOLn, maxFeeRatio)
+        Minter-->>PV: haXXX
+        PV->>SP: deposit(haXXX, PV)
+        SP-->>PV: hpXXX.COLn
+        PV->>AC: deposit(hpXXX.COLn)
+        Note over PV: wXXXn balance dropped,<br/>AC shares increased
+    else fees too high
+        Note over PV: wXXXn stays, valued in totalAssets
+    end
+```
+
+### Share accounting
+
+```
+totalAssets() =
+    SUM( AC.convertToAssets(PV's hcXXX.COLn shares) )   // includes unclaimed queue
+  + SUM( wXXXn.balanceOf(PV) * oracle_price )            // direct equivalent holdings
+```
+
+### Fairness
+
+Same ERC4626 accounting over a portfolio. Collateral SP rebalances don't cause loss (wCOLn offsets haXXX). wXXXn deposits priced at oracle value, socialised across all hyXXX holders.
+
+## 6. Design Decisions
 
 ### 5.1 SP as Rebasing ERC20
 
-**Decision:** `balanceOf()` returns compounded real value. `totalSupply()` returns `totalAssetSupply()`. New: `transfer`, `transferFrom`, `approve`, `allowance`.
+`balanceOf()` returns compounded real value. `totalSupply()` returns `totalAssetSupply()`. Transfer/approve/allowance added in v3. Like stETH.
 
-**Why rebasing:** Non-rebasing would duplicate the SP Wrapper's role. The SP Wrapper IS the non-rebasing wrapped version. Like stETH/wstETH.
+### 5.2 Non-rebasing AC shares
 
-**Transfer:** No minimum constraints — total supply invariant is preserved since transfer doesn't change total supply.
+The AC is the non-rebasing wrapped version. Like wstETH wraps stETH. Share count fixed, price moves.
 
-**Approval:** Rebases downward on liquidation — approval may exceed balance. Same as stETH.
+### 5.3 Collateral SP rebalance holds value
 
-### 5.2 SP Wrapper Valuation
+Unlike leveraged SPs, collateral SP rebalance returns liquid wCOLn. The AC's totalAssets stays roughly constant (lost haXXX offset by gained claimable wCOLn). The AC auto-compounds back to haXXX when fees are acceptable.
 
-Per SP Wrapper: `totalAssets()` = `hpXXX.YYY.balanceOf(wrapper)` + pending claimable (via `claimable()` + mint dry-run) + equivalent holdings attributed to this wrapper.
+### 5.4 Leveraged SPs standalone
 
-On SP liquidation, `balanceOf(wrapper)` drops automatically. Share price drops.
+Leveraged SPs rebalance into hsXXX.COLn which is not liquid. Leveraged AC only compounds harvest wCOLn. Not included in PV (different risk profile).
 
-### 5.3 Peg Vault Valuation
+### 5.5 Minting: maxFeeRatio
 
-`totalAssets()` = sum of all SP Wrapper share values + all equivalent token values, priced in haXXX terms.
+`mintPeggedToken(wCOLn, receiver, minPeggedOut, maxFeeRatio)` on Minter_v3. Stops when cumulative fee exceeds maxFeeRatio * collateralIn. Returns (0, 0) gracefully if fee too high.
 
-Equivalent tokens (wXXX1, wXXX2) are denominated in the same underlying as haXXX, priced via the minter's oracle.
+### 5.6 Fractional Claim
 
-### 5.4 Minting: Fees and maxFeeRatio
+`claimSingle(account, token, maxAmount)` on SP_v3. Claims up to maxAmount, leaves rest as pending. Enables AC to claim only what can be profitably minted.
 
-Use `mintPeggedToken()` with fees. Add `mintPeggedTokenCapped` with `maxFeeRatio` parameter.
+### 5.7 Oracle Coupling
 
-```solidity
-// New: stops at fee threshold
-function mintPeggedTokenCapped(
-    uint256 wrappedIn, address receiver, uint256 minPeggedOut, int256 maxFeeRatio
-) returns (uint256 peggedOut, uint256 wrappedCollateralUsed)
-```
+AC and PV read `IMinter(minter).priceOracle()` at runtime. Always in sync. No separate oracle config.
 
-### 5.5 Compound Flow
+### 5.8 Equivalent Token Management
 
-Per SP Wrapper, independently:
-```
-compound()
-  1. Claim all rewards from this SP
-  2. mintPeggedTokenCapped(collateral, wrapper, 0, maxFeeRatio)
-  3. Deposit minted haXXX into SP
-  4. Remaining collateral -> swap to preferred wXXX equivalent
-```
+wXXXn held at PV level only (not in ACs). Preference-ordered list, updatable by keeper. PV converts wXXXn -> wCOLn (via ISwapper) -> haXXX (via Minter) -> SP when fees acceptable.
 
-At the Peg Vault level:
-```
-  5. Check equivalent holdings -> if fees acceptable, convert wXXX -> haXXX -> deposit into SP
-```
+### 5.9 No Equivalents in AC
 
-### 5.6 Compound Trigger
+The AC does NOT hold wXXXn. Unprofitable wCOLn stays as unclaimed rewards in the SP, valued in totalAssets via claimable. This avoids the cross-subsidy fairness issue identified in the options analysis.
 
-StabilityPoolManager calls compound during harvest and rebalance. Also permissionless.
+### 5.10 Compound Trigger
 
-### 5.7 Equivalent Token Management
+Permissionless. Also triggered by SPM during harvest/rebalance.
 
-Preference-ordered list of interest-bearing tokens denominated in XXX, updatable by keeper/bot.
+### 5.11 Withdrawal
 
-**Key properties:**
-- Equivalent tokens are interest-bearing, denominated in the same underlying as haXXX
-- Many are already ERC4626-compatible (e.g. fxSAVE wraps fxUSD, yield-bearing). Those that aren't can be trivially wrapped.
-- NOT per-collateral — equivalents are per-peg. Harvest collateral from any SP is swapped to the preferred wXXX
-- The Peg Vault's portfolio is: N SP Wrapper shares + M equivalent tokens — all ERC4626
+AC uses EXEMPT_WITHDRAWAL_FEE_ROLE initially. Dynamic fees (CR-based) replace withdrawal delay in future SP version, enabling standard ERC4626 withdraw.
 
-**User access:**
-- `depositEquivalent(token, amount, receiver)` -> mint Peg Vault shares
-- `withdrawEquivalent(token, shares, receiver)` -> return equivalent tokens if available
-
-### 5.8 Withdrawal Time Lock
-
-No time lock in SP Wrapper or Peg Vault. SP's existing time lock governs haXXX withdrawals.
-
-## 6. Access Control
+## 7. Access Control
 
 | Role | On Contract | Purpose |
 |------|------------|---------|
-| `KEEPER_ROLE` | Peg Vault | Swap execution + equivalent list ordering |
-| Owner | Peg Vault | Configure swapper, maxFeeRatio, upgrade |
-| Anyone | Both | `deposit`, `redeem`, `compound`, `convertEquivalent` |
+| `KEEPER_ROLE` | PV | Swap execution + equivalent list ordering |
+| Owner | PV, AC | Configure maxFeeRatio, swapper, upgrade |
+| `EXEMPT_WITHDRAWAL_FEE_ROLE` | SP | AC withdraws without delay |
+| Anyone | All | deposit, withdraw, compound |
 
-## 7. Contracts
+## 8. Contracts
 
-| Contract | Action | Purpose |
+| Contract | Status | Purpose |
 |----------|--------|---------|
-| SP Wrapper | Create | ERC4626 per SP, compounds one SP |
-| Peg Vault | Create | ERC4626 per peg, combines SP Wrappers + equivalents |
-| `StabilityPool_v3` | Done | Rebasing ERC20 |
-| `Minter_v2` | Modify | Add `mintPeggedTokenCapped` |
-| `StabilityPoolManager_v1` | Modify | Add compound triggers |
+| StabilityPool_v3 | In progress | Rebasing ERC20 + claimSingle + fractional claim |
+| Minter_v3 | Done | mintPeggedTokenCapped |
+| AutoCompounder | To build | ERC4626 per SP (Level 1) |
+| PegVault | To build | ERC4626/ERC-7575 per peg (Level 2) |
+| ISwapper / MockSwapper | To build | wXXXn conversion interface |
+| StabilityPoolManager_v2 | To build | Compound triggers |
 
-## 8. Future Directions
+## 9. References
 
-- **On-chain APY calculation:** For automated equivalent token ordering without off-chain bot dependency.
+- [Aladdin fxSAVE analysis](../aladdin/fxSAVE.md) -- ERC4626 wrapping stability pool, proven pattern
+- [SP dynamic fees](sp-dynamic-fees.md) -- CR-based fees replacing withdrawal delay
+- [SP auto-compounding](sp-auto-compounding-harvests.md) -- deferred: two-product factor for SP-internal compounding
