@@ -6,6 +6,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
+import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
@@ -45,13 +46,13 @@ contract TestStabilityPool_v3_ERC20 is TestStabilityPoolSetUp {
     function test_stringTooLong_name_reverts() public {
         // 65-char string exceeds 64-char limit
         string memory longName = "12345678901234567890123456789012345678901234567890123456789012345";
-        vm.expectRevert(StabilityPool_v3.StringTooLong.selector);
+        vm.expectRevert(StringPacking_v1.StringTooLong.selector);
         new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, longName, "s");
     }
 
     function test_stringTooLong_symbol_reverts() public {
         string memory longSymbol = "12345678901234567890123456789012345678901234567890123456789012345";
-        vm.expectRevert(StabilityPool_v3.StringTooLong.selector);
+        vm.expectRevert(StringPacking_v1.StringTooLong.selector);
         new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, "n", longSymbol);
     }
 

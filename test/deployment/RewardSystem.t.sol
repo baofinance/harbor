@@ -15,8 +15,8 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IStabilityPool_v3} from "src/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 import {RewardAlias_v1} from "src/reward/RewardAlias_v1.sol";
@@ -163,7 +163,7 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         // Claim
         vm.prank(alice);
-        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(alice, wrappedCollateral);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(alice, address(0), wrappedCollateral, type(uint256).max);
 
         // claimed() should return the claimed amount
         uint256 claimedAmount = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(alice, wrappedCollateral);

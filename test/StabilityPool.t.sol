@@ -34,7 +34,7 @@ contract StabilityPool_vN is StabilityPool_v3 {
     constructor(
         address minter_,
         address liquidationToken_
-    ) StabilityPool_v3(minter_, liquidationToken_, 3600, 90000, 1 ether, "SP vN", "spVN") {}
+    ) StabilityPool_v3(minter_, liquidationToken_, 3600, 90000, 1 ether, "Mock SP", "mSP") {}
 
     // Add a new function to verify the upgrade worked
     function version() external pure returns (string memory) {

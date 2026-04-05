@@ -8,6 +8,7 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
@@ -115,7 +116,8 @@ import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearM
 abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ReentrancyGuardTransientUpgradeable,
     LinearMultipleRewardDistributor_v3,
-    IMultipleRewardAccumulator
+    IMultipleRewardAccumulator,
+    IMultipleRewardAccumulator_v3
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
@@ -312,53 +314,83 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         _checkpoint(account);
     }
 
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claim() external override {
-        address sender = _msgSender();
-        claim(sender, address(0));
-    }
+    // ═══════════════════════════════════════════════════════════════════════
+    // v3 unified claim
+    // ═══════════════════════════════════════════════════════════════════════
 
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claim(address account) external override {
-        claim(account, address(0));
-    }
-
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claim(address account, address receiver) public override nonReentrant {
+    /// @inheritdoc IMultipleRewardAccumulator_v3
+    function claim(
+        address account,
+        address receiver,
+        address token,
+        uint256 maxAmount
+    ) public nonReentrant {
         if (account != _msgSender() && receiver != address(0)) {
             revert ClaimOthersRewardToAnother();
         }
         _checkpoint(account);
-        _claim(account, receiver);
-    }
-
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claimHistorical(address[] memory tokens) external nonReentrant {
-        address sender = _msgSender();
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-
-        _checkpoint(sender);
-
-        address receiver = $.rewardReceiver[sender];
-        if (receiver == address(0)) {
-            receiver = sender;
-        }
-        for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(sender, tokens[i], receiver, type(uint256).max); // wake-disable-line unchecked-return-value
+        receiver = _resolveReceiver(account, receiver);
+        if (token == address(0)) {
+            address[] memory tokens = activeRewardTokens();
+            for (uint256 i = 0; i < tokens.length; i++) {
+                _claimSingle(account, tokens[i], receiver, maxAmount);
+            }
+        } else {
+            _claimSingle(account, token, receiver, maxAmount);
         }
     }
 
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claimHistorical(address account, address[] memory tokens) external nonReentrant {
+    /// @inheritdoc IMultipleRewardAccumulator_v3
+    function claim(
+        address account,
+        address receiver,
+        address[] calldata tokens,
+        uint256 maxAmount
+    ) external nonReentrant {
+        if (account != _msgSender() && receiver != address(0)) {
+            revert ClaimOthersRewardToAnother();
+        }
         _checkpoint(account);
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-
-        address receiver = $.rewardReceiver[account];
-        if (receiver == address(0)) {
-            receiver = account;
-        }
+        receiver = _resolveReceiver(account, receiver);
         for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver, type(uint256).max); // wake-disable-line unchecked-return-value
+            _claimSingle(account, tokens[i], receiver, maxAmount);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Legacy claim — thin wrappers with defaults
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @inheritdoc IMultipleRewardAccumulator
+    function claim() external override {
+        claim(_msgSender(), address(0), address(0), type(uint256).max);
+    }
+
+    /// @inheritdoc IMultipleRewardAccumulator
+    function claim(address account) external override {
+        claim(account, address(0), address(0), type(uint256).max);
+    }
+
+    /// @inheritdoc IMultipleRewardAccumulator
+    function claim(address account, address receiver) public override {
+        claim(account, receiver, address(0), type(uint256).max);
+    }
+
+    /// @inheritdoc IMultipleRewardAccumulator
+    function claimHistorical(address[] memory tokens) external {
+        _claimTokenList(_msgSender(), tokens);
+    }
+
+    /// @inheritdoc IMultipleRewardAccumulator
+    function claimHistorical(address account, address[] memory tokens) external {
+        _claimTokenList(account, tokens);
+    }
+
+    function _claimTokenList(address account, address[] memory tokens) private {
+        _checkpoint(account);
+        address receiver = _resolveReceiver(account, address(0));
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _claimSingle(account, tokens[i], receiver, type(uint256).max);
         }
     }
 
@@ -497,34 +529,18 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         }
     }
 
-    /// @dev Internal function to claim active reward tokens.
-    ///
-    /// @param account The address of user to claim.
-    /// @param receiver The address of recipient of the reward token.
-    function _claim(address account, address receiver) internal virtual {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        address receiverStored = $.rewardReceiver[account];
-        if (receiverStored != address(0) && receiver == address(0)) {
-            receiver = receiverStored;
-        }
+    /// @dev Resolve the receiver address: use stored receiver if set, otherwise account.
+    function _resolveReceiver(address account, address receiver) internal view returns (address) {
         if (receiver == address(0)) {
-            receiver = account;
+            MultipleRewardCompoundingAccumulatorStorage storage $ =
+                _getMultipleRewardCompoundingAccumulatorStorage();
+            receiver = $.rewardReceiver[account];
+            if (receiver == address(0)) {
+                receiver = account;
+            }
         }
-        address[] memory activeRewardTokens = activeRewardTokens();
-        for (uint256 i = 0; i < activeRewardTokens.length; i++) {
-            _claimSingle(account, activeRewardTokens[i], receiver, type(uint256).max); // wake-disable-line unchecked-return-value
-        }
+        return receiver;
     }
-
-    /// @dev Internal function to claim single reward token.
-    /// Caller should make sure `_checkpoint` is called before this function.
-    ///
-    /// @param account The address of user to claim.
-    /// @param token The address of reward token.
-    /// @param receiver The address of recipient of the reward token.
-    // function _claimSingle(address account, address token, address receiver) internal virtual returns (uint256) {
-    //     return _claimSingle(account, token, receiver, type(uint256).max);
-    // }
 
     /// @dev Internal function to claim up to maxAmount of a single reward token.
     /// If token has registered aliases, drains them in order first, then the token's own pending.

@@ -10,8 +10,8 @@ import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBa
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IStabilityPool_v3} from "src/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -191,7 +191,7 @@ contract StabilityPoolAliasDeploymentTest is StabilityPoolAliasDeploymentSetUp {
         // Claim via alias — should receive wrappedCollateral (the underlying)
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
         vm.prank(alice);
-        IStabilityPool_v3(stabilityPoolCollateral).claimSingle(alice, collHarvestAlias);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(alice, address(0), collHarvestAlias, type(uint256).max);
         uint256 received = IERC20(wrappedCollateral).balanceOf(alice) - balBefore;
 
         assertApprox(received, rewardAmount, 604800, "claimed underlying amount");

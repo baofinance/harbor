@@ -17,6 +17,7 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IStabilityPool_v3} from "src/interfaces/IStabilityPool_v3.sol";
+import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -194,7 +195,6 @@ contract StabilityPool_v3 is
 
     error TransferExceedsBalance(address from, uint256 amount, uint256 balance);
     error InsufficientAllowance(address spender, uint256 currentAllowance, uint256 needed);
-    error StringTooLong();
 
     /***************
      * Constructor *
@@ -239,8 +239,8 @@ contract StabilityPool_v3 is
         string memory symbol_
     ) MultipleRewardCompoundingAccumulator_v3(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
         _disableInitializers();
-        (_ERC20_NAME_0, _ERC20_NAME_1) = _packString64(name_);
-        (_ERC20_SYMBOL, ) = _packString64(symbol_);
+        (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
+        (_ERC20_SYMBOL, ) = StringPacking_v1.pack64(symbol_);
         address asset = IMinter(minter_).PEGGED_TOKEN();
         _ERC20_DECIMALS = IERC20Metadata(asset).decimals();
         Token.sanityCheckERC20Token(asset);
@@ -640,11 +640,11 @@ contract StabilityPool_v3 is
     // ═══════════════════════════════════════════════════════════════════════
 
     function name() external view returns (string memory) {
-        return _unpackString64(_ERC20_NAME_0, _ERC20_NAME_1);
+        return StringPacking_v1.unpack64(_ERC20_NAME_0, _ERC20_NAME_1);
     }
 
     function symbol() external view returns (string memory) {
-        return _unpackString64(_ERC20_SYMBOL, bytes32(0));
+        return StringPacking_v1.unpack64(_ERC20_SYMBOL, bytes32(0));
     }
 
     function decimals() external view returns (uint8) {
@@ -679,40 +679,6 @@ contract StabilityPool_v3 is
         for (uint256 i = 0; i < aliases.length; i++) {
             total += _claimable(account, aliases[i], true);
         }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // Selective Claim
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /// @inheritdoc IStabilityPool_v3
-    function claimSingle(address account, address token) external nonReentrant {
-        _checkpoint(account);
-        _claimSingle(account, token, account, type(uint256).max);
-    }
-
-    /// @inheritdoc IStabilityPool_v3
-    function claimSingle(address account, address token, address receiver) external nonReentrant {
-        if (account != _msgSender() && receiver != address(0)) {
-            revert ClaimOthersRewardToAnother();
-        }
-        _checkpoint(account);
-        _claimSingle(account, token, receiver, type(uint256).max);
-    }
-
-    /// @inheritdoc IStabilityPool_v3
-    function claimSingle(address account, address token, uint256 maxAmount) external nonReentrant {
-        _checkpoint(account);
-        _claimSingle(account, token, account, maxAmount);
-    }
-
-    /// @inheritdoc IStabilityPool_v3
-    function claimSingle(address account, address token, address receiver, uint256 maxAmount) external nonReentrant {
-        if (account != _msgSender() && receiver != address(0)) {
-            revert ClaimOthersRewardToAnother();
-        }
-        _checkpoint(account);
-        _claimSingle(account, token, receiver, maxAmount);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -782,46 +748,6 @@ contract StabilityPool_v3 is
         emit Transfer(from, to, amount);
     }
 
-    function _packString64(string memory s) internal pure returns (bytes32 b0, bytes32 b1) {
-        bytes memory b = bytes(s);
-        if (b.length > 64) {
-            revert StringTooLong();
-        }
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            b0 := mload(add(b, 32))
-            b1 := mload(add(b, 64))
-        }
-        if (b.length < 32) {
-            b0 = bytes32(uint256(b0) & ~(type(uint256).max >> (b.length * 8)));
-            b1 = bytes32(0);
-        } else if (b.length < 64) {
-            b1 = bytes32(uint256(b1) & ~(type(uint256).max >> ((b.length - 32) * 8)));
-        }
-    }
-
-    function _unpackString64(bytes32 b0, bytes32 b1) internal pure returns (string memory) {
-        uint256 len0;
-        for (len0 = 32; len0 > 0; len0--) {
-            if (b0[len0 - 1] != 0) {
-                break;
-            }
-        }
-        uint256 len1;
-        for (len1 = 32; len1 > 0; len1--) {
-            if (b1[len1 - 1] != 0) {
-                break;
-            }
-        }
-        bytes memory result = new bytes(len0 + len1);
-        for (uint256 i = 0; i < len0; i++) {
-            result[i] = b0[i];
-        }
-        for (uint256 i = 0; i < len1; i++) {
-            result[len0 + i] = b1[i];
-        }
-        return string(result);
-    }
 }
 
 // slither-disable-end timestamp
