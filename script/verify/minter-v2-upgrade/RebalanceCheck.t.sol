@@ -11,7 +11,7 @@ import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {Minter_v3} from "src/minter/Minter_v3.sol";
+import {Minter_v2} from "src/minter/Minter_v2.sol";
 
 abstract contract RebalanceCheckBase is BaoTest, HarborFactoryDeployer {
     uint256 constant FORK_BLOCK = 24687073;
@@ -52,15 +52,12 @@ abstract contract RebalanceCheckBase is BaoTest, HarborFactoryDeployer {
         manager.upgradeToAndCall(address(newSpmImpl), "");
     }
 
-    function _upgradeMinterV3() internal {
+    function _upgradeMinterV2() internal {
         address proxyOwner = IBaoOwnable(minter).owner();
         IMinter m = IMinter(minter);
-        address newMinterImpl = address(new Minter_v3(
-            m.WRAPPED_COLLATERAL_TOKEN(),
-            m.PEGGED_TOKEN(),
-            m.LEVERAGED_TOKEN(),
-            "burn(uint256)"
-        ));
+        address newMinterImpl = address(
+            new Minter_v2(m.WRAPPED_COLLATERAL_TOKEN(), m.PEGGED_TOKEN(), m.LEVERAGED_TOKEN(), "burn(uint256)")
+        );
         vm.prank(proxyOwner);
         UUPSUpgradeable(minter).upgradeToAndCall(newMinterImpl, "");
     }
@@ -179,31 +176,31 @@ contract RebalanceCheck_v1 is RebalanceCheckBase {
     }
 }
 
-/// @notice Tests after upgrading to Minter_v3
-contract RebalanceCheck_v3 is RebalanceCheckBase {
+/// @notice Tests after upgrading to Minter_v2
+contract RebalanceCheck_v2 is RebalanceCheckBase {
     function setUp() public {
         _forkAndPredict();
-        _upgradeMinterV3();
+        _upgradeMinterV2();
         _upgradeSpm();
     }
 
-    function test_v3_leveragedTokenPrice_doesNotDecrease() public {
+    function test_v2_leveragedTokenPrice_doesNotDecrease() public {
         _assert_leveragedTokenPrice_doesNotDecrease();
     }
 
-    function test_v3_collateralRatio_hitsThreshold() public {
+    function test_v2_collateralRatio_hitsThreshold() public {
         _assert_collateralRatio_hitsThreshold();
     }
 
-    function test_v3_userClaimable_proportionalToDeposit() public {
+    function test_v2_userClaimable_proportionalToDeposit() public {
         _assert_userClaimable_proportionalToDeposit();
     }
 
-    function test_v3_leveragedMint_doesNotExceedPeggedBurned() public {
+    function test_v2_leveragedMint_doesNotExceedPeggedBurned() public {
         _assert_leveragedMint_doesNotExceedPeggedBurned();
     }
 
-    function test_v3_holderValues_preserved() public {
+    function test_v2_holderValues_preserved() public {
         _assert_holderValues_preserved();
     }
 }
@@ -216,7 +213,7 @@ contract RebalanceCheck_remediation is RebalanceCheckBase {
         _upgradeSpm();
     }
 
-    /// @notice Runs rebalance under v1 and v3, logs the delta in leveraged supply
+    /// @notice Runs rebalance under v1 and v2, logs the delta in leveraged supply
     /// and underlyingCollateral, showing the exact over-minting.
     function test_log_overminting_delta() public {
         // --- snapshot v1 rebalance ---
@@ -234,33 +231,33 @@ contract RebalanceCheck_remediation is RebalanceCheckBase {
 
         vm.revertToState(snap);
 
-        // --- upgrade to v3 and rebalance ---
-        _upgradeMinterV3();
+        // --- upgrade to v2 and rebalance ---
+        _upgradeMinterV2();
 
-        uint256 v3_priceBefore = IMinter(minter).leveragedTokenPrice();
+        uint256 v2_priceBefore = IMinter(minter).leveragedTokenPrice();
 
         StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
 
-        uint256 v3_collateralAfter = IMinter(minter).collateralTokenBalance();
-        uint256 v3_levSupplyAfter = IERC20(leveraged).totalSupply();
-        uint256 v3_priceAfter = IMinter(minter).leveragedTokenPrice();
+        uint256 v2_collateralAfter = IMinter(minter).collateralTokenBalance();
+        uint256 v2_levSupplyAfter = IERC20(leveraged).totalSupply();
+        uint256 v2_priceAfter = IMinter(minter).leveragedTokenPrice();
 
         // --- log results ---
-        uint256 excessLeveraged = v1_levSupplyAfter - v3_levSupplyAfter;
-        uint256 collateralDelta = v1_collateralAfter - v3_collateralAfter;
+        uint256 excessLeveraged = v1_levSupplyAfter - v2_levSupplyAfter;
+        uint256 collateralDelta = v1_collateralAfter - v2_collateralAfter;
 
         emit log_named_uint("v1 leveraged price BEFORE rebalance", v1_priceBefore);
         emit log_named_uint("v1 leveraged price AFTER  rebalance", v1_priceAfter);
-        emit log_named_uint("v3 leveraged price BEFORE rebalance", v3_priceBefore);
-        emit log_named_uint("v3 leveraged price AFTER  rebalance", v3_priceAfter);
+        emit log_named_uint("v3 leveraged price BEFORE rebalance", v2_priceBefore);
+        emit log_named_uint("v3 leveraged price AFTER  rebalance", v2_priceAfter);
         emit log_named_uint("v1 leveraged minted", v1_levSupplyAfter - v1_levSupplyBefore);
-        emit log_named_uint("v3 leveraged minted", v3_levSupplyAfter - v1_levSupplyBefore);
+        emit log_named_uint("v3 leveraged minted", v2_levSupplyAfter - v1_levSupplyBefore);
         emit log_named_uint("EXCESS leveraged tokens minted by v1", excessLeveraged);
         emit log_named_uint("v1 underlyingCollateral after", v1_collateralAfter);
-        emit log_named_uint("v3 underlyingCollateral after", v3_collateralAfter);
+        emit log_named_uint("v3 underlyingCollateral after", v2_collateralAfter);
         emit log_named_uint("underlyingCollateral DELTA (v1 too high by)", collateralDelta);
         emit log_named_uint("v1 collateral removed", v1_collateralBefore - v1_collateralAfter);
-        emit log_named_uint("v3 collateral removed", v1_collateralBefore - v3_collateralAfter);
+        emit log_named_uint("v3 collateral removed", v1_collateralBefore - v2_collateralAfter);
     }
 
     /// @notice Confirms that the v1 bug is purely excess leveraged token supply,
@@ -268,11 +265,11 @@ contract RebalanceCheck_remediation is RebalanceCheckBase {
     function test_confirm_collateralDelta_isZero() public {
         uint256 snapInit = vm.snapshotState();
 
-        // --- Run v3 (correct) rebalance ---
-        _upgradeMinterV3();
+        // --- Run v2 (correct) rebalance ---
+        _upgradeMinterV2();
         StabilityPoolManager_v1(stabilityPoolManager).rebalance(makeAddr("bounty"), 0);
-        uint256 v3_collateralAfter = IMinter(minter).collateralTokenBalance();
-        uint256 v3_levSupply = IERC20(leveraged).totalSupply();
+        uint256 v2_collateralAfter = IMinter(minter).collateralTokenBalance();
+        uint256 v2_levSupply = IERC20(leveraged).totalSupply();
 
         // --- Revert and run v1 (buggy) rebalance ---
         vm.revertToState(snapInit);
@@ -281,10 +278,10 @@ contract RebalanceCheck_remediation is RebalanceCheckBase {
         uint256 v1_levSupply = IERC20(leveraged).totalSupply();
 
         // underlyingCollateral is identical — the bug doesn't affect collateral accounting
-        assertEq(v1_collateralAfter, v3_collateralAfter, "collateral must be identical");
+        assertEq(v1_collateralAfter, v2_collateralAfter, "collateral must be identical");
 
         // The ONLY difference is excess leveraged tokens minted
-        uint256 excess = v1_levSupply - v3_levSupply;
+        uint256 excess = v1_levSupply - v2_levSupply;
         assertGt(excess, 0, "v1 must over-mint leveraged tokens");
 
         emit log_named_uint("excess leveraged tokens", excess);

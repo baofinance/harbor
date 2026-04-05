@@ -3,11 +3,11 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
-import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
-import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
-import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
-import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
+import {Deploy_BTC_Minter} from "script/src/v3/Deploy_BTC_Minter.sol";
+import {Deploy_ETH_Minter} from "script/src/v3/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "script/src/v3/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "script/src/v3/Deploy_GOLD_Minter.sol";
+import {Deploy_SILVER_Minter} from "script/src/v3/Deploy_SILVER_Minter.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";

@@ -8,12 +8,12 @@ import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBa
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
-import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
-import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
-import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
-import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
-import {Deploy_MCAP_Minter} from "script/src/Deploy_MCAP_Minter.sol";
-import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
+import {Deploy_BTC_Minter} from "script/src/v3/Deploy_BTC_Minter.sol";
+import {Deploy_ETH_Minter} from "script/src/v3/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "script/src/v3/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "script/src/v3/Deploy_GOLD_Minter.sol";
+import {Deploy_MCAP_Minter} from "script/src/v3/Deploy_MCAP_Minter.sol";
+import {Deploy_SILVER_Minter} from "script/src/v3/Deploy_SILVER_Minter.sol";
 
 import {SafeBatch} from "script/safe/SafeBatch.s.sol";
 
