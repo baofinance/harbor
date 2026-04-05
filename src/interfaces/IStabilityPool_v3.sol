@@ -6,5 +6,5 @@ import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccum
 
 /// @notice StabilityPool v3 additions: unified claim interface.
 /// @dev Does NOT inherit IStabilityPool — the SP_v3 contract inherits both separately.
-// solhint-disable-next-line contract-name-capwords
+// solhint-disable-next-line contract-name-capwords,no-empty-blocks
 interface IStabilityPool_v3 is IMultipleRewardAccumulator_v3 {}

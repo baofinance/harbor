@@ -621,7 +621,12 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         uint256 bal1Before = IERC20(rewardToken1).balanceOf(user1);
         uint256 bal2Before = IERC20(rewardToken2).balanceOf(user1);
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            rewardToken1,
+            type(uint256).max
+        );
 
         // rewardToken1 claimed
         assertEq(IERC20(rewardToken1).balanceOf(user1) - bal1Before, claimable1, "rewardToken1 claimed");
@@ -658,7 +663,12 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Anyone can trigger claim for user1 — tokens go to user1
         vm.prank(user2);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            rewardToken1,
+            type(uint256).max
+        );
 
         assertEq(IERC20(rewardToken1).balanceOf(user1), claimable1, "user1 received tokens");
     }
@@ -679,7 +689,12 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         _depositForUsers();
         // No rewards deposited — claimSingle should not revert
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            rewardToken1,
+            type(uint256).max
+        );
         assertEq(IERC20(rewardToken1).balanceOf(user1), 0, "nothing claimed");
     }
 
@@ -717,7 +732,12 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         // Claim with maxAmount > claimable — should claim all
         uint256 balBefore = IERC20(rewardToken1).balanceOf(user1);
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            rewardToken1,
+            type(uint256).max
+        );
 
         assertEq(IERC20(rewardToken1).balanceOf(user1) - balBefore, claimable, "claimed all");
 
@@ -775,7 +795,12 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         vm.startPrank(user1);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, tranche);
         IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, tranche);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            rewardToken1,
+            type(uint256).max
+        );
         vm.stopPrank();
 
         // Should have claimed everything
@@ -816,7 +841,12 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
 
         // Claim the rest
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            rewardToken1,
+            type(uint256).max
+        );
         assertApproxEqRel(IERC20(rewardToken1).balanceOf(user1), 100 ether, 0.02 ether, "~100 total");
     }
 
@@ -987,7 +1017,12 @@ contract TestRewardAlias is TestStabilityPoolRebalanceSetUp {
 
         uint256 rwdBefore = aliasUnderlying.balanceOf(user1);
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), address(harvestAlias), type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            address(harvestAlias),
+            type(uint256).max
+        );
 
         // User received the underlying token, not the alias
         assertEq(aliasUnderlying.balanceOf(user1) - rwdBefore, claimable, "received underlying");
@@ -1003,7 +1038,12 @@ contract TestRewardAlias is TestStabilityPoolRebalanceSetUp {
 
         // Claim only harvest
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), address(harvestAlias), type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            address(harvestAlias),
+            type(uint256).max
+        );
 
         // Boost should be unchanged
         uint256 boostAfter = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(boostAlias));
@@ -1139,7 +1179,12 @@ contract TestRewardAlias is TestStabilityPoolRebalanceSetUp {
 
         // Partial claim from harvestAlias only
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), address(harvestAlias), claimableHarvest / 3);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            address(harvestAlias),
+            claimableHarvest / 3
+        );
 
         // boostAlias claimable unchanged
         assertEq(
@@ -1177,7 +1222,12 @@ contract TestRewardAlias is TestStabilityPoolRebalanceSetUp {
 
         // Partial claim from harvestAlias
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), address(harvestAlias), claimableHarvest / 2);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            address(0),
+            address(harvestAlias),
+            claimableHarvest / 2
+        );
 
         // Aggregated drops by the claimed amount
         uint256 newAggregated = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
@@ -1195,7 +1245,12 @@ contract TestRewardAlias is TestStabilityPoolRebalanceSetUp {
         uint256 partialAmount = claimable / 4;
 
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, receiver, address(harvestAlias), partialAmount);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            user1,
+            receiver,
+            address(harvestAlias),
+            partialAmount
+        );
 
         // Receiver gets the underlying token, not the alias
         assertEq(IERC20(address(aliasUnderlying)).balanceOf(receiver), partialAmount, "receiver got underlying");

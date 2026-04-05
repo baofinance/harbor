@@ -20,7 +20,6 @@ import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccum
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 import {RewardAlias_v1} from "src/reward/RewardAlias_v1.sol";
-import {Minter_v2} from "src/minter/Minter_v2.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
@@ -163,7 +162,12 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         // Claim
         vm.prank(alice);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(alice, address(0), wrappedCollateral, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            alice,
+            address(0),
+            wrappedCollateral,
+            type(uint256).max
+        );
 
         // claimed() should return the claimed amount
         uint256 claimedAmount = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(alice, wrappedCollateral);

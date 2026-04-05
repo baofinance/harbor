@@ -10,7 +10,9 @@ optimizer = true
 optimizer_runs = 700 # 500 builds & tests but 200 deploys
 
 # via_ir = true   # makes the compiler run 7-10 times slower, is good at reducing code size or lower gas usage
-deny = "warnings" # enable to stop compilations if there are warnings
+deny = "warnings"                                    # enable to stop compilations if there are warnings
+ignored_error_codes = [4591]
+ignored_warnings_from = ["test/", "lib/", "script/"]
 
 remappings = [
   # foundry

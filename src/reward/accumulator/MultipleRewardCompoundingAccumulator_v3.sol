@@ -319,12 +319,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @inheritdoc IMultipleRewardAccumulator_v3
-    function claim(
-        address account,
-        address receiver,
-        address token,
-        uint256 maxAmount
-    ) public nonReentrant {
+    function claim(address account, address receiver, address token, uint256 maxAmount) public nonReentrant {
         if (account != _msgSender() && receiver != address(0)) {
             revert ClaimOthersRewardToAnother();
         }
@@ -532,8 +527,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /// @dev Resolve the receiver address: use stored receiver if set, otherwise account.
     function _resolveReceiver(address account, address receiver) internal view returns (address) {
         if (receiver == address(0)) {
-            MultipleRewardCompoundingAccumulatorStorage storage $ =
-                _getMultipleRewardCompoundingAccumulatorStorage();
+            MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
             receiver = $.rewardReceiver[account];
             if (receiver == address(0)) {
                 receiver = account;

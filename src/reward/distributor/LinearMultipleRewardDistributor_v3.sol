@@ -198,6 +198,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         for (uint256 i = 0; i < tokenAliases.length; i++) {
             address alias_ = tokenAliases[i];
             // Reverts if alias doesn't implement underlying() or returns wrong address
+            // slither-disable-next-line calls-loop
             if (IRewardAlias(alias_).underlying() != token) {
                 revert AliasUnderlyingMismatch();
             }

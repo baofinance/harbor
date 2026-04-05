@@ -15,7 +15,7 @@ import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccum
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {Minter_v2} from "src/minter/Minter_v2.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title StabilityPoolAliasDeploymentTest
@@ -86,7 +86,7 @@ contract StabilityPoolAliasDeploymentSetUp is BaoTest, Deploy_ETH_Minter {
         mockOracle.setLatestAnswer(1 ether, 1 ether);
 
         vm.startPrank(HARBOR_MULTISIG);
-        Minter_v2(minter).updatePriceOracle(address(mockOracle));
+        IMinter(minter).updatePriceOracle(address(mockOracle));
         IBaoRoles(minter).grantRoles(address(this), IMinter(minter).ZERO_FEE_ROLE());
         IBaoRoles(stabilityPoolCollateral).grantRoles(
             address(this),
@@ -191,7 +191,12 @@ contract StabilityPoolAliasDeploymentTest is StabilityPoolAliasDeploymentSetUp {
         // Claim via alias — should receive wrappedCollateral (the underlying)
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
         vm.prank(alice);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(alice, address(0), collHarvestAlias, type(uint256).max);
+        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
+            alice,
+            address(0),
+            collHarvestAlias,
+            type(uint256).max
+        );
         uint256 received = IERC20(wrappedCollateral).balanceOf(alice) - balBefore;
 
         assertApprox(received, rewardAmount, 604800, "claimed underlying amount");

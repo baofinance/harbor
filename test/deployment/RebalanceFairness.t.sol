@@ -12,7 +12,8 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {Minter_v2} from "src/minter/Minter_v2.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
@@ -91,8 +92,8 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
         oracleRate = 1 ether;
         mockOracle.setLatestAnswer(oraclePrice, oracleRate);
 
-        vm.prank(Minter_v2(minter).owner());
-        Minter_v2(minter).updatePriceOracle(address(mockOracle));
+        vm.prank(IBaoOwnable(minter).owner());
+        IMinter(minter).updatePriceOracle(address(mockOracle));
 
         // Override harvest config: set cut to 0 so harvest goes to pools, not treasury
         vm.startPrank(StabilityPoolManager_v1(stabilityPoolManager).owner());
@@ -129,8 +130,8 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
 
         // Mint via zero-fee — this test contract has owner privileges from deployment
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        vm.prank(Minter_v2(minter).owner());
-        Minter_v2(minter).grantRoles(address(this), zeroFeeRole);
+        vm.prank(IBaoOwnable(minter).owner());
+        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
 
         peggedMinted = IMinter(minter).freeMintPeggedToken(collateralAmount, to);
     }
@@ -140,8 +141,8 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
         IERC20(wrappedCollateral).approve(minter, collateralAmount);
 
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        vm.prank(Minter_v2(minter).owner());
-        Minter_v2(minter).grantRoles(address(this), zeroFeeRole);
+        vm.prank(IBaoOwnable(minter).owner());
+        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
 
         levMinted = IMinter(minter).freeMintLeveragedToken(collateralAmount, to);
     }
