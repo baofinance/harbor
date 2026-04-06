@@ -11,12 +11,26 @@ script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol:ConfigMarket_BTC_stETH_
 | peg             | 5.010e+02 |
 
 script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol:ConfigMarket_ETH_fxUSD_mainnet
-| function name   |       max |
-|-----------------|-----------|
-| collateral      | 4.990e+02 |
-| leveragedName   | 5.704e+03 |
-| leveragedSymbol | 6.807e+03 |
-| peg             | 5.010e+02 |
+| function name                        |       max |
+|--------------------------------------|-----------|
+| collateral                           | 4.990e+02 |
+| harvestBountyRatio                   | 2.810e+02 |
+| harvestCutRatio                      | 2.490e+02 |
+| leveragedName                        | 5.704e+03 |
+| leveragedSymbol                      | 6.807e+03 |
+| minTotalSupply                       | 2.810e+02 |
+| minterConfig                         | 1.169e+04 |
+| peg                                  | 5.010e+02 |
+| rebalanceBountyRatio                 | 2.360e+02 |
+| rebalanceThreshold                   | 2.590e+02 |
+| spCollateralName                     | 8.085e+03 |
+| spCollateralSymbol                   | 8.061e+03 |
+| spLeveragedName                      | 8.887e+03 |
+| spLeveragedSymbol                    | 8.924e+03 |
+| stabilityPoolEarlyWithdrawalFeeRatio | 2.800e+02 |
+| stabilityPoolWithdrawalDelay         | 3.010e+02 |
+| stabilityPoolWithdrawalPeriod        | 2.820e+02 |
+| wrappedCollateralToken               | 2.790e+02 |
 
 script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol:ConfigMarket_EUR_fxUSD_mainnet
 | function name   |       max |
@@ -68,63 +82,69 @@ src/minter/Genesis_v1.sol:Genesis_v1
 | withdraw                 | 4.335e+04 |
 
 src/minter/Minter_v3.sol:Minter_v3
-| function name                      |       max |
-|------------------------------------|-----------|
-| HARVESTER_ROLE                     | 2.830e+02 |
-| LEVERAGED_TOKEN                    | 2.830e+02 |
-| PEGGED_TOKEN                       | 3.050e+02 |
-| WRAPPED_COLLATERAL_TOKEN           | 2.830e+02 |
-| ZERO_FEE_ROLE                      | 2.850e+02 |
-| collateralRatio                    | 1.912e+04 |
-| collateralTokenBalance             | 2.358e+03 |
-| config                             | 4.895e+04 |
-| feeReceiver                        | 2.442e+03 |
-| freeMintLeveragedToken             | 1.438e+05 |
-| freeMintPeggedToken                | 1.549e+05 |
-| freeRedeemLeveragedToken           | 6.958e+04 |
-| freeRedeemPeggedToken              | 1.032e+05 |
-| grantRoles                         | 2.633e+04 |
-| harvestable                        | 2.254e+04 |
-| hasAllRoles                        | 2.637e+03 |
-| hasAnyRole                         | 2.636e+03 |
-| initialize                         | 1.844e+05 |
-| leverageRatio                      | 1.957e+04 |
-| leveragedTokenBalance              | 1.042e+04 |
-| leveragedTokenPrice                | 3.000e+04 |
-| mintLeveragedToken                 | 1.477e+05 |
-| mintLeveragedTokenDryRun           | 7.305e+04 |
-| mintLeveragedTokenIncentiveRatio   | 3.108e+04 |
-| mintPeggedToken                    | 1.911e+05 |
-| mintPeggedTokenDryRun              | 6.401e+04 |
-| mintPeggedTokenIncentiveRatio      | 3.012e+04 |
-| owner                              | 2.402e+03 |
-| peggedTokenBalance                 | 2.409e+03 |
-| peggedTokenPrice                   | 1.923e+04 |
-| priceOracle                        | 2.427e+03 |
-| redeemLeveragedToken               | 1.276e+05 |
-| redeemLeveragedTokenDryRun         | 6.317e+04 |
-| redeemLeveragedTokenIncentiveRatio | 2.924e+04 |
-| redeemPeggedForCollateralRatio     | 1.961e+04 |
-| redeemPeggedToken                  | 1.323e+05 |
-| redeemPeggedTokenDryRun            | 6.178e+04 |
-| redeemPeggedTokenIncentiveRatio    | 3.011e+04 |
-| reservePool                        | 2.411e+03 |
-| reset                              | 2.869e+04 |
-| supportsInterface                  | 9.430e+02 |
-| sweep                              | 4.031e+04 |
-| transferOwnership                  | 1.207e+04 |
-| updateConfig                       | 2.954e+05 |
-| updateFeeReceiver                  | 2.635e+04 |
-| updatePriceOracle                  | 2.636e+04 |
-| updateReservePool                  | 2.631e+04 |
+| function name                                    |       max |
+|--------------------------------------------------|-----------|
+| HARVESTER_ROLE                                   | 2.830e+02 |
+| LEVERAGED_TOKEN                                  | 2.830e+02 |
+| PEGGED_TOKEN                                     | 3.050e+02 |
+| WRAPPED_COLLATERAL_TOKEN                         | 2.830e+02 |
+| ZERO_FEE_ROLE                                    | 2.850e+02 |
+| collateralRatio                                  | 1.912e+04 |
+| collateralTokenBalance                           | 2.358e+03 |
+| config                                           | 4.895e+04 |
+| feeReceiver                                      | 2.442e+03 |
+| freeMintLeveragedToken                           | 1.438e+05 |
+| freeMintPeggedToken                              | 1.674e+05 |
+| freeRedeemLeveragedToken                         | 8.668e+04 |
+| freeRedeemPeggedToken                            | 1.346e+05 |
+| grantRoles                                       | 2.633e+04 |
+| harvestable                                      | 2.981e+04 |
+| hasAllRoles                                      | 2.637e+03 |
+| hasAnyRole                                       | 2.636e+03 |
+| initialize                                       | 1.844e+05 |
+| leverageRatio                                    | 1.957e+04 |
+| leveragedTokenBalance                            | 1.042e+04 |
+| leveragedTokenPrice                              | 3.000e+04 |
+| mintLeveragedToken                               | 1.494e+05 |
+| mintLeveragedTokenDryRun                         | 7.338e+04 |
+| mintLeveragedTokenIncentiveRatio                 | 3.108e+04 |
+| mintPeggedToken(uint256,address,uint256)         | 1.911e+05 |
+| mintPeggedToken(uint256,address,uint256,uint256) | 1.251e+05 |
+| mintPeggedTokenDryRun(uint256)                   | 6.401e+04 |
+| mintPeggedTokenDryRun(uint256,uint256)           | 4.556e+04 |
+| mintPeggedTokenIncentiveRatio                    | 3.012e+04 |
+| owner                                            | 2.402e+03 |
+| peggedTokenBalance                               | 2.409e+03 |
+| peggedTokenPrice                                 | 1.923e+04 |
+| priceOracle                                      | 2.427e+03 |
+| redeemLeveragedToken                             | 1.276e+05 |
+| redeemLeveragedTokenDryRun                       | 6.317e+04 |
+| redeemLeveragedTokenIncentiveRatio               | 2.924e+04 |
+| redeemPeggedForCollateralRatio                   | 1.961e+04 |
+| redeemPeggedToken                                | 1.323e+05 |
+| redeemPeggedTokenDryRun                          | 6.178e+04 |
+| redeemPeggedTokenIncentiveRatio                  | 3.011e+04 |
+| reservePool                                      | 2.411e+03 |
+| reset                                            | 2.869e+04 |
+| supportsInterface                                | 9.430e+02 |
+| sweep                                            | 4.031e+04 |
+| transferOwnership                                | 1.207e+04 |
+| updateConfig                                     | 2.954e+05 |
+| updateFeeReceiver                                | 2.635e+04 |
+| updatePriceOracle                                | 2.636e+04 |
+| updateReservePool                                | 2.631e+04 |
 
 src/minter/ReservePool_v1.sol:ReservePool_v1
 | function name     |       max |
 |-------------------|-----------|
 | REQUESTER_ROLE    | 2.390e+02 |
 | grantRoles        | 2.633e+04 |
+| hasAnyRole        | 2.569e+03 |
 | initialize        | 7.031e+04 |
-| requestBonus      | 1.774e+04 |
+| owner             | 2.389e+03 |
+| requestBonus      | 3.934e+04 |
+| supportsInterface | 8.420e+02 |
+| sweep             | 2.642e+03 |
 | transferOwnership | 1.204e+04 |
 
 src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
@@ -134,10 +154,11 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | harvest                    | 4.488e+05 |
 | harvestBountyRatio         | 2.369e+03 |
 | harvestCutRatio            | 2.371e+03 |
+| harvestable                | 3.052e+04 |
 | hasStabilityPool           | 5.370e+02 |
 | initialize                 | 7.069e+04 |
 | owner                      | 2.423e+03 |
-| rebalance                  | 5.182e+05 |
+| rebalance                  | 5.612e+05 |
 | rebalanceBountyRatio       | 2.354e+03 |
 | rebalanceThreshold         | 2.347e+03 |
 | rebalanceable              | 2.926e+04 |
@@ -149,23 +170,104 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | updateHarvestCutRatio      | 2.572e+04 |
 | updateRebalanceBountyRatio | 2.565e+04 |
 | updateRebalanceThreshold   | 2.571e+04 |
+| upgradeToAndCall           | 1.087e+04 |
+
+src/minter/StabilityPool_v1.sol:StabilityPool_v1
+| function name         |       max |
+|-----------------------|-----------|
+| ASSET_TOKEN           | 3.270e+02 |
+| REBALANCER_ROLE       | 2.620e+02 |
+| REWARD_DEPOSITOR_ROLE | 2.840e+02 |
+| REWARD_MANAGER_ROLE   | 3.270e+02 |
+| assetBalanceOf        | 8.053e+03 |
+| claim                 | 1.209e+05 |
+| claimable             | 2.096e+04 |
+| claimed               | 2.848e+03 |
+| deposit               | 2.693e+05 |
+| depositReward         | 6.533e+04 |
+| getWithdrawalRequest  | 2.745e+03 |
+| grantRoles            | 2.636e+04 |
+| initialize            | 2.041e+05 |
+| notifyLiquidation     | 1.373e+05 |
+| registerRewardToken   | 7.292e+04 |
+| requestWithdrawal     | 2.504e+04 |
+| sweep                 | 4.020e+04 |
+| totalAssetSupply      | 2.489e+03 |
+| transferOwnership     | 1.207e+04 |
+| upgradeToAndCall      | 1.090e+04 |
+
+src/minter/StabilityPool_v2.sol:StabilityPool_v2
+| function name        |       max |
+|----------------------|-----------|
+| ASSET_TOKEN          | 3.270e+02 |
+| assetBalanceOf       | 8.049e+03 |
+| checkpoint           | 1.893e+05 |
+| claim                | 2.672e+05 |
+| claimable            | 2.550e+04 |
+| claimed              | 9.798e+03 |
+| deposit              | 2.800e+05 |
+| depositReward        | 6.533e+04 |
+| getWithdrawalRequest | 2.745e+03 |
+| notifyLiquidation    | 1.107e+05 |
+| proxiableUUID        | 3.410e+02 |
+| sweep                | 4.020e+04 |
+| totalAssetSupply     | 2.489e+03 |
+| withdraw             | 3.013e+05 |
 
 src/minter/StabilityPool_v3.sol:StabilityPool_v3
-| function name     |       max |
-|-------------------|-----------|
-| grantRoles        | 2.637e+04 |
-| initialize        | 2.041e+05 |
-| name              | 1.926e+04 |
-| symbol            | 1.950e+04 |
-| transferOwnership | 1.204e+04 |
+| function name                          |       max |
+|----------------------------------------|-----------|
+| ASSET_TOKEN                            | 3.490e+02 |
+| LIQUIDATION_TOKEN                      | 3.500e+02 |
+| REBALANCER_ROLE                        | 2.840e+02 |
+| REWARD_DEPOSITOR_ROLE                  | 3.060e+02 |
+| REWARD_MANAGER_ROLE                    | 3.270e+02 |
+| activeRewardTokens                     | 1.195e+04 |
+| assetBalanceOf                         | 8.047e+03 |
+| checkpoint                             | 1.788e+05 |
+| claim(address)                         | 2.910e+05 |
+| claim(address,address)                 | 2.200e+05 |
+| claim(address,address,address,uint256) | 2.112e+05 |
+| claimable                              | 5.960e+04 |
+| claimed                                | 7.465e+03 |
+| deposit                                | 4.059e+05 |
+| depositReward                          | 8.044e+04 |
+| getWithdrawalRequest                   | 2.761e+03 |
+| grantRoles                             | 2.637e+04 |
+| historicalRewardTokens                 | 5.180e+03 |
+| initialize                             | 2.041e+05 |
+| name                                   | 1.926e+04 |
+| notifyLiquidation                      | 1.198e+05 |
+| owner                                  | 2.446e+03 |
+| registerRewardToken(address)           | 7.144e+04 |
+| requestWithdrawal                      | 2.501e+04 |
+| sweep                                  | 3.610e+04 |
+| symbol                                 | 1.950e+04 |
+| totalAssetSupply                       | 2.423e+03 |
+| transferOwnership                      | 1.204e+04 |
+| unregisterRewardToken                  | 1.046e+05 |
+| withdraw                               | 2.272e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
-| function name     |       max |
-|-------------------|-----------|
-| CLAIMER_ROLE      | 2.820e+02 |
-| grantRoles        | 2.633e+04 |
-| initialize        | 9.339e+04 |
-| transferOwnership | 1.200e+04 |
+| function name        |       max |
+|----------------------|-----------|
+| CLAIMER_ROLE         | 2.820e+02 |
+| addOrUpdateRecipient | 6.949e+04 |
+| addToken             | 8.818e+04 |
+| distribute           | 1.792e+05 |
+| distribution         | 1.454e+04 |
+| grantRoles           | 2.633e+04 |
+| hasAnyRole           | 2.635e+03 |
+| initialize           | 9.339e+04 |
+| name                 | 3.197e+03 |
+| owner                | 2.345e+03 |
+| removeRecipient      | 2.482e+04 |
+| removeToken          | 1.829e+04 |
+| setDistribution      | 7.611e+04 |
+| supportsInterface    | 8.650e+02 |
+| sweep                | 4.108e+04 |
+| tokens               | 7.448e+03 |
+| transferOwnership    | 1.200e+04 |
 
 src/minter/library/StringPacking_v1.sol:StringPacking_v1
 | function name   |       max |
@@ -174,9 +276,15 @@ src/minter/library/StringPacking_v1.sol:StringPacking_v1
 | unpack64        | 1.580e+04 |
 
 src/reward/RewardAlias_v1.sol:RewardAlias_v1
-| function name   |       max |
-|-----------------|-----------|
-| underlying      | 2.010e+02 |
+| function name     |       max |
+|-------------------|-----------|
+| initialize        | 7.040e+04 |
+| owner             | 2.371e+03 |
+| proxiableUUID     | 3.410e+02 |
+| supportsInterface | 5.280e+02 |
+| transferOwnership | 1.202e+04 |
+| underlying        | 2.010e+02 |
+| upgradeToAndCall  | 1.083e+04 |
 
 test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockMultipleRewardCompoundingAccumulator
 | function name             |       max |
@@ -185,6 +293,9 @@ test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol:MockM
 | REWARD_PERIOD_LENGTH      | 2.710e+02 |
 | activeRewardTokens        | 9.672e+03 |
 | checkpoint                | 2.793e+05 |
+| claim()                   | 2.063e+05 |
+| claim(address)            | 2.068e+05 |
+| claim(address,address)    | 2.073e+05 |
 | claimable                 | 1.983e+04 |
 | claimed                   | 2.848e+03 |
 | depositReward             | 1.442e+05 |
@@ -209,6 +320,9 @@ test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v2.sol:Mo
 | REWARD_PERIOD_LENGTH      | 2.710e+02 |
 | activeRewardTokens        | 9.672e+03 |
 | checkpoint                | 3.529e+05 |
+| claim()                   | 2.103e+05 |
+| claim(address)            | 2.108e+05 |
+| claim(address,address)    | 2.113e+05 |
 | claimable                 | 2.203e+04 |
 | claimed                   | 7.479e+03 |
 | depositReward             | 1.442e+05 |
