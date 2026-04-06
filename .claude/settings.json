@@ -17,7 +17,9 @@
       "WebFetch(domain:www.openzeppelin.com)",
       "Read(//home/tfras/github/AladdinDAO/fx-protocol-contracts/**)",
       "Bash(ls script/src/*.sol)",
-      "Bash(ls script/src/Deploy_*)"
+      "Bash(ls script/src/Deploy_*)",
+      "Read(//home/tfras/.claude/**)",
+      "Bash(git -C ~/.claude/plans commit -am \"fixed broken links at top of plan\")"
     ]
   }
 }

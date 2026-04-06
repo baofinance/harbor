@@ -95,12 +95,12 @@ sequenceDiagram
 
     User->>SP: claimable(user, wCOLn)
     SP-->>User: amount available
-    User->>SP: claimSingle(user, wCOLn)
+    User->>SP: claim(user, address(0), wCOLn, type(uint256).max)
     SP-->>User: wCOLn transferred (all pending)
 
     Note over User,SP: Fractional claim — take only part
 
-    User->>SP: claimSingle(user, wCOLn, maxAmount)
+    User->>SP: claim(user, address(0), wCOLn, maxAmount)
     SP-->>User: min(pending, maxAmount) transferred
     Note over SP: Remainder stays as pending,<br/>included in claimable()
 ```
@@ -335,47 +335,60 @@ Same ERC4626 accounting over a portfolio. Collateral SP rebalances don't cause l
 
 ## 6. Design Decisions
 
-### 5.1 SP as Rebasing ERC20
+### 6.1 SP as Rebasing ERC20
 
 `balanceOf()` returns compounded real value. `totalSupply()` returns `totalAssetSupply()`. Transfer/approve/allowance added in v3. Like stETH.
 
-### 5.2 Non-rebasing AC shares
+### 6.2 Non-rebasing AC shares
 
 The AC is the non-rebasing wrapped version. Like wstETH wraps stETH. Share count fixed, price moves.
 
-### 5.3 Collateral SP rebalance holds value
+### 6.3 Collateral SP rebalance holds value
 
 Unlike leveraged SPs, collateral SP rebalance returns liquid wCOLn. The AC's totalAssets stays roughly constant (lost haXXX offset by gained claimable wCOLn). The AC auto-compounds back to haXXX when fees are acceptable.
 
-### 5.4 Leveraged SPs standalone
+### 6.4 Leveraged SPs standalone
 
 Leveraged SPs rebalance into hsXXX.COLn which is not liquid. Leveraged AC only compounds harvest wCOLn. Not included in PV (different risk profile).
 
-### 5.5 Minting: maxFeeRatio
+### 6.5 Minting: maxFeeRatio
 
 `mintPeggedToken(wCOLn, receiver, minPeggedOut, maxFeeRatio)` on Minter_v3. Stops when cumulative fee exceeds maxFeeRatio * collateralIn. Returns (0, 0) gracefully if fee too high.
 
-### 5.6 Fractional Claim
+### 6.6 Unified Claim with Fractional Support
 
-`claimSingle(account, token, maxAmount)` on SP_v3. Claims up to maxAmount, leaves rest as pending. Enables AC to claim only what can be profitably minted.
+`claim(account, receiver, token, maxAmount)` on SP_v3 (via `IMultipleRewardAccumulator_v3`). Claims up to maxAmount from token (draining aliases in registration order first), leaves rest as pending. `token == address(0)` claims all active tokens. Array overload `claim(account, receiver, tokens[], maxAmount)` for batch/historical claims.
 
-### 5.7 Oracle Coupling
+### 6.7 Reward Alias Registration
+
+Reward tokens are registered with an explicit ordered list of aliases:
+```solidity
+registerRewardToken(underlying, [harvestAlias, rebalanceAlias])
+```
+
+Each alias must implement `IRewardAlias.underlying()` returning the underlying token address, validated at registration time. The `aliasToUnderlying` mapping (populated at registration) is used for token transfers — no runtime external calls.
+
+Claiming from an underlying drains its aliases in registration order first, then the underlying's own pending. Claiming from an alias drains only that alias.
+
+Unregistering an underlying also unregisters its aliases and cleans up the alias mappings.
+
+### 6.8 Oracle Coupling
 
 AC and PV read `IMinter(minter).priceOracle()` at runtime. Always in sync. No separate oracle config.
 
-### 5.8 Equivalent Token Management
+### 6.9 Equivalent Token Management
 
 wXXXn held at PV level only (not in ACs). Preference-ordered list, updatable by keeper. PV converts wXXXn -> wCOLn (via ISwapper) -> haXXX (via Minter) -> SP when fees acceptable.
 
-### 5.9 No Equivalents in AC
+### 6.10 No Equivalents in AC
 
 The AC does NOT hold wXXXn. Unprofitable wCOLn stays as unclaimed rewards in the SP, valued in totalAssets via claimable. This avoids the cross-subsidy fairness issue identified in the options analysis.
 
-### 5.10 Compound Trigger
+### 6.11 Compound Trigger
 
 Permissionless. Also triggered by SPM during harvest/rebalance.
 
-### 5.11 Withdrawal
+### 6.12 Withdrawal
 
 AC uses EXEMPT_WITHDRAWAL_FEE_ROLE initially. Dynamic fees (CR-based) replace withdrawal delay in future SP version, enabling standard ERC4626 withdraw.
 
@@ -392,8 +405,8 @@ AC uses EXEMPT_WITHDRAWAL_FEE_ROLE initially. Dynamic fees (CR-based) replace wi
 
 | Contract | Status | Purpose |
 |----------|--------|---------|
-| StabilityPool_v3 | In progress | Rebasing ERC20 + claimSingle + fractional claim |
-| Minter_v3 | Done | mintPeggedTokenCapped |
+| StabilityPool_v3 | Done | Rebasing ERC20, unified claim, fractional claim, reward aliases, StringPacking_v1 |
+| Minter_v3 | Done | mintPeggedTokenCapped, private→internal |
 | AutoCompounder | To build | ERC4626 per SP (Level 1) |
 | PegVault | To build | ERC4626/ERC-7575 per peg (Level 2) |
 | ISwapper / MockSwapper | To build | wXXXn conversion interface |
