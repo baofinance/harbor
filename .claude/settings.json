@@ -15,7 +15,9 @@
       "WebFetch(domain:fxprotocol.gitbook.io)",
       "WebFetch(domain:medium.com)",
       "WebFetch(domain:www.openzeppelin.com)",
-      "Read(//home/tfras/github/AladdinDAO/fx-protocol-contracts/**)"
+      "Read(//home/tfras/github/AladdinDAO/fx-protocol-contracts/**)",
+      "Bash(ls script/src/*.sol)",
+      "Bash(ls script/src/Deploy_*)"
     ]
   }
 }
