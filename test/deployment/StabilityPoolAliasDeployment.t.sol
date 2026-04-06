@@ -15,7 +15,6 @@ import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccum
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title StabilityPoolAliasDeploymentTest
