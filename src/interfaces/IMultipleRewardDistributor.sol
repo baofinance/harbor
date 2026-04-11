@@ -48,9 +48,6 @@ interface IMultipleRewardDistributor {
     /// @dev Thrown when period length is non-zero and outside the range 1 day to 28 day (inclusive).
     error InvalidPeriodLength(uint40 periodLength);
 
-    /// @dev Thrown when an alias's underlying() does not match the expected underlying token.
-    error AliasUnderlyingMismatch();
-
     /*************************
      * Public View Functions *
      *************************/

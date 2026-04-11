@@ -9,7 +9,7 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
 
-/// @notice Harbor StabilityPoolManager_v1 deployment logic (including SPMFeeReceiver).
+/// @notice Harbor StabilityPoolManager deployment logic (including SPMFeeReceiver).
 /// @dev SPM coordinates the two stability pools per market.
 /// @dev SPM grants: HARVESTER_ROLE on Minter (obtained via Minter deployment).
 /// @dev SPM needs: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE on both stability pools.
@@ -25,7 +25,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
     // ========== STABILITY POOL MANAGER DEPLOYMENT ==========
 
-    /// @notice Deploy StabilityPoolManager impl+proxy, record in state.
+    /// @notice Deploy StabilityPoolManager_v1 impl+proxy, record in state.
     function deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
         string memory marketKey,

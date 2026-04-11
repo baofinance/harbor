@@ -8,6 +8,7 @@ import {ConfigPriceVolatility_130_stable} from "../volatility/ConfigPriceVolatil
 import {ConfigStabilityPool} from "../stabilitypool/ConfigStabilityPool.sol";
 import {ConfigStabilityPoolManager} from "../stabilitypool/ConfigStabilityPoolManager.sol";
 import {ConfigTokenNames} from "../ConfigTokenNames.sol";
+import {ConfigAutoCompounder} from "../autocompounder/ConfigAutoCompounder.sol";
 import {Config_MinterMarket} from "../ConfigBase.sol";
 
 /// @notice Market configuration for ETH::fxUSD.
@@ -19,5 +20,6 @@ contract ConfigMarket_ETH_fxUSD_mainnet is
     ConfigPriceVolatility_130_stable,
     ConfigStabilityPool,
     ConfigStabilityPoolManager,
-    ConfigTokenNames
+    ConfigTokenNames,
+    ConfigAutoCompounder
 {}

@@ -9,6 +9,7 @@ import {ConfigStabilityPool} from "../stabilitypool/ConfigStabilityPool.sol";
 import {ConfigStabilityPoolManager} from "../stabilitypool/ConfigStabilityPoolManager.sol";
 import {Config_MinterMarket} from "../ConfigBase.sol";
 import {ConfigTokenNames} from "../ConfigTokenNames.sol";
+import {ConfigAutoCompounder} from "../autocompounder/ConfigAutoCompounder.sol";
 
 /// @notice Market configuration for SILVER::stETH.
 contract ConfigMarket_SILVER_stETH_mainnet is
@@ -19,5 +20,6 @@ contract ConfigMarket_SILVER_stETH_mainnet is
     ConfigPriceVolatility_130,
     ConfigStabilityPool,
     ConfigStabilityPoolManager,
-    ConfigTokenNames
+    ConfigTokenNames,
+    ConfigAutoCompounder
 {}

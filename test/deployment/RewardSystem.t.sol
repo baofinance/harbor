@@ -9,19 +9,14 @@ import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
-import {RewardAlias_v1} from "src/reward/RewardAlias_v1.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
 
-/// @title Reward system tests — aliases, accumulator, distributor — using deployment framework
+/// @title Reward system tests — accumulator, distributor — using deployment framework
 contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter {
     address minter;
     address stabilityPoolCollateral;
@@ -30,9 +25,6 @@ contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter {
     address pegged;
     address leveraged;
     address wrappedCollateral;
-
-    address collHarvestAlias;
-    address collRebalanceAlias;
 
     MockWrappedPriceOracle mockOracle;
 
@@ -63,9 +55,6 @@ contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter {
         leveraged = _predictAddress(_key(marketKey, "leveraged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        collHarvestAlias = _predictAddress(_key(marketKey, "stabilityPoolCollateral", "harvest"));
-        collRebalanceAlias = _predictAddress(_key(marketKey, "stabilityPoolCollateral", "rebalance"));
-
         mockOracle = new MockWrappedPriceOracle();
         mockOracle.setLatestAnswer(1 ether, 1 ether);
 
@@ -92,41 +81,6 @@ contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter {
         deal(wrappedCollateral, address(this), amount);
         IERC20(wrappedCollateral).approve(stabilityPoolCollateral, amount);
         IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(token, amount);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// RewardAlias_v1 contract coverage
-// ═══════════════════════════════════════════════════════════════
-
-contract RewardAliasTest is RewardSystemSetUp {
-    function test_constructorRevertsZeroAddress() public {
-        vm.expectRevert();
-        new RewardAlias_v1(address(0));
-    }
-
-    function test_supportsInterface() public view {
-        assertTrue(IERC165(collHarvestAlias).supportsInterface(type(IERC5313).interfaceId), "IERC5313");
-        assertTrue(IERC165(collHarvestAlias).supportsInterface(type(IERC165).interfaceId), "IERC165");
-        assertFalse(IERC165(collHarvestAlias).supportsInterface(0xdeadbeef), "random");
-    }
-
-    function test_upgradeByOwner() public {
-        RewardAlias_v1 newImpl = new RewardAlias_v1(wrappedCollateral);
-
-        // Owner (multisig after transferAllOwnerships) can upgrade
-        vm.prank(HARBOR_MULTISIG);
-        UUPSUpgradeable(collHarvestAlias).upgradeToAndCall(address(newImpl), "");
-
-        // Underlying unchanged (immutable in new impl)
-        assertEq(IRewardAlias(collHarvestAlias).underlying(), wrappedCollateral, "underlying preserved");
-    }
-
-    function test_upgradeRevertsNotOwner() public {
-        RewardAlias_v1 newImpl = new RewardAlias_v1(wrappedCollateral);
-        vm.prank(makeAddr("attacker"));
-        vm.expectRevert();
-        UUPSUpgradeable(collHarvestAlias).upgradeToAndCall(address(newImpl), "");
     }
 }
 
@@ -239,7 +193,7 @@ contract AccumulatorTest is RewardSystemSetUp {
     // ── claimHistorical ────────────────────────────────────────
 
     function test_claimHistorical() public {
-        _depositReward(collHarvestAlias, 30 ether);
+        _depositReward(wrappedCollateral, 30 ether);
         skip(8 days);
 
         // Checkpoint alice to update her pending — but don't claim
@@ -252,7 +206,7 @@ contract AccumulatorTest is RewardSystemSetUp {
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim(carol);
 
         // Flush any remaining queued dust
-        _depositReward(collHarvestAlias, 1);
+        _depositReward(wrappedCollateral, 1);
         skip(8 days);
         vm.prank(bob);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim(bob);
@@ -264,13 +218,13 @@ contract AccumulatorTest is RewardSystemSetUp {
         uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
         vm.prank(HARBOR_MULTISIG);
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(collHarvestAlias);
+        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
 
         // Verify it's historical
         address[] memory historical = IMultipleRewardDistributor(stabilityPoolCollateral).historicalRewardTokens();
         bool found;
         for (uint256 i = 0; i < historical.length; i++) {
-            if (historical[i] == collHarvestAlias) {
+            if (historical[i] == wrappedCollateral) {
                 found = true;
             }
         }
@@ -278,7 +232,7 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         // Alice claims via claimHistorical — her pending should still be there
         address[] memory tokens = new address[](1);
-        tokens[0] = collHarvestAlias;
+        tokens[0] = wrappedCollateral;
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
         vm.prank(alice);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claimHistorical(tokens);
@@ -286,7 +240,7 @@ contract AccumulatorTest is RewardSystemSetUp {
     }
 
     function test_claimHistorical_forAccount() public {
-        _depositReward(collHarvestAlias, 30 ether);
+        _depositReward(wrappedCollateral, 30 ether);
         skip(8 days);
 
         // Checkpoint alice but don't claim
@@ -297,7 +251,7 @@ contract AccumulatorTest is RewardSystemSetUp {
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim(bob);
         vm.prank(carol);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim(carol);
-        _depositReward(collHarvestAlias, 1);
+        _depositReward(wrappedCollateral, 1);
         skip(8 days);
         vm.prank(bob);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim(bob);
@@ -307,11 +261,11 @@ contract AccumulatorTest is RewardSystemSetUp {
         uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
         vm.prank(HARBOR_MULTISIG);
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(collHarvestAlias);
+        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
 
         // Bob triggers historical claim for alice — tokens go to alice
         address[] memory tokens = new address[](1);
-        tokens[0] = collHarvestAlias;
+        tokens[0] = wrappedCollateral;
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
         vm.prank(bob);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claimHistorical(alice, tokens);
@@ -354,7 +308,7 @@ contract DistributorTest is RewardSystemSetUp {
         _mintAndDeposit(alice, 100 ether);
 
         // Deposit reward that hasn't fully distributed
-        _depositReward(collHarvestAlias, 10 ether);
+        _depositReward(wrappedCollateral, 10 ether);
         // Don't wait — rewards still pending
 
         uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
@@ -362,14 +316,14 @@ contract DistributorTest is RewardSystemSetUp {
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
 
         vm.expectRevert();
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(collHarvestAlias);
+        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
     }
 
     function test_unregisterAndReregister() public {
         address alice = makeAddr("alice");
         _mintAndDeposit(alice, 100 ether);
 
-        _depositReward(collHarvestAlias, 10 ether);
+        _depositReward(wrappedCollateral, 10 ether);
         skip(8 days); // Wait for full distribution
 
         // Claim all so pending is zero
@@ -381,14 +335,14 @@ contract DistributorTest is RewardSystemSetUp {
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
 
         // Unregister
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(collHarvestAlias);
+        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
 
         // Historical should contain it
         address[] memory historical = IMultipleRewardDistributor(stabilityPoolCollateral).historicalRewardTokens();
         assertEq(historical.length, 1, "one historical token");
 
         // Re-register — moves from historical back to active
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(collHarvestAlias);
+        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(wrappedCollateral);
 
         // Historical should be empty again
         historical = IMultipleRewardDistributor(stabilityPoolCollateral).historicalRewardTokens();

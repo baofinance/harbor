@@ -9,6 +9,7 @@ import {Minter} from "./contracts/Minter.sol";
 import {StabilityPool} from "./contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "./contracts/StabilityPoolManager.sol";
 import {Genesis} from "./contracts/Genesis.sol";
+import {AutoCompounder, IAutoCompounderMarketConfig} from "./contracts/AutoCompounder.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
@@ -16,7 +17,6 @@ import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 
 /// @notice Extended market config interface with methods from collateral and chain configs.
 interface IFullMinterConfig {
@@ -45,7 +45,8 @@ abstract contract DeployMintersShared is
     Minter,
     StabilityPool,
     StabilityPoolManager,
-    Genesis
+    Genesis,
+    AutoCompounder
 {
     using LibString for string;
 
@@ -166,8 +167,11 @@ abstract contract DeployMintersShared is
         // Deploy Stability Pools
         _deployStabilityPools(state, cfg, marketKey);
 
-        // Deploy reward aliases and register on SPs
-        _deployRewardAliases(state, cfg, marketKey);
+        // Register reward tokens on SPs
+        _registerRewardTokens(cfg, marketKey);
+
+        // Deploy Auto-Compounders (one per SP)
+        _deployAutoCompounders(state, cfg, marketKey);
 
         // Deploy StabilityPoolManager
         _deployStabilityPoolManager(state, cfg, marketKey);
@@ -217,48 +221,44 @@ abstract contract DeployMintersShared is
         );
     }
 
-    function _deployRewardAliases(
-        DeploymentTypes.State memory state,
+    function _deployAutoCompounders(
+        DeploymentTypes.State memory stateData,
         IFullMinterConfig cfg,
         string memory marketKey
     ) internal {
-        string memory spCollKey = _key(marketKey, StabilityPoolCollateral);
-        string memory spLevKey = _key(marketKey, StabilityPoolLeveraged);
+        address minter = _predictAddress(_key(marketKey, "minter"));
+        address spCollateral = _predictAddress(_key(marketKey, StabilityPoolCollateral));
+        address spLeveraged = _predictAddress(_key(marketKey, StabilityPoolLeveraged));
+
+        deployAutoCompounder(
+            AutoCompounderCollateral,
+            stateData,
+            Config_MinterMarket(address(cfg)),
+            spCollateral,
+            minter
+        );
+
+        deployAutoCompounder(
+            AutoCompounderLeveraged,
+            stateData,
+            Config_MinterMarket(address(cfg)),
+            spLeveraged,
+            minter
+        );
+    }
+
+    function _registerRewardTokens(IFullMinterConfig cfg, string memory marketKey) internal {
+        address spCollateral = _predictAddress(_key(marketKey, StabilityPoolCollateral));
+        address spLeveraged = _predictAddress(_key(marketKey, StabilityPoolLeveraged));
         address wrappedCollateral = cfg.wrappedCollateralToken();
         address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
 
-        // Collateral SP: wrappedCollateral with harvest + rebalance aliases
-        deployRewardAlias(state, spCollKey, "harvest", wrappedCollateral);
-        deployRewardAlias(state, spCollKey, "rebalance", wrappedCollateral);
-        {
-            address[] memory collAliases = new address[](2);
-            collAliases[0] = _predictAddress(_key(spCollKey, "harvest"));
-            collAliases[1] = _predictAddress(_key(spCollKey, "rebalance"));
-            LinearMultipleRewardDistributor_v3(_predictAddress(spCollKey)).registerRewardToken(
-                wrappedCollateral,
-                collAliases
-            );
-        }
+        // Collateral SP: wrappedCollateral (receives both harvest + rebalance rewards)
+        IMultipleRewardDistributor(spCollateral).registerRewardToken(wrappedCollateral);
 
-        // Leveraged SP: wrappedCollateral with harvest alias, leveragedToken with rebalance alias
-        deployRewardAlias(state, spLevKey, "harvest", wrappedCollateral);
-        deployRewardAlias(state, spLevKey, "rebalance", leveragedToken);
-        {
-            address[] memory levHarvestAliases = new address[](1);
-            levHarvestAliases[0] = _predictAddress(_key(spLevKey, "harvest"));
-            LinearMultipleRewardDistributor_v3(_predictAddress(spLevKey)).registerRewardToken(
-                wrappedCollateral,
-                levHarvestAliases
-            );
-        }
-        {
-            address[] memory levRebalAliases = new address[](1);
-            levRebalAliases[0] = _predictAddress(_key(spLevKey, "rebalance"));
-            LinearMultipleRewardDistributor_v3(_predictAddress(spLevKey)).registerRewardToken(
-                leveragedToken,
-                levRebalAliases
-            );
-        }
+        // Leveraged SP: wrappedCollateral (harvest) + leveragedToken (rebalance)
+        IMultipleRewardDistributor(spLeveraged).registerRewardToken(wrappedCollateral);
+        IMultipleRewardDistributor(spLeveraged).registerRewardToken(leveragedToken);
     }
 
     function _deployStabilityPoolManager(
@@ -304,6 +304,25 @@ abstract contract DeployMintersShared is
         grantMinterRoles(string.concat(marketKey, "::minter"), minter, spm, genesis);
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolCollateral"), spCollateral, spm);
         grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolLeveraged"), spLeveraged, spm);
+
+        // Grant SP fee exemption to auto-compounders (using predicted addresses — AC need not be deployed)
+        {
+            address acCollateral = _predictAddress(_key(marketKey, AutoCompounderCollateral));
+            address acLeveraged = _predictAddress(_key(marketKey, AutoCompounderLeveraged));
+            string memory spCollKey = string.concat(marketKey, "::stabilityPoolCollateral");
+            string memory spLevKey = string.concat(marketKey, "::stabilityPoolLeveraged");
+            grantStabilityPoolAutoCompounderRole(spCollKey, spCollateral, acCollateral, "autoCompounderCollateral");
+            grantStabilityPoolAutoCompounderRole(spLevKey, spLeveraged, acLeveraged, "autoCompounderLeveraged");
+        }
+
+        // Configure Auto-Compounders (maxFeeRatio, approvals)
+        {
+            uint256 maxFeeRatio = IAutoCompounderMarketConfig(address(market)).autoCompounderMaxFeeRatio();
+            address acCollateral = _predictAddress(_key(marketKey, AutoCompounderCollateral));
+            address acLeveraged = _predictAddress(_key(marketKey, AutoCompounderLeveraged));
+            configureAutoCompounder(acCollateral, maxFeeRatio);
+            configureAutoCompounder(acLeveraged, maxFeeRatio);
+        }
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(

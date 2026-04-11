@@ -1,17 +1,18 @@
 | Contract                          |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |-----------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
+| AutoCompounder_v1                 |             12,167 |               12,409 |              13,776 |    2,571,160 |            257.12 |
 | ConfigIncentiveLib                |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| ConfigMarket_BTC_fxUSD_mainnet    |              6,231 |               18,345 |               6,259 |    1,308,790 |            130.88 |
-| ConfigMarket_BTC_stETH_mainnet    |              6,257 |               18,319 |               6,285 |    1,314,250 |            131.43 |
-| ConfigMarket_ETH_fxUSD_mainnet    |              6,231 |               18,345 |               6,259 |    1,308,790 |            130.88 |
-| ConfigMarket_EUR_fxUSD_mainnet    |              6,219 |               18,357 |               6,247 |    1,306,270 |            130.63 |
-| ConfigMarket_EUR_stETH_mainnet    |              6,245 |               18,331 |               6,273 |    1,311,730 |            131.17 |
-| ConfigMarket_GOLD_fxUSD_mainnet   |              6,235 |               18,341 |               6,263 |    1,309,630 |            130.96 |
-| ConfigMarket_GOLD_stETH_mainnet   |              6,261 |               18,315 |               6,289 |    1,315,090 |            131.51 |
-| ConfigMarket_MCAP_fxUSD_mainnet   |              6,237 |               18,339 |               6,265 |    1,310,050 |            131.00 |
-| ConfigMarket_MCAP_stETH_mainnet   |              6,263 |               18,313 |               6,291 |    1,315,510 |            131.55 |
-| ConfigMarket_SILVER_fxUSD_mainnet |              6,231 |               18,345 |               6,259 |    1,308,790 |            130.88 |
-| ConfigMarket_SILVER_stETH_mainnet |              6,257 |               18,319 |               6,285 |    1,314,250 |            131.43 |
+| ConfigMarket_BTC_fxUSD_mainnet    |              6,677 |               17,899 |               6,705 |    1,402,450 |            140.25 |
+| ConfigMarket_BTC_stETH_mainnet    |              6,703 |               17,873 |               6,731 |    1,407,910 |            140.79 |
+| ConfigMarket_ETH_fxUSD_mainnet    |              6,677 |               17,899 |               6,705 |    1,402,450 |            140.25 |
+| ConfigMarket_EUR_fxUSD_mainnet    |              6,665 |               17,911 |               6,693 |    1,399,930 |            139.99 |
+| ConfigMarket_EUR_stETH_mainnet    |              6,691 |               17,885 |               6,719 |    1,405,390 |            140.54 |
+| ConfigMarket_GOLD_fxUSD_mainnet   |              6,681 |               17,895 |               6,709 |    1,403,290 |            140.33 |
+| ConfigMarket_GOLD_stETH_mainnet   |              6,707 |               17,869 |               6,735 |    1,408,750 |            140.88 |
+| ConfigMarket_MCAP_fxUSD_mainnet   |              6,683 |               17,893 |               6,711 |    1,403,710 |            140.37 |
+| ConfigMarket_MCAP_stETH_mainnet   |              6,709 |               17,867 |               6,737 |    1,409,170 |            140.92 |
+| ConfigMarket_SILVER_fxUSD_mainnet |              6,677 |               17,899 |               6,705 |    1,402,450 |            140.25 |
+| ConfigMarket_SILVER_stETH_mainnet |              6,703 |               17,873 |               6,731 |    1,407,910 |            140.79 |
 | ConfigPeg_BTC                     |                766 |               23,810 |                 794 |      161,140 |             16.11 |
 | ConfigPeg_ETH                     |                766 |               23,810 |                 794 |      161,140 |             16.11 |
 | ConfigPeg_EUR                     |                768 |               23,808 |                 796 |      161,560 |             16.16 |
@@ -42,11 +43,10 @@
 | Minter_v3                         |             24,218 |                  358 |              26,045 |    5,104,050 |            510.41 |
 | PriceOracle_v1                    |              1,958 |               22,618 |               2,010 |      411,700 |             41.17 |
 | ReservePool_v1                    |              4,760 |               19,816 |               5,009 |    1,002,090 |            100.21 |
-| RewardAlias_v1                    |              2,974 |               21,602 |               3,358 |      628,380 |             62.84 |
 | StabilityPoolManager_v1           |             11,209 |               13,367 |              13,057 |    2,372,370 |            237.24 |
 | StabilityPool_v1                  |             21,092 |                3,484 |              23,085 |    4,449,250 |            444.93 |
 | StabilityPool_v2                  |             20,711 |                3,865 |              22,579 |    4,367,990 |            436.80 |
-| StabilityPool_v3                  |             24,376 |                  200 |              27,002 |    5,145,220 |            514.52 |
+| StabilityPool_v3                  |             23,064 |                1,512 |              25,683 |    4,869,630 |            486.96 |
 | StakedETHWrappedPriceOracle_v1    |              3,695 |               20,881 |               4,653 |      785,530 |             78.55 |
 | StringPacking_v1                  |              1,218 |               23,358 |               1,270 |      256,300 |             25.63 |
 | TokenDistributor_v1               |             10,116 |               14,460 |              10,365 |    2,126,850 |            212.69 |

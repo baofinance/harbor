@@ -38,15 +38,15 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         IStabilityPool(pool).deposit(depositAmount, user1, 0);
         vm.stopPrank();
 
-        uint256 initialTotalAssets = IStabilityPool(pool).totalAssetSupply();
+        uint256 initialTotalAssets = IERC20(pool).totalSupply();
         assertEq(initialTotalAssets, depositAmount);
 
         // Action: Simulate loss through sweep
         _liquidate(pool, lossAmount);
 
         // Get resulting balances
-        uint256 totalAssetSupply = IStabilityPool(pool).totalAssetSupply();
-        uint256 userBalance = IStabilityPool(pool).assetBalanceOf(user1);
+        uint256 totalAssetSupply = IERC20(pool).totalSupply();
+        uint256 userBalance = IERC20(pool).balanceOf(user1);
 
         // Assertions - with proper tolerance for rounding
         uint256 expectedRemainingSupply = depositAmount - lossAmount;
@@ -80,7 +80,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         IStabilityPool(pool).deposit(user2Deposit_, user2, 0);
 
         // Pre-loss checks
-        assertEq(IStabilityPool(pool).totalAssetSupply(), totalDeposit);
+        assertEq(IERC20(pool).totalSupply(), totalDeposit);
 
         // Action: Simulate loss through sweep
         _liquidate(pool, lossAmount);
@@ -90,20 +90,12 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 expectedUser2Loss = lossAmount - expectedUser1Loss; // Account for rounding
 
         // Check proportional loss distribution with appropriate tolerance
-        assertApproxEqAbs(
-            IStabilityPool(pool).assetBalanceOf(user1),
-            user1Deposit_ - expectedUser1Loss,
-            TOLERANCE_LARGE
-        );
+        assertApproxEqAbs(IERC20(pool).balanceOf(user1), user1Deposit_ - expectedUser1Loss, TOLERANCE_LARGE);
 
-        assertApproxEqAbs(
-            IStabilityPool(pool).assetBalanceOf(user2),
-            user2Deposit_ - expectedUser2Loss,
-            TOLERANCE_LARGE
-        );
+        assertApproxEqAbs(IERC20(pool).balanceOf(user2), user2Deposit_ - expectedUser2Loss, TOLERANCE_LARGE);
 
         // Total assets check
-        assertApproxEqAbs(IStabilityPool(pool).totalAssetSupply(), totalDeposit - lossAmount, 10);
+        assertApproxEqAbs(IERC20(pool).totalSupply(), totalDeposit - lossAmount, 10);
     }
 
     /// @notice Test withdrawals after loss with varying amounts
@@ -127,7 +119,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Action: Simulate loss through sweep
         _liquidate(pool, lossAmount);
 
-        uint256 remainingBalance = IStabilityPool(pool).assetBalanceOf(user1);
+        uint256 remainingBalance = IERC20(pool).balanceOf(user1);
         assertApproxEqAbs(remainingBalance, depositAmount - lossAmount, TOLERANCE_LARGE);
 
         // Action: User withdraws
@@ -143,11 +135,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Assert correct withdrawal with tolerance
         assertApproxEqAbs(IERC20(peggedToken).balanceOf(user1), initialAssetBalance + withdrawAmount, TOLERANCE_SMALL);
 
-        assertApproxEqAbs(
-            IStabilityPool(pool).assetBalanceOf(user1),
-            remainingBalance - withdrawAmount,
-            TOLERANCE_LARGE
-        );
+        assertApproxEqAbs(IERC20(pool).balanceOf(user1), remainingBalance - withdrawAmount, TOLERANCE_LARGE);
     }
 
     /// @notice Test scenario with near-total or total loss
@@ -190,9 +178,9 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         }
 
         // Assertions with appropriate tolerance
-        assertApproxEqAbs(IStabilityPool(pool).totalAssetSupply(), expectedRemaining, 10);
+        assertApproxEqAbs(IERC20(pool).totalSupply(), expectedRemaining, 10);
 
-        uint256 remainingBalance = IStabilityPool(pool).assetBalanceOf(user1);
+        uint256 remainingBalance = IERC20(pool).balanceOf(user1);
         assertApproxEqAbs(remainingBalance, expectedRemaining, TOLERANCE_LARGE);
 
         // Test withdrawal after near-total loss if there's anything left
@@ -215,7 +203,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             );
 
             // Should be approximately MIN_TOTAL_ASSET_SUPPLY left
-            assertApproxEqAbs(IStabilityPool(pool).assetBalanceOf(user1), MIN_TOTAL_ASSET_SUPPLY, TOLERANCE_SMALL);
+            assertApproxEqAbs(IERC20(pool).balanceOf(user1), MIN_TOTAL_ASSET_SUPPLY, TOLERANCE_SMALL);
         }
     }
 
@@ -296,9 +284,9 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             remainingBalance -= lossAmounts[i];
 
             // Verify balance after each loss with appropriate tolerance
-            assertApproxEqAbs(IStabilityPool(pool).totalAssetSupply(), remainingBalance, TOLERANCE_SMALL);
+            assertApproxEqAbs(IERC20(pool).totalSupply(), remainingBalance, TOLERANCE_SMALL);
 
-            assertApproxEqAbs(IStabilityPool(pool).assetBalanceOf(user1), remainingBalance, TOLERANCE_LARGE);
+            assertApproxEqAbs(IERC20(pool).balanceOf(user1), remainingBalance, TOLERANCE_LARGE);
         }
     }
 
@@ -322,19 +310,19 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 expectedUser2LossFirst = firstLoss - expectedUser1LossFirst;
 
         assertApproxEqAbs(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             user1Deposit - expectedUser1LossFirst,
             TOLERANCE_LARGE
         );
 
         assertApproxEqAbs(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2),
+            IERC20(stabilityPoolCollateral).balanceOf(user2),
             user2Deposit - expectedUser2LossFirst,
             TOLERANCE_LARGE
         );
 
         // User1 withdraws half
-        uint256 user1RemainingBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user1RemainingBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         uint256 user1WithdrawAmount = user1RemainingBalance / 2;
 
         vm.prank(user1);
@@ -355,7 +343,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         _liquidate(stabilityPoolCollateral, secondLoss);
 
         // Check final balances
-        uint256 totalAssetsAfterAll = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 totalAssetsAfterAll = IERC20(stabilityPoolCollateral).totalSupply();
         uint256 expectedTotalAssets = user1Deposit +
             user2Deposit +
             user3Deposit -
@@ -366,9 +354,9 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         assertApproxEqAbs(totalAssetsAfterAll, expectedTotalAssets, TOLERANCE_LARGE);
 
         // Ensure all users can withdraw remaining balances (considering MIN_TOTAL_ASSET_SUPPLY protection)
-        uint256 user1FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
-        uint256 user2FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
-        uint256 user3FinalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3);
+        uint256 user1FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 user2FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 user3FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
 
         // Calculate total withdrawable amount (total balances minus MIN_TOTAL_ASSET_SUPPLY protection)
         uint256 totalUserBalances = user1FinalBalance + user2FinalBalance + user3FinalBalance;
@@ -408,11 +396,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         }
 
         // Pool should be left with approximately MIN_TOTAL_ASSET_SUPPLY due to protection
-        assertApproxEqAbs(
-            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
-            MIN_TOTAL_ASSET_SUPPLY,
-            TOLERANCE_LARGE
-        );
+        assertApproxEqAbs(IERC20(stabilityPoolCollateral).totalSupply(), MIN_TOTAL_ASSET_SUPPLY, TOLERANCE_LARGE);
     }
 }
 
@@ -513,9 +497,9 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         uint256 startTime = block.timestamp;
 
         // Verify initial state
-        assertEq(IStabilityPool(pool).totalAssetSupply(), user1Deposit + user2Deposit);
-        assertEq(IStabilityPool(pool).assetBalanceOf(user1), user1Deposit);
-        assertEq(IStabilityPool(pool).assetBalanceOf(user2), user2Deposit);
+        assertEq(IERC20(pool).totalSupply(), user1Deposit + user2Deposit);
+        assertEq(IERC20(pool).balanceOf(user1), user1Deposit);
+        assertEq(IERC20(pool).balanceOf(user2), user2Deposit);
 
         _checkRewards("initial");
         _checkRewards("initial", user1, 0, 0);
@@ -545,14 +529,14 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         daycount = 2;
         vm.warp(startTime + daycount * 1 days); // 2/7 of the reward period
 
-        uint256 totalSupply = IStabilityPool(pool).totalAssetSupply();
+        uint256 totalSupply = IERC20(pool).totalSupply();
         vm.prank(rebalancer);
         uint256 immediateAmount = _liquidate(totalSupply / 2);
         // 1 notifyLiquidation --------------------------------------------------------
 
-        assertEq(IStabilityPool(pool).totalAssetSupply(), totalSupply / 2, "Pool should be half emptied");
-        assertEq(IStabilityPool(pool).assetBalanceOf(user1), user1Deposit / 2, "User1 balance halved");
-        assertEq(IStabilityPool(pool).assetBalanceOf(user2), user2Deposit / 2, "User2 balance halved");
+        assertEq(IERC20(pool).totalSupply(), totalSupply / 2, "Pool should be half emptied");
+        assertEq(IERC20(pool).balanceOf(user1), user1Deposit / 2, "User1 balance halved");
+        assertEq(IERC20(pool).balanceOf(user2), user2Deposit / 2, "User2 balance halved");
 
         // Test liquidation rewards and delayed rewards preservation
         _checkRewards("2 days, half");
@@ -561,7 +545,7 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
 
         // Phase 3: Complete liquidation
         /////////////////////////////////
-        totalSupply = IStabilityPool(pool).totalAssetSupply();
+        totalSupply = IERC20(pool).totalSupply();
         prevdaycount = daycount;
         daycount = 4;
         vm.warp(startTime + daycount * 1 days); // 4/7 of the reward period
@@ -571,8 +555,8 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         // 2 notifyLiquidation ---------------------------------------------
 
         // Calculate expected user balances after complete liquidation
-        assertApproxEqAbs(IStabilityPool(pool).assetBalanceOf(user1), uint256(1 ether) / 3, 100, "User1 1/3 share");
-        assertApproxEqAbs(IStabilityPool(pool).assetBalanceOf(user2), uint256(2 ether) / 3, 100, "User2 2/3 share");
+        assertApproxEqAbs(IERC20(pool).balanceOf(user1), uint256(1 ether) / 3, 100, "User1 1/3 share");
+        assertApproxEqAbs(IERC20(pool).balanceOf(user2), uint256(2 ether) / 3, 100, "User2 2/3 share");
 
         // Test liquidation rewards preservation and delayed reward preservation
         _checkRewards("4 days, full");
@@ -651,11 +635,11 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         IStabilityPool(pool).deposit(user3Deposit, user3, 0);
 
         assertEq(
-            IStabilityPool(pool).totalAssetSupply(),
+            IERC20(pool).totalSupply(),
             user3Deposit + 1 ether, // 1 ether is the MIN_TOTAL_ASSET_SUPPLY
             "Pool should accept new deposits after emptying"
         );
-        assertEq(IStabilityPool(pool).assetBalanceOf(user3), user3Deposit, "User3 new deposit balance");
+        assertEq(IERC20(pool).balanceOf(user3), user3Deposit, "User3 new deposit balance");
         // rewards change when a deposit is made because it triggers distribution of pending new delayed rewards
 
         _checkRewards("new deposit");

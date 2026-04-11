@@ -11,7 +11,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
+import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -115,7 +115,7 @@ import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearM
 // solhint-disable-next-line contract-name-capwords
 abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ReentrancyGuardTransientUpgradeable,
-    LinearMultipleRewardDistributor_v3,
+    LinearMultipleRewardDistributor,
     IMultipleRewardAccumulator,
     IMultipleRewardAccumulator_v3
 {
@@ -273,7 +273,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         uint256 rewardManagerRole,
         uint256 rewardDepositorRole,
         uint40 periodLength
-    ) LinearMultipleRewardDistributor_v3(rewardManagerRole, rewardDepositorRole, periodLength) {}
+    ) LinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, periodLength) {}
 
     /*************************
      * Public View Functions *
@@ -537,12 +537,10 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
 
     /// @dev Internal function to claim up to maxAmount of a single reward token.
-    /// If token has registered aliases, drains them in order first, then the token's own pending.
-    /// If token is an alias (no aliases of its own), claims only from that alias.
     /// Caller should make sure `_checkpoint` is called before this function.
     ///
     /// @param account The address of user to claim.
-    /// @param token The address of reward token (underlying or alias).
+    /// @param token The address of reward token.
     /// @param receiver The address of recipient of the reward token.
     /// @param maxAmount The maximum amount to claim. Use type(uint256).max for all.
     function _claimSingle(
@@ -551,31 +549,6 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         address receiver,
         uint256 maxAmount
     ) internal virtual returns (uint256) {
-        address[] memory aliases = _getAliases(token);
-        uint256 totalClaimed;
-        // Drain aliases in registration order
-        for (uint256 i = 0; i < aliases.length; i++) {
-            if (maxAmount == 0) {
-                break;
-            }
-            uint256 aliasAmount = _claimFromToken(account, aliases[i], receiver, maxAmount);
-            totalClaimed += aliasAmount;
-            maxAmount -= aliasAmount;
-        }
-        // Then drain the token's own pending
-        if (maxAmount > 0) {
-            totalClaimed += _claimFromToken(account, token, receiver, maxAmount);
-        }
-        return totalClaimed;
-    }
-
-    /// @dev Claim up to maxAmount from a single token address (no alias traversal).
-    function _claimFromToken(
-        address account,
-        address token,
-        address receiver,
-        uint256 maxAmount
-    ) private returns (uint256) {
         (uint64 ts, uint256 integral, uint128 pending, uint128 claimed_) = _getUserRewardSnapshot(account, token);
         uint256 amount = pending;
         if (amount > maxAmount) {
@@ -584,14 +557,14 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         if (amount > 0) {
             _setUserRewardSnapshot(account, token, ts, integral, pending - uint128(amount), claimed_ + uint128(amount));
 
-            IERC20(_resolveUnderlying(token)).safeTransfer(receiver, amount);
+            IERC20(token).safeTransfer(receiver, amount);
 
             emit Claim(account, token, receiver, amount);
         }
         return amount;
     }
 
-    /// @inheritdoc LinearMultipleRewardDistributor_v3
+    /// @inheritdoc LinearMultipleRewardDistributor
     function _accumulateReward(address token, uint256 amount) internal virtual override {
         // slither-disable-next-line incorrect-equality
         if (amount == 0) {

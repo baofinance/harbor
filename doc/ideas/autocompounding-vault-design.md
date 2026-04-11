@@ -131,7 +131,7 @@ sequenceDiagram
 
     Note over User,SP: Deposit haXXX (convenience) → deposits to SP first
 
-    User->>AC: depositPegged(haXXX_amount, user)
+    User->>AC: depositPeggedToken(haXXX_amount, user)
     AC->>SP: deposit(haXXX_amount, AC)
     Note over AC: AC's SP position grows
     Note over AC: hcShares = hpAmount * totalSupply / totalAssets
@@ -162,10 +162,10 @@ sequenceDiagram
     Minter-->>AC: (fee, collUsed, pegged, ...)
 
     alt collUsed > 0 (profitable to mint)
-        AC->>SP: claimSingle(AC, wCOLn, collUsed)
+        AC->>SP: claim(AC, AC, wCOLn, collUsed)
         Note over SP: Fractional claim: only transfers collUsed,<br/>leaves remainder as unclaimed
         SP-->>AC: wCOLn (collUsed amount only)
-        AC->>Minter: mintPeggedToken(wCOLn, collUsed, AC, 0, maxFeeRatio)
+        AC->>Minter: mintPeggedToken(collUsed, AC, 0, maxFeeRatio)
         Minter-->>AC: haXXX minted
         AC->>SP: deposit(haXXX, AC)
         Note over AC: SP position grows, share price up
@@ -178,21 +178,21 @@ sequenceDiagram
 
 ```
 totalAssets() =
-    SP.balanceOf(AC)                         // SP position (haXXX terms, rebasing)
-  + SP.claimable(AC, wCOLn) * oraclePrice   // unclaimed wCOLn valued in haXXX
+    SP.balanceOf(AC)                                        // SP position (haXXX terms, rebasing)
+  + SP.claimable(AC, wCOLn) * price * rate / 1e36          // unclaimed wCOLn valued in haXXX
 ```
 
-Oracle read from `IMinter(minter).priceOracle()` at runtime -- always in sync with the Minter.
+Price and rate obtained from `IMinter_v3(minter).mintPeggedTokenDryRun(claimable, type(uint256).max)` -- always in sync with the Minter, no direct oracle dependency.
 
 ### Rebalance impact
 
 **Collateral SP rebalance:** haXXX burned, wCOLn received via `_accumulateReward`. wCOLn is liquid and valued in totalAssets via claimable. AC share price holds through rebalance -- lost haXXX position is offset by gained claimable wCOLn. The AC auto-compounds this back to haXXX when fees are acceptable.
 
-**Leveraged SP rebalance:** haXXX burned, hsXXX.COLn received. hsXXX.COLn is NOT liquid. AC share price drops because leveraged tokens can't be easily converted back. The AC can only compound the harvest wCOLn; leveraged token rewards queue indefinitely until manually claimed. Included in totalAssets via `leveragedTokenPrice()`.
+**Leveraged SP rebalance:** haXXX burned, hsXXX.COLn received. hsXXX.COLn is NOT liquid. The AC's totalAssets() only values wrapped collateral (harvest rewards), not leveraged token rewards. This means AC share price drops on rebalance -- the lost haXXX position is not offset because leveraged tokens are not valued. The AC can only compound the harvest wCOLn; leveraged token rewards queue in the SP until manually claimed via sweep or direct claim.
 
 ### Fractional claim
 
-`claimSingle(account, token, maxAmount)` on SP_v3 -- claims up to maxAmount, leaves the rest as pending. Enables the AC to claim only what can be profitably minted. Remainder stays in SP reward accounting, included in `totalAssets()` via `claimable()`.
+`claim(account, receiver, token, maxAmount)` on SP_v3 -- claims up to maxAmount, leaves the rest as pending. Enables the AC to claim only what can be profitably minted. Remainder stays in SP reward accounting, included in `totalAssets()` via `claimable()`.
 
 ### Fairness
 
@@ -204,7 +204,7 @@ The AC does NOT convert wCOLn to wXXXn. It either mints haXXX from wCOLn or leav
 
 ### Deposit convenience
 
-Core asset is hpXXX.COLn. Also accepts haXXX via `depositPegged(haXXX, amount)` which atomically deposits to SP then mints AC shares.
+Core asset is hpXXX.COLn. Also accepts haXXX via `depositPeggedToken(amount, receiver)` which atomically deposits to SP then mints AC shares. Supports `type(uint256).max` for full balance.
 
 ## 5. Level 2: Peg Vault
 
@@ -374,7 +374,7 @@ Unregistering an underlying also unregisters its aliases and cleans up the alias
 
 ### 6.8 Oracle Coupling
 
-AC and PV read `IMinter(minter).priceOracle()` at runtime. Always in sync. No separate oracle config.
+AC reads price and rate from `IMinter_v3(minter).mintPeggedTokenDryRun()` -- always in sync with the Minter, no direct oracle dependency. PV uses the same approach. No separate oracle config.
 
 ### 6.9 Equivalent Token Management
 

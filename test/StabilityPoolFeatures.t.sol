@@ -360,7 +360,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
 
-        uint256 supplyAfter = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
         assertEq(supplyAfter, 1 ether, "supply at MIN");
 
         // Fee should have been trimmed to 0
@@ -389,7 +389,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
 
-        uint256 supplyAfter = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
         assertEq(supplyAfter, 1 ether, "supply at MIN");
 
         uint256 feeCollected = IERC20(peggedToken).balanceOf(FEE_ADDRESS) - feeReceiverBefore;

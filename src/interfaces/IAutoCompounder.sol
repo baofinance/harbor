@@ -5,7 +5,7 @@ pragma solidity >=0.8.28 <0.9.0;
 /// @notice Interface for the Level 1 Auto-Compounder (ERC4626).
 /// @dev Wraps a rebasing StabilityPool into a non-rebasing StabilityPool share.
 interface IAutoCompounder {
-    /// @notice Compound pending rewards: claim wCOLn, mint pegged tokens, redeposit to SP.
+    /// @notice Compound pending rewards: claim wrapped collateral, mint pegged tokens, redeposit to SP.
     /// Only claims what can be profitably minted. Remainder stays as unclaimed in SP.
     /// Permissionless - anyone can trigger.
     function compound() external;

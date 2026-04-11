@@ -4,70 +4,37 @@ pragma solidity >=0.8.28 <0.9.0;
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
-import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
-import {StabilityPool_v1} from "src/minter/StabilityPool_v1.sol";
 import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
 
 import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
 
 /// @title TestStabilityPoolUpgradeMigration
-/// @notice Tests that upgrading StabilityPool_v1 → StabilityPool_v2 via UUPS proxy preserves
+/// @notice Tests that upgrading StabilityPool_v2 → StabilityPool_v3 via UUPS proxy preserves
 ///         all state and produces identical results at every lifecycle stage.
 ///         Each scenario is run with 3 liquidation variants: none, partial, complete.
 contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     uint256 price;
 
-    /// @dev Override to deploy with StabilityPool_v1 implementation instead of MockStabilityPool (v2)
+    /// @dev Override to deploy with StabilityPool_v2 implementation (matching production)
     function _setupStabilityPool(address liquidationToken) internal override returns (address stabilityPool) {
-        string memory liquidation = IERC20Metadata(liquidationToken).symbol();
-        string memory pegged = IERC20Metadata(IMinter(minter).PEGGED_TOKEN()).symbol();
-        string memory wrappedCollateral = IERC20Metadata(IMinter(minter).WRAPPED_COLLATERAL_TOKEN()).symbol();
-
-        string memory SPName = string.concat(pegged, "x", wrappedCollateral, "~", liquidation);
-        address stabilityPoolToken = address(
-            UnsafeUpgrades.deployUUPSProxy(
-                address(new MintableBurnableERC20_v1()),
-                abi.encodeCall(
-                    MintableBurnableERC20_v1.initialize,
-                    (owner, "StabilityPool Token", string.concat("lp", SPName))
-                )
-            )
-        );
-        vm.label(stabilityPoolToken, string.concat("lp", SPName));
-
-        // Deploy with StabilityPool_v1 implementation (NOT MockStabilityPool which is v2)
+        // Deploy with StabilityPool_v2 implementation — this is what production proxies currently run
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(
-                new StabilityPool_v1(
-                    minter,
-                    liquidationToken,
-                    EARLY_WITHDRAWAL_FEE,
-                    FEE_ADDRESS,
-                    WITHDRAWAL_START_DELAY,
-                    WITHDRAWAL_END_WINDOW,
-                    1 ether
-                )
+                new StabilityPool_v2(minter, liquidationToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
             ),
-            abi.encodeCall(StabilityPool_v1.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
-        vm.label(stabilityPool, SPName);
-
-        IBaoRoles(stabilityPoolToken).grantRoles(address(this), IMintableRole(stabilityPoolToken).MINTER_ROLE());
-        IMintable(stabilityPoolToken).mint(stabilityPool, 1 ether);
 
         IBaoRoles(stabilityPool).grantRoles(
             rewardManager,
@@ -85,7 +52,6 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             IMultipleRewardDistributor(stabilityPool).registerRewardToken(wrappedCollateralToken);
         }
 
-        IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
         IBaoOwnable(stabilityPool).transferOwnership(owner);
     }
 
@@ -133,23 +99,31 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(amount, user, 0);
     }
 
-    /// @dev Deploy v2 implementation and upgrade the proxy
-    function _upgradeToV2() internal {
+    /// @dev Deploy v3 implementation and upgrade the proxy
+    function _upgradeToV3() internal {
         // Deploy impl BEFORE prank — constructor makes external calls that consume prank
-        address v2Impl = address(
-            new StabilityPool_v2(minter, wrappedCollateralToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
+        address v3Impl = address(
+            new StabilityPool_v3(
+                minter,
+                wrappedCollateralToken,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW,
+                1 ether,
+                "StabilityPool",
+                "SP"
+            )
         );
         vm.prank(owner);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v2Impl, "");
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 1. FreshPool — single test (liquidation N/A for empty pool)
     // ═══════════════════════════════════════════════════════════════════════
 
-    function test_upgradeFromV1_FreshPool() public {
+    function test_upgradeFromV2_FreshPool() public {
         // Upgrade empty pool
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Post-upgrade: all operations should work
         assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), 0, "Empty pool after upgrade");
@@ -190,7 +164,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     // 2. AfterDeposits — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_AfterDeposits(bool doPartialLiq, bool doCompleteLiq) internal {
+    function _test_upgradeFromV2_AfterDeposits(bool doPartialLiq, bool doCompleteLiq) internal {
         // Build state on v1
         _deposit(user1, 100 ether);
         _deposit(user2, 50 ether);
@@ -210,7 +184,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Revert and upgrade
         vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Record v2 results
         uint256 v2_bal1 = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
@@ -241,23 +215,23 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         }
     }
 
-    function test_upgradeFromV1_AfterDeposits_NoLiquidation() public {
-        _test_upgradeFromV1_AfterDeposits(false, false);
+    function test_upgradeFromV2_AfterDeposits_NoLiquidation() public {
+        _test_upgradeFromV2_AfterDeposits(false, false);
     }
 
-    function test_upgradeFromV1_AfterDeposits_PartialLiquidation() public {
-        _test_upgradeFromV1_AfterDeposits(true, false);
+    function test_upgradeFromV2_AfterDeposits_PartialLiquidation() public {
+        _test_upgradeFromV2_AfterDeposits(true, false);
     }
 
-    function test_upgradeFromV1_AfterDeposits_CompleteLiquidation() public {
-        _test_upgradeFromV1_AfterDeposits(false, true);
+    function test_upgradeFromV2_AfterDeposits_CompleteLiquidation() public {
+        _test_upgradeFromV2_AfterDeposits(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 3. AfterRewards — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_AfterRewards(bool doPartialLiq, bool doCompleteLiq) internal {
+    function _test_upgradeFromV2_AfterRewards(bool doPartialLiq, bool doCompleteLiq) internal {
         // Build state on v1
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
@@ -283,7 +257,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Revert and upgrade
         vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Record v2 results
         uint256 v2_claimSteam = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
@@ -313,23 +287,23 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         }
     }
 
-    function test_upgradeFromV1_AfterRewards_NoLiquidation() public {
-        _test_upgradeFromV1_AfterRewards(false, false);
+    function test_upgradeFromV2_AfterRewards_NoLiquidation() public {
+        _test_upgradeFromV2_AfterRewards(false, false);
     }
 
-    function test_upgradeFromV1_AfterRewards_PartialLiquidation() public {
-        _test_upgradeFromV1_AfterRewards(true, false);
+    function test_upgradeFromV2_AfterRewards_PartialLiquidation() public {
+        _test_upgradeFromV2_AfterRewards(true, false);
     }
 
-    function test_upgradeFromV1_AfterRewards_CompleteLiquidation() public {
-        _test_upgradeFromV1_AfterRewards(false, true);
+    function test_upgradeFromV2_AfterRewards_CompleteLiquidation() public {
+        _test_upgradeFromV2_AfterRewards(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 4. AfterPartialClaim — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_AfterPartialClaim(bool doPartialLiq, bool doCompleteLiq) internal {
+    function _test_upgradeFromV2_AfterPartialClaim(bool doPartialLiq, bool doCompleteLiq) internal {
         // Build state on v1
         _deposit(user1, 100 ether);
 
@@ -364,7 +338,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Revert and upgrade
         vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Record v2 results
         uint256 v2_claimed = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, steam);
@@ -390,23 +364,23 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         }
     }
 
-    function test_upgradeFromV1_AfterPartialClaim_NoLiquidation() public {
-        _test_upgradeFromV1_AfterPartialClaim(false, false);
+    function test_upgradeFromV2_AfterPartialClaim_NoLiquidation() public {
+        _test_upgradeFromV2_AfterPartialClaim(false, false);
     }
 
-    function test_upgradeFromV1_AfterPartialClaim_PartialLiquidation() public {
-        _test_upgradeFromV1_AfterPartialClaim(true, false);
+    function test_upgradeFromV2_AfterPartialClaim_PartialLiquidation() public {
+        _test_upgradeFromV2_AfterPartialClaim(true, false);
     }
 
-    function test_upgradeFromV1_AfterPartialClaim_CompleteLiquidation() public {
-        _test_upgradeFromV1_AfterPartialClaim(false, true);
+    function test_upgradeFromV2_AfterPartialClaim_CompleteLiquidation() public {
+        _test_upgradeFromV2_AfterPartialClaim(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 5. MidRewardPeriod — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_MidRewardPeriod(bool doPartialLiq, bool doCompleteLiq) internal {
+    function _test_upgradeFromV2_MidRewardPeriod(bool doPartialLiq, bool doCompleteLiq) internal {
         // Build state on v1
         _deposit(user1, 100 ether);
         _depositReward(steam, 7 ether); // ~1 ether/day over 1-week period
@@ -432,7 +406,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Revert and upgrade
         vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Record v2 results
         uint256 v2_claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam);
@@ -455,23 +429,23 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         assertGt(finalClaimable, v2_claimable, "More rewards after remaining period");
     }
 
-    function test_upgradeFromV1_MidRewardPeriod_NoLiquidation() public {
-        _test_upgradeFromV1_MidRewardPeriod(false, false);
+    function test_upgradeFromV2_MidRewardPeriod_NoLiquidation() public {
+        _test_upgradeFromV2_MidRewardPeriod(false, false);
     }
 
-    function test_upgradeFromV1_MidRewardPeriod_PartialLiquidation() public {
-        _test_upgradeFromV1_MidRewardPeriod(true, false);
+    function test_upgradeFromV2_MidRewardPeriod_PartialLiquidation() public {
+        _test_upgradeFromV2_MidRewardPeriod(true, false);
     }
 
-    function test_upgradeFromV1_MidRewardPeriod_CompleteLiquidation() public {
-        _test_upgradeFromV1_MidRewardPeriod(false, true);
+    function test_upgradeFromV2_MidRewardPeriod_CompleteLiquidation() public {
+        _test_upgradeFromV2_MidRewardPeriod(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 6. MultiUserLazyMigration — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 
-    function _test_upgradeFromV1_MultiUserLazyMigration(bool doPartialLiq, bool doCompleteLiq) internal {
+    function _test_upgradeFromV2_MultiUserLazyMigration(bool doPartialLiq, bool doCompleteLiq) internal {
         // Build state on v1 — equal deposits for easy comparison
         _deposit(user1, 100 ether);
         _deposit(user2, 100 ether);
@@ -489,7 +463,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         }
 
         // Upgrade to v2 (no snapshot/revert — testing post-upgrade behavior directly)
-        _upgradeToV2();
+        _upgradeToV3();
 
         // user1 interacts → triggers V1→V2 migration
         vm.prank(user1);
@@ -548,16 +522,16 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         }
     }
 
-    function test_upgradeFromV1_MultiUserLazyMigration_NoLiquidation() public {
-        _test_upgradeFromV1_MultiUserLazyMigration(false, false);
+    function test_upgradeFromV2_MultiUserLazyMigration_NoLiquidation() public {
+        _test_upgradeFromV2_MultiUserLazyMigration(false, false);
     }
 
-    function test_upgradeFromV1_MultiUserLazyMigration_PartialLiquidation() public {
-        _test_upgradeFromV1_MultiUserLazyMigration(true, false);
+    function test_upgradeFromV2_MultiUserLazyMigration_PartialLiquidation() public {
+        _test_upgradeFromV2_MultiUserLazyMigration(true, false);
     }
 
-    function test_upgradeFromV1_MultiUserLazyMigration_CompleteLiquidation() public {
-        _test_upgradeFromV1_MultiUserLazyMigration(false, true);
+    function test_upgradeFromV2_MultiUserLazyMigration_CompleteLiquidation() public {
+        _test_upgradeFromV2_MultiUserLazyMigration(false, true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -568,7 +542,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     ///         This occurs when a user is checkpointed at a new exponent (after complete
     ///         liquidation shifts the exponent) where no rewards have been distributed yet.
     ///         Verifies: Path 3->2 migration, Path 2 read, Path 2->1 transition, Path 1 read.
-    function test_upgradeFromV1_RarePath_ZeroIntegralAfterExponentShift() public {
+    function test_upgradeFromV2_RarePath_ZeroIntegralAfterExponentShift() public {
         // Build state on v1: deposit, earn rewards, claim
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
@@ -583,7 +557,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         _liquidate(IStabilityPool(stabilityPoolCollateral).totalAssetSupply());
 
         // Upgrade to v2 BEFORE re-depositing - V1 data still untouched
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Re-deposit triggers _checkpoint on v2:
         // - Reads V1 data via Path 3 (V2 mapping empty)
@@ -636,7 +610,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
     /// @notice Tests that a pending withdrawal request initiated on v1 survives
     ///         the upgrade and can be completed on v2 with correct amounts.
-    function test_upgradeFromV1_MidWithdrawal() public {
+    function test_upgradeFromV2_MidWithdrawal() public {
         // Build state on v1: deposit and earn rewards
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
@@ -663,7 +637,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Revert and upgrade
         vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Verify withdrawal request preserved
         (uint64 v2Start, uint64 v2End) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
@@ -713,7 +687,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     /// @notice Tests that rewards accumulated across multiple exponent shifts (complete
     ///         liquidations) on v1 are correctly preserved through upgrade. Exercises the
     ///         _claimableFrom loop that sums integrals across exponent boundaries.
-    function test_upgradeFromV1_MultipleExponentShifts() public {
+    function test_upgradeFromV2_MultipleExponentShifts() public {
         // Exponent 0: deposit and earn rewards
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
@@ -750,7 +724,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Revert and upgrade
         vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Assert identical
         assertEq(
@@ -794,7 +768,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     ///         creating a product that differs from their initial deposit product.
     ///         The re-deposit triggers a v1 checkpoint that updates the user's product,
     ///         so the upgrade must handle this intermediate product state correctly.
-    function test_upgradeFromV1_ReDepositAfterPartialLiquidation() public {
+    function test_upgradeFromV2_ReDepositAfterPartialLiquidation() public {
         // Initial deposit on v1
         _deposit(user1, 100 ether);
         _depositReward(steam, 10 ether);
@@ -826,7 +800,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
         // Revert and upgrade
         vm.revertToState(snap);
-        _upgradeToV2();
+        _upgradeToV3();
 
         // Assert identical
         assertEq(

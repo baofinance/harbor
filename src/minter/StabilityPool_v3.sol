@@ -16,7 +16,7 @@ import {MultipleRewardCompoundingAccumulator_v3} from "src/reward/accumulator/Mu
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IStabilityPool_v3} from "src/interfaces/IStabilityPool_v3.sol";
+import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -42,8 +42,7 @@ contract StabilityPool_v3 is
     MultipleRewardCompoundingAccumulator_v3,
     TokenHolder,
     IStabilityPool,
-    IERC20Metadata,
-    IStabilityPool_v3
+    IERC20Metadata
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
@@ -159,6 +158,8 @@ contract StabilityPool_v3 is
         mapping(address => WithdrawalRequest) withdrawalRequests;
         /// @dev Packed fee configuration (address + uint96)
         FeePayment feePayment;
+        /// @dev ERC20 allowances: owner => spender => amount
+        mapping(address => mapping(address => uint256)) allowances;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -170,22 +171,6 @@ contract StabilityPool_v3 is
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := _STABILITYPOOL_STORAGE
-        }
-    }
-
-    /// @custom:storage-location erc7201:bao.storage.StabilityPool_v3
-    struct StabilityPoolERC20AllowancesStorage {
-        /// @dev ERC20 allowances: owner => spender => amount
-        mapping(address => mapping(address => uint256)) allowances;
-    }
-
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool_v3")) - 1)) & ~bytes32(uint256(0xff))'
-    bytes32 private constant _V3_STORAGE = 0xb4346888fe08dd20fe3aa583577b90a0e39bc6ca623364fcc9a4cf38a1ec7f00;
-
-    function _getERC20Storage() internal pure returns (StabilityPoolERC20AllowancesStorage storage $) {
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            $.slot := _V3_STORAGE
         }
     }
 
@@ -640,46 +625,40 @@ contract StabilityPool_v3 is
     // ERC20 View Functions
     // ═══════════════════════════════════════════════════════════════════════
 
+    /// @inheritdoc IERC20Metadata
     function name() external view returns (string memory) {
         return StringPacking_v1.unpack64(_ERC20_NAME_0, _ERC20_NAME_1);
     }
 
+    /// @inheritdoc IERC20Metadata
     function symbol() external view returns (string memory) {
         return StringPacking_v1.unpack64(_ERC20_SYMBOL, bytes32(0));
     }
 
+    /// @inheritdoc IERC20Metadata
     function decimals() external view returns (uint8) {
         return _ERC20_DECIMALS;
     }
 
-    function balanceOf(address account) external view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        TokenBalance memory balance = $.assetBalances[account];
-        return _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
-    }
-
-    function totalSupply() external view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        return $.totalAssetSupply.amount;
-    }
-
+    /// @inheritdoc IERC20
     function allowance(address owner_, address spender) external view returns (uint256) {
-        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.allowances[owner_][spender];
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Alias-Aware Claimable
-    // ═══════════════════════════════════════════════════════════════════════
+    /// @inheritdoc IERC20
+    function balanceOf(address account) external view returns (uint256 amount) {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        amount = _getCompoundedBalance(
+            $.assetBalances[account].amount,
+            $.assetBalances[account].product,
+            $.totalAssetSupply.product
+        );
+    }
 
-    /// @notice Returns claimable for a token. If the token has aliases, sums all aliases' claimable.
-    /// @dev Overrides the accumulator's claimable to aggregate across aliases.
-    function claimable(address account, address token) external view override returns (uint256 total) {
-        total = _claimable(account, token, true);
-        address[] memory aliases = _getAliases(token);
-        for (uint256 i = 0; i < aliases.length; i++) {
-            total += _claimable(account, aliases[i], true);
-        }
+    /// @inheritdoc IERC20
+    function totalSupply() external view returns (uint256 totalSupply_) {
+        totalSupply_ = _getStabilityPoolStorage().totalAssetSupply.amount;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -692,7 +671,7 @@ contract StabilityPool_v3 is
     }
 
     function transferFrom(address from, address to, uint256 amount) external nonReentrant returns (bool) {
-        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         address spender = _msgSender();
         uint256 currentAllowance = $.allowances[from][spender];
         if (currentAllowance != type(uint256).max) {
@@ -708,7 +687,7 @@ contract StabilityPool_v3 is
     }
 
     function approve(address spender, uint256 amount) external returns (bool) {
-        StabilityPoolERC20AllowancesStorage storage $ = _getERC20Storage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         $.allowances[_msgSender()][spender] = amount;
         emit Approval(_msgSender(), spender, amount);
         return true;

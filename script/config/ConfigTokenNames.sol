@@ -77,4 +77,35 @@ abstract contract ConfigTokenNames {
     function spLeveragedSymbol() public view returns (string memory symbol) {
         (, symbol) = _spStrings(Liquidation.Leveraged);
     }
+
+    // ── Auto-compounder tokens ─────────────────────────────────────────
+
+    function _acStrings(Liquidation liquidation) private view returns (string memory name, string memory symbol) {
+        string memory liqSymbol = liquidation == Liquidation.Collateral
+            ? _collateral()
+            : string.concat("hs", _collateral().upper());
+
+        name = string.concat("Harbor auto-compounder: ", peggedSymbol(), " (", liqSymbol, ")");
+        symbol = string.concat("hc", _peg(), "(", liqSymbol, ")");
+    }
+
+    /// @notice Collateral auto-compounder name (e.g., "Harbor auto-compounder: haETH (fxUSD)").
+    function acCollateralName() public view returns (string memory name) {
+        (name, ) = _acStrings(Liquidation.Collateral);
+    }
+
+    /// @notice Collateral auto-compounder symbol (e.g., "hcETH(fxUSD)").
+    function acCollateralSymbol() public view returns (string memory symbol) {
+        (, symbol) = _acStrings(Liquidation.Collateral);
+    }
+
+    /// @notice Leveraged auto-compounder name (e.g., "Harbor auto-compounder: haETH (hsFXUSD)").
+    function acLeveragedName() public view returns (string memory name) {
+        (name, ) = _acStrings(Liquidation.Leveraged);
+    }
+
+    /// @notice Leveraged auto-compounder symbol (e.g., "hcETH(hsFXUSD)").
+    function acLeveragedSymbol() public view returns (string memory symbol) {
+        (, symbol) = _acStrings(Liquidation.Leveraged);
+    }
 }

@@ -8,7 +8,6 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
-import {RewardAlias_v1} from "@harbor/reward/RewardAlias_v1.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
@@ -114,38 +113,6 @@ abstract contract StabilityPool is HarborFactoryDeployer {
             "stabilityPoolManager",
             roles,
             "REBALANCER | REWARD_DEPOSITOR"
-        );
-    }
-
-    // ========== REWARD ALIAS DEPLOYMENT ==========
-
-    /// @notice Deploy a reward alias at a predictable address.
-    /// @param stateData Deployment state for recording.
-    /// @param spKey The stability pool local key (e.g. _key(marketKey, StabilityPoolCollateral)).
-    /// @param aliasName Alias purpose suffix (e.g. "harvest", "rebalance").
-    /// @param underlying The underlying reward token address.
-    function deployRewardAlias(
-        DeploymentTypes.State memory stateData,
-        string memory spKey,
-        string memory aliasName,
-        address underlying
-    ) internal returns (address aliasProxy) {
-        string memory aliasKey = _key(spKey, aliasName);
-        console.log("    > %s", aliasKey);
-
-        address impl = address(new RewardAlias_v1(underlying));
-        console.log("        Impl:       %s", impl);
-        console.log("        Underlying: %s", underlying);
-
-        bytes memory initData = abi.encodeCall(RewardAlias_v1.initialize, (address(this), owner()));
-
-        aliasProxy = _deployProxyAndRecord(
-            stateData,
-            aliasKey,
-            impl,
-            "@harbor/reward/RewardAlias_v1.sol",
-            "RewardAlias_v1",
-            initData
         );
     }
 }

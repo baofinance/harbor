@@ -44,14 +44,17 @@ remappings = [
 ]
 
 fuzz.gas_report_samples = 64 # gas report doesn't need so many test cases
-gas_reports_ignore = [
-  "ERC20Mock",
-  "ERC1967Proxy",
-  "MockBaoAccessControl",
-  "TestTokenDistributor",
-  "Useful",
-  "MockAggregator",
-  "MockWrappedPriceOracle",
+# gas_reports_ignore takes contract names, not paths — use gas_reports whitelist instead
+gas_reports = [
+  "AutoCompounder_v1",
+  "Genesis_v1",
+  "Minter_v3",
+  "ReservePool_v1",
+  "StabilityPoolManager_v1",
+  "StabilityPool_v2",
+  "StabilityPool_v3",
+  "TokenDistributor_v1",
+  "StringPacking_v1",
 ]
 
 fs_permissions = [

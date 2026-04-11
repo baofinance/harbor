@@ -6,11 +6,14 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {HarborOwnable} from "@bao/HarborOwnable.sol";
+import {Token} from "@bao/Token.sol";
+import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
@@ -18,18 +21,27 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMinter_v3} from "src/interfaces/IMinter_v3.sol";
+import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 
 /// @title AutoCompounder_v1
 /// @notice Level 1 auto-compounder: non-rebasing ERC4626 vault wrapping a rebasing stability pool position.
 /// @dev The ERC4626 asset is the SP token (rebasing ERC20). Share count is fixed on deposit; share price
 ///      moves as totalAssets changes from harvest rewards, compounding, and rebalance losses.
-///      compound() claims wCOLn rewards, mints pegged tokens via the Minter (fee-capped), and redeposits to the SP.
-///      totalAssets() includes the SP position plus unclaimed wCOLn valued via Minter dry run.
+///      compound() claims wrapped collateral rewards, mints pegged tokens via the Minter (fee-capped),
+///      and redeposits to the SP.
+///      totalAssets() includes the SP position plus unclaimed wrapped collateral valued via Minter dry run.
 ///      Works for both collateral and leveraged stability pools.
 // solhint-disable-next-line contract-name-capwords
-contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable, HarborOwnable, IERC5313, IAutoCompounder {
+contract AutoCompounder_v1 is
+    Initializable,
+    UUPSUpgradeable,
+    ERC4626Upgradeable,
+    HarborOwnable,
+    TokenHolder,
+    IERC5313,
+    IAutoCompounder
+{
     using SafeERC20 for IERC20;
-    using Math for uint256;
 
     /*//////////////////////////////////////////////////////////////////////////
                                     ERRORS
@@ -45,16 +57,17 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
                                     EVENTS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Emitted when compound() successfully converts rewards to SP position.
+    /// @notice Emitted on every compound() call.
     /// @param caller The address that triggered the compound.
-    /// @param collateralClaimed The amount of wrapped collateral claimed from the SP.
-    /// @param peggedMinted The amount of pegged tokens minted from the claimed collateral.
-    event Compounded(address indexed caller, uint256 collateralClaimed, uint256 peggedMinted);
-
-    /// @notice Emitted when compound() skips because fees exceed the cap.
-    /// @param caller The address that triggered the compound.
-    /// @param claimableCollateral The amount of wrapped collateral available but not claimed.
-    event CompoundSkipped(address indexed caller, uint256 claimableCollateral);
+    /// @param claimableCollateral The total amount of wrapped collateral available before compound.
+    /// @param collateralClaimed The amount of wrapped collateral claimed (0 if skipped due to fees).
+    /// @param peggedMinted The amount of pegged tokens minted (0 if skipped due to fees).
+    event Compounded(
+        address indexed caller,
+        uint256 claimableCollateral,
+        uint256 collateralClaimed,
+        uint256 peggedMinted
+    );
 
     /// @notice Emitted when the max fee ratio is updated.
     /// @param newMaxFeeRatio The new max fee ratio (18 decimals).
@@ -79,6 +92,16 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
     /// @notice The pegged token - the SP's underlying asset.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable PEGGED_TOKEN; // solhint-disable-line immutable-vars-naming
+
+    /// @dev ERC20 name stored as two bytes32 (up to 64 characters)
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable _ERC20_NAME_0;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable _ERC20_NAME_1;
+
+    /// @dev ERC20 symbol stored as bytes32 (up to 32 characters)
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable _ERC20_SYMBOL;
 
     /*//////////////////////////////////////////////////////////////////////////
                                     STORAGE (ERC7201)
@@ -108,7 +131,9 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
         address stabilityPool_,
-        address minter_
+        address minter_,
+        string memory name_,
+        string memory symbol_
     ) ERC20Upgradeable() ERC4626Upgradeable() {
         _disableInitializers();
         STABILITY_POOL = stabilityPool_;
@@ -116,30 +141,18 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
         WRAPPED_COLLATERAL = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
         assert(IStabilityPool(stabilityPool_).ASSET_TOKEN() == PEGGED_TOKEN);
+        (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
+        // slither-disable-next-line unused-return
+        (_ERC20_SYMBOL, ) = StringPacking_v1.pack64(symbol_);
     }
 
     /// @notice Initialize the auto-compounder.
     /// @param deployerOwner_ The initial owner (typically the FactoryDeployer).
     /// @param pendingOwner_ The final owner (typically the Harbor multisig).
-    /// @param maxFeeRatio_ The initial max fee ratio for compound minting (18 decimals).
-    /// @param name_ The ERC20 name for the AC share token.
-    /// @param symbol_ The ERC20 symbol for the AC share token.
-    function initialize(
-        address deployerOwner_,
-        address pendingOwner_,
-        uint256 maxFeeRatio_,
-        string memory name_,
-        string memory symbol_
-    ) external initializer {
+    function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         __ERC4626_init(IERC20(STABILITY_POOL));
-        __ERC20_init(name_, symbol_);
-        _getAutoCompounderStorage().maxFeeRatio = maxFeeRatio_;
-
-        // Permanent approvals for compound flow
-        IERC20(PEGGED_TOKEN).approve(STABILITY_POOL, type(uint256).max);
-        IERC20(WRAPPED_COLLATERAL).approve(MINTER, type(uint256).max);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -173,15 +186,45 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
         return _getAutoCompounderStorage().maxFeeRatio;
     }
 
+    /// @notice Set permanent token approvals for the compound flow.
+    /// @dev Called by the deployer after proxy creation. Approves the SP to spend pegged tokens
+    ///      and the Minter to spend wrapped collateral.
+    function approveCompoundTokens() external onlyOwner {
+        IERC20(PEGGED_TOKEN).approve(STABILITY_POOL, type(uint256).max);
+        IERC20(WRAPPED_COLLATERAL).approve(MINTER, type(uint256).max);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                ERC20 METADATA (IMMUTABLE)
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice ERC20 name, packed into constructor immutables.
+    function name() public view override(ERC20Upgradeable, IERC20Metadata) returns (string memory) {
+        return StringPacking_v1.unpack64(_ERC20_NAME_0, _ERC20_NAME_1);
+    }
+
+    /// @notice ERC20 symbol, packed into constructor immutables.
+    function symbol() public view override(ERC20Upgradeable, IERC20Metadata) returns (string memory) {
+        return StringPacking_v1.unpack64(_ERC20_SYMBOL, bytes32(0));
+    }
+
+    /// @dev Decimals match the SP token (18).
+    function decimals() public pure override(ERC4626Upgradeable) returns (uint8) {
+        return 18;
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                                 ERC4626 OVERRIDES
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice Total assets under management, in SP share units.
-    /// @dev SP.balanceOf(this) + claimable wCOLn valued in pegged token terms via Minter dry run.
+    /// @dev SP.balanceOf(this) + claimable wrapped collateral valued in pegged token terms via Minter dry run.
     function totalAssets() public view override returns (uint256) {
         uint256 spPosition = IERC20(STABILITY_POOL).balanceOf(address(this));
-        uint256 claimableCollateral = IMultipleRewardAccumulator(STABILITY_POOL).claimable(address(this), WRAPPED_COLLATERAL);
+        uint256 claimableCollateral = IMultipleRewardAccumulator(STABILITY_POOL).claimable(
+            address(this),
+            WRAPPED_COLLATERAL
+        );
         if (claimableCollateral == 0) {
             return spPosition;
         }
@@ -189,10 +232,11 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
         // price = underlying collateral price in peg terms (18 dec)
         // rate = wrapped-to-underlying rate (18 dec)
         // claimableValue = claimableCollateral * rate * price / 1e36
-        (,,,, uint256 price, uint256 rate) =
-            IMinter_v3(MINTER).mintPeggedTokenDryRun(claimableCollateral, type(uint256).max);
-        uint256 claimableValue = claimableCollateral.mulDiv(rate, 1e18).mulDiv(price, 1e18);
-        return spPosition + claimableValue;
+        (, , , , uint256 price, uint256 rate) = IMinter_v3(MINTER).mintPeggedTokenDryRun(
+            claimableCollateral,
+            type(uint256).max
+        );
+        return spPosition + Math.mulDiv(claimableCollateral, price * rate, 1e36);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -209,26 +253,30 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
         uint256 maxFee = _getAutoCompounderStorage().maxFeeRatio;
 
         // Dry run to see how much can be profitably minted within the fee cap
-        (,, uint256 collateralTaken,,,) = IMinter_v3(MINTER).mintPeggedTokenDryRun(claimable, maxFee);
+        (, , uint256 collateralTaken, , , ) = IMinter_v3(MINTER).mintPeggedTokenDryRun(claimable, maxFee);
 
         if (collateralTaken == 0) {
-            // Fee too high - skip. wCOLn stays as unclaimed in SP, included in totalAssets via claimable().
-            emit CompoundSkipped(msg.sender, claimable);
+            // Fee too high - skip. Wrapped collateral stays as unclaimed in SP,
+            // included in totalAssets via claimable().
+            emit Compounded(msg.sender, claimable, 0, 0);
             return;
         }
 
         // Fractional claim: only take what can be profitably minted
         IMultipleRewardAccumulator_v3(STABILITY_POOL).claim(
-            address(this), address(this), WRAPPED_COLLATERAL, collateralTaken
+            address(this),
+            address(this),
+            WRAPPED_COLLATERAL,
+            collateralTaken
         );
 
         // Mint pegged tokens from the claimed collateral
-        (uint256 minted,) = IMinter_v3(MINTER).mintPeggedToken(collateralTaken, address(this), 0, maxFee);
+        (uint256 minted, ) = IMinter_v3(MINTER).mintPeggedToken(collateralTaken, address(this), 0, maxFee);
 
         // Deposit minted pegged tokens back into the SP
         IStabilityPool(STABILITY_POOL).deposit(minted, address(this), 0);
 
-        emit Compounded(msg.sender, collateralTaken, minted);
+        emit Compounded(msg.sender, claimable, collateralTaken, minted);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -237,20 +285,33 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
 
     /// @inheritdoc IAutoCompounder
     function depositPeggedToken(uint256 peggedAmount, address receiver) external returns (uint256 shares) {
-        // Transfer pegged tokens from caller
-        IERC20(PEGGED_TOKEN).safeTransferFrom(msg.sender, address(this), peggedAmount);
+        peggedAmount = Token.allOf(msg.sender, PEGGED_TOKEN, peggedAmount);
 
-        // Deposit to SP - AC receives rebasing SP position
+        // Snapshot exchange rate BEFORE the SP deposit changes totalAssets
+        uint256 assetsBefore = totalAssets();
+        uint256 supplyBefore = totalSupply();
+
+        // Transfer pegged tokens from caller, deposit to SP
+        IERC20(PEGGED_TOKEN).safeTransferFrom(msg.sender, address(this), peggedAmount);
         uint256 spBalanceBefore = IERC20(STABILITY_POOL).balanceOf(address(this));
         IStabilityPool(STABILITY_POOL).deposit(peggedAmount, address(this), 0);
         uint256 spReceived = IERC20(STABILITY_POOL).balanceOf(address(this)) - spBalanceBefore;
 
-        // Mint AC shares for the SP shares received
-        shares = previewDeposit(spReceived);
+        // Compute shares at the pre-deposit exchange rate (matches ERC4626._convertToShares)
+        shares = Math.mulDiv(spReceived, supplyBefore + 1, assetsBefore + 1);
         if (shares == 0) {
             revert DepositPeggedTokenZeroShares();
         }
         _mint(receiver, shares);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                SWEEP
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @inheritdoc TokenHolder
+    function _checkSweeper() internal view override(TokenHolder) {
+        _checkOwner();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -266,20 +327,18 @@ contract AutoCompounder_v1 is Initializable, UUPSUpgradeable, ERC4626Upgradeable
 
     /// @dev Withdraw SP tokens from the vault to receiver.
     ///      Uses SP.transfer (not SP.withdraw) - the user receives the rebasing SP token directly.
-    function _withdraw(address caller, address receiver, address tokenOwner, uint256 assets, uint256 shares)
-        internal
-        override
-    {
+    function _withdraw(
+        address caller,
+        address receiver,
+        address tokenOwner,
+        uint256 assets,
+        uint256 shares
+    ) internal override {
         if (caller != tokenOwner) {
             _spendAllowance(tokenOwner, caller, shares);
         }
         _burn(tokenOwner, shares);
         IERC20(STABILITY_POOL).safeTransfer(receiver, assets);
         emit Withdraw(caller, receiver, tokenOwner, assets, shares);
-    }
-
-    /// @dev Decimals match the SP token (18).
-    function decimals() public pure override returns (uint8) {
-        return 18;
     }
 }

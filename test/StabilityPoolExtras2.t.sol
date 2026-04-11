@@ -83,11 +83,7 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
             "User's pegged token balance should remain unchanged"
         );
 
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(address(0)),
-            0,
-            "Zero address should have no tokens"
-        );
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(address(0)), 0, "Zero address should have no tokens");
     }
 
     // Test withdraw with receiver = address(0)
@@ -106,7 +102,7 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
         // Verify balances remain unchanged
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             DEPOSIT_AMOUNT,
             "User's LP token balance should remain unchanged"
         );
@@ -139,11 +135,11 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Get exact balance
-        uint256 exactBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 exactBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
 
         // Calculate maximum withdrawable amount considering MIN_TOTAL_ASSET_SUPPLY protection
         uint256 MIN_TOTAL_ASSET_SUPPLY = 1 ether;
-        uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
         uint256 maxWithdrawable = totalSupply > MIN_TOTAL_ASSET_SUPPLY ? totalSupply - MIN_TOTAL_ASSET_SUPPLY : 0;
 
         // When trying to withdraw the exact balance, the pool will limit it to maxWithdrawable
@@ -165,21 +161,21 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         // The remaining balance should be the original balance minus what was actually withdrawn
         uint256 expectedRemainingBalance = exactBalance - expectedWithdrawal;
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             expectedRemainingBalance,
             "Balance should reflect actual withdrawal amount"
         );
 
         // Pool total supply should not go below MIN_TOTAL_ASSET_SUPPLY
         assertGe(
-            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            IERC20(stabilityPoolCollateral).totalSupply(),
             MIN_TOTAL_ASSET_SUPPLY,
             "Pool should maintain minimum total asset supply"
         );
     }
 
-    // Test totalSupplyHistory with invalid index
-    function testTotalSupplyHistoryInvalidIndex() public view {
+    // Test totalAssetSupplyHistory with invalid index
+    function testtotalAssetSupplyHistoryInvalidIndex() public view {
         // Get total supply history with invalid index
         (uint40 atDay, uint256 amount) = IStabilityPool(stabilityPoolCollateral).totalAssetSupplyHistory(999);
 
@@ -207,7 +203,7 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
         // Check final balances
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             DEPOSIT_AMOUNT + DEPOSIT_AMOUNT - DEPOSIT_AMOUNT / 2,
             "User1 balance should reflect all operations"
         );

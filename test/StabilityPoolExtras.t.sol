@@ -21,8 +21,8 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
     uint256 constant TINY_DEPOSIT = 1 ether; // Extremely small deposit to test edge cases
     uint256 constant REWARD_AMOUNT = 50 ether;
 
-    // Test for totalSupplyHistory getter (coverage for function 236)
-    function testTotalSupplyHistory() public {
+    // Test for totalAssetSupplyHistory getter (coverage for function 236)
+    function testtotalAssetSupplyHistory() public {
         // Store the current timestamp for reference
         uint256 initialTimestamp = block.timestamp;
 
@@ -82,7 +82,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // After "complete" liquidation, user retains MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             MIN_TOTAL_ASSET_SUPPLY,
             "Balance should be MIN_TOTAL_ASSET_SUPPLY after complete liquidation due to protection"
         );
@@ -93,7 +93,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Test that total supply is now MIN_TOTAL_ASSET_SUPPLY + new deposit
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            IERC20(stabilityPoolCollateral).totalSupply(),
             MIN_TOTAL_ASSET_SUPPLY + DEPOSIT_AMOUNT,
             "Total supply should be protection minimum plus new deposit"
         );
@@ -110,7 +110,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
             IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user4, 0);
 
             // Liquidate 99.9% but respect MIN_TOTAL_ASSET_SUPPLY protection
-            uint256 totalSupply = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+            uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
             uint256 maxLiquidatable = totalSupply > MIN_TOTAL_ASSET_SUPPLY ? totalSupply - MIN_TOTAL_ASSET_SUPPLY : 0;
             if (maxLiquidatable > 0) {
                 _liquidate((maxLiquidatable * 999) / 1000);
@@ -119,7 +119,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Test that balance approaches protection minimum after multiple liquidations
         assertLe(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user3),
+            IERC20(stabilityPoolCollateral).balanceOf(user3),
             MIN_TOTAL_ASSET_SUPPLY * 2, // Increased tolerance since TINY_DEPOSIT is now 1 ether
             "Small balance should approach protection minimum after multiple liquidations"
         );
@@ -134,7 +134,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
         // Verify initial balance before liquidation
-        uint256 initialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         assertEq(initialBalance, DEPOSIT_AMOUNT, "Initial balance should match deposit amount");
 
         // Perform a "full" liquidation (limited by MIN_TOTAL_ASSET_SUPPLY protection)
@@ -142,12 +142,12 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Check final balance is MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             MIN_TOTAL_ASSET_SUPPLY,
             "Balance should be MIN_TOTAL_ASSET_SUPPLY after full liquidation due to protection"
         );
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            IERC20(stabilityPoolCollateral).totalSupply(),
             MIN_TOTAL_ASSET_SUPPLY,
             "Total supply should be MIN_TOTAL_ASSET_SUPPLY after full liquidation due to protection"
         );
@@ -175,12 +175,12 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Check final balance is MIN_TOTAL_ASSET_SUPPLY due to protection
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             MIN_TOTAL_ASSET_SUPPLY,
             "Balance should be MIN_TOTAL_ASSET_SUPPLY after excess liquidation due to protection"
         );
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            IERC20(stabilityPoolCollateral).totalSupply(),
             MIN_TOTAL_ASSET_SUPPLY,
             "Total supply should be MIN_TOTAL_ASSET_SUPPLY after excess liquidation due to protection"
         );
@@ -272,7 +272,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         // Verify deposit amount
         assertEq(deposited, initialPeggedBalance, "Should deposit entire balance");
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             initialPeggedBalance,
             "Balance should match deposit"
         );
@@ -400,7 +400,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 5, user3, 0);
 
         // Check user1's balance after multiple exponent changes
-        uint256 user1Balance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 user1Balance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         assertLt(
             user1Balance,
             DEPOSIT_AMOUNT / 1000,
@@ -420,11 +420,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Verify deposit
         assertEq(deposited, exactAmount, "Should deposit exact balance amount");
-        assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
-            exactAmount,
-            "Balance should match deposit"
-        );
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), exactAmount, "Balance should match deposit");
         assertEq(IERC20(peggedToken).balanceOf(user1), 0, "Pegged token balance should be 0");
     }
 
@@ -450,7 +446,7 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Check total balance is correct
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             smallAmount * 5,
             "Balance should be sum of all deposits"
         );
@@ -467,14 +463,14 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
-        uint256 initialBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 initialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
 
         // Sweep a tiny amount of asset tokens
         uint256 tinyAmount = 1;
         _liquidate(tinyAmount);
 
         // Verify the impact on user balance
-        uint256 finalBalance = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 finalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
         assertLt(finalBalance, initialBalance, "Balance should decrease after liquidate");
 
         // Check that lastAssetLossError was updated
@@ -497,12 +493,12 @@ contract TestStabilityPoolExtra1 is TestStabilityPoolRebalanceSetUp {
 
         // Verify protection prevents complete depletion
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).totalAssetSupply(),
+            IERC20(stabilityPoolCollateral).totalSupply(),
             MIN_TOTAL_ASSET_SUPPLY,
             "Total supply should be MIN_TOTAL_ASSET_SUPPLY due to protection, not 0"
         );
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             MIN_TOTAL_ASSET_SUPPLY,
             "User balance should be MIN_TOTAL_ASSET_SUPPLY due to protection, not 0"
         );
