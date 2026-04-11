@@ -33,7 +33,7 @@ All three contribute to the harvest for both pools, proportional to pool size.
 - Reduces the Minter's collateral holdings, reducing future harvests for everyone (component 2 is lost from the shared harvest pool)
 - But the transferred wCOL is itself interest-bearing (e.g., fxSAVE appreciates independently). This private yield accrues to the depositors who received it.
 
-**Leveraged SP rebalance**: pegged tokens are redeemed and the collateral is used to mint leveraged tokens. The collateral backing those redeemed pegged tokens is consumed in the process -- it leaves the Minter to become leveraged token collateral. This **does** reduce the Minter's total collateral and therefore reduces future harvest generation, just as collateral SP rebalances do. However, the leveraged tokens received by stayers are NOT interest-bearing in the same way as wCOL -- they don't generate private yield.
+**Leveraged SP rebalance**: pegged tokens are exchanged for leveraged tokens. The collateral backing those pegged tokens is **reclassified** -- it now backs leveraged tokens instead of pegged tokens, but it **stays with the Minter**. Leveraged SP rebalances do NOT reduce the Minter's total collateral and therefore do NOT directly reduce future harvest generation. The leveraged tokens received by stayers are NOT interest-bearing like wCOL -- they don't generate private yield.
 
 ### Worked Example
 
@@ -337,7 +337,7 @@ The private yield partially compensates for the lost harvest. **A naive boost th
 
 ### Charlie's situation is worse
 
-Charlie received 62.5 leveraged tokens (not wCOL). These are NOT interest-bearing in the same way. The collateral backing them stays with the Minter, generating harvest for everyone. Charlie cannot convert them to pegged tokens easily. His only income stream is the reduced harvest.
+Charlie received 62.5 leveraged tokens (not wCOL). These are NOT interest-bearing in the same way -- they don't generate private yield. The collateral backing them stays with the Minter (reclassified from pegged-backing to leveraged-backing), continuing to generate harvest for everyone. Charlie cannot convert them to pegged tokens easily. His only income stream is the reduced harvest.
 
 ---
 
@@ -404,8 +404,8 @@ To fix the distribution, you must change what `totalShare` means -- which is the
 - You hold reduced pegged + unclaimed leveraged tokens
 - Leveraged tokens are NOT interest-bearing like wCOL -- no private yield stream
 - Leveraged tokens cannot be easily converted to pegged (no direct mint path, must sell on secondary market)
-- The rebalance DOES reduce Minter's collateral (and thus future harvest) -- same as collateral SP
-- Your ongoing harvest is permanently reduced unless you sell leveraged tokens and re-enter
+- The rebalance does NOT reduce Minter's collateral (collateral is reclassified, not removed). Future harvest is unaffected by the rebalance itself.
+- Your ongoing harvest is permanently reduced (smaller pegged balance = smaller pool share) unless you sell leveraged tokens and re-enter
 - **The effective share boost applies here too** -- unclaimed leveraged tokens valued via `leveragedTokenPrice()` count toward your effective share. But the valuation is approximate and the tokens lack the private yield that wCOL provides.
 
 ### After a rebalance (you were NOT in the pool)
@@ -418,166 +418,199 @@ To fix the distribution, you must change what `totalShare` means -- which is the
 
 ## 5. Mechanism Analysis
 
-### A. CR-Based Dynamic Fees (Penalise the Withdrawer)
+### A. CR-Based Dynamic Withdrawal Fee
 
-Replace the withdrawal window with dynamic fees on both deposits and withdrawals that scale with collateral ratio. When CR is healthy, fees are zero.
+Replace the withdrawal window with a dynamic fee on withdrawals derived from the Minter's existing fee curves. When CR is healthy, the fee is naturally zero -- no threshold parameter needed.
+
+#### The two Minter incentive ratios
+
+The Minter already has two CR-dependent fee curves, each capturing a different aspect of systemic stress:
+
+**`mintPeggedTokenIncentiveRatio()`** -- the cost of minting pegged tokens at the current CR. Minting pegged lowers CR (more obligations, same collateral). At low CR this is heavily penalised:
+- Healthy CR (> 1.50): ~0.25% fee
+- Near rebalance threshold (1.20): ~1.5% fee
+- Below 1.16: disallowed (1 ether = 100%)
+
+An SP withdrawal is economically similar to minting pegged -- it removes stability from the pool, making the system weaker. The mint-pegged fee captures how much the system is harmed by this kind of action.
+
+**`redeemPeggedTokenIncentiveRatio()`** -- the incentive for redeeming pegged tokens at the current CR. Redeeming pegged raises CR (fewer obligations, collateral returned). At low CR this is *encouraged* with a discount:
+- Healthy CR (> 1.25): ~0.25% fee (slight discouragement -- system is fine)
+- Near rebalance threshold (1.20): ~-0.5% (discount -- system WANTS redemptions)
+- Low CR (< 1.0): ~-1% (larger discount)
+
+The negative of this ratio tells us: *how much does the system value someone taking pegged tokens OUT of circulation?* At low CR the answer is "a lot" -- meaning anyone who KEEPS pegged tokens (instead of redeeming) is sitting on value the system would like to see redeemed. A depositor who withdraws pegged from the SP (keeping them in circulation, not redeeming) is doing the opposite of what the system incentivises.
+
+#### Combining them: `fee = mintPeggedRatio - redeemPeggedRatio`
+
+Subtracting the redeem ratio (which is negative at low CR) amplifies the fee:
 
 ```
-FEE_ACTIVATION_RATIO   (immutable, e.g., 1.4 if rebalance threshold is 1.3)
-
-if CR >= FEE_ACTIVATION_RATIO:
-    feeRate = 0
-elif CR >= 1.0:
-    feeRate = (FEE_ACTIVATION_RATIO - CR) / (FEE_ACTIVATION_RATIO - 1.0)
-else:
-    feeRate = 1.0   (100% -- depeg, effectively blocked)
+fee = mintPeggedTokenIncentiveRatio - redeemPeggedTokenIncentiveRatio
 ```
+
+At **healthy CR** (e.g., 1.50):
+- mint ratio ≈ +0.25%, redeem ratio ≈ +0.5%
+- fee = 0.25% - 0.5% = **-0.25%** → clamped to **0** (no fee)
+- The two naturally cancel: the system doesn't care about SP withdrawals when healthy.
+
+At **CR near rebalance threshold** (e.g., 1.20):
+- mint ratio ≈ +1.5%, redeem ratio ≈ -0.5%
+- fee = 1.5% - (-0.5%) = **2.0%**
+- Both components reinforce: minting pegged is costly (system is stressed) AND the system is offering discounts for redemptions (it wants pegged supply reduced). An SP withdrawal goes against both signals.
+
+At **CR below disallow** (< 1.16):
+- mint ratio = 1 ether (disallowed), redeem ratio ≈ -1%
+- fee would be astronomical → clamped to **MAX_WITHDRAWAL_FEE** (constructor arg, e.g., 5%)
+- In practice, the pool should be empty at this CR (rebalance exhausts it). The cap is a safety bound.
+
+#### Why this works as a punitive measure
+
+The combined fee punishes the withdrawer *proportionally to how much their action harms the system*, measured by the system's own existing, audited fee curves:
+
+1. **Withdrawing pegged weakens the SP** (fewer depositors to absorb rebalance losses). The mint-pegged ratio captures this: the system charges more for actions that weaken it.
+2. **Withdrawing pegged instead of redeeming keeps obligations outstanding** when the system wants them reduced. The redeem ratio's negative value (discount) measures how badly the system wants pegged supply to shrink. By NOT redeeming, the withdrawer is denying the system what it needs.
+3. **At healthy CR, both components cancel** -- the system doesn't need SP stability OR pegged supply reduction, so no fee.
+4. **No new parameters** except `MAX_WITHDRAWAL_FEE` (constructor immutable, e.g., 5%) for the disallow edge case.
+
+#### Implementation
+
+```
+int256 mintRatio = IMinter(minter).mintPeggedTokenIncentiveRatio();
+int256 redeemRatio = IMinter(minter).redeemPeggedTokenIncentiveRatio();
+int256 combined = mintRatio - redeemRatio;
+
+if (combined >= int256(MAX_WITHDRAWAL_FEE)) {
+    feeRate = MAX_WITHDRAWAL_FEE;     // cap, never block withdrawals
+} else if (combined <= 0) {
+    feeRate = 0;                       // healthy CR, no fee
+} else {
+    feeRate = uint256(combined);
+}
+```
+
+- `MAX_WITHDRAWAL_FEE`: constructor immutable (e.g., `0.05 ether` = 5%)
+- Two view calls per withdrawal: `mintPeggedTokenIncentiveRatio()` + `redeemPeggedTokenIncentiveRatio()`
+- Fees go to the protocol fee address (same as the current early withdrawal fee)
 
 **What it solves:**
-- Deters both sides of the sandwich (withdraw + re-deposit)
-- Scales with systemic risk -- zero fee under normal conditions
+- Deters withdrawals during stress (fee scales with CR deterioration)
+- Naturally zero at healthy CR (no threshold parameter)
 - Removes withdrawal window UX burden (atomic withdraw)
 - Enables clean ERC4626 integration (no request/wait)
-- Stateless (computed from CR on each call)
+- Stateless, derives from audited Minter fee curves
+- Adapts automatically if Minter fee config is updated
 
 **What it doesn't solve:**
-- Post-rebalance gap: CR jumps back up after rebalance, fees drop
-- Does not compensate stayers -- only deters leavers
+- Post-rebalance gap: CR jumps back up after rebalance, fee drops immediately
+- Does not compensate stayers -- only deters leavers (auto-compounding handles restoration -- see Section 5B)
 - Fees go to protocol, not to remaining depositors
 
-**Bytecode impact on SP_v3:** Net -200 to -400 bytes (removing withdrawal window saves ~500-800, adding CR fee costs ~200-300).
+**Note on deposit fees:** Only withdrawals are penalised. Deposit fees would penalise the AC's redeposit step and legitimate new entrants. The AC restores the stayer's position via compound (deposit pegged), which should be fee-free.
 
-### B. Effective Share (Reward the Stayer)
+**Bytecode impact on SP_v4:** Net -200 to -400 bytes (removing withdrawal window saves ~500-800, adding the two view calls + fee logic costs ~200-300).
 
-For harvest distribution, a depositor's effective share includes the pegged-equivalent value of their unclaimed rebalance reward.
+### B. Auto-Compounding + Withdrawal Fees (Practical Fairness)
 
-```
-effectiveShare(user) = compoundedBalance(user) + peggedValueOf(unclaimedRebalanceReward(user))
-```
+The effective share mechanism (see earlier analysis) provides mathematically precise harvest fairness. However, **auto-compounding largely supersedes it for collateral SPs**.
 
-**How it works in the accumulator:**
+**How auto-compounding closes the gap:**
 
-The key change: when accumulating harvest rewards, use `totalEffectiveShare` as the denominator instead of `totalAssetSupply`:
-```
-harvestIntegral += reward × P_magnitude × PRECISION / totalEffectiveShare
-```
+The AC compounds by: claim wCOL → mint pegged → redeposit. After compounding, the stayer's pegged balance is restored (minus mint fee). Their harvest share immediately returns to its pre-rebalance proportion.
 
-Where `totalEffectiveShare = totalAssetSupply + peggedValueOf(totalUnclaimedRebalanceReward)`.
+For the worked example: Alice has 62.5 pegged + 166,667 fxSAVE unclaimed. The AC claims the fxSAVE, mints ~37.5 pegged (at the rebalance exchange rate, minus mint fee), and redeposits. Alice's balance grows to ~100 pegged. The 37.5% harvest gap closes in one `compound()` call.
 
-For the user's claimable harvest, use their effective share:
-```
-harvestGain = effectiveShare(user) × harvestIntegralDelta / (userProduct_magnitude × PRECISION)
-```
+**The timing constraint:** The AC can only compound when the mint fee is acceptable. Right after rebalance, CR is at the threshold (1.30) and the mint fee may be high (minting lowers CR). The AC's `maxFeeRatio` caps this. If fees are too high, `compound()` skips and the gap persists until CR recovers.
 
-**The over-compensation correction:**
+In practice:
+- If CR recovers quickly (days): the gap is short-lived. Auto-compounding resolves it.
+- If CR stays near threshold (weeks): the gap persists. During this stress period, the withdrawal fee (Section 5A) deters the withdraw-and-redeposit attack anyway.
+- If multiple rapid rebalances occur (observed in production: 5 in succession): the AC compounds after the series ends. The gap exists during the series but is bounded.
 
-The effective share must NOT be the full original deposit. It should be:
-```
-effectiveShare = compoundedBalance + peggedValueOf(unclaimedRebalanceReward)
-```
+**Combined with withdrawal fees:**
 
-This naturally handles the over-compensation:
-- **If user has NOT claimed wCOL:** boost = peggedValueOf(wCOL). They're earning private yield + boosted harvest. But the boost is based on the wCOL value, not the full lost amount. Since wCOL value ≈ lost pegged amount (at rebalance exchange rate), the total effective share ≈ original deposit. Slight over-compensation due to private yield, but it decays as users claim.
-- **If user HAS claimed wCOL:** boost = 0. No double-dipping. They extracted the wCOL and lose the boost.
-- **If user compounds (claims + mints + redeposits):** their compounded balance grows, boost drops to 0, net effect ≈ original deposit restored as pegged. Fair.
+The withdrawal fee deters the attack. The AC closes the gap for stayers. Together:
+1. Bob can't cheaply withdraw before rebalance (fee)
+2. If Bob does pay the fee and withdraws, he has less capital to re-enter with
+3. Alice's unclaimed wCOL is auto-compounded, restoring her harvest share
+4. The window of unfairness is limited to the time between rebalance and compound
 
-**Multiple rebalances:** Each rebalance adds more unclaimed wCOL. The boost is cumulative -- `unclaimedRebalanceReward` is the total across all rebalances. Claiming any portion reduces the boost proportionally.
+**What this doesn't solve -- the leveraged SP:**
 
-**The AC interaction:** The AC claims wCOL (boost drops to 0) and mints pegged (balance grows). The AC's effective share is always close to its actual total value. No special handling needed.
+The AC can only compound wCOL (harvest rewards), not leveraged tokens (rebalance rewards). For the leveraged SP, Charlie's 37.5% harvest gap persists permanently because:
+- Leveraged tokens can't be minted back to pegged
+- They aren't interest-bearing (no private yield)
+- The AC doesn't help with leveraged token rewards
 
-**What it solves:**
-- Stayers earn harvest proportional to their full position value (pegged + compensation)
-- Natural decay via claiming -- no governance parameter
-- Compounding is incentivised when healthy (low mint fee), holding when stressed (high mint fee)
-- No penalty on new depositors -- they have no unclaimed reward
-- AC works correctly -- claim removes boost, redeposit restores balance
+For leveraged SP fairness, the effective share mechanism or a separate solution would still be needed. However, this is a known risk trade-off of choosing the leveraged pool (higher risk, different reward profile), and could be addressed in a future upgrade.
 
-**What it doesn't solve:**
-- Oracle dependency: converting wCOL to pegged-equivalent requires price/rate
-- Does not prevent the withdraw/re-deposit attack itself
-- Leveraged SP: leveraged token pricing is approximate
+**Effective share as a future enhancement:**
 
-**Implementation: virtual effective share functions + separate accumulation paths.**
+If needed, the effective share mechanism can be added later without breaking the AC or fee mechanism. The implementation architecture (virtual `_getEffectiveTotalPoolShare` / `_getEffectiveUserPoolShare` functions in the accumulator, overridden by SP) is compatible with both. It would provide precise fairness during the window between rebalance and compound for collateral SPs, and address the leveraged SP gap permanently.
 
-The accumulator already has two virtual functions that the SP overrides:
-- `_getTotalPoolShare()` → returns `(product, totalAssetSupply)`
-- `_getUserPoolShare(account)` → returns `(product, storedBalance)`
+### C. Combined: Withdrawal Fees + Auto-Compounding
 
-Add parallel virtuals in the accumulator:
-- `_getEffectiveTotalPoolShare()` → default: delegates to `_getTotalPoolShare()`. SP overrides to return `(product, totalAssetSupply + peggedValueOf(totalUnclaimedRebalanceReward))`.
-- `_getEffectiveUserPoolShare(account)` → default: delegates to `_getUserPoolShare()`. SP overrides to return `(product, storedBalance + peggedValueOf(unclaimedRebalanceReward(account)))`.
+Fees deter the withdrawal; auto-compounding restores the stayer.
 
-Two accumulation paths (no flags, no hidden state):
+**Bob's attack:**
+1. Withdrawal fee at CR=1.20: Minter's `mintPeggedTokenIncentiveRatio` is ~1.5% (below disallow threshold). Bob pays ~1.5% of 100 haETH = 1.5 haETH. Receives 98.5.
+2. After rebalance (CR back to 1.30): Bob deposits 98.5 haETH. No deposit fee (withdrawal-only).
+3. Alice: 62.5 pegged + 166,667 fxSAVE claimable. AC compounds: claims fxSAVE, mints ~37.5 pegged (minus mint fee), redeposits. Alice ≈ 100 pegged.
+4. Result: Alice and Bob are roughly equal in pegged balance. Bob lost 1.5 haETH to the withdrawal fee. Attack is mildly unprofitable.
 
-**Harvest path** (called from linear distributor drip via `depositReward`):
-`_accumulateReward(token, amount)` uses `_getEffectiveTotalPoolShare()` for denominator. Harvest is distributed proportional to effective shares.
-
-**Rebalance path** (called only from `notifyLiquidation`):
-New `_accumulateRewardAndNotifyLoss(token, reward, loss)` in the accumulator. Uses `_getTotalPoolShare()` (actual shares, no boost) for reward accumulation, then applies loss via product. These two operations must happen atomically at the same product value.
-
-`notifyLiquidation` becomes:
-```
-_checkpoint(address(0))                                    // drips pending harvest (effective shares)
-_accumulateRewardAndNotifyLoss(rewardToken, returned, liquidated)  // rebalance reward (actual shares) + loss
-```
-
-User-side claimable: `_claimableFrom` uses `_getEffectiveUserPoolShare` for harvest tokens and `_getUserPoolShare` for rebalance tokens. The distinction between harvest and rebalance tokens is provided by the existing alias/token registration system.
-
-This approach:
-- No `_accumulateReward` override in SP -- only the virtual share functions are overridden
-- No flags or hidden state -- denomination choice is explicit in which virtual function each path calls
-- The accumulator base owns both paths -- SP only provides the effective share calculation
-- ~100 bytes in accumulator (new virtual functions + `_accumulateRewardAndNotifyLoss`), ~100 bytes in SP (two overrides returning boosted values)
-
-### C. Combined: CR Fees + Effective Share
-
-Fees deter the movement; effective share corrects the distribution.
-
-**Bob's attack (combined):**
-1. Withdrawal fee at CR=1.20: `(1.40 - 1.20) / (1.40 - 1.00) = 50%`. Bob withdraws 100 haETH, pays 50, receives 50.
-2. Re-deposit fee at CR=1.30 (post-rebalance): `(1.40 - 1.30) / (1.40 - 1.00) = 25%`. Bob deposits 50, pays 12.5, credited 37.5.
-3. Alice's effective share: 62.5 + peggedValueOf(166,666.67 fxSAVE) ≈ 100 haETH (the wCOL is valued at exactly the lost 37.5 haETH at the rebalance exchange rate). Bob: 37.5, no boost.
-4. Alice dominates. Attack clearly unprofitable.
+**Note:** The deterrent effect depends on the Minter's fee curve magnitude. The current config has modest fees (1-1.5% near the rebalance threshold). If stronger deterrence is needed, the SP could multiply the Minter fee by a configurable factor, or use a steeper curve.
 
 **Fred (legitimate new entrant):**
 1. No withdrawal fee (wasn't in pool).
-2. Deposit fee at CR=1.30: 25% of 100 = 25 fee. Credited 75.
-3. No effective share boost (no unclaimed).
+2. Deposits 100 haETH freely.
+3. No penalty. The AC auto-compounds Alice's position, so Fred doesn't dilute her.
 
-Fred pays a fee for entering during stress. This is arguable -- a genuine supporter is penalised. The effective share alone (without deposit fee) handles Fred more fairly: no fee, but stayers have boosted shares so Fred doesn't dilute them.
+Fred is treated fairly -- no fee, and auto-compounding ensures Alice's position is restored without Fred being penalised.
 
 ---
 
 ## 6. Mechanism Comparison Under Auto-Compounding
 
-(haETH balances; the dollar values follow the price.)
+The AC changes the dynamics fundamentally. Without the AC, stayers must manually claim-mint-redeposit (expensive, timing-dependent). With the AC, compounding is automatic and happens as soon as fees allow.
 
-| Mechanism | Alice (1yr compound) | Bob (1yr compound) | Notes |
-|-----------|---------------------|-------------------|-------|
-| **No protection** | 62.5 × (1+r)^52 | 100 × (1+r)^52 | Bob compounds from 1.6× base |
-| **CR fees only** | 62.5 × (1+r)^52 | 37.5 × (1+r)^52 | Gap reversed by fees |
-| **Effective share only** | ~100 effective, compounds when claimed | 100 × (1+r)^52 | Alice's effective share matches her pre-rebalance deposit; once she compounds, both grow |
-| **Combined** | ~100 effective, compounds | 37.5 × (1+r)^52 | Strongest protection |
+**Collateral SP (Alice vs Bob):**
+
+| Mechanism | Alice after compound | Bob | Unfairness window | Notes |
+|-----------|---------------------|-----|-------------------|-------|
+| **No protection** | AC compounds immediately. Alice ≈ 100 pegged. | Bob 100 pegged (re-entered free). | Minimal — compound closes gap in one tx. | AC removes the ongoing harvest unfairness. But Bob had zero cost to dodge. |
+| **Withdrawal fee only** | AC compounds immediately. Alice ≈ 100 pegged. | Bob ≈ 98.5 pegged (paid 1.5% fee). | Minimal. | Bob pays a small fee. Alice is made whole by AC. |
+| **Withdrawal fee + AC** | Alice ≈ 100 pegged (restored). | Bob ≈ 98.5 pegged. | Near zero. | **Recommended.** Bob's attack is mildly unprofitable. Alice is restored. Simple to implement. |
+
+**Leveraged SP (Charlie vs Dave):**
+
+| Mechanism | Charlie after compound | Dave | Unfairness window | Notes |
+|-----------|----------------------|------|-------------------|-------|
+| **No protection** | AC compounds harvest only. Charlie 62.5 pegged (lev tokens can't be compounded). | Dave 100 pegged. | **Permanent.** | The leveraged SP gap is not closed by the AC. |
+| **Withdrawal fee** | Same as above. Fee deters Dave but doesn't help Charlie. | Dave ≈ 98.5 pegged. | Permanent (but smaller). | Deterrence helps; Charlie still earns 37.5% less. |
+| **Effective share (future)** | Charlie's effective share includes lev token value. Harvest boosted. | Dave 100 pegged, no boost. | Closed. | Requires accumulator changes — deferred. |
+
+**Key insight:** For collateral SPs, withdrawal fees + auto-compounding provide practical fairness with minimal implementation complexity. For leveraged SPs, the gap persists and the effective share mechanism (or a separate solution) is needed long-term.
 
 ---
 
 ## 7. Open Questions
 
-1. **Deposit fees for new entrants:** are they justified, or should only withdrawals during stress be penalised?
-2. **FEE_ACTIVATION_RATIO calibration:** how far above the rebalance threshold? Too close = post-rebalance gap; too far = fees on healthy activity.
-3. **Effective share oracle risk:** can oracle manipulation inflate the boost? The oracle is already trusted for CR, so this is not a new attack surface, but the magnitude of impact may differ.
-4. **Charlie's leveraged token boost:** `leveragedTokenPrice()` from the Minter is an approximation. Is it accurate enough for the effective share calculation?
-5. **Multiple rapid rebalances:** the mechanism handles them (cumulative boost), but the oracle price may differ at each rebalance. The boost is based on current claimable value (re-priced each time), not the historical exchange rate. Is this correct?
+1. **Fee curve magnitude:** The Minter's `mintPeggedTokenIncentiveRatio` reaches ~1.5% near the rebalance threshold. Is this sufficient deterrent? If not, the SP could apply a multiplier (e.g., 10× the Minter fee), but this introduces a parameter.
+2. **Post-rebalance gap:** After rebalance, CR jumps back to threshold and the fee drops immediately. An attacker who can re-enter in the same block faces a low fee. Mitigation: private mempool for rebalance tx, or a brief cooldown (simpler than the full withdrawal window).
+3. **Leveraged SP fairness:** Auto-compounding doesn't help Charlie. The effective share mechanism would, but adds implementation complexity. Is the leveraged SP gap acceptable as a known risk trade-off, or must it be addressed before deployment?
+4. **Multiple rapid rebalances:** Production has seen 5 rebalances in succession. The AC compounds after the series ends. The unfairness window spans the full series. Is this acceptable?
+5. **BOLD B-sum as future enhancement:** Proven not to help with the same denominator (Section 3), but a `totalOriginalDeposits` denominator variant (discussed in earlier analysis) could provide precise fairness. Worth revisiting if the practical approach proves insufficient?
 
 ---
 
 ## 8. Summary: Defence Layers
 
-| Layer | Mechanism | Addresses |
-|-------|-----------|-----------|
-| **CR-based withdrawal fee** | Dynamic fee scaling with CR | Deters frontrun withdrawal |
-| **CR-based deposit fee** | Same formula on deposits | Deters address-switching, post-rebalance re-entry |
-| **Effective share boost** | Unclaimed rebalance reward counts toward harvest share | Corrects harvest distribution for stayers |
-| **Private mempool** (off-chain) | Submit rebalance via Flashbots Protect | Mempool frontrunning specifically |
+| Layer | Mechanism | Addresses | Status |
+|-------|-----------|-----------|--------|
+| **Withdrawal fee** | Derived from Minter's `mintPeggedTokenIncentiveRatio()` | Deters frontrun withdrawal | Implement in SP_v4 |
+| **Auto-compounding** | AC claims wCOL, mints pegged, redeposits | Restores stayer's harvest share (collateral SP only) | Implemented (AutoCompounder_v1) |
+| **Private mempool** (off-chain) | Submit rebalance via Flashbots Protect | Mempool frontrunning specifically | Operational |
+| **Effective share boost** (future) | Unclaimed rebalance reward counts toward harvest share | Corrects harvest distribution (needed for leveraged SP) | Deferred |
 
-The effective share mechanism corrects the harvest distribution without governance parameters, decays naturally via claiming, and interacts correctly with auto-compounding (claim removes boost, redeposit restores balance). CR-based fees complement it by deterring the attack itself. Together they address both deterrence and compensation.
+For collateral SPs, withdrawal fees + auto-compounding provide practical fairness: fees deter the attack, the AC restores the stayer's position. The unfairness window is bounded by the time between rebalance and compound.
+
+For leveraged SPs, the 37.5% harvest gap persists permanently. This is a known risk trade-off of the leveraged pool. The effective share mechanism can address it in a future upgrade without breaking the existing fee or AC mechanisms.

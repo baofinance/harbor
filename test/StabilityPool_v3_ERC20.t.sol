@@ -497,4 +497,78 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         assertApproxEqAbs(IERC20(sp).balanceOf(user1), 50 ether, 1, "user1 50 after loss");
         assertApproxEqAbs(IERC20(sp).balanceOf(user2), 50 ether, 1, "user2 50 after loss");
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Transfer after loss: _transferBalance bug
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Intent: after a loss, transferring the FULL compounded balance should leave the sender with 0.
+    /// Bug: _transferBalance subtracts the compounded amount from the stored amount (which is larger),
+    /// leaving a phantom balance that compounds to a non-zero value.
+    function test_transferFullBalanceAfterLoss_senderHasZero() public {
+        _deposit(user1, 100 ether);
+
+        // Apply a 37.5% loss (same as the worked example: 100 -> 62.5)
+        _applyLoss(37.5 ether, 37.5 ether);
+
+        uint256 balanceAfterLoss = IERC20(sp).balanceOf(user1);
+        assertApproxEqAbs(balanceAfterLoss, 62.5 ether, 1e15, "user1 has 62.5 after loss");
+
+        // Transfer the full compounded balance to user2
+        vm.prank(user1);
+        IERC20(sp).transfer(user2, balanceAfterLoss);
+
+        // Sender should have 0
+        assertEq(IERC20(sp).balanceOf(user1), 0, "sender should have 0 after full transfer");
+        // Receiver should have the full amount
+        assertApproxEqAbs(IERC20(sp).balanceOf(user2), balanceAfterLoss, 1, "receiver gets the full amount");
+    }
+
+    /// Intent: after a loss, transferring a partial compounded amount should leave sender with the remainder.
+    function test_transferPartialBalanceAfterLoss_correctRemainder() public {
+        _deposit(user1, 100 ether);
+
+        // Apply a 37.5% loss: 100 -> 62.5
+        _applyLoss(37.5 ether, 37.5 ether);
+
+        uint256 balanceAfterLoss = IERC20(sp).balanceOf(user1);
+        uint256 halfBalance = balanceAfterLoss / 2; // ~31.25
+
+        // Transfer half the compounded balance
+        vm.prank(user1);
+        IERC20(sp).transfer(user2, halfBalance);
+
+        // Sender should have the other half
+        uint256 senderRemaining = IERC20(sp).balanceOf(user1);
+        assertApproxEqAbs(senderRemaining, balanceAfterLoss - halfBalance, 1, "sender has correct remainder");
+        // Receiver should have what was sent
+        assertApproxEqAbs(IERC20(sp).balanceOf(user2), halfBalance, 1, "receiver has correct amount");
+        // Total should be conserved
+        assertApproxEqAbs(senderRemaining + IERC20(sp).balanceOf(user2), balanceAfterLoss, 1, "total conserved");
+    }
+
+    /// Intent: two sequential transfers after a loss should both work correctly.
+    function test_twoTransfersAfterLoss_totalConserved() public {
+        _deposit(user1, 100 ether);
+
+        // Apply a 50% loss: 100 -> 50
+        _applyLoss(50 ether, 50 ether);
+
+        uint256 balanceAfterLoss = IERC20(sp).balanceOf(user1);
+        uint256 firstTransfer = 20 ether;
+        uint256 secondTransfer = 20 ether;
+
+        // First transfer
+        vm.prank(user1);
+        IERC20(sp).transfer(user2, firstTransfer);
+
+        // Second transfer
+        vm.prank(user1);
+        IERC20(sp).transfer(user3, secondTransfer);
+
+        uint256 remaining = IERC20(sp).balanceOf(user1);
+        uint256 total = remaining + IERC20(sp).balanceOf(user2) + IERC20(sp).balanceOf(user3);
+        assertApproxEqAbs(total, balanceAfterLoss, 2, "total conserved across 3 addresses");
+        assertApproxEqAbs(remaining, balanceAfterLoss - firstTransfer - secondTransfer, 1, "sender remainder correct");
+    }
 }

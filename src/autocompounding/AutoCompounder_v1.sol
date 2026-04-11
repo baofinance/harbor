@@ -5,6 +5,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
@@ -36,6 +37,7 @@ contract AutoCompounder_v1 is
     Initializable,
     UUPSUpgradeable,
     ERC4626Upgradeable,
+    ReentrancyGuardTransientUpgradeable,
     HarborOwnable,
     TokenHolder,
     IERC5313,
@@ -129,6 +131,7 @@ contract AutoCompounder_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @custom:oz-upgrades-unsafe-allow constructor
+    // slither-disable-next-line void-cst
     constructor(
         address stabilityPool_,
         address minter_,
@@ -136,7 +139,11 @@ contract AutoCompounder_v1 is
         string memory symbol_
     ) ERC20Upgradeable() ERC4626Upgradeable() {
         _disableInitializers();
+        Token.ensureNonZeroAddress(stabilityPool_);
+        Token.ensureNonZeroAddress(minter_);
+        // slither-disable-next-line missing-zero-check
         STABILITY_POOL = stabilityPool_;
+        // slither-disable-next-line missing-zero-check
         MINTER = minter_;
         WRAPPED_COLLATERAL = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
@@ -152,6 +159,7 @@ contract AutoCompounder_v1 is
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
+        __ReentrancyGuardTransient_init();
         __ERC4626_init(IERC20(STABILITY_POOL));
     }
 
@@ -190,8 +198,8 @@ contract AutoCompounder_v1 is
     /// @dev Called by the deployer after proxy creation. Approves the SP to spend pegged tokens
     ///      and the Minter to spend wrapped collateral.
     function approveCompoundTokens() external onlyOwner {
-        IERC20(PEGGED_TOKEN).approve(STABILITY_POOL, type(uint256).max);
-        IERC20(WRAPPED_COLLATERAL).approve(MINTER, type(uint256).max);
+        IERC20(PEGGED_TOKEN).forceApprove(STABILITY_POOL, type(uint256).max);
+        IERC20(WRAPPED_COLLATERAL).forceApprove(MINTER, type(uint256).max);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -232,6 +240,7 @@ contract AutoCompounder_v1 is
         // price = underlying collateral price in peg terms (18 dec)
         // rate = wrapped-to-underlying rate (18 dec)
         // claimableValue = claimableCollateral * rate * price / 1e36
+        // slither-disable-next-line unused-return
         (, , , , uint256 price, uint256 rate) = IMinter_v3(MINTER).mintPeggedTokenDryRun(
             claimableCollateral,
             type(uint256).max
@@ -244,7 +253,7 @@ contract AutoCompounder_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IAutoCompounder
-    function compound() external {
+    function compound() external nonReentrant {
         uint256 claimable = IMultipleRewardAccumulator(STABILITY_POOL).claimable(address(this), WRAPPED_COLLATERAL);
         if (claimable == 0) {
             revert NothingToCompound();
@@ -253,6 +262,7 @@ contract AutoCompounder_v1 is
         uint256 maxFee = _getAutoCompounderStorage().maxFeeRatio;
 
         // Dry run to see how much can be profitably minted within the fee cap
+        // slither-disable-next-line unused-return
         (, , uint256 collateralTaken, , , ) = IMinter_v3(MINTER).mintPeggedTokenDryRun(claimable, maxFee);
 
         if (collateralTaken == 0) {
@@ -271,9 +281,11 @@ contract AutoCompounder_v1 is
         );
 
         // Mint pegged tokens from the claimed collateral
+        // slither-disable-next-line unused-return
         (uint256 minted, ) = IMinter_v3(MINTER).mintPeggedToken(collateralTaken, address(this), 0, maxFee);
 
         // Deposit minted pegged tokens back into the SP
+        // slither-disable-next-line unused-return
         IStabilityPool(STABILITY_POOL).deposit(minted, address(this), 0);
 
         emit Compounded(msg.sender, claimable, collateralTaken, minted);
@@ -284,7 +296,8 @@ contract AutoCompounder_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IAutoCompounder
-    function depositPeggedToken(uint256 peggedAmount, address receiver) external returns (uint256 shares) {
+    // slither-disable-next-line reentrancy-no-eth
+    function depositPeggedToken(uint256 peggedAmount, address receiver) external nonReentrant returns (uint256 shares) {
         peggedAmount = Token.allOf(msg.sender, PEGGED_TOKEN, peggedAmount);
 
         // Snapshot exchange rate BEFORE the SP deposit changes totalAssets
@@ -294,11 +307,13 @@ contract AutoCompounder_v1 is
         // Transfer pegged tokens from caller, deposit to SP
         IERC20(PEGGED_TOKEN).safeTransferFrom(msg.sender, address(this), peggedAmount);
         uint256 spBalanceBefore = IERC20(STABILITY_POOL).balanceOf(address(this));
+        // slither-disable-next-line unused-return
         IStabilityPool(STABILITY_POOL).deposit(peggedAmount, address(this), 0);
         uint256 spReceived = IERC20(STABILITY_POOL).balanceOf(address(this)) - spBalanceBefore;
 
         // Compute shares at the pre-deposit exchange rate (matches ERC4626._convertToShares)
         shares = Math.mulDiv(spReceived, supplyBefore + 1, assetsBefore + 1);
+        // slither-disable-next-line incorrect-equality
         if (shares == 0) {
             revert DepositPeggedTokenZeroShares();
         }
