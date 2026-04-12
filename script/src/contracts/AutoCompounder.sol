@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {AutoCompounder_v1} from "@harbor/autocompounding/AutoCompounder_v1.sol";
@@ -47,16 +46,7 @@ abstract contract AutoCompounder is HarborFactoryDeployer {
         console.log("          Name:   %s", tokenName);
         console.log("          Symbol: %s", tokenSymbol);
 
-        DeploymentState.recordImplementation(
-            stateData,
-            DeploymentTypes.ImplementationRecord({
-                proxy: acKey,
-                contractSource: "@harbor/autocompounding/AutoCompounder_v1.sol",
-                contractType: "AutoCompounder_v1",
-                implementation: impl,
-                deploymentTime: uint64(block.timestamp)
-            })
-        );
+        _recordImplementation(stateData, acKey, "@harbor/autocompounding/AutoCompounder_v1.sol", "AutoCompounder_v1", impl);
     }
 
     /// @notice Deploy AutoCompounder impl+proxy, record in state.

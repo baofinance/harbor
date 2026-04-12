@@ -4,7 +4,6 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console2 as console} from "forge-std/console2.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {HarborYield_v1} from "@harbor/autocompounding/HarborYield_v1.sol";
@@ -36,16 +35,7 @@ abstract contract HarborYield is HarborFactoryDeployer {
         console.log("          Name:   %s", tokenName);
         console.log("          Symbol: %s", tokenSymbol);
 
-        DeploymentState.recordImplementation(
-            stateData,
-            DeploymentTypes.ImplementationRecord({
-                proxy: yieldKey,
-                contractSource: "@harbor/autocompounding/HarborYield_v1.sol",
-                contractType: "HarborYield_v1",
-                implementation: impl,
-                deploymentTime: uint64(block.timestamp)
-            })
-        );
+        _recordImplementation(stateData, yieldKey, "@harbor/autocompounding/HarborYield_v1.sol", "HarborYield_v1", impl);
     }
 
     /// @notice Deploy HarborYield_v1 impl+proxy, record in state.

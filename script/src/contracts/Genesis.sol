@@ -20,6 +20,18 @@ import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 abstract contract Genesis is HarborFactoryDeployer {
     // ========== GENESIS DEPLOYMENT ==========
 
+    /// @notice Deploy Genesis_v1 impl only, record in state.
+    function deployGenesisImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory genesisKey,
+        address minter
+    ) internal virtual returns (address impl) {
+        impl = address(new Genesis_v1(minter));
+        console.log("        Impl:  %s", impl);
+
+        _recordImplementation(stateData, genesisKey, "@harbor/minter/Genesis_v1.sol", "Genesis_v1", impl);
+    }
+
     /// @notice Deploy Genesis impl+proxy, record both in state, register for ownership transfer.
     function deployGenesis(
         DeploymentTypes.State memory stateData,
@@ -29,19 +41,11 @@ abstract contract Genesis is HarborFactoryDeployer {
         string memory genesisKey = _key(marketKey, "genesis");
         console.log("    > %s", genesisKey);
 
-        address impl = address(new Genesis_v1(minter));
-        console.log("        Impl:  %s", impl);
+        address impl = deployGenesisImplementation(stateData, genesisKey, minter);
 
         bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (owner()));
 
-        proxy = _deployProxyViaStubAndRecord(
-            stateData,
-            genesisKey,
-            impl,
-            "@harbor/minter/Genesis_v1.sol",
-            "Genesis_v1",
-            initData
-        );
+        proxy = _deployProxyViaStubAndRecord(stateData, genesisKey, impl, initData);
     }
 
     // ========== ADDRESS PREDICTION ==========

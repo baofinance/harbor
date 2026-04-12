@@ -645,7 +645,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         assertEq(v2End, v1End, "Withdrawal end preserved");
 
         // Verify balances and claimable preserved
-        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), v1_bal, "Balance preserved");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), v1_bal, "Balance preserved");
         assertEq(
             IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, steam),
             v1_claimable,
@@ -665,7 +665,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         assertEq(withdrawn, 50 ether, "Withdraw correct amount on v2");
         assertEq(IERC20(peggedToken).balanceOf(user1) - peggedBefore, 50 ether, "Pegged tokens received");
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             v1_bal - 50 ether,
             "Balance reduced after withdrawal"
         );
@@ -738,7 +738,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "Collateral claimable preserved across 2 exponent shifts"
         );
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             v1_bal,
             "Balance preserved across 2 exponent shifts"
         );
@@ -814,7 +814,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "Collateral claimable preserved after re-deposit + partial liq"
         );
         assertEq(
-            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            IERC20(stabilityPoolCollateral).balanceOf(user1),
             v1_bal,
             "Balance preserved after re-deposit + partial liq"
         );

@@ -50,7 +50,7 @@ contract ClaimEquivalenceTest is Test {
         explicitReceiver = makeAddr("explicitReceiver");
 
         accumulator = address(new MockMultipleRewardCompoundingAccumulator_v3(1 weeks));
-        MockMultipleRewardCompoundingAccumulator_v3(accumulator).initialize(deployer);
+        MockMultipleRewardCompoundingAccumulator_v3(accumulator).initialize(deployer, deployer);
 
         rewardToken1 = address(new MockERC20("Token1", "T1", 18));
         rewardToken2 = address(new MockERC20("Token2", "T2", 18));

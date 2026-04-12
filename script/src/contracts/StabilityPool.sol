@@ -5,7 +5,6 @@ import {console2 as console} from "forge-std/console2.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
@@ -63,16 +62,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         console.log("          Name:   %s", tokenName);
         console.log("          Symbol: %s", tokenSymbol);
 
-        DeploymentState.recordImplementation(
-            stateData,
-            DeploymentTypes.ImplementationRecord({
-                proxy: spKey,
-                contractSource: "@harbor/minter/StabilityPool_v3.sol",
-                contractType: "StabilityPool_v3",
-                implementation: impl,
-                deploymentTime: uint64(block.timestamp)
-            })
-        );
+        _recordImplementation(stateData, spKey, "@harbor/minter/StabilityPool_v3.sol", "StabilityPool_v3", impl);
     }
 
     /// @notice Deploy StabilityPool impl+proxy, record in state.
@@ -95,14 +85,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
             (address(this), owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
         );
 
-        proxy = _deployProxyAndRecord(
-            stateData,
-            spKey,
-            impl,
-            "@harbor/minter/StabilityPool_v3.sol",
-            "StabilityPool_v3",
-            initData
-        );
+        proxy = _deployProxyAndRecord(stateData, spKey, impl, initData);
     }
 
     /// @notice Grant StabilityPool roles to StabilityPoolManager and AutoCompounder.

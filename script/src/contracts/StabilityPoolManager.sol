@@ -25,6 +25,29 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
     // ========== STABILITY POOL MANAGER DEPLOYMENT ==========
 
+    /// @notice Deploy StabilityPoolManager_v1 impl only, record in state.
+    function deployStabilityPoolManagerImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory spmKey,
+        address minter,
+        address treasury,
+        address stabilityPoolCollateral,
+        address stabilityPoolLeveraged
+    ) internal virtual returns (address impl) {
+        impl = address(
+            new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)
+        );
+        console.log("        Impl:  %s", impl);
+
+        _recordImplementation(
+            stateData,
+            spmKey,
+            "@harbor/minter/StabilityPoolManager_v1.sol",
+            "StabilityPoolManager_v1",
+            impl
+        );
+    }
+
     /// @notice Deploy StabilityPoolManager_v1 impl+proxy, record in state.
     function deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
@@ -37,21 +60,18 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
         string memory spmKey = _key(marketKey, "stabilityPoolManager");
         console.log("    > %s", spmKey);
 
-        address impl = address(
-            new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)
+        address impl = deployStabilityPoolManagerImplementation(
+            stateData,
+            spmKey,
+            minter,
+            treasury,
+            stabilityPoolCollateral,
+            stabilityPoolLeveraged
         );
-        console.log("        Impl:  %s", impl);
 
         bytes memory initData = abi.encodeCall(StabilityPoolManager_v1.initialize, (owner()));
 
-        proxy = _deployProxyViaStubAndRecord(
-            stateData,
-            spmKey,
-            impl,
-            "@harbor/minter/StabilityPoolManager_v1.sol",
-            "StabilityPoolManager_v1",
-            initData
-        );
+        proxy = _deployProxyViaStubAndRecord(stateData, spmKey, impl, initData);
     }
 
     /// @notice Configure a deployed StabilityPoolManager with its operational parameters.
@@ -68,6 +88,23 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
     // ========== SPM FEE RECEIVER (TOKEN DISTRIBUTOR) DEPLOYMENT ==========
 
+    /// @notice Deploy TokenDistributor_v1 (SPMFeeReceiver) impl only, record in state.
+    function deploySPMFeeReceiverImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory feeReceiverKey
+    ) internal virtual returns (address impl) {
+        impl = address(new TokenDistributor_v1());
+        console.log("        Impl:  %s", impl);
+
+        _recordImplementation(
+            stateData,
+            feeReceiverKey,
+            "@harbor/minter/TokenDistributor_v1.sol",
+            "TokenDistributor_v1",
+            impl
+        );
+    }
+
     /// @notice Deploy TokenDistributor_v1 as SPMFeeReceiver impl+proxy, record in state.
     function deploySPMFeeReceiver(
         DeploymentTypes.State memory stateData,
@@ -77,19 +114,11 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
         string memory feeReceiverKey = _key(marketKey, "spmFeeReceiver");
         console.log("    > %s", feeReceiverKey);
 
-        address impl = address(new TokenDistributor_v1());
-        console.log("        Impl:  %s", impl);
+        address impl = deploySPMFeeReceiverImplementation(stateData, feeReceiverKey);
 
         bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
 
-        proxy = _deployProxyViaStubAndRecord(
-            stateData,
-            feeReceiverKey,
-            impl,
-            "@harbor/minter/TokenDistributor_v1.sol",
-            "TokenDistributor_v1",
-            initData
-        );
+        proxy = _deployProxyViaStubAndRecord(stateData, feeReceiverKey, impl, initData);
     }
 
     /// @notice Configure TokenDistributor with tokens and distribution.

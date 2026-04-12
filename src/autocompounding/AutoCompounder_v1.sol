@@ -129,13 +129,7 @@ contract AutoCompounder_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    // slither-disable-next-line void-cst
-    constructor(
-        address stabilityPool_,
-        address minter_,
-        string memory name_,
-        string memory symbol_
-    ) ERC20Upgradeable() ERC4626Upgradeable() {
+    constructor(address stabilityPool_, address minter_, string memory name_, string memory symbol_) {
         _disableInitializers();
         Token.ensureNonZeroAddress(stabilityPool_);
         Token.ensureNonZeroAddress(minter_);
@@ -147,8 +141,7 @@ contract AutoCompounder_v1 is
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
         assert(IStabilityPool(stabilityPool_).ASSET_TOKEN() == PEGGED_TOKEN);
         (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
-        // slither-disable-next-line unused-return
-        (_ERC20_SYMBOL, ) = StringPacking_v1.pack64(symbol_);
+        _ERC20_SYMBOL = StringPacking_v1.pack32(symbol_);
     }
 
     /// @notice Initialize the auto-compounder.

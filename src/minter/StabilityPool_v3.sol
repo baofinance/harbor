@@ -230,8 +230,7 @@ contract StabilityPool_v3 is
     ) MultipleRewardCompoundingAccumulator_v3(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
         _disableInitializers();
         (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
-        // slither-disable-next-line unused-return
-        (_ERC20_SYMBOL, ) = StringPacking_v1.pack64(symbol_);
+        _ERC20_SYMBOL = StringPacking_v1.pack32(symbol_);
         address asset = IMinter(minter_).PEGGED_TOKEN();
         _ERC20_DECIMALS = IERC20Metadata(asset).decimals();
         Token.sanityCheckERC20Token(asset);

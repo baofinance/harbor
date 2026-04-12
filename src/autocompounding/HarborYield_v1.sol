@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -33,6 +34,7 @@ contract HarborYield_v1 is
     Initializable,
     UUPSUpgradeable,
     ERC20Upgradeable,
+    ReentrancyGuardTransientUpgradeable,
     HarborOwnableRoles,
     TokenHolder,
     IHarborYield
@@ -109,17 +111,19 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(string memory name_, string memory symbol_, address swapper_) ERC20Upgradeable() {
+    constructor(string memory name_, string memory symbol_, address swapper_) {
         _disableInitializers();
         (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
-        // slither-disable-next-line unused-return
-        (_ERC20_SYMBOL, ) = StringPacking_v1.pack64(symbol_);
+        _ERC20_SYMBOL = StringPacking_v1.pack32(symbol_);
+        Token.ensureNonZeroAddress(swapper_);
+        // slither-disable-next-line missing-zero-check
         SWAPPER = swapper_;
     }
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
+        __ReentrancyGuardTransient_init();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -136,6 +140,7 @@ contract HarborYield_v1 is
     /// @param vault The ERC4626 vault address.
     /// @param weight Target distribution weight (arbitrary units, must be > 0).
     /// @param isAutoCompounder Whether the vault implements IAutoCompounder.
+    // slither-disable-next-line reentrancy-no-eth,reentrancy-events
     function addVault(address vault, uint96 weight, bool isAutoCompounder) external onlyOwner {
         if (weight == 0) {
             revert ZeroWeight();
@@ -154,7 +159,7 @@ contract HarborYield_v1 is
         $.assetToVaultIndex[asset] = $.vaults.length; // 1-indexed
         $.totalWeight += weight;
 
-        IERC20(asset).approve(vault, type(uint256).max);
+        IERC20(asset).forceApprove(vault, type(uint256).max);
 
         emit VaultAdded(vault, asset, weight);
     }
@@ -222,9 +227,12 @@ contract HarborYield_v1 is
     /// @inheritdoc IHarborYield
     function totalAssets() public view returns (uint256 total) {
         HarborYieldStorage storage $ = _getHarborYieldStorage();
-        for (uint256 i = 0; i < $.vaults.length; i++) {
+        uint256 length = $.vaults.length;
+        for (uint256 i = 0; i < length; i++) {
+            // slither-disable-next-line calls-loop
             uint256 vaultShares = IERC20($.vaults[i].vault).balanceOf(address(this));
             if (vaultShares > 0) {
+                // slither-disable-next-line calls-loop
                 total += IERC4626($.vaults[i].vault).convertToAssets(vaultShares);
             }
         }
@@ -235,7 +243,8 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IHarborYield
-    function deposit(address asset, uint256 amount, address receiver) external returns (uint256 shares) {
+    // slither-disable-next-line reentrancy-no-eth
+    function deposit(address asset, uint256 amount, address receiver) external nonReentrant returns (uint256 shares) {
         amount = Token.allOf(msg.sender, asset, amount);
 
         HarborYieldStorage storage $ = _getHarborYieldStorage();
@@ -252,6 +261,7 @@ contract HarborYield_v1 is
         uint256 supplyBefore = totalSupply();
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        // slither-disable-next-line unused-return
         IERC4626(mv.vault).deposit(amount, address(this));
 
         shares = Math.mulDiv(amount, supplyBefore + 1, assetsBefore + 1);
@@ -266,7 +276,7 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IHarborYield
-    function redeem(uint256 shares, address receiver, address tokenOwner) external {
+    function redeem(uint256 shares, address receiver, address tokenOwner) external nonReentrant {
         if (msg.sender != tokenOwner) {
             _spendAllowance(tokenOwner, msg.sender, shares);
         }
@@ -275,11 +285,14 @@ contract HarborYield_v1 is
         _burn(tokenOwner, shares);
 
         HarborYieldStorage storage $ = _getHarborYieldStorage();
-        for (uint256 i = 0; i < $.vaults.length; i++) {
+        uint256 length = $.vaults.length;
+        for (uint256 i = 0; i < length; i++) {
+            // slither-disable-next-line calls-loop
             uint256 vaultShares = IERC20($.vaults[i].vault).balanceOf(address(this));
             if (vaultShares > 0) {
                 uint256 redeemAmount = Math.mulDiv(vaultShares, shares, supply);
                 if (redeemAmount > 0) {
+                    // slither-disable-next-line calls-loop,unused-return
                     IERC4626($.vaults[i].vault).redeem(redeemAmount, receiver, address(this));
                 }
             }
@@ -291,13 +304,14 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IHarborYield
+    // slither-disable-next-line reentrancy-events
     function compound(
         address fromVault,
         address toVault,
         uint256 vaultShareAmount,
         uint256 minAmountOut,
         bytes calldata swapData
-    ) external onlyOwnerOrRoles(COMPOUNDER_ROLE) {
+    ) external nonReentrant onlyOwnerOrRoles(COMPOUNDER_ROLE) {
         // Redeem from the source equivalent vault to get its underlying asset
         uint256 assetAmount = IERC4626(fromVault).redeem(vaultShareAmount, address(this), address(this));
 
@@ -311,6 +325,7 @@ contract HarborYield_v1 is
         );
 
         // Deposit into the target vault (typically an AC)
+        // slither-disable-next-line unused-return
         IERC4626(toVault).deposit(swappedAmount, address(this));
 
         emit Compounded(msg.sender, fromVault, toVault, assetAmount, swappedAmount);
@@ -327,11 +342,12 @@ contract HarborYield_v1 is
     }
 
     /// @inheritdoc IHarborYield
+    // slither-disable-next-line reentrancy-events
     function redistribute(
         uint256 maxVaultSharesPerVault,
         uint256 minAmountOut,
         bytes calldata swapData
-    ) external onlyOwnerOrRoles(REDISTRIBUTOR_ROLE) {
+    ) external nonReentrant onlyOwnerOrRoles(REDISTRIBUTOR_ROLE) {
         HarborYieldStorage storage $ = _getHarborYieldStorage();
         uint256 tw = $.totalWeight;
         if (tw == 0) {
@@ -347,8 +363,11 @@ contract HarborYield_v1 is
         {
             uint256 maxExcess;
             uint256 maxDeficit;
-            for (uint256 i = 0; i < $.vaults.length; i++) {
+            uint256 length = $.vaults.length;
+            for (uint256 i = 0; i < length; i++) {
+                // slither-disable-next-line calls-loop
                 uint256 bal = IERC20($.vaults[i].vault).balanceOf(address(this));
+                // slither-disable-next-line calls-loop
                 uint256 cur = bal > 0 ? IERC4626($.vaults[i].vault).convertToAssets(bal) : 0;
                 uint256 tgt = Math.mulDiv(total, $.vaults[i].weight, tw);
                 if (cur > tgt) {
@@ -389,6 +408,7 @@ contract HarborYield_v1 is
             minAmountOut,
             swapData
         );
+        // slither-disable-next-line unused-return
         IERC4626(dstVault).deposit(deposited, address(this));
         emit Redistributed(msg.sender, srcVault, dstVault, w.moveValue, deposited);
     }
@@ -409,7 +429,7 @@ contract HarborYield_v1 is
         if (fromAsset == toAsset) {
             return amountIn;
         }
-        IERC20(fromAsset).approve(SWAPPER, amountIn);
+        IERC20(fromAsset).forceApprove(SWAPPER, amountIn);
         amountOut = ISwapper(SWAPPER).swap(fromAsset, toAsset, amountIn, minAmountOut, swapData);
     }
 

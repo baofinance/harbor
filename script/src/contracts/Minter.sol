@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -38,16 +37,7 @@ abstract contract Minter is HarborFactoryDeployer {
         impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
         console.log("        Impl:  %s", impl);
 
-        DeploymentState.recordImplementation(
-            stateData,
-            DeploymentTypes.ImplementationRecord({
-                proxy: minterKey,
-                contractSource: "@harbor/minter/Minter_v3.sol",
-                contractType: "Minter_v3",
-                implementation: impl,
-                deploymentTime: uint64(block.timestamp)
-            })
-        );
+        _recordImplementation(stateData, minterKey, "@harbor/minter/Minter_v3.sol", "Minter_v3", impl);
     }
 
     /// @notice Deploy Minter impl+proxy, record both in state, register for ownership transfer.
@@ -105,6 +95,17 @@ abstract contract Minter is HarborFactoryDeployer {
 
     // ========== RESERVE POOL DEPLOYMENT ==========
 
+    /// @notice Deploy ReservePool_v1 impl only, record in state.
+    function deployReservePoolImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory reservePoolKey
+    ) internal virtual returns (address impl) {
+        impl = address(new ReservePool_v1());
+        console.log("        Impl:  %s", impl);
+
+        _recordImplementation(stateData, reservePoolKey, "@harbor/minter/ReservePool_v1.sol", "ReservePool_v1", impl);
+    }
+
     /// @notice Deploy ReservePool impl+proxy, record both in state, register for ownership transfer.
     function deployReservePool(
         DeploymentTypes.State memory stateData,
@@ -113,19 +114,11 @@ abstract contract Minter is HarborFactoryDeployer {
         string memory reservePoolKey = _key(marketKey, "reservePool");
         console.log("    > %s", reservePoolKey);
 
-        address impl = address(new ReservePool_v1());
-        console.log("        Impl:  %s", impl);
+        address impl = deployReservePoolImplementation(stateData, reservePoolKey);
 
         bytes memory initData = abi.encodeCall(ReservePool_v1.initialize, (owner()));
 
-        proxy = _deployProxyViaStubAndRecord(
-            stateData,
-            reservePoolKey,
-            impl,
-            "@harbor/minter/ReservePool_v1.sol",
-            "ReservePool_v1",
-            initData
-        );
+        proxy = _deployProxyViaStubAndRecord(stateData, reservePoolKey, impl, initData);
     }
 
     /// @notice Grant ReservePool REQUESTER_ROLE to Minter.
@@ -139,6 +132,23 @@ abstract contract Minter is HarborFactoryDeployer {
 
     // ========== FEE RECEIVER (TOKEN DISTRIBUTOR) DEPLOYMENT ==========
 
+    /// @notice Deploy TokenDistributor_v1 impl only, record in state.
+    function deployMinterFeeReceiverImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory feeReceiverKey
+    ) internal virtual returns (address impl) {
+        impl = address(new TokenDistributor_v1());
+        console.log("        Impl:  %s", impl);
+
+        _recordImplementation(
+            stateData,
+            feeReceiverKey,
+            "@harbor/minter/TokenDistributor_v1.sol",
+            "TokenDistributor_v1",
+            impl
+        );
+    }
+
     /// @notice Deploy TokenDistributor_v1 as Minter fee receiver.
     function deployMinterFeeReceiver(
         DeploymentTypes.State memory stateData,
@@ -148,19 +158,11 @@ abstract contract Minter is HarborFactoryDeployer {
         string memory feeReceiverKey = _key(marketKey, "minterFeeReceiver");
         console.log("    > %s", feeReceiverKey);
 
-        address impl = address(new TokenDistributor_v1());
-        console.log("        Impl:  %s", impl);
+        address impl = deployMinterFeeReceiverImplementation(stateData, feeReceiverKey);
 
         bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
 
-        proxy = _deployProxyViaStubAndRecord(
-            stateData,
-            feeReceiverKey,
-            impl,
-            "@harbor/minter/TokenDistributor_v1.sol",
-            "TokenDistributor_v1",
-            initData
-        );
+        proxy = _deployProxyViaStubAndRecord(stateData, feeReceiverKey, impl, initData);
     }
 
     /// @notice Configure TokenDistributor with tokens and distribution.

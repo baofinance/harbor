@@ -14,13 +14,13 @@ src/autocompounding/AutoCompounder_v1.sol:AutoCompounder_v1
 | depositPeggedToken    | 3.213e+05 |
 | initialize            | 1.017e+05 |
 | maxFeeRatio           | 2.391e+03 |
-| name                  | 1.751e+04 |
-| owner                 | 2.440e+03 |
+| name                  | 1.753e+04 |
+| owner                 | 2.403e+03 |
 | previewRedeem         | 3.630e+04 |
 | redeem                | 9.756e+04 |
 | setMaxFeeRatio        | 2.562e+04 |
 | sweep                 | 4.525e+04 |
-| symbol                | 1.874e+04 |
+| symbol                | 1.876e+04 |
 | totalAssets           | 7.818e+04 |
 | transferOwnership     | 1.202e+04 |
 
@@ -71,7 +71,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | mintLeveragedTokenIncentiveRatio                 | 3.108e+04 |
 | mintPeggedToken(uint256,address,uint256)         | 1.911e+05 |
 | mintPeggedToken(uint256,address,uint256,uint256) | 1.251e+05 |
-| mintPeggedTokenDryRun(uint256)                   | 6.399e+04 |
+| mintPeggedTokenDryRun(uint256)                   | 6.401e+04 |
 | mintPeggedTokenDryRun(uint256,uint256)           | 4.556e+04 |
 | mintPeggedTokenIncentiveRatio                    | 3.012e+04 |
 | owner                                            | 2.402e+03 |
@@ -112,7 +112,7 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | function name              |       max |
 |----------------------------|-----------|
 | feeReceiver                | 2.441e+03 |
-| harvest                    | 4.442e+05 |
+| harvest                    | 4.443e+05 |
 | harvestBountyRatio         | 2.369e+03 |
 | harvestCutRatio            | 2.371e+03 |
 | harvestable                | 3.052e+04 |
@@ -178,25 +178,25 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | claimed                                | 7.472e+03 |
 | decimals                               | 2.950e+02 |
 | deposit                                | 2.848e+05 |
-| depositReward                          | 6.723e+04 |
+| depositReward                          | 6.726e+04 |
 | getWithdrawalRequest                   | 2.745e+03 |
 | grantRoles                             | 2.638e+04 |
 | historicalRewardTokens                 | 5.180e+03 |
-| initialize                             | 2.041e+05 |
-| name                                   | 1.926e+04 |
+| initialize                             | 2.042e+05 |
+| name                                   | 1.928e+04 |
 | notifyLiquidation                      | 1.235e+05 |
 | owner                                  | 2.424e+03 |
 | proxiableUUID                          | 3.640e+02 |
-| registerRewardToken                    | 8.852e+04 |
+| registerRewardToken                    | 8.857e+04 |
 | requestWithdrawal                      | 2.501e+04 |
-| sweep                                  | 4.020e+04 |
-| symbol                                 | 1.948e+04 |
+| sweep                                  | 4.024e+04 |
+| symbol                                 | 1.950e+04 |
 | totalAssetSupply                       | 2.489e+03 |
 | totalSupply                            | 2.424e+03 |
 | transfer                               | 1.880e+05 |
 | transferFrom                           | 1.316e+05 |
 | transferOwnership                      | 1.204e+04 |
-| unregisterRewardToken                  | 9.139e+04 |
+| unregisterRewardToken                  | 9.144e+04 |
 | withdraw                               | 2.585e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
@@ -223,5 +223,6 @@ src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 src/minter/library/StringPacking_v1.sol:StringPacking_v1
 | function name   |       max |
 |-----------------|-----------|
-| pack64          | 9.370e+02 |
-| unpack64        | 1.580e+04 |
+| pack32          | 7.480e+02 |
+| pack64          | 9.590e+02 |
+| unpack64        | 1.582e+04 |

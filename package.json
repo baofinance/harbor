@@ -14,7 +14,7 @@
     "test": "mkdir -p results; ./lib/bao-base/run test",
     "gas": "./lib/bao-base/run regression-of gas",
     "coverage": "./lib/bao-base/run regression-of coverage",
-    "wake": "wake detect all",
+    "wake": "uv run wake detect all src",
     "slither": "./lib/bao-base/run slither --filter-paths 'script/verify'",
     "verify-audit": "lib/bao-base/run verify-audit",
     "validate": "./lib/bao-base/run validate",

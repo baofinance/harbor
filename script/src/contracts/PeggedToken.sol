@@ -19,6 +19,23 @@ abstract contract PeggedToken is HarborFactoryDeployer {
 
     // ========== PEGGED TOKEN DEPLOYMENT ==========
 
+    /// @notice Deploy MintableBurnableERC20_v1 impl only, record in state.
+    function deployPeggedTokenImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory tokenKey
+    ) internal virtual returns (address impl) {
+        impl = address(new MintableBurnableERC20_v1());
+        console.log("        Impl:   %s", impl);
+
+        _recordImplementation(
+            stateData,
+            tokenKey,
+            "@bao/MintableBurnableERC20_v1.sol",
+            "MintableBurnableERC20_v1",
+            impl
+        );
+    }
+
     /// @notice Deploy a pegged token and grant minter roles to all markets using this peg.
     /// @dev If the pegged token already exists at the predicted address, logs manual TX requirements.
     function deployPeggedTokenWithRoles(
@@ -41,22 +58,14 @@ abstract contract PeggedToken is HarborFactoryDeployer {
             console.log("        Name:   %s", pegConfig.name());
             console.log("        Symbol: %s", pegConfig.symbol());
 
-            address impl = address(new MintableBurnableERC20_v1());
-            console.log("        Impl:   %s", impl);
+            address impl = deployPeggedTokenImplementation(stateData, tokenKey);
 
             bytes memory initData = abi.encodeCall(
                 MintableBurnableERC20_v1.initialize,
                 (owner(), pegConfig.name(), pegConfig.symbol())
             );
 
-            peggedToken = _deployProxyViaStubAndRecord(
-                stateData,
-                tokenKey,
-                impl,
-                "@bao/MintableBurnableERC20_v1.sol",
-                "MintableBurnableERC20_v1",
-                initData
-            );
+            peggedToken = _deployProxyViaStubAndRecord(stateData, tokenKey, impl, initData);
         }
 
         // Grant minter roles for each market

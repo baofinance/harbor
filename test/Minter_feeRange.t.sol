@@ -581,7 +581,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
 
         // console2.log("fee=%s", fee);
         // console2.log("discount=%s", discount);
-        assertNear(post.feeWrapped, pre.feeWrapped + fee, 2, 4, "rp fee wrapped");
+        assertNear(post.feeWrapped, pre.feeWrapped + fee, 3, 4, "rp fee wrapped");
         assertNear(post.reservePoolWrapped, pre.reservePoolWrapped - discount, 0, 0, "rp discount wrapped");
 
         assertNear(

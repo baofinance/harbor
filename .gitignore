@@ -55,3 +55,8 @@ docs/
 
 # temp or prliminary files
 *.*-
+.wake
+pytypes
+*.py[cod]
+.hypothesis/
+wake-coverage.cov
