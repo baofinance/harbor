@@ -8,10 +8,9 @@ import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Cont
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IRewardAlias} from "src/interfaces/IRewardAlias.sol";
 import {LinearReward} from "./LinearReward.sol";
 
 // solhint-disable no-empty-blocks
@@ -38,7 +37,7 @@ import {LinearReward} from "./LinearReward.sol";
 abstract contract LinearMultipleRewardDistributor_v3 is
     Initializable,
     ContextUpgradeable,
-    BaoOwnableRoles,
+    HarborOwnableRoles,
     IMultipleRewardDistributor
 {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -74,10 +73,6 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         EnumerableSet.AddressSet activeRewardTokens;
         /// @dev The list of historical reward tokens.
         EnumerableSet.AddressSet historicalRewardTokens;
-        /// @dev Alias address => underlying token address. Set at registration, used for token transfers.
-        mapping(address => address) aliasToUnderlying;
-        /// @dev Underlying token => ordered list of aliases (drain order for claimSingle(underlying)).
-        mapping(address => address[]) aliases;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff))'
@@ -163,7 +158,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
             revert NotActiveRewardToken();
         }
         if (amount > 0) {
-            IERC20(_resolveUnderlying(token)).safeTransferFrom(_distributor, address(this), amount);
+            IERC20(token).safeTransferFrom(_distributor, address(this), amount);
         }
 
         _distributePendingReward();
@@ -182,31 +177,6 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         _registerRewardToken(token);
     }
 
-    /// @notice Register a reward token with an ordered list of aliases.
-    /// @dev Each alias must implement IRewardAlias.underlying() returning `token`.
-    ///      Aliases are registered as active tokens with their own integrals.
-    ///      claimSingle(underlying) drains aliases in this order, then underlying's own.
-    /// @param token The underlying reward token.
-    /// @param tokenAliases Ordered list of alias addresses (drain order).
-    function registerRewardToken(
-        address token,
-        address[] calldata tokenAliases
-    ) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
-        _registerRewardToken(token);
-
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        for (uint256 i = 0; i < tokenAliases.length; i++) {
-            address alias_ = tokenAliases[i];
-            // Reverts if alias doesn't implement underlying() or returns wrong address
-            // slither-disable-next-line calls-loop
-            if (IRewardAlias(alias_).underlying() != token) {
-                revert AliasUnderlyingMismatch();
-            }
-            _registerRewardToken(alias_);
-            $.aliasToUnderlying[alias_] = token;
-            $.aliases[token].push(alias_);
-        }
-    }
 
     function _registerRewardToken(address token) internal {
         if (token == address(0)) {
@@ -226,16 +196,6 @@ abstract contract LinearMultipleRewardDistributor_v3 is
     /// @inheritdoc IMultipleRewardDistributor
     function unregisterRewardToken(address token) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
         _unregisterRewardToken(token);
-
-        // If token has aliases, unregister them too (they're a unit)
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        address[] storage tokenAliases = $.aliases[token];
-        for (uint256 i = 0; i < tokenAliases.length; i++) {
-            address alias_ = tokenAliases[i];
-            _unregisterRewardToken(alias_);
-            delete $.aliasToUnderlying[alias_];
-        }
-        delete $.aliases[token];
     }
 
     function _unregisterRewardToken(address token) internal {
@@ -320,20 +280,4 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         (distributable, undistributed) = $.rewardData[token].pending();
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Alias support
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /// @dev Returns the underlying token for transfers. If not an alias, returns the token itself.
-    function _resolveUnderlying(address token) internal view returns (address) {
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        address underlying = $.aliasToUnderlying[token];
-        return underlying != address(0) ? underlying : token;
-    }
-
-    /// @dev Returns the ordered alias list for an underlying token.
-    function _getAliases(address token) internal view returns (address[] memory) {
-        LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        return $.aliases[token];
-    }
 }

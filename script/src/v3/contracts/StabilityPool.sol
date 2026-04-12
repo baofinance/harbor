@@ -92,10 +92,17 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(address(marketConfig));
         bytes memory initData = abi.encodeCall(
             StabilityPool_v3.initialize,
-            (owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
+            (address(this), owner(), cfg.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
         );
 
-        proxy = _deployProxyViaStubAndRecord(stateData, spKey, impl, initData);
+        proxy = _deployProxyAndRecord(
+            stateData,
+            spKey,
+            impl,
+            "@harbor/minter/StabilityPool_v3.sol",
+            "StabilityPool_v3",
+            initData
+        );
     }
 
     /// @notice Grant StabilityPool roles to StabilityPoolManager.

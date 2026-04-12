@@ -185,8 +185,8 @@ contract StabilityPool_v3 is
      * Constructor *
      ***************/
 
-    function initialize(address owner_, uint256 earlyWithdrawalFee_, address feeAddress_) external initializer {
-        _initializeOwner(owner_);
+    function initialize(address deployerOwner_, address pendingOwner_, uint256 earlyWithdrawalFee_, address feeAddress_) external initializer {
+        _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
 

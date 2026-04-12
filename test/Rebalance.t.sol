@@ -44,7 +44,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             address(new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, "SP Col", "spC")),
             abi.encodeCall(
                 StabilityPool_v3.initialize,
-                (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+                (address(this), owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
             )
         );
         IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
@@ -53,7 +53,7 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             address(new StabilityPool_v3(minter, leveragedToken, 3600, 90000, 1 ether, "SP Lev", "spL")),
             abi.encodeCall(
                 StabilityPool_v3.initialize,
-                (owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+                (address(this), owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
             )
         );
         IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);

@@ -113,7 +113,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v3
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v3.sol",
-            abi.encodeCall(StabilityPool_v3.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         vm.label(stabilityPool, SPName);
 
@@ -256,7 +256,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v3.sol",
-            abi.encodeCall(StabilityPool_v3.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(spProxy).transferOwnership(owner);
 
@@ -286,7 +286,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v3.initialize, (owner, 1 ether + 1, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, 1 ether + 1, FEE_ADDRESS))
         );
     }
 
@@ -305,7 +305,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v3.initialize, (owner, EARLY_WITHDRAWAL_FEE, address(0)))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, address(0)))
         );
     }
 }
@@ -427,7 +427,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // Deploy a fresh pool proxy but skip configuring window/fee
         address unconfigured = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, wrappedCollateralToken)),
-            abi.encodeCall(StabilityPool_v3.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(unconfigured).transferOwnership(owner);
 

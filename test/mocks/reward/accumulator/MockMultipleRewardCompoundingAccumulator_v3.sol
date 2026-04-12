@@ -17,7 +17,7 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
     constructor(uint40 period) MultipleRewardCompoundingAccumulator_v3(_ROLE_0, _ROLE_1, period) {}
 
     function initialize(address owner_) external initializer {
-        _initializeOwner(owner_);
+        _initializeOwner(address(this), owner_);
         __ReentrancyGuardTransient_init();
     }
 

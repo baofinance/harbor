@@ -26,11 +26,6 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter {
     address leveraged;
     address wrappedCollateral;
 
-    address collHarvestAlias;
-    address collRebalanceAlias;
-    address levHarvestAlias;
-    address levRebalanceAlias;
-
     MockWrappedPriceOracle mockOracle;
 
     function _shouldPersistState() internal pure override returns (bool) {
@@ -59,11 +54,6 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter {
         pegged = _predictAddress(_key("ETH", "pegged"));
         leveraged = _predictAddress(_key(mk, "leveraged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
-
-        collHarvestAlias = _predictAddress(_key(mk, "stabilityPoolCollateral", "harvest"));
-        collRebalanceAlias = _predictAddress(_key(mk, "stabilityPoolCollateral", "rebalance"));
-        levHarvestAlias = _predictAddress(_key(mk, "stabilityPoolLeveraged", "harvest"));
-        levRebalanceAlias = _predictAddress(_key(mk, "stabilityPoolLeveraged", "rebalance"));
 
         mockOracle = new MockWrappedPriceOracle();
         mockOracle.setLatestAnswer(1 ether, 1 ether);

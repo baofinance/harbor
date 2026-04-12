@@ -11,7 +11,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
+import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -115,7 +115,7 @@ import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMult
 // solhint-disable-next-line contract-name-capwords
 abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ReentrancyGuardTransientUpgradeable,
-    LinearMultipleRewardDistributor,
+    LinearMultipleRewardDistributor_v3,
     IMultipleRewardAccumulator,
     IMultipleRewardAccumulator_v3
 {
@@ -273,7 +273,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         uint256 rewardManagerRole,
         uint256 rewardDepositorRole,
         uint40 periodLength
-    ) LinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, periodLength) {}
+    ) LinearMultipleRewardDistributor_v3(rewardManagerRole, rewardDepositorRole, periodLength) {}
 
     /*************************
      * Public View Functions *
@@ -564,7 +564,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         return amount;
     }
 
-    /// @inheritdoc LinearMultipleRewardDistributor
+    /// @inheritdoc LinearMultipleRewardDistributor_v3
     function _accumulateReward(address token, uint256 amount) internal virtual override {
         // slither-disable-next-line incorrect-equality
         if (amount == 0) {

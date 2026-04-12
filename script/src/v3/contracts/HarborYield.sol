@@ -21,11 +21,12 @@ abstract contract HarborYield is HarborFactoryDeployer {
         DeploymentTypes.State memory stateData,
         string memory yieldKey,
         string memory tokenName,
-        string memory tokenSymbol
+        string memory tokenSymbol,
+        address swapper
     ) internal virtual returns (address impl) {
         console.log("    > %s", yieldKey);
 
-        impl = address(new HarborYield_v1(tokenName, tokenSymbol));
+        impl = address(new HarborYield_v1(tokenName, tokenSymbol, swapper));
         console.log("        Impl:   %s", impl);
         console.log("          Name:   %s", tokenName);
         console.log("          Symbol: %s", tokenSymbol);
@@ -47,24 +48,32 @@ abstract contract HarborYield is HarborFactoryDeployer {
         DeploymentTypes.State memory stateData,
         string memory yieldKey,
         string memory tokenName,
-        string memory tokenSymbol
+        string memory tokenSymbol,
+        address swapper
     ) internal returns (address proxy) {
-        address impl = deployHarborYieldImplementation(stateData, yieldKey, tokenName, tokenSymbol);
+        address impl = deployHarborYieldImplementation(stateData, yieldKey, tokenName, tokenSymbol, swapper);
 
         bytes memory initData = abi.encodeCall(HarborYield_v1.initialize, (address(this), owner()));
 
         proxy = _deployProxyAndRecord(stateData, yieldKey, impl, initData);
     }
 
+    /// @notice Vault registration config.
+    struct VaultConfig {
+        address vault;         // ERC4626 vault address
+        uint96 weight;         // target distribution weight
+        bool isAutoCompounder; // true if vault implements IAutoCompounder
+    }
+
     /// @notice Register ERC4626 vaults with a deployed HarborYield.
     /// @param hyProxy The HarborYield proxy address.
-    /// @param vaults Array of ERC4626 vault addresses to register.
-    function configureHarborYield(address hyProxy, address[] memory vaults) internal {
-        for (uint256 i = 0; i < vaults.length; i++) {
-            address vault = vaults[i];
+    /// @param configs Array of vault configurations to register.
+    function configureHarborYield(address hyProxy, VaultConfig[] memory configs) internal {
+        for (uint256 i = 0; i < configs.length; i++) {
+            address vault = configs[i].vault;
             address asset = IERC4626(vault).asset();
-            console.log("        addVault: %s (asset: %s)", vault, asset);
-            HarborYield_v1(hyProxy).addVault(vault);
+            console.log("        addVault: %s (asset: %s, weight: %s)", vault, asset, configs[i].weight);
+            HarborYield_v1(hyProxy).addVault(vault, configs[i].weight, configs[i].isAutoCompounder);
         }
     }
 }

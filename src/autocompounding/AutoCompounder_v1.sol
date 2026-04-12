@@ -8,7 +8,6 @@ import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -40,7 +39,6 @@ contract AutoCompounder_v1 is
     ReentrancyGuardTransientUpgradeable,
     HarborOwnable,
     TokenHolder,
-    IERC5313,
     IAutoCompounder
 {
     using SafeERC20 for IERC20;
@@ -168,15 +166,6 @@ contract AutoCompounder_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                OWNERSHIP
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @inheritdoc IERC5313
-    function owner() public view override(HarborOwnable, IERC5313) returns (address owner_) {
-        owner_ = HarborOwnable.owner();
-    }
 
     /*//////////////////////////////////////////////////////////////////////////
                                 ADMIN

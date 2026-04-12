@@ -213,6 +213,6 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
     function testReinitializeContract() public {
         // Try to initialize again (contract is already initialized)
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        StabilityPool_v3(stabilityPoolCollateral).initialize(owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS);
+        StabilityPool_v3(stabilityPoolCollateral).initialize(address(this), owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS);
     }
 }
