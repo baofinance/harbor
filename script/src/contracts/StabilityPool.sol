@@ -38,7 +38,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         address liquidationToken
     ) internal virtual returns (address impl) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory spKey = string.concat(marketKey, "::", spType);
+        string memory spKey = _key(marketKey, spType);
         console.log("    > %s", spKey);
 
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
@@ -84,7 +84,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         address liquidationToken
     ) internal returns (address proxy) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory spKey = string.concat(marketKey, "::", spType);
+        string memory spKey = _key(marketKey, spType);
         console.log("    > %s", spKey);
 
         address impl = deployStabilityPoolImplementation(spType, stateData, marketConfig, minter, liquidationToken);
@@ -105,21 +105,22 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         );
     }
 
-    /// @notice Grant StabilityPool roles to StabilityPoolManager.
-    function grantStabilityPoolRoles(
-        string memory stabilityPoolKey,
-        address stabilityPoolProxy,
-        address stabilityPoolManager
-    ) internal {
-        StabilityPool_v3 pool = StabilityPool_v3(stabilityPoolProxy);
+    /// @notice Grant StabilityPool roles to StabilityPoolManager and AutoCompounder.
+    /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
+    /// @param spType "stabilityPoolCollateral" or "stabilityPoolLeveraged".
+    /// @param acType The matching AC type ("autoCompounderCollateral" or "autoCompounderLeveraged").
+    function grantStabilityPoolRoles(string memory marketKey, string memory spType, string memory acType) internal {
+        string memory spKey = _key(marketKey, spType);
+        address sp = _predictAddress(spKey);
+
+        // SPM gets REBALANCER + REWARD_DEPOSITOR
+        address spm = _predictAddress(_key(marketKey, "stabilityPoolManager"));
+        StabilityPool_v3 pool = StabilityPool_v3(sp);
         uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
-        _grantRoles(
-            stabilityPoolKey,
-            stabilityPoolProxy,
-            stabilityPoolManager,
-            "stabilityPoolManager",
-            roles,
-            "REBALANCER | REWARD_DEPOSITOR"
-        );
+        _grantRoles(spKey, sp, spm, "stabilityPoolManager", roles, "REBALANCER | REWARD_DEPOSITOR");
+
+        // AC gets EXEMPT_WITHDRAWAL_FEE
+        address ac = _predictAddress(_key(marketKey, acType));
+        _grantRoles(spKey, sp, ac, acType, pool.EXEMPT_WITHDRAWAL_FEE_ROLE(), "EXEMPT_WITHDRAWAL_FEE");
     }
 }

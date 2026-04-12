@@ -32,7 +32,7 @@ abstract contract Minter is HarborFactoryDeployer {
         address peggedToken,
         address leveragedToken
     ) internal virtual returns (address impl, string memory minterKey) {
-        minterKey = string.concat(marketKey, "::minter");
+        minterKey = _key(marketKey, "minter");
         console.log("    > %s", minterKey);
 
         impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
@@ -86,16 +86,16 @@ abstract contract Minter is HarborFactoryDeployer {
     }
 
     /// @notice Grant Minter roles to downstream contracts.
-    function grantMinterRoles(
-        string memory minterKey,
-        address minterProxy,
-        address stabilityPoolManager,
-        address genesis
-    ) internal {
+    /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
+    function grantMinterRoles(string memory marketKey) internal {
+        string memory minterKey = _key(marketKey, "minter");
+        address minterProxy = _predictAddress(minterKey);
+        address spm = _predictAddress(_key(marketKey, "stabilityPoolManager"));
+        address genesis = _predictAddress(_key(marketKey, "genesis"));
         _grantRoles(
             minterKey,
             minterProxy,
-            stabilityPoolManager,
+            spm,
             "stabilityPoolManager",
             IMinter(minterProxy).HARVESTER_ROLE() | IMinter(minterProxy).ZERO_FEE_ROLE(),
             "HARVESTER | ZERO_FEE"
@@ -110,7 +110,7 @@ abstract contract Minter is HarborFactoryDeployer {
         DeploymentTypes.State memory stateData,
         string memory marketKey
     ) internal returns (address proxy) {
-        string memory reservePoolKey = string.concat(marketKey, "::reservePool");
+        string memory reservePoolKey = _key(marketKey, "reservePool");
         console.log("    > %s", reservePoolKey);
 
         address impl = address(new ReservePool_v1());
@@ -129,9 +129,12 @@ abstract contract Minter is HarborFactoryDeployer {
     }
 
     /// @notice Grant ReservePool REQUESTER_ROLE to Minter.
-    function grantReservePoolRoles(string memory reservePoolKey, address reservePoolProxy, address minter) internal {
-        ReservePool_v1 reservePool = ReservePool_v1(reservePoolProxy);
-        _grantRoles(reservePoolKey, reservePoolProxy, minter, "minter", reservePool.REQUESTER_ROLE(), "REQUESTER");
+    /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
+    function grantReservePoolRoles(string memory marketKey) internal {
+        string memory rpKey = _key(marketKey, "reservePool");
+        address rp = _predictAddress(rpKey);
+        address minter = _predictAddress(_key(marketKey, "minter"));
+        _grantRoles(rpKey, rp, minter, "minter", ReservePool_v1(rp).REQUESTER_ROLE(), "REQUESTER");
     }
 
     // ========== FEE RECEIVER (TOKEN DISTRIBUTOR) DEPLOYMENT ==========
@@ -142,7 +145,7 @@ abstract contract Minter is HarborFactoryDeployer {
         string memory marketKey,
         string memory name
     ) internal returns (address proxy) {
-        string memory feeReceiverKey = string.concat(marketKey, "::minterFeeReceiver");
+        string memory feeReceiverKey = _key(marketKey, "minterFeeReceiver");
         console.log("    > %s", feeReceiverKey);
 
         address impl = address(new TokenDistributor_v1());

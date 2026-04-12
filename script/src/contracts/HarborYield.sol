@@ -8,6 +8,8 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {HarborYield_v1} from "@harbor/autocompounding/HarborYield_v1.sol";
+import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
+import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 
 /// @notice Harbor HarborYield deployment logic.
 /// @dev One HarborYield per peg. Manages multiple ERC4626 vaults (AutoCompounders, wrapped
@@ -20,11 +22,14 @@ abstract contract HarborYield is HarborFactoryDeployer {
     function deployHarborYieldImplementation(
         DeploymentTypes.State memory stateData,
         string memory yieldKey,
-        string memory tokenName,
-        string memory tokenSymbol,
-        address swapper
+        ConfigPeg pegConfig
     ) internal virtual returns (address impl) {
         console.log("    > %s", yieldKey);
+
+        ConfigTokenNames names = ConfigTokenNames(address(pegConfig));
+        string memory tokenName = names.harborYieldName();
+        string memory tokenSymbol = names.harborYieldSymbol();
+        address swapper = _predictAddressFromFullSalt("harbor_v1::swapper");
 
         impl = address(new HarborYield_v1(tokenName, tokenSymbol, swapper));
         console.log("        Impl:   %s", impl);
@@ -47,11 +52,9 @@ abstract contract HarborYield is HarborFactoryDeployer {
     function deployHarborYield(
         DeploymentTypes.State memory stateData,
         string memory yieldKey,
-        string memory tokenName,
-        string memory tokenSymbol,
-        address swapper
+        ConfigPeg pegConfig
     ) internal returns (address proxy) {
-        address impl = deployHarborYieldImplementation(stateData, yieldKey, tokenName, tokenSymbol, swapper);
+        address impl = deployHarborYieldImplementation(stateData, yieldKey, pegConfig);
 
         bytes memory initData = abi.encodeCall(HarborYield_v1.initialize, (address(this), owner()));
 
@@ -60,8 +63,8 @@ abstract contract HarborYield is HarborFactoryDeployer {
 
     /// @notice Vault registration config.
     struct VaultConfig {
-        address vault;         // ERC4626 vault address
-        uint96 weight;         // target distribution weight
+        address vault; // ERC4626 vault address
+        uint96 weight; // target distribution weight
         bool isAutoCompounder; // true if vault implements IAutoCompounder
     }
 

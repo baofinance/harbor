@@ -14,7 +14,13 @@ interface IHarborYield {
     event VaultWeightUpdated(address indexed vault, uint96 weight);
 
     event Compounded(address indexed caller, address fromVault, address toVault, uint256 amountIn, uint256 amountOut);
-    event Redistributed(address indexed caller, address fromVault, address toVault, uint256 amountIn, uint256 amountOut);
+    event Redistributed(
+        address indexed caller,
+        address fromVault,
+        address toVault,
+        uint256 amountIn,
+        uint256 amountOut
+    );
 
     // ── Deposit ─────────────────────────────────────────────────────────
 

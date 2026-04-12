@@ -2,17 +2,17 @@
 |-----------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
 | AutoCompounder_v1                 |             12,153 |               12,423 |              13,819 |    2,568,790 |            256.88 |
 | ConfigIncentiveLib                |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| ConfigMarket_BTC_fxUSD_mainnet    |              6,677 |               17,899 |               6,705 |    1,402,450 |            140.25 |
-| ConfigMarket_BTC_stETH_mainnet    |              6,703 |               17,873 |               6,731 |    1,407,910 |            140.79 |
-| ConfigMarket_ETH_fxUSD_mainnet    |              6,677 |               17,899 |               6,705 |    1,402,450 |            140.25 |
-| ConfigMarket_EUR_fxUSD_mainnet    |              6,665 |               17,911 |               6,693 |    1,399,930 |            139.99 |
-| ConfigMarket_EUR_stETH_mainnet    |              6,691 |               17,885 |               6,719 |    1,405,390 |            140.54 |
-| ConfigMarket_GOLD_fxUSD_mainnet   |              6,681 |               17,895 |               6,709 |    1,403,290 |            140.33 |
-| ConfigMarket_GOLD_stETH_mainnet   |              6,707 |               17,869 |               6,735 |    1,408,750 |            140.88 |
-| ConfigMarket_MCAP_fxUSD_mainnet   |              6,683 |               17,893 |               6,711 |    1,403,710 |            140.37 |
-| ConfigMarket_MCAP_stETH_mainnet   |              6,709 |               17,867 |               6,737 |    1,409,170 |            140.92 |
-| ConfigMarket_SILVER_fxUSD_mainnet |              6,677 |               17,899 |               6,705 |    1,402,450 |            140.25 |
-| ConfigMarket_SILVER_stETH_mainnet |              6,703 |               17,873 |               6,731 |    1,407,910 |            140.79 |
+| ConfigMarket_BTC_fxUSD_mainnet    |              6,856 |               17,720 |               6,884 |    1,440,040 |            144.00 |
+| ConfigMarket_BTC_stETH_mainnet    |              6,882 |               17,694 |               6,910 |    1,445,500 |            144.55 |
+| ConfigMarket_ETH_fxUSD_mainnet    |              6,856 |               17,720 |               6,884 |    1,440,040 |            144.00 |
+| ConfigMarket_EUR_fxUSD_mainnet    |              6,844 |               17,732 |               6,872 |    1,437,520 |            143.75 |
+| ConfigMarket_EUR_stETH_mainnet    |              6,870 |               17,706 |               6,898 |    1,442,980 |            144.30 |
+| ConfigMarket_GOLD_fxUSD_mainnet   |              6,860 |               17,716 |               6,888 |    1,440,880 |            144.09 |
+| ConfigMarket_GOLD_stETH_mainnet   |              6,886 |               17,690 |               6,914 |    1,446,340 |            144.63 |
+| ConfigMarket_MCAP_fxUSD_mainnet   |              6,862 |               17,714 |               6,890 |    1,441,300 |            144.13 |
+| ConfigMarket_MCAP_stETH_mainnet   |              6,888 |               17,688 |               6,916 |    1,446,760 |            144.68 |
+| ConfigMarket_SILVER_fxUSD_mainnet |              6,856 |               17,720 |               6,884 |    1,440,040 |            144.00 |
+| ConfigMarket_SILVER_stETH_mainnet |              6,882 |               17,694 |               6,910 |    1,445,500 |            144.55 |
 | ConfigPeg_BTC                     |                766 |               23,810 |                 794 |      161,140 |             16.11 |
 | ConfigPeg_ETH                     |                766 |               23,810 |                 794 |      161,140 |             16.11 |
 | ConfigPeg_EUR                     |                768 |               23,808 |                 796 |      161,560 |             16.16 |
@@ -36,7 +36,7 @@
 | FakeUUPSUpgradeable               |              3,236 |               21,340 |               3,293 |      680,130 |             68.01 |
 | FmtLib                            |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Genesis_v1                        |              7,486 |               17,090 |               8,423 |    1,581,430 |            158.14 |
-| HarborYield_v1                    |             13,841 |               10,735 |              14,823 |    2,916,430 |            291.64 |
+| HarborYield_v1                    |             13,551 |               11,025 |              14,519 |    2,855,390 |            285.54 |
 | LinearReward                      |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | MinterMarketConfigLib             |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Minter_v1                         |             23,681 |                  895 |              25,515 |    4,991,350 |            499.14 |

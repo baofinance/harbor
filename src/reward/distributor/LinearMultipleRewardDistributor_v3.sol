@@ -177,7 +177,6 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         _registerRewardToken(token);
     }
 
-
     function _registerRewardToken(address token) internal {
         if (token == address(0)) {
             revert RewardTokenIsZero();
@@ -279,5 +278,4 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         (distributable, undistributed) = $.rewardData[token].pending();
     }
-
 }

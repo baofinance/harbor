@@ -5,38 +5,36 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {HarborOwnable} from "@bao/HarborOwnable.sol";
+import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {IHarborYield} from "src/interfaces/IHarborYield.sol";
+import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
+import {ISwapper} from "src/interfaces/ISwapper.sol";
 import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 
 /// @title HarborYield_v1
 /// @notice Level 2 yield vault: one per peg. Manages multiple ERC4626 vaults (AutoCompounders,
 ///         wrapped collateral, equivalents) that share the same peg.
-/// @dev Users deposit peg-denominated assets (stETH, fxUSD, SP tokens). The vault deposits them
-///      into the corresponding ERC4626 vault and holds the interest-bearing shares. The hyXXX share
-///      represents a proportional claim on all held vault shares.
+/// @dev Replaces both hyToken_v1 (compound/swap) and HarborAnchoredVault_v1 (weighted distribution).
 ///
-///      All assets are assumed pegged 1:1 to the same unit. totalAssets() sums
-///      IERC4626(vault).convertToAssets(balance) across all managed vaults.
+///      Each managed vault has a weight. Deposits are routed to the vault the user specifies.
+///      `redistribute()` moves holdings toward the target weight distribution. Permissionless.
+///      `compound()` converts equivalent vault holdings into AC vault holdings via the swapper.
 ///
-///      Withdrawal returns a proportional mix of all held vault assets.
+///      All assets are assumed pegged 1:1. totalAssets() = SUM(IERC4626(v).convertToAssets(balance)).
 // solhint-disable-next-line contract-name-capwords
 contract HarborYield_v1 is
     Initializable,
     UUPSUpgradeable,
     ERC20Upgradeable,
-    HarborOwnable,
+    HarborOwnableRoles,
     TokenHolder,
-    IERC5313,
     IHarborYield
 {
     using SafeERC20 for IERC20;
@@ -45,24 +43,37 @@ contract HarborYield_v1 is
                                     ERRORS
     //////////////////////////////////////////////////////////////////////////*/
 
-    error VaultNotRegistered(address asset);
+    error VaultNotRegistered(address token);
     error VaultNotActive(address vault);
     error VaultAlreadyRegistered(address vault);
     error ZeroShares();
+    error ZeroWeight();
+    error NothingToRedistribute();
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                    CONSTANTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Role for triggering compound (equivalent → AC conversion via swapper).
+    uint256 public constant COMPOUNDER_ROLE = _ROLE_0;
+
+    /// @notice Role for triggering redistribution toward target weights.
+    uint256 public constant REDISTRIBUTOR_ROLE = _ROLE_1;
 
     /*//////////////////////////////////////////////////////////////////////////
                                     IMMUTABLES
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @dev ERC20 name stored as two bytes32 (up to 64 characters)
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 private immutable _ERC20_NAME_0;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 private immutable _ERC20_NAME_1;
-
-    /// @dev ERC20 symbol stored as bytes32 (up to 32 characters)
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 private immutable _ERC20_SYMBOL;
+
+    /// @notice The swapper contract for token conversions (at a predictable proxy address).
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable SWAPPER; // solhint-disable-line immutable-vars-naming
 
     /*//////////////////////////////////////////////////////////////////////////
                                     STORAGE (ERC7201)
@@ -70,18 +81,20 @@ contract HarborYield_v1 is
 
     /// @custom:storage-location erc7201:harbor.storage.HarborYield_v1
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.HarborYield_v1")) - 1)) & ~bytes32(uint256(0xff))'
-    bytes32 private constant _HARBOR_YIELD_STORAGE =
-        0xb05ebd6dfc4d62a678d881c33089de39bf9f2de81bf0c8c698a99ab10ff31300;
+    bytes32 private constant _HARBOR_YIELD_STORAGE = 0xb05ebd6dfc4d62a678d881c33089de39bf9f2de81bf0c8c698a99ab10ff31300;
 
     struct ManagedVault {
-        address vault;    // ERC4626 vault (wstETH, fxSAVE, AutoCompounder, or adapter)
-        address asset;    // the vault's underlying asset (stETH, fxUSD, hpETH.stETH)
-        bool active;      // accepts new deposits
+        address vault; // ERC4626 vault (AutoCompounder, wstETH wrapper, fxSAVE wrapper, etc.)
+        address asset; // the vault's underlying asset
+        uint96 weight; // target distribution weight (arbitrary units, not BPS)
+        bool active; // accepts new deposits
+        bool isAutoCompounder; // true if vault implements IAutoCompounder
     }
 
     struct HarborYieldStorage {
         ManagedVault[] vaults;
-        mapping(address => uint256) assetToVaultIndex; // asset address => index+1 (0 = not registered)
+        mapping(address => uint256) assetToVaultIndex; // asset => index+1 (0 = not registered)
+        uint256 totalWeight; // sum of all vault weights (cached for gas)
     }
 
     function _getHarborYieldStorage() private pure returns (HarborYieldStorage storage $) {
@@ -96,19 +109,14 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        string memory name_,
-        string memory symbol_
-    ) ERC20Upgradeable() {
+    constructor(string memory name_, string memory symbol_, address swapper_) ERC20Upgradeable() {
         _disableInitializers();
         (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
         // slither-disable-next-line unused-return
-        (_ERC20_SYMBOL,) = StringPacking_v1.pack64(symbol_);
+        (_ERC20_SYMBOL, ) = StringPacking_v1.pack64(symbol_);
+        SWAPPER = swapper_;
     }
 
-    /// @notice Initialize the HarborYield vault.
-    /// @param deployerOwner_ The initial owner (typically the FactoryDeployer).
-    /// @param pendingOwner_ The final owner (typically the Harbor multisig).
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
@@ -121,21 +129,17 @@ contract HarborYield_v1 is
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /*//////////////////////////////////////////////////////////////////////////
-                                OWNERSHIP
+                                ADMIN: VAULT MANAGEMENT
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc IERC5313
-    function owner() public view override(HarborOwnable, IERC5313) returns (address owner_) {
-        owner_ = HarborOwnable.owner();
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                ADMIN
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Register a new ERC4626 vault to manage.
+    /// @notice Register a new ERC4626 vault with a target weight.
     /// @param vault The ERC4626 vault address.
-    function addVault(address vault) external onlyOwner {
+    /// @param weight Target distribution weight (arbitrary units, must be > 0).
+    /// @param isAutoCompounder Whether the vault implements IAutoCompounder.
+    function addVault(address vault, uint96 weight, bool isAutoCompounder) external onlyOwner {
+        if (weight == 0) {
+            revert ZeroWeight();
+        }
         Token.ensureContract(vault);
         address asset = IERC4626(vault).asset();
 
@@ -144,17 +148,32 @@ contract HarborYield_v1 is
             revert VaultAlreadyRegistered(vault);
         }
 
-        $.vaults.push(ManagedVault({vault: vault, asset: asset, active: true}));
+        $.vaults.push(
+            ManagedVault({vault: vault, asset: asset, weight: weight, active: true, isAutoCompounder: isAutoCompounder})
+        );
         $.assetToVaultIndex[asset] = $.vaults.length; // 1-indexed
+        $.totalWeight += weight;
 
-        // Permanent approval for deposits into this vault
         IERC20(asset).approve(vault, type(uint256).max);
 
-        emit VaultAdded(vault, asset);
+        emit VaultAdded(vault, asset, weight);
+    }
+
+    /// @notice Update a vault's target weight. Set to 0 to drain via redistribution.
+    function setVaultWeight(address vault, uint96 weight) external onlyOwner {
+        HarborYieldStorage storage $ = _getHarborYieldStorage();
+        for (uint256 i = 0; i < $.vaults.length; i++) {
+            if ($.vaults[i].vault == vault) {
+                $.totalWeight = $.totalWeight - $.vaults[i].weight + weight;
+                $.vaults[i].weight = weight;
+                emit VaultWeightUpdated(vault, weight);
+                return;
+            }
+        }
+        revert VaultNotRegistered(vault);
     }
 
     /// @notice Deactivate a vault (stop accepting deposits, keep existing holdings).
-    /// @param vault The vault to deactivate.
     function deactivateVault(address vault) external onlyOwner {
         HarborYieldStorage storage $ = _getHarborYieldStorage();
         for (uint256 i = 0; i < $.vaults.length; i++) {
@@ -168,7 +187,6 @@ contract HarborYield_v1 is
     }
 
     /// @notice Reactivate a previously deactivated vault.
-    /// @param vault The vault to reactivate.
     function activateVault(address vault) external onlyOwner {
         HarborYieldStorage storage $ = _getHarborYieldStorage();
         for (uint256 i = 0; i < $.vaults.length; i++) {
@@ -205,10 +223,9 @@ contract HarborYield_v1 is
     function totalAssets() public view returns (uint256 total) {
         HarborYieldStorage storage $ = _getHarborYieldStorage();
         for (uint256 i = 0; i < $.vaults.length; i++) {
-            address vault = $.vaults[i].vault;
-            uint256 vaultShares = IERC20(vault).balanceOf(address(this));
+            uint256 vaultShares = IERC20($.vaults[i].vault).balanceOf(address(this));
             if (vaultShares > 0) {
-                total += IERC4626(vault).convertToAssets(vaultShares);
+                total += IERC4626($.vaults[i].vault).convertToAssets(vaultShares);
             }
         }
     }
@@ -231,15 +248,12 @@ contract HarborYield_v1 is
             revert VaultNotActive(mv.vault);
         }
 
-        // Snapshot totalAssets before deposit changes it
         uint256 assetsBefore = totalAssets();
         uint256 supplyBefore = totalSupply();
 
-        // Transfer asset from caller and deposit into the ERC4626 vault
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         IERC4626(mv.vault).deposit(amount, address(this));
 
-        // Compute hyXXX shares at the pre-deposit exchange rate
         shares = Math.mulDiv(amount, supplyBefore + 1, assetsBefore + 1);
         if (shares == 0) {
             revert ZeroShares();
@@ -260,18 +274,143 @@ contract HarborYield_v1 is
         uint256 supply = totalSupply();
         _burn(tokenOwner, shares);
 
-        // Redeem proportional vault shares from each managed vault
         HarborYieldStorage storage $ = _getHarborYieldStorage();
         for (uint256 i = 0; i < $.vaults.length; i++) {
-            address vault = $.vaults[i].vault;
-            uint256 vaultShares = IERC20(vault).balanceOf(address(this));
+            uint256 vaultShares = IERC20($.vaults[i].vault).balanceOf(address(this));
             if (vaultShares > 0) {
                 uint256 redeemAmount = Math.mulDiv(vaultShares, shares, supply);
                 if (redeemAmount > 0) {
-                    IERC4626(vault).redeem(redeemAmount, receiver, address(this));
+                    IERC4626($.vaults[i].vault).redeem(redeemAmount, receiver, address(this));
                 }
             }
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                CORE: COMPOUND
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @inheritdoc IHarborYield
+    function compound(
+        address fromVault,
+        address toVault,
+        uint256 vaultShareAmount,
+        uint256 minAmountOut,
+        bytes calldata swapData
+    ) external onlyOwnerOrRoles(COMPOUNDER_ROLE) {
+        // Redeem from the source equivalent vault to get its underlying asset
+        uint256 assetAmount = IERC4626(fromVault).redeem(vaultShareAmount, address(this), address(this));
+
+        // Swap the asset to the target vault's asset
+        uint256 swappedAmount = _swapIfNeeded(
+            IERC4626(fromVault).asset(),
+            IERC4626(toVault).asset(),
+            assetAmount,
+            minAmountOut,
+            swapData
+        );
+
+        // Deposit into the target vault (typically an AC)
+        IERC4626(toVault).deposit(swappedAmount, address(this));
+
+        emit Compounded(msg.sender, fromVault, toVault, assetAmount, swappedAmount);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                CORE: REDISTRIBUTE
+    //////////////////////////////////////////////////////////////////////////*/
+
+    struct RedistributeWork {
+        uint256 sourceIdx;
+        uint256 targetIdx;
+        uint256 moveValue;
+    }
+
+    /// @inheritdoc IHarborYield
+    function redistribute(
+        uint256 maxVaultSharesPerVault,
+        uint256 minAmountOut,
+        bytes calldata swapData
+    ) external onlyOwnerOrRoles(REDISTRIBUTOR_ROLE) {
+        HarborYieldStorage storage $ = _getHarborYieldStorage();
+        uint256 tw = $.totalWeight;
+        if (tw == 0) {
+            revert NothingToRedistribute();
+        }
+        uint256 total = totalAssets();
+        if (total == 0) {
+            revert NothingToRedistribute();
+        }
+
+        // Find the most over/under-weight vaults
+        RedistributeWork memory w;
+        {
+            uint256 maxExcess;
+            uint256 maxDeficit;
+            for (uint256 i = 0; i < $.vaults.length; i++) {
+                uint256 bal = IERC20($.vaults[i].vault).balanceOf(address(this));
+                uint256 cur = bal > 0 ? IERC4626($.vaults[i].vault).convertToAssets(bal) : 0;
+                uint256 tgt = Math.mulDiv(total, $.vaults[i].weight, tw);
+                if (cur > tgt) {
+                    uint256 excess = cur - tgt;
+                    if (excess > maxExcess) {
+                        maxExcess = excess;
+                        w.sourceIdx = i;
+                    }
+                } else {
+                    uint256 deficit = tgt - cur;
+                    if (deficit > maxDeficit) {
+                        maxDeficit = deficit;
+                        w.targetIdx = i;
+                    }
+                }
+            }
+            if (maxExcess == 0 || maxDeficit == 0) {
+                revert NothingToRedistribute();
+            }
+            w.moveValue = maxExcess < maxDeficit ? maxExcess : maxDeficit;
+        }
+
+        // Redeem from source, cap shares
+        address srcVault = $.vaults[w.sourceIdx].vault;
+        address dstVault = $.vaults[w.targetIdx].vault;
+        {
+            uint256 srcShares = IERC4626(srcVault).convertToShares(w.moveValue);
+            if (srcShares > maxVaultSharesPerVault) {
+                srcShares = maxVaultSharesPerVault;
+            }
+            w.moveValue = IERC4626(srcVault).redeem(srcShares, address(this), address(this));
+        }
+        // Swap if needed, deposit to target
+        uint256 deposited = _swapIfNeeded(
+            $.vaults[w.sourceIdx].asset,
+            $.vaults[w.targetIdx].asset,
+            w.moveValue,
+            minAmountOut,
+            swapData
+        );
+        IERC4626(dstVault).deposit(deposited, address(this));
+        emit Redistributed(msg.sender, srcVault, dstVault, w.moveValue, deposited);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                INTERNAL
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev Swap fromAsset -> toAsset via SWAPPER, or pass through if same asset.
+    /// Called from both compound() and redistribute().
+    function _swapIfNeeded(
+        address fromAsset,
+        address toAsset,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes calldata swapData
+    ) private returns (uint256 amountOut) {
+        if (fromAsset == toAsset) {
+            return amountIn;
+        }
+        IERC20(fromAsset).approve(SWAPPER, amountIn);
+        amountOut = ISwapper(SWAPPER).swap(fromAsset, toAsset, amountIn, minAmountOut, swapData);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -284,11 +423,17 @@ contract HarborYield_v1 is
     }
 
     /// @inheritdoc IHarborYield
-    function vaultAt(uint256 index) external view returns (address vault, address asset, bool active) {
+    function vaultAt(uint256 index) external view returns (address vault, address asset, bool active, uint96 weight) {
         ManagedVault storage mv = _getHarborYieldStorage().vaults[index];
         vault = mv.vault;
         asset = mv.asset;
         active = mv.active;
+        weight = mv.weight;
+    }
+
+    /// @notice The cached total of all vault weights.
+    function totalWeight() external view returns (uint256) {
+        return _getHarborYieldStorage().totalWeight;
     }
 
     /*//////////////////////////////////////////////////////////////////////////

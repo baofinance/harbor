@@ -26,7 +26,7 @@ abstract contract Genesis is HarborFactoryDeployer {
         string memory marketKey,
         address minter
     ) internal returns (address proxy) {
-        string memory genesisKey = string.concat(marketKey, "::genesis");
+        string memory genesisKey = _key(marketKey, "genesis");
         console.log("    > %s", genesisKey);
 
         address impl = address(new Genesis_v1(minter));
@@ -34,7 +34,7 @@ abstract contract Genesis is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (owner()));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             genesisKey,
             impl,

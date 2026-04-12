@@ -8,13 +8,10 @@ import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
-import {LibString} from "@solady/utils/LibString.sol";
-
+import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
 /// @notice Harbor leveraged token deployment logic.
 /// @dev Leveraged tokens are unique per market (e.g., hsFXUSD-BTC for BTC::fxUSD market).
 abstract contract LeveragedToken is HarborFactoryDeployer {
-    using LibString for string;
-
     // ========== LEVERAGED TOKEN DEPLOYMENT ==========
 
     /// @notice Deploy a leveraged token and grant minter roles.
@@ -23,12 +20,10 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
         Config_MinterMarket marketConfig
     ) internal returns (address leveragedToken) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory peg = MinterMarketConfigLib.peg(marketConfig);
-        string memory collateral = MinterMarketConfigLib.collateral(marketConfig);
 
-        string memory leveragedKey = string.concat(marketKey, "::leveraged");
-        string memory tokenName = string.concat("Harbor sail: variable leveraged long ", collateral, " against ", peg);
-        string memory tokenSymbol = string.concat("hs", collateral.upper(), "-", peg.upper());
+        string memory leveragedKey = _key(marketKey, "leveraged");
+        string memory tokenName = ConfigTokenNames(address(marketConfig)).leveragedName();
+        string memory tokenSymbol = ConfigTokenNames(address(marketConfig)).leveragedSymbol();
 
         console.log("    > %s", leveragedKey);
         console.log("        Name:   %s", tokenName);
@@ -39,7 +34,7 @@ abstract contract LeveragedToken is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), tokenName, tokenSymbol));
 
-        leveragedToken = _deployProxyAndRecord(
+        leveragedToken = _deployProxyViaStubAndRecord(
             stateData,
             leveragedKey,
             impl,

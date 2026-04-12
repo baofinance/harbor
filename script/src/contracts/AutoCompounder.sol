@@ -15,10 +15,6 @@ interface IAutoCompounderMarketConfig {
     function autoCompounderMaxFeeRatio() external pure returns (uint256);
 }
 
-interface IStabilityPoolRole {
-    function EXEMPT_WITHDRAWAL_FEE_ROLE() external view returns (uint256); // solhint-disable-line func-name-mixedcase
-}
-
 /// @notice Harbor AutoCompounder deployment logic.
 /// @dev Each market has TWO auto-compounders: Collateral and Leveraged (one per stability pool).
 ///      Post-deployment: setMaxFeeRatio, approveCompoundTokens.
@@ -38,7 +34,7 @@ abstract contract AutoCompounder is HarborFactoryDeployer {
         address minter
     ) internal virtual returns (address impl) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory acKey = string.concat(marketKey, "::", acType);
+        string memory acKey = _key(marketKey, acType);
         console.log("    > %s", acKey);
 
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
@@ -72,7 +68,7 @@ abstract contract AutoCompounder is HarborFactoryDeployer {
         address minter
     ) internal returns (address proxy) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory acKey = string.concat(marketKey, "::", acType);
+        string memory acKey = _key(marketKey, acType);
 
         address impl = deployAutoCompounderImplementation(acType, stateData, marketConfig, stabilityPool, minter);
 
@@ -82,20 +78,12 @@ abstract contract AutoCompounder is HarborFactoryDeployer {
     }
 
     /// @notice Post-deployment configuration: set maxFeeRatio and approve tokens.
-    function configureAutoCompounder(address acProxy, uint256 maxFeeRatio) internal {
+    /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
+    /// @param acType "autoCompounderCollateral" or "autoCompounderLeveraged".
+    /// @param maxFeeRatio The max fee ratio for compound minting (18 decimals).
+    function configureAutoCompounder(string memory marketKey, string memory acType, uint256 maxFeeRatio) internal {
+        address acProxy = _predictAddress(_key(marketKey, acType));
         AutoCompounder_v1(acProxy).setMaxFeeRatio(maxFeeRatio);
         AutoCompounder_v1(acProxy).approveCompoundTokens();
-    }
-
-    /// @notice Grant EXEMPT_WITHDRAWAL_FEE_ROLE on a stability pool to an auto-compounder.
-    /// @dev Can be called with a predicted (not-yet-deployed) acProxy address.
-    function grantStabilityPoolAutoCompounderRole(
-        string memory stabilityPoolKey,
-        address stabilityPool,
-        address acProxy,
-        string memory acLabel
-    ) internal {
-        uint256 exemptRole = IStabilityPoolRole(stabilityPool).EXEMPT_WITHDRAWAL_FEE_ROLE();
-        _grantRoles(stabilityPoolKey, stabilityPool, acProxy, acLabel, exemptRole, "EXEMPT_WITHDRAWAL_FEE");
     }
 }

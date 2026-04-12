@@ -108,4 +108,16 @@ abstract contract ConfigTokenNames {
     function acLeveragedSymbol() public view returns (string memory symbol) {
         (, symbol) = _acStrings(Liquidation.Leveraged);
     }
+
+    // ── HarborYield token (one per peg) ────────────────────────────────
+
+    /// @notice HarborYield name (e.g., "Harbor yield: ETH").
+    function harborYieldName() public view returns (string memory) {
+        return string.concat("Harbor yield: ", _peg());
+    }
+
+    /// @notice HarborYield symbol (e.g., "hyETH").
+    function harborYieldSymbol() public view returns (string memory) {
+        return string.concat("hy", _peg().upper());
+    }
 }

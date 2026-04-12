@@ -9,7 +9,7 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
 
-/// @notice Harbor StabilityPoolManager_v1 deployment logic (including SPMFeeReceiver).
+/// @notice Harbor StabilityPoolManager deployment logic (including SPMFeeReceiver).
 /// @dev SPM coordinates the two stability pools per market.
 /// @dev SPM grants: HARVESTER_ROLE on Minter (obtained via Minter deployment).
 /// @dev SPM needs: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE on both stability pools.
@@ -25,7 +25,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
     // ========== STABILITY POOL MANAGER DEPLOYMENT ==========
 
-    /// @notice Deploy StabilityPoolManager impl+proxy, record in state.
+    /// @notice Deploy StabilityPoolManager_v1 impl+proxy, record in state.
     function deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
         string memory marketKey,
@@ -34,7 +34,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
     ) internal virtual returns (address proxy) {
-        string memory spmKey = string.concat(marketKey, "::stabilityPoolManager");
+        string memory spmKey = _key(marketKey, "stabilityPoolManager");
         console.log("    > %s", spmKey);
 
         address impl = address(
@@ -44,7 +44,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(StabilityPoolManager_v1.initialize, (owner()));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             spmKey,
             impl,
@@ -55,8 +55,10 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
     }
 
     /// @notice Configure a deployed StabilityPoolManager with its operational parameters.
-    function configureStabilityPoolManager(address spmProxy, SPMConfig memory config) internal {
-        StabilityPoolManager_v1 spm = StabilityPoolManager_v1(spmProxy);
+    /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
+    /// @param config The SPM configuration parameters.
+    function configureStabilityPoolManager(string memory marketKey, SPMConfig memory config) internal {
+        StabilityPoolManager_v1 spm = StabilityPoolManager_v1(_predictAddress(_key(marketKey, "stabilityPoolManager")));
         spm.updateRebalanceThreshold(config.rebalanceThreshold);
         spm.updateRebalanceBountyRatio(config.rebalanceBountyRatio);
         spm.updateHarvestBountyRatio(config.harvestBountyRatio);
@@ -72,7 +74,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
         string memory marketKey,
         string memory name
     ) internal returns (address proxy) {
-        string memory feeReceiverKey = string.concat(marketKey, "::spmFeeReceiver");
+        string memory feeReceiverKey = _key(marketKey, "spmFeeReceiver");
         console.log("    > %s", feeReceiverKey);
 
         address impl = address(new TokenDistributor_v1());
@@ -80,7 +82,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
 
         bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
 
-        proxy = _deployProxyAndRecord(
+        proxy = _deployProxyViaStubAndRecord(
             stateData,
             feeReceiverKey,
             impl,

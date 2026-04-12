@@ -286,47 +286,28 @@ abstract contract DeployMintersShared is
     function _configureMinter(Config_MinterMarket market, string memory marketKey) internal {
         IFullMinterConfig cfg = IFullMinterConfig(address(market));
         address minter = _predictAddress(_key(marketKey, "minter"));
-        address reservePool = _predictAddress(_key(marketKey, "reservePool"));
-        address spCollateral = _predictAddress(_key(marketKey, "stabilityPoolCollateral"));
-        address spLeveraged = _predictAddress(_key(marketKey, "stabilityPoolLeveraged"));
-        address spm = _predictAddress(_key(marketKey, "stabilityPoolManager"));
-        address genesis = _predictAddress(_key(marketKey, "genesis"));
         address priceOracle = _predictAddress(MinterMarketConfigLib.priceOracleKey(market));
 
         // Update minter configuration (incentive ratios)
         IMinter(minter).updateConfig(cfg.minterConfig());
-        IMinter(minter).updateReservePool(reservePool);
+        IMinter(minter).updateReservePool(_predictAddress(_key(marketKey, "reservePool")));
         IMinter(minter).updateFeeReceiver(treasury());
         IMinter(minter).updatePriceOracle(priceOracle);
 
-        // Grant roles
-        grantReservePoolRoles(string.concat(marketKey, "::reservePool"), reservePool, minter);
-        grantMinterRoles(string.concat(marketKey, "::minter"), minter, spm, genesis);
-        grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolCollateral"), spCollateral, spm);
-        grantStabilityPoolRoles(string.concat(marketKey, "::stabilityPoolLeveraged"), spLeveraged, spm);
-
-        // Grant SP fee exemption to auto-compounders (using predicted addresses — AC need not be deployed)
-        {
-            address acCollateral = _predictAddress(_key(marketKey, AutoCompounderCollateral));
-            address acLeveraged = _predictAddress(_key(marketKey, AutoCompounderLeveraged));
-            string memory spCollKey = string.concat(marketKey, "::stabilityPoolCollateral");
-            string memory spLevKey = string.concat(marketKey, "::stabilityPoolLeveraged");
-            grantStabilityPoolAutoCompounderRole(spCollKey, spCollateral, acCollateral, "autoCompounderCollateral");
-            grantStabilityPoolAutoCompounderRole(spLevKey, spLeveraged, acLeveraged, "autoCompounderLeveraged");
-        }
+        // Grant roles — each helper predicts its own addresses from marketKey
+        grantReservePoolRoles(marketKey);
+        grantMinterRoles(marketKey);
+        grantStabilityPoolRoles(marketKey, StabilityPoolCollateral, AutoCompounderCollateral);
+        grantStabilityPoolRoles(marketKey, StabilityPoolLeveraged, AutoCompounderLeveraged);
 
         // Configure Auto-Compounders (maxFeeRatio, approvals)
-        {
-            uint256 maxFeeRatio = IAutoCompounderMarketConfig(address(market)).autoCompounderMaxFeeRatio();
-            address acCollateral = _predictAddress(_key(marketKey, AutoCompounderCollateral));
-            address acLeveraged = _predictAddress(_key(marketKey, AutoCompounderLeveraged));
-            configureAutoCompounder(acCollateral, maxFeeRatio);
-            configureAutoCompounder(acLeveraged, maxFeeRatio);
-        }
+        uint256 maxFeeRatio = IAutoCompounderMarketConfig(address(market)).autoCompounderMaxFeeRatio();
+        configureAutoCompounder(marketKey, AutoCompounderCollateral, maxFeeRatio);
+        configureAutoCompounder(marketKey, AutoCompounderLeveraged, maxFeeRatio);
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(
-            spm,
+            marketKey,
             SPMConfig({
                 rebalanceThreshold: cfg.rebalanceThreshold(),
                 rebalanceBountyRatio: cfg.rebalanceBountyRatio(),
