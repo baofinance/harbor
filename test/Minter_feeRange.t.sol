@@ -507,7 +507,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
         assertNear(
             post.minterUnderlying,
             pre.minterUnderlying + ((wrapped - fee) * r) / 1e18,
-            1,
+            _qR(p, r),
             35,
             "mp minter underlying"
         );
@@ -819,7 +819,7 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
                         assertNear(
                             post.minterUnderlying,
                             pre.minterUnderlying - (wrapped * r) / 1e18,
-                            1,
+                            _qR(p, r),
                             0,
                             "rl minter underlying"
                         );

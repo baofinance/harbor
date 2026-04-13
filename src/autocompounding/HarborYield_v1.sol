@@ -17,7 +17,7 @@ import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 import {IHarborYield} from "src/interfaces/IHarborYield.sol";
 import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
 import {ISwapper} from "src/interfaces/ISwapper.sol";
-import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
+import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 
 /// @title HarborYield_v1
 /// @notice Level 2 yield vault: one per peg. Manages multiple ERC4626 vaults (AutoCompounders,
@@ -29,10 +29,6 @@ import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 ///      `compound()` converts equivalent vault holdings into AC vault holdings via the swapper.
 ///
 ///      All assets are assumed pegged 1:1. totalAssets() = SUM(IERC4626(v).convertToAssets(balance)).
-/// @dev As openzeppelin's validator doesn't currently support external libraries
-/// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
-/// we add this:
-/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable-next-line contract-name-capwords
 contract HarborYield_v1 is
     Initializable,
@@ -117,8 +113,8 @@ contract HarborYield_v1 is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(string memory name_, string memory symbol_, address swapper_) {
         _disableInitializers();
-        (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
-        _ERC20_SYMBOL = StringPacking_v1.pack32(symbol_);
+        (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
+        _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
         Token.ensureNonZeroAddress(swapper_);
         // slither-disable-next-line missing-zero-check
         SWAPPER = swapper_;
@@ -214,11 +210,11 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     function name() public view override returns (string memory) {
-        return StringPacking_v1.unpack64(_ERC20_NAME_0, _ERC20_NAME_1);
+        return ERC20MetadataLib_v1.unpackName(_ERC20_NAME_0, _ERC20_NAME_1);
     }
 
     function symbol() public view override returns (string memory) {
-        return StringPacking_v1.unpack64(_ERC20_SYMBOL, bytes32(0));
+        return ERC20MetadataLib_v1.unpackSymbol(_ERC20_SYMBOL);
     }
 
     function decimals() public pure override returns (uint8) {

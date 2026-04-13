@@ -11,7 +11,7 @@ import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {MultipleRewardCompoundingAccumulator} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol";
+import {MultipleRewardCompoundingAccumulator_v2} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
@@ -37,7 +37,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 contract StabilityPool_v2 is
     Initializable,
     UUPSUpgradeable,
-    MultipleRewardCompoundingAccumulator,
+    MultipleRewardCompoundingAccumulator_v2,
     TokenHolder,
     IStabilityPool
 {
@@ -194,7 +194,7 @@ contract StabilityPool_v2 is
         uint256 withdrawalStartDelay_,
         uint256 withdrawalEndWindow_,
         uint256 minTotalAssetSupply
-    ) MultipleRewardCompoundingAccumulator(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
+    ) MultipleRewardCompoundingAccumulator_v2(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
         _disableInitializers();
         address asset = IMinter(minter_).PEGGED_TOKEN();
         Token.sanityCheckERC20Token(asset);
@@ -461,7 +461,7 @@ contract StabilityPool_v2 is
      * Internal Functions *
      **********************/
 
-    /// @inheritdoc MultipleRewardCompoundingAccumulator
+    /// @inheritdoc MultipleRewardCompoundingAccumulator_v2
     // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
@@ -481,7 +481,7 @@ contract StabilityPool_v2 is
         }
     }
 
-    /// @inheritdoc MultipleRewardCompoundingAccumulator
+    /// @inheritdoc MultipleRewardCompoundingAccumulator_v2
     function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
@@ -489,7 +489,7 @@ contract StabilityPool_v2 is
         totalShare = supply.amount;
     }
 
-    /// @inheritdoc MultipleRewardCompoundingAccumulator
+    /// @inheritdoc MultipleRewardCompoundingAccumulator_v2
     function _getUserPoolShare(
         address account
     ) internal view virtual override returns (uint128 previousProd, uint256 share) {

@@ -24,7 +24,8 @@
       "Bash(script/check-blockchain:*)",
       "Bash(echo:*)",
       "WebFetch(domain:forum.gl-inet.com)",
-      "WebFetch(domain:workspace.google.com)"
+      "WebFetch(domain:workspace.google.com)",
+      "Bash(yarn validate:*)"
     ]
   }
 }

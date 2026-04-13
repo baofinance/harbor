@@ -10,7 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 
 import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
+import {LinearMultipleRewardDistributor_v2} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -111,10 +111,10 @@ import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMult
 ///
 /// @dev The method comes from liquity's StabilityPool, the paper is in
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
-
-abstract contract MultipleRewardCompoundingAccumulator is
+// solhint-disable-next-line contract-name-capwords
+abstract contract MultipleRewardCompoundingAccumulator_v2 is
     ReentrancyGuardTransientUpgradeable,
-    LinearMultipleRewardDistributor,
+    LinearMultipleRewardDistributor_v2,
     IMultipleRewardAccumulator
 {
     using SafeERC20 for IERC20;
@@ -271,7 +271,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         uint256 rewardManagerRole,
         uint256 rewardDepositorRole,
         uint40 periodLength
-    ) LinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, periodLength) {}
+    ) LinearMultipleRewardDistributor_v2(rewardManagerRole, rewardDepositorRole, periodLength) {}
 
     /*************************
      * Public View Functions *
@@ -535,7 +535,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
         return amount;
     }
 
-    /// @inheritdoc LinearMultipleRewardDistributor
+    /// @inheritdoc LinearMultipleRewardDistributor_v2
     function _accumulateReward(address token, uint256 amount) internal virtual override {
         // slither-disable-next-line incorrect-equality
         if (amount == 0) {

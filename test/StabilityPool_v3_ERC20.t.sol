@@ -7,7 +7,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
-import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
+import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 
 import {DeployEURSetUp} from "test/deployment/DeployEURSetUp.t.sol";
 
@@ -78,22 +78,25 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
     // String packing: StringTooLong, short strings, medium strings
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// Intent: constructor reverts if name exceeds 64 characters (StringPacking_v1 limit).
+    /// Intent: constructor reverts if name exceeds 63 characters (pack64 limit).
     function test_stringTooLong_name_reverts() public {
-        // 65-char string exceeds 64-char limit
-        string memory longName = "12345678901234567890123456789012345678901234567890123456789012345";
-        vm.expectRevert(StringPacking_v1.StringTooLong.selector);
+        // 64-char string is one over the 63-char limit
+        string memory longName = "1234567890123456789012345678901234567890123456789012345678901234";
+        assertEq(bytes(longName).length, 64, "sanity");
+        vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
         new StabilityPool_v3(minterFxUSD, wrappedCollateralToken, 3600, 90000, 1 ether, longName, "s");
     }
 
-    /// Intent: constructor reverts if symbol exceeds 64 characters (StringPacking_v1 limit).
+    /// Intent: constructor reverts if symbol exceeds 31 characters (pack32 limit).
     function test_stringTooLong_symbol_reverts() public {
-        string memory longSymbol = "12345678901234567890123456789012345678901234567890123456789012345";
-        vm.expectRevert(StringPacking_v1.StringTooLong.selector);
+        // 32-char string is one over the 31-char limit
+        string memory longSymbol = "12345678901234567890123456789012";
+        assertEq(bytes(longSymbol).length, 32, "sanity");
+        vm.expectRevert(ERC20MetadataLib_v1.StringTooLong.selector);
         new StabilityPool_v3(minterFxUSD, wrappedCollateralToken, 3600, 90000, 1 ether, "n", longSymbol);
     }
 
-    /// Intent: short strings (<32 chars) round-trip through StringPacking_v1 correctly.
+    /// Intent: short strings (<32 chars) round-trip through ERC20MetadataLib_v1 correctly.
     function test_name_shortString() public {
         StabilityPool_v3 sp_ = new StabilityPool_v3(
             minterFxUSD,
@@ -108,24 +111,24 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         assertEq(sp_.symbol(), "S", "short symbol");
     }
 
-    /// Intent: 32-char strings round-trip correctly (single bytes32 boundary).
-    function test_name_exactly32chars() public {
-        string memory name32 = "12345678901234567890123456789012";
-        assertEq(bytes(name32).length, 32, "sanity");
+    /// Intent: 31-char strings (fits entirely in word 0 after the length prefix) round-trip.
+    function test_name_exactly31chars() public {
+        string memory name31 = "1234567890123456789012345678901";
+        assertEq(bytes(name31).length, 31, "sanity");
         StabilityPool_v3 sp_ = new StabilityPool_v3(
             minterFxUSD,
             wrappedCollateralToken,
             3600,
             90000,
             1 ether,
-            name32,
+            name31,
             "S"
         );
-        assertEq(sp_.name(), name32, "32-char name");
+        assertEq(sp_.name(), name31, "31-char name");
     }
 
-    /// Intent: 33-64 char strings (need 2 bytes32 slots) round-trip correctly.
-    function test_name_between32and64chars() public {
+    /// Intent: 32..63 char strings (spill into word 1) round-trip correctly.
+    function test_name_between31and63chars() public {
         string memory name40 = "1234567890123456789012345678901234567890";
         assertEq(bytes(name40).length, 40, "sanity");
         StabilityPool_v3 sp_ = new StabilityPool_v3(
@@ -140,20 +143,20 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         assertEq(sp_.name(), name40, "40-char name");
     }
 
-    /// Intent: 64-char strings (max length) round-trip correctly.
-    function test_name_exactly64chars() public {
-        string memory name64 = "1234567890123456789012345678901234567890123456789012345678901234";
-        assertEq(bytes(name64).length, 64, "sanity");
+    /// Intent: 63-char strings (max length) round-trip correctly.
+    function test_name_exactly63chars() public {
+        string memory name63 = "123456789012345678901234567890123456789012345678901234567890123";
+        assertEq(bytes(name63).length, 63, "sanity");
         StabilityPool_v3 sp_ = new StabilityPool_v3(
             minterFxUSD,
             wrappedCollateralToken,
             3600,
             90000,
             1 ether,
-            name64,
+            name63,
             "S"
         );
-        assertEq(sp_.name(), name64, "64-char name");
+        assertEq(sp_.name(), name63, "63-char name");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

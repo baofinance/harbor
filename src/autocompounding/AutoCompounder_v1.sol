@@ -21,7 +21,7 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IMinter_v3} from "src/interfaces/IMinter_v3.sol";
-import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
+import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 
 /// @title AutoCompounder_v1
 /// @notice Level 1 auto-compounder: non-rebasing ERC4626 vault wrapping a rebasing stability pool position.
@@ -31,10 +31,6 @@ import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 ///      and redeposits to the SP.
 ///      totalAssets() includes the SP position plus unclaimed wrapped collateral valued via Minter dry run.
 ///      Works for both collateral and leveraged stability pools.
-/// @dev As openzeppelin's validator doesn't currently support external libraries
-/// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
-/// we add this:
-/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable-next-line contract-name-capwords
 contract AutoCompounder_v1 is
     Initializable,
@@ -144,8 +140,8 @@ contract AutoCompounder_v1 is
         WRAPPED_COLLATERAL = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
         assert(IStabilityPool(stabilityPool_).ASSET_TOKEN() == PEGGED_TOKEN);
-        (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
-        _ERC20_SYMBOL = StringPacking_v1.pack32(symbol_);
+        (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
+        _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
     }
 
     /// @notice Initialize the auto-compounder.
@@ -195,12 +191,12 @@ contract AutoCompounder_v1 is
 
     /// @notice ERC20 name, packed into constructor immutables.
     function name() public view override(ERC20Upgradeable, IERC20Metadata) returns (string memory) {
-        return StringPacking_v1.unpack64(_ERC20_NAME_0, _ERC20_NAME_1);
+        return ERC20MetadataLib_v1.unpackName(_ERC20_NAME_0, _ERC20_NAME_1);
     }
 
     /// @notice ERC20 symbol, packed into constructor immutables.
     function symbol() public view override(ERC20Upgradeable, IERC20Metadata) returns (string memory) {
-        return StringPacking_v1.unpack64(_ERC20_SYMBOL, bytes32(0));
+        return ERC20MetadataLib_v1.unpackSymbol(_ERC20_SYMBOL);
     }
 
     /// @dev Decimals match the SP token (18).

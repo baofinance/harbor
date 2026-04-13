@@ -17,7 +17,7 @@ import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
+import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -35,10 +35,6 @@ import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 /// @custom:oz-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
-/// @dev As openzeppelin's validator doesn't currently support external libraries
-/// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
-/// we add this:
-/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable-next-line contract-name-capwords
 contract StabilityPool_v3 is
     Initializable,
@@ -233,8 +229,8 @@ contract StabilityPool_v3 is
         string memory symbol_
     ) MultipleRewardCompoundingAccumulator_v3(_REWARD_MANAGER_ROLE, _REWARD_DEPOSITOR_ROLE, 1 weeks) {
         _disableInitializers();
-        (_ERC20_NAME_0, _ERC20_NAME_1) = StringPacking_v1.pack64(name_);
-        _ERC20_SYMBOL = StringPacking_v1.pack32(symbol_);
+        (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
+        _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
         address asset = IMinter(minter_).PEGGED_TOKEN();
         _ERC20_DECIMALS = IERC20Metadata(asset).decimals();
         Token.sanityCheckERC20Token(asset);
@@ -635,12 +631,12 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IERC20Metadata
     function name() external view returns (string memory) {
-        return StringPacking_v1.unpack64(_ERC20_NAME_0, _ERC20_NAME_1);
+        return ERC20MetadataLib_v1.unpackName(_ERC20_NAME_0, _ERC20_NAME_1);
     }
 
     /// @inheritdoc IERC20Metadata
     function symbol() external view returns (string memory) {
-        return StringPacking_v1.unpack64(_ERC20_SYMBOL, bytes32(0));
+        return ERC20MetadataLib_v1.unpackSymbol(_ERC20_SYMBOL);
     }
 
     /// @inheritdoc IERC20Metadata

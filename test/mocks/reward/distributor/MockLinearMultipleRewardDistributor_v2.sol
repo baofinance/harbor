@@ -2,7 +2,7 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
-import {LinearMultipleRewardDistributor as LinearMultipleRewardDistributor_v2} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
+import {LinearMultipleRewardDistributor_v2} from "src/reward/distributor/LinearMultipleRewardDistributor_v2.sol";
 import {LinearReward} from "src/reward/distributor/LinearReward.sol";
 
 contract MockLinearMultipleRewardDistributor_v2 is LinearMultipleRewardDistributor_v2 {
