@@ -31,6 +31,10 @@ import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 ///      and redeposits to the SP.
 ///      totalAssets() includes the SP position plus unclaimed wrapped collateral valued via Minter dry run.
 ///      Works for both collateral and leveraged stability pools.
+/// @dev As openzeppelin's validator doesn't currently support external libraries
+/// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
+/// we add this:
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable-next-line contract-name-capwords
 contract AutoCompounder_v1 is
     Initializable,
@@ -151,6 +155,7 @@ contract AutoCompounder_v1 is
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
+        __ERC20_init("", "");
         __ERC4626_init(IERC20(STABILITY_POOL));
     }
 

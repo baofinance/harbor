@@ -35,6 +35,10 @@ import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
 /// @custom:oz-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
+/// @dev As openzeppelin's validator doesn't currently support external libraries
+/// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
+/// we add this:
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable-next-line contract-name-capwords
 contract StabilityPool_v3 is
     Initializable,

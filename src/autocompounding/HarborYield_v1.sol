@@ -29,6 +29,10 @@ import {StringPacking_v1} from "src/minter/library/StringPacking_v1.sol";
 ///      `compound()` converts equivalent vault holdings into AC vault holdings via the swapper.
 ///
 ///      All assets are assumed pegged 1:1. totalAssets() = SUM(IERC4626(v).convertToAssets(balance)).
+/// @dev As openzeppelin's validator doesn't currently support external libraries
+/// (see issue: https://github.com/OpenZeppelin/openzeppelin-upgrades/issues/52)
+/// we add this:
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 // solhint-disable-next-line contract-name-capwords
 contract HarborYield_v1 is
     Initializable,
@@ -124,6 +128,7 @@ contract HarborYield_v1 is
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
+        __ERC20_init("", "");
     }
 
     /*//////////////////////////////////////////////////////////////////////////
