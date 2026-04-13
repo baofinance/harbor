@@ -46,7 +46,13 @@ abstract contract AutoCompounder is HarborFactoryDeployer {
         console.log("          Name:   %s", tokenName);
         console.log("          Symbol: %s", tokenSymbol);
 
-        _recordImplementation(stateData, acKey, "@harbor/autocompounding/AutoCompounder_v1.sol", "AutoCompounder_v1", impl);
+        _recordImplementation(
+            stateData,
+            acKey,
+            "@harbor/autocompounding/AutoCompounder_v1.sol",
+            "AutoCompounder_v1",
+            impl
+        );
     }
 
     /// @notice Deploy AutoCompounder impl+proxy, record in state.

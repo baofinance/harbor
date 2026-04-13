@@ -41,7 +41,7 @@
 | script/src/contracts/StabilityPool.sol                             | ✓ 100% (31/31)     | ✓ 100% (50/50)     | ✓ 100% (0/0)     | ✓ 100% (3/3)      |
 | script/src/contracts/StabilityPoolManager.sol                      | X  53% (17/32)     | X  50% (18/36)     | ✓ 100% (0/0)     | X  50% (3/6)      |
 | src/autocompounding/AutoCompounder_v1.sol                          | X  96% (74/77)     | X  97% (74/76)     | X  60% (3/5)     | X  94% (15/16)    |
-| src/autocompounding/HarborYield_v1.sol                             | X   0% (0/153)     | X   0% (0/173)     | X   0% (0/21)    | X   0% (0/21)     |
+| src/autocompounding/HarborYield_v1.sol                             | X  91% (139/153)   | X  92% (160/173)   | X  86% (18/21)   | X  76% (16/21)    |
 | src/math/DecrementalFloatingPoint.sol                              | ✓ 100% (31/31)     | ✓ 100% (33/33)     | ✓ 100% (9/9)     | ✓ 100% (6/6)      |
 | src/minter/Genesis_v1.sol                                          | X  99% (88/89)     | ✓ 100% (88/88)     | ✓ 100% (14/14)   | X  92% (11/12)    |
 | src/minter/Minter_v1.sol                                           | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
@@ -67,4 +67,4 @@
 | src/reward/distributor/LinearReward.sol                            | ✓ 100% (25/25)     | ✓ 100% (27/27)     | ✓ 100% (6/6)     | ✓ 100% (2/2)      |
 | src/util/FmtLib.sol                                                | X  79% (15/19)     | X  73% (19/26)     | X  50% (2/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                              | X  60% (4930/8205) | X  59% (5227/8855) | X  48% (440/919) | X  61% (742/1209) |
+| Total                                                              | X  62% (5079/8207) | X  61% (5394/8856) | X  50% (460/919) | X  63% (761/1210) |

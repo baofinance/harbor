@@ -24,6 +24,30 @@ src/autocompounding/AutoCompounder_v1.sol:AutoCompounder_v1
 | totalAssets           | 7.818e+04 |
 | transferOwnership     | 1.202e+04 |
 
+src/autocompounding/HarborYield_v1.sol:HarborYield_v1
+| function name      |       max |
+|--------------------|-----------|
+| COMPOUNDER_ROLE    | 2.290e+02 |
+| REDISTRIBUTOR_ROLE | 2.720e+02 |
+| activateVault      | 1.345e+04 |
+| addVault           | 1.694e+05 |
+| allowance          | 2.793e+03 |
+| approve            | 2.482e+04 |
+| balanceOf          | 2.607e+03 |
+| compound           | 1.700e+05 |
+| deactivateVault    | 1.347e+04 |
+| deposit            | 1.872e+05 |
+| grantRoles         | 2.637e+04 |
+| initialize         | 7.066e+04 |
+| redeem             | 1.307e+05 |
+| redistribute       | 2.496e+05 |
+| setVaultWeight     | 1.946e+04 |
+| totalAssets        | 3.736e+04 |
+| totalSupply        | 2.371e+03 |
+| totalWeight        | 2.347e+03 |
+| vaultAt            | 9.181e+03 |
+| vaultCount         | 2.420e+03 |
+
 src/minter/Genesis_v1.sol:Genesis_v1
 | function name            |       max |
 |--------------------------|-----------|
@@ -71,7 +95,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | mintLeveragedTokenIncentiveRatio                 | 3.108e+04 |
 | mintPeggedToken(uint256,address,uint256)         | 1.911e+05 |
 | mintPeggedToken(uint256,address,uint256,uint256) | 1.251e+05 |
-| mintPeggedTokenDryRun(uint256)                   | 6.401e+04 |
+| mintPeggedTokenDryRun(uint256)                   | 6.402e+04 |
 | mintPeggedTokenDryRun(uint256,uint256)           | 4.556e+04 |
 | mintPeggedTokenIncentiveRatio                    | 3.012e+04 |
 | owner                                            | 2.402e+03 |

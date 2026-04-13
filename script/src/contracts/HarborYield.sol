@@ -35,7 +35,13 @@ abstract contract HarborYield is HarborFactoryDeployer {
         console.log("          Name:   %s", tokenName);
         console.log("          Symbol: %s", tokenSymbol);
 
-        _recordImplementation(stateData, yieldKey, "@harbor/autocompounding/HarborYield_v1.sol", "HarborYield_v1", impl);
+        _recordImplementation(
+            stateData,
+            yieldKey,
+            "@harbor/autocompounding/HarborYield_v1.sol",
+            "HarborYield_v1",
+            impl
+        );
     }
 
     /// @notice Deploy HarborYield_v1 impl+proxy, record in state.

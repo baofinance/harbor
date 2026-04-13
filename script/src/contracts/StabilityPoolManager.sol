@@ -34,9 +34,7 @@ abstract contract StabilityPoolManager is HarborFactoryDeployer {
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
     ) internal virtual returns (address impl) {
-        impl = address(
-            new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)
-        );
+        impl = address(new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged));
         console.log("        Impl:  %s", impl);
 
         _recordImplementation(
