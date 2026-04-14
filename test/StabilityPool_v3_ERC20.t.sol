@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {ERC20} from "@solady/tokens/ERC20.sol";
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
@@ -209,14 +210,13 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         assertEq(IERC20(sp).balanceOf(user1), 0, "sender zero");
     }
 
-    /// Intent: transferring more than balance reverts with TransferExceedsBalance.
+    /// Intent: transferring more than balance reverts with InsufficientBalance.
+    /// The error selector matches Solady's own `InsufficientBalance()` convention.
     function test_transfer_exceedsBalance_reverts() public {
         _deposit(user1, 10 ether);
 
         vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(StabilityPool_v3.TransferExceedsBalance.selector, user1, 11 ether, 10 ether)
-        );
+        vm.expectRevert(ERC20.InsufficientBalance.selector);
         IERC20(sp).transfer(user2, 11 ether);
     }
 
@@ -314,6 +314,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
     }
 
     /// Intent: transferFrom with insufficient allowance reverts with InsufficientAllowance.
+    /// The selector matches Solady's built-in `InsufficientAllowance()` convention.
     function test_transferFrom_insufficientAllowance_reverts() public {
         _deposit(user1, 10 ether);
 
@@ -321,9 +322,7 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         IERC20(sp).approve(user2, 2 ether);
 
         vm.prank(user2);
-        vm.expectRevert(
-            abi.encodeWithSelector(StabilityPool_v3.InsufficientAllowance.selector, user2, 2 ether, 3 ether)
-        );
+        vm.expectRevert(ERC20.InsufficientAllowance.selector);
         IERC20(sp).transferFrom(user1, user2, 3 ether);
     }
 
@@ -573,5 +572,138 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         uint256 total = remaining + IERC20(sp).balanceOf(user2) + IERC20(sp).balanceOf(user3);
         assertApproxEqAbs(total, balanceAfterLoss, 2, "total conserved across 3 addresses");
         assertApproxEqAbs(remaining, balanceAfterLoss - firstTransfer - secondTransfer, 1, "sender remainder correct");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // H: EIP-2612 Permit (Solady-provided)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev Compute the EIP-2612 permit digest for the SP contract.
+    function _permitDigest(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                owner,
+                spender,
+                value,
+                nonce,
+                deadline
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", StabilityPool_v3(sp).DOMAIN_SEPARATOR(), structHash));
+    }
+
+    /// @notice Happy path: valid permit signature sets allowance and increments the nonce.
+    ///         Permit approves an allowance that survives rebases — the allowance is on
+    ///         the ERC20 share token, not on the compounded balance.
+    function test_permit_happyPath() public {
+        (address signer, uint256 pk) = makeAddrAndKey("signer");
+        address spender = makeAddr("spender");
+        uint256 value = 5 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonceBefore = StabilityPool_v3(sp).nonces(signer);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonceBefore, deadline));
+
+        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
+
+        assertEq(IERC20(sp).allowance(signer, spender), value, "allowance set");
+        assertEq(StabilityPool_v3(sp).nonces(signer), nonceBefore + 1, "nonce incremented");
+    }
+
+    /// @notice An expired deadline reverts.
+    function test_permit_expiredDeadline_reverts() public {
+        (address signer, uint256 pk) = makeAddrAndKey("signer");
+        address spender = makeAddr("spender");
+
+        uint256 deadline = block.timestamp - 1;
+        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, 1 ether, nonce, deadline));
+
+        vm.expectRevert();
+        StabilityPool_v3(sp).permit(signer, spender, 1 ether, deadline, v, r, s);
+    }
+
+    /// @notice A signature from the wrong signer reverts.
+    function test_permit_wrongSigner_reverts() public {
+        (address signer, ) = makeAddrAndKey("signer");
+        (, uint256 attackerPk) = makeAddrAndKey("attacker");
+        address spender = makeAddr("spender");
+        uint256 value = 1 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
+            attackerPk,
+            _permitDigest(signer, spender, value, nonce, deadline)
+        );
+
+        vm.expectRevert();
+        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
+    }
+
+    /// @notice A used signature cannot be replayed — the nonce has advanced.
+    function test_permit_replay_reverts() public {
+        (address signer, uint256 pk) = makeAddrAndKey("signer");
+        address spender = makeAddr("spender");
+        uint256 value = 1 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonce, deadline));
+
+        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
+        vm.expectRevert();
+        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
+    }
+
+    /// @notice `DOMAIN_SEPARATOR` matches the EIP-712 layout: hash of the domain typehash,
+    ///         name, version, chainid, and verifying contract (the proxy).
+    function test_permit_domainSeparatorFormat() public view {
+        bytes32 expected = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes(IERC20Metadata(sp).name())),
+                keccak256("1"),
+                block.chainid,
+                sp
+            )
+        );
+        assertEq(StabilityPool_v3(sp).DOMAIN_SEPARATOR(), expected, "domain separator matches EIP-712 layout");
+    }
+
+    /// @notice A permit approval persists across a rebase (loss) — the allowance is on the
+    ///         share token's allowance slot, which is independent of the compounded balance
+    ///         accounting that rebases reduce.
+    function test_permit_allowanceSurvivesRebase() public {
+        (address signer, uint256 pk) = makeAddrAndKey("signer");
+        address spender = makeAddr("spender");
+
+        _deposit(signer, 10 ether);
+        _grantPermit(signer, pk, spender, 5 ether);
+
+        assertEq(IERC20(sp).allowance(signer, spender), 5 ether, "allowance set");
+
+        // Trigger a rebase (50% loss).
+        _applyLoss(5 ether, 5 ether);
+
+        // Signer's balance should have dropped, but the allowance is unchanged.
+        assertLt(IERC20(sp).balanceOf(signer), 10 ether, "signer balance reduced by rebase");
+        assertEq(IERC20(sp).allowance(signer, spender), 5 ether, "allowance unchanged by rebase");
+    }
+
+    /// @dev Sign and submit a permit for `value` with a 1-hour deadline.
+    function _grantPermit(address signer, uint256 pk, address spender, uint256 value) internal {
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonce, deadline));
+        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
     }
 }

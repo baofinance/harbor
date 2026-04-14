@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ERC20} from "@solady/tokens/ERC20.sol";
 
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
@@ -15,8 +16,6 @@ import {MultipleRewardCompoundingAccumulator_v3} from "src/reward/accumulator/Mu
 
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
@@ -39,10 +38,10 @@ import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 contract StabilityPool_v3 is
     Initializable,
     UUPSUpgradeable,
+    ERC20,
     MultipleRewardCompoundingAccumulator_v3,
     TokenHolder,
-    IStabilityPool,
-    IERC20Metadata
+    IStabilityPool
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
@@ -101,9 +100,6 @@ contract StabilityPool_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 private immutable _ERC20_SYMBOL;
 
-    /// @dev ERC20 decimals, matching the ASSET_TOKEN
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint8 private immutable _ERC20_DECIMALS;
 
     /***********
      * Structs *
@@ -141,6 +137,10 @@ contract StabilityPool_v3 is
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
+    /// @dev ERC20 allowances and nonces (for EIP-2612 permit) are stored in Solady ERC20's
+    ///      hand-picked magic slots (see `@solady/tokens/ERC20.sol`). They do not collide with
+    ///      this ERC7201 namespace — Solady's slots end in non-zero bytes while ERC7201 slots
+    ///      always end in `0x00`. No storage field for allowances here.
     struct StabilityPoolStorage {
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
@@ -158,8 +158,6 @@ contract StabilityPool_v3 is
         mapping(address => WithdrawalRequest) withdrawalRequests;
         /// @dev Packed fee configuration (address + uint96)
         FeePayment feePayment;
-        /// @dev ERC20 allowances: owner => spender => amount
-        mapping(address => mapping(address => uint256)) allowances;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -178,8 +176,10 @@ contract StabilityPool_v3 is
      * Errors *
      **********/
 
-    error TransferExceedsBalance(address from, uint256 amount, uint256 balance);
-    error InsufficientAllowance(address spender, uint256 currentAllowance, uint256 needed);
+    // `InsufficientBalance()` and `InsufficientAllowance()` are provided by Solady's ERC20
+    // (selectors 0xf4d678b8 and 0x13be252b respectively). `_transferBalance` reverts with
+    // `InsufficientBalance()`; `_spendAllowance` reverts with `InsufficientAllowance()`.
+    // Both are in scope via the ERC20 inheritance.
 
     /***************
      * Constructor *
@@ -232,7 +232,6 @@ contract StabilityPool_v3 is
         (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
         _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
         address asset = IMinter(minter_).PEGGED_TOKEN();
-        _ERC20_DECIMALS = IERC20Metadata(asset).decimals();
         Token.sanityCheckERC20Token(asset);
         // slither-disable-next-line missing-zero-check
         ASSET_TOKEN = asset;
@@ -626,32 +625,27 @@ contract StabilityPool_v3 is
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // ERC20 View Functions
+    // ERC20 Surface (Solady overrides where needed)
     // ═══════════════════════════════════════════════════════════════════════
+    //
+    // name/symbol/balanceOf/totalSupply/transfer/transferFrom override Solady's virtuals
+    // to route through the rebasing balance state. Everything else — decimals (18),
+    // allowance, approve, permit, nonces, DOMAIN_SEPARATOR, _spendAllowance, _approve —
+    // comes from Solady ERC20 directly, operating on Solady's hand-picked magic slots
+    // that don't collide with this contract's ERC7201 namespace.
 
-    /// @inheritdoc IERC20Metadata
-    function name() external view returns (string memory) {
+    function name() public view override returns (string memory) {
         return ERC20MetadataLib_v1.unpackName(_ERC20_NAME_0, _ERC20_NAME_1);
     }
 
-    /// @inheritdoc IERC20Metadata
-    function symbol() external view returns (string memory) {
+    function symbol() public view override returns (string memory) {
         return ERC20MetadataLib_v1.unpackSymbol(_ERC20_SYMBOL);
     }
 
-    /// @inheritdoc IERC20Metadata
-    function decimals() external view returns (uint8) {
-        return _ERC20_DECIMALS;
-    }
-
-    /// @inheritdoc IERC20
-    function allowance(address owner_, address spender) external view returns (uint256) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        return $.allowances[owner_][spender];
-    }
-
-    /// @inheritdoc IERC20
-    function balanceOf(address account) external view returns (uint256 amount) {
+    /// @dev Rebasing balance — computed from the user's stored amount+product against the
+    ///      current total-supply product. Solady's magic balance slot is never written to;
+    ///      this override is the sole source of truth.
+    function balanceOf(address account) public view override returns (uint256 amount) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         amount = _getCompoundedBalance(
             $.assetBalances[account].amount,
@@ -660,40 +654,20 @@ contract StabilityPool_v3 is
         );
     }
 
-    /// @inheritdoc IERC20
-    function totalSupply() external view returns (uint256 totalSupply_) {
+    function totalSupply() public view override returns (uint256 totalSupply_) {
         totalSupply_ = _getStabilityPoolStorage().totalAssetSupply.amount;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // ERC20 Mutator Functions
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function transfer(address to, uint256 amount) external nonReentrant returns (bool) {
+    function transfer(address to, uint256 amount) public override nonReentrant returns (bool) {
         _transferBalance(_msgSender(), to, amount);
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external nonReentrant returns (bool) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        address spender = _msgSender();
-        uint256 currentAllowance = $.allowances[from][spender];
-        if (currentAllowance != type(uint256).max) {
-            if (currentAllowance < amount) {
-                revert InsufficientAllowance(spender, currentAllowance, amount);
-            }
-            unchecked {
-                $.allowances[from][spender] = currentAllowance - amount;
-            }
-        }
+    function transferFrom(address from, address to, uint256 amount) public override nonReentrant returns (bool) {
+        // Solady handles the allowance check and decrement (max-allowance short-circuit,
+        // InsufficientAllowance revert). Then perform the rebasing-aware transfer.
+        _spendAllowance(from, _msgSender(), amount);
         _transferBalance(from, to, amount);
-        return true;
-    }
-
-    function approve(address spender, uint256 amount) external returns (bool) {
-        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
-        $.allowances[_msgSender()][spender] = amount;
-        emit Approval(_msgSender(), spender, amount);
         return true;
     }
 
@@ -716,7 +690,7 @@ contract StabilityPool_v3 is
 
         TokenBalance memory fromBalance = $.assetBalances[from];
         if (amount > fromBalance.amount) {
-            revert TransferExceedsBalance(from, amount, fromBalance.amount);
+            revert InsufficientBalance();
         }
         unchecked {
             fromBalance.amount -= uint104(amount);
