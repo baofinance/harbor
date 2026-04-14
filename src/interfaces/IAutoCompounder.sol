@@ -15,4 +15,17 @@ interface IAutoCompounder {
     /// @param receiver Address to receive the AC shares.
     /// @return shares Amount of AC shares minted.
     function depositPeggedToken(uint256 peggedAmount, address receiver) external returns (uint256 shares);
+
+    /// @notice The pegged token (e.g., haEUR) that the underlying StabilityPool holds.
+    /// @dev Exposed as a public immutable on the implementation; here to allow peg verification
+    ///      from upstream holders (e.g., HarborYield) without coupling to the concrete type.
+    // solhint-disable-next-line func-name-mixedcase
+    function PEGGED_TOKEN() external view returns (address);
+
+    /// @notice The Minter for this AC's market.
+    /// @dev Exposed as a public immutable on the implementation; used by upstream holders
+    ///      (e.g., HarborYield) to read `peggedTokenPrice()` for depeg-aware valuation of
+    ///      AC holdings.
+    // solhint-disable-next-line func-name-mixedcase
+    function MINTER() external view returns (address);
 }

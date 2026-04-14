@@ -20,6 +20,10 @@ contract MockMinter is BaoOwnableRoles /*, IMinter */ {
     address public immutable LEVERAGED_TOKEN;
     // the type of burn signature for burning pegged tokens
 
+    /// @notice Configurable pegged-token price. Defaults to 1 ether (pegged 1:1).
+    ///         Tests can lower this to simulate a haXXX depeg.
+    uint256 private _peggedTokenPrice = 1 ether;
+
     constructor(address _wrappedCollateralToken, address _peggedToken, address _leveragedToken) {
         require(_wrappedCollateralToken != address(0), "MockMinter: zero wrapped collateral");
         require(_peggedToken != address(0), "MockMinter: zero pegged token");
@@ -27,5 +31,15 @@ contract MockMinter is BaoOwnableRoles /*, IMinter */ {
         WRAPPED_COLLATERAL_TOKEN = _wrappedCollateralToken;
         PEGGED_TOKEN = _peggedToken;
         LEVERAGED_TOKEN = _leveragedToken;
+    }
+
+    /// @notice Return the current pegged-token price (18 decimals). Matches `IMinter.peggedTokenPrice`.
+    function peggedTokenPrice() external view returns (uint256) {
+        return _peggedTokenPrice;
+    }
+
+    /// @notice Configure the pegged-token price for test scenarios.
+    function setPeggedTokenPrice(uint256 price) external {
+        _peggedTokenPrice = price;
     }
 }

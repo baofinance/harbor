@@ -29,10 +29,6 @@ contract MockSwapper is ISwapper {
         shouldRevert = shouldRevert_;
     }
 
-    function previewSwap(address, address, uint256 amountIn) public view override returns (uint256 amountOut) {
-        amountOut = (amountIn * rate) / 1e18;
-    }
-
     function swap(
         address fromToken,
         address toToken,
@@ -44,7 +40,7 @@ contract MockSwapper is ISwapper {
             revert("MockSwapper: forced revert");
         }
 
-        amountOut = previewSwap(fromToken, toToken, amountIn);
+        amountOut = (amountIn * rate) / 1e18;
         require(amountOut >= minAmountOut, "MockSwapper: slippage");
 
         IERC20(fromToken).safeTransferFrom(msg.sender, address(this), amountIn);

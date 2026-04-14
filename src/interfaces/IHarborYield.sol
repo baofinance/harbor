@@ -22,6 +22,10 @@ interface IHarborYield {
         uint256 amountOut
     );
 
+    /// @notice Emitted when the owner updates the maximum peg drift allowed for
+    ///         equivalent-vault registration and rebalance swaps.
+    event MaxPegDriftBpsUpdated(uint64 newMaxPegDriftBps);
+
     // ── Deposit ─────────────────────────────────────────────────────────
 
     /// @notice Deposit an asset into the HarborYield. The asset must belong to a registered, active vault.

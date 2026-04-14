@@ -60,10 +60,14 @@ abstract contract HarborYield is HarborFactoryDeployer {
     }
 
     /// @notice Vault registration config.
+    /// @dev For AutoCompounder vaults, leave `valuationOracle` as `address(0)` — HY introspects
+    ///      the AC directly. For equivalent-yield vaults, `valuationOracle` must be a deployed
+    ///      `IWrappedPriceOracle` pricing the equivalent's asset against the peg token.
     struct VaultConfig {
         address vault; // ERC4626 vault address
         uint64 weight; // target distribution weight
         bool isAutoCompounder; // true if vault implements IAutoCompounder
+        address valuationOracle; // only for !isAutoCompounder; must be address(0) for ACs
     }
 
     /// @notice Register ERC4626 vaults with a deployed HarborYield.
@@ -74,7 +78,11 @@ abstract contract HarborYield is HarborFactoryDeployer {
             address vault = configs[i].vault;
             address asset = IERC4626(vault).asset();
             console.log("        addVault: %s (asset: %s, weight: %s)", vault, asset, configs[i].weight);
-            HarborYield_v1(hyProxy).addVault(vault, configs[i].weight, configs[i].isAutoCompounder);
+            if (configs[i].isAutoCompounder) {
+                HarborYield_v1(hyProxy).addAutoCompounderVault(vault, configs[i].weight);
+            } else {
+                HarborYield_v1(hyProxy).addEquivalentVault(vault, configs[i].weight, configs[i].valuationOracle);
+            }
         }
     }
 }

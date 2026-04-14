@@ -17,6 +17,8 @@ import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 import {IHarborYield} from "src/interfaces/IHarborYield.sol";
 import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
 import {ISwapper} from "src/interfaces/ISwapper.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 
 /// @title HarborYield_v1
@@ -52,6 +54,14 @@ contract HarborYield_v1 is
     error ZeroWeight();
     error NothingToRedistribute();
 
+    /// @notice An AutoCompounder vault's `PEGGED_TOKEN` does not match this HarborYield's peg
+    ///         token. The caller is trying to register an AC from the wrong market.
+    error WrongPegToken(address expected, address actual);
+
+    /// @notice A vault's asset does not value 1:1 against the peg token within the allowed
+    ///         drift. Either a config error (wrong asset) or a market depeg in progress.
+    error ExcessivePegDrift(uint256 expected, uint256 actual);
+
     /*//////////////////////////////////////////////////////////////////////////
                                     CONSTANTS
     //////////////////////////////////////////////////////////////////////////*/
@@ -79,7 +89,10 @@ contract HarborYield_v1 is
 
     /// @notice The peg token (e.g. haEUR) that values the HarborYield share in peg units.
     ///         HY is not ERC-4626 — it holds multiple assets — but `asset()` returns this token
-    ///         for interop with aggregators and price feeds.
+    ///         for interop with aggregators and price feeds. Also serves as the peg-identity
+    ///         reference for `addVault` — AC vaults are checked against this via
+    ///         `IAutoCompounder.PEGGED_TOKEN()`, and equivalent vaults are checked via the
+    ///         swapper's value preview against this token.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address private immutable _PEG_TOKEN;
 
@@ -102,6 +115,8 @@ contract HarborYield_v1 is
         ManagedVault[] vaults;
         mapping(address => uint256) assetToVaultIndex; // asset => index+1 (0 = not registered)
         uint256 totalWeight; // sum of all vault weights (cached for gas)
+        uint64 maxPegDriftBps; // max deviation from 1:1 for equivalent vaults, in bps (10000 = 100%)
+        mapping(address => address) vaultValuationOracle; // sparse: equivalents only; AC vaults use default address(0)
     }
 
     function _getHarborYieldStorage() private pure returns (HarborYieldStorage storage $) {
@@ -145,16 +160,50 @@ contract HarborYield_v1 is
                                 ADMIN: VAULT MANAGEMENT
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Register a new ERC4626 vault with a target weight.
-    /// @param vault The ERC4626 vault address.
+    /// @notice Register an AutoCompounder vault. Verifies the AC's underlying pegged token
+    ///         matches this HarborYield's peg token by introspecting `IAutoCompounder.PEGGED_TOKEN()`.
+    ///         No oracle required — ACs hold the peg token directly via their underlying SP.
+    /// @param vault The AutoCompounder vault address.
     /// @param weight Target distribution weight (arbitrary units, must be > 0).
-    /// @param isAutoCompounder Whether the vault implements IAutoCompounder.
     // slither-disable-next-line reentrancy-no-eth,reentrancy-events
-    function addVault(address vault, uint64 weight, bool isAutoCompounder) external onlyOwner {
+    function addAutoCompounderVault(address vault, uint64 weight) external onlyOwner {
+        Token.ensureContract(vault);
+        address acPegged = IAutoCompounder(vault).PEGGED_TOKEN();
+        if (acPegged != _PEG_TOKEN) {
+            revert WrongPegToken(_PEG_TOKEN, acPegged);
+        }
+        _addVault(vault, weight, true, address(0));
+    }
+
+    /// @notice Register an equivalent-yield ERC4626 vault with a required peg-value oracle.
+    ///         The oracle's current mid-rate must be within `maxPegDriftBps` of 1:1 with the
+    ///         peg token, or registration reverts. The oracle is stored per-vault and used by
+    ///         `totalAssets` for valuation and by `compound`/`redistribute` for the runtime
+    ///         oracle-bounded swap floor.
+    /// @param vault The equivalent-yield ERC4626 vault.
+    /// @param weight Target distribution weight.
+    /// @param valuationOracle IWrappedPriceOracle providing (price, rate) for the vault's
+    ///                        asset vs the peg token.
+    // slither-disable-next-line reentrancy-no-eth,reentrancy-events
+    function addEquivalentVault(address vault, uint64 weight, address valuationOracle) external onlyOwner {
+        Token.ensureContract(vault);
+        Token.ensureContract(valuationOracle);
+
+        // Check that the oracle currently reports a rate close to 1:1. This catches wrong-class
+        // assets (oracle rate obviously not ~1e18) and currently-depegged assets (oracle rate
+        // > maxPegDriftBps away from 1e18).
+        uint256 rate = _oracleRatePegUnits(valuationOracle);
+        _requirePegDriftWithin(1 ether, rate);
+
+        _addVault(vault, weight, false, valuationOracle);
+    }
+
+    /// @dev Shared bookkeeping for both addVault variants. Both callers have already verified
+    ///      the vault-class-specific peg check before reaching here.
+    function _addVault(address vault, uint64 weight, bool isAutoCompounder, address valuationOracle) private {
         if (weight == 0) {
             revert ZeroWeight();
         }
-        Token.ensureContract(vault);
         address vaultAsset = IERC4626(vault).asset();
 
         HarborYieldStorage storage $ = _getHarborYieldStorage();
@@ -165,10 +214,27 @@ contract HarborYield_v1 is
         $.vaults.push(ManagedVault({vault: vault, weight: weight, active: true, isAutoCompounder: isAutoCompounder}));
         $.assetToVaultIndex[vaultAsset] = $.vaults.length; // 1-indexed
         $.totalWeight += weight;
+        if (valuationOracle != address(0)) {
+            $.vaultValuationOracle[vault] = valuationOracle;
+        }
 
         IERC20(vaultAsset).forceApprove(vault, type(uint256).max);
 
         emit VaultAdded(vault, vaultAsset, weight);
+    }
+
+    /// @notice Update the maximum peg drift allowed for equivalent-vault registration and
+    ///         rebalance swaps, in basis points (e.g., 200 = 2%).
+    /// @dev Setting to 0 forces exact 1:1 parity, which will break for any real equivalent;
+    ///      intended for deactivation / emergency freeze only.
+    function setMaxPegDriftBps(uint64 newMaxPegDriftBps) external onlyOwner {
+        _getHarborYieldStorage().maxPegDriftBps = newMaxPegDriftBps;
+        emit MaxPegDriftBpsUpdated(newMaxPegDriftBps);
+    }
+
+    /// @notice The current maximum peg drift in basis points.
+    function maxPegDriftBps() external view returns (uint64) {
+        return _getHarborYieldStorage().maxPegDriftBps;
     }
 
     /// @notice Update a vault's target weight. Set to 0 to drain via redistribution.
@@ -246,12 +312,16 @@ contract HarborYield_v1 is
         HarborYieldStorage storage $ = _getHarborYieldStorage();
         uint256 length = $.vaults.length;
         for (uint256 i = 0; i < length; i++) {
+            address vault = $.vaults[i].vault;
             // slither-disable-next-line calls-loop
-            uint256 vaultShares = IERC20($.vaults[i].vault).balanceOf(address(this));
-            if (vaultShares > 0) {
-                // slither-disable-next-line calls-loop
-                total += IERC4626($.vaults[i].vault).convertToAssets(vaultShares);
+            uint256 vaultShares = IERC20(vault).balanceOf(address(this));
+            if (vaultShares == 0) {
+                continue;
             }
+            // slither-disable-next-line calls-loop
+            uint256 vaultAssets = IERC4626(vault).convertToAssets(vaultShares);
+            // slither-disable-next-line calls-loop
+            total += Math.mulDiv(vaultAssets, _fairRateInPegUnits(vault), 1 ether);
         }
     }
 
@@ -360,15 +430,19 @@ contract HarborYield_v1 is
         uint256 minAmountOut,
         bytes calldata swapData
     ) external nonReentrant onlyOwnerOrRoles(COMPOUNDER_ROLE) {
-        // Redeem from the source equivalent vault to get its underlying asset
+        // Redeem from the source vault to get its underlying asset
         uint256 assetAmount = IERC4626(fromVault).redeem(vaultShareAmount, address(this), address(this));
+
+        // Apply HY's oracle-bounded floor on top of the keeper's minAmountOut. If the keeper
+        // is lazy or compromised and passes a low minAmountOut, HY's own floor kicks in.
+        uint256 effectiveMin = _effectiveMinOut(fromVault, toVault, assetAmount, minAmountOut);
 
         // Swap the asset to the target vault's asset
         uint256 swappedAmount = _swapIfNeeded(
             IERC4626(fromVault).asset(),
             IERC4626(toVault).asset(),
             assetAmount,
-            minAmountOut,
+            effectiveMin,
             swapData
         );
 
@@ -448,12 +522,16 @@ contract HarborYield_v1 is
             }
             w.moveValue = IERC4626(srcVault).redeem(srcShares, address(this), address(this));
         }
+
+        // Apply HY's oracle-bounded floor on top of the keeper's minAmountOut.
+        uint256 effectiveMin = _effectiveMinOut(srcVault, dstVault, w.moveValue, minAmountOut);
+
         // Swap if needed, deposit to target
         uint256 deposited = _swapIfNeeded(
             IERC4626(srcVault).asset(),
             IERC4626(dstVault).asset(),
             w.moveValue,
-            minAmountOut,
+            effectiveMin,
             swapData
         );
         // slither-disable-next-line unused-return
@@ -462,7 +540,69 @@ contract HarborYield_v1 is
     }
 
     /*//////////////////////////////////////////////////////////////////////////
-                                INTERNAL
+                                INTERNAL: PEG VALUATION
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev Return the current fair rate (peg units per 1 asset unit, 18 decimals) for a
+    ///      registered vault.
+    ///
+    ///      The sparse `vaultValuationOracle` mapping is the branch discriminator:
+    ///        - `address(0)` → AC vault. Read `peggedTokenPrice()` from the vault's Minter
+    ///          (normally 1e18, lower during a peg-token depeg). No oracle lookup for the
+    ///          asset side because an AC's asset is the SP token, which is 1:1 with the peg
+    ///          token (haXXX) via the pool.
+    ///        - non-zero → equivalent vault. Read the registered `IWrappedPriceOracle` and
+    ///          combine min/max price and rate into a single mid value.
+    function _fairRateInPegUnits(address vault) private view returns (uint256) {
+        address oracle = _getHarborYieldStorage().vaultValuationOracle[vault];
+        if (oracle == address(0)) {
+            address minter = IAutoCompounder(vault).MINTER();
+            return IMinter(minter).peggedTokenPrice();
+        }
+        return _oracleRatePegUnits(oracle);
+    }
+
+    /// @dev Return the mid-rate reported by an IWrappedPriceOracle, expressed as
+    ///      "peg units per 1 asset unit" in 18 decimals: `mid(price) * mid(rate) / 1e18`.
+    function _oracleRatePegUnits(address oracle) private view returns (uint256) {
+        (uint256 minP, uint256 maxP, uint256 minR, uint256 maxR) = IWrappedPriceOracle(oracle).latestAnswer();
+        uint256 price = (minP + maxP) / 2;
+        uint256 rate = (minR + maxR) / 2;
+        return Math.mulDiv(price, rate, 1 ether);
+    }
+
+    /// @dev Revert if `actual` is not within `maxPegDriftBps` of `expected`. Symmetric
+    ///      range check used by `addEquivalentVault` to assert the oracle currently reports
+    ///      a rate close to 1:1 with the peg token.
+    function _requirePegDriftWithin(uint256 expected, uint256 actual) private view {
+        uint256 tolerance = Math.mulDiv(expected, _getHarborYieldStorage().maxPegDriftBps, 10_000);
+        if (actual < expected - tolerance || actual > expected + tolerance) {
+            revert ExcessivePegDrift(expected, actual);
+        }
+    }
+
+    /// @dev Compute the oracle-bounded minimum acceptable output for a swap from one managed
+    ///      vault's asset into another's. The returned value is `max(keeperMinOut, oracleFloor)`,
+    ///      so a compromised keeper passing `keeperMinOut = 0` still gets HY's own floor.
+    function _effectiveMinOut(
+        address fromVault,
+        address toVault,
+        uint256 amountIn,
+        uint256 keeperMinOut
+    ) private view returns (uint256) {
+        uint256 fromRate = _fairRateInPegUnits(fromVault);
+        uint256 toRate = _fairRateInPegUnits(toVault);
+        uint256 expectedOut = Math.mulDiv(amountIn, fromRate, toRate);
+        uint256 oracleFloor = Math.mulDiv(
+            expectedOut,
+            10_000 - _getHarborYieldStorage().maxPegDriftBps,
+            10_000
+        );
+        return keeperMinOut > oracleFloor ? keeperMinOut : oracleFloor;
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                                INTERNAL: SWAPPER
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev Swap fromAsset -> toAsset via SWAPPER, or pass through if same asset.
