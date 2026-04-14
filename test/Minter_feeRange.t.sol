@@ -646,7 +646,6 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             (uint256 p, , uint256 r, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
             Measures memory pre;
-            uint256 lp = IMinter(minter).leveragedTokenPrice();
 
             uint256 fee;
             uint256 discount;
@@ -708,9 +707,11 @@ contract TestMinterFixedFeeRange_ is TestMinterFeeRange {
             assertNear(post.minterWrapped, pre.minterWrapped + wrapped - fee + discount, 1, "ml minter wrapped");
 
             assertEq(post.userLeveraged, pre.userLeveraged + minted, "ml user leveraged returned");
+            // Use full-precision E36 leveraged price rather than the truncated-to-wei public view;
+            // in depeg scenarios lp can shrink to a few wei and the truncation becomes the dominant error.
             assertNear(
                 minted,
-                Math.mulDiv((wrapped - fee + discount) * r /*underlying collateral */, p, lp * 1e18),
+                Math.mulDiv((wrapped - fee + discount) * r /*underlying collateral */, p, _leveragedPriceE36(p)),
                 q + 2,
                 0.00000011 ether, // the test calculation is far less accurate than the contract one
                 "ml user leveraged"
