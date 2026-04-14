@@ -15,6 +15,10 @@ import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 ///      collateral, equivalents) that share the same peg. Standalone -- minimal dependencies
 ///      on the minter deployment infrastructure.
 abstract contract HarborYield is HarborFactoryDeployer {
+    // Salt-type constant for the collateral AC — mirrors the value in
+    // script/src/contracts/AutoCompounder.sol. Kept local to avoid cross-abstract inheritance.
+    string private constant _AUTOCOMPOUNDER_COLLATERAL = "autoCompounderCollateral";
+
     // ========== HARBOR YIELD DEPLOYMENT ==========
 
     /// @notice Deploy HarborYield_v1 impl only, record in state.
@@ -59,30 +63,47 @@ abstract contract HarborYield is HarborFactoryDeployer {
         proxy = _deployProxyAndRecord(stateData, yieldKey, impl, initData);
     }
 
-    /// @notice Vault registration config.
-    /// @dev For AutoCompounder vaults, leave `valuationOracle` as `address(0)` — HY introspects
-    ///      the AC directly. For equivalent-yield vaults, `valuationOracle` must be a deployed
-    ///      `IWrappedPriceOracle` pricing the equivalent's asset against the peg token.
-    struct VaultConfig {
-        address vault; // ERC4626 vault address
-        uint64 weight; // target distribution weight
-        bool isAutoCompounder; // true if vault implements IAutoCompounder
-        address valuationOracle; // only for !isAutoCompounder; must be address(0) for ACs
+    /// @notice Register an AutoCompounder for a market as a managed vault in HY.
+    /// @param marketKey Salt key of the market whose collateral AutoCompounder is being registered
+    ///                  (e.g., "EUR::fxUSD"). The collateral AC address is derived from this.
+    /// @param weight Target distribution weight for this AC in the HY basket.
+    struct AutoCompounderVaultConfig {
+        string marketKey;
+        uint64 weight;
     }
 
-    /// @notice Register ERC4626 vaults with a deployed HarborYield.
+    /// @notice Register an equivalent-yield ERC4626 as a managed vault in HY.
+    /// @param vault The ERC4626 vault address (e.g., an fxSAVE wrapper).
+    /// @param weight Target distribution weight.
+    /// @param valuationOracle IWrappedPriceOracle pricing the vault's asset against the peg token.
+    struct EquivalentVaultConfig {
+        address vault;
+        uint64 weight;
+        address valuationOracle;
+    }
+
+    /// @notice Register a set of collateral AutoCompounders and equivalents with a deployed HY.
+    /// @dev Two distinct config arrays — no flag. ACs are identified by market key (the script
+    ///      predicts their address from the existing salt namespace); equivalents carry their
+    ///      own vault address and oracle because they're external to the market infrastructure.
     /// @param hyProxy The HarborYield proxy address.
-    /// @param configs Array of vault configurations to register.
-    function configureHarborYield(address hyProxy, VaultConfig[] memory configs) internal {
-        for (uint256 i = 0; i < configs.length; i++) {
-            address vault = configs[i].vault;
-            address asset = IERC4626(vault).asset();
-            console.log("        addVault: %s (asset: %s, weight: %s)", vault, asset, configs[i].weight);
-            if (configs[i].isAutoCompounder) {
-                HarborYield_v1(hyProxy).addAutoCompounderVault(vault, configs[i].weight);
-            } else {
-                HarborYield_v1(hyProxy).addEquivalentVault(vault, configs[i].weight, configs[i].valuationOracle);
-            }
+    /// @param autoCompounders ACs to register — one per collateral market in this peg.
+    /// @param equivalents Equivalent-yield vaults to register alongside the ACs.
+    function configureHarborYield(
+        address hyProxy,
+        AutoCompounderVaultConfig[] memory autoCompounders,
+        EquivalentVaultConfig[] memory equivalents
+    ) internal {
+        for (uint256 i = 0; i < autoCompounders.length; i++) {
+            address acVault = _predictAddress(_key(autoCompounders[i].marketKey, _AUTOCOMPOUNDER_COLLATERAL));
+            console.log("        addAutoCompounderVault: %s (weight: %s)", acVault, autoCompounders[i].weight);
+            HarborYield_v1(hyProxy).addAutoCompounderVault(acVault, autoCompounders[i].weight);
+        }
+        for (uint256 i = 0; i < equivalents.length; i++) {
+            address eqVault = equivalents[i].vault;
+            address asset = IERC4626(eqVault).asset();
+            console.log("        addEquivalentVault: %s (asset: %s, weight: %s)", eqVault, asset, equivalents[i].weight);
+            HarborYield_v1(hyProxy).addEquivalentVault(eqVault, equivalents[i].weight, equivalents[i].valuationOracle);
         }
     }
 }
