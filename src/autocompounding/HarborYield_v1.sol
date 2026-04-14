@@ -77,6 +77,12 @@ contract HarborYield_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable SWAPPER; // solhint-disable-line immutable-vars-naming
 
+    /// @notice The peg token (e.g. haEUR) that values the HarborYield share in peg units.
+    ///         HY is not ERC-4626 — it holds multiple assets — but `asset()` returns this token
+    ///         for interop with aggregators and price feeds.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address private immutable _PEG_TOKEN;
+
     /*//////////////////////////////////////////////////////////////////////////
                                     STORAGE (ERC7201)
     //////////////////////////////////////////////////////////////////////////*/
@@ -87,8 +93,7 @@ contract HarborYield_v1 is
 
     struct ManagedVault {
         address vault; // ERC4626 vault (AutoCompounder, wstETH wrapper, fxSAVE wrapper, etc.)
-        address asset; // the vault's underlying asset
-        uint96 weight; // target distribution weight (arbitrary units, not BPS)
+        uint64 weight; // target distribution weight (arbitrary units) — packs into slot with vault + bools
         bool active; // accepts new deposits
         bool isAutoCompounder; // true if vault implements IAutoCompounder
     }
@@ -111,13 +116,16 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(string memory name_, string memory symbol_, address swapper_) {
+    constructor(string memory name_, string memory symbol_, address swapper_, address pegToken_) {
         _disableInitializers();
         (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
         _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
         Token.ensureNonZeroAddress(swapper_);
+        Token.ensureNonZeroAddress(pegToken_);
         // slither-disable-next-line missing-zero-check
         SWAPPER = swapper_;
+        // slither-disable-next-line missing-zero-check
+        _PEG_TOKEN = pegToken_;
     }
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
@@ -142,31 +150,29 @@ contract HarborYield_v1 is
     /// @param weight Target distribution weight (arbitrary units, must be > 0).
     /// @param isAutoCompounder Whether the vault implements IAutoCompounder.
     // slither-disable-next-line reentrancy-no-eth,reentrancy-events
-    function addVault(address vault, uint96 weight, bool isAutoCompounder) external onlyOwner {
+    function addVault(address vault, uint64 weight, bool isAutoCompounder) external onlyOwner {
         if (weight == 0) {
             revert ZeroWeight();
         }
         Token.ensureContract(vault);
-        address asset = IERC4626(vault).asset();
+        address vaultAsset = IERC4626(vault).asset();
 
         HarborYieldStorage storage $ = _getHarborYieldStorage();
-        if ($.assetToVaultIndex[asset] != 0) {
+        if ($.assetToVaultIndex[vaultAsset] != 0) {
             revert VaultAlreadyRegistered(vault);
         }
 
-        $.vaults.push(
-            ManagedVault({vault: vault, asset: asset, weight: weight, active: true, isAutoCompounder: isAutoCompounder})
-        );
-        $.assetToVaultIndex[asset] = $.vaults.length; // 1-indexed
+        $.vaults.push(ManagedVault({vault: vault, weight: weight, active: true, isAutoCompounder: isAutoCompounder}));
+        $.assetToVaultIndex[vaultAsset] = $.vaults.length; // 1-indexed
         $.totalWeight += weight;
 
-        IERC20(asset).forceApprove(vault, type(uint256).max);
+        IERC20(vaultAsset).forceApprove(vault, type(uint256).max);
 
-        emit VaultAdded(vault, asset, weight);
+        emit VaultAdded(vault, vaultAsset, weight);
     }
 
     /// @notice Update a vault's target weight. Set to 0 to drain via redistribution.
-    function setVaultWeight(address vault, uint96 weight) external onlyOwner {
+    function setVaultWeight(address vault, uint64 weight) external onlyOwner {
         HarborYieldStorage storage $ = _getHarborYieldStorage();
         for (uint256 i = 0; i < $.vaults.length; i++) {
             if ($.vaults[i].vault == vault) {
@@ -222,8 +228,18 @@ contract HarborYield_v1 is
     }
 
     /*//////////////////////////////////////////////////////////////////////////
-                                CORE: TOTAL ASSETS
+                                ERC-4626 VIEW SHIM
     //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice The peg token that values HarborYield shares.
+    /// @dev HarborYield is not a standard ERC-4626 vault (it holds multiple assets with
+    ///      proportional redemption). This view exists for interop with aggregators, portfolio
+    ///      trackers, and price feeds that expect an ERC-4626-style `asset()` getter. The
+    ///      mutation surface (`deposit(asset, amount, receiver)`, `redeem`) is intentionally
+    ///      non-standard.
+    function asset() public view returns (address) {
+        return _PEG_TOKEN;
+    }
 
     /// @inheritdoc IHarborYield
     function totalAssets() public view returns (uint256 total) {
@@ -239,19 +255,50 @@ contract HarborYield_v1 is
         }
     }
 
+    /// @notice Convert an assets amount (in peg units) to HarborYield share units, rounded down.
+    /// @dev Matches the internal formula used in `deposit`: `shares * (supply + 1) / (assets + 1)`.
+    ///      For interop only; the actual `deposit(asset, amount, receiver)` path uses the
+    ///      vault-specific asset, not the peg token.
+    function convertToShares(uint256 assets) public view returns (uint256) {
+        return Math.mulDiv(assets, totalSupply() + 1, totalAssets() + 1);
+    }
+
+    /// @notice Convert a HarborYield share amount to assets in peg units, rounded down.
+    function convertToAssets(uint256 shares) public view returns (uint256) {
+        return Math.mulDiv(shares, totalAssets() + 1, totalSupply() + 1);
+    }
+
+    /// @notice Preview the shares that would be minted by depositing `assets` peg units.
+    /// @dev HY has no deposit entrypoint that takes the peg token directly; this preview
+    ///      reflects the economic conversion rate, not a concrete deposit path.
+    function previewDeposit(uint256 assets) public view returns (uint256) {
+        return convertToShares(assets);
+    }
+
+    /// @notice Preview the assets (in peg units) that `shares` would redeem for at the current rate.
+    /// @dev HY's actual `redeem` pays out a proportional mix of every managed vault's holdings,
+    ///      not peg tokens. This preview reflects the share price in peg units for valuation only.
+    function previewRedeem(uint256 shares) public view returns (uint256) {
+        return convertToAssets(shares);
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                                 CORE: DEPOSIT
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IHarborYield
     // slither-disable-next-line reentrancy-no-eth
-    function deposit(address asset, uint256 amount, address receiver) external nonReentrant returns (uint256 shares) {
-        amount = Token.allOf(msg.sender, asset, amount);
+    function deposit(
+        address asset_,
+        uint256 amount,
+        address receiver
+    ) external nonReentrant returns (uint256 shares) {
+        amount = Token.allOf(msg.sender, asset_, amount);
 
         HarborYieldStorage storage $ = _getHarborYieldStorage();
-        uint256 idx = $.assetToVaultIndex[asset];
+        uint256 idx = $.assetToVaultIndex[asset_];
         if (idx == 0) {
-            revert VaultNotRegistered(asset);
+            revert VaultNotRegistered(asset_);
         }
         ManagedVault storage mv = $.vaults[idx - 1];
         if (!mv.active) {
@@ -261,7 +308,7 @@ contract HarborYield_v1 is
         uint256 assetsBefore = totalAssets();
         uint256 supplyBefore = totalSupply();
 
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(asset_).safeTransferFrom(msg.sender, address(this), amount);
         // slither-disable-next-line unused-return
         IERC4626(mv.vault).deposit(amount, address(this));
 
@@ -403,8 +450,8 @@ contract HarborYield_v1 is
         }
         // Swap if needed, deposit to target
         uint256 deposited = _swapIfNeeded(
-            $.vaults[w.sourceIdx].asset,
-            $.vaults[w.targetIdx].asset,
+            IERC4626(srcVault).asset(),
+            IERC4626(dstVault).asset(),
             w.moveValue,
             minAmountOut,
             swapData
@@ -444,10 +491,13 @@ contract HarborYield_v1 is
     }
 
     /// @inheritdoc IHarborYield
-    function vaultAt(uint256 index) external view returns (address vault, address asset, bool active, uint96 weight) {
+    function vaultAt(
+        uint256 index
+    ) external view returns (address vault, address asset_, bool active, uint64 weight) {
         ManagedVault storage mv = _getHarborYieldStorage().vaults[index];
         vault = mv.vault;
-        asset = mv.asset;
+        // slither-disable-next-line calls-loop
+        asset_ = IERC4626(mv.vault).asset();
         active = mv.active;
         weight = mv.weight;
     }

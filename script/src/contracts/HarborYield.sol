@@ -29,11 +29,13 @@ abstract contract HarborYield is HarborFactoryDeployer {
         string memory tokenName = names.harborYieldName();
         string memory tokenSymbol = names.harborYieldSymbol();
         address swapper = _predictAddressFromFullSalt("harbor_v1::swapper");
+        address pegToken = _predictAddress(_key(pegConfig.key(), "pegged"));
 
-        impl = address(new HarborYield_v1(tokenName, tokenSymbol, swapper));
-        console.log("        Impl:   %s", impl);
-        console.log("          Name:   %s", tokenName);
-        console.log("          Symbol: %s", tokenSymbol);
+        impl = address(new HarborYield_v1(tokenName, tokenSymbol, swapper, pegToken));
+        console.log("        Impl:      %s", impl);
+        console.log("          Name:    %s", tokenName);
+        console.log("          Symbol:  %s", tokenSymbol);
+        console.log("          Asset:   %s", pegToken);
 
         _recordImplementation(
             stateData,
@@ -60,7 +62,7 @@ abstract contract HarborYield is HarborFactoryDeployer {
     /// @notice Vault registration config.
     struct VaultConfig {
         address vault; // ERC4626 vault address
-        uint96 weight; // target distribution weight
+        uint64 weight; // target distribution weight
         bool isAutoCompounder; // true if vault implements IAutoCompounder
     }
 

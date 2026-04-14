@@ -1,31 +1,18 @@
 // SPDX-License-Identifier: MIT
-// solhint-disable one-contract-per-file
 pragma solidity >=0.8.28 <0.9.0;
 
 import "forge-std/Test.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
 import {HarborYield_v1} from "src/autocompounding/HarborYield_v1.sol";
+import {IHarborYield} from "src/interfaces/IHarborYield.sol";
 import {MockSwapper} from "test/mocks/MockSwapper.sol";
-
-/// @notice Minimal ERC4626 vault used as a managed vault inside HarborYield tests.
-///         Yield is simulated by calling addYield(), which drops extra assets into the vault
-///         and thereby increases convertToAssets() for existing shares.
-contract MockERC4626Vault is ERC4626 {
-    constructor(IERC20 asset_, string memory name_, string memory symbol_) ERC4626(asset_) ERC20(name_, symbol_) {}
-
-    /// @dev Drop extra underlying into the vault, simulating yield accrual.
-    function addYield(uint256 amount) external {
-        MockERC20(asset()).mint(address(this), amount);
-    }
-}
+import {MockERC4626Vault} from "test/mocks/MockERC4626Vault.sol";
 
 /// @title HarborYield_v1 unit tests
 /// @notice Tests HarborYield in isolation using MockERC20 assets, MockERC4626Vault, and MockSwapper.
@@ -39,6 +26,7 @@ contract HarborYieldTest is Test {
     address keeper = makeAddr("keeper");
 
     // ── Tokens ─────────────────────────────────────────────────────────
+    MockERC20 pegToken; // e.g. haEUR (the HarborYield share's peg-unit asset)
     MockERC20 asset0; // e.g. stETH
     MockERC20 asset1; // e.g. fxSAVE
 
@@ -51,10 +39,11 @@ contract HarborYieldTest is Test {
     HarborYield_v1 hy;
 
     // ── Constants ──────────────────────────────────────────────────────
-    uint96 constant WEIGHT_0 = 60; // 60% of target
-    uint96 constant WEIGHT_1 = 40; // 40% of target
+    uint64 constant WEIGHT_0 = 60; // 60% of target
+    uint64 constant WEIGHT_1 = 40; // 40% of target
 
     function setUp() public virtual {
+        pegToken = new MockERC20("Peg Token", "PEG", 18);
         asset0 = new MockERC20("Asset 0", "A0", 18);
         asset1 = new MockERC20("Asset 1", "A1", 18);
 
@@ -68,7 +57,12 @@ contract HarborYieldTest is Test {
 
         // Deploy HarborYield_v1 impl + proxy.
         // address(this) is both deployer-owner and pending-owner: owner is address(this).
-        HarborYield_v1 impl = new HarborYield_v1("Harbor Yield Test", "hyTEST", address(swapper));
+        HarborYield_v1 impl = new HarborYield_v1(
+            "Harbor Yield Test",
+            "hyTEST",
+            address(swapper),
+            address(pegToken)
+        );
         bytes memory initData = abi.encodeCall(HarborYield_v1.initialize, (address(this), address(this)));
         hy = HarborYield_v1(address(new ERC1967Proxy(address(impl), initData)));
 
@@ -96,13 +90,13 @@ contract HarborYieldTest is Test {
         assertEq(hy.vaultCount(), 2);
         assertEq(hy.totalWeight(), uint256(WEIGHT_0) + WEIGHT_1);
 
-        (address v0, address a0, bool active0, uint96 w0) = hy.vaultAt(0);
+        (address v0, address a0, bool active0, uint64 w0) = hy.vaultAt(0);
         assertEq(v0, address(vault0));
         assertEq(a0, address(asset0));
         assertTrue(active0);
         assertEq(w0, WEIGHT_0);
 
-        (address v1, , bool active1, uint96 w1) = hy.vaultAt(1);
+        (address v1, , bool active1, uint64 w1) = hy.vaultAt(1);
         assertEq(v1, address(vault1));
         assertTrue(active1);
         assertEq(w1, WEIGHT_1);
@@ -138,7 +132,7 @@ contract HarborYieldTest is Test {
         hy.setVaultWeight(address(vault0), 80);
         assertEq(hy.totalWeight(), 80 + WEIGHT_1);
 
-        (, , , uint96 w0) = hy.vaultAt(0);
+        (, , , uint64 w0) = hy.vaultAt(0);
         assertEq(w0, 80);
     }
 
@@ -434,5 +428,88 @@ contract HarborYieldTest is Test {
         assertEq(v0After, 95 ether);
         assertEq(v1After, 5 ether);
     }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                            ERC-4626 VIEW SHIM
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice `asset()` returns the peg token supplied at construction time.
+    function test_asset_returnsPegToken() public view {
+        assertEq(hy.asset(), address(pegToken));
+    }
+
+    /// @notice On an empty vault, convertToShares and convertToAssets return the input (1:1 rate
+    ///         at supply = 0, totalAssets = 0 due to the virtual-share `+1` floor).
+    function test_convert_onEmptyVault_isOneToOne() public view {
+        assertEq(hy.totalSupply(), 0);
+        assertEq(hy.totalAssets(), 0);
+        assertEq(hy.convertToShares(100 ether), 100 ether);
+        assertEq(hy.convertToAssets(100 ether), 100 ether);
+    }
+
+    /// @notice After a real deposit, convertToShares/Assets round-trip (within 1 wei).
+    function test_convert_roundTripAfterDeposit() public {
+        _deposit(alice, asset0, 100 ether);
+
+        uint256 shares = hy.convertToShares(50 ether);
+        uint256 assetsBack = hy.convertToAssets(shares);
+        // Integer division in both directions can lose 1 wei.
+        assertApproxEqAbs(assetsBack, 50 ether, 1, "round-trip within 1 wei");
+    }
+
+    /// @notice `convertToAssets(shares)` tracks the internal share-price formula used in `deposit`.
+    ///         If the formula were `(supply+1)/(assets+1)`, convertToAssets(totalSupply) should
+    ///         equal totalAssets within the virtual-share floor.
+    function test_convert_matchesInternalFormula() public {
+        _deposit(alice, asset0, 100 ether);
+        _deposit(bob, asset1, 40 ether);
+
+        uint256 supply = hy.totalSupply();
+        uint256 assets = hy.totalAssets();
+
+        // convertToAssets(supply) = supply * (assets + 1) / (supply + 1)
+        // which differs from `assets` by at most 1 wei due to the virtual floor.
+        uint256 fromShim = hy.convertToAssets(supply);
+        assertApproxEqAbs(fromShim, assets, 1, "convertToAssets(supply) ~= totalAssets");
+    }
+
+    /// @notice previewDeposit matches convertToShares (both round down).
+    function test_previewDeposit_matchesConvertToShares() public {
+        _deposit(alice, asset0, 100 ether);
+
+        uint256 preview = hy.previewDeposit(25 ether);
+        uint256 converted = hy.convertToShares(25 ether);
+        assertEq(preview, converted);
+    }
+
+    /// @notice previewRedeem matches convertToAssets (both round down).
+    function test_previewRedeem_matchesConvertToAssets() public {
+        _deposit(alice, asset0, 100 ether);
+
+        uint256 preview = hy.previewRedeem(10 ether);
+        uint256 converted = hy.convertToAssets(10 ether);
+        assertEq(preview, converted);
+    }
+
+    /// @notice Share price (convertToAssets(1 ether)) grows as vault yield accrues.
+    function test_convertToAssets_reflectsVaultYield() public {
+        _deposit(alice, asset0, 100 ether);
+        uint256 priceBefore = hy.convertToAssets(1 ether);
+
+        // Simulate 10% yield in vault0.
+        vault0.addYield(10 ether);
+
+        uint256 priceAfter = hy.convertToAssets(1 ether);
+        assertGt(priceAfter, priceBefore, "share price increased with yield");
+    }
+
+    /// @notice The view shim is exposed via the IHarborYield interface.
+    function test_viewShim_reachableViaInterface() public view {
+        // Compile-time check: these calls compile if IHarborYield declares them.
+        assertEq(IHarborYield(address(hy)).asset(), address(pegToken));
+        assertEq(IHarborYield(address(hy)).convertToShares(1 ether), hy.convertToShares(1 ether));
+        assertEq(IHarborYield(address(hy)).convertToAssets(1 ether), hy.convertToAssets(1 ether));
+        assertEq(IHarborYield(address(hy)).previewDeposit(1 ether), hy.previewDeposit(1 ether));
+        assertEq(IHarborYield(address(hy)).previewRedeem(1 ether), hy.previewRedeem(1 ether));
+    }
 }
-// solhint-enable one-contract-per-file
