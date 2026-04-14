@@ -30,6 +30,10 @@ import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 /// drops below a threshold. In that event some, ro even all, deposited assets are converted to wrapped collatersl
 /// or to leveage tokens, depending on what the LIQUIDATION_TOKEN is.
 ///
+/// @dev Balances rebase on loss; allowances do NOT (they're nominal uint256, same as stETH).
+///      A pre-rebase approval represents a larger fraction of the post-rebase balance.
+///      Use `approve(spender, type(uint256).max)` for proportional authority.
+///
 /// @author rootminus0x1 forked from Aladdin's Fx framework and significantly changed
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
