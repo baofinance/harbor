@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ERC20} from "@solady/tokens/ERC20.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -35,7 +35,7 @@ import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 contract HarborYield_v1 is
     Initializable,
     UUPSUpgradeable,
-    ERC20Upgradeable,
+    ERC20,
     ReentrancyGuardTransientUpgradeable,
     HarborOwnableRoles,
     TokenHolder,
@@ -147,7 +147,8 @@ contract HarborYield_v1 is
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
-        __ERC20_init("", "");
+        // Solady ERC20 has no init hook — name/symbol are resolved via virtual overrides
+        // backed by ERC20MetadataLib_v1 immutables in the constructor. Permit is built in.
     }
 
     /*//////////////////////////////////////////////////////////////////////////

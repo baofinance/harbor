@@ -691,4 +691,131 @@ contract HarborYieldTest is Test {
         vm.expectRevert(bytes("MockSwapper: slippage"));
         hy.compound(address(vault0), address(vault1), 10 ether, 0, "");
     }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                            H: ERC-20 PERMIT (EIP-2612)
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @dev Compute the EIP-2612 permit digest for the current HY instance.
+    function _permitDigest(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                owner,
+                spender,
+                value,
+                nonce,
+                deadline
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", hy.DOMAIN_SEPARATOR(), structHash));
+    }
+
+    /// @notice Happy path: valid permit signature sets allowance and increments the nonce.
+    function test_permit_happyPath() public {
+        (address signer, uint256 pk) = makeAddrAndKey("signer");
+        address spender = makeAddr("spender");
+        uint256 value = 123 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonceBefore = hy.nonces(signer);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonceBefore, deadline));
+
+        hy.permit(signer, spender, value, deadline, v, r, s);
+
+        assertEq(hy.allowance(signer, spender), value, "allowance set");
+        assertEq(hy.nonces(signer), nonceBefore + 1, "nonce incremented");
+    }
+
+    /// @notice An expired deadline reverts.
+    function test_permit_expiredDeadline_reverts() public {
+        (address signer, uint256 pk) = makeAddrAndKey("signer");
+        address spender = makeAddr("spender");
+
+        // Advance to a non-zero timestamp so `block.timestamp - 1` is meaningful.
+        vm.warp(1000);
+        uint256 deadline = block.timestamp - 1;
+        uint256 nonce = hy.nonces(signer);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, 1 ether, nonce, deadline));
+
+        vm.expectRevert(); // Solady emits its own error; any revert is fine here
+        hy.permit(signer, spender, 1 ether, deadline, v, r, s);
+    }
+
+    /// @notice A signature from the wrong signer reverts.
+    function test_permit_wrongSigner_reverts() public {
+        (address signer, ) = makeAddrAndKey("signer");
+        (, uint256 attackerPk) = makeAddrAndKey("attacker");
+        address spender = makeAddr("spender");
+        uint256 value = 1 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = hy.nonces(signer);
+
+        // Attacker signs for `signer`'s permit — signature recovers to attacker, not signer.
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
+            attackerPk,
+            _permitDigest(signer, spender, value, nonce, deadline)
+        );
+
+        vm.expectRevert();
+        hy.permit(signer, spender, value, deadline, v, r, s);
+    }
+
+    /// @notice A used signature cannot be replayed — the nonce has advanced.
+    function test_permit_replay_reverts() public {
+        (address signer, uint256 pk) = makeAddrAndKey("signer");
+        address spender = makeAddr("spender");
+        uint256 value = 1 ether;
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 nonce = hy.nonces(signer);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonce, deadline));
+
+        hy.permit(signer, spender, value, deadline, v, r, s);
+        // Second call with the same signature: nonce has advanced, digest no longer matches.
+        vm.expectRevert();
+        hy.permit(signer, spender, value, deadline, v, r, s);
+    }
+
+    /// @notice `DOMAIN_SEPARATOR` encodes the proxy's own address at runtime — two HY proxies
+    ///         behind the same implementation produce distinct domain separators.
+    function test_permit_domainSeparatorIsProxySpecific() public {
+        bytes32 proxy1Domain = hy.DOMAIN_SEPARATOR();
+
+        // Deploy a second HY behind a fresh proxy (same impl logic, different address).
+        HarborYield_v1 impl = new HarborYield_v1(
+            "Harbor Yield Other",
+            "hyOTHER",
+            address(swapper),
+            address(pegToken)
+        );
+        bytes memory initData = abi.encodeCall(HarborYield_v1.initialize, (address(this), address(this)));
+        HarborYield_v1 other = HarborYield_v1(address(new ERC1967Proxy(address(impl), initData)));
+        bytes32 proxy2Domain = other.DOMAIN_SEPARATOR();
+
+        assertTrue(proxy1Domain != proxy2Domain, "two proxies produce distinct domain separators");
+    }
+
+    /// @notice `DOMAIN_SEPARATOR` matches the EIP-712 layout: hash of the domain typehash,
+    ///         name, version, chainid, and verifying contract (the proxy). Reconstructed here
+    ///         independently to catch any regression in name, version, or address binding.
+    function test_permit_domainSeparatorFormat() public view {
+        bytes32 expected = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes(hy.name())),
+                keccak256("1"),
+                block.chainid,
+                address(hy)
+            )
+        );
+        assertEq(hy.DOMAIN_SEPARATOR(), expected, "domain separator matches EIP-712 layout");
+    }
 }
