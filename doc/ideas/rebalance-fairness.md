@@ -507,7 +507,22 @@ if (combined >= int256(MAX_WITHDRAWAL_FEE)) {
 
 **Note on deposit fees:** Only withdrawals are penalised. Deposit fees would penalise the AC's redeposit step and legitimate new entrants. The AC restores the stayer's position via compound (deposit pegged), which should be fee-free.
 
-**Bytecode impact on SP_v4:** Net -200 to -400 bytes (removing withdrawal window saves ~500-800, adding the two view calls + fee logic costs ~200-300).
+**Bytecode impact on SP_v3:** Net -200 to -400 bytes (removing withdrawal window saves ~500-800, adding the two view calls + fee logic costs ~200-300).
+
+#### Quantitative calibration
+
+From `test/deployment/RebalanceFairnessScan.t.sol` using the design case (10% price drop, 25% leveraged fraction, 37.5% liquidation, 10% APR) — the minimum fee that makes the dodge unprofitable over a 12-week horizon with weekly auto-compounding:
+
+| Pool | Break-even fee | Fee at CR=1.20 (this mechanism) |
+|------|---------------|---------------------------------|
+| Coll SP | 0.17% (17 bp) | ~2.0% |
+| Lev SP | 0.60% (60 bp) | ~2.0% |
+
+The mechanism's ~2.0% fee at the design-case CR (1.20) clears both break-evens with margin. The Lev SP break-even is higher because compounding leveraged tokens back to pegged is less efficient.
+
+**Why the break-even is so small.** The dodge advantage disappears quickly once auto-compounding kicks in. Over 12 weeks with weekly compounding, the stayer's haXXX-equivalent reaches 103.22 (Coll SP) or 103.15 (Lev SP) vs the dodger's 103.23 — a residual gap of 0.01–0.08 haXXX out of a 100 haXXX starting position. The fee's job is to cover the *transient* cost during the first few weeks before compounding catches up, not to close a permanent gap.
+
+**Without compounding** the income gap would persist indefinitely (8.65% Coll SP, 37.50% Lev SP at steady state). The fee alone doesn't close the steady-state gap — the AC does. The fee deters the attack; the AC restores the stayer.
 
 ### B. Auto-Compounding + Withdrawal Fees (Practical Fairness)
 
@@ -594,9 +609,9 @@ The AC changes the dynamics fundamentally. Without the AC, stayers must manually
 
 ## 7. Open Questions
 
-1. **Fee curve magnitude:** The Minter's `mintPeggedTokenIncentiveRatio` reaches ~1.5% near the rebalance threshold. Is this sufficient deterrent? If not, the SP could apply a multiplier (e.g., 10× the Minter fee), but this introduces a parameter.
+1. **Fee curve magnitude:** The Minter's `mintPeggedTokenIncentiveRatio` reaches ~1.5% near the rebalance threshold; combined with the redeem ratio it gives ~2.0%. The §5A break-even analysis shows this clears both Coll SP (0.17%) and Lev SP (0.60%) thresholds with margin, so a multiplier is not needed for the design case. Revisit only if production data shows the assumption (10% drop / 25% leveraged) is wrong.
 2. **Post-rebalance gap:** After rebalance, CR jumps back to threshold and the fee drops immediately. An attacker who can re-enter in the same block faces a low fee. Mitigation: private mempool for rebalance tx, or a brief cooldown (simpler than the full withdrawal window).
-3. **Leveraged SP fairness:** Auto-compounding doesn't help Charlie. The effective share mechanism would, but adds implementation complexity. Is the leveraged SP gap acceptable as a known risk trade-off, or must it be addressed before deployment?
+3. **Leveraged SP fairness:** Auto-compounding doesn't help Charlie. The effective share mechanism would, but adds accumulator complexity. **Decision: deferred (B.6c)** — accepted as a known risk trade-off of the leveraged pool. The accumulator architecture is forward-compatible with adding effective-share later (via virtual `_getEffectiveTotalPoolShare` / `_getEffectiveUserPoolShare`) without breaking the AC or fee mechanisms.
 4. **Multiple rapid rebalances:** Production has seen 5 rebalances in succession. The AC compounds after the series ends. The unfairness window spans the full series. Is this acceptable?
 5. **BOLD B-sum as future enhancement:** Proven not to help with the same denominator (Section 3), but a `totalOriginalDeposits` denominator variant (discussed in earlier analysis) could provide precise fairness. Worth revisiting if the practical approach proves insufficient?
 
@@ -606,10 +621,10 @@ The AC changes the dynamics fundamentally. Without the AC, stayers must manually
 
 | Layer | Mechanism | Addresses | Status |
 |-------|-----------|-----------|--------|
-| **Withdrawal fee** | Derived from Minter's `mintPeggedTokenIncentiveRatio()` | Deters frontrun withdrawal | Implement in SP_v4 |
-| **Auto-compounding** | AC claims wCOL, mints pegged, redeposits | Restores stayer's harvest share (collateral SP only) | Implemented (AutoCompounder_v1) |
-| **Private mempool** (off-chain) | Submit rebalance via Flashbots Protect | Mempool frontrunning specifically | Operational |
-| **Effective share boost** (future) | Unclaimed rebalance reward counts toward harvest share | Corrects harvest distribution (needed for leveraged SP) | Deferred |
+| **Withdrawal fee** | `fee = mintPeggedRatio - redeemPeggedRatio` clamped to `[0, MAX_WITHDRAWAL_FEE]` | Deters frontrun withdrawal | **Active target (B.6b)** — replaces withdrawal window in SP_v3 (pre-deployment) |
+| **Auto-compounding** | AC claims wCOL, mints pegged, redeposits | Restores stayer's harvest share (collateral SP only) | **Shipped** (AutoCompounder_v1) |
+| **Private mempool** (off-chain) | Submit rebalance via Flashbots Protect | Mempool frontrunning specifically | **Operational** |
+| **Effective share boost** | Unclaimed rebalance reward counts toward harvest share | Corrects harvest distribution (needed for leveraged SP) | **Deferred (B.6c)** — accumulator architecture remains forward-compatible |
 
 For collateral SPs, withdrawal fees + auto-compounding provide practical fairness: fees deter the attack, the AC restores the stayer's position. The unfairness window is bounded by the time between rebalance and compound.
 

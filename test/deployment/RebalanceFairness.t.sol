@@ -21,7 +21,7 @@ import {console2} from "forge-std/console2.sol";
 import {FmtLib} from "src/util/FmtLib.sol";
 
 /// @title RebalanceFairnessTest
-/// @notice Worked example from doc/ideas/sp-dynamic-fees.md using real contract code
+/// @notice Worked example from doc/ideas/rebalance-fairness.md using real contract code
 /// deployed via the production deployment scripts. Simulates all actors through
 /// rebalance scenarios to measure the exact income redistribution.
 contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {

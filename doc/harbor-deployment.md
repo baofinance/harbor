@@ -1,6 +1,6 @@
 # Harbor Deployment Design
 
-Companion document to [`autocompounding-vault-design.md`](ideas/autocompounding-vault-design.md).
+Companion document to [`autocompounding-vault-design.md`](autocompounding-vault-design.md).
 
 This document describes **what we plan to implement** for the deployment flow once Campaign B (auto-compounding vaults) and Campaign H (ERC-20 permit) land. It's a forward-looking spec, not a description of the current deployer — see [`deployments/README.md`](../deployments/README.md) for the history of what's actually on-chain.
 
@@ -252,6 +252,6 @@ Failing any pre-flight check reverts the entire deploy before any on-chain trans
 ## 11. References
 
 - Plan: [`quirky-booping-valley.md`](../../.claude/plans/quirky-booping-valley.md) §H.4.1 for seed mechanics
-- Design: [`autocompounding-vault-design.md`](ideas/autocompounding-vault-design.md) for contract architecture
+- Design: [`autocompounding-vault-design.md`](autocompounding-vault-design.md) for contract architecture
 - Existing impl: [`script/src/DeployMintersShared.sol`](../script/src/DeployMintersShared.sol), [`script/src/contracts/PeggedToken.sol`](../script/src/contracts/PeggedToken.sol), [`script/src/contracts/HarborYield.sol`](../script/src/contracts/HarborYield.sol)
 - Deployment history: [`deployments/README.md`](../deployments/README.md)

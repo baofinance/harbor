@@ -392,7 +392,9 @@ Two distinct "compound" operations live at different layers:
 
 ### 6.11 Withdrawal
 
-AC uses EXEMPT_WITHDRAWAL_FEE_ROLE initially. Dynamic fees (CR-based) replace withdrawal delay in future SP version, enabling standard ERC4626 `withdraw` (plan B.6b).
+**Current (shipped):** AC uses `EXEMPT_WITHDRAWAL_FEE_ROLE` and SP_v3 still has the request/wait withdrawal window. AC withdrawals route through the AC contract and bypass both fee and window.
+
+**Planned (B.6b, NOT YET SHIPPED):** Replace the withdrawal window with a CR-based dynamic fee derived from the Minter's incentive ratios (`fee = mintPeggedRatio - redeemPeggedRatio`, clamped to `[0, MAX_WITHDRAWAL_FEE]`). Naturally zero at healthy CR. Enables atomic ERC4626 `withdraw()`. See [rebalance-fairness.md §5A](ideas/rebalance-fairness.md) for the full design.
 
 ### 6.12 HarborYield is not ERC-4626 / ERC-7575
 
@@ -403,30 +405,39 @@ HY's mutation surface is intentionally non-standard:
 
 HY will instead expose ERC-4626-style *views* priced in peg units (`asset()`, `totalAssets`, `convertTo*`, `preview*`) for interop with aggregators, indexers, and price feeds. The mutation API stays HY-specific (`deposit(asset, amount, receiver)`, `redeem(shares, receiver, owner)`, `compound`, `redistribute`). See plan B.4.2 for the exact view surface.
 
-### 6.13 Peg Verification
+### 6.13 Peg Verification (shipped)
 
 HY assumes every managed vault's asset is pegged to the same RWA. Two failure modes:
 
 1. **Config error** — admin registers a vault whose asset is pegged to the wrong RWA (or not pegged at all). Catastrophic valuation error.
 2. **Market depeg** — a component trades below peg transiently. New depositors are diluted and redeemers get a worse mix than market value would suggest.
 
-Defense in depth (plan B.4.3):
+The shipped design uses two `addVault` variants and a single `maxPegDriftBps` tunable applied at both registration and runtime swap time:
 
-- **Config-time pegId** — HY stores an immutable `bytes32 pegId` (e.g. `keccak256("USD")`); `addVault` requires the vault to declare the same pegId. Prevents misconfig, zero runtime cost.
-- **Swapper drift check** — inside `compound`/`redistribute`, call `ISwapper.previewSwap(from, to, 1e18)` and revert if the result diverges from 1e18 by more than `maxPegDrift` (owner-tunable, default e.g. 2%). Reuses the existing dep; catches market depeg at the moment it would lock in a bad rate.
-- **Watchtower + deactivateVault** — owner freezes new deposits to a vault during sustained depegs. Proportional redeems still work; users see the depeg reflected in their basket.
-- **Oracle-valued totalAssets** — deferred. Only add if the above proves insufficient in production.
+- **`addAutoCompounderVault(vault, weight)`** — verifies `IAutoCompounder(vault).PEGGED_TOKEN() == _PEG_TOKEN` via direct introspection. No oracle parameter needed; the AC's own immutable proves which peg it serves. Reverts with `WrongPegToken(expected, actual)` on mismatch.
 
-### 6.14 ERC-20 Permit (EIP-2612)
+- **`addEquivalentVault(vault, weight, valuationOracle)`** — takes an `IWrappedPriceOracle` address and verifies the oracle's mid-rate is within `maxPegDriftBps` of `1e18` at registration. Stores the oracle in a sparse `vaultValuationOracle` mapping for runtime use. Reverts with `ExcessivePegDrift(expected, actual)` on mismatch.
 
-All new ERC-20 contracts shipped in this work will support `permit(owner, spender, value, deadline, v, r, s)` for approve-and-act in a single transaction:
+- **Depeg-aware `totalAssets`** — `_fairRateInPegUnits(vault)` branches on the sparse mapping: AC vaults read `IMinter(AC.MINTER()).peggedTokenPrice()` (fair valuation under haXXX depegs), equivalent vaults read their registered oracle. Each vault's `convertToAssets(balance)` is multiplied by its fair rate before being summed.
 
-- `HarborYield_v1` — freshly added via OZ `ERC20PermitUpgradeable`.
-- `AutoCompounder_v1` — freshly added via OZ `ERC20PermitUpgradeable` (ERC4626Upgradeable's underlying ERC20).
-- `StabilityPool_v4` — added alongside the accumulator cleanup (Campaign A2). Permit is orthogonal to rebasing: it only signs `approve()` authorizations, so a bespoke implementation that uses namespaced (ERC7201) storage for the `nonces` mapping and rebuilds the EIP-712 domain separator at runtime is straightforward.
-- `PeggedToken` / `LeveragedToken` — audit first; migrate if not already using `PermittableERC20_v1` from bao-base.
+- **Oracle-bounded runtime swap floor** — `compound`/`redistribute` compute `_effectiveMinOut(from, to, amountIn, keeperMinOut)` = max of the keeper's `minOut` and `amountIn × fromRate / toRate × (1 - maxPegDriftBps/10_000)`. A compromised keeper passing `minAmountOut = 0` still gets HY's own oracle-derived floor. During a real market depeg, the oracle reflects the depeg and the floor drops with the market — no spurious blocks.
 
-OZ is chosen over Solady because all four contracts are UUPS upgradeable — Solady's ERC20 is built around immutables and direct storage and would require a hand-rolled upgradeable adapter (new audit surface) for a modest bytecode saving. See plan Campaign H for the full tradeoff.
+- **Watchtower + deactivateVault** — owner freezes new deposits to a vault during sustained depegs (off-chain governance). Proportional redeems still work.
+
+`maxPegDriftBps` is owner-settable via `setMaxPegDriftBps`. The unified parameter is operational simplicity; it can be split into separate registration and runtime tunables later if needed.
+
+`ISwapper.previewSwap` was deliberately removed from the interface — production swap adapters (1inch, etc.) don't have on-chain quoting, and any consumer that called `previewSwap` for security purposes was a trap. The oracle-bounded floor supersedes it.
+
+### 6.14 ERC-20 Permit (EIP-2612) — shipped
+
+All harbor-side ERC-20 contracts in this work support `permit(owner, spender, value, deadline, v, r, s)` for approve-and-act in a single transaction:
+
+- `HarborYield_v1` — Solady ERC20 with built-in EIP-2612.
+- `AutoCompounder_v1` — Solady ERC4626 (which inherits Solady ERC20) with built-in EIP-2612.
+- `StabilityPool_v3` — Solady ERC20 with built-in EIP-2612. Custom rebasing balance/total-supply accounting overrides Solady's `balanceOf` / `totalSupply`; allowance / nonces / permit / DOMAIN_SEPARATOR are inherited from Solady unchanged. Allowances are nominal (do NOT scale with rebases — same semantic as stETH).
+- `PeggedToken` / `LeveragedToken` — already use `PermittableERC20_v1` / `MintableBurnableERC20_v1` from bao-base; both have permit. Both inherit the new shared `PermitTestBase` test suite.
+
+**Solady was chosen over OZ** after analysis showed Solady's ERC20 / ERC4626 are trivially compatible with UUPS proxies: ERC20 uses hand-picked magic storage slots that cannot collide with ERC7201, ERC4626 has zero storage of its own, and both expose the abstract / virtual hooks needed to wire in upgradeable name/symbol/asset via constructor immutables. The migration freed bytecode on AC (-478 B) while gaining permit on all three contracts. SP_v3 grew ~694 B (accepted, since the bytecode budget still has headroom and the alternative refactors carried more risk than they saved). All five permit-bearing contracts share the `bao-base/test/helpers/PermitTestBase.t.sol` test suite — five canonical permit tests via a single `_permitTarget()` override.
 
 ## 7. Access Control
 
@@ -442,16 +453,17 @@ OZ is chosen over Solady because all four contracts are UUPS upgradeable — Sol
 
 | Contract | Status | Purpose |
 |----------|--------|---------|
-| StabilityPool_v3 | Done | Rebasing ERC20, unified claim, fractional claim, StringPacking_v1 |
+| StabilityPool_v3 | Done | Rebasing ERC20 (Solady + EIP-2612 permit), unified claim, fractional claim, StringPacking_v1 |
 | Minter_v3 | Done | `mintPeggedToken(maxFeeRatio)`, `mintPeggedTokenDryRun`, private→internal |
-| AutoCompounder_v1 | Done | Non-rebasing ERC4626 wrapper per SP (Level 1) |
-| HarborYield_v1 | Done (core) | Multi-asset ERC-20 basket per peg (Level 2). `compound`/`redistribute` role-gated |
-| ISwapper / MockSwapper | Done | Generic swap interface; mock for tests |
+| AutoCompounder_v1 | Done | Non-rebasing ERC4626 wrapper per SP (Level 1), Solady ERC4626 + EIP-2612 permit |
+| HarborYield_v1 | Done (core) | Multi-asset ERC-20 basket per peg (Level 2), Solady ERC20 + EIP-2612 permit. Two `addVault` variants (AC introspection vs equivalent + oracle); depeg-aware `totalAssets`; oracle-bounded swap floor; `compound`/`redistribute` role-gated |
+| ISwapper / MockSwapper | Done | Generic swap interface; mock for tests. (`previewSwap` deliberately removed — see §6.13.) |
 | StabilityPoolManager_v2 | Pending (B.5) | SPM triggers `AC.compound()` during harvest/rebalance |
-| StabilityPool_v4 | Pending (A2) | Accumulator cleanup, CR-based withdrawal fee (B.6b), ERC-20 permit (H) |
+| SP_v3 — CR-based withdrawal fee | Pending (B.6b) | Replace withdrawal window with `fee = mintPeggedRatio - redeemPeggedRatio` clamped to `[0, MAX_WITHDRAWAL_FEE]`. Enables atomic ERC4626 `withdraw()`. See [rebalance-fairness.md §5A](ideas/rebalance-fairness.md). |
+| SP_v3 — accumulator cleanup | Pending (A2 / H.5) | Drop v1/v2 legacy accumulator storage fallback; one-shot migration via separate `ForceMigrateAccumulator_v1` |
 
 ## 9. References
 
-- [Aladdin fxSAVE analysis](../aladdin/fxSAVE.md) -- ERC4626 wrapping stability pool, proven pattern
-- [SP dynamic fees](sp-dynamic-fees.md) -- CR-based fees replacing withdrawal delay
-- [SP auto-compounding](sp-auto-compounding-harvests.md) -- deferred: two-product factor for SP-internal compounding
+- [Aladdin fxSAVE analysis](aladdin/fxSAVE.md) -- ERC4626 wrapping stability pool, proven pattern
+- [Rebalance fairness](ideas/rebalance-fairness.md) -- worked examples, CR-based withdrawal fee design (B.6b), effective share deferred (B.6c)
+- [Harbor deployment design](harbor-deployment.md) -- pre-flight, seed deposits, deployHY/deployPeg switches

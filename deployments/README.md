@@ -160,4 +160,4 @@ See `script/verify/spl-remediation/remediation-ETH-fxUSD-SPL.md` for full analys
 
 ## deploy/1.3 — In Development
 
-SP_v3, Minter_v3, reward aliases, autocompounding infrastructure. See `doc/ideas/autocompounding-vault-design.md`.
+SP_v3, Minter_v3, reward aliases, autocompounding infrastructure. See `doc/autocompounding-vault-design.md`.
