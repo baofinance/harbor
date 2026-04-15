@@ -8,12 +8,17 @@ import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumula
 import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
 import {AutoCompounder_v1} from "src/autocompounding/AutoCompounder_v1.sol";
 import {DeployEURSetUp} from "test/deployment/DeployEURSetUp.t.sol";
+import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
 
 /// @title AutoCompounder tests using EUR peg (fxUSD + stETH collateral).
 /// Run: forge test --mc AutoCompounderTest --fork-url mainnet -vv
-contract AutoCompounderTest is DeployEURSetUp {
+contract AutoCompounderTest is DeployEURSetUp, PermitTestBase {
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
+
+    function _permitTarget() internal view override returns (address) {
+        return acCollFxUSD;
+    }
 
     // ── Deployment verification ────────────────────────────────────────
 

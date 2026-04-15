@@ -11,12 +11,17 @@ import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
 import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
 
 import {DeployEURSetUp} from "test/deployment/DeployEURSetUp.t.sol";
+import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
 
 /// @title TestStabilityPool_v3_ERC20
 /// @notice Coverage tests for StabilityPool_v3 ERC20 functions and transfer equivalence.
 ///         Uses IERC20/IERC20Metadata interfaces per CLAUDE.md.
 ///         Inherits production deployment infrastructure (DeployEURSetUp) for realistic test setup.
-contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
+contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase {
+    function _permitTarget() internal view override returns (address) {
+        return sp;
+    }
+
     address user1;
     address user2;
     address user3;
@@ -574,117 +579,12 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         assertApproxEqAbs(remaining, balanceAfterLoss - firstTransfer - secondTransfer, 1, "sender remainder correct");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // H: EIP-2612 Permit (Solady-provided)
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /// @dev Compute the EIP-2612 permit digest for the SP contract.
-    function _permitDigest(
-        address owner,
-        address spender,
-        uint256 value,
-        uint256 nonce,
-        uint256 deadline
-    ) internal view returns (bytes32) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
-                owner,
-                spender,
-                value,
-                nonce,
-                deadline
-            )
-        );
-        return keccak256(abi.encodePacked("\x19\x01", StabilityPool_v3(sp).DOMAIN_SEPARATOR(), structHash));
-    }
-
-    /// @notice Happy path: valid permit signature sets allowance and increments the nonce.
-    ///         Permit approves an allowance that survives rebases — the allowance is on
-    ///         the ERC20 share token, not on the compounded balance.
-    function test_permit_happyPath() public {
-        (address signer, uint256 pk) = makeAddrAndKey("signer");
-        address spender = makeAddr("spender");
-        uint256 value = 5 ether;
-        uint256 deadline = block.timestamp + 1 hours;
-        uint256 nonceBefore = StabilityPool_v3(sp).nonces(signer);
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonceBefore, deadline));
-
-        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
-
-        assertEq(IERC20(sp).allowance(signer, spender), value, "allowance set");
-        assertEq(StabilityPool_v3(sp).nonces(signer), nonceBefore + 1, "nonce incremented");
-    }
-
-    /// @notice An expired deadline reverts.
-    function test_permit_expiredDeadline_reverts() public {
-        (address signer, uint256 pk) = makeAddrAndKey("signer");
-        address spender = makeAddr("spender");
-
-        uint256 deadline = block.timestamp - 1;
-        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, 1 ether, nonce, deadline));
-
-        vm.expectRevert();
-        StabilityPool_v3(sp).permit(signer, spender, 1 ether, deadline, v, r, s);
-    }
-
-    /// @notice A signature from the wrong signer reverts.
-    function test_permit_wrongSigner_reverts() public {
-        (address signer, ) = makeAddrAndKey("signer");
-        (, uint256 attackerPk) = makeAddrAndKey("attacker");
-        address spender = makeAddr("spender");
-        uint256 value = 1 ether;
-        uint256 deadline = block.timestamp + 1 hours;
-        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-            attackerPk,
-            _permitDigest(signer, spender, value, nonce, deadline)
-        );
-
-        vm.expectRevert();
-        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
-    }
-
-    /// @notice A used signature cannot be replayed — the nonce has advanced.
-    function test_permit_replay_reverts() public {
-        (address signer, uint256 pk) = makeAddrAndKey("signer");
-        address spender = makeAddr("spender");
-        uint256 value = 1 ether;
-        uint256 deadline = block.timestamp + 1 hours;
-        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonce, deadline));
-
-        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
-        vm.expectRevert();
-        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
-    }
-
-    /// @notice `DOMAIN_SEPARATOR` matches the EIP-712 layout: hash of the domain typehash,
-    ///         name, version, chainid, and verifying contract (the proxy).
-    function test_permit_domainSeparatorFormat() public view {
-        bytes32 expected = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes(IERC20Metadata(sp).name())),
-                keccak256("1"),
-                block.chainid,
-                sp
-            )
-        );
-        assertEq(StabilityPool_v3(sp).DOMAIN_SEPARATOR(), expected, "domain separator matches EIP-712 layout");
-    }
-
-    /// @notice A permit approval persists across a rebase (loss) — the allowance is on the
-    ///         share token's allowance slot, which is independent of the compounded balance
+    /// @notice SP-specific: permit approval persists across a rebase (loss). The allowance
+    ///         sits on the share token's allowance slot, independent of the compounded balance
     ///         accounting that rebases reduce.
     function test_permit_allowanceSurvivesRebase() public {
-        (address signer, uint256 pk) = makeAddrAndKey("signer");
-        address spender = makeAddr("spender");
+        (address signer, uint256 pk) = makeAddrAndKey("permit.signer");
+        address spender = makeAddr("permit.spender");
 
         _deposit(signer, 10 ether);
         _grantPermit(signer, pk, spender, 5 ether);
@@ -697,13 +597,5 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp {
         // Signer's balance should have dropped, but the allowance is unchanged.
         assertLt(IERC20(sp).balanceOf(signer), 10 ether, "signer balance reduced by rebase");
         assertEq(IERC20(sp).allowance(signer, spender), 5 ether, "allowance unchanged by rebase");
-    }
-
-    /// @dev Sign and submit a permit for `value` with a 1-hour deadline.
-    function _grantPermit(address signer, uint256 pk, address spender, uint256 value) internal {
-        uint256 deadline = block.timestamp + 1 hours;
-        uint256 nonce = StabilityPool_v3(sp).nonces(signer);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, value, nonce, deadline));
-        StabilityPool_v3(sp).permit(signer, spender, value, deadline, v, r, s);
     }
 }
