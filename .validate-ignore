@@ -1,0 +1,13 @@
+# Syntax: check file
+# Supported checks: naming, pragma, storage, upgrades
+
+# These contracts predate the filename=contract-name convention. The class
+# names intentionally omit the _v2 suffix (they are abstract bases, not
+# deployed contracts) while the files carry _v2 to distinguish from v1.
+naming src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol
+naming src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
+
+# One-off remediation contract deployed during the 1.2 incident response.
+# Uses a version range intentionally so it can be compiled against any
+# compatible compiler; it was never intended to be a long-lived deployable.
+pragma src/minter/PostRebalanceRemediationForStabilityPool_v2.sol

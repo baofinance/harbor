@@ -39,7 +39,7 @@ jobs:
 
       - name: Verify audited sources unchanged
         shell: bash
-        run: lib/bao-base/bin/verify-audit audit-2025-07
+        run: lib/bao-base/bin/verify-audit
 
       - name: Run Bao-base CI actions
         uses: ./lib/bao-base/.github/actions/test-foundry

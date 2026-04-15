@@ -16,7 +16,7 @@
     "coverage": "./lib/bao-base/run regression-of coverage",
     "wake": "uv run wake detect all src",
     "slither": "./lib/bao-base/run slither --filter-paths 'script/verify'",
-    "verify-audit": "lib/bao-base/run verify-audit",
+    "verify-audit": "./lib/bao-base/run verify-audit",
     "validate": "./lib/bao-base/run validate",
     "script": "forge script --force --ffi",
     "disabled": "echo 'disabled tests:' && grep -n -e '^\\s*function\\s*test.*(.*).*private' test/**/*.t.sol",
