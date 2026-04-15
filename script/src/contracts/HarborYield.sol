@@ -102,7 +102,12 @@ abstract contract HarborYield is HarborFactoryDeployer {
         for (uint256 i = 0; i < equivalents.length; i++) {
             address eqVault = equivalents[i].vault;
             address asset = IERC4626(eqVault).asset();
-            console.log("        addEquivalentVault: %s (asset: %s, weight: %s)", eqVault, asset, equivalents[i].weight);
+            console.log(
+                "        addEquivalentVault: %s (asset: %s, weight: %s)",
+                eqVault,
+                asset,
+                equivalents[i].weight
+            );
             HarborYield_v1(hyProxy).addEquivalentVault(eqVault, equivalents[i].weight, equivalents[i].valuationOracle);
         }
     }

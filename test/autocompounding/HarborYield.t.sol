@@ -83,12 +83,7 @@ contract HarborYieldTest is PermitTestBase {
 
         // Deploy HarborYield_v1 impl + proxy.
         // address(this) is both deployer-owner and pending-owner: owner is address(this).
-        HarborYield_v1 impl = new HarborYield_v1(
-            "Harbor Yield Test",
-            "hyTEST",
-            address(swapper),
-            address(pegToken)
-        );
+        HarborYield_v1 impl = new HarborYield_v1("Harbor Yield Test", "hyTEST", address(swapper), address(pegToken));
         bytes memory initData = abi.encodeCall(HarborYield_v1.initialize, (address(this), address(this)));
         hy = HarborYield_v1(address(new ERC1967Proxy(address(impl), initData)));
 
@@ -703,12 +698,7 @@ contract HarborYieldTest is PermitTestBase {
         bytes32 proxy1Domain = hy.DOMAIN_SEPARATOR();
 
         // Deploy a second HY behind a fresh proxy (same impl logic, different address).
-        HarborYield_v1 impl = new HarborYield_v1(
-            "Harbor Yield Other",
-            "hyOTHER",
-            address(swapper),
-            address(pegToken)
-        );
+        HarborYield_v1 impl = new HarborYield_v1("Harbor Yield Other", "hyOTHER", address(swapper), address(pegToken));
         bytes memory initData = abi.encodeCall(HarborYield_v1.initialize, (address(this), address(this)));
         HarborYield_v1 other = HarborYield_v1(address(new ERC1967Proxy(address(impl), initData)));
         bytes32 proxy2Domain = other.DOMAIN_SEPARATOR();

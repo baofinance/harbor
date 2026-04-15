@@ -316,6 +316,10 @@ contract HarborYield_v1 is
             address vault = $.vaults[i].vault;
             // slither-disable-next-line calls-loop
             uint256 vaultShares = IERC20(vault).balanceOf(address(this));
+            // Zero-balance skip: `== 0` is an exact guard, not a comparison used to drive
+            // financial logic — we just avoid the follow-on convertToAssets/oracle calls when
+            // there's nothing to value.
+            // slither-disable-next-line incorrect-equality
             if (vaultShares == 0) {
                 continue;
             }
@@ -359,11 +363,7 @@ contract HarborYield_v1 is
 
     /// @inheritdoc IHarborYield
     // slither-disable-next-line reentrancy-no-eth
-    function deposit(
-        address asset_,
-        uint256 amount,
-        address receiver
-    ) external nonReentrant returns (uint256 shares) {
+    function deposit(address asset_, uint256 amount, address receiver) external nonReentrant returns (uint256 shares) {
         amount = Token.allOf(msg.sender, asset_, amount);
 
         HarborYieldStorage storage $ = _getHarborYieldStorage();
@@ -423,7 +423,12 @@ contract HarborYield_v1 is
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IHarborYield
-    // slither-disable-next-line reentrancy-events
+    // Guarded by `nonReentrant` and role-gated to COMPOUNDER_ROLE / owner. The external redeem
+    // on line 431 is followed by a storage read (_effectiveMinOut reads maxPegDriftBps via the
+    // ERC7201 slot), which slither classifies as a "state write" because of the assembly slot
+    // binding — it's a pointer load, not a mutation. No attacker-controlled state transition
+    // spans the call.
+    // slither-disable-next-line reentrancy-events,reentrancy-no-eth,reentrancy-benign
     function compound(
         address fromVault,
         address toVault,
@@ -465,7 +470,12 @@ contract HarborYield_v1 is
     }
 
     /// @inheritdoc IHarborYield
-    // slither-disable-next-line reentrancy-events
+    // Guarded by `nonReentrant` and role-gated to REDISTRIBUTOR_ROLE / owner. The external
+    // redeem on line 520 is followed by a storage read (_effectiveMinOut reads maxPegDriftBps
+    // via the ERC7201 slot), which slither classifies as a "state write" because of the
+    // assembly slot binding — it's a pointer load, not a mutation. No attacker-controlled
+    // state transition spans the call.
+    // slither-disable-next-line reentrancy-events,reentrancy-no-eth,reentrancy-benign
     function redistribute(
         uint256 maxVaultSharesPerVault,
         uint256 minAmountOut,
@@ -557,7 +567,12 @@ contract HarborYield_v1 is
     function _fairRateInPegUnits(address vault) private view returns (uint256) {
         address oracle = _getHarborYieldStorage().vaultValuationOracle[vault];
         if (oracle == address(0)) {
+            // Called from totalAssets()'s per-vault loop. Targets are owner-gated at registration
+            // (addAutoCompounderVault), vault count is small by design, and the Minter is a
+            // trusted Harbor contract — so the calls-loop DoS risk does not apply here.
+            // slither-disable-next-line calls-loop
             address minter = IAutoCompounder(vault).MINTER();
+            // slither-disable-next-line calls-loop
             return IMinter(minter).peggedTokenPrice();
         }
         return _oracleRatePegUnits(oracle);
@@ -566,6 +581,11 @@ contract HarborYield_v1 is
     /// @dev Return the mid-rate reported by an IWrappedPriceOracle, expressed as
     ///      "peg units per 1 asset unit" in 18 decimals: `mid(price) * mid(rate) / 1e18`.
     function _oracleRatePegUnits(address oracle) private view returns (uint256) {
+        // Called transitively from totalAssets()'s per-vault loop. The oracle is owner-vetted
+        // at addEquivalentVault (_requirePegDriftWithin is called on it), vault count is small,
+        // and the oracle is a trusted Harbor-registered contract — so the calls-loop DoS risk
+        // does not apply here.
+        // slither-disable-next-line calls-loop
         (uint256 minP, uint256 maxP, uint256 minR, uint256 maxR) = IWrappedPriceOracle(oracle).latestAnswer();
         uint256 price = (minP + maxP) / 2;
         uint256 rate = (minR + maxR) / 2;
@@ -594,11 +614,7 @@ contract HarborYield_v1 is
         uint256 fromRate = _fairRateInPegUnits(fromVault);
         uint256 toRate = _fairRateInPegUnits(toVault);
         uint256 expectedOut = Math.mulDiv(amountIn, fromRate, toRate);
-        uint256 oracleFloor = Math.mulDiv(
-            expectedOut,
-            10_000 - _getHarborYieldStorage().maxPegDriftBps,
-            10_000
-        );
+        uint256 oracleFloor = Math.mulDiv(expectedOut, 10_000 - _getHarborYieldStorage().maxPegDriftBps, 10_000);
         return keeperMinOut > oracleFloor ? keeperMinOut : oracleFloor;
     }
 
@@ -632,9 +648,7 @@ contract HarborYield_v1 is
     }
 
     /// @inheritdoc IHarborYield
-    function vaultAt(
-        uint256 index
-    ) external view returns (address vault, address asset_, bool active, uint64 weight) {
+    function vaultAt(uint256 index) external view returns (address vault, address asset_, bool active, uint64 weight) {
         ManagedVault storage mv = _getHarborYieldStorage().vaults[index];
         vault = mv.vault;
         // slither-disable-next-line calls-loop

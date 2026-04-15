@@ -100,9 +100,7 @@ interface IHarborYield {
     function vaultCount() external view returns (uint256);
 
     /// @notice Get the managed vault info at a given index.
-    function vaultAt(
-        uint256 index
-    ) external view returns (address vault, address asset_, bool active, uint64 weight);
+    function vaultAt(uint256 index) external view returns (address vault, address asset_, bool active, uint64 weight);
 
     /// @notice The cached total of all vault weights.
     function totalWeight() external view returns (uint256);

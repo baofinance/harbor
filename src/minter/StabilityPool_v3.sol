@@ -104,7 +104,6 @@ contract StabilityPool_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 private immutable _ERC20_SYMBOL;
 
-
     /***********
      * Structs *
      ***********/
