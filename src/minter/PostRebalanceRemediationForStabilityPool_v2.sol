@@ -90,7 +90,9 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
         0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
 
     function _getStabilityPoolStorage() private pure returns (StabilityPoolStorage storage $) {
-        assembly { $.slot := _STABILITYPOOL_STORAGE }
+        assembly {
+            $.slot := _STABILITYPOOL_STORAGE
+        }
     }
 
     struct AccumulatorStorage {
@@ -98,11 +100,12 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
         mapping(address => mapping(uint8 => uint256)) tokenToExponentToIntegral;
     }
 
-    bytes32 private constant _ACCUMULATOR_STORAGE =
-        0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
+    bytes32 private constant _ACCUMULATOR_STORAGE = 0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
 
     function _getAccumulatorStorage() private pure returns (AccumulatorStorage storage $) {
-        assembly { $.slot := _ACCUMULATOR_STORAGE }
+        assembly {
+            $.slot := _ACCUMULATOR_STORAGE
+        }
     }
 
     // ── Errors ──────────────────────────────────────────────────────────────
@@ -122,7 +125,9 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
 
     // ── UUPS ────────────────────────────────────────────────────────────────
 
-    function owner() public view returns (address) { return _OWNER; }
+    function owner() public view returns (address) {
+        return _OWNER;
+    }
 
     function _authorizeUpgrade(address) internal view override {
         if (msg.sender != _OWNER) revert NotOwner();
@@ -144,12 +149,12 @@ contract PostRebalanceRemediationForStabilityPool_v2 is UUPSUpgradeable {
         uint256 currentIntegral = acc.tokenToExponentToIntegral[LIQUIDATION_TOKEN][exp];
         if (currentIntegral == 0) revert NothingToRemediate();
 
-        uint256 correctedIntegral = currentIntegral * V2_DISTRIBUTED / V1_DISTRIBUTED;
+        uint256 correctedIntegral = (currentIntegral * V2_DISTRIBUTED) / V1_DISTRIBUTED;
         acc.tokenToExponentToIntegral[LIQUIDATION_TOKEN][exp] = correctedIntegral;
 
         // 3. Burn excess from pool
         uint256 poolBalance = IERC20(LIQUIDATION_TOKEN).balanceOf(address(this));
-        uint256 tokensToKeep = poolBalance * correctedIntegral / currentIntegral;
+        uint256 tokensToKeep = (poolBalance * correctedIntegral) / currentIntegral;
         uint256 poolExcess = poolBalance - tokensToKeep;
         if (poolExcess > 0) {
             IBurnable(LIQUIDATION_TOKEN).burn(poolExcess);

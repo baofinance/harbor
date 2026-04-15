@@ -11,5 +11,9 @@
 # added for the OZ upgrade validation of SP_v1->SP_v2. HEAD holds the 1.1
 # (true deployed) state without that annotation. Suppress via .validate (to be
 # implemented) when running upgrade path checks.
+#
+# deploy/harbor-1.2: PostRebalanceRemediationForStabilityPool_v2.sol was deployed
+# with unformatted source (inline assembly and single-line functions). HEAD has
+# been reformatted by Prettier; bytecode is unchanged.
 deploy/harbor-1.1 src/minter/StabilityPool_v2.sol src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
-deploy/harbor-1.2 src/minter/StabilityPool_v2.sol src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
+deploy/harbor-1.2 src/minter/StabilityPool_v2.sol src/minter/PostRebalanceRemediationForStabilityPool_v2.sol src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
