@@ -12,8 +12,9 @@
 # (true deployed) state without that annotation. Suppress via .validate (to be
 # implemented) when running upgrade path checks.
 #
-# deploy/harbor-1.2: PostRebalanceRemediationForStabilityPool_v2.sol was deployed
-# with unformatted source (inline assembly and single-line functions). HEAD has
-# been reformatted by Prettier; bytecode is unchanged.
+# deploy/harbor-1.2: PostRebalanceRemediationForStabilityPool_v2.sol was a one-shot
+# upgrade implementation. After remediation, the proxy was upgraded back to
+# StabilityPool_v2. The source now lives in script/verify/spl-remediation/ alongside
+# the remediation tests and docs.
 deploy/harbor-1.1 src/minter/StabilityPool_v2.sol src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
 deploy/harbor-1.2 src/minter/StabilityPool_v2.sol src/minter/PostRebalanceRemediationForStabilityPool_v2.sol src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
