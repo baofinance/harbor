@@ -7,11 +7,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 
 // solhint-disable not-rely-on-time
 
@@ -372,12 +372,12 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
-    function claimHistorical(address[] memory tokens) external {
+    function claimHistorical(address[] memory tokens) external nonReentrant {
         _claimTokenList(_msgSender(), tokens);
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
-    function claimHistorical(address account, address[] memory tokens) external {
+    function claimHistorical(address account, address[] memory tokens) external nonReentrant {
         _claimTokenList(account, tokens);
     }
 

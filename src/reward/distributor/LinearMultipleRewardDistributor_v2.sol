@@ -34,8 +34,7 @@ import {LinearReward} from "./LinearReward.sol";
 /// and supports immediate or time-based reward distribution depending on the
 /// configured period length.
 
-// solhint-disable-next-line contract-name-capwords
-abstract contract LinearMultipleRewardDistributor_v2 is
+abstract contract LinearMultipleRewardDistributor is
     Initializable,
     ContextUpgradeable,
     BaoOwnableRoles,

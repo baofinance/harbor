@@ -3,12 +3,12 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {IMockLinearMultipleRewardDistributor} from "test/mocks/IMockLinearMultipleRewardDistributor.sol";
-import {MockLinearMultipleRewardDistributor_v2} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v2.sol";
+import {MockLinearMultipleRewardDistributor_v3} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v3.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import "forge-std/Test.sol";
 
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
 contract LinearMultipleRewardDistributorTest is Test {
     address owner;
@@ -35,7 +35,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     ) internal virtual returns (IMockLinearMultipleRewardDistributor) {
         return
             IMockLinearMultipleRewardDistributor(
-                address(new MockLinearMultipleRewardDistributor_v2(rewardManagerRole, rewardDepositorRole, period))
+                address(new MockLinearMultipleRewardDistributor_v3(rewardManagerRole, rewardDepositorRole, period))
             );
     }
 
@@ -171,7 +171,7 @@ contract LinearMultipleRewardDistributorTest is Test {
     function test_registerRewardToken_RevertWhenNonManagerCall() public {
         IMockLinearMultipleRewardDistributor distributor = _setupDistributor(1 days);
 
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         distributor.registerRewardToken(address(token0));
     }
 
@@ -295,7 +295,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
 
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         distributor.unregisterRewardToken(address(token0));
     }
 
@@ -354,7 +354,7 @@ contract LinearMultipleRewardDistributorTest is Test {
         vm.prank(manager);
         distributor.registerRewardToken(address(token0));
 
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         distributor.depositReward(address(token0), 0);
     }
 
@@ -1273,20 +1273,5 @@ contract LinearMultipleRewardDistributorTest is Test {
         assertEq(rd.lastUpdate, block.timestamp);
         assertEq(rd.finishAt, block.timestamp + REWARD_PERIOD_LENGTH);
         assertTrue(rd.rate > 0);
-    }
-}
-
-import {MockLinearMultipleRewardDistributor} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor.sol";
-
-contract LinearMultipleRewardDistributorTest_v1 is LinearMultipleRewardDistributorTest {
-    function createLinearMultipleRewardDistributor(
-        uint256 rewardManagerRole,
-        uint256 rewardDepositorRole,
-        uint40 period
-    ) internal override returns (IMockLinearMultipleRewardDistributor) {
-        return
-            IMockLinearMultipleRewardDistributor(
-                address(new MockLinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, period))
-            );
     }
 }

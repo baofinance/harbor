@@ -31,6 +31,19 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
         userProduct = _userProduct;
     }
 
+    function reentrantCall(bytes calldata _data) external nonReentrant {
+        (bool _success, ) = address(this).call(_data);
+        if (!_success) {
+            // solhint-disable-next-line no-inline-assembly
+            assembly {
+                let ptr := mload(0x40)
+                let size := returndatasize()
+                returndatacopy(ptr, 0, size)
+                revert(ptr, size)
+            }
+        }
+    }
+
     function _getTotalPoolShare() internal view virtual override returns (uint128, uint256) {
         return (product, totalPoolShare);
     }

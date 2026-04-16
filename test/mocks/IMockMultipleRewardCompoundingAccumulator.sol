@@ -15,7 +15,7 @@ interface IMockMultipleRewardCompoundingAccumulator is
 {
     event AccumulateReward(address token, uint256 amount);
 
-    function initialize(address owner_) external;
+    function initialize(address deployerOwner_, address pendingOwner_) external;
 
     function setTotalPoolShare(uint256 _totalPoolShare, uint128 _product) external;
 

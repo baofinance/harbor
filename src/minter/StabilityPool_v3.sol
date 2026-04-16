@@ -11,12 +11,12 @@ import {ERC20} from "@solady/tokens/ERC20.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
-import {MultipleRewardCompoundingAccumulator_v3} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 

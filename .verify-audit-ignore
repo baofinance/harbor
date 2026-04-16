@@ -2,19 +2,13 @@
 #   tag alone        — ignore the whole tag
 #   tag file1 file2  — ignore specific files within the tag only
 
-# deploy/harbor-1.1 and 1.2: abstract contract classes inside *_v2.sol files
-# were renamed post-1.2 to match their filenames (e.g. LinearMultipleRewardDistributor
-# -> LinearMultipleRewardDistributor_v2). This is a source-only rename; the
-# deployed bytecode is unchanged. Suppressed in .validate-ignore for naming check.
-#
-# deploy/harbor-1.2: StabilityPool_v2.sol additionally had @custom:oz-upgrades-from
-# added for the OZ upgrade validation of SP_v1->SP_v2. HEAD holds the 1.1
-# (true deployed) state without that annotation. Suppress via .validate (to be
-# implemented) when running upgrade path checks.
-#
+# deploy/harbor-1.1: StabilityPool_v2.sol additionally had @custom:oz-upgrades-from
+# added for the OZ upgrade validation of SP_v1->SP_v2. HEAD holds the 1.2
+# with that annotation.
+deploy/harbor-1.1 src/minter/StabilityPool_v2.sol
+
 # deploy/harbor-1.2: PostRebalanceRemediationForStabilityPool_v2.sol was a one-shot
 # upgrade implementation. After remediation, the proxy was upgraded back to
 # StabilityPool_v2. The source now lives in script/verify/spl-remediation/ alongside
 # the remediation tests and docs.
-deploy/harbor-1.1 src/minter/StabilityPool_v2.sol src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
-deploy/harbor-1.2 src/minter/StabilityPool_v2.sol src/minter/PostRebalanceRemediationForStabilityPool_v2.sol src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
+deploy/harbor-1.2 src/minter/PostRebalanceRemediationForStabilityPool_v2.sol

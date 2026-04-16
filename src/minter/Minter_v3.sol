@@ -15,8 +15,8 @@ import {Token} from "@bao/Token.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IMinter_v3} from "src/interfaces/IMinter_v3.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 // different ERC20 mint/burn interfaces
 import {IMintable} from "@bao/interfaces/IMintable.sol";
@@ -24,11 +24,11 @@ import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {IReservePool} from "src/interfaces/IReservePool.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
-import {ConfigIncentiveLib} from "src/minter/library/ConfigIncentiveLib.sol";
-import {Config_v1} from "src/minter/library/Config_v1.sol";
+import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
+import {Config_v1} from "@harbor/minter/library/Config_v1.sol";
 
 /// @title Bao Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system

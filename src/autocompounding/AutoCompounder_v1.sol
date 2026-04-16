@@ -13,13 +13,13 @@ import {HarborOwnable} from "@bao/HarborOwnable.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
-import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IMinter_v3} from "src/interfaces/IMinter_v3.sol";
-import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
+import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 /// @title AutoCompounder_v1
 /// @notice Level 1 auto-compounder: non-rebasing ERC4626 vault wrapping a rebasing stability pool position.

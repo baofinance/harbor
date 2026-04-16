@@ -9,7 +9,7 @@ import {IMockMultipleRewardCompoundingAccumulator} from "test/mocks/IMockMultipl
 
 import {Test, Vm} from "forge-std/Test.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockMultipleRewardCompoundingAccumulator_v2} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v2.sol";
+import {MockMultipleRewardCompoundingAccumulator_v3} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
 
 contract MultipleRewardCompoundingAccumulatorTest is Test {
     // Addresses
@@ -43,7 +43,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     ) internal virtual returns (IMockMultipleRewardCompoundingAccumulator) {
         return
             IMockMultipleRewardCompoundingAccumulator(
-                address(new MockMultipleRewardCompoundingAccumulator_v2(periodLength))
+                address(new MockMultipleRewardCompoundingAccumulator_v3(periodLength))
             );
     }
 
@@ -53,7 +53,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
     ) internal returns (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokenAddresses) {
         // Deploy accumulator
         accumulator = createMultipleRewardCompoundingAccumulator(periodLength);
-        accumulator.initialize(address(this));
+        accumulator.initialize(address(this), address(0));
 
         // Grant manager role
         accumulator.grantRoles(manager, accumulator.REWARD_MANAGER_ROLE());
@@ -1181,74 +1181,6 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         // claimable = shares * delta / (magnitude * 1e18) = 1e25 * 6.048e34 / 1e54 = 604800
         assertGt(claimable, 0, "User has non-zero claimable at minimum rate");
         assertApproxEqAbs(claimable, 604800, 10, "Claimable matches accumulated amount");
-    }
-}
-
-import {MockMultipleRewardCompoundingAccumulator} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator.sol";
-
-contract MultipleRewardCompoundingAccumulatorTest_v1 is MultipleRewardCompoundingAccumulatorTest {
-    function createMultipleRewardCompoundingAccumulator(
-        uint40 periodLength
-    ) internal override returns (IMockMultipleRewardCompoundingAccumulator) {
-        return
-            IMockMultipleRewardCompoundingAccumulator(
-                address(new MockMultipleRewardCompoundingAccumulator(periodLength))
-            );
-    }
-
-    /// @notice v1 override: realistic params (BTC MIN_DEPOSIT, magnitude=1e36),
-    /// $600/wk reward overflows uint192 integral on the 7th week.
-    function test_integralBounds_MinPool_RealisticOverflow() public override {
-        uint40 periodLength = 1 weeks;
-
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
-            1,
-            periodLength
-        );
-
-        accumulator.setTotalPoolShare(1e13, uint128(1e36));
-
-        uint256 weeklyReward = 1e16;
-
-        accumulator.depositReward(tokens[0], weeklyReward);
-
-        for (uint256 i = 0; i < 6; i++) {
-            vm.warp(block.timestamp + periodLength);
-            accumulator.depositReward(tokens[0], weeklyReward);
-        }
-
-        // 7th week: uint192 overflow
-        vm.warp(block.timestamp + periodLength);
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        accumulator.depositReward(tokens[0], weeklyReward);
-    }
-
-    /// @notice v1 override: the 7th cycle reverts because uint192 integral overflows.
-    function test_accumulateReward_Uint192Overflow() public override {
-        uint40 periodLength = 1 weeks;
-
-        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
-            2,
-            periodLength
-        );
-
-        accumulator.setTotalPoolShare(1, 1 ether);
-
-        uint256 depositAmount = 1000 ether;
-
-        // First deposit: sets rate
-        accumulator.depositReward(tokens[0], depositAmount);
-
-        // 6 weekly cycles: integral grows to ~6e57 < uint192.max
-        for (uint256 i = 0; i < 6; i++) {
-            vm.warp(block.timestamp + periodLength);
-            accumulator.depositReward(tokens[0], depositAmount);
-        }
-
-        // 7th cycle: uint192 overflow — Panic(0x11)
-        vm.warp(block.timestamp + periodLength);
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        accumulator.depositReward(tokens[0], depositAmount);
     }
 }
 

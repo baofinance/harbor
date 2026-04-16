@@ -14,12 +14,12 @@ import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 
-import {IHarborYield} from "src/interfaces/IHarborYield.sol";
-import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
-import {ISwapper} from "src/interfaces/ISwapper.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
+import {IHarborYield} from "@harbor/interfaces/IHarborYield.sol";
+import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
+import {ISwapper} from "@harbor/interfaces/ISwapper.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 /// @title HarborYield_v1
 /// @notice Level 2 yield vault: one per peg. Manages multiple ERC4626 vaults (AutoCompounders,

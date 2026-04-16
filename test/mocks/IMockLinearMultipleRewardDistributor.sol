@@ -2,11 +2,11 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
-interface IMockLinearMultipleRewardDistributor is IMultipleRewardDistributor, IBaoOwnable, IBaoRoles {
+interface IMockLinearMultipleRewardDistributor is IMultipleRewardDistributor, IHarborOwnable, IHarborRoles {
     event _accumulateReward_called(address token, uint256 amount);
 
     function initialize(address owner_) external;

@@ -10,7 +10,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {LinearReward} from "./LinearReward.sol";
 
 // solhint-disable no-empty-blocks

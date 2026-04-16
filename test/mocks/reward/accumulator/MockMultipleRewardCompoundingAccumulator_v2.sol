@@ -5,9 +5,9 @@ pragma solidity >=0.8.28 <0.9.0;
 // import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {MultipleRewardCompoundingAccumulator_v2} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol";
+import {MultipleRewardCompoundingAccumulator_v3} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
-contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleRewardCompoundingAccumulator_v2 {
+contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleRewardCompoundingAccumulator_v3 {
     event AccumulateReward(address token, uint256 amount);
 
     uint256 public totalPoolShare;
@@ -15,10 +15,10 @@ contract MockMultipleRewardCompoundingAccumulator_v2 is Initializable, MultipleR
     uint256 public userPoolShare;
     uint128 public userProduct;
 
-    constructor(uint40 period) MultipleRewardCompoundingAccumulator_v2(_ROLE_0, _ROLE_1, period) {}
+    constructor(uint40 period) MultipleRewardCompoundingAccumulator_v3(_ROLE_0, _ROLE_1, period) {}
 
     function initialize(address owner_) external initializer {
-        _initializeOwner(owner_);
+        _initializeOwner(msg.sender, owner_);
         __ReentrancyGuardTransient_init();
         // __MultipleRewardCompoundingAccumulator_init();
     }

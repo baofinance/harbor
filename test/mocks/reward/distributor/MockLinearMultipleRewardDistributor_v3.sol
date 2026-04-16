@@ -2,10 +2,10 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
-import {LinearMultipleRewardDistributor} from "src/reward/distributor/LinearMultipleRewardDistributor.sol";
+import {LinearMultipleRewardDistributor_v3} from "src/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 import {LinearReward} from "src/reward/distributor/LinearReward.sol";
 
-contract MockLinearMultipleRewardDistributor is LinearMultipleRewardDistributor {
+contract MockLinearMultipleRewardDistributor_v3 is LinearMultipleRewardDistributor_v3 {
     // used to discover if the _accumulateReward virtual function has been called
     event _accumulateReward_called(address token, uint256 amount);
 
@@ -13,10 +13,10 @@ contract MockLinearMultipleRewardDistributor is LinearMultipleRewardDistributor 
         uint256 rewardManagerRole,
         uint256 rewardDepositorRole,
         uint40 period
-    ) LinearMultipleRewardDistributor(rewardManagerRole, rewardDepositorRole, period) {}
+    ) LinearMultipleRewardDistributor_v3(rewardManagerRole, rewardDepositorRole, period) {}
 
     function initialize(address owner_) external initializer {
-        _initializeOwner(owner_);
+        _initializeOwner(msg.sender, owner_);
     }
 
     function _accumulateReward(address _token, uint256 _amount) internal virtual override {
