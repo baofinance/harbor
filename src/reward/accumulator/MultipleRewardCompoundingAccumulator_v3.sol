@@ -8,7 +8,6 @@ import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgra
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
@@ -116,8 +115,7 @@ import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/Lin
 abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ReentrancyGuardTransientUpgradeable,
     LinearMultipleRewardDistributor_v3,
-    IMultipleRewardAccumulator,
-    IMultipleRewardAccumulator_v3
+    IMultipleRewardAccumulator
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
@@ -315,73 +313,55 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v3 unified claim
+    // Claim
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @inheritdoc IMultipleRewardAccumulator_v3
-    function claim(address account, address receiver, address token, uint256 maxAmount) public nonReentrant {
-        if (account != _msgSender() && receiver != address(0)) {
-            revert ClaimOthersRewardToAnother();
-        }
+    /// @inheritdoc IMultipleRewardAccumulator
+    function claim() external override nonReentrant {
+        address account = _msgSender();
         _checkpoint(account);
-        receiver = _resolveReceiver(account, receiver);
-        if (token == address(0)) {
-            address[] memory tokens = activeRewardTokens();
-            for (uint256 i = 0; i < tokens.length; i++) {
-                _claimSingle(account, tokens[i], receiver, maxAmount);
-            }
-        } else {
-            _claimSingle(account, token, receiver, maxAmount);
-        }
-    }
-
-    /// @inheritdoc IMultipleRewardAccumulator_v3
-    function claim(
-        address account,
-        address receiver,
-        address[] calldata tokens,
-        uint256 maxAmount
-    ) external nonReentrant {
-        if (account != _msgSender() && receiver != address(0)) {
-            revert ClaimOthersRewardToAnother();
-        }
-        _checkpoint(account);
-        receiver = _resolveReceiver(account, receiver);
+        address receiver = _resolveReceiver(account, address(0));
+        address[] memory tokens = activeRewardTokens();
         for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver, maxAmount);
+            _claimSingle(account, tokens[i], receiver, type(uint256).max);
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Legacy claim — thin wrappers with defaults
-    // ═══════════════════════════════════════════════════════════════════════
-
     /// @inheritdoc IMultipleRewardAccumulator
-    function claim() external override {
-        claim(_msgSender(), address(0), address(0), type(uint256).max);
+    function claim(address account) external override nonReentrant {
+        _checkpoint(account);
+        address receiver = _resolveReceiver(account, address(0));
+        address[] memory tokens = activeRewardTokens();
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _claimSingle(account, tokens[i], receiver, type(uint256).max);
+        }
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
-    function claim(address account) external override {
-        claim(account, address(0), address(0), type(uint256).max);
-    }
-
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claim(address account, address receiver) public override {
-        claim(account, receiver, address(0), type(uint256).max);
+    function claim(address account, address receiver) public override nonReentrant {
+        if (account != _msgSender() && receiver != address(0)) {
+            revert ClaimOthersRewardToAnother();
+        }
+        _checkpoint(account);
+        receiver = _resolveReceiver(account, receiver);
+        address[] memory tokens = activeRewardTokens();
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _claimSingle(account, tokens[i], receiver, type(uint256).max);
+        }
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimHistorical(address[] memory tokens) external nonReentrant {
-        _claimTokenList(_msgSender(), tokens);
+        address account = _msgSender();
+        _checkpoint(account);
+        address receiver = _resolveReceiver(account, address(0));
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _claimSingle(account, tokens[i], receiver, type(uint256).max);
+        }
     }
 
     /// @inheritdoc IMultipleRewardAccumulator
     function claimHistorical(address account, address[] memory tokens) external nonReentrant {
-        _claimTokenList(account, tokens);
-    }
-
-    function _claimTokenList(address account, address[] memory tokens) private {
         _checkpoint(account);
         address receiver = _resolveReceiver(account, address(0));
         for (uint256 i = 0; i < tokens.length; i++) {

@@ -98,4 +98,8 @@ contract ConfigPriceVolatility_130_stable {
                 })
             });
     }
+
+    function autoCompounderMintMaxFeeRatio() public pure virtual returns (uint256) {
+        return 0.05 ether;
+    }
 }

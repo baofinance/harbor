@@ -12,9 +12,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {AutoCompounder_v1} from "src/autocompounding/AutoCompounder_v1.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 /// @title Reward system tests — accumulator, distributor — using deployment framework
 contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter {
@@ -114,12 +115,7 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         // Claim
         vm.prank(alice);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
-            alice,
-            address(0),
-            wrappedCollateral,
-            type(uint256).max
-        );
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice);
 
         // claimed() should return the claimed amount
         uint256 claimedAmount = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(alice, wrappedCollateral);

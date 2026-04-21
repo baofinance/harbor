@@ -8,7 +8,6 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -629,7 +628,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 levClaimable = IMultipleRewardAccumulator(pool).claimable(who, leveraged);
         if (levClaimable > 0) {
             vm.startPrank(who);
-            IMultipleRewardAccumulator_v3(pool).claim(who, who, leveraged, levClaimable);
+            IMultipleRewardAccumulator(pool).claim(who);
             uint256 levBal = IERC20(leveraged).balanceOf(who);
             IERC20(leveraged).approve(minter, levBal);
             IMinter(minter).freeRedeemLeveragedToken(levBal, who); // → wCOL to who
@@ -640,7 +639,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 wcolClaimable = IMultipleRewardAccumulator(pool).claimable(who, wrappedCollateral);
         if (wcolClaimable > 0) {
             vm.prank(who);
-            IMultipleRewardAccumulator_v3(pool).claim(who, who, wrappedCollateral, wcolClaimable);
+            IMultipleRewardAccumulator(pool).claim(who);
         }
 
         // Step 3: Convert all wCOL in wallet → haXXX → deposit

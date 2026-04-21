@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+find src -name "*_v1.sol" | while read f; do
+  base="${f%_v1.sol}"
+  files="$f"
+  for v in 2 3; do
+    vf="${base}_v${v}.sol"
+    [ -f "$vf" ] && files="$files $vf"
+  done
+  [ "$files" != "$f" ] && meld $files &
+done
+
+# Also handle prefix.sol (unversioned) as the v1 when _v2 exists but _v1 doesn't
+find src -name "*_v2.sol" | while read f; do
+  base="${f%_v2.sol}"
+  unversioned="${base}.sol"
+  v1="${base}_v1.sol"
+  [ -f "$v1" ] && continue  # already handled above
+  [ ! -f "$unversioned" ] && continue
+  files="$unversioned $f"
+  v3="${base}_v3.sol"
+  [ -f "$v3" ] && files="$files $v3"
+  meld $files &
+done

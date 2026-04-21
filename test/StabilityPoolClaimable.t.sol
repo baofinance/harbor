@@ -9,7 +9,6 @@ import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistribu
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {IMultipleRewardAccumulator_v3} from "src/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
 
 contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
@@ -604,10 +603,11 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // claimSingle tests
+    // claim() routing tests
     // ═══════════════════════════════════════════════════════════════════════
 
-    function testClaimSingle_claimsOnlySpecifiedToken() public {
+    function testClaim_claimsAllTokens() public {
+        // claim() claims all active reward tokens at once.
         _depositForUsers();
         _depositRewardAndWait(rewardToken1, 100 ether);
         _depositRewardAndWait(rewardToken2, 200 ether);
@@ -617,31 +617,15 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         assertGt(claimable1, 0, "should have claimable rewardToken1");
         assertGt(claimable2, 0, "should have claimable rewardToken2");
 
-        // Claim only rewardToken1
-        uint256 bal1Before = IERC20(rewardToken1).balanceOf(user1);
-        uint256 bal2Before = IERC20(rewardToken2).balanceOf(user1);
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
-            user1,
-            address(0),
-            rewardToken1,
-            type(uint256).max
-        );
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
 
-        // rewardToken1 claimed
-        assertEq(IERC20(rewardToken1).balanceOf(user1) - bal1Before, claimable1, "rewardToken1 claimed");
-        // rewardToken2 NOT claimed
-        assertEq(IERC20(rewardToken2).balanceOf(user1), bal2Before, "rewardToken2 untouched");
-
-        // rewardToken2 still claimable
-        assertGt(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken2),
-            0,
-            "rewardToken2 still claimable"
-        );
+        assertEq(IERC20(rewardToken1).balanceOf(user1), claimable1, "rewardToken1 claimed");
+        assertEq(IERC20(rewardToken2).balanceOf(user1), claimable2, "rewardToken2 claimed");
     }
 
-    function testClaimSingle_withReceiver() public {
+    function testClaim_withReceiver() public {
+        // claim(account, receiver) routes rewards to an explicit receiver.
         _depositForUsers();
         _depositRewardAndWait(rewardToken1, 100 ether);
 
@@ -649,239 +633,42 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         address receiver = makeAddr("receiver");
 
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, receiver, rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1, receiver);
 
         assertEq(IERC20(rewardToken1).balanceOf(receiver), claimable1, "receiver got tokens");
         assertEq(IERC20(rewardToken1).balanceOf(user1), 0, "user1 got nothing");
     }
 
-    function testClaimSingle_forOtherUser() public {
+    function testClaim_forOtherUser() public {
+        // Anyone can trigger claim(account) for another user — tokens go to that user.
         _depositForUsers();
         _depositRewardAndWait(rewardToken1, 100 ether);
 
         uint256 claimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
 
-        // Anyone can trigger claim for user1 — tokens go to user1
         vm.prank(user2);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
-            user1,
-            address(0),
-            rewardToken1,
-            type(uint256).max
-        );
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1);
 
         assertEq(IERC20(rewardToken1).balanceOf(user1), claimable1, "user1 received tokens");
     }
 
-    function testClaimSingle_cannotRedirectOthersReward() public {
+    function testClaim_cannotRedirectOthersReward() public {
+        // Third party cannot redirect another user's rewards to an explicit receiver.
         _depositForUsers();
         _depositRewardAndWait(rewardToken1, 100 ether);
 
         address receiver = makeAddr("receiver");
 
-        // user2 cannot redirect user1's rewards to receiver
         vm.prank(user2);
         vm.expectRevert(IMultipleRewardAccumulator.ClaimOthersRewardToAnother.selector);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, receiver, rewardToken1, type(uint256).max);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(user1, receiver);
     }
 
-    function testClaimSingle_zeroClaimable() public {
+    function testClaim_zeroClaimable() public {
+        // claim() does not revert when there is nothing to claim.
         _depositForUsers();
-        // No rewards deposited — claimSingle should not revert
         vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
-            user1,
-            address(0),
-            rewardToken1,
-            type(uint256).max
-        );
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         assertEq(IERC20(rewardToken1).balanceOf(user1), 0, "nothing claimed");
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // Fractional claimSingle tests
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function testClaimSingle_fractional_claimsPartial() public {
-        _depositForUsers();
-        _depositRewardAndWait(rewardToken1, 100 ether);
-
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        assertGt(claimable, 0, "should have claimable");
-
-        // Claim half
-        uint256 halfAmount = claimable / 2;
-        uint256 balBefore = IERC20(rewardToken1).balanceOf(user1);
-        vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, halfAmount);
-
-        // Received exactly halfAmount
-        assertEq(IERC20(rewardToken1).balanceOf(user1) - balBefore, halfAmount, "received half");
-
-        // Remainder still claimable
-        uint256 remaining = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        assertApproxEqAbs(remaining, claimable - halfAmount, 1, "remainder still claimable");
-    }
-
-    function testClaimSingle_fractional_claimAll() public {
-        _depositForUsers();
-        _depositRewardAndWait(rewardToken1, 100 ether);
-
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-
-        // Claim with maxAmount > claimable — should claim all
-        uint256 balBefore = IERC20(rewardToken1).balanceOf(user1);
-        vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
-            user1,
-            address(0),
-            rewardToken1,
-            type(uint256).max
-        );
-
-        assertEq(IERC20(rewardToken1).balanceOf(user1) - balBefore, claimable, "claimed all");
-
-        // Nothing remaining
-        uint256 remaining = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        assertEq(remaining, 0, "nothing remaining");
-    }
-
-    function testClaimSingle_fractional_claimZero() public {
-        _depositForUsers();
-        _depositRewardAndWait(rewardToken1, 100 ether);
-
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-
-        // Claim zero — should be a no-op
-        uint256 balBefore = IERC20(rewardToken1).balanceOf(user1);
-        vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, 0);
-
-        assertEq(IERC20(rewardToken1).balanceOf(user1), balBefore, "nothing transferred");
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1),
-            claimable,
-            "claimable unchanged"
-        );
-    }
-
-    function testClaimSingle_fractional_withReceiver() public {
-        _depositForUsers();
-        _depositRewardAndWait(rewardToken1, 100 ether);
-
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-
-        address receiver = makeAddr("receiver");
-        uint256 partialAmount = claimable / 3;
-        vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, receiver, rewardToken1, partialAmount);
-
-        assertEq(IERC20(rewardToken1).balanceOf(receiver), partialAmount, "receiver got partial");
-        assertEq(IERC20(rewardToken1).balanceOf(user1), 0, "user got nothing");
-
-        // Remainder still claimable
-        uint256 remaining = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        assertApproxEqAbs(remaining, claimable - partialAmount, 1, "remainder still claimable");
-    }
-
-    function testClaimSingle_fractional_multipleClaims() public {
-        _depositForUsers();
-        _depositRewardAndWait(rewardToken1, 100 ether);
-
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-
-        // Claim in three tranches
-        uint256 tranche = claimable / 3;
-        vm.startPrank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, tranche);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, tranche);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
-            user1,
-            address(0),
-            rewardToken1,
-            type(uint256).max
-        );
-        vm.stopPrank();
-
-        // Should have claimed everything
-        assertApproxEqAbs(IERC20(rewardToken1).balanceOf(user1), claimable, 1, "claimed everything in 3 tranches");
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1),
-            0,
-            "nothing remaining after 3 tranches"
-        );
-    }
-
-    function testClaimSingle_fractional_linearAccrual_midPeriod() public {
-        _depositForUsers();
-
-        // Deposit reward but only wait half the distribution period (604800s = 7 days)
-        vm.prank(rewardDepositor);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(rewardToken1, 300 ether);
-        skip(3.5 days);
-
-        // ~half should be claimable (distributed linearly)
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        assertGt(claimable, 0, "mid-period claimable");
-        // ~50 ether per user (300/3 users * 50% of period)
-        assertApproxEqRel(claimable, 50 ether, 0.02 ether, "~50 per user at midpoint");
-
-        // Fractional claim: take 20 ether
-        vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, 20 ether);
-        assertEq(IERC20(rewardToken1).balanceOf(user1), 20 ether, "received 20");
-
-        // Wait for rest of period
-        skip(3.5 days);
-
-        // Full amount now available (minus what was already claimed)
-        uint256 finalClaimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        // ~100 per user total, minus 20 already claimed = ~80
-        assertApproxEqRel(finalClaimable, 80 ether, 0.02 ether, "~80 remaining after full period");
-
-        // Claim the rest
-        vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(
-            user1,
-            address(0),
-            rewardToken1,
-            type(uint256).max
-        );
-        assertApproxEqRel(IERC20(rewardToken1).balanceOf(user1), 100 ether, 0.02 ether, "~100 total");
-    }
-
-    function testClaimSingle_fractional_twoTokens_independent() public {
-        _depositForUsers();
-        _depositRewardAndWait(rewardToken1, 90 ether);
-        _depositRewardAndWait(rewardToken2, 180 ether);
-
-        uint256 claimable1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        uint256 claimable2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken2);
-
-        // Partial claim from token1 only
-        vm.prank(user1);
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, address(0), rewardToken1, claimable1 / 4);
-
-        // token2 claimable unchanged
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken2),
-            claimable2,
-            "token2 unaffected by token1 partial claim"
-        );
-
-        // token1 reduced
-        uint256 remaining1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, rewardToken1);
-        assertApproxEqAbs(remaining1, claimable1 - claimable1 / 4, 1, "token1 reduced by claimed amount");
-    }
-
-    function testClaimSingle_fractional_withReceiver_revertsForOthers() public {
-        _depositForUsers();
-        _depositRewardAndWait(rewardToken1, 100 ether);
-
-        // user2 tries to claim user1's reward to a custom receiver — should revert
-        address receiver = makeAddr("receiver");
-        vm.prank(user2);
-        vm.expectRevert();
-        IMultipleRewardAccumulator_v3(stabilityPoolCollateral).claim(user1, receiver, rewardToken1, 50 ether);
     }
 }

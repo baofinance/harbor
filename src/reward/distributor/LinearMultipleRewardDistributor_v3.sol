@@ -174,17 +174,13 @@ abstract contract LinearMultipleRewardDistributor_v3 is
 
     /// @inheritdoc IMultipleRewardDistributor
     function registerRewardToken(address token) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
-        _registerRewardToken(token);
-    }
-
-    function _registerRewardToken(address token) internal {
         if (token == address(0)) {
             revert RewardTokenIsZero();
         }
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
         if (!$.activeRewardTokens.add(token)) {
-            revert DuplicatedRewardToken();
+            revert DuplicatedRewardToken(); // if value was not added then it already exists
         }
         // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.remove(token); // wake-disable-line unchecked-return-value
@@ -194,10 +190,6 @@ abstract contract LinearMultipleRewardDistributor_v3 is
 
     /// @inheritdoc IMultipleRewardDistributor
     function unregisterRewardToken(address token) external onlyOwnerOrRoles(REWARD_MANAGER_ROLE) {
-        _unregisterRewardToken(token);
-    }
-
-    function _unregisterRewardToken(address token) internal {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
 
         if (!$.activeRewardTokens.remove(token)) {
@@ -214,7 +206,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
             }
         }
 
-        // slither-disable-next-line unused-return
+        // slither-disable-next-line unused-return we don't care if the the token was already in the set
         $.historicalRewardTokens.add(token); // wake-disable-line unchecked-return-value
         emit UnregisterRewardToken(token);
     }
