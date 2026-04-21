@@ -110,9 +110,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         );
         vm.label(stabilityPoolToken, string.concat("lp", SPName));
 
-        // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v1
+        // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v2
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v1.sol",
+            address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v2.sol",
             abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         vm.label(stabilityPool, SPName);
@@ -239,7 +239,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         emit Initializable.Initialized(1); // from the proxy delegate call
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
-            sp, // "StabilityPool_v1.sol",
+            sp, // "StabilityPool_v2.sol",
             abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         IBaoOwnable(spProxy).transferOwnership(owner);

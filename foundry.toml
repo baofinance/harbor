@@ -30,9 +30,8 @@ remappings = [
   "@solady/=lib/solady/src/",
   # chainlink
   "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/src/v0.8/",
-  # bao audited code
-  "@bao/=lib/bao-base-audit-2025-07/src/",
-  # bao latest
+  # bao (audited code verified by CI via bin/verify-audit)
+  "@bao/=lib/bao-base/src/",
   "@bao-test/=lib/bao-base/test/",
   "@bao-script/=lib/bao-base/script/",
   # bao-factory is a transitive dependency via bao-base
@@ -70,6 +69,11 @@ gas_limit = "18446744073709551615"
 [lint]
 exclude_lints = ["mixed-case-function", "mixed-case-variable"]
 severity = ["gas"]
+
+
+# coverage generates instrumentation warnings, so disable deny for those
+[profile.coverage]
+deny = "never"
 
 # slither building profile - removes vyper
 [profile.novyper]

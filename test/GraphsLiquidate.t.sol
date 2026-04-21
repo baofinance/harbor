@@ -95,7 +95,11 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
                 "pegged before",
                 "pegged after liquidate to collateral",
                 "pegged after liquidate to leveraged",
-                "pegged after liquidate to both"
+                "pegged after liquidate to both",
+                "before leveraged price",
+                "price after liquidate to collateral",
+                "price after liquidate to leveraged",
+                "price after liquidate to both"
             )
         );
     }
@@ -104,55 +108,76 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         vm.closeFile(liquidateFile);
     }
 
+    struct PartialMeasures {
+        uint256 beforeCR;
+        uint256 beforePegged;
+        uint256 beforePrice;
+        uint256 afterCR_collateral;
+        uint256 afterCR_leveraged;
+        uint256 afterCR_both;
+        uint256 afterPegged_collateral;
+        uint256 afterPegged_leveraged;
+        uint256 afterPegged_both;
+        uint256 afterPrice_collateral;
+        uint256 afterPrice_leveraged;
+        uint256 afterPrice_both;
+    }
+
     function doOneCollateralRatio() internal override {
-        uint256 beforeLiquidatePeggedTokens = IMinter(minter).peggedTokenBalance();
-        uint256 beforeLiquidate = IMinter(minter).collateralRatio();
-        uint256 afterLiquidateCollateral;
-        uint256 afterLiquidateLeveraged;
-        uint256 afterLiquidateBoth;
-        uint256 afterLiquidateCollateralPeggedTokens;
-        uint256 afterLiquidateLeveragedPeggedTokens;
-        uint256 afterLiquidateBothPeggedTokens;
+        PartialMeasures memory m;
+        m.beforePegged = IMinter(minter).peggedTokenBalance();
+        m.beforeCR = IMinter(minter).collateralRatio();
+        m.beforePrice = IMinter(minter).leveragedTokenPrice();
 
         uint256 snap = vm.snapshotState();
         if (IStabilityPoolManager(stabilityPoolManagerCollateral).rebalanceable()) {
             IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
-            afterLiquidateCollateral = IMinter(minter).collateralRatio();
+            m.afterCR_collateral = IMinter(minter).collateralRatio();
+            m.afterPrice_collateral = IMinter(minter).leveragedTokenPrice();
         } else {
-            afterLiquidateCollateral = beforeLiquidate;
+            m.afterCR_collateral = m.beforeCR;
+            m.afterPrice_collateral = m.beforePrice;
         }
-        afterLiquidateCollateralPeggedTokens = IMinter(minter).peggedTokenBalance();
+        m.afterPegged_collateral = IMinter(minter).peggedTokenBalance();
         vm.revertToState(snap);
 
         if (IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalanceable()) {
             IStabilityPoolManager(stabilityPoolManagerLeveraged).rebalance(bountyReceiver, 0);
-            afterLiquidateLeveraged = IMinter(minter).collateralRatio();
+            m.afterCR_leveraged = IMinter(minter).collateralRatio();
+            m.afterPrice_leveraged = IMinter(minter).leveragedTokenPrice();
         } else {
-            afterLiquidateLeveraged = beforeLiquidate;
+            m.afterCR_leveraged = m.beforeCR;
+            m.afterPrice_leveraged = m.beforePrice;
         }
-        afterLiquidateLeveragedPeggedTokens = IMinter(minter).peggedTokenBalance();
+        m.afterPegged_leveraged = IMinter(minter).peggedTokenBalance();
         vm.revertToState(snap);
 
         if (IStabilityPoolManager(stabilityPoolManagerBoth).rebalanceable()) {
             IStabilityPoolManager(stabilityPoolManagerBoth).rebalance(bountyReceiver, 0);
-            afterLiquidateBoth = IMinter(minter).collateralRatio();
+            m.afterCR_both = IMinter(minter).collateralRatio();
+            m.afterPrice_both = IMinter(minter).leveragedTokenPrice();
         } else {
-            afterLiquidateBoth = beforeLiquidate;
+            m.afterCR_both = m.beforeCR;
+            m.afterPrice_both = m.beforePrice;
         }
-        afterLiquidateBothPeggedTokens = IMinter(minter).peggedTokenBalance();
+        m.afterPegged_both = IMinter(minter).peggedTokenBalance();
         vm.revertToState(snap);
 
         writeLine(
             liquidateFile,
             ua(
                 currentCollateralRatio,
-                afterLiquidateCollateral,
-                afterLiquidateLeveraged,
-                afterLiquidateBoth,
-                beforeLiquidatePeggedTokens,
-                afterLiquidateCollateralPeggedTokens,
-                afterLiquidateLeveragedPeggedTokens,
-                afterLiquidateBothPeggedTokens
+                m.afterCR_collateral,
+                m.afterCR_leveraged,
+                m.afterCR_both,
+                m.beforePegged,
+                m.afterPegged_collateral,
+                m.afterPegged_leveraged,
+                m.afterPegged_both,
+                m.beforePrice,
+                m.afterPrice_collateral,
+                m.afterPrice_leveraged,
+                m.afterPrice_both
             )
         );
     }
@@ -219,7 +244,9 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
                 "before SPCollateral pegged",
                 "after SPCollateral pegged",
                 "before SPLeveraged pegged",
-                "after SPLeveraged pegged"
+                "after SPLeveraged pegged",
+                "before leveraged price",
+                "after leveraged price"
             )
         );
 
@@ -234,7 +261,8 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
                 "",
                 "after minter collateral",
                 "after user SPCollateral balance",
-                "after user SPLeveraged balance"
+                "after user SPLeveraged balance",
+                "after leveraged price"
             )
         );
     }
@@ -256,6 +284,7 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         uint256 userLeveraged;
         uint256 userBalanceSPCollateral;
         uint256 userBalanceSPLeveraged;
+        uint256 leveragedTokenPrice;
     }
 
     function _readMeasures() internal view returns (Measures memory m) {
@@ -270,6 +299,7 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         m.userLeveraged = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(user, leveragedToken);
         m.userBalanceSPCollateral = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user);
         m.userBalanceSPLeveraged = IStabilityPool(stabilityPoolLeveraged).assetBalanceOf(user);
+        m.leveragedTokenPrice = IMinter(minter).leveragedTokenPrice();
     }
 
     function doOneCollateralRatio() internal override {
@@ -296,7 +326,9 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
                 pre.stabilityPoolCollateralPegged,
                 post.stabilityPoolCollateralPegged,
                 pre.stabilityPoolLeveragedPegged,
-                post.stabilityPoolLeveragedPegged
+                post.stabilityPoolLeveragedPegged,
+                pre.leveragedTokenPrice,
+                post.leveragedTokenPrice
             )
         );
         writeLine(
@@ -310,7 +342,8 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
                 0,
                 post.minterCollateral,
                 post.userBalanceSPCollateral,
-                post.userBalanceSPLeveraged
+                post.userBalanceSPLeveraged,
+                post.leveragedTokenPrice
             )
         );
     }

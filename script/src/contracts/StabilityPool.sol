@@ -34,7 +34,7 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         address minter,
         address liquidationToken,
         address configContract
-    ) internal returns (address impl) {
+    ) internal virtual returns (address impl) {
         string memory spKey = string.concat(marketKey, "::", spType);
         console.log("    > %s", spKey);
 

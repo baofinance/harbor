@@ -406,13 +406,16 @@ sorted_items=$(jq -r --arg salt "$SALT" --arg cutoff "${SINCE_CUTOFF:-}" --argjs
           key: $parts[2], proxy: "-", impl: .key, salt: "-",
           contract: (.value.contractType // "-") }
       else
-        empty
+        { peg: "_shared", market: "_standalone", type: "remaining",
+          ts: (.value.deploymentTime // "-"),
+          key: (.value.contractType // .key), proxy: "-", impl: .key, salt: "-",
+          contract: (.value.contractType // "-") }
       end
     )
   ] |
 
   # ── Add synthetic aggregator for each unique market ──
-  ([ .[] | select(.market != "_peg") | { peg, market } ] | unique) as $markets |
+  ([ .[] | select(.market != "_peg" and .market != "_standalone") | { peg, market } ] | unique) as $markets |
   . + [ $markets[] |
     { peg, market, type: "aggregator", ts: "-", key: "wrappedPriceAggregator",
       proxy: "-", impl: "-",

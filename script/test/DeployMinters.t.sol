@@ -96,17 +96,17 @@ contract DeployMintersTest is
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(marketKey, "::minter"),
-                artifact: "out/Minter_v1.sol/Minter_v1.json",
+                artifact: "out/Minter_v2.sol/Minter_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(marketKey, "::stabilityPoolCollateral"),
-                artifact: "out/StabilityPool_v1.sol/StabilityPool_v1.json",
+                artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
                 salt: string.concat(marketKey, "::stabilityPoolLeveraged"),
-                artifact: "out/StabilityPool_v1.sol/StabilityPool_v1.json",
+                artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({

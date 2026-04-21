@@ -16,7 +16,3 @@
 [submodule "lib/chainlink-brownie-contracts"]
 	path = lib/chainlink-brownie-contracts
 	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
-[submodule "lib/bao-base-audit-2025-07"]
-	path = lib/bao-base-audit-2025-07
-	url = https://github.com/baofinance/bao-base
-	branch = audit-2025-07

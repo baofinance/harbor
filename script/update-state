@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Validate and apply a Safe batch JSON file to a deployment state file.
+#
+# For each transaction in the batch:
+#   - Decodes the function selector and arguments
+#   - Verifies that all addresses (targets, arguments) match the state file
+#   - For upgradeToAndCall: updates the proxy's implementation pointer
+#   - For grantRoles/revokeRoles: verifies target and grantee are known proxies
+#
+# Modes:
+#   (default)  Validate all transactions against state, report mismatches
+#   --apply    Validate then update the state file with new implementations
+#
+# Usage:
+#   script/update-state --network mainnet --salt harbor_v1 <batch.json> [--apply]
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") --network <net> --salt <salt> [--local] [--apply] <batch.json>
+
+Validate a Safe batch against the deployment state file and optionally apply
+implementation upgrades.
+
+Required:
+  --network <net>   Network name (mainnet, arbitrum, base)
+  --salt <salt>     Salt prefix (e.g., harbor_v1)
+  <batch.json>      Safe batch JSON file
+
+Options:
+  --local    Use local state directory (deployments/local/<network>/)
+  --apply    Update state file with new implementation addresses
+  -h, --help Show this help
+
+Examples:
+  script/update-state --network mainnet --salt harbor_v1 deployments/mainnet/batch/Deploy_Minter_v2*.json
+  script/update-state --network mainnet --salt harbor_v1 --apply deployments/mainnet/batch/Deploy_Minter_v2*.json
+  script/update-state --network mainnet --salt harbor_v1 --local deployments/local/mainnet/batch/*.json
+EOF
+  exit 0
+}
+
+NETWORK=""
+SALT=""
+BATCH_FILE=""
+USE_LOCAL=false
+APPLY=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help) usage ;;
+    --network) NETWORK="$2"; shift 2 ;;
+    --salt) SALT="$2"; shift 2 ;;
+    --local) USE_LOCAL=true; shift ;;
+    --apply) APPLY=true; shift ;;
+    -*)
+      echo "Error: unknown option $1" >&2
+      exit 1
+      ;;
+    *)
+      BATCH_FILE="$1"
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$NETWORK" ]] || { echo "Error: --network required" >&2; usage; }
+[[ -n "$SALT" ]] || { echo "Error: --salt required" >&2; usage; }
+[[ -n "$BATCH_FILE" ]] || { echo "Error: batch file required" >&2; usage; }
+
+if [[ "$USE_LOCAL" == true ]]; then
+  STATE_FILE="deployments/local/${NETWORK}/${SALT}.state.json"
+else
+  STATE_FILE="deployments/${NETWORK}/${SALT}.state.json"
+fi
+
+for f in "$STATE_FILE" "$BATCH_FILE"; do
+  [[ -f "$f" ]] || { echo "Error: file not found: $f" >&2; exit 1; }
+done
+
+# Known selectors
+SEL_UPGRADE="4f1ef286"      # upgradeToAndCall(address,bytes)
+SEL_GRANT_ROLES="1c10893f"  # grantRoles(address,uint256)
+SEL_REVOKE_ROLES="4a4ee7b1" # revokeRoles(address,uint256)
+SEL_TRANSFER="a9059cbb"     # transfer(address,uint256)
+SEL_APPROVE="095ea7b3"      # approve(address,uint256)
+
+TX_COUNT=$(jq '.transactions | length' "$BATCH_FILE")
+DESCRIPTION=$(jq -r '.meta.description // "-"' "$BATCH_FILE")
+
+echo "======================================================" >&2
+echo "  VALIDATE BATCH" >&2
+echo "======================================================" >&2
+echo "  State: $STATE_FILE" >&2
+echo "  Batch: $BATCH_FILE" >&2
+echo "  Description: $DESCRIPTION" >&2
+echo "  Transactions: $TX_COUNT" >&2
+echo "" >&2
+
+ERRORS=0
+UPGRADES=()  # Array of "proxyId|newImpl" for apply mode
+
+# Helper: look up an address in the state file
+# Returns: "proxy:ID" or "impl:TYPE" or "factory" or "UNKNOWN"
+lookup_addr() {
+  local addr="${1,,}"  # lowercase
+  jq -r --arg addr "$addr" '
+    # Check proxies
+    (.proxies | to_entries[] | select(.value.address | ascii_downcase == $addr) | "proxy:" + .key) // null |
+    if . then . else
+      # Check implementations
+      (.implementations | to_entries[] | select(.key | ascii_downcase == $addr) | "impl:" + .value.contractType) // null |
+      if . then . else
+        if (.baoFactory | ascii_downcase) == $addr then "factory"
+        else "UNKNOWN"
+        end
+      end
+    end
+  ' "$STATE_FILE" 2>/dev/null | head -1
+}
+
+# Helper: look up proxy by address, return proxy ID
+proxy_id_for() {
+  local addr="${1,,}"
+  jq -r --arg addr "$addr" '
+    .proxies | to_entries[] | select(.value.address | ascii_downcase == $addr) | .key
+  ' "$STATE_FILE" 2>/dev/null | head -1
+}
+
+# Helper: get current implementation for a proxy ID
+current_impl_for() {
+  local pid="$1"
+  jq -r --arg pid "$pid" '.proxies[$pid].implementation // ""' "$STATE_FILE"
+}
+
+# Helper: look up implementation record by address
+impl_info_for() {
+  local addr="${1,,}"
+  jq -r --arg addr "$addr" '
+    .implementations | to_entries[] | select(.key | ascii_downcase == $addr) |
+    .value.proxy + " (" + .value.contractType + ")"
+  ' "$STATE_FILE" 2>/dev/null | head -1
+}
+
+decode_address() {
+  # Extract address from 32-byte ABI-encoded word (skip 12 bytes of zero padding)
+  echo "0x${1:24:40}"
+}
+
+for i in $(seq 0 $((TX_COUNT - 1))); do
+  TO=$(jq -r ".transactions[$i].to" "$BATCH_FILE")
+  DATA=$(jq -r ".transactions[$i].data" "$BATCH_FILE")
+  SELECTOR="${DATA:2:8}"
+  CALLDATA="${DATA:10}"
+
+  # Identify target
+  TO_ID=$(lookup_addr "$TO")
+
+  case "$SELECTOR" in
+    "$SEL_UPGRADE")
+      NEW_IMPL=$(decode_address "${CALLDATA:0:64}")
+      PROXY_ID=$(proxy_id_for "$TO")
+      IMPL_INFO=$(impl_info_for "$NEW_IMPL")
+      CURRENT=$(current_impl_for "$PROXY_ID")
+
+      if [[ -z "$PROXY_ID" ]]; then
+        printf "  [%d] ERROR upgradeToAndCall on UNKNOWN proxy %s\n" "$((i+1))" "$TO" >&2
+        ((++ERRORS))
+        continue
+      fi
+
+      if [[ -z "$IMPL_INFO" ]]; then
+        printf "  [%d] WARN  upgradeToAndCall %s -> %s (impl not in state)\n" "$((i+1))" "$PROXY_ID" "$NEW_IMPL" >&2
+      fi
+
+      # Check impl is registered for this proxy
+      IMPL_PROXY=$(jq -r --arg addr "${NEW_IMPL,,}" '
+        .implementations | to_entries[] | select(.key | ascii_downcase == $addr) | .value.proxy
+      ' "$STATE_FILE" 2>/dev/null | head -1)
+
+      if [[ -n "$IMPL_PROXY" && "$IMPL_PROXY" != "$PROXY_ID" ]]; then
+        printf "  [%d] ERROR impl %s registered for %s but upgrading %s\n" "$((i+1))" "$NEW_IMPL" "$IMPL_PROXY" "$PROXY_ID" >&2
+        ((++ERRORS))
+        continue
+      fi
+
+      SAME=""
+      if [[ "${CURRENT,,}" == "${NEW_IMPL,,}" ]]; then
+        SAME=" (no change)"
+      fi
+
+      printf "  [%d] OK    upgradeToAndCall %s\n" "$((i+1))" "$PROXY_ID" >&2
+      printf "         %s -> %s%s\n" "$CURRENT" "$NEW_IMPL" "$SAME" >&2
+      [[ -n "$IMPL_INFO" ]] && printf "         %s\n" "$IMPL_INFO" >&2
+
+      if [[ -z "$SAME" ]]; then
+        UPGRADES+=("${PROXY_ID}|${NEW_IMPL}")
+      fi
+      ;;
+
+    "$SEL_GRANT_ROLES" | "$SEL_REVOKE_ROLES")
+      GRANTEE=$(decode_address "${CALLDATA:0:64}")
+      ROLE=$(printf "%d" "0x${CALLDATA:64:64}")
+      OP="grantRoles"
+      [[ "$SELECTOR" == "$SEL_REVOKE_ROLES" ]] && OP="revokeRoles"
+
+      GRANTEE_ID=$(lookup_addr "$GRANTEE")
+
+      if [[ "$TO_ID" == "UNKNOWN" ]]; then
+        printf "  [%d] ERROR %s on UNKNOWN target %s\n" "$((i+1))" "$OP" "$TO" >&2
+        ((++ERRORS))
+      elif [[ "$GRANTEE_ID" == "UNKNOWN" ]]; then
+        printf "  [%d] WARN  %s(%s, %d) on %s -- grantee not in state\n" "$((i+1))" "$OP" "$GRANTEE" "$ROLE" "$TO_ID" >&2
+      else
+        printf "  [%d] OK    %s(%s, %d) on %s\n" "$((i+1))" "$OP" "$GRANTEE_ID" "$ROLE" "$TO_ID" >&2
+      fi
+      ;;
+
+    "$SEL_TRANSFER")
+      RECIPIENT=$(decode_address "${CALLDATA:0:64}")
+      AMOUNT_HEX="${CALLDATA:64:64}"
+      RECIPIENT_ID=$(lookup_addr "$RECIPIENT")
+
+      if [[ "$TO_ID" == "UNKNOWN" ]]; then
+        printf "  [%d] WARN  transfer to %s from UNKNOWN token %s\n" "$((i+1))" "$RECIPIENT_ID" "$TO" >&2
+      else
+        printf "  [%d] OK    transfer to %s on %s\n" "$((i+1))" "$RECIPIENT_ID" "$TO_ID" >&2
+      fi
+      ;;
+
+    "$SEL_APPROVE")
+      SPENDER=$(decode_address "${CALLDATA:0:64}")
+      SPENDER_ID=$(lookup_addr "$SPENDER")
+
+      if [[ "$TO_ID" == "UNKNOWN" ]]; then
+        printf "  [%d] WARN  approve %s on UNKNOWN token %s\n" "$((i+1))" "$SPENDER_ID" "$TO" >&2
+      else
+        printf "  [%d] OK    approve %s on %s\n" "$((i+1))" "$SPENDER_ID" "$TO_ID" >&2
+      fi
+      ;;
+
+    *)
+      printf "  [%d] INFO  unknown selector 0x%s on %s\n" "$((i+1))" "$SELECTOR" "$TO_ID" >&2
+      ;;
+  esac
+done
+
+echo "" >&2
+
+if [[ "$ERRORS" -gt 0 ]]; then
+  echo "  $ERRORS errors. Fix before applying." >&2
+  echo "======================================================" >&2
+  exit 1
+fi
+
+if [[ ${#UPGRADES[@]} -eq 0 ]]; then
+  echo "  No implementation changes to apply." >&2
+  echo "======================================================" >&2
+  exit 0
+fi
+
+if [[ "$APPLY" == false ]]; then
+  echo "  ${#UPGRADES[@]} implementation change(s) ready. Run with --apply to update." >&2
+  echo "======================================================" >&2
+  exit 0
+fi
+
+# Apply upgrades
+for entry in "${UPGRADES[@]}"; do
+  IFS='|' read -r PROXY_ID NEW_IMPL <<< "$entry"
+  NEW_IMPL_CS=$(cast to-check-sum-address "$NEW_IMPL" 2>/dev/null || echo "$NEW_IMPL")
+
+  jq --arg id "$PROXY_ID" --arg impl "$NEW_IMPL_CS" \
+    '.proxies[$id].implementation = $impl' "$STATE_FILE" > "${STATE_FILE}.tmp" \
+    && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+done
+
+echo "  Applied ${#UPGRADES[@]} implementation update(s) to $STATE_FILE" >&2
+echo "======================================================" >&2

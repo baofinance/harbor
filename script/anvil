@@ -5,7 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Block number when BaoFactory was deployed
 FACTORY_BLOCK=24046017 # set operator # created 24033720
-UPGRADE_BLOCK=24433566 # just before the upgrade
 
 usage() {
   cat <<EOF
@@ -16,7 +15,6 @@ Fork mainnet with anvil.
 Options:
   --block latest     Use the latest block
   --block factory    Use block $FACTORY_BLOCK (when BaoFactory was deployed) [default]
-  --block upgrade    Use block $UPGRADE_BLOCK (when BaoFactory was deployed) [default]
   --block <number>   Use a specific block number
   --block <time>     Use block at given time (ISO 8601, e.g., 2025-12-01T12:00:00Z)
   -h, --help         Show this help
@@ -61,9 +59,6 @@ resolve_block() {
     factory)
       echo "$FACTORY_BLOCK"
       ;;
-    upgrade)
-      echo "$UPGRADE_BLOCK"
-      ;;
     [0-9]*)
       # Numeric block number
       echo "$spec"
@@ -101,7 +96,7 @@ LOCAL_STATE_DIR="$SCRIPT_DIR/../deployments/local/mainnet"
 MAINNET_STATE_DIR="$SCRIPT_DIR/../deployments/mainnet"
 
 case "$BLOCK_SPEC" in
-  latest | upgrade)
+  latest)
     echo ""
     echo "Block is '$BLOCK_SPEC' - local state should mirror mainnet state."
     read -rn1 -p "Copy deployments/mainnet/*.json to deployments/local/mainnet/? [Yn] " response
@@ -109,7 +104,8 @@ case "$BLOCK_SPEC" in
     if [[ ! "$response" =~ ^[Nn]$ ]]; then
       mkdir -p "$LOCAL_STATE_DIR"
       cp "$MAINNET_STATE_DIR"/*.json "$LOCAL_STATE_DIR/"
-      echo "Copied mainnet state files to local."
+      rm -rf "$LOCAL_STATE_DIR/batch"
+      echo "Copied mainnet state files to local (batch directory cleared)."
     fi
     ;;
   factory)
@@ -120,7 +116,8 @@ case "$BLOCK_SPEC" in
       echo
       if [[ ! "$response" =~ ^[Nn]$ ]]; then
         rm -f "$LOCAL_STATE_DIR"/*.json
-        echo "Deleted local state files."
+        rm -rf "$LOCAL_STATE_DIR/batch"
+        echo "Deleted local state files (batch directory cleared)."
       fi
     fi
     ;;

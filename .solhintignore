@@ -1,2 +1,3 @@
 src/util/WordCodec.sol
 *_v1.sol
+src/minter/PostRebalanceRemediationForStabilityPool_v2.sol

@@ -14,7 +14,7 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
-import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
+import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {IMinter} from "src/interfaces/IMinter.sol";
 
@@ -108,9 +108,8 @@ abstract contract DeployMintersShared is
         _setSaltPrefix(saltPrefix);
 
         // Load or seed state
-        // TODO: tidy up the baoFactory part - it is always baoFactory()
         DeploymentTypes.State memory state = _shouldPersistState()
-            ? DeploymentState.load(network, saltPrefix, "")
+            ? DeploymentState.load(_stateFileRead())
             : DeploymentTypes.State({
                 network: network,
                 saltPrefix: saltPrefix,
@@ -185,7 +184,7 @@ abstract contract DeployMintersShared is
         string memory marketKey
     ) internal {
         address wrappedCollateral = cfg.wrappedCollateralToken();
-        address peggedToken = _predictAddress(string.concat(cfg.peg(), "::pegged"));
+        address peggedToken = _predictAddress(cfg.peg(), "pegged");
         address leveragedToken = _predictAddress(marketKey, "leveraged");
 
         deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);
@@ -251,10 +250,10 @@ abstract contract DeployMintersShared is
         address priceOracle = _predictAddress(MinterMarketConfigLib.priceOracleKey(market));
 
         // Update minter configuration (incentive ratios)
-        Minter_v1(minter).updateConfig(cfg.minterConfig());
-        Minter_v1(minter).updateReservePool(reservePool);
-        Minter_v1(minter).updateFeeReceiver(treasury());
-        Minter_v1(minter).updatePriceOracle(priceOracle);
+        Minter_v2(minter).updateConfig(cfg.minterConfig());
+        Minter_v2(minter).updateReservePool(reservePool);
+        Minter_v2(minter).updateFeeReceiver(treasury());
+        Minter_v2(minter).updatePriceOracle(priceOracle);
 
         // Grant roles
         grantReservePoolRoles(string.concat(marketKey, "::reservePool"), reservePool, minter);

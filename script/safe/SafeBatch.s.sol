@@ -6,7 +6,6 @@ import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @notice Base contract for generating Safe Transaction Builder JSON batches.
 /// @dev Inherit from this contract and override `build()` to define transactions.
@@ -43,6 +42,23 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
     }
 
     Transaction[] internal _transactions;
+    Transaction[] internal _allTransactions; // accumulated across flushes for local execution
+    address private _signer;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DSL: Signer Context
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Set the signer for subsequent flush() calls in local execution mode.
+    /// Analogous to vm.startPrank(). Resets to owner() when stopSigner() is called.
+    function startSigner(address signer_) internal {
+        _signer = signer_;
+    }
+
+    /// @notice Clear the signer override, reverting to owner() for local execution.
+    function stopSigner() internal {
+        _signer = address(0);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // DSL: Transaction Building
@@ -66,6 +82,15 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
         queue(target, data, target.toHexString());
     }
 
+    /// @notice Save the current queued transactions as a named batch, execute locally if
+    /// EXECUTE_LOCAL is set, and clear the queue for the next batch.
+    /// @param suffix Appended to the filename, e.g. "01_grant_roles". Use "" for no suffix.
+    /// @param description Description field in the batch JSON.
+    function flush(string memory suffix, string memory description) internal {
+        _saveAndExecute(suffix, description);
+        delete _transactions;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // build()/run() pattern
     // ─────────────────────────────────────────────────────────────────────────
@@ -78,44 +103,62 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
     function run(string memory salt_) public {
         _setSaltPrefix(salt_);
         build();
-        _saveBatch();
-
-        if (vm.envOr("EXECUTE_LOCAL", false)) {
-            address owner = IBaoOwnable(_transactions[0].target).owner();
-            vm.startBroadcast(owner);
-            for (uint256 i = 0; i < _transactions.length; i++) {
-                console.log("Executing:", _transactions[i].description);
-                (bool ok, bytes memory ret) = _transactions[i].target.call(_transactions[i].data);
-                if (!ok) {
-                    assembly {
-                        revert(add(ret, 32), mload(ret))
-                    }
-                }
-            }
-            vm.stopBroadcast();
-        }
+        _saveAndExecute("", vm.envOr("SAFE_BATCH_DESCRIPTION", string("")));
+        _executeLocal();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Persistence
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Save queued transactions as a Safe batch JSON file in the batch/ subdirectory.
-    /// @dev Reads from environment: NETWORK (required), SAFE_BATCH_NAME, SAFE_BATCH_DESCRIPTION,
-    ///      SAFE_BATCH_TIMESTAMP. Uses DeploymentState.resolveDirectory() so DEPLOY_STATE_SUBDIR
-    ///      is respected for local/timestamped state directories.
-    function _saveBatch() internal {
-        if (_transactions.length == 0) return;
-        string memory network = vm.envString("NETWORK");
+    /// @dev Save queued transactions to a JSON file and accumulate for local execution.
+    /// Uses _signer if set via startSigner(), otherwise defaults to owner().
+    /// Appends the signer's registered name (from nameSigner()) to the filename.
+    /// Local execution is deferred to _executeLocal() in run() so that all
+    /// transactions across multiple flushes execute in a single broadcast.
+    function _saveAndExecute(string memory suffix, string memory description) internal {
+        if (_transactions.length == 0) {
+            console.log("No transactions queued - nothing to execute");
+            return;
+        }
+
+        address batchSigner = _signer != address(0) ? _signer : owner();
+
+        // Save batch file
         string memory name = vm.envOr("SAFE_BATCH_NAME", string("batch"));
-        string memory description = vm.envOr("SAFE_BATCH_DESCRIPTION", string(""));
         string memory timestamp = vm.envOr("SAFE_BATCH_TIMESTAMP", block.timestamp.toString());
-        string memory batchDir = string.concat(DeploymentState.resolveDirectory(network, ""), "/batch");
+        string memory batchDir = string.concat(DeploymentState.resolveDirectory(), "/batch");
         vm.createDir(batchDir, true);
-        string memory path = string.concat(batchDir, "/", name, "_", timestamp, ".json");
+        string memory signerLabel = _addressLabel(batchSigner);
+        string memory fileSuffix = bytes(suffix).length > 0 ? string.concat(suffix, "@", signerLabel) : signerLabel;
+        string memory filename = string.concat(name, "_", timestamp, "_", fileSuffix, ".json");
+        string memory path = string.concat(batchDir, "/", filename);
         vm.writeJson(_buildSafeJson(description), path);
         console.log("Safe batch saved to: %s", path);
         console.log("  Transactions:", _transactions.length);
+
+        // Accumulate for deferred local execution
+        for (uint256 i = 0; i < _transactions.length; i++) {
+            _allTransactions.push(_transactions[i]);
+        }
+    }
+
+    /// @dev Execute all accumulated transactions in a single broadcast.
+    /// Called once at the end of run() to ensure correct ordering.
+    function _executeLocal() internal {
+        if (!vm.envOr("EXECUTE_LOCAL", false) || _allTransactions.length == 0) return;
+
+        vm.startBroadcast(owner());
+        for (uint256 i = 0; i < _allTransactions.length; i++) {
+            console.log("Executing:", _allTransactions[i].description);
+            (bool ok, bytes memory ret) = _allTransactions[i].target.call(_allTransactions[i].data);
+            if (!ok) {
+                assembly {
+                    revert(add(ret, 32), mload(ret))
+                }
+            }
+        }
+        vm.stopBroadcast();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

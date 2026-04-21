@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {FactoryDeployer} from "@bao-script/deployment/FactoryDeployer.sol";
+import {FactoryDeployer, WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 /// @notice Harbor-specific FactoryDeployer that implements treasury() and owner().
@@ -21,6 +21,14 @@ abstract contract HarborFactoryDeployer is FactoryDeployer {
     /// @notice Harbor owner address (same as treasury).
     function owner() public pure override returns (address) {
         return TREASURY_OWNER;
+    }
+
+    /// @notice Well-known addresses for Harbor, used in batch filenames and logging.
+    function getWellKnownAddresses() public view virtual override returns (WellKnownAddress[] memory addrs) {
+        addrs = new WellKnownAddress[](3);
+        addrs[0] = WellKnownAddress({addr: TREASURY_OWNER, label: "harbor_multisig"});
+        addrs[1] = WellKnownAddress({addr: baoFactory(), label: "baoFactory"});
+        addrs[2] = WellKnownAddress({addr: 0xf1674FE69b2920b4de51E909cbf060dd78724CD8, label: "bao_auto"});
     }
 
     // ========== ROLE GRANTING ==========

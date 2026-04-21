@@ -93,13 +93,13 @@ echo "START_TIMESTAMP:      $START_TIMESTAMP  (+12000s buffer)"
 
 # ── Step 1: v1 capture ────────────────────────────────────────────────────────
 
-prompt "Start anvil fork:  script/anvil --block upgrade"
+prompt "Start anvil fork:  script/anvil --block $BLOCK"
 
 run_capture v1
 
 # ── Step 2: Deploy upgrade ────────────────────────────────────────────────────
 
-prompt "Cycle anvil (Ctrl+C, then:  script/anvil --block upgrade)"
+prompt "Cycle anvil (Ctrl+C, then:  script/anvil --block $BLOCK)"
 
 echo ""
 echo "Deploying StabilityPool v2 upgrade..."
@@ -131,4 +131,4 @@ else
 fi
 
 echo ""
-echo "Done. See script/test/README.md for expected differences."
+echo "Done. See script/test/upgrade-StabilityPool_v2.md for expected differences."
