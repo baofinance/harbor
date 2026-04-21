@@ -13,6 +13,7 @@ import {IMinter} from "src/interfaces/IMinter.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
 
 /// @title Common deployment setup for EUR market tests.
 /// @dev Deploys EUR peg with two collaterals (fxUSD, stETH), each with collateral + leveraged SPs and ACs.
@@ -55,6 +56,18 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
         IBaoFactory(factory).setOperator(address(this), 365 days);
 
         (ConfigPeg peg_, Config_MinterMarket[] memory mktConfigs) = createEURMintersConfig();
+
+        // Mock the peg/ETH oracle at its predicted address — deployed by harbor-price-aggregators
+        // in production, but not available as a harbor dependency. The address is stable (BaoFactory
+        // CREATE3 from salt "test_eur::EUR::ethPriceAggregator") so we mock it here before deployment.
+        _setSaltPrefix("test_eur");
+        address pegOracle = _predictAddress(_key("EUR", "ethPriceAggregator"));
+        vm.mockCall(
+            pegOracle,
+            abi.encodeCall(IWrappedPriceOracle.latestAnswer, ()),
+            abi.encode(uint256(1e18), uint256(1e18), uint256(1e18), uint256(1e18))
+        );
+
         deployForPeg("test_eur", peg_, mktConfigs, "mainnet", true, mktConfigs);
 
         _setSaltPrefix("test_eur");

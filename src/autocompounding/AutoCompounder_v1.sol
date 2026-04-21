@@ -16,17 +16,19 @@ import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
 import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IYieldManager} from "@harbor/interfaces/IYieldManager.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 /// @title AutoCompounder_v1
 /// @notice Level 1 auto-compounder: non-rebasing ERC4626 vault wrapping a rebasing stability pool position.
 /// @dev The ERC4626 asset is the SP token (rebasing ERC20). Share count is fixed on deposit; share price
 ///      moves as totalAssets changes from harvest rewards, compounding, and rebalance losses.
-///      compound() claims wrapped collateral rewards, mints pegged tokens via the Minter (fee-capped),
-///      and redeposits to the SP.
+///      compound() claims all wrapped collateral rewards, mints pegged tokens via the Minter (fee-capped),
+///      and redeposits to the SP. Any residual wCOLn that cannot be profitably minted (fee too high or
+///      minPegged not met) is routed to YIELD_MANAGER.distribute() if a yield manager is registered.
 ///      totalAssets() includes the SP position plus unclaimed wrapped collateral valued via Minter dry run.
 ///      Works for both collateral and leveraged stability pools.
 // solhint-disable-next-line contract-name-capwords
@@ -51,25 +53,34 @@ contract AutoCompounder_v1 is
     /// @dev Thrown when depositPeggedToken receives zero shares.
     error DepositPeggedTokenZeroShares();
 
+    /// @dev Thrown when neither a yield manager nor a local maxFeeRatio is provided.
+    ///      Exactly one must be set: a yield manager that supplies mintMaxFeeRatio() dynamically,
+    ///      or a non-zero maxFeeRatio constant for standalone use.
+    error MaxFeeRatioSourceRequired();
+
+    /// @dev Thrown when both a yield manager and a non-zero maxFeeRatio are provided.
+    ///      Exactly one must be set: yield manager (dynamic) xor maxFeeRatio constant (standalone).
+    error MaxFeeRatioSourceConflict();
+
     /*//////////////////////////////////////////////////////////////////////////
                                     EVENTS
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice Emitted on every compound() call.
     /// @param caller The address that triggered the compound.
-    /// @param claimableCollateral The total amount of wrapped collateral available before compound.
-    /// @param collateralClaimed The amount of wrapped collateral claimed (0 if skipped due to fees).
-    /// @param peggedMinted The amount of pegged tokens minted (0 if skipped due to fees).
-    event Compounded(
-        address indexed caller,
-        uint256 claimableCollateral,
-        uint256 collateralClaimed,
-        uint256 peggedMinted
-    );
+    /// @param collateralTotal Total wrapped collateral processed (claimed from SP + any pre-existing balance).
+    /// @param peggedMinted Amount of pegged tokens minted and redeposited to the SP (0 if minting failed/skipped).
+    /// @param residual Amount of wrapped collateral routed to YIELD_MANAGER.distribute() (0 if none).
+    event Compounded(address indexed caller, uint256 collateralTotal, uint256 peggedMinted, uint256 residual);
 
-    /// @notice Emitted when the max fee ratio is updated.
-    /// @param newMaxFeeRatio The new max fee ratio (18 decimals).
-    event MaxFeeRatioUpdated(uint256 newMaxFeeRatio);
+    /*//////////////////////////////////////////////////////////////////////////
+                                    CONSTANTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Upper-bound gas estimate for a compound() execution, used to compute the
+    ///         Yearn-style minimum pegged output floor. Sized conservatively at 500k to
+    ///         cover Minter mintPeggedToken (~125k), SP claim and deposit, and overhead.
+    uint256 private constant MAX_COMPOUND_GAS = 500_000;
 
     /*//////////////////////////////////////////////////////////////////////////
                                     IMMUTABLES
@@ -91,6 +102,28 @@ contract AutoCompounder_v1 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable PEGGED_TOKEN; // solhint-disable-line immutable-vars-naming
 
+    /// @notice The yield manager (HarborYield) this AC is registered in.
+    ///         Mutually exclusive with MAX_FEE_RATIO: exactly one of YIELD_MANAGER or MAX_FEE_RATIO
+    ///         must be non-zero (enforced in constructor).
+    ///         When set: compound() reads mintMaxFeeRatio() from here (portfolio-wide policy), routes
+    ///         residual wCOLn via distribute(), and calls snapshotPerformance() after each compound.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable YIELD_MANAGER; // solhint-disable-line immutable-vars-naming
+
+    /// @notice Maximum Minter fee ratio for standalone ACs (18 decimals, e.g. 0.05 ether = 5%).
+    ///         Mutually exclusive with YIELD_MANAGER: exactly one must be non-zero.
+    ///         Set at construction; linked to the Minter's fee tier configuration.
+    ///         Zero when YIELD_MANAGER is set — mintMaxFeeRatio() is read from there instead.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 public immutable MAX_FEE_RATIO; // solhint-disable-line immutable-vars-naming
+
+    /// @notice Oracle providing the peg reference asset price in ETH (IWrappedPriceOracle).
+    ///         Required: used every compound() to compute the Yearn-style gas floor:
+    ///         minPeggedOut = block.basefee × MAX_COMPOUND_GAS × maxUnderlyingPrice / 1e18
+    ///         For the haETH peg a trivial constant oracle returning 1e18 is sufficient.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable PEG_ORACLE; // solhint-disable-line immutable-vars-naming
+
     /// @dev ERC20 name stored as two bytes32 (up to 64 characters)
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     bytes32 private immutable _ERC20_NAME_0;
@@ -102,35 +135,33 @@ contract AutoCompounder_v1 is
     bytes32 private immutable _ERC20_SYMBOL;
 
     /*//////////////////////////////////////////////////////////////////////////
-                                    STORAGE (ERC7201)
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @custom:storage-location erc7201:harbor.storage.AutoCompounder_v1
-    // chisel eval 'keccak256(abi.encode(uint256(keccak256("harbor.storage.AutoCompounder_v1")) - 1)) & ~bytes32(uint256(0xff))'
-    bytes32 private constant _AUTOCOMPOUNDER_STORAGE =
-        0xaf31db2275af9d19e1d0340c8cbd037595d3c8505dede7df4950b3c168f87300;
-
-    struct AutoCompounderStorage {
-        /// @dev Maximum fee ratio for compound minting (18 decimals). e.g. 0.05 ether = 5%.
-        uint256 maxFeeRatio;
-    }
-
-    function _getAutoCompounderStorage() private pure returns (AutoCompounderStorage storage $) {
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            $.slot := _AUTOCOMPOUNDER_STORAGE
-        }
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
                                 CONSTRUCTOR / INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address stabilityPool_, address minter_, string memory name_, string memory symbol_) {
+    /// @param yieldManager_ HarborYield address, or address(0) for standalone. Mutually exclusive with maxFeeRatio_.
+    /// @param maxFeeRatio_ Local fee cap (18 dec), or 0 when yieldManager_ is set. Mutually exclusive with yieldManager_.
+    /// @param pegOracle_ Required IWrappedPriceOracle for the gas floor calculation.
+    constructor(
+        address stabilityPool_,
+        address minter_,
+        address yieldManager_,
+        uint256 maxFeeRatio_,
+        address pegOracle_,
+        string memory name_,
+        string memory symbol_
+    ) {
         _disableInitializers();
         Token.ensureNonZeroAddress(stabilityPool_);
         Token.ensureNonZeroAddress(minter_);
+        Token.ensureNonZeroAddress(pegOracle_);
+        // Exactly one of {yieldManager, maxFeeRatio} must be set.
+        if (yieldManager_ == address(0) && maxFeeRatio_ == 0) {
+            revert MaxFeeRatioSourceRequired();
+        }
+        if (yieldManager_ != address(0) && maxFeeRatio_ != 0) {
+            revert MaxFeeRatioSourceConflict();
+        }
         // slither-disable-next-line missing-zero-check
         STABILITY_POOL = stabilityPool_;
         // slither-disable-next-line missing-zero-check
@@ -138,6 +169,11 @@ contract AutoCompounder_v1 is
         WRAPPED_COLLATERAL = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
         PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
         assert(IStabilityPool(stabilityPool_).ASSET_TOKEN() == PEGGED_TOKEN);
+        // slither-disable-next-line missing-zero-check
+        YIELD_MANAGER = yieldManager_;
+        MAX_FEE_RATIO = maxFeeRatio_;
+        // slither-disable-next-line missing-zero-check
+        PEG_ORACLE = pegOracle_;
         (_ERC20_NAME_0, _ERC20_NAME_1) = ERC20MetadataLib_v1.packName(name_);
         _ERC20_SYMBOL = ERC20MetadataLib_v1.packSymbol(symbol_);
     }
@@ -161,24 +197,22 @@ contract AutoCompounder_v1 is
                                 ADMIN
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Update the maximum fee ratio for compound minting.
-    /// @param maxFeeRatio_ New max fee ratio (18 decimals). e.g. 0.05 ether = 5%.
-    function setMaxFeeRatio(uint256 maxFeeRatio_) external onlyOwner {
-        _getAutoCompounderStorage().maxFeeRatio = maxFeeRatio_;
-        emit MaxFeeRatioUpdated(maxFeeRatio_);
-    }
-
-    /// @notice The current maximum fee ratio for compound minting.
-    function maxFeeRatio() external view returns (uint256) {
-        return _getAutoCompounderStorage().maxFeeRatio;
-    }
-
     /// @notice Set permanent token approvals for the compound flow.
     /// @dev Called by the deployer after proxy creation. Approves the SP to spend pegged tokens
     ///      and the Minter to spend wrapped collateral.
     function approveCompoundTokens() external onlyOwner {
         IERC20(PEGGED_TOKEN).forceApprove(STABILITY_POOL, type(uint256).max);
         IERC20(WRAPPED_COLLATERAL).forceApprove(MINTER, type(uint256).max);
+    }
+
+    /// @notice The effective maximum fee ratio for compound minting.
+    ///         For yield-manager ACs reads dynamically from YIELD_MANAGER (portfolio-wide policy).
+    ///         For standalone ACs returns the immutable MAX_FEE_RATIO set at construction.
+    function mintMaxFeeRatio() external view returns (uint256) {
+        if (YIELD_MANAGER != address(0)) {
+            return IYieldManager(YIELD_MANAGER).mintMaxFeeRatio();
+        }
+        return MAX_FEE_RATIO;
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -233,41 +267,58 @@ contract AutoCompounder_v1 is
 
     /// @inheritdoc IAutoCompounder
     function compound() external nonReentrant {
-        uint256 claimable = IMultipleRewardAccumulator(STABILITY_POOL).claimable(address(this), WRAPPED_COLLATERAL);
-        if (claimable == 0) {
+        // Claim all active reward tokens from SP to this contract (includes WRAPPED_COLLATERAL).
+        IMultipleRewardAccumulator(STABILITY_POOL).claim();
+
+        // Total available: just claimed + any pre-existing balance (e.g. residual from a prior standalone compound).
+        uint256 total = IERC20(WRAPPED_COLLATERAL).balanceOf(address(this));
+        if (total == 0) {
             revert NothingToCompound();
         }
 
-        uint256 maxFee = _getAutoCompounderStorage().maxFeeRatio;
-
-        // Dry run to see how much can be profitably minted within the fee cap
+        // Yearn-style gas floor: skip minting when gas cost exceeds the pegged output value.
+        // minPeggedOut = block.basefee × MAX_COMPOUND_GAS × (peg units per ETH) / 1e18
+        // Use maxUnderlyingPrice (conservative): higher price → higher floor → fewer unprofitable calls.
         // slither-disable-next-line unused-return
-        (, , uint256 collateralTaken, , , ) = IMinter_v3(MINTER).mintPeggedTokenDryRun(claimable, maxFee);
+        (, uint256 maxPegPerEth, ,) = IWrappedPriceOracle(PEG_ORACLE).latestAnswer();
+        uint256 minPegged = Math.mulDiv(block.basefee, MAX_COMPOUND_GAS * maxPegPerEth, 1e18);
 
-        if (collateralTaken == 0) {
-            // Fee too high - skip. Wrapped collateral stays as unclaimed in SP,
-            // included in totalAssets via claimable().
-            emit Compounded(msg.sender, claimable, 0, 0);
-            return;
+        // Fee cap: yield manager knows the opportunity cost of alternative DEX paths;
+        // standalone ACs use the immutable set at construction.
+        uint256 maxFee = YIELD_MANAGER != address(0)
+            ? IYieldManager(YIELD_MANAGER).mintMaxFeeRatio()
+            : MAX_FEE_RATIO;
+
+        // Mint pegged tokens from claimed collateral. mintPeggedToken reverts if minPegged cannot
+        // be met, or returns (0, 0) if the fee exceeds maxFee (when minPegged == 0, but here
+        // minPegged > 0 so any failure reverts). Catch all failures and route wCOLn instead.
+        uint256 peggedMinted;
+        uint256 residual;
+        try IMinter_v3(MINTER).mintPeggedToken(total, address(this), minPegged, maxFee)
+            returns (uint256 peggedOut, uint256 collateralUsed) {
+            if (peggedOut > 0) {
+                // Deposit minted pegged tokens back into the SP.
+                // slither-disable-next-line unused-return
+                IStabilityPool(STABILITY_POOL).deposit(peggedOut, address(this), 0);
+                peggedMinted = peggedOut;
+            }
+            residual = total - collateralUsed;
+        } catch {
+            residual = total;
         }
 
-        // Fractional claim: only take what can be profitably minted
-        IMultipleRewardAccumulator_v3(STABILITY_POOL).claim(
-            address(this),
-            address(this),
-            WRAPPED_COLLATERAL,
-            collateralTaken
-        );
+        // Route residual wCOLn to the yield manager for alternative conversion.
+        if (residual > 0 && YIELD_MANAGER != address(0)) {
+            IERC20(WRAPPED_COLLATERAL).safeTransfer(YIELD_MANAGER, residual);
+            IYieldManager(YIELD_MANAGER).distribute(WRAPPED_COLLATERAL, residual);
+        }
 
-        // Mint pegged tokens from the claimed collateral
-        // slither-disable-next-line unused-return
-        (uint256 minted, ) = IMinter_v3(MINTER).mintPeggedToken(collateralTaken, address(this), 0, maxFee);
+        // Ask the yield manager to snapshot all vault rates now that state has changed.
+        if (YIELD_MANAGER != address(0)) {
+            IYieldManager(YIELD_MANAGER).snapshotPerformance();
+        }
 
-        // Deposit minted pegged tokens back into the SP
-        // slither-disable-next-line unused-return
-        IStabilityPool(STABILITY_POOL).deposit(minted, address(this), 0);
-
-        emit Compounded(msg.sender, claimable, collateralTaken, minted);
+        emit Compounded(msg.sender, total, peggedMinted, residual);
     }
 
     /*//////////////////////////////////////////////////////////////////////////

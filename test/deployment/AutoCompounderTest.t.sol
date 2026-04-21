@@ -6,6 +6,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
 import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
+import {IMinter} from "src/interfaces/IMinter.sol";
 import {AutoCompounder_v1} from "src/autocompounding/AutoCompounder_v1.sol";
 import {DeployEURSetUp} from "test/deployment/DeployEURSetUp.t.sol";
 import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
@@ -44,9 +45,9 @@ contract AutoCompounderTest is DeployEURSetUp, PermitTestBase {
         assertEq(IERC4626(acCollStETH).decimals(), 18);
     }
 
-    function test_deployment_maxFeeRatio() public view {
-        assertEq(AutoCompounder_v1(acCollFxUSD).maxFeeRatio(), 0.05 ether, "fxUSD AC maxFeeRatio");
-        assertEq(AutoCompounder_v1(acCollStETH).maxFeeRatio(), 0.05 ether, "stETH AC maxFeeRatio");
+    function test_deployment_mintMaxFeeRatio() public view {
+        assertEq(AutoCompounder_v1(acCollFxUSD).mintMaxFeeRatio(), 0.05 ether, "fxUSD AC mintMaxFeeRatio");
+        assertEq(AutoCompounder_v1(acCollStETH).mintMaxFeeRatio(), 0.05 ether, "stETH AC mintMaxFeeRatio");
     }
 
     function test_deployment_asset() public view {
@@ -212,9 +213,9 @@ contract AutoCompounderTest is DeployEURSetUp, PermitTestBase {
         assertApproxEqRel(totalAssetsAfter, totalAssetsWithRewards, 0.05 ether, "totalAssets preserved");
     }
 
-    // ── Compound: fee too high -> skip ──────────────────────────────────
+    // ── Compound: fee too high -> claims but does not mint ──────────────
 
-    function test_compound_feeTooHigh_skips() public {
+    function test_compound_feeTooHigh_claimsButDoesNotMint() public {
         // Setup: healthy CR
         _setupHealthyMarket(minterFxUSD, spCollFxUSD, alice, 100 ether, 100 ether);
         uint256 spBal = IERC20(spCollFxUSD).balanceOf(alice);
@@ -227,22 +228,40 @@ contract AutoCompounderTest is DeployEURSetUp, PermitTestBase {
         _depositReward(spCollFxUSD, wrappedCollateralFxUSD, wrappedCollateralFxUSD, 5 ether);
         skip(2 weeks);
 
-        // Set maxFeeRatio to 0 - nothing should be profitable
+        // Push Minter fees above MAX_FEE_RATIO.
+        // Minter config requires a disallow sentinel (1e18) at index 0 (depeg band). The test market's CR (~200%)
+        // is below the band upper bound (1000%), so incentiveRatios[0] = 1e18 (disallow) applies.
+        // 1e18 fee >> MAX_FEE_RATIO (0.05e18) → mintPeggedToken returns (0, 0) → compound() routes as residual.
+        IMinter.IncentiveConfig memory highFeeConfig = IMinter.IncentiveConfig({
+            collateralRatioBandUpperBounds: new uint256[](1),
+            incentiveRatios: new int256[](2)
+        });
+        highFeeConfig.collateralRatioBandUpperBounds[0] = 10e18; // band upper bound at 1000% CR
+        highFeeConfig.incentiveRatios[0] = 1e18; // disallow below band (depeg sentinel, valid at index 0)
+        highFeeConfig.incentiveRatios[1] = 0.1e18; // 10% fee above band (unreachable given test CR)
+
+        IMinter.Config memory highFeeFullConfig = IMinter.Config({
+            mintPeggedIncentiveConfig: highFeeConfig,
+            redeemPeggedIncentiveConfig: IMinter(minterFxUSD).config().redeemPeggedIncentiveConfig,
+            mintLeveragedIncentiveConfig: IMinter(minterFxUSD).config().mintLeveragedIncentiveConfig,
+            redeemLeveragedIncentiveConfig: IMinter(minterFxUSD).config().redeemLeveragedIncentiveConfig
+        });
         vm.prank(HARBOR_MULTISIG);
-        AutoCompounder_v1(acCollFxUSD).setMaxFeeRatio(0);
+        IMinter(minterFxUSD).updateConfig(highFeeFullConfig);
 
-        uint256 claimableBefore = IMultipleRewardAccumulator(spCollFxUSD).claimable(
-            acCollFxUSD,
-            wrappedCollateralFxUSD
-        );
-        assertGt(claimableBefore, 0, "rewards exist");
+        // Track the raw SP token balance (not totalAssets — that includes claimable which drops to 0 after claim())
+        uint256 spBalanceBefore = IERC20(spCollFxUSD).balanceOf(acCollFxUSD);
 
-        // Compound should skip (not revert)
+        // Compound should not revert, but should not mint (fee too high → try/catch skips minting)
         IAutoCompounder(acCollFxUSD).compound();
 
-        // Claimable unchanged - nothing was claimed
+        // SP balance unchanged — no new haXXX deposited to the SP
+        uint256 spBalanceAfter = IERC20(spCollFxUSD).balanceOf(acCollFxUSD);
+        assertEq(spBalanceAfter, spBalanceBefore, "SP balance unchanged: minting skipped");
+
+        // Claimable is now 0 — claim() always runs in compound()
         uint256 claimableAfter = IMultipleRewardAccumulator(spCollFxUSD).claimable(acCollFxUSD, wrappedCollateralFxUSD);
-        assertEq(claimableAfter, claimableBefore, "claimable unchanged - compound skipped");
+        assertEq(claimableAfter, 0, "all rewards claimed from SP");
     }
 
     // ── Compound: nothing to compound -> revert ─────────────────────────

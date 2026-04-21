@@ -6,31 +6,47 @@ import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {AutoCompounder_v1} from "@harbor/autocompounding/AutoCompounder_v1.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib, IMarketConfig} from "script/config/ConfigBase.sol";
 import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
 
 /// @notice Config interface for auto-compounder deployment parameters.
 interface IAutoCompounderMarketConfig {
-    function autoCompounderMaxFeeRatio() external pure returns (uint256);
+    function autoCompounderMintMaxFeeRatio() external pure returns (uint256);
 }
 
 /// @notice Harbor AutoCompounder deployment logic.
 /// @dev Each market has TWO auto-compounders: Collateral and Leveraged (one per stability pool).
-///      Post-deployment: setMaxFeeRatio, approveCompoundTokens.
+///      Post-deployment: approveCompoundTokens.
 ///      EXEMPT_WITHDRAWAL_FEE_ROLE is granted via grantStabilityPoolAutoCompounderRole (using predicted address).
+///
+///      yieldManager: pass address(0) for standalone ACs (MAX_FEE_RATIO is used instead).
+///                    For HY-connected ACs (harbor-yield repo), pass the HY predicted address and
+///                    maxFeeRatio = 0 (exactly one of the two must be non-zero).
+///      pegOracle: IWrappedPriceOracle for the wrapped collateral. Required; provides the
+///                 gas floor for compound() via maxUnderlyingPrice.
 abstract contract AutoCompounder is HarborFactoryDeployer {
     string AutoCompounderCollateral = "autoCompounderCollateral";
     string AutoCompounderLeveraged = "autoCompounderLeveraged";
 
     // ========== AUTO-COMPOUNDER DEPLOYMENT ==========
 
+    /// @notice Predict the address of the ETH price oracle for a peg.
+    /// @dev Salt: {saltPrefix}::{peg}::ethPriceAggregator. Deployed by harbor-price-aggregators scripts.
+    function predictEthPriceOracleAddress(string memory peg) internal returns (address) {
+        return _predictAddress(string.concat(peg, "::ethPriceAggregator"));
+    }
+
     /// @notice Deploy AutoCompounder impl only, record in state.
+    /// @param yieldManager HarborYield address, or address(0) for standalone AC.
+    /// @param pegOracle IWrappedPriceOracle for the peg/ETH price (gas floor). Required.
     function deployAutoCompounderImplementation(
         string memory acType,
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig,
         address stabilityPool,
-        address minter
+        address minter,
+        address yieldManager,
+        address pegOracle
     ) internal virtual returns (address impl) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
         string memory acKey = _key(marketKey, acType);
@@ -41,7 +57,11 @@ abstract contract AutoCompounder is HarborFactoryDeployer {
         string memory tokenName = isCollateral ? names.acCollateralName() : names.acLeveragedName();
         string memory tokenSymbol = isCollateral ? names.acCollateralSymbol() : names.acLeveragedSymbol();
 
-        impl = address(new AutoCompounder_v1(stabilityPool, minter, tokenName, tokenSymbol));
+        uint256 maxFeeRatio = yieldManager == address(0)
+            ? IAutoCompounderMarketConfig(address(marketConfig)).autoCompounderMintMaxFeeRatio()
+            : 0;
+
+        impl = address(new AutoCompounder_v1(stabilityPool, minter, yieldManager, maxFeeRatio, pegOracle, tokenName, tokenSymbol));
         console.log("        Impl:   %s", impl);
         console.log("          Name:   %s", tokenName);
         console.log("          Symbol: %s", tokenSymbol);
@@ -56,30 +76,32 @@ abstract contract AutoCompounder is HarborFactoryDeployer {
     }
 
     /// @notice Deploy AutoCompounder impl+proxy, record in state.
+    /// @param yieldManager HarborYield address, or address(0) for standalone AC.
+    /// @param pegOracle IWrappedPriceOracle for the wrapped collateral (required).
     function deployAutoCompounder(
         string memory acType,
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig,
         address stabilityPool,
-        address minter
+        address minter,
+        address yieldManager,
+        address pegOracle
     ) internal returns (address proxy) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
         string memory acKey = _key(marketKey, acType);
 
-        address impl = deployAutoCompounderImplementation(acType, stateData, marketConfig, stabilityPool, minter);
+        address impl = deployAutoCompounderImplementation(acType, stateData, marketConfig, stabilityPool, minter, yieldManager, pegOracle);
 
         bytes memory initData = abi.encodeCall(AutoCompounder_v1.initialize, (address(this), owner()));
 
         proxy = _deployProxyAndRecord(stateData, acKey, impl, initData);
     }
 
-    /// @notice Post-deployment configuration: set maxFeeRatio and approve tokens.
+    /// @notice Post-deployment configuration: approve compound tokens.
     /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
     /// @param acType "autoCompounderCollateral" or "autoCompounderLeveraged".
-    /// @param maxFeeRatio The max fee ratio for compound minting (18 decimals).
-    function configureAutoCompounder(string memory marketKey, string memory acType, uint256 maxFeeRatio) internal {
+    function configureAutoCompounder(string memory marketKey, string memory acType) internal {
         address acProxy = _predictAddress(_key(marketKey, acType));
-        AutoCompounder_v1(acProxy).setMaxFeeRatio(maxFeeRatio);
         AutoCompounder_v1(acProxy).approveCompoundTokens();
     }
 }

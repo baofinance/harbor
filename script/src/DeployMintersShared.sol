@@ -230,12 +230,21 @@ abstract contract DeployMintersShared is
         address spCollateral = _predictAddress(_key(marketKey, StabilityPoolCollateral));
         address spLeveraged = _predictAddress(_key(marketKey, StabilityPoolLeveraged));
 
+        // ETH price oracle: peg-scoped (same oracle for all markets with the same peg).
+        // Deployed by harbor-price-aggregators deploy scripts; address derived from peg name.
+        address pegOracle = predictEthPriceOracleAddress(IMarketConfig(address(cfg)).peg());
+
+        IAutoCompounderMarketConfig acCfg = IAutoCompounderMarketConfig(address(cfg));
+
+        // Standalone ACs (no HarborYield) — pass address(0) as yieldManager.
         deployAutoCompounder(
             AutoCompounderCollateral,
             stateData,
             Config_MinterMarket(address(cfg)),
             spCollateral,
-            minter
+            minter,
+            address(0),
+            pegOracle
         );
 
         deployAutoCompounder(
@@ -243,7 +252,9 @@ abstract contract DeployMintersShared is
             stateData,
             Config_MinterMarket(address(cfg)),
             spLeveraged,
-            minter
+            minter,
+            address(0),
+            pegOracle
         );
     }
 
@@ -300,10 +311,9 @@ abstract contract DeployMintersShared is
         grantStabilityPoolRoles(marketKey, StabilityPoolCollateral, AutoCompounderCollateral);
         grantStabilityPoolRoles(marketKey, StabilityPoolLeveraged, AutoCompounderLeveraged);
 
-        // Configure Auto-Compounders (maxFeeRatio, approvals)
-        uint256 maxFeeRatio = IAutoCompounderMarketConfig(address(market)).autoCompounderMaxFeeRatio();
-        configureAutoCompounder(marketKey, AutoCompounderCollateral, maxFeeRatio);
-        configureAutoCompounder(marketKey, AutoCompounderLeveraged, maxFeeRatio);
+        // Configure Auto-Compounders (approve compound tokens — maxFeeRatio is now an immutable set at deploy)
+        configureAutoCompounder(marketKey, AutoCompounderCollateral);
+        configureAutoCompounder(marketKey, AutoCompounderLeveraged);
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(
