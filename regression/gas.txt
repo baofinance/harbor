@@ -1,69 +1,3 @@
-src/autocompounding/AutoCompounder_v1.sol:AutoCompounder_v1
-| function name         |       max |
-|-----------------------|-----------|
-| DOMAIN_SEPARATOR      | 6.520e+02 |
-| MINTER                | 3.250e+02 |
-| PEGGED_TOKEN          | 3.050e+02 |
-| STABILITY_POOL        | 2.840e+02 |
-| WRAPPED_COLLATERAL    | 2.830e+02 |
-| allowance             | 2.732e+03 |
-| approveCompoundTokens | 7.002e+04 |
-| asset                 | 3.030e+02 |
-| balanceOf             | 2.577e+03 |
-| compound              | 3.948e+05 |
-| decimals              | 3.980e+02 |
-| deposit               | 2.098e+05 |
-| depositPeggedToken    | 3.209e+05 |
-| initialize            | 7.067e+04 |
-| maxFeeRatio           | 2.391e+03 |
-| name                  | 5.050e+02 |
-| nonces                | 2.599e+03 |
-| owner                 | 2.380e+03 |
-| permit                | 5.061e+04 |
-| previewRedeem         | 3.572e+04 |
-| redeem                | 9.616e+04 |
-| setMaxFeeRatio        | 2.562e+04 |
-| sweep                 | 4.524e+04 |
-| symbol                | 5.990e+02 |
-| totalAssets           | 7.818e+04 |
-| transferOwnership     | 1.202e+04 |
-
-src/autocompounding/HarborYield_v1.sol:HarborYield_v1
-| function name          |       max |
-|------------------------|-----------|
-| COMPOUNDER_ROLE        | 2.520e+02 |
-| DOMAIN_SEPARATOR       | 6.240e+02 |
-| REDISTRIBUTOR_ROLE     | 2.720e+02 |
-| activateVault          | 1.149e+04 |
-| addAutoCompounderVault | 1.280e+05 |
-| addEquivalentVault     | 1.281e+05 |
-| allowance              | 2.703e+03 |
-| approve                | 2.445e+04 |
-| asset                  | 3.130e+02 |
-| balanceOf              | 2.615e+03 |
-| compound               | 1.974e+05 |
-| convertToAssets        | 6.420e+04 |
-| convertToShares        | 4.041e+04 |
-| deactivateVault        | 1.146e+04 |
-| deposit                | 1.874e+05 |
-| grantRoles             | 2.633e+04 |
-| initialize             | 7.062e+04 |
-| maxPegDriftBps         | 2.399e+03 |
-| name                   | 5.440e+02 |
-| nonces                 | 2.570e+03 |
-| permit                 | 5.059e+04 |
-| previewDeposit         | 4.042e+04 |
-| previewRedeem          | 4.046e+04 |
-| redeem                 | 1.302e+05 |
-| redistribute           | 2.750e+05 |
-| setMaxPegDriftBps      | 2.572e+04 |
-| setVaultWeight         | 1.733e+04 |
-| totalAssets            | 6.166e+04 |
-| totalSupply            | 2.349e+03 |
-| totalWeight            | 2.392e+03 |
-| vaultAt                | 8.257e+03 |
-| vaultCount             | 2.420e+03 |
-
 src/minter/Genesis_v1.sol:Genesis_v1
 | function name            |       max |
 |--------------------------|-----------|
@@ -94,9 +28,9 @@ src/minter/Minter_v3.sol:Minter_v3
 | collateralTokenBalance                           | 2.358e+03 |
 | config                                           | 4.895e+04 |
 | feeReceiver                                      | 2.442e+03 |
-| freeMintLeveragedToken                           | 1.492e+05 |
+| freeMintLeveragedToken                           | 1.438e+05 |
 | freeMintPeggedToken                              | 1.674e+05 |
-| freeRedeemLeveragedToken                         | 9.676e+04 |
+| freeRedeemLeveragedToken                         | 8.668e+04 |
 | freeRedeemPeggedToken                            | 1.346e+05 |
 | grantRoles                                       | 2.633e+04 |
 | harvestable                                      | 2.981e+04 |
@@ -159,7 +93,7 @@ src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 | hasStabilityPool           | 5.370e+02 |
 | initialize                 | 7.069e+04 |
 | owner                      | 2.423e+03 |
-| rebalance                  | 5.542e+05 |
+| rebalance                  | 5.540e+05 |
 | rebalanceBountyRatio       | 2.354e+03 |
 | rebalanceThreshold         | 2.347e+03 |
 | rebalanceable              | 2.926e+04 |
@@ -195,52 +129,50 @@ src/minter/StabilityPool_v2.sol:StabilityPool_v2
 | sweep                 | 4.020e+04 |
 | totalAssetSupply      | 2.489e+03 |
 | transferOwnership     | 1.207e+04 |
-| upgradeToAndCall      | 1.092e+04 |
+| upgradeToAndCall      | 1.094e+04 |
 
 src/minter/StabilityPool_v3.sol:StabilityPool_v3
-| function name                          |       max |
-|----------------------------------------|-----------|
-| ASSET_TOKEN                            | 3.050e+02 |
-| DOMAIN_SEPARATOR                       | 6.860e+02 |
-| EXEMPT_WITHDRAWAL_FEE_ROLE             | 2.860e+02 |
-| LIQUIDATION_TOKEN                      | 3.500e+02 |
-| REBALANCER_ROLE                        | 2.840e+02 |
-| REWARD_DEPOSITOR_ROLE                  | 3.060e+02 |
-| REWARD_MANAGER_ROLE                    | 3.270e+02 |
-| allowance                              | 2.699e+03 |
-| approve                                | 2.442e+04 |
-| assetBalanceOf                         | 8.053e+03 |
-| balanceOf                              | 5.789e+03 |
-| checkpoint                             | 1.465e+05 |
-| claim(address)                         | 2.246e+05 |
-| claim(address,address)                 | 1.535e+05 |
-| claim(address,address,address,uint256) | 2.161e+05 |
-| claimable                              | 2.488e+04 |
-| claimed                                | 7.472e+03 |
-| decimals                               | 2.670e+02 |
-| deposit                                | 2.848e+05 |
-| depositReward                          | 6.726e+04 |
-| getWithdrawalRequest                   | 2.767e+03 |
-| grantRoles                             | 2.638e+04 |
-| historicalRewardTokens                 | 5.180e+03 |
-| initialize                             | 2.042e+05 |
-| name                                   | 5.720e+02 |
-| nonces                                 | 2.654e+03 |
-| notifyLiquidation                      | 1.235e+05 |
-| owner                                  | 2.446e+03 |
-| permit                                 | 5.063e+04 |
-| proxiableUUID                          | 3.640e+02 |
-| registerRewardToken                    | 8.857e+04 |
-| requestWithdrawal                      | 2.501e+04 |
-| sweep                                  | 4.024e+04 |
-| symbol                                 | 5.770e+02 |
-| totalAssetSupply                       | 2.423e+03 |
-| totalSupply                            | 2.424e+03 |
-| transfer                               | 1.880e+05 |
-| transferFrom                           | 1.313e+05 |
-| transferOwnership                      | 1.204e+04 |
-| unregisterRewardToken                  | 9.144e+04 |
-| withdraw                               | 2.585e+05 |
+| function name          |       max |
+|------------------------|-----------|
+| ASSET_TOKEN            | 2.820e+02 |
+| DOMAIN_SEPARATOR       | 6.190e+02 |
+| LIQUIDATION_TOKEN      | 3.500e+02 |
+| REBALANCER_ROLE        | 3.060e+02 |
+| REWARD_DEPOSITOR_ROLE  | 3.060e+02 |
+| REWARD_MANAGER_ROLE    | 3.270e+02 |
+| allowance              | 2.721e+03 |
+| approve                | 2.442e+04 |
+| assetBalanceOf         | 8.053e+03 |
+| balanceOf              | 5.789e+03 |
+| checkpoint             | 1.465e+05 |
+| claim(address)         | 2.636e+05 |
+| claim(address,address) | 1.535e+05 |
+| claimable              | 2.488e+04 |
+| claimed                | 7.472e+03 |
+| decimals               | 2.890e+02 |
+| deposit                | 2.848e+05 |
+| depositReward          | 6.726e+04 |
+| getWithdrawalRequest   | 2.767e+03 |
+| grantRoles             | 2.638e+04 |
+| historicalRewardTokens | 5.202e+03 |
+| initialize             | 2.042e+05 |
+| name                   | 5.720e+02 |
+| nonces                 | 2.654e+03 |
+| notifyLiquidation      | 1.235e+05 |
+| owner                  | 2.446e+03 |
+| permit                 | 5.063e+04 |
+| proxiableUUID          | 3.860e+02 |
+| registerRewardToken    | 8.850e+04 |
+| requestWithdrawal      | 2.503e+04 |
+| sweep                  | 4.016e+04 |
+| symbol                 | 5.770e+02 |
+| totalAssetSupply       | 2.423e+03 |
+| totalSupply            | 2.424e+03 |
+| transfer               | 1.880e+05 |
+| transferFrom           | 1.313e+05 |
+| transferOwnership      | 1.207e+04 |
+| unregisterRewardToken  | 9.144e+04 |
+| withdraw               | 2.586e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |       max |

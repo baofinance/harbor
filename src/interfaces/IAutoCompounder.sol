@@ -28,4 +28,15 @@ interface IAutoCompounder {
     ///      AC holdings.
     // solhint-disable-next-line func-name-mixedcase
     function MINTER() external view returns (address);
+
+    /// @notice Claim the caller's proportional share of active SP reward tokens.
+    ///         Claims the AC's full pending rewards from the SP, then forwards
+    ///         `delta × callerShares / totalSupply` to `receiver` for each token.
+    /// @param receiver Address to receive the claimed tokens. If address(0), tokens go to msg.sender.
+    function claim(address receiver) external;
+
+    /// @notice Claim the caller's proportional share of historical (unregistered) SP reward tokens.
+    /// @param tokens The list of historical reward tokens to claim.
+    /// @param receiver Address to receive the claimed tokens. If address(0), tokens go to msg.sender.
+    function claimHistorical(address[] memory tokens, address receiver) external;
 }

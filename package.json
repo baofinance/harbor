@@ -3,6 +3,7 @@
   "scripts": {
     "uv": "uv sync; echo \"to enable vyper builds, run:\n   source ./.venv/bin/activate\"",
     "foundryup": "curl -L https://foundry.paradigm.xyz | bash && foundryup",
+    "doctor": "./lib/bao-base/run doctor",
     "CI": "./lib/bao-base/run CI",
     "clean": "./lib/bao-base/run clean",
     "git-diffs": "./lib/bao-base/run git-diffs",

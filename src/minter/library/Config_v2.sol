@@ -9,7 +9,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// @dev Extracts config validation from the main Minter contract to reduce its size, at the cost of increased gas.
 /// We take this hit because upgrading the config is an infrequent cost.
 /// @dev this contract doesn't modify storage so is upgrade safe
-// solhint-disable-next-line contract-name-camelcase
+// solhint-disable-next-line contract-name-capwords
 library Config_v2 {
     using ConfigIncentiveLib for ConfigIncentiveLib.ActionIncentive;
 

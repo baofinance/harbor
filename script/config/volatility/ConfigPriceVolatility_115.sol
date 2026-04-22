@@ -100,5 +100,4 @@ contract ConfigPriceVolatility_115 is ConfigPriceVolatilityBase {
                 })
             });
     }
-
 }

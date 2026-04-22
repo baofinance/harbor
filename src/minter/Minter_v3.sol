@@ -1094,7 +1094,7 @@ contract Minter_v3 is
     bytes32 private constant _MINTER_STORAGE = 0x92e73fe9557052b4a0b810a38eb7ef595ff750f166ca39d63b3f4c74937fef00;
 
     /// @notice Returns a reference to the contract state
-    function _getMinterStorage() internal pure returns (MinterStorage storage $) {
+    function _getMinterStorage() private pure returns (MinterStorage storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := _MINTER_STORAGE
@@ -1105,7 +1105,7 @@ contract Minter_v3 is
     // -----------------
 
     /// @notice Updates the price oracle address.
-    function _updatePriceOracle(address priceOracle_) internal {
+    function _updatePriceOracle(address priceOracle_) private {
         MinterStorage storage $ = _getMinterStorage();
         address old = $.priceOracle;
         $.priceOracle = priceOracle_;
@@ -1116,7 +1116,7 @@ contract Minter_v3 is
     // ------------
 
     /// @notice Updates the fee receiver address.
-    function _updateFeeReceiver(address feeReceiver_) internal {
+    function _updateFeeReceiver(address feeReceiver_) private {
         MinterStorage storage $ = _getMinterStorage();
         address old = $.feeReceiver;
         $.feeReceiver = feeReceiver_;
@@ -1127,7 +1127,7 @@ contract Minter_v3 is
     // -----------
 
     /// @notice Updates the reserve pool address.
-    function _updateReservePool(address reservePool_) internal {
+    function _updateReservePool(address reservePool_) private {
         MinterStorage storage $ = _getMinterStorage();
         address old = $.reservePool;
         $.reservePool = reservePool_;
@@ -1144,7 +1144,7 @@ contract Minter_v3 is
     /// @param peggedOut The amount of pegged to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _mintPeggedToken(uint256 wrappedCollateralIn, uint256 peggedOut, address receiver) internal {
+    function _mintPeggedToken(uint256 wrappedCollateralIn, uint256 peggedOut, address receiver) private {
         emit MintPeggedToken(_msgSender(), receiver, wrappedCollateralIn, peggedOut);
 
         // mint the tokens to the receiver
@@ -1156,7 +1156,7 @@ contract Minter_v3 is
     }
 
     /// @notice burn pegged tokens in the way the like to burn
-    function _burnPeggedToken(uint256 amount) internal {
+    function _burnPeggedToken(uint256 amount) private {
         if (_BURN_SIGNATURE == BurnSignature.Burn2Arg) {
             IBurnable2Arg(PEGGED_TOKEN).burn(_msgSender(), amount);
         } else if (_BURN_SIGNATURE == BurnSignature.BurnFrom) {
@@ -1175,7 +1175,7 @@ contract Minter_v3 is
     /// @param wrappedCollateralOut The amount of collateral to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _redeemPeggedToken(uint256 peggedIn, uint256 wrappedCollateralOut, address receiver) internal {
+    function _redeemPeggedToken(uint256 peggedIn, uint256 wrappedCollateralOut, address receiver) private {
         // tell the world
         emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut, 0);
 
@@ -1193,7 +1193,7 @@ contract Minter_v3 is
     /// @param leveragedOut The amount of leveraged to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _mintLeveragedToken(uint256 wrappedCollateralIn, uint256 leveragedOut, address receiver) internal {
+    function _mintLeveragedToken(uint256 wrappedCollateralIn, uint256 leveragedOut, address receiver) private {
         // slither-disable-next-line incorrect-equality
         if (leveragedOut == 0) {
             revert ReturnZeroAmount(LEVERAGED_TOKEN);
@@ -1214,7 +1214,7 @@ contract Minter_v3 is
     /// @param collateralOut The amount of collateral to be transferred to the `receiver`.
     /// @param receiver The address of the receiver.
 
-    function _redeemLeveragedToken(uint256 leveragedIn, uint256 collateralOut, address receiver) internal {
+    function _redeemLeveragedToken(uint256 leveragedIn, uint256 collateralOut, address receiver) private {
         // tell the world
         emit RedeemLeveragedToken(_msgSender(), receiver, leveragedIn, collateralOut);
         // burn the leveraged
@@ -1235,7 +1235,7 @@ contract Minter_v3 is
         address token_,
         uint256 amountIn,
         uint256 tokenBalance_
-    ) internal pure returns (uint256 amountOut) {
+    ) private pure returns (uint256 amountOut) {
         amountOut = _redeemableQuiet(amountIn, tokenBalance_);
         // slither-disable-next-line incorrect-equality
         if (amountOut == 0) {
@@ -1243,7 +1243,7 @@ contract Minter_v3 is
         }
     }
 
-    function _redeemableQuiet(uint256 amountIn, uint256 tokenBalance_) internal pure returns (uint256 amountOut) {
+    function _redeemableQuiet(uint256 amountIn, uint256 tokenBalance_) private pure returns (uint256 amountOut) {
         amountOut = Math.min(amountIn, tokenBalance_);
     }
 
@@ -1302,7 +1302,7 @@ contract Minter_v3 is
         CollateralRatioData memory cr,
         uint256 maxFeeE36
     )
-        internal
+        private
         pure
         returns (
             uint256 wrappedFee,
@@ -1440,7 +1440,7 @@ contract Minter_v3 is
         CollateralRatioData memory cr,
         uint256 reserveWrappedCapacity
     )
-        internal
+        private
         pure
         returns (
             uint256 wrappedFee,
@@ -1573,7 +1573,7 @@ contract Minter_v3 is
         CollateralRatioData memory cr,
         uint256 reserveWrappedCapacity
     )
-        internal
+        private
         view
         returns (
             uint256 wrappedFee,
@@ -1735,7 +1735,7 @@ contract Minter_v3 is
         CollateralRatioData memory cr,
         uint256 leveragedTokenBalance_
     )
-        internal
+        private
         pure
         returns (
             uint256 wrappedFee,
@@ -1830,7 +1830,7 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_,
         bool atLower
     )
-        internal
+        private
         pure
         returns (
             uint band // solhint-disable-line explicit-types
@@ -1859,7 +1859,7 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
-    ) internal pure returns (uint256 navE36) {
+    ) private pure returns (uint256 navE36) {
         if (peggedTokenBalance_ > 0) {
             (, navE36) = _tokenValuesE36(peggedTokenBalance_, collateralTokenBalance_, collateralPrice);
             navE36 = Math.mulDiv(navE36, 1 ether, peggedTokenBalance_);
@@ -1872,7 +1872,7 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
-    ) internal pure returns (uint256 collateralValueE36, uint256 peggedValueE36) {
+    ) private pure returns (uint256 collateralValueE36, uint256 peggedValueE36) {
         collateralValueE36 = collateralTokenBalance_ * collateralPrice;
         peggedValueE36 = peggedTokenBalance_ * 1 ether;
         // the value of the pegged cannot be greater than the value of the collateral
@@ -1903,7 +1903,7 @@ contract Minter_v3 is
         }
     }
 
-    function _round(uint256 numerator, uint256 denominator) internal pure returns (uint256 result) {
+    function _round(uint256 numerator, uint256 denominator) private pure returns (uint256 result) {
         unchecked {
             result = numerator / denominator;
             uint256 remainder = numerator % denominator;
@@ -1918,7 +1918,7 @@ contract Minter_v3 is
     function _divAccumulateError(
         uint256 preDivideE54,
         int256 errorE54
-    ) internal pure returns (uint256 postDivideE36, int256 newErrorE54) {
+    ) private pure returns (uint256 postDivideE36, int256 newErrorE54) {
         unchecked {
             postDivideE36 = preDivideE54 / 1 ether; // scaled to 1e36
             newErrorE54 = errorE54 + (int256(preDivideE54) % 1 ether);
@@ -1936,7 +1936,7 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_,
         uint256 collateralTokenBalance_,
         uint256 collateralPrice
-    ) internal pure returns (uint256 leveragedTokens) {
+    ) private pure returns (uint256 leveragedTokens) {
         // we use leverage ratio for this calculation as it is capped
         if (leveragedTokenBalance_ > 0) {
             uint256 leverageRatio_ = _leverageRatio(peggedTokenBalance_, collateralTokenBalance_, collateralPrice);
@@ -1973,7 +1973,7 @@ contract Minter_v3 is
         uint256 collateralTokenBalance_,
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
-    ) internal pure returns (uint256 collateralRatio_) {
+    ) private pure returns (uint256 collateralRatio_) {
         // Hot path: pegged > 0 → just compute the ratio (covers collateral==0 or price==0 as 0).
         // slither-disable-next-line incorrect-equality
         if (peggedTokenBalance_ != 0) {
@@ -1993,7 +1993,7 @@ contract Minter_v3 is
     }
 
     /// @notice Returns the amount of leveraged tokens being managed
-    function _leveragedTokenBalance() internal view returns (uint256) {
+    function _leveragedTokenBalance() private view returns (uint256) {
         return IERC20(LEVERAGED_TOKEN).totalSupply();
     }
 
@@ -2007,7 +2007,7 @@ contract Minter_v3 is
 
     /// @notice Returns the safe price for the collateral token.
     /// @dev Checks safe price non-zero.
-    function _fetchMid(address priceOracle_) internal view returns (OracleData memory) {
+    function _fetchMid(address priceOracle_) private view returns (OracleData memory) {
         (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(priceOracle_)
             .latestAnswer();
         return OracleData(_round(minPrice + maxPrice, 2), _round(minRate + maxRate, 2));
@@ -2016,7 +2016,7 @@ contract Minter_v3 is
     /// @notice Returns the min price for the collateral token.
     /// If the safe price is valid it is returned, else the min price.
     /// @dev Checks the returned price is non-zero.
-    function _fetchMin(address priceOracle_) internal view returns (OracleData memory) {
+    function _fetchMin(address priceOracle_) private view returns (OracleData memory) {
         // slither-disable-next-line unused-return
         (uint256 minPrice, , uint256 minRate, ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
         return OracleData(minPrice, minRate);
@@ -2025,7 +2025,7 @@ contract Minter_v3 is
     /// @notice Returns the max price for the collateral token.
     /// If the safe price is valid it is returned, else the max price.
     /// @dev Checks the returned price is non-zero.
-    function _fetchMax(address priceOracle_) internal view returns (OracleData memory) {
+    function _fetchMax(address priceOracle_) private view returns (OracleData memory) {
         // slither-disable-next-line unused-return
         (, uint256 maxPrice, , uint256 maxRate) = IWrappedPriceOracle(priceOracle_).latestAnswer();
         return OracleData(maxPrice, maxRate);
