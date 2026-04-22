@@ -82,54 +82,30 @@ src/minter/ReservePool_v1.sol:ReservePool_v1
 | sweep             | 2.642e+03 |
 | transferOwnership | 1.204e+04 |
 
-src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
+src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | function name              |       max |
 |----------------------------|-----------|
 | feeReceiver                | 2.441e+03 |
-| harvest                    | 4.442e+05 |
-| harvestBountyRatio         | 2.369e+03 |
+| harvest                    | 4.487e+05 |
+| harvestBountyRatio         | 2.347e+03 |
 | harvestCutRatio            | 2.371e+03 |
 | harvestable                | 3.052e+04 |
-| hasStabilityPool           | 5.370e+02 |
+| hasStabilityPool           | 5.810e+02 |
 | initialize                 | 7.069e+04 |
 | owner                      | 2.423e+03 |
-| rebalance                  | 5.540e+05 |
+| rebalance                  | 5.585e+05 |
 | rebalanceBountyRatio       | 2.354e+03 |
-| rebalanceThreshold         | 2.347e+03 |
-| rebalanceable              | 2.926e+04 |
+| rebalanceThreshold         | 2.370e+03 |
+| rebalanceable              | 2.933e+04 |
 | stabilityPools             | 9.030e+02 |
 | supportsInterface          | 5.690e+02 |
 | transferOwnership          | 1.204e+04 |
 | updateFeeReceiver          | 2.627e+04 |
-| updateHarvestBountyRatio   | 2.568e+04 |
-| updateHarvestCutRatio      | 2.572e+04 |
-| updateRebalanceBountyRatio | 2.565e+04 |
+| updateHarvestBountyRatio   | 2.788e+04 |
+| updateHarvestCutRatio      | 2.791e+04 |
+| updateRebalanceBountyRatio | 2.567e+04 |
 | updateRebalanceThreshold   | 2.571e+04 |
 | upgradeToAndCall           | 1.087e+04 |
-
-src/minter/StabilityPool_v2.sol:StabilityPool_v2
-| function name         |       max |
-|-----------------------|-----------|
-| ASSET_TOKEN           | 3.270e+02 |
-| REBALANCER_ROLE       | 2.620e+02 |
-| REWARD_DEPOSITOR_ROLE | 2.840e+02 |
-| REWARD_MANAGER_ROLE   | 3.270e+02 |
-| assetBalanceOf        | 8.049e+03 |
-| claim                 | 1.436e+05 |
-| claimable             | 2.336e+04 |
-| claimed               | 7.479e+03 |
-| deposit               | 2.800e+05 |
-| depositReward         | 6.533e+04 |
-| getWithdrawalRequest  | 2.745e+03 |
-| grantRoles            | 2.636e+04 |
-| initialize            | 2.041e+05 |
-| notifyLiquidation     | 1.370e+05 |
-| registerRewardToken   | 7.292e+04 |
-| requestWithdrawal     | 2.504e+04 |
-| sweep                 | 4.020e+04 |
-| totalAssetSupply      | 2.489e+03 |
-| transferOwnership     | 1.207e+04 |
-| upgradeToAndCall      | 1.094e+04 |
 
 src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | function name          |       max |

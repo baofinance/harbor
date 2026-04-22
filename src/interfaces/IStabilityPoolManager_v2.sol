@@ -3,11 +3,23 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
+// solhint-disable-next-line contract-name-capwords
 interface IStabilityPoolManager_v2 is IStabilityPoolManager {
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
+    error InvalidHarvestRatioSum(uint256 bountyRatio, uint256 cutRatio);
+
     /// @notice Emitted when an auto-compounder is registered or unregistered for a stability pool.
     /// @param sp The stability pool address.
     /// @param ac The auto-compounder address (address(0) = unregistered).
     event AutoCompounderSet(address indexed sp, address indexed ac);
+
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    // solhint-disable-next-line func-name-mixedcase
+    function MINTER() external view returns (address);
 
     /// @notice Register or unregister an auto-compounder for a stability pool.
     /// @dev Only one auto-compounder per stability pool. Pass address(0) to unregister.

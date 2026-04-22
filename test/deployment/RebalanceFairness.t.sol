@@ -14,7 +14,6 @@ import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.so
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import {console2} from "forge-std/console2.sol";
@@ -98,10 +97,10 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
         IMinter(minter).updatePriceOracle(address(mockOracle));
 
         // Override harvest config: set cut to 0 so harvest goes to pools, not treasury
-        vm.startPrank(StabilityPoolManager_v1(stabilityPoolManager).owner());
-        StabilityPoolManager_v1(stabilityPoolManager).updateHarvestCutRatio(0);
-        StabilityPoolManager_v1(stabilityPoolManager).updateHarvestBountyRatio(0);
-        StabilityPoolManager_v1(stabilityPoolManager).updateRebalanceBountyRatio(0);
+        vm.startPrank(IBaoOwnable(stabilityPoolManager).owner());
+        IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(0);
+        IStabilityPoolManager(stabilityPoolManager).updateHarvestBountyRatio(0);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0);
         vm.stopPrank();
 
         // Create actors

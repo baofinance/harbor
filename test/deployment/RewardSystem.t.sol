@@ -14,7 +14,6 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 /// @title Reward system tests — accumulator, distributor — using deployment framework
 contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter {

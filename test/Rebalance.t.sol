@@ -18,7 +18,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 import "@harbor-test/Useful.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
+import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
 contract TestLiquidate is TestStabilityPool2SetUp {
     address stabilityPoolManagerCollateral;
@@ -60,18 +60,18 @@ contract TestLiquidate is TestStabilityPool2SetUp {
 
         stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
             address(
-                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
+                new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
             ),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
+            abi.encodeCall(StabilityPoolManager_v2.initialize, owner)
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
         IBaoOwnable(stabilityPoolManagerCollateral).transferOwnership(owner);
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
             address(
-                new StabilityPoolManager_v1(minter, treasury, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)
+                new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)
             ),
-            abi.encodeCall(StabilityPoolManager_v1.initialize, owner)
+            abi.encodeCall(StabilityPoolManager_v2.initialize, owner)
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
         IBaoOwnable(stabilityPoolManagerLeveraged).transferOwnership(owner);

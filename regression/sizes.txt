@@ -4,8 +4,8 @@
 | ConfigMarket_BTC_fxUSD_mainnet    |              7,097 |               17,479 |               7,125 |    1,490,650 |            149.06 |
 | ConfigMarket_BTC_stETH_mainnet    |              7,123 |               17,453 |               7,151 |    1,496,110 |            149.61 |
 | ConfigMarket_ETH_fxUSD_mainnet    |              7,097 |               17,479 |               7,125 |    1,490,650 |            149.06 |
-| ConfigMarket_EUR_fxUSD_mainnet    |              7,085 |               17,491 |               7,113 |    1,488,130 |            148.81 |
-| ConfigMarket_EUR_stETH_mainnet    |              7,111 |               17,465 |               7,139 |    1,493,590 |            149.36 |
+| ConfigMarket_EUR_fxUSD_mainnet    |              7,099 |               17,477 |               7,127 |    1,491,070 |            149.11 |
+| ConfigMarket_EUR_stETH_mainnet    |              7,125 |               17,451 |               7,153 |    1,496,530 |            149.65 |
 | ConfigMarket_GOLD_fxUSD_mainnet   |              7,101 |               17,475 |               7,129 |    1,491,490 |            149.15 |
 | ConfigMarket_GOLD_stETH_mainnet   |              7,127 |               17,449 |               7,155 |    1,496,950 |            149.69 |
 | ConfigMarket_MCAP_fxUSD_mainnet   |              7,103 |               17,473 |               7,131 |    1,491,910 |            149.19 |
@@ -45,6 +45,7 @@
 | PriceOracle_v1                    |              1,958 |               22,618 |               2,010 |      411,700 |             41.17 |
 | ReservePool_v1                    |              4,760 |               19,816 |               5,009 |    1,002,090 |            100.21 |
 | StabilityPoolManager_v1           |             11,209 |               13,367 |              13,057 |    2,372,370 |            237.24 |
+| StabilityPoolManager_v2           |             12,234 |               12,342 |              14,110 |    2,587,900 |            258.79 |
 | StabilityPool_v1                  |             21,092 |                3,484 |              23,085 |    4,449,250 |            444.93 |
 | StabilityPool_v2                  |             20,711 |                3,865 |              22,579 |    4,367,990 |            436.80 |
 | StabilityPool_v3                  |             23,412 |                1,164 |              25,791 |    4,940,310 |            494.03 |

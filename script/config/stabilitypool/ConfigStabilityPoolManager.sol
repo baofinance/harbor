@@ -12,6 +12,6 @@ abstract contract ConfigStabilityPoolManager {
     }
 
     function harvestCutRatio() public pure virtual returns (uint256) {
-        return 1.00e18;
+        return 99e16;
     }
 }

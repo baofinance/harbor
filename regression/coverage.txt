@@ -44,7 +44,8 @@
 | src/minter/Minter_v2.sol                                           | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
 | src/minter/Minter_v3.sol                                           | X  99% (609/617)   | X  99% (660/667)   | X  93% (98/105)  | X  99% (70/71)    |
 | src/minter/ReservePool_v1.sol                                      | X  94% (15/16)     | ✓ 100% (15/15)     | ✓ 100% (3/3)     | X  80% (4/5)      |
-| src/minter/StabilityPoolManager_v1.sol                             | X  99% (165/166)   | X  99% (176/177)   | X  95% (20/21)   | ✓ 100% (24/24)    |
+| src/minter/StabilityPoolManager_v1.sol                             | X   0% (0/166)     | X   0% (0/177)     | X   0% (0/21)    | X   0% (0/24)     |
+| src/minter/StabilityPoolManager_v2.sol                             | X  93% (175/189)   | X  92% (188/204)   | X  71% (20/28)   | X  93% (25/27)    |
 | src/minter/StabilityPool_v1.sol                                    | X   0% (0/203)     | X   0% (0/223)     | X   0% (0/33)    | X   0% (0/22)     |
 | src/minter/StabilityPool_v2.sol                                    | X  61% (122/199)   | X  58% (127/219)   | X  19% (6/31)    | X  73% (16/22)    |
 | src/minter/StabilityPool_v3.sol                                    | ✓ 100% (234/234)   | ✓ 100% (255/255)   | ✓ 100% (33/33)   | ✓ 100% (29/29)    |
@@ -64,4 +65,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                   | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                | X  79% (15/19)     | X  73% (19/26)     | X  50% (2/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                             | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                              | X  56% (4456/7962) | X  55% (4718/8603) | X  43% (392/905) | X  56% (646/1160) |
+| Total                                                              | X  55% (4466/8151) | X  54% (4730/8807) | X  42% (392/933) | X  55% (647/1187) |

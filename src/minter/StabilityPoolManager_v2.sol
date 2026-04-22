@@ -28,7 +28,7 @@ import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
 ///         compound() is triggered on any registered AutoCompounder for each stability pool.
 /// @dev Uses UUPS proxy, erc7201 storage (same slot as v1 — struct extended safely).
 /// @custom:oz-upgrades
-// solhint-disable-next-line contract-name-camelcase
+// solhint-disable-next-line contract-name-capwords
 contract StabilityPoolManager_v2 is
     Initializable,
     UUPSUpgradeable,
@@ -257,6 +257,9 @@ contract StabilityPoolManager_v2 is
             revert InvalidHarvestBountyRatio(harvestRatio_);
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        if (harvestRatio_ + $.harvestCutRatio > 1 ether) {
+            revert InvalidHarvestRatioSum(harvestRatio_, $.harvestCutRatio);
+        }
         $.harvestBountyRatio = harvestRatio_;
 
         emit HarvestBountyUpdated(harvestRatio_);
@@ -268,6 +271,9 @@ contract StabilityPoolManager_v2 is
             revert InvalidHarvestBountyRatio(harvestCutRatio_);
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        if ($.harvestBountyRatio + harvestCutRatio_ > 1 ether) {
+            revert InvalidHarvestRatioSum($.harvestBountyRatio, harvestCutRatio_);
+        }
         $.harvestCutRatio = harvestCutRatio_;
 
         emit HarvestCutUpdated(harvestCutRatio_);
