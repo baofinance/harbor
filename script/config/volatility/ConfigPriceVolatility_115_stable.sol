@@ -2,14 +2,15 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {ConfigPriceVolatilityBase} from "./ConfigPriceVolatilityBase.sol";
 
 /// @notice Volatility configuration for 115% rebalance threshold markets.
-contract ConfigPriceVolatility_115_stable {
-    function rebalanceThreshold() public pure virtual returns (uint256) {
+contract ConfigPriceVolatility_115_stable is ConfigPriceVolatilityBase {
+    function rebalanceThreshold() public pure virtual override returns (uint256) {
         return 1.15e18;
     }
 
-    function minterConfig() public pure returns (IMinter.Config memory) {
+    function minterConfig() public pure override returns (IMinter.Config memory) {
         uint256[] memory mintPeggedBounds = new uint256[](6);
         mintPeggedBounds[0] = 1.16e18;
         mintPeggedBounds[1] = 1.25e18;
@@ -99,7 +100,4 @@ contract ConfigPriceVolatility_115_stable {
             });
     }
 
-    function autoCompounderMintMaxFeeRatio() public pure virtual returns (uint256) {
-        return 0.05 ether;
-    }
 }
