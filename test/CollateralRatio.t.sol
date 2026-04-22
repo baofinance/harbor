@@ -6,12 +6,12 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "test/Useful.sol";
+import "@harbor-test/Useful.sol";
 
 import {console2} from "forge-std/console2.sol";
 

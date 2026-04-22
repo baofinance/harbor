@@ -4,18 +4,18 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console2 as console} from "forge-std/console2.sol";
 
 import {LibString} from "@solady/utils/LibString.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
-import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
-import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
-import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
-import {Deploy_MCAP_Minter} from "script/src/Deploy_MCAP_Minter.sol";
-import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
+import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
+import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
+import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
+import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
-import {SafeBatch} from "script/safe/SafeBatch.s.sol";
+import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
 
 /// @notice Grant ZERO_FEE_ROLE to all StabilityPoolManagers on their minters.
 /// @dev This role was missing from the initial deployment. Queue as a separate Safe batch.

@@ -3,15 +3,15 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "script/config/ConfigBase.sol";
+import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IMinter_v3} from "src/interfaces/IMinter_v3.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title MinterCappedMintTest
 /// @notice Tests for Minter_v3 fee-capped minting, deployed via production deployment scripts.

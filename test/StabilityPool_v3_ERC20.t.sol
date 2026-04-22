@@ -5,12 +5,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ERC20} from "@solady/tokens/ERC20.sol";
 
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
-import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
-import {DeployEURSetUp} from "test/deployment/DeployEURSetUp.t.sol";
+import {DeployEURSetUp} from "@harbor-test/deployment/DeployEURSetUp.t.sol";
 import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
 
 /// @title TestStabilityPool_v3_ERC20

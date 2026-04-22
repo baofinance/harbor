@@ -3,12 +3,12 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IAutoCompounder} from "src/interfaces/IAutoCompounder.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {AutoCompounder_v1} from "src/autocompounding/AutoCompounder_v1.sol";
-import {DeployEURSetUp} from "test/deployment/DeployEURSetUp.t.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {AutoCompounder_v1} from "@harbor/autocompounding/AutoCompounder_v1.sol";
+import {DeployEURSetUp} from "@harbor-test/deployment/DeployEURSetUp.t.sol";
 import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
 
 /// @title AutoCompounder tests using EUR peg (fxUSD + stETH collateral).

@@ -4,14 +4,14 @@ pragma solidity >=0.8.28 <0.9.0;
 import {RebalanceFairnessSetUp} from "./RebalanceFairness.t.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {Useful} from "test/Useful.sol";
+import {Useful} from "@harbor-test/Useful.sol";
 import {console2} from "forge-std/console2.sol";
 
 /// @title Fairness gap scan over liquidation severity × leveraged fraction

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IMockLinearMultipleRewardDistributor} from "test/mocks/IMockLinearMultipleRewardDistributor.sol";
-import {MockLinearMultipleRewardDistributor_v3} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v3.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IMockLinearMultipleRewardDistributor} from "@harbor-test/mocks/IMockLinearMultipleRewardDistributor.sol";
+import {MockLinearMultipleRewardDistributor_v3} from "@harbor-test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v3.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import "forge-std/Test.sol";

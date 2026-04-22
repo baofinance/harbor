@@ -2,16 +2,16 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
-import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
+import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {Minter_v2} from "src/minter/Minter_v2.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
 
 abstract contract RebalanceCheckBase is BaoTest, HarborFactoryDeployer {
     uint256 constant FORK_BLOCK = 24687073;

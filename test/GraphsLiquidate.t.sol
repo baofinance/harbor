@@ -9,16 +9,16 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 
-import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
+import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 
-import "test/Useful.sol";
-import {TestCollateralRatioRangeSetUp} from "test/CollateralRatio.t.sol";
-import {TestGraphs} from "test/Graphs.t.sol";
+import "@harbor-test/Useful.sol";
+import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
+import {TestGraphs} from "@harbor-test/Graphs.t.sol";
 
 contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp {
     string liquidateFile;

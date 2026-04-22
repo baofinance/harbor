@@ -7,15 +7,15 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
-import "test/Useful.sol";
-import {TestMinterSetUp} from "test/Minter_base.t.sol";
+import "@harbor-test/Useful.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterHarvestSetUp is TestMinterSetUp {
     function setUpConfig() internal virtual override {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 /// @notice Volatility configuration for 130% rebalance threshold markets.
 contract ConfigPriceVolatility_130_stable {

@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {SafeBatch} from "script/safe/SafeBatch.s.sol";
+import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
 
 /// @notice Queue a Safe transaction to pause the ETH::fxUSD stabilityPoolLeveraged
 /// by upgrading its proxy to BaoPauser_v1.

@@ -4,13 +4,13 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
-import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 
 /// @title TestStabilityPoolExtra
 /// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool_v3 contract.

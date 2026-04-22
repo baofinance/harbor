@@ -14,23 +14,23 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-import {Minter_v3} from "src/minter/Minter_v3.sol";
+import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
+import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Token} from "@bao/Token.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
-import {IBaoUSD} from "test/IBaoUSD.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {IBaoUSD} from "@harbor-test/IBaoUSD.sol";
 import {MockERC20, MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "@bao-test/mocks/MockERC20.sol";
-import "test/Useful.sol";
-import {Array} from "test/Array.sol";
+import "@harbor-test/Useful.sol";
+import {Array} from "@harbor-test/Array.sol";
 
-import {ConfigFile} from "test/Config.sol";
+import {ConfigFile} from "@harbor-test/Config.sol";
 
 abstract contract TestExtras is Test {
     function isNear(uint256 a, uint256 b, uint256 maxAbsDiff, uint256 maxRelDiff) internal pure returns (bool near) {

@@ -3,11 +3,11 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {TestStabilityPoolBaseSetUp} from "test/StabilityPoolBaseSetUp.t.sol";
+import {TestStabilityPoolBaseSetUp} from "@harbor-test/StabilityPoolBaseSetUp.t.sol";
 
 /// @title TestStabilityPoolLoss
 /// @notice Consolidated test suite for loss-related functionality in StabilityPool

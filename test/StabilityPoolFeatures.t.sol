@@ -3,11 +3,11 @@ pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 
 contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     function setUp() public override(TestStabilityPoolSetUp) {

@@ -9,15 +9,15 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
-import {StabilityPool_v2} from "src/minter/StabilityPool_v2.sol";
-import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
+import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 
 /// @title TestStabilityPoolUpgradeMigration
 /// @notice Tests that upgrading StabilityPool_v2 → StabilityPool_v3 via UUPS proxy preserves

@@ -3,10 +3,10 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
+import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
 
 /// @title TestStabilityPoolLossSetUp
 /// @notice Base setup for all stability pool loss tests

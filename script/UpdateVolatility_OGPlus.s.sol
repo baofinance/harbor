@@ -3,17 +3,17 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
 
-import {SafeBatch} from "script/safe/SafeBatch.s.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
-import {ConfigPriceVolatility_130_stable} from "script/config/volatility/ConfigPriceVolatility_130_stable.sol";
-import {ConfigPriceVolatility_130} from "script/config/volatility/ConfigPriceVolatility_130.sol";
-import {ConfigPriceVolatility_125_stable} from "script/config/volatility/ConfigPriceVolatility_125_stable.sol";
-import {ConfigPriceVolatility_125} from "script/config/volatility/ConfigPriceVolatility_125.sol";
-// import {ConfigPriceVolatility_115_stable} from "script/config/volatility/ConfigPriceVolatility_115_stable.sol";
-import {ConfigPriceVolatility_115} from "script/config/volatility/ConfigPriceVolatility_115.sol";
-// import {ConfigPriceVolatility_105_stable} from "script/config/volatility/ConfigPriceVolatility_105_stable.sol";
-import {ConfigPriceVolatility_105} from "script/config/volatility/ConfigPriceVolatility_105.sol";
+import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {ConfigPriceVolatility_130_stable} from "@harbor-script/config/volatility/ConfigPriceVolatility_130_stable.sol";
+import {ConfigPriceVolatility_130} from "@harbor-script/config/volatility/ConfigPriceVolatility_130.sol";
+import {ConfigPriceVolatility_125_stable} from "@harbor-script/config/volatility/ConfigPriceVolatility_125_stable.sol";
+import {ConfigPriceVolatility_125} from "@harbor-script/config/volatility/ConfigPriceVolatility_125.sol";
+// import {ConfigPriceVolatility_115_stable} from "@harbor-script/config/volatility/ConfigPriceVolatility_115_stable.sol";
+import {ConfigPriceVolatility_115} from "@harbor-script/config/volatility/ConfigPriceVolatility_115.sol";
+// import {ConfigPriceVolatility_105_stable} from "@harbor-script/config/volatility/ConfigPriceVolatility_105_stable.sol";
+import {ConfigPriceVolatility_105} from "@harbor-script/config/volatility/ConfigPriceVolatility_105.sol";
 
 /// @notice Update volatility config for SILVER::fxUSD to 125.
 /// @dev Run with: ./script/safe-batch UpdateVolatility_OGPlus --salt harbor_v1

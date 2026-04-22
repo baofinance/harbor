@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {stdJson} from "forge-std/StdJson.sol";
 import {Test} from "forge-std/Test.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 abstract contract ConfigFile is Test {
     function readConfigFile(string memory fileName) internal view returns (IMinter.Config memory config) {

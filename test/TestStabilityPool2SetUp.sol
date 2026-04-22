@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
+import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
 
 contract TestStabilityPool2SetUp is TestStabilityPoolRebalanceSetUp {
     address stabilityPoolLeveraged;

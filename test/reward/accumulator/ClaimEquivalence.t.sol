@@ -5,10 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {MockMultipleRewardCompoundingAccumulator_v3} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
+import {MockMultipleRewardCompoundingAccumulator_v3} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
 
 /// @title ClaimTest
 /// @notice Verifies claim() and claimHistorical() routing across all supported call signatures.

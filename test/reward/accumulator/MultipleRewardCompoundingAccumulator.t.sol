@@ -4,12 +4,12 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMockMultipleRewardCompoundingAccumulator} from "test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMockMultipleRewardCompoundingAccumulator} from "@harbor-test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
 
 import {Test, Vm} from "forge-std/Test.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockMultipleRewardCompoundingAccumulator_v3} from "test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
+import {MockMultipleRewardCompoundingAccumulator_v3} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
 
 contract MultipleRewardCompoundingAccumulatorTest is Test {
     // Addresses

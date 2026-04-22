@@ -6,12 +6,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
+import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
 
 /// @title StabilityPoolSpec
 /// @notice Specification tests for the StabilityPool contract

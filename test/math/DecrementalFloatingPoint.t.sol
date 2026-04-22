@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import "src/math/DecrementalFloatingPoint.sol";
+import "@harbor/math/DecrementalFloatingPoint.sol";
 
 contract MockDecrementalFloatingPoint {
     function encode(uint8 _exponent, uint120 _magnitude) public pure returns (uint128) {

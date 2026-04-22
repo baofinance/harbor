@@ -7,11 +7,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
-import {Minter_v1} from "src/minter/Minter_v1.sol";
-import {Minter_v2} from "src/minter/Minter_v2.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {Minter_v1} from "@harbor/minter/Minter_v1.sol";
+import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-import {TestMinterSetUp} from "test/Minter_base.t.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 /// @title TestMinterUpgradeMigration
 /// @notice Tests that upgrading Minter_v1 → Minter_v2 via UUPS proxy preserves

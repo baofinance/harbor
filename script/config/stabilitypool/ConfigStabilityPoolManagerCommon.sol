@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {ConfigStabilityPoolManager} from "./ConfigStabilityPoolManager.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
 
 /// @notice Shared stability pool manager fee receiver and parameter defaults.
 /// @dev Keeps stability pool manager concerns separate from minter config.

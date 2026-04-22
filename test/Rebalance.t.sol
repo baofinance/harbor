@@ -5,20 +5,20 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
-import "test/Useful.sol";
-import {TestStabilityPool2SetUp} from "test/TestStabilityPool2SetUp.sol";
-import {IStabilityPoolManager} from "src/interfaces/IStabilityPoolManager.sol";
-import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import "@harbor-test/Useful.sol";
+import {TestStabilityPool2SetUp} from "@harbor-test/TestStabilityPool2SetUp.sol";
+import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 
 contract TestLiquidate is TestStabilityPool2SetUp {
     address stabilityPoolManagerCollateral;

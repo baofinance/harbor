@@ -13,8 +13,8 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {ReservePool_v1} from "src/minter/ReservePool_v1.sol";
-import {IReservePool} from "src/interfaces/IReservePool.sol";
+import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
+import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 

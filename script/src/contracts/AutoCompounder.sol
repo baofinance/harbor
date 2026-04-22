@@ -2,12 +2,12 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 import {AutoCompounder_v1} from "@harbor/autocompounding/AutoCompounder_v1.sol";
-import {Config_MinterMarket, MinterMarketConfigLib, IMarketConfig} from "script/config/ConfigBase.sol";
-import {ConfigTokenNames} from "script/config/ConfigTokenNames.sol";
+import {Config_MinterMarket, MinterMarketConfigLib, IMarketConfig} from "@harbor-script/config/ConfigBase.sol";
+import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 
 /// @notice Config interface for auto-compounder deployment parameters.
 interface IAutoCompounderMarketConfig {

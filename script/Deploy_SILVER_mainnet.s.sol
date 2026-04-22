@@ -2,9 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
-import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "script/config/ConfigBase.sol";
+import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice Deploy Harbor SILVER pegged token and SILVER markets.
 contract Deploy_SILVER_mainnet is Deploy_SILVER_Minter, Script {

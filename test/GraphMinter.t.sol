@@ -4,9 +4,9 @@ pragma solidity >=0.8.28 <0.9.0;
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import "test/Useful.sol";
-import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
-import {TestGraph} from "test/Graph.t.sol";
+import "@harbor-test/Useful.sol";
+import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
+import {TestGraph} from "@harbor-test/Graph.t.sol";
 
 abstract contract TestGraphMinter is TestGraph, TestMinterFeeSetUp {
     string file;

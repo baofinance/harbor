@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import "forge-std/Test.sol";
-import {LinearReward} from "src/reward/distributor/LinearReward.sol";
+import {LinearReward} from "@harbor/reward/distributor/LinearReward.sol";
 
 contract TestLinearRewardFix is Test {
     using LinearReward for LinearReward.RewardData;

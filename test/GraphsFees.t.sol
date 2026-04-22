@@ -4,11 +4,11 @@ pragma solidity >=0.8.28 <0.9.0;
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-import "test/Useful.sol";
-import {TestCollateralRatioRangeSetUp} from "test/CollateralRatio.t.sol";
-import {TestGraphs} from "test/Graphs.t.sol";
+import "@harbor-test/Useful.sol";
+import {TestCollateralRatioRangeSetUp} from "@harbor-test/CollateralRatio.t.sol";
+import {TestGraphs} from "@harbor-test/Graphs.t.sol";
 
 contract TestGraphsFees is TestGraphs, TestCollateralRatioRangeSetUp {
     string feesFile;

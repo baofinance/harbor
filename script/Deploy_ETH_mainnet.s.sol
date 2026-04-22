@@ -2,9 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
-import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "script/config/ConfigBase.sol";
+import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice Deploy Harbor ETH pegged token and ETH markets.
 contract Deploy_ETH_mainnet is Deploy_ETH_Minter, Script {

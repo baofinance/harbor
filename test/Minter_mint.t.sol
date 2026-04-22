@@ -4,12 +4,12 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
-import "test/Useful.sol";
-import {TestMinterSetUp} from "test/Minter_base.t.sol";
+import "@harbor-test/Useful.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 
 contract TestMinterMint is TestMinterSetUp {
     using SafeERC20 for IERC20;

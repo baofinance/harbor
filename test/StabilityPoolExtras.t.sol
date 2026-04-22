@@ -7,9 +7,9 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {Token} from "@bao/Token.sol";
 
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
-import {TestStabilityPoolRebalanceSetUp} from "test/StabilityPoolRebalance.t.sol";
+import {TestStabilityPoolRebalanceSetUp} from "@harbor-test/StabilityPoolRebalance.t.sol";
 
 /// @title TestStabilityPoolExtra
 /// @dev This contract is designed to test additional functionalities and edge cases of the StabilityPool contract.

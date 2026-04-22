@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {MultipleRewardCompoundingAccumulator_v3} from "src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
+import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
 contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleRewardCompoundingAccumulator_v3 {
     event AccumulateReward(address token, uint256 amount);

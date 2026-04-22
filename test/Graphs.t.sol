@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import "test/Useful.sol";
+import "@harbor-test/Useful.sol";
 
 abstract contract TestGraphs is Test {
     int256 NaN = type(int256).max;

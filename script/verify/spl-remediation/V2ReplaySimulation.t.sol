@@ -2,16 +2,16 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
-import {StabilityPoolManager_v1} from "src/minter/StabilityPoolManager_v1.sol";
+import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {Minter_v2} from "src/minter/Minter_v2.sol";
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 /// @title V1/V2 Replay Simulation

@@ -17,12 +17,12 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Token} from "@bao/Token.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
-import {TokenDistributor_v1} from "src/minter/TokenDistributor_v1.sol";
-import {ITokenDistributor} from "src/interfaces/ITokenDistributor.sol";
+import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
+import {ITokenDistributor} from "@harbor/interfaces/ITokenDistributor.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 
-import {Array} from "test/Array.sol";
+import {Array} from "@harbor-test/Array.sol";
 
 contract TestTokenDistributorSetUp is Test, Array {
     using ECDSA for bytes32;

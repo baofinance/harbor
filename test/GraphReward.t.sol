@@ -7,15 +7,15 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import "test/Useful.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {TestStabilityPoolSetUp} from "test/StabilityPool.t.sol";
-import {TestGraph} from "test/Graph.t.sol";
+import "@harbor-test/Useful.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {TestGraph} from "@harbor-test/Graph.t.sol";
 
 abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
     string rewardFile;

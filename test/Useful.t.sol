@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 
-import {Useful} from "test/Useful.sol";
+import {Useful} from "@harbor-test/Useful.sol";
 
 contract TestUsefulSimples is Test {
     bytes zeroA = new bytes(0);

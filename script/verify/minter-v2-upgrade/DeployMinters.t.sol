@@ -3,17 +3,17 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
-import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
-import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
-import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
-import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
+import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
+import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 

@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {MockLinearMultipleRewardDistributor_v3} from "test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v3.sol";
+import {MockLinearMultipleRewardDistributor_v3} from "@harbor-test/mocks/reward/distributor/MockLinearMultipleRewardDistributor_v3.sol";
 import "forge-std/Test.sol";
 
 /// @title Test Deposit After finishAt is Zero

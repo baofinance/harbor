@@ -16,17 +16,17 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 
-import {TestMinterFeeSetUp} from "test/Minter_fees.t.sol";
+import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
 
 // New version for testing upgrades
 contract StabilityPool_vN is StabilityPool_v3 {

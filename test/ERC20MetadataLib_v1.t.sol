@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import "forge-std/Test.sol";
 
-import {ERC20MetadataLib_v1} from "src/util/ERC20MetadataLib_v1.sol";
+import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 /// @dev Tests ERC20MetadataLib_v1: round-trip of pack/unpack for the symbol (1..31 chars,
 ///      delegates to Solady) and name (1..63 chars, custom mload/mstore implementation).

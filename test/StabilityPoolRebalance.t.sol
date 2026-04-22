@@ -6,14 +6,14 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IWrappedPriceOracle} from "src/interfaces/IWrappedPriceOracle.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
-import {DecrementalFloatingPoint} from "src/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {TestStabilityPoolSetUp, MockStabilityPool} from "test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
 
 abstract contract TestStabilityPoolRebalanceSetUp is TestStabilityPoolSetUp {
     address user3;

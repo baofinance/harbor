@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-import {MockWrappedPriceOracle} from "test/mocks/MockWrappedPriceOracle.sol";
-import {TestStabilityPoolManagerSetUp} from "test/StabilityPoolManager_v1.t.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager_v1.t.sol";
 
-import "test/Useful.sol";
+import "@harbor-test/Useful.sol";
 
 contract EverythingTest is TestStabilityPoolManagerSetUp {
     bool immutable isDepegged;

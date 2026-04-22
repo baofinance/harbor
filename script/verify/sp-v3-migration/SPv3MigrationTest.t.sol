@@ -2,16 +2,16 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IStabilityPool} from "src/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "src/interfaces/IMultipleRewardAccumulator.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ForceMigrateAccumulator_v1} from "script/verify/sp-v3-migration/ForceMigrateAccumulator_v1.sol";
-import {StabilityPool_v3} from "src/minter/StabilityPool_v3.sol";
+import {ForceMigrateAccumulator_v1} from "@harbor-script/verify/sp-v3-migration/ForceMigrateAccumulator_v1.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 /// @title SPv3MigrationTest

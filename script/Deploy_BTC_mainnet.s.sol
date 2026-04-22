@@ -2,9 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Script} from "forge-std/Script.sol";
-import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "script/config/ConfigBase.sol";
+import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice Deploy Harbor BTC pegged token and BTC markets.
 contract Deploy_BTC_mainnet is Deploy_BTC_Minter, Script {

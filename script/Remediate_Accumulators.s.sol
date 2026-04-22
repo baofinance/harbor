@@ -4,19 +4,19 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 
-import {ForceMigrateAccumulator_v1} from "script/verify/sp-v3-migration/ForceMigrateAccumulator_v1.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {ForceMigrateAccumulator_v1} from "@harbor-script/verify/sp-v3-migration/ForceMigrateAccumulator_v1.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {Deploy_BTC_Minter} from "script/src/Deploy_BTC_Minter.sol";
-import {Deploy_ETH_Minter} from "script/src/Deploy_ETH_Minter.sol";
-import {Deploy_EUR_Minter} from "script/src/Deploy_EUR_Minter.sol";
-import {Deploy_GOLD_Minter} from "script/src/Deploy_GOLD_Minter.sol";
-import {Deploy_MCAP_Minter} from "script/src/Deploy_MCAP_Minter.sol";
-import {Deploy_SILVER_Minter} from "script/src/Deploy_SILVER_Minter.sol";
+import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
+import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
+import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
+import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
-import {SafeBatch} from "script/safe/SafeBatch.s.sol";
+import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
 
 /// @notice Force-migrate accumulator storage from V1 (uint192) to V2 (uint256) format
 /// for all stability pools across all markets.

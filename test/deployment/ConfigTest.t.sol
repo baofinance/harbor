@@ -2,14 +2,14 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {MinterMarketConfigLib, Config_MinterMarket} from "script/config/ConfigBase.sol";
-import {ConfigMarket_ETH_fxUSD_mainnet} from "script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
-import {ConfigMarket_BTC_fxUSD_mainnet} from "script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol";
-import {ConfigMarket_BTC_stETH_mainnet} from "script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
-import {ConfigMarket_GOLD_fxUSD_mainnet} from "script/config/markets/ConfigMarket_GOLD_fxUSD_mainnet.sol";
-import {ConfigMarket_GOLD_stETH_mainnet} from "script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol";
-import {ConfigMarket_EUR_fxUSD_mainnet} from "script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
-import {ConfigMarket_EUR_stETH_mainnet} from "script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
+import {MinterMarketConfigLib, Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
+import {ConfigMarket_BTC_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_fxUSD_mainnet.sol";
+import {ConfigMarket_BTC_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_BTC_stETH_mainnet.sol";
+import {ConfigMarket_GOLD_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_GOLD_fxUSD_mainnet.sol";
+import {ConfigMarket_GOLD_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_GOLD_stETH_mainnet.sol";
+import {ConfigMarket_EUR_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_fxUSD_mainnet.sol";
+import {ConfigMarket_EUR_stETH_mainnet} from "@harbor-script/config/markets/ConfigMarket_EUR_stETH_mainnet.sol";
 
 contract ConfigTest is Test {
     using MinterMarketConfigLib for Config_MinterMarket;

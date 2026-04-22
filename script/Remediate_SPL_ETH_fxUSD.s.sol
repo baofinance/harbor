@@ -3,12 +3,12 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {PostRebalanceRemediationForStabilityPool_v2} from "script/verify/spl-remediation/PostRebalanceRemediationForStabilityPool_v2.sol";
-import {SafeBatch} from "script/safe/SafeBatch.s.sol";
+import {PostRebalanceRemediationForStabilityPool_v2} from "@harbor-script/verify/spl-remediation/PostRebalanceRemediationForStabilityPool_v2.sol";
+import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 
 interface Ownable {

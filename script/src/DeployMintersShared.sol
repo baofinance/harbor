@@ -10,13 +10,13 @@ import {StabilityPool} from "./contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "./contracts/StabilityPoolManager.sol";
 import {Genesis} from "./contracts/Genesis.sol";
 import {AutoCompounder, IAutoCompounderMarketConfig} from "./contracts/AutoCompounder.sol";
-import {HarborFactoryDeployer} from "script/src/HarborFactoryDeployer.sol";
+import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "script/config/ConfigBase.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
-import {IMultipleRewardDistributor} from "src/interfaces/IMultipleRewardDistributor.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 /// @notice Extended market config interface with methods from collateral and chain configs.
 interface IFullMinterConfig {
@@ -233,8 +233,6 @@ abstract contract DeployMintersShared is
         // ETH price oracle: peg-scoped (same oracle for all markets with the same peg).
         // Deployed by harbor-price-aggregators deploy scripts; address derived from peg name.
         address pegOracle = predictEthPriceOracleAddress(IMarketConfig(address(cfg)).peg());
-
-        IAutoCompounderMarketConfig acCfg = IAutoCompounderMarketConfig(address(cfg));
 
         // Standalone ACs (no HarborYield) — pass address(0) as yieldManager.
         deployAutoCompounder(

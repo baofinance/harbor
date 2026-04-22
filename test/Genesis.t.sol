@@ -10,12 +10,12 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {IGenesis} from "src/interfaces/IGenesis.sol";
-import {IMinter} from "src/interfaces/IMinter.sol";
+import {IGenesis} from "@harbor/interfaces/IGenesis.sol";
+import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-import {Genesis_v1} from "src/minter/Genesis_v1.sol";
+import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 
-import {TestMinterSetUp} from "test/Minter_base.t.sol";
+import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 import {Token} from "@bao/Token.sol";
 
 contract Test_GenesisBase is TestMinterSetUp {
