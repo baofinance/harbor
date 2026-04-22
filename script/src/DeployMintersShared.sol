@@ -9,12 +9,11 @@ import {Minter} from "./contracts/Minter.sol";
 import {StabilityPool} from "./contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "./contracts/StabilityPoolManager.sol";
 import {Genesis} from "./contracts/Genesis.sol";
-import {AutoCompounder, IAutoCompounderMarketConfig} from "./contracts/AutoCompounder.sol";
 import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
@@ -45,8 +44,7 @@ abstract contract DeployMintersShared is
     Minter,
     StabilityPool,
     StabilityPoolManager,
-    Genesis,
-    AutoCompounder
+    Genesis
 {
     using LibString for string;
 
@@ -170,9 +168,6 @@ abstract contract DeployMintersShared is
         // Register reward tokens on SPs
         _registerRewardTokens(cfg, marketKey);
 
-        // Deploy Auto-Compounders (one per SP)
-        _deployAutoCompounders(state, cfg, marketKey);
-
         // Deploy StabilityPoolManager
         _deployStabilityPoolManager(state, cfg, marketKey);
 
@@ -218,41 +213,6 @@ abstract contract DeployMintersShared is
             Config_MinterMarket(address(cfg)),
             minter,
             _predictAddress(_key(marketKey, "leveraged"))
-        );
-    }
-
-    function _deployAutoCompounders(
-        DeploymentTypes.State memory stateData,
-        IFullMinterConfig cfg,
-        string memory marketKey
-    ) internal {
-        address minter = _predictAddress(_key(marketKey, "minter"));
-        address spCollateral = _predictAddress(_key(marketKey, StabilityPoolCollateral));
-        address spLeveraged = _predictAddress(_key(marketKey, StabilityPoolLeveraged));
-
-        // ETH price oracle: peg-scoped (same oracle for all markets with the same peg).
-        // Deployed by harbor-price-aggregators deploy scripts; address derived from peg name.
-        address pegOracle = predictEthPriceOracleAddress(IMarketConfig(address(cfg)).peg());
-
-        // Standalone ACs (no HarborYield) — pass address(0) as yieldManager.
-        deployAutoCompounder(
-            AutoCompounderCollateral,
-            stateData,
-            Config_MinterMarket(address(cfg)),
-            spCollateral,
-            minter,
-            address(0),
-            pegOracle
-        );
-
-        deployAutoCompounder(
-            AutoCompounderLeveraged,
-            stateData,
-            Config_MinterMarket(address(cfg)),
-            spLeveraged,
-            minter,
-            address(0),
-            pegOracle
         );
     }
 
@@ -306,12 +266,8 @@ abstract contract DeployMintersShared is
         // Grant roles — each helper predicts its own addresses from marketKey
         grantReservePoolRoles(marketKey);
         grantMinterRoles(marketKey);
-        grantStabilityPoolRoles(marketKey, StabilityPoolCollateral, AutoCompounderCollateral);
-        grantStabilityPoolRoles(marketKey, StabilityPoolLeveraged, AutoCompounderLeveraged);
-
-        // Configure Auto-Compounders (approve compound tokens — maxFeeRatio is now an immutable set at deploy)
-        configureAutoCompounder(marketKey, AutoCompounderCollateral);
-        configureAutoCompounder(marketKey, AutoCompounderLeveraged);
+        grantStabilityPoolRoles(marketKey, StabilityPoolCollateral);
+        grantStabilityPoolRoles(marketKey, StabilityPoolLeveraged);
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(

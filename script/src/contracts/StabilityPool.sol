@@ -88,11 +88,10 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         proxy = _deployProxyAndRecord(stateData, spKey, impl, initData);
     }
 
-    /// @notice Grant StabilityPool roles to StabilityPoolManager and AutoCompounder.
+    /// @notice Grant StabilityPool roles to StabilityPoolManager.
     /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
     /// @param spType "stabilityPoolCollateral" or "stabilityPoolLeveraged".
-    /// @param acType The matching AC type ("autoCompounderCollateral" or "autoCompounderLeveraged").
-    function grantStabilityPoolRoles(string memory marketKey, string memory spType, string memory acType) internal {
+    function grantStabilityPoolRoles(string memory marketKey, string memory spType) internal {
         string memory spKey = _key(marketKey, spType);
         address sp = _predictAddress(spKey);
 
@@ -101,9 +100,5 @@ abstract contract StabilityPool is HarborFactoryDeployer {
         StabilityPool_v3 pool = StabilityPool_v3(sp);
         uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
         _grantRoles(spKey, sp, spm, "stabilityPoolManager", roles, "REBALANCER | REWARD_DEPOSITOR");
-
-        // AC gets EXEMPT_WITHDRAWAL_FEE
-        address ac = _predictAddress(_key(marketKey, acType));
-        _grantRoles(spKey, sp, ac, acType, pool.EXEMPT_WITHDRAWAL_FEE_ROLE(), "EXEMPT_WITHDRAWAL_FEE");
     }
 }
