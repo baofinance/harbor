@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""
+Replay ERC-20 Transfer logs for a leveraged token over a block range and derive
+per-address balances from deltas (mint = +, redeem/burn = -, transfers in/out).
+
+Standard ERC-20:
+  - Mint:   Transfer(0x0, holder, value)  -> holder += value
+  - Redeem/burn: Transfer(holder, 0x0, value) -> holder -= value
+  - Transfer:   Transfer(a, b, v) -> a -= v, b += v
+
+Requires: cast (Foundry) on PATH, jq optional (not used).
+
+Assumes zero balances for all addresses before --from-block. If the token had
+transfers before that block, move --from-block to deployment (or earlier).
+
+Default range matches fxSAVE leveraged token / minter proxy deployment context
+on Ethereum mainnet (adjust as needed).
+
+Usage:
+  export ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/...
+  export PATH="$HOME/.foundry/bin:$PATH"
+  # Alchemy *Free* allows at most 10 blocks per eth_getLogs (default chunk is 10).
+  # Paid / other RPCs: LOG_CHUNK_SIZE=50000 ./script/leveraged-token-balances-from-transfers ...
+  ./script/leveraged-token-balances-from-transfers \\
+    --from-block 24049509 --to-block 24683994 \\
+    --out deployments/analysis/fxsave-leveraged-balances-24683994.csv
+
+  ./script/leveraged-token-balances-from-transfers \\
+    --from-block 24049509 --to-block 24683994 \\
+    --compare-total-supply
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import subprocess
+import sys
+from collections import defaultdict
+
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+ZERO = "0x0000000000000000000000000000000000000000"
+
+DEFAULT_TOKEN = "0x0cd6bb1a0cfd95e2779edc6d17b664b481f2eb4c"
+DEFAULT_FROM_BLOCK = 24049509
+DEFAULT_TO_BLOCK = 24683994
+
+
+def topic_to_address(topic: str) -> str:
+    t = topic.removeprefix("0x")
+    return ("0x" + t[-40:]).lower()
+
+
+def run_cast_get_logs(rpc_url: str, token: str, from_block: int, to_block: int) -> list[dict]:
+    # Alchemy / many nodes expect a single filter object here, not [filter].
+    filt = {
+        "fromBlock": hex(from_block),
+        "toBlock": hex(to_block),
+        "address": token,
+        "topics": [TRANSFER_TOPIC],
+    }
+    payload = json.dumps(filt)
+    r = subprocess.run(
+        ["cast", "rpc", "eth_getLogs", payload, "--rpc-url", rpc_url],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr or r.stdout or "cast rpc failed\n")
+        raise SystemExit(r.returncode or 1)
+    try:
+        logs = json.loads(r.stdout)
+    except json.JSONDecodeError as e:
+        sys.stderr.write(f"Invalid JSON from cast rpc:\n{r.stdout[:2000]}\n")
+        raise SystemExit(1) from e
+    if not isinstance(logs, list):
+        sys.stderr.write(f"Expected log array, got: {type(logs)}\n")
+        raise SystemExit(1)
+    return logs
+
+
+def fetch_all_logs(
+    rpc_url: str, token: str, from_block: int, to_block: int, chunk: int
+) -> list[dict]:
+    out: list[dict] = []
+    cur = from_block
+    while cur <= to_block:
+        end = min(cur + chunk - 1, to_block)
+        sys.stderr.write(f"# eth_getLogs blocks {cur}..{end} ({len(out)} logs so far)\n")
+        batch = run_cast_get_logs(rpc_url, token, cur, end)
+        out.extend(batch)
+        cur = end + 1
+    return out
+
+
+def apply_transfers(logs: list[dict]) -> dict[str, int]:
+    balances: dict[str, int] = defaultdict(int)
+    for log in logs:
+        topics = log.get("topics") or []
+        if len(topics) < 3:
+            continue
+        if topics[0].lower() != TRANSFER_TOPIC.lower():
+            continue
+        from_a = topic_to_address(topics[1])
+        to_a = topic_to_address(topics[2])
+        data = log.get("data") or "0x"
+        value = int(data, 16) if data not in ("0x", "") else 0
+        if from_a != ZERO:
+            balances[from_a] -= value
+        if to_a != ZERO:
+            balances[to_a] += value
+    return balances
+
+
+def cast_call_uint(rpc_url: str, block: int, target: str, sig: str) -> int:
+    r = subprocess.run(
+        [
+            "cast",
+            "call",
+            target,
+            sig,
+            "--rpc-url",
+            rpc_url,
+            "--block",
+            str(block),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return int(r.stdout.strip(), 0)
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="Balances from Transfer logs over a block range")
+    p.add_argument("--rpc-url", default=os.environ.get("ETH_RPC_URL", ""), help="or ETH_RPC_URL")
+    p.add_argument("--token", default=DEFAULT_TOKEN, help="Leveraged ERC-20")
+    p.add_argument("--from-block", type=int, default=DEFAULT_FROM_BLOCK)
+    p.add_argument("--to-block", type=int, default=DEFAULT_TO_BLOCK)
+    p.add_argument(
+        "--chunk-size",
+        type=int,
+        default=int(os.environ.get("LOG_CHUNK_SIZE", "10")),
+        help="Blocks per eth_getLogs request; Alchemy Free max is 10. Paid RPCs: try 50000 (env LOG_CHUNK_SIZE)",
+    )
+    p.add_argument(
+        "--out",
+        default="",
+        help="CSV path (address,balance_wei); default stdout",
+    )
+    p.add_argument(
+        "--include-zero",
+        action="store_true",
+        help="Also write rows with balance 0 (usually huge)",
+    )
+    p.add_argument(
+        "--compare-total-supply",
+        action="store_true",
+        help="Compare sum of positive balances to token.totalSupply() at --to-block",
+    )
+    args = p.parse_args()
+
+    if not args.rpc_url:
+        sys.stderr.write("error: set ETH_RPC_URL or --rpc-url\n")
+        raise SystemExit(1)
+    if args.from_block > args.to_block:
+        sys.stderr.write("error: --from-block must be <= --to-block\n")
+        raise SystemExit(1)
+
+    token = args.token.lower()
+    if not token.startswith("0x"):
+        token = "0x" + token
+
+    span = args.to_block - args.from_block + 1
+    n_chunks = (span + args.chunk_size - 1) // args.chunk_size
+    sys.stderr.write(
+        f"# block span {span} with chunk-size {args.chunk_size} => ~{n_chunks} eth_getLogs calls\n"
+    )
+
+    logs = fetch_all_logs(args.rpc_url, token, args.from_block, args.to_block, args.chunk_size)
+    sys.stderr.write(f"# total Transfer logs: {len(logs)}\n")
+
+    balances = apply_transfers(logs)
+
+    rows = []
+    for addr, bal in sorted(balances.items()):
+        if bal == 0 and not args.include_zero:
+            continue
+        rows.append((addr, bal))
+
+    out_fp = open(args.out, "w", newline="") if args.out else sys.stdout
+    try:
+        w = csv.writer(out_fp)
+        w.writerow(["address", "balance_wei"])
+        for addr, bal in rows:
+            w.writerow([addr, str(bal)])
+    finally:
+        if args.out:
+            out_fp.close()
+
+    sys.stderr.write(f"# addresses with non-zero balance: {len(rows)}\n")
+
+    if args.compare_total_supply:
+        onchain = cast_call_uint(args.rpc_url, args.to_block, token, "totalSupply()(uint256)")
+        summed = sum(balances.values())
+        sys.stderr.write(f"# totalSupply() at block {args.to_block}: {onchain}\n")
+        sys.stderr.write(f"# sum of all derived balances (incl. zeros): {summed}\n")
+        if summed != onchain:
+            sys.stderr.write(
+                "# mismatch: usually --from-block is after first mint, incomplete logs, or non-standard token\n"
+            )
+        else:
+            sys.stderr.write("# sum matches totalSupply (good)\n")
+
+
+if __name__ == "__main__":
+    main()

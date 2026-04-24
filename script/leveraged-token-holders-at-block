@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+#
+# Query leveraged (hs) token balances at a historical block.
+#
+# Mint/redeem on the minter only change ERC20 balances via mint/burn/transfer;
+# at block N, token.balanceOf(holder) is already the correct on-chain state.
+#
+# Usage:
+#   ETH_RPC_URL=https://eth.llamarpc.com script/leveraged-token-holders-at-block \
+#     --block 24683994 --address 0xYourHolder
+#
+#   script/leveraged-token-holders-at-block --block 24683994 --addresses-file holders.txt
+#
+#   # Build holder set from Transfer logs (chunked RPC); then balanceOf at block
+#   script/leveraged-token-holders-at-block --block 24683994 --discover-holders
+#
+# Defaults (Ethereum mainnet fxSAVE market from Etherscan):
+#   --token   0x0cd6bb1a0cfd95e2779edc6d17b664b481f2eb4c  (leveraged token)
+#   --minter  0xd6E2F8e57b4aFB51C6fA4cbC012e1cE6aEad989F  (optional sanity: LEVERAGED_TOKEN)
+#
+# To rebuild balances from Transfer logs (mint + / burn -) over a block range, see:
+#   script/leveraged-token-balances-from-transfers
+#
+set -euo pipefail
+
+TRANSFER_TOPIC="$(cast keccak "Transfer(address,address,uint256)")"
+
+DEFAULT_TOKEN="0x0cd6bb1a0cfd95e2779edc6d17b664b481f2eb4c"
+DEFAULT_MINTER="0xd6E2F8e57b4aFB51C6fA4cbC012e1cE6aEad989F"
+
+RPC_URL="${ETH_RPC_URL:-}"
+BLOCK=""
+TOKEN="$DEFAULT_TOKEN"
+MINTER="$DEFAULT_MINTER"
+SKIP_MINTER_CHECK=false
+DISCOVER_HOLDERS=false
+# Alchemy Free tier: max 10 blocks per eth_getLogs. Paid RPCs: export LOG_CHUNK_SIZE=50000
+CHUNK_SIZE="${LOG_CHUNK_SIZE:-10}"
+ADDRESSES=()
+ADDRESSES_FILE=""
+
+usage() {
+  cat <<EOF
+Usage: $0 --block <n> [options]
+
+Required:
+  --block <n>              Block number (historical eth_call / getLogs use this height)
+
+Options:
+  --rpc-url <url>          RPC endpoint (else ETH_RPC_URL)
+  --token <address>        Leveraged ERC20 (default: $DEFAULT_TOKEN)
+  --minter <address>       Minter proxy; checks LEVERAGED_TOKEN() at block (default: $DEFAULT_MINTER)
+  --skip-minter-check      Do not verify token against minter
+  --address <addr>        Single holder (repeatable)
+  --addresses-file <path> One Ethereum address per line (also counts as holders)
+  --discover-holders       Scan Transfer logs from block 0..block (chunked) to find candidate addresses
+  --chunk-size <n>       Blocks per getLogs chunk for --discover-holders (default: $CHUNK_SIZE)
+
+Environment:
+  ETH_RPC_URL              Default RPC if --rpc-url not set
+  LOG_CHUNK_SIZE           Blocks per eth_getLogs (default 10 for Alchemy Free; use 50000 on paid RPCs)
+
+Notes:
+  - Historical balances are token.balanceOf(addr) at --block; mint/redeem are already in that state.
+  - --discover-holders can be slow and may hit provider limits; reduce --chunk-size if needed.
+EOF
+  exit "${1:-0}"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --block) BLOCK="$2"; shift 2 ;;
+    --rpc-url) RPC_URL="$2"; shift 2 ;;
+    --token) TOKEN="$2"; shift 2 ;;
+    --minter) MINTER="$2"; shift 2 ;;
+    --skip-minter-check) SKIP_MINTER_CHECK=true; shift ;;
+    --address) ADDRESSES+=("$2"); shift 2 ;;
+    --addresses-file) ADDRESSES_FILE="$2"; shift 2 ;;
+    --discover-holders) DISCOVER_HOLDERS=true; shift ;;
+    --chunk-size) CHUNK_SIZE="$2"; shift 2 ;;
+    -h|--help) usage 0 ;;
+    *) echo "Unknown option: $1" >&2; usage 1 ;;
+  esac
+done
+
+if [[ -z "$RPC_URL" ]]; then
+  echo "error: set ETH_RPC_URL or pass --rpc-url" >&2
+  exit 1
+fi
+if [[ -z "$BLOCK" ]] || ! [[ "$BLOCK" =~ ^[0-9]+$ ]]; then
+  echo "error: --block <positive integer> is required" >&2
+  exit 1
+fi
+
+topic_to_address() {
+  # topic is 0x + 64 hex chars; address is last 40 hex chars
+  local t="$1"
+  t="${t#0x}"
+  echo "0x${t: -40}"
+}
+
+balance_at_block() {
+  local holder="$1"
+  cast call "$TOKEN" "balanceOf(address)(uint256)" "$holder" --rpc-url "$RPC_URL" --block "$BLOCK"
+}
+
+if [[ "$SKIP_MINTER_CHECK" != true && -n "$MINTER" ]]; then
+  onchain_lev="$(cast call "$MINTER" "LEVERAGED_TOKEN()(address)" --rpc-url "$RPC_URL" --block "$BLOCK" 2>/dev/null || true)"
+  if [[ -n "$onchain_lev" ]]; then
+    t_lower="$(echo "$TOKEN" | tr '[:upper:]' '[:lower:]')"
+    m_lower="$(echo "$onchain_lev" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$t_lower" != "$m_lower" ]]; then
+      echo "warning: --token ($TOKEN) != minter.LEVERAGED_TOKEN() at block ($onchain_lev)" >&2
+    else
+      echo "# minter.LEVERAGED_TOKEN() at block $BLOCK matches --token" >&2
+    fi
+  fi
+fi
+
+ts="$(cast call "$TOKEN" "totalSupply()(uint256)" --rpc-url "$RPC_URL" --block "$BLOCK" 2>/dev/null || echo "?")"
+echo "# token=$TOKEN block=$BLOCK totalSupply=$ts" >&2
+
+if [[ "$DISCOVER_HOLDERS" == true ]]; then
+  if ! command -v jq &>/dev/null; then
+    echo "error: jq is required for --discover-holders" >&2
+    exit 1
+  fi
+  holder_file="$(mktemp)"
+  uniq_file="$(mktemp)"
+  trap 'rm -f "$holder_file" "$uniq_file"' EXIT
+  from=0
+  while [[ $from -le $BLOCK ]]; do
+    to=$((from + CHUNK_SIZE - 1))
+    [[ $to -gt $BLOCK ]] && to=$BLOCK
+    fb=$(cast to-hex "$from")
+    tb=$(cast to-hex "$to")
+    payload=$(jq -n \
+      --arg fb "$fb" --arg tb "$tb" --arg token "$TOKEN" --arg topic "$TRANSFER_TOPIC" \
+      '{fromBlock:$fb,toBlock:$tb,address:[$token],topics:[$topic]}')
+    logs_json="$(cast rpc eth_getLogs "$payload" --rpc-url "$RPC_URL" 2>/dev/null || echo "[]")"
+    if ! echo "$logs_json" | jq -e 'type == "array"' &>/dev/null; then
+      logs_json="[]"
+    fi
+    echo "$logs_json" | jq -r '.[] | .topics[1], .topics[2]' 2>/dev/null | while read -r topic; do
+      [[ -z "$topic" || "$topic" == "null" ]] && continue
+      addr="$(topic_to_address "$topic")"
+      al="$(echo "$addr" | tr '[:upper:]' '[:lower:]')"
+      [[ "$al" == "0x0000000000000000000000000000000000000000" ]] && continue
+      echo "$addr"
+    done >>"$holder_file"
+    from=$((to + 1))
+  done
+  sort -u "$holder_file" -o "$holder_file"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(echo "$line" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [[ -z "$line" ]] && continue
+    ADDRESSES+=("$line")
+  done <"$holder_file"
+  echo "# discovered $(wc -l <"$holder_file" | tr -d ' ') unique addresses from Transfer logs" >&2
+fi
+
+if [[ -n "$ADDRESSES_FILE" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(echo "$line" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [[ -z "$line" ]] && continue
+    ADDRESSES+=("$line")
+  done <"$ADDRESSES_FILE"
+fi
+
+if [[ ${#ADDRESSES[@]} -eq 0 ]]; then
+  echo "error: pass --address, --addresses-file, and/or --discover-holders" >&2
+  exit 1
+fi
+
+# De-duplicate requested addresses
+if [[ -z "${uniq_file:-}" ]]; then
+  uniq_file="$(mktemp)"
+  trap 'rm -f "$uniq_file"' EXIT
+fi
+printf '%s\n' "${ADDRESSES[@]}" | tr '[:upper:]' '[:lower:]' | sort -u >"$uniq_file"
+
+echo "address,balance_wei,balance_eth18"
+while IFS= read -r addr_lower; do
+  [[ -z "$addr_lower" ]] && continue
+  bal="$(balance_at_block "$addr_lower")"
+  bal_eth="$(cast --to-unit "$bal" ether 2>/dev/null || echo "n/a")"
+  echo "$addr_lower,$bal,$bal_eth"
+done <"$uniq_file"
+
+if [[ -n "$MINTER" ]]; then
+  mb="$(balance_at_block "$MINTER" || echo "0")"
+  echo "# minter leveraged balance at block (tokens sitting in minter): $mb" >&2
+fi

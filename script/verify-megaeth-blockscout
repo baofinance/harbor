@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+#
+# Verify Harbor MegaETH deployment on Blockscout (implementations + optional proxies).
+# Reads from the same state file as script/verify-megaeth (e.g. deployments/megaeth/<salt>.state.json).
+# Uses forge verify-contract --verifier blockscout (no API key required).
+#
+# Reference: harbor-price-aggregators/script/megaeth/verify/verify-megaeth-v4-oracles.sh
+#            harbor-price-aggregators/script/megaeth/verify/verify-megaeth-proxies.sh
+#
+# Usage:
+#   script/verify-megaeth-blockscout [--state <path>] [--verify-proxies] [--proxies-only]
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BLOCKSCOUT_URL="https://megaeth.blockscout.com/api/"
+SOLC_VERSION="${HARBOR_VERIFY_SOLC_VERSION:-0.8.30}"
+ERC1967_PROXY_PATH="lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy"
+
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+  set -a
+  source "$PROJECT_ROOT/.env"
+  set +a
+fi
+
+usage() {
+  cat <<EOF
+Usage: $0 [--state <path>] [--verify-proxies] [--proxies-only]
+
+Verify Harbor deployment on Blockscout (MegaETH): implementations and optionally proxies.
+
+Options:
+  --state <path>     State JSON (default: deployments/megaeth/megaeth_test_v1.state.json)
+  --verify-proxies   Also verify proxy contracts (ERC1967Proxy). Requires UUPS_PROXY_DEPLOY_STUB_ADDRESS.
+  --proxies-only     Verify only proxies (skip implementations). Implies --verify-proxies.
+  -h, --help         Show this help
+
+Environment:
+  MEGAETH_RPC_URL    Required
+  UUPS_PROXY_DEPLOY_STUB_ADDRESS  Required for --verify-proxies or --proxies-only
+EOF
+  exit "${1:-0}"
+}
+
+STATE_FILE=""
+VERIFY_PROXIES=false
+PROXIES_ONLY=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --state)    STATE_FILE="$2"; shift 2 ;;
+    --verify-proxies) VERIFY_PROXIES=true; shift ;;
+    --proxies-only) PROXIES_ONLY=true; VERIFY_PROXIES=true; shift ;;
+    -h|--help) usage 0 ;;
+    *) echo "Unknown option: $1" >&2; usage 1 ;;
+  esac
+done
+
+[[ -n "$STATE_FILE" ]] || STATE_FILE="$PROJECT_ROOT/deployments/megaeth/megaeth_test_v1.state.json"
+[[ -f "$STATE_FILE" ]] || { echo "State file not found: $STATE_FILE" >&2; exit 1; }
+[[ -n "${MEGAETH_RPC_URL:-}" ]] || { echo "MEGAETH_RPC_URL is required" >&2; exit 1; }
+export ETHERSCAN_KEY="${ETHERSCAN_KEY:-dummy}"
+
+map_contract_path() {
+  local src="$1" type="$2"
+  if [[ "$src" == @bao/* ]]; then
+    echo "lib/bao-base-audit-2025-07/src/${src#@bao/}:$type"
+  elif [[ "$src" == @harbor/* ]]; then
+    echo "src/${src#@harbor/}:$type"
+  else
+    echo ""; return 1
+  fi
+}
+
+verify_impl() {
+  local addr="$1" contract_path="$2" name="$3"
+  local out
+  out=$(cd "$PROJECT_ROOT" && forge verify-contract \
+    --rpc-url megaeth \
+    --verifier blockscout \
+    --verifier-url "$BLOCKSCOUT_URL" \
+    --etherscan-api-key "$ETHERSCAN_KEY" \
+    --compiler-version "$SOLC_VERSION" \
+    "$addr" \
+    "$contract_path" 2>&1 || echo "VERIFY_ERROR")
+  if echo "$out" | grep -q "Contract successfully verified"; then
+    echo "  Verified on Blockscout"
+    return 0
+  elif echo "$out" | grep -qi "already verified"; then
+    echo "  Already verified on Blockscout"
+    return 0
+  elif echo "$out" | grep -qi "submitted\|pending\|waiting"; then
+    echo "  Submitted (check Blockscout in a few minutes)"
+    return 0
+  elif echo "$out" | grep -qi "VERIFY_ERROR\|Error\|error"; then
+    echo "  Failed:"
+    echo "$out" | head -12
+    return 1
+  fi
+  echo "  Submitted to Blockscout"
+  return 0
+}
+
+TOTAL=0
+SUCCESS=0
+FAILED=0
+SKIP=0
+if [[ "$PROXIES_ONLY" != "true" ]]; then
+echo "=== Verifying implementations on Blockscout ==="
+echo "State: $STATE_FILE"
+echo ""
+
+for addr in $(jq -r '.implementations | keys[]' "$STATE_FILE" 2>/dev/null | sort -u); do
+  contract_source=$(jq -r --arg a "$addr" '.implementations[$a].contractSource' "$STATE_FILE")
+  contract_type=$(jq -r --arg a "$addr" '.implementations[$a].contractType' "$STATE_FILE")
+  contract_path=$(map_contract_path "$contract_source" "$contract_type") || continue
+  code=$(cast code "$addr" --rpc-url megaeth 2>/dev/null || true)
+  if [[ -z "$code" || "$code" == "0x" ]]; then
+    echo "Skipping $contract_type at $addr (no code)"
+    SKIP=$((SKIP + 1))
+    continue
+  fi
+  TOTAL=$((TOTAL + 1))
+  echo "[$TOTAL] $contract_type at $addr"
+  if verify_impl "$addr" "$contract_path" "$contract_type"; then
+    SUCCESS=$((SUCCESS + 1))
+  else
+    FAILED=$((FAILED + 1))
+  fi
+  sleep 2
+  echo ""
+done
+
+echo "=== Implementation summary ==="
+echo "Total: $TOTAL  Success: $SUCCESS  Failed: $FAILED  Skipped: $SKIP"
+echo ""
+fi
+
+if [[ "$VERIFY_PROXIES" == "true" ]]; then
+  stub="${UUPS_PROXY_DEPLOY_STUB_ADDRESS:-}"
+  if [[ -z "$stub" ]]; then
+    if [[ "$PROXIES_ONLY" == "true" ]]; then
+      echo "UUPS_PROXY_DEPLOY_STUB_ADDRESS is required for --proxies-only" >&2
+      exit 1
+    fi
+    echo "Skipping proxy verification: set UUPS_PROXY_DEPLOY_STUB_ADDRESS"
+  else
+    echo "=== Verifying proxy contracts (ERC1967Proxy) on Blockscout ==="
+    constructor_args=$(cast abi-encode "constructor(address,bytes)" "$stub" 0x 2>/dev/null) || true
+    if [[ -z "$constructor_args" ]]; then
+      echo "Failed to encode proxy constructor args" >&2
+    else
+      ptotal=0
+      pok=0
+      pfail=0
+      pskip=0
+      while IFS= read -r line; do
+        key=$(echo "$line" | jq -r '.key')
+        addr=$(echo "$line" | jq -r '.value.address')
+        [[ -z "$key" ]] || [[ "$addr" == "null" ]] && continue
+        code=$(cast code "$addr" --rpc-url megaeth 2>/dev/null || true)
+        if [[ -z "$code" || "$code" == "0x" ]]; then
+          echo "Skipping proxy $key (no code)"
+          continue
+        fi
+        ptotal=$((ptotal + 1))
+        echo "[$ptotal] Proxy $key at $addr"
+        out=$(cd "$PROJECT_ROOT" && forge verify-contract \
+          --rpc-url megaeth \
+          --verifier blockscout \
+          --verifier-url "$BLOCKSCOUT_URL" \
+          --etherscan-api-key "$ETHERSCAN_KEY" \
+          --constructor-args "$constructor_args" \
+          --compiler-version "$SOLC_VERSION" \
+          "$addr" \
+          "$ERC1967_PROXY_PATH" 2>&1 || echo "VERIFY_ERROR")
+        if echo "$out" | grep -q "Contract successfully verified\|already verified\|submitted\|pending\|waiting"; then
+          echo "  Verified / submitted on Blockscout"
+          pok=$((pok + 1))
+        elif echo "$out" | grep -qi "Address is not a smart-contract"; then
+          echo "  Skipped: Blockscout has not indexed this address yet (re-run later)"
+          pskip=$((pskip + 1))
+        elif echo "$out" | grep -qi "Failed to obtain contract ABI\|Failed to deserialize.*EOF"; then
+          echo "  Skipped: API returned empty (verification may have succeeded — check Blockscout or re-run later)"
+          pskip=$((pskip + 1))
+        elif echo "$out" | grep -qi "VERIFY_ERROR\|Error\|error"; then
+          echo "  Failed:"
+          echo "$out" | head -10
+          pfail=$((pfail + 1))
+        else
+          echo "  Submitted to Blockscout"
+          pok=$((pok + 1))
+        fi
+        sleep 2
+        echo ""
+      done < <(jq -c '.proxies | to_entries[]' "$STATE_FILE" 2>/dev/null || true)
+      echo "=== Proxy summary ==="
+      echo "Total: $ptotal  Success: $pok  Failed: $pfail  Skipped (indexer): $pskip"
+      if [[ $pskip -gt 0 ]]; then
+        echo "  Re-run later to verify skipped proxies once Blockscout has indexed them."
+      fi
+      [[ $pfail -eq 0 ]] || exit 1
+    fi
+  fi
+fi
+
+[[ $FAILED -eq 0 ]] || exit 1
+echo "Done. Blockscout: https://megaeth.blockscout.com"
