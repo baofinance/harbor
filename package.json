@@ -5,7 +5,7 @@
     "foundryup": "curl -L https://foundry.paradigm.xyz | bash && foundryup",
     "doctor": "./lib/bao-base/run doctor",
     "CI": "./lib/bao-base/run CI",
-    "ci": "./lib/bao-base/run ci",
+    "CI-act": "./lib/bao-base/run CI-act",
     "clean": "./lib/bao-base/run clean",
     "git-diffs": "./lib/bao-base/run git-diffs",
     "prettier": "prettier --log-level warn '{src,test,script}/**/*.sol'",

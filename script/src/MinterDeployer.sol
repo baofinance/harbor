@@ -38,14 +38,7 @@ interface IFullMinterConfig {
 
 /// @notice Shared functionality for all minter deployment contracts.
 /// @dev Provides common infrastructure and deployment primitives.
-abstract contract MinterDeployer is
-    PeggedToken,
-    LeveragedToken,
-    Minter,
-    StabilityPool,
-    StabilityPoolManager,
-    Genesis
-{
+abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, StabilityPool, StabilityPoolManager, Genesis {
     using LibString for string;
 
     // ========== MARKET LOOKUP ==========
