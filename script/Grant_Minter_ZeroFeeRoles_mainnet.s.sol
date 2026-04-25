@@ -15,13 +15,14 @@ import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
-import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 /// @notice Grant ZERO_FEE_ROLE to all StabilityPoolManagers on their minters.
 /// @dev This role was missing from the initial deployment. Queue as a separate Safe batch.
 ///      Run via: script/run-script Grant_Minter_ZeroFeeRoles_mainnet --salt harbor_v1 --network mainnet --broadcast
 contract Grant_Minter_ZeroFeeRoles_mainnet is
-    SafeBatch,
+    Script,
     Deploy_BTC_Minter,
     Deploy_ETH_Minter,
     Deploy_EUR_Minter,

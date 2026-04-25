@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
@@ -14,7 +14,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 /// @notice Harbor pegged token deployment logic.
 /// @dev Pegged tokens are one per peg (ETH, BTC, GOLD, EUR), shared by all markets with that peg.
 /// @dev If a pegged token already exists, logs the manual grantRoles transactions required.
-abstract contract PeggedToken is HarborFactoryDeployer {
+abstract contract PeggedToken is HarborDeployer {
     using LibString for string;
 
     // ========== PEGGED TOKEN DEPLOYMENT ==========

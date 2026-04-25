@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -17,7 +17,7 @@ import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 /// @dev Genesis Ecosystem:
 /// @dev - Genesis is a special contract for initial token minting during launch
 /// @dev - Genesis needs: ZERO_FEE_ROLE on Minter (obtained via Minter deployment)
-abstract contract Genesis is HarborFactoryDeployer {
+abstract contract Genesis is HarborDeployer {
     // ========== GENESIS DEPLOYMENT ==========
 
     /// @notice Deploy Genesis_v1 impl only, record in state.

@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -25,7 +25,7 @@ interface IStabilityPoolImmutables {
 // Subclasses differ only in setUp (how the remediated state is established).
 // ═══════════════════════════════════════════════════════════════════════════
 
-abstract contract SPLTestBase is BaoTest, HarborFactoryDeployer {
+abstract contract SPLTestBase is BaoTest, HarborDeployer {
     address spl;
     address spc;
     address minter;

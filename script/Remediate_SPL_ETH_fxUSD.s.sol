@@ -4,7 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PostRebalanceRemediationForStabilityPool_v2} from "@harbor-script/verify/spl-remediation/PostRebalanceRemediationForStabilityPool_v2.sol";
-import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -36,7 +37,7 @@ interface Ownable {
 /// @dev See doc/remediation-ETH-fxUSD-SPL.md for full context.
 /// @dev Run via:
 ///   script/run-script Remediate_SPL_ETH_fxUSD --salt harbor_v1 --network mainnet --broadcast --local
-contract Remediate_SPL_ETH_fxUSD is SafeBatch {
+contract Remediate_SPL_ETH_fxUSD is Script, HarborDeployer {
     using LibString for address;
 
     // ── Addresses ────────────────────────────────────────────────────────

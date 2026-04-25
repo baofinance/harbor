@@ -9,7 +9,7 @@ import {Minter} from "./contracts/Minter.sol";
 import {StabilityPool} from "./contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "./contracts/StabilityPoolManager.sol";
 import {Genesis} from "./contracts/Genesis.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -38,7 +38,7 @@ interface IFullMinterConfig {
 
 /// @notice Shared functionality for all minter deployment contracts.
 /// @dev Provides common infrastructure and deployment primitives.
-abstract contract DeployMintersShared is
+abstract contract MinterDeployer is
     PeggedToken,
     LeveragedToken,
     Minter,

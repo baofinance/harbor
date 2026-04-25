@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
@@ -22,7 +22,7 @@ interface IStabilityPoolMarketConfig {
 /// @notice Harbor StabilityPool deployment logic.
 /// @dev Each market has TWO stability pools: Collateral (wrapped collateral) and Leveraged (leveraged token).
 /// @dev Both pools grant: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE to StabilityPoolManager.
-abstract contract StabilityPool is HarborFactoryDeployer {
+abstract contract StabilityPool is HarborDeployer {
     string StabilityPoolCollateral = "stabilityPoolCollateral";
     string StabilityPoolLeveraged = "stabilityPoolLeveraged";
 

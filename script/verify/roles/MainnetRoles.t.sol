@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
@@ -11,7 +11,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// @dev Run against any fork:
 ///   forge test --mp script/test/MainnetRoles.t.sol --fork-url mainnet -vv
 ///   forge test --mp script/test/MainnetRoles.t.sol --fork-url local -vv
-contract MainnetRoles is Test, HarborFactoryDeployer {
+contract MainnetRoles is Test, HarborDeployer {
     struct Market {
         string peg;
         string collateral;

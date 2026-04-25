@@ -16,7 +16,8 @@ import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
-import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 import {console2} from "forge-std/console2.sol";
 
@@ -30,7 +31,7 @@ interface IFullMinterConfig {
 /// @dev Broadcasts implementation deployments, then queues UUPS upgrade calls as a Safe batch.
 ///      Run via: script/run-script Deploy_Minter_v2_mainnet --salt harbor_v1 --network mainnet --broadcast
 contract Deploy_Minter_v2_mainnet is
-    SafeBatch,
+    Script,
     Deploy_BTC_Minter,
     Deploy_ETH_Minter,
     Deploy_EUR_Minter,

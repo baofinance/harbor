@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -13,7 +13,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Minter_v2} from "@harbor/minter/Minter_v2.sol";
 
-abstract contract RebalanceCheckBase is BaoTest, HarborFactoryDeployer {
+abstract contract RebalanceCheckBase is BaoTest, HarborDeployer {
     uint256 constant FORK_BLOCK = 24687073;
     address constant USER = 0xb9ab9578a34a05c86124c399735fdE44dEc80E7F;
 

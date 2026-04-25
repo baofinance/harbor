@@ -17,7 +17,8 @@ import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
-import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 interface IFullMinterConfig {
     function wrappedCollateralToken() external view returns (address);
@@ -29,7 +30,7 @@ interface IFullMinterConfig {
 ///
 /// Run via: script/run-script Deploy_StabilityPool_v3_mainnet --salt harbor_v1 --network mainnet --broadcast
 contract Deploy_StabilityPool_v3_mainnet is
-    SafeBatch,
+    Script,
     Deploy_BTC_Minter,
     Deploy_ETH_Minter,
     Deploy_EUR_Minter,

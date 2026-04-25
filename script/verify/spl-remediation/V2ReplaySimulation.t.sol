@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -18,7 +18,7 @@ import {console2 as console} from "forge-std/console2.sol";
 /// @notice Replays the exact sequence of on-chain events (5 rebalances + user
 /// claims/withdrawals/redeems) from a single fork, mocking oracle prices.
 /// test_v1Replay validates against mainnet. test_v2Replay produces the "correct world".
-contract V2ReplaySimulation is BaoTest, HarborFactoryDeployer {
+contract V2ReplaySimulation is BaoTest, HarborDeployer {
     uint256 constant FORK_BLOCK = 24687073;
 
     address spm;

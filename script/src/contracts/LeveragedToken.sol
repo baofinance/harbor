@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
@@ -11,7 +11,7 @@ import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "@harbor
 import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 /// @notice Harbor leveraged token deployment logic.
 /// @dev Leveraged tokens are unique per market (e.g., hsFXUSD-BTC for BTC::fxUSD market).
-abstract contract LeveragedToken is HarborFactoryDeployer {
+abstract contract LeveragedToken is HarborDeployer {
     // ========== LEVERAGED TOKEN DEPLOYMENT ==========
 
     /// @notice Deploy MintableBurnableERC20_v1 impl only (for leveraged token), record in state.

@@ -42,4 +42,29 @@ contract MockMinter is BaoOwnableRoles /*, IMinter */ {
     function setPeggedTokenPrice(uint256 price) external {
         _peggedTokenPrice = price;
     }
+
+    /// @notice Dry-run mint returning price and rate used by HarborYield._computeDistributeMinOut.
+    ///         Returns price = _peggedTokenPrice, rate = 1e18. Other fields are zeroed.
+    function mintPeggedTokenDryRun(
+        uint256, /* collateralIn */
+        uint256 /* maxFeeRatio */
+    )
+        external
+        view
+        returns (
+            int256 incentiveRatio,
+            uint256 fee,
+            uint256 collateralTaken,
+            uint256 peggedMinted,
+            uint256 price,
+            uint256 rate
+        )
+    {
+        incentiveRatio = 0;
+        fee = 0;
+        collateralTaken = 0;
+        peggedMinted = 0;
+        price = _peggedTokenPrice;
+        rate = 1 ether;
+    }
 }

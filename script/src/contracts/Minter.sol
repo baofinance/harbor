@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -21,7 +21,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// @dev - Minter needs: wrappedCollateral, peggedToken, leveragedToken, priceOracle, reservePool, feeReceiver
 /// @dev - Minter grants: HARVESTER_ROLE to StabilityPoolManager, ZERO_FEE_ROLE to Genesis
 /// @dev - ReservePool grants: REQUESTER_ROLE to Minter
-abstract contract Minter is HarborFactoryDeployer {
+abstract contract Minter is HarborDeployer {
     // ========== MINTER DEPLOYMENT ==========
 
     function deployMinterImplementation(

@@ -3,7 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
 
-import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {ConfigPriceVolatility_130_stable} from "@harbor-script/config/volatility/ConfigPriceVolatility_130_stable.sol";
@@ -17,7 +18,7 @@ import {ConfigPriceVolatility_105} from "@harbor-script/config/volatility/Config
 
 /// @notice Update volatility config for SILVER::fxUSD to 125.
 /// @dev Run with: ./script/safe-batch UpdateVolatility_OGPlus --salt harbor_v1
-contract UpdateVolatility_OGPlus is SafeBatch {
+contract UpdateVolatility_OGPlus is Script, HarborDeployer {
     function build() internal override {
         // BTC-fxUSD
         queue(

@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -18,7 +18,7 @@ import {StabilityPoolManager_v1} from "@harbor/minter/StabilityPoolManager_v1.so
 ///   1. script/anvil --block 24687073
 ///   2. ./script/run-script Deploy_Minter_v2_mainnet --network mainnet --salt harbor_v1 --broadcast --local
 ///   3. forge test --match-path script/test/MinterUpgradeTest.t.sol --fork-url local -vv
-contract MinterUpgradeTest is BaoTest, HarborFactoryDeployer {
+contract MinterUpgradeTest is BaoTest, HarborDeployer {
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("local"));
         _setSaltPrefix("harbor_v1");

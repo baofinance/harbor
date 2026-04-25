@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {HarborFactoryDeployer} from "@harbor-script/src/HarborFactoryDeployer.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
@@ -20,7 +20,7 @@ import {console2 as console} from "forge-std/console2.sol";
 ///         Verifies all user-visible values are preserved and post-migration operations work.
 ///
 /// Run: forge test --mc SPv3MigrationTest --fork-url mainnet -vv
-contract SPv3MigrationTest is BaoTest, HarborFactoryDeployer {
+contract SPv3MigrationTest is BaoTest, HarborDeployer {
     // ── Addresses ───────────────────────────────────────────────────────────
 
     address spc; // collateral stability pool (ETH::fxUSD)

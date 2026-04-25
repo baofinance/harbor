@@ -3,7 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
 
-import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {ConfigPriceVolatility_125} from "@harbor-script/config/volatility/ConfigPriceVolatility_125.sol";
@@ -11,7 +12,7 @@ import {ConfigPriceVolatility_130} from "@harbor-script/config/volatility/Config
 
 /// @notice Update volatility config for SILVER::fxUSD to 125.
 /// @dev Run with: ./script/generate-safe-batch UpdateVolatility_test3_SILVER --salt test3
-contract UpdateVolatility_test3_SILVER is SafeBatch {
+contract UpdateVolatility_test3_SILVER is Script, HarborDeployer {
     function build() internal override {
         queue(
             _saltString(_key("SILVER", "fxUSD", "minter")),

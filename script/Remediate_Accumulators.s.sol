@@ -16,7 +16,8 @@ import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
 import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
-import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 /// @notice Force-migrate accumulator storage from V1 (uint192) to V2 (uint256) format
 /// for all stability pools across all markets.
@@ -33,7 +34,7 @@ import {SafeBatch} from "@harbor-script/safe/SafeBatch.s.sol";
 /// Run via:
 ///   script/run-script Remediate_Accumulators --salt harbor_v1 --network mainnet --broadcast --local
 contract Remediate_Accumulators is
-    SafeBatch,
+    Script,
     Deploy_BTC_Minter,
     Deploy_ETH_Minter,
     Deploy_EUR_Minter,
