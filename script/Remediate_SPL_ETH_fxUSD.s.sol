@@ -70,11 +70,11 @@ contract Remediate_SPL_ETH_fxUSD is Script, HarborDeployer {
     }
 
     function build() internal override {
-        string memory splSalt = _saltString(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        address spl = _predictAddressFromFullSalt(splSalt);
+        string memory splKey = _key("ETH", "fxUSD", "stabilityPoolLeveraged");
+        address spl = _predictAddress(splKey);
 
         require(
-            LEVERAGED == _predictAddressFromFullSalt(_saltString(_key("ETH", "fxUSD", "leveraged"))),
+            LEVERAGED == _predictAddress(_key("ETH", "fxUSD", "leveraged")),
             "LEVERAGED is not the correct address"
         );
 
@@ -125,7 +125,7 @@ contract Remediate_SPL_ETH_fxUSD is Script, HarborDeployer {
 
         // 3. Upgrade SPL to remediation contract and execute remediate()
         queue(
-            splSalt,
+            splKey,
             abi.encodeCall(
                 UUPSUpgradeable.upgradeToAndCall,
                 (REMEDIATOR_IMPL, abi.encodeCall(PostRebalanceRemediationForStabilityPool_v2.remediate, ()))
@@ -135,7 +135,7 @@ contract Remediate_SPL_ETH_fxUSD is Script, HarborDeployer {
 
         // 4. Restore SPL to StabilityPool_v2
         queue(
-            splSalt,
+            splKey,
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (EXISTING_V2_IMPL, "")),
             string.concat("restore SPL: ", EXISTING_V2_IMPL.toHexString())
         );

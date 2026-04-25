@@ -43,7 +43,7 @@ contract Grant_Minter_ZeroFeeRoles_mainnet is
             console.log("  %s: grant ZERO_FEE_ROLE to SPM %s", marketKey, spm.toHexString());
 
             queue(
-                _saltString(_key(marketKey, "minter")),
+                _key(marketKey, "minter"),
                 abi.encodeCall(IBaoRoles.grantRoles, (spm, zeroFeeRole)),
                 string.concat("grant ZERO_FEE_ROLE to SPM on ", marketKey, "::minter")
             );

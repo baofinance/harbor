@@ -59,7 +59,7 @@ contract Deploy_Minter_v2_mainnet is
 
             // Queue Safe upgrade transactions
             queue(
-                _saltString(key),
+                key,
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (impl, "")),
                 string.concat("upgrade to Minter_v2 ", impl.toHexString())
             );

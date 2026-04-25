@@ -25,7 +25,7 @@ contract MinterUpgradeTest is BaoTest, HarborDeployer {
     }
 
     function _predict(string memory marketKey, string memory suffix) internal returns (address) {
-        return _predictAddressFromFullSalt(_saltString(_key(marketKey, suffix)));
+        return _predictAddress(_key(marketKey, suffix));
     }
 
     // ---- ETH::fxUSD rebalance tests (the market with known sub-threshold CR) ----

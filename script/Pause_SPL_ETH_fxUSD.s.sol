@@ -13,7 +13,7 @@ contract Pause_SPL_ETH_fxUSD is Script, HarborDeployer {
 
     function build() internal override {
         queue(
-            _saltString(_key("ETH", "fxUSD", "stabilityPoolLeveraged")),
+            _key("ETH", "fxUSD", "stabilityPoolLeveraged"),
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (BAO_PAUSER, "")),
             "pause: upgrade to BaoPauser_v1"
         );

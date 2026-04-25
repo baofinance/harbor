@@ -65,12 +65,12 @@ contract Deploy_StabilityPool_v3_mainnet is
 
             // Queue Safe upgrade transactions
             queue(
-                _saltString(_key(marketKey, StabilityPoolLeveraged)),
+                _key(marketKey, StabilityPoolLeveraged),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implLeveraged, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implLeveraged.toHexString())
             );
             queue(
-                _saltString(_key(marketKey, StabilityPoolCollateral)),
+                _key(marketKey, StabilityPoolCollateral),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implCollateral, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implCollateral.toHexString())
             );

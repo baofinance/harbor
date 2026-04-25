@@ -62,12 +62,12 @@ contract Remediate_Accumulators is
     }
 
     function _remediatePool(string memory marketKey, string memory spType) internal {
-        string memory fullSalt = _saltString(_key(marketKey, spType));
-        address pool = _predictAddressFromFullSalt(fullSalt);
+        string memory key = _key(marketKey, spType);
+        address pool = _predictAddress(key);
 
         // Read current implementation (to restore after remediation)
         address currentImpl = address(uint160(uint256(vm.load(pool, IMPL_SLOT))));
-        require(currentImpl.code.length != 0, string.concat("no impl for ", fullSalt));
+        require(currentImpl.code.length != 0, string.concat("no impl for ", _saltString(key)));
 
         // Read active reward tokens before upgrade (pauser fallback would revert)
         address[] memory tokens = IMultipleRewardDistributor(pool).activeRewardTokens();
@@ -76,15 +76,15 @@ contract Remediate_Accumulators is
         address[] memory holders = _getHolders(marketKey, spType);
 
         if (holders.length == 0) {
-            console.log("    > %s: no holders, skipping", fullSalt);
+            console.log("    > %s: no holders, skipping", _saltString(key));
             return;
         }
 
-        console.log("    > %s: %d holders, %d tokens", fullSalt, holders.length, tokens.length);
+        console.log("    > %s: %d holders, %d tokens", _saltString(key), holders.length, tokens.length);
 
         // 1. Upgrade to migration contract
         queue(
-            fullSalt,
+            key,
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (migImpl, "")),
             "upgrade to ForceMigrateAccumulator_v1"
         );
@@ -93,12 +93,12 @@ contract Remediate_Accumulators is
         queue(
             pool,
             abi.encodeCall(ForceMigrateAccumulator_v1.remediate, (tokens, holders)),
-            string.concat("remediate ", fullSalt)
+            string.concat("remediate ", _saltString(key))
         );
 
         // 3. Restore to original implementation
         queue(
-            fullSalt,
+            key,
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (currentImpl, "")),
             string.concat("restore to ", currentImpl.toHexString())
         );
