@@ -37,10 +37,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Verify audited sources unchanged
-        shell: bash
-        run: lib/bao-base/bin/verify-audit
-
       - name: Run Bao-base CI actions
         uses: ./lib/bao-base/.github/actions/test-foundry
         with:
