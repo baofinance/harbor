@@ -2,39 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(grep:*)",
-      "Bash(git log:*)",
-      "Bash(2)",
-      "Read(//home/tfras/github/baofinance/harbor/**)",
-      "Bash(find /home/tfras/github/baofinance/harbor/doc -type f \\\\\\(-name *.md -o -name *.txt \\\\\\) ! -path */.venv/* ! -path */node_modules/* ! -path */lib/*)",
-      "Read(//home/tfras/github/baofinance/harbor-yield.wip-hytoken/**)",
-      "Bash(ls -la /home/tfras/github/baofinance/harbor-yield.wip-hytoken/*.md)",
-      "Bash(forge coverage:*)",
-      "Bash(yarn sizes:*)",
-      "WebSearch",
-      "Read(//home/tfras/github/AladdinDAO/aladdin-v3-contracts/**)",
-      "WebFetch(domain:fxprotocol.gitbook.io)",
-      "WebFetch(domain:medium.com)",
-      "WebFetch(domain:www.openzeppelin.com)",
-      "Read(//home/tfras/github/AladdinDAO/fx-protocol-contracts/**)",
-      "Bash(ls script/src/*.sol)",
-      "Bash(ls script/src/Deploy_*)",
-      "Read(//home/tfras/.claude/**)",
-      "Bash(git -C ~/.claude/plans commit -am \"fixed broken links at top of plan\")",
-      "Bash(ls -la /home/tfras/github/baofinance/harbor/script/*.s.sol)",
-      "Bash(ls -lt /home/tfras/github/baofinance/harbor/script/*.s.sol)",
-      "Bash(yarn slither:*)",
-      "Read(//home/tfras/github/baofinance/harbor-app/**)",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:docs.liquity.org)",
-      "WebFetch(domain:www.liquity.org)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:liquity.gitbook.io)",
-      "Bash(ls /home/tfras/github/baofinance/harbor/src/minter/StabilityPoolManager*.sol)",
-      "Bash(ls /home/tfras/github/baofinance/harbor/script/src/v3/Deploy_*_Minter.sol)",
-      "Bash(ls /home/tfras/github/baofinance/harbor/results/liquidate*.csv)",
-      "Read(//home/tfras/github/baofinance/**)",
-      "Bash(gnuplot ./results/rebalance_fairness_scan.gp)",
-      "Bash(gnuplot ./results/rebalance_fairness_timeline.gp)"
+      "Bash(git log:*)"
     ]
   }
 }
