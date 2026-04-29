@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {LibString} from "@solady/utils/LibString.sol";
-import {IMarketConfig} from "./ConfigBase.sol";
+import {IMarketConfig} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice Mixin that derives all Harbor token names and symbols from peg() and collateral().
 /// @dev Inherited by market configs alongside ConfigPeg and ConfigCollateral.

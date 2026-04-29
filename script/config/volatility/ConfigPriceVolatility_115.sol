@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {ConfigPriceVolatilityBase} from "./ConfigPriceVolatilityBase.sol";
+import {ConfigPriceVolatilityBase} from "@harbor-script/config/volatility/ConfigPriceVolatilityBase.sol";
 
 /// @notice Volatility configuration for 115% rebalance threshold markets (Month 1 fees).
 /// @dev Higher redeem leveraged fees for initial month after launch.

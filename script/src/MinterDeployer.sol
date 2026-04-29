@@ -3,12 +3,12 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
-import {PeggedToken} from "./contracts/PeggedToken.sol";
-import {LeveragedToken} from "./contracts/LeveragedToken.sol";
-import {Minter} from "./contracts/Minter.sol";
-import {StabilityPool} from "./contracts/StabilityPool.sol";
-import {StabilityPoolManager} from "./contracts/StabilityPoolManager.sol";
-import {Genesis} from "./contracts/Genesis.sol";
+import {PeggedToken} from "@harbor-script/src/contracts/PeggedToken.sol";
+import {LeveragedToken} from "@harbor-script/src/contracts/LeveragedToken.sol";
+import {Minter} from "@harbor-script/src/contracts/Minter.sol";
+import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
+import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
+import {Genesis} from "@harbor-script/src/contracts/Genesis.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ConfigBase} from "../ConfigBase.sol";
+import {ConfigBase} from "@harbor-script/config/ConfigBase.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Base contract for peg configurations.

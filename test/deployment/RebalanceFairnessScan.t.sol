@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {RebalanceFairnessSetUp} from "./RebalanceFairness.t.sol";
+import {RebalanceFairnessSetUp} from "@harbor-test/deployment/RebalanceFairness.t.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -297,7 +297,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
 
             for (uint256 p = 0; p < priceDropPctValues.length; p++) {
                 uint256 priceDropPct = priceDropPctValues[p];
-                uint256 snap = vm.snapshot();
+                uint256 snap = vm.snapshotState();
 
                 uint256 liquidFracE18 = _setupToPostRebalance(priceDropPct, levPct);
 
@@ -352,7 +352,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
                     );
                 }
 
-                vm.revertTo(snap);
+                vm.revertToState(snap);
             }
         }
 
@@ -500,7 +500,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
 
         for (uint256 f = 0; f < feePctValues.length; f++) {
             uint256 feePct = feePctValues[f];
-            uint256 snap = vm.snapshot();
+            uint256 snap = vm.snapshotState();
 
             uint256 liquidFracE18 = _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEV_PCT);
             require(liquidFracE18 > 0, "design case must trigger rebalance");
@@ -542,7 +542,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
                 )
             );
 
-            vm.revertTo(snap);
+            vm.revertToState(snap);
         }
 
         _writeFeeGnuplot();
@@ -799,7 +799,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
 
         for (uint256 f = 0; f < feePctValues.length; f++) {
             uint256 feePct = feePctValues[f];
-            uint256 snap = vm.snapshot();
+            uint256 snap = vm.snapshotState();
 
             uint256 liquidFracE18 = _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEV_PCT);
             require(liquidFracE18 > 0, "design case must trigger rebalance");
@@ -852,7 +852,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
                 );
             }
 
-            vm.revertTo(snap);
+            vm.revertToState(snap);
         }
 
         _writeTimelineGnuplot();
@@ -876,7 +876,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         // In Scenario A there is no dodge, so Bob stays in the pool through the rebalance.
         // We measure Bob's haXXX-eq at week 12 as the "stayed" reference.
         // The break-even fee is the minimum fee that makes Scenario B Bob's haXXX-eq ≤ Scenario A Bob's.
-        uint256 snap0 = vm.snapshot();
+        uint256 snap0 = vm.snapshotState();
         WeeklyResult memory baseline;
         {
             uint256 each = 100 ether;
@@ -903,7 +903,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
             _deposit(stabilityPoolLeveraged, george, each);
             baseline = _runWeeks(TOTAL_WEEKS);
         }
-        vm.revertTo(snap0);
+        vm.revertToState(snap0);
 
         console2.log(
             string.concat(
@@ -971,7 +971,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         for (uint256 i = 0; i < 20; i++) {
             // 20 iterations → precision < 0.01 bp
             uint256 mid = (lo + hi) / 2;
-            uint256 snap = vm.snapshot();
+            uint256 snap = vm.snapshotState();
 
             _setupToPostRebalance(DESIGN_PRICE_DROP, DESIGN_LEV_PCT);
             // _applyFeeAndRedeposit takes fee in whole %, but we need bp precision.
@@ -997,7 +997,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
                 hi = mid; // fee sufficient or overshooting
             }
 
-            vm.revertTo(snap);
+            vm.revertToState(snap);
         }
         feeBps = hi; // smallest fee that makes dodging unprofitable
     }

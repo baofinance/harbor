@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ConfigStabilityPoolManager} from "./ConfigStabilityPoolManager.sol";
+import {ConfigStabilityPoolManager} from "@harbor-script/config/stabilitypool/ConfigStabilityPoolManager.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 /// @notice Shared stability pool manager fee receiver and parameter defaults.

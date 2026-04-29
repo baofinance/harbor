@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ConfigPeg} from "./ConfigPeg.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 
 /// @notice Configuration for SILVER peg.
 /// @dev Deployed pegged token: haSILVER ("Harbor anchored SILVER")

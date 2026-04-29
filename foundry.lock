@@ -1,6 +1,6 @@
 {
   "lib/bao-base": {
-    "rev": "2016ba72c99dc5a0c2cc46cd3f715160ca8a63d4"
+    "rev": "b98e798a7340cd5df167bb47a003172b17a26955"
   },
   "lib/chainlink-brownie-contracts": {
     "rev": "5cb41fbc9b525338b6098da5ea7dd0b7e92f89e4"

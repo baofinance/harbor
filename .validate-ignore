@@ -1,5 +1,5 @@
 # Syntax: check file
-# Supported checks: naming, pragma, storage, upgrades
+# Supported checks: naming, pragma, storage, upgrades, base-imports, relative-imports
 
 # These contracts predate the filename=contract-name convention. The class
 # names intentionally omit the _v2 suffix (they are abstract bases, not
@@ -7,7 +7,29 @@
 naming src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol
 naming src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
 
-# One-off remediation contract deployed during the 1.2 incident response.
-# Uses a version range intentionally so it can be compiled against any
-# compatible compiler; it was never intended to be a long-lived deployable.
-pragma src/minter/PostRebalanceRemediationForStabilityPool_v2.sol
+# Deployed contracts that predate the remapped-import convention.
+# Their source files cannot be modified (audit traceability).
+bare-imports src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol
+bare-imports src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol
+bare-imports src/reward/distributor/LinearMultipleRewardDistributor.sol
+bare-imports src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
+bare-imports src/price/StakedETHWrappedPriceOracle_v1.sol
+bare-imports src/price/PriceOracle_v1.sol
+bare-imports src/minter/StabilityPoolManager_v1.sol
+bare-imports src/minter/library/ConfigIncentiveLib.sol
+bare-imports src/minter/library/Config_v1.sol
+bare-imports src/minter/ReservePool_v1.sol
+bare-imports src/minter/StabilityPool_v1.sol
+bare-imports src/minter/StabilityPool_v2.sol
+bare-imports src/minter/TokenDistributor_v1.sol
+bare-imports src/minter/Minter_v1.sol
+bare-imports src/minter/Minter_v2.sol
+bare-imports src/minter/Genesis_v1.sol
+
+# Deployed contracts and interfaces transitively imported by them —
+# cannot be modified (audit traceability).
+relative-imports src/reward/distributor/LinearMultipleRewardDistributor.sol
+relative-imports src/reward/distributor/LinearMultipleRewardDistributor_v2.sol
+relative-imports src/price/StakedETHWrappedPriceOracle_v1.sol
+relative-imports src/interfaces/IPriceOracle.sol
+relative-imports src/interfaces/IWrappedPriceOracle.sol
