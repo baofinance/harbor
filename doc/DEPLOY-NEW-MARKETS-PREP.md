@@ -37,9 +37,9 @@ script/deploy --peg USD --network mainnet --salt harbor_v1 --collateral wstETH
 
 ## Done: megaeth
 
-- **Chain** – `script/config/chains/ConfigChain_megaeth.sol` (chain ID 4326). **Replace placeholder token addresses** (BTC, wstETH, USDMY) with actual MegaETH mainnet addresses before deploy.
+- **Chain** – `script/config/chains/ConfigChain_megaeth.sol` (chain ID 4326). **Replace placeholder token addresses** (BTC, stETH, wstETH, USDMY) with actual MegaETH mainnet addresses before deploy.
 - **Pegs** – ConfigPeg_HYPE, ConfigPeg_SOL (for USDMY markets).
-- **Collaterals** – ConfigCollateral_BTC_megaeth, ConfigCollateral_wstETH_megaeth, ConfigCollateral_USDMY_megaeth.
+- **Collaterals** – ConfigCollateral_BTC_megaeth, ConfigCollateral_stETH_megaeth, ConfigCollateral_USDMY_megaeth.
 - **Markets** – USD::BTC, USD::wstETH; BTC::USDMY, ETH::USDMY, HYPE::USDMY, SOL::USDMY.
 - **Deploy scripts** – Deploy_USD_megaeth.s.sol, Deploy_BTC_megaeth.s.sol, Deploy_ETH_megaeth.s.sol, Deploy_HYPE_megaeth.s.sol, Deploy_SOL_megaeth.s.sol.
 - **RPC** – `megaeth = "${MEGAETH_RPC_URL}"` in `foundry.toml`.
@@ -49,7 +49,7 @@ script/deploy --peg USD --network mainnet --salt harbor_v1 --collateral wstETH
 ```bash
 export MEGAETH_RPC_URL="https://..."   # or set in .env
 
-# USD markets (BTC, wstETH)
+# USD markets (BTC, stETH)
 script/deploy --peg USD --network megaeth --salt harbor_v1 --deploy-peg
 
 # USDMY pairs (one peg per script)

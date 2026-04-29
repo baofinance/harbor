@@ -11,6 +11,12 @@ abstract contract ConfigChain_megaeth {
         return 0xB0F70C0bD6FD87dbEb7C10dC692a2a6106817072;
     }
 
+    /// @dev stETH on MegaETH
+    function stETH() public pure virtual returns (address) {
+        // TODO: replace with the canonical stETH token address on MegaETH.
+        return address(0);
+    }
+
     /// @dev wstETH on MegaETH
     function wstETH() public pure virtual returns (address) {
         return 0x601aC63637933D88285A025C685AC4e9a92a98dA;
@@ -30,9 +36,10 @@ abstract contract ConfigChain_megaeth {
     }
 
     function getWellKnownAddresses() public view virtual returns (WellKnownAddress[] memory addrs) {
-        addrs = new WellKnownAddress[](3);
+        addrs = new WellKnownAddress[](4);
         addrs[0] = WellKnownAddress({addr: BTC(), label: "BTC"});
-        addrs[1] = WellKnownAddress({addr: wstETH(), label: "wstETH"});
-        addrs[2] = WellKnownAddress({addr: USDMY(), label: "USDMY"});
+        addrs[1] = WellKnownAddress({addr: stETH(), label: "stETH"});
+        addrs[2] = WellKnownAddress({addr: wstETH(), label: "wstETH"});
+        addrs[3] = WellKnownAddress({addr: USDMY(), label: "USDMY"});
     }
 }

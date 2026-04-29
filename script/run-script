@@ -214,7 +214,17 @@ fi
 
 # ── Append extra forge flags ──────────────────────────────────────────────
 
-FORGE_ARGS+=("${FORGE_EXTRA[@]}" "--ffi")
+FORGE_ARGS+=("${FORGE_EXTRA[@]}")
+
+HAS_FFI=false
+for arg in "${FORGE_ARGS[@]}"; do
+  if [[ "$arg" == "--ffi" ]]; then
+    HAS_FFI=true
+  fi
+done
+if [[ "$HAS_FFI" == false ]]; then
+  FORGE_ARGS+=(--ffi)
+fi
 
 # ── Display ───────────────────────────────────────────────────────────────
 

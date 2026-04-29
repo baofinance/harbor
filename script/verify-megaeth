@@ -73,7 +73,7 @@ fi
 map_contract_path() {
   local src="$1" type="$2"
   if [[ "$src" == @bao/* ]]; then
-    echo "lib/bao-base-audit-2025-07/src/${src#@bao/}:$type"
+    echo "lib/bao-base/src/${src#@bao/}:$type"
   elif [[ "$src" == @harbor/* ]]; then
     echo "src/${src#@harbor/}:$type"
   else
@@ -114,7 +114,7 @@ for addr in $impl_addrs; do
     line=""; count_line=0
     while IFS= read -r line; do
       count_line=$((count_line + 1))
-      candidate=$(echo "$raw" | tail -n +"$count_line" | jq -c '.' 2>/dev/null)
+      candidate=$(echo "$raw" | tail -n +"$count_line" | jq -c '.' 2>/dev/null || true)
       if [[ -n "${candidate:-}" ]] && echo "$candidate" | jq -e '.sources' >/dev/null 2>&1; then
         json_content=$candidate
         break
@@ -122,7 +122,7 @@ for addr in $impl_addrs; do
     done <<< "$raw"
     if [[ -z "$json_content" ]]; then
       last_line=$(echo "$raw" | tail -1)
-      candidate=$(echo "$last_line" | jq -c '.' 2>/dev/null)
+      candidate=$(echo "$last_line" | jq -c '.' 2>/dev/null || true)
       [[ -n "${candidate:-}" ]] && echo "$candidate" | jq -e '.sources' >/dev/null 2>&1 && json_content=$candidate
     fi
   fi
@@ -143,15 +143,18 @@ for addr in $impl_addrs; do
     --data-urlencode "runs=$OPTIMIZER_RUNS" \
     --data-urlencode "evmVersion=$EVM_VERSION" \
     --data-urlencode "licenseType=3" 2>/dev/null) || true
-  status=$(echo "$response" | jq -r '.status // ""')
+  status=$(echo "$response" | jq -r '.status // ""' 2>/dev/null || echo "")
   if [[ "$status" == "1" ]]; then
     echo "  Submitted. Check ${EXPLORER_BASE}/address/${addr} in 1-2 min."
     ok=$((ok + 1))
   elif echo "$response" | grep -qi "already verified"; then
     echo "  Already verified."
     ok=$((ok + 1))
+  elif [[ -z "$response" ]]; then
+    echo "  Failed: empty response from Etherscan API" >&2
+    fail=$((fail + 1))
   else
-    err_msg=$(echo "$response" | jq -r 'if .result != "" and .result != null then .result else .message // "unknown" end' 2>/dev/null)
+    err_msg=$(echo "$response" | jq -r 'if .result != "" and .result != null then .result else .message // "unknown" end' 2>/dev/null || echo "unknown")
     echo "  Failed: $err_msg" >&2
     if [[ -n "${HARBOR_VERIFY_DEBUG:-}" ]]; then
       echo "  Full API response:" >&2
@@ -204,7 +207,7 @@ if [[ "$VERIFY_PROXIES" == "true" ]]; then
       json_content=$(echo "$raw" | jq -c '.')
     else
       last_line=$(echo "$raw" | tail -1)
-      candidate=$(echo "$last_line" | jq -c '.' 2>/dev/null)
+      candidate=$(echo "$last_line" | jq -c '.' 2>/dev/null || true)
       [[ -n "${candidate:-}" ]] && echo "$candidate" | jq -e '.sources' >/dev/null 2>&1 && json_content=$candidate
     fi
     if [[ -z "$json_content" ]] || ! echo "$json_content" | jq -e '.sources' >/dev/null 2>&1; then
@@ -227,15 +230,18 @@ if [[ "$VERIFY_PROXIES" == "true" ]]; then
       --data-urlencode "runs=$OPTIMIZER_RUNS" \
       --data-urlencode "evmVersion=$EVM_VERSION" \
       --data-urlencode "licenseType=3" 2>/dev/null) || true
-    status=$(echo "$response" | jq -r '.status // ""')
+    status=$(echo "$response" | jq -r '.status // ""' 2>/dev/null || echo "")
     if [[ "$status" == "1" ]]; then
       echo "  Submitted. Check ${EXPLORER_BASE}/address/${addr} in 1-2 min."
       pok=$((pok + 1))
     elif echo "$response" | grep -qi "already verified"; then
       echo "  Already verified."
       pok=$((pok + 1))
+    elif [[ -z "$response" ]]; then
+      echo "  Failed: empty response from Etherscan API" >&2
+      pfail=$((pfail + 1))
     else
-      err_msg=$(echo "$response" | jq -r 'if .result != "" and .result != null then .result else .message // "unknown" end' 2>/dev/null)
+      err_msg=$(echo "$response" | jq -r 'if .result != "" and .result != null then .result else .message // "unknown" end' 2>/dev/null || echo "unknown")
       echo "  Failed: $err_msg" >&2
       pfail=$((pfail + 1))
     fi

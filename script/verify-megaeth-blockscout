@@ -64,7 +64,7 @@ export ETHERSCAN_KEY="${ETHERSCAN_KEY:-dummy}"
 map_contract_path() {
   local src="$1" type="$2"
   if [[ "$src" == @bao/* ]]; then
-    echo "lib/bao-base-audit-2025-07/src/${src#@bao/}:$type"
+    echo "lib/bao-base/src/${src#@bao/}:$type"
   elif [[ "$src" == @harbor/* ]]; then
     echo "src/${src#@harbor/}:$type"
   else

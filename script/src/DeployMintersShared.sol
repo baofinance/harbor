@@ -109,7 +109,7 @@ abstract contract DeployMintersShared is
 
         // Load or seed state
         DeploymentTypes.State memory state = _shouldPersistState()
-            ? DeploymentState.load(_stateFileRead())
+            ? DeploymentState.load(network, saltPrefix)
             : DeploymentTypes.State({
                 network: network,
                 saltPrefix: saltPrefix,

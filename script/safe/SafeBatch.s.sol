@@ -127,7 +127,7 @@ abstract contract SafeBatch is Script, HarborFactoryDeployer {
         // Save batch file
         string memory name = vm.envOr("SAFE_BATCH_NAME", string("batch"));
         string memory timestamp = vm.envOr("SAFE_BATCH_TIMESTAMP", block.timestamp.toString());
-        string memory batchDir = string.concat(DeploymentState.resolveDirectory(), "/batch");
+        string memory batchDir = string.concat(vm.envString("DEPLOY_STATE_DIR"), "/batch");
         vm.createDir(batchDir, true);
         string memory signerLabel = _addressLabel(batchSigner);
         string memory fileSuffix = bytes(suffix).length > 0 ? string.concat(suffix, "@", signerLabel) : signerLabel;

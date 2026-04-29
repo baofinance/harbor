@@ -6,7 +6,7 @@ import {Deploy_USD_Minter_megaeth} from "script/src/Deploy_USD_Minter_megaeth.so
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
-/// @notice Deploy Harbor USD peg and USD markets on MegaETH (BTC, wstETH).
+/// @notice Deploy Harbor USD peg and USD markets on MegaETH (BTC, stETH).
 contract Deploy_USD_megaeth is Deploy_USD_Minter_megaeth, Script {
     function run(string memory saltPrefix, string memory network, bool deployPeg, string memory collateral) external {
         (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createUSDMintersConfig();

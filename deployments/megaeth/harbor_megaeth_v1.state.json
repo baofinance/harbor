@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "harbor_megaeth_v1",
+  "network": "megaeth",
+  "chainId": 4326,
+  "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "lastUpdated": "2026-04-29T21:50:12Z",
+  "implementations": {
+    "0x50eA38B09612B508ECBeb432cb9Bf9ae91362908": {
+      "proxy": "USD::pegged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    },
+    "0x6774745AfC1574Cda36D7cc2D53Df0028480790e": {
+      "proxy": "USD::stETH::genesis",
+      "contractSource": "@harbor/minter/Genesis_v1.sol",
+      "contractType": "Genesis_v1",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    },
+    "0x2fa33C10A5833c1a983d6a373128C736d5eE9a11": {
+      "proxy": "USD::stETH::leveraged",
+      "contractSource": "@bao/MintableBurnableERC20_v1.sol",
+      "contractType": "MintableBurnableERC20_v1",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    },
+    "0x2A9bd9829B690Ee36B79f735412E0959F7813534": {
+      "proxy": "USD::stETH::minter",
+      "contractSource": "@harbor/minter/Minter_v2.sol",
+      "contractType": "Minter_v2",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    },
+    "0xa3287C1A9A777426bC3022d2a94AfDA9561bda3a": {
+      "proxy": "USD::stETH::reservePool",
+      "contractSource": "@harbor/minter/ReservePool_v1.sol",
+      "contractType": "ReservePool_v1",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    },
+    "0x1b46529C3b3E708215C5C7D3BCf5d70443f98588": {
+      "proxy": "USD::stETH::stabilityPoolCollateral",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    },
+    "0xaa47742C019357c7DD85917A4126676265D12EBE": {
+      "proxy": "USD::stETH::stabilityPoolLeveraged",
+      "contractSource": "@harbor/minter/StabilityPool_v2.sol",
+      "contractType": "StabilityPool_v2",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    },
+    "0xCE23e54B1b47277f2B5F1deff06908e95E0Bf38C": {
+      "proxy": "USD::stETH::stabilityPoolManager",
+      "contractSource": "@harbor/minter/StabilityPoolManager_v1.sol",
+      "contractType": "StabilityPoolManager_v1",
+      "deploymentTime": "2026-04-29T21:50:12Z"
+    }
+  },
+  "proxies": {
+    "USD::pegged": {
+      "address": "0xbEd2c24Cf10d7aC58350364aF8d3AbC0ce0D626f",
+      "implementation": "0x50eA38B09612B508ECBeb432cb9Bf9ae91362908",
+      "salt": "harbor_megaeth_v1::USD::pegged",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    },
+    "USD::stETH::genesis": {
+      "address": "0x004C7091051bBD43dd1C26e3E37C85F869a987e7",
+      "implementation": "0x6774745AfC1574Cda36D7cc2D53Df0028480790e",
+      "salt": "harbor_megaeth_v1::USD::stETH::genesis",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    },
+    "USD::stETH::leveraged": {
+      "address": "0x6c8Bf305a6F8C4613265DB876c8A1c3fCdd0d1F1",
+      "implementation": "0x2fa33C10A5833c1a983d6a373128C736d5eE9a11",
+      "salt": "harbor_megaeth_v1::USD::stETH::leveraged",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    },
+    "USD::stETH::minter": {
+      "address": "0x77aD4a052812f1EeD89Fb4ED309e81c815D8d755",
+      "implementation": "0x2A9bd9829B690Ee36B79f735412E0959F7813534",
+      "salt": "harbor_megaeth_v1::USD::stETH::minter",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    },
+    "USD::stETH::reservePool": {
+      "address": "0x0d60a96678066f3f9dCD1227481E7c1B5e2cbD96",
+      "implementation": "0xa3287C1A9A777426bC3022d2a94AfDA9561bda3a",
+      "salt": "harbor_megaeth_v1::USD::stETH::reservePool",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    },
+    "USD::stETH::stabilityPoolCollateral": {
+      "address": "0xe4C4C226A2a267172C09efD43f9Db92B875FdA72",
+      "implementation": "0x1b46529C3b3E708215C5C7D3BCf5d70443f98588",
+      "salt": "harbor_megaeth_v1::USD::stETH::stabilityPoolCollateral",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    },
+    "USD::stETH::stabilityPoolLeveraged": {
+      "address": "0x981D002e7A14E9f37f5feC17caa0B69f7A722132",
+      "implementation": "0xaa47742C019357c7DD85917A4126676265D12EBE",
+      "salt": "harbor_megaeth_v1::USD::stETH::stabilityPoolLeveraged",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    },
+    "USD::stETH::stabilityPoolManager": {
+      "address": "0xfc45f502B0C04fF8dE7cca1703440D87De4B5dE7",
+      "implementation": "0xCE23e54B1b47277f2B5F1deff06908e95E0Bf38C",
+      "salt": "harbor_megaeth_v1::USD::stETH::stabilityPoolManager",
+      "deploymentTime": "2026-04-29T21:49:49Z"
+    }
+  }
+}
