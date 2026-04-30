@@ -287,13 +287,13 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @inheritdoc IStabilityPoolManager_v2
-    function setAutoCompounder(address sp, address ac) external override onlyOwner {
-        if (sp != _STABILITY_POOL_COLLATERAL && sp != _STABILITY_POOL_LEVERAGED) {
-            revert InvalidStabilityPool(sp);
+    function setAutoCompounder(address stabilityPool, address autoCompounder_) external override onlyOwner {
+        if (stabilityPool != _STABILITY_POOL_COLLATERAL && stabilityPool != _STABILITY_POOL_LEVERAGED) {
+            revert InvalidStabilityPool(stabilityPool);
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.autoCompounder[sp] = ac;
-        emit AutoCompounderSet(sp, ac);
+        $.autoCompounder[stabilityPool] = autoCompounder_;
+        emit AutoCompounderSet(stabilityPool, autoCompounder_);
     }
 
     /*************************
@@ -311,23 +311,27 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @dev Trigger compound() on any registered auto-compounder for each stability pool.
-    ///      Failures (including NothingToCompound) are silently swallowed — compound is an
-    ///      optional optimisation step and must not block harvest/rebalance.
+    ///      Failures (including NothingToCompound) are non-fatal — harvest/rebalance still
+    ///      completes. A CompoundFailed event is emitted so off-chain monitoring can detect
+    ///      and investigate failures.
     function _compoundRegistered() private {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        address acColl = $.autoCompounder[_STABILITY_POOL_COLLATERAL];
-        if (acColl != address(0)) {
-            // solhint-disable-next-line no-empty-blocks
-            try IAutoCompounder(acColl).compound() {} catch {}
+        address collateralAutoCompounder = $.autoCompounder[_STABILITY_POOL_COLLATERAL];
+        address leveragedAutoCompounder = $.autoCompounder[_STABILITY_POOL_LEVERAGED];
+        if (collateralAutoCompounder != address(0)) {
+            try IAutoCompounder(collateralAutoCompounder).compound() {} catch (bytes memory reason) {
+                emit CompoundFailed(collateralAutoCompounder, reason);
+            }
         }
-        address acLev = $.autoCompounder[_STABILITY_POOL_LEVERAGED];
-        if (acLev != address(0)) {
-            // solhint-disable-next-line no-empty-blocks
-            try IAutoCompounder(acLev).compound() {} catch {}
+        if (leveragedAutoCompounder != address(0)) {
+            try IAutoCompounder(leveragedAutoCompounder).compound() {} catch (bytes memory reason) {
+                emit CompoundFailed(leveragedAutoCompounder, reason);
+            }
         }
     }
 
     /// @inheritdoc IStabilityPoolManager
+    // slither-disable-next-line reentrancy-no-eth
     function rebalance(
         address bountyReceiver,
         uint256 minPeggedLiquidated
@@ -452,6 +456,7 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @inheritdoc IStabilityPoolManager
+    // slither-disable-next-line reentrancy-no-eth
     function harvest(
         address bountyReceiver,
         uint256 minBounty

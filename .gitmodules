@@ -10,9 +10,10 @@
 [submodule "lib/forge-std"]
 	path = lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
-[submodule "lib/bao-base"]
-	path = lib/bao-base
-	url = https://github.com/baofinance/bao-base
 [submodule "lib/chainlink-brownie-contracts"]
 	path = lib/chainlink-brownie-contracts
 	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
+[submodule "lib/bao-base"]
+	path = lib/bao-base
+	url = https://github.com/baofinance/bao-base
+	branch = main
