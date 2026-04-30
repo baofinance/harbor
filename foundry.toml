@@ -43,7 +43,7 @@ remappings = [
   "test/=test/",
 ]
 
-fuzz.gas_report_samples = 64 # gas report doesn't need so many test cases
+
 # gas_reports_ignore takes contract names, not paths — use gas_reports whitelist instead
 gas_reports = [
   "Config_v2",
