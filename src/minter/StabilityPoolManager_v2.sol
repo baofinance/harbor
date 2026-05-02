@@ -319,11 +319,13 @@ contract StabilityPoolManager_v2 is
         address collateralAutoCompounder = $.autoCompounder[_STABILITY_POOL_COLLATERAL];
         address leveragedAutoCompounder = $.autoCompounder[_STABILITY_POOL_LEVERAGED];
         if (collateralAutoCompounder != address(0)) {
+            // solhint-disable-next-line no-empty-blocks
             try IAutoCompounder(collateralAutoCompounder).compound() {} catch (bytes memory reason) {
                 emit CompoundFailed(collateralAutoCompounder, reason);
             }
         }
         if (leveragedAutoCompounder != address(0)) {
+            // solhint-disable-next-line no-empty-blocks
             try IAutoCompounder(leveragedAutoCompounder).compound() {} catch (bytes memory reason) {
                 emit CompoundFailed(leveragedAutoCompounder, reason);
             }
