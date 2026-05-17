@@ -27,6 +27,14 @@ abstract contract ConfigChain_mainnet {
         return 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
     }
 
+    function PAXG() public pure virtual returns (address) {
+        return 0x45804880De22913dAFE09f4980848ECE6EcbAf78;
+    }
+
+    function tBTC() public pure virtual returns (address) {
+        return 0x18084fba666a33d37592fa2633fd49a74dd93a88;
+    }
+
     // Chain metadata
     function chainId() public pure virtual returns (uint256) {
         return 1;
@@ -39,11 +47,13 @@ abstract contract ConfigChain_mainnet {
     /// @notice Return all well-known addresses (protocol + chain-specific).
     /// @dev Protocol addresses (treasury, baoFactory) are provided by FactoryDeployer.
     function getWellKnownAddresses() public view virtual returns (WellKnownAddress[] memory addrs) {
-        addrs = new WellKnownAddress[](5);
+        addrs = new WellKnownAddress[](7);
         addrs[0] = WellKnownAddress({addr: fxUSD(), label: "fxUSD"});
         addrs[1] = WellKnownAddress({addr: fxSAVE(), label: "fxSAVE"});
         addrs[2] = WellKnownAddress({addr: stETH(), label: "stETH"});
         addrs[3] = WellKnownAddress({addr: wstETH(), label: "wstETH"});
         addrs[4] = WellKnownAddress({addr: WBTC(), label: "WBTC"});
+        addrs[5] = WellKnownAddress({addr: PAXG(), label: "PAXG"});
+        addrs[6] = WellKnownAddress({addr: tBTC(), label: "tBTC"});
     }
 }
