@@ -66,7 +66,7 @@ contract Deploy_Minter_v2_mainnet is
     }
 
     function build() internal override {
-        DeploymentTypes.State memory state = DeploymentState.load(_stateFileRead());
+        DeploymentTypes.State memory state = DeploymentState.load(vm.envString("NETWORK"), saltPrefix());
         console.log("Loaded state: %d implementations", state.implementations.length);
         state.baoFactory = baoFactory();
 

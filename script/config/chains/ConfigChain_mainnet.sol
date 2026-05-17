@@ -32,7 +32,7 @@ abstract contract ConfigChain_mainnet {
     }
 
     function tBTC() public pure virtual returns (address) {
-        return 0x18084fba666a33d37592fa2633fd49a74dd93a88;
+        return 0x18084fbA666a33d37592fA2633fD49a74DD93a88;
     }
 
     // Chain metadata
