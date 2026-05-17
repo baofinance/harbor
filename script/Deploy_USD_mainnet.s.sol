@@ -6,7 +6,7 @@ import {Deploy_USD_Minter} from "script/src/Deploy_USD_Minter.sol";
 import {ConfigPeg} from "script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
-/// @notice Deploy Harbor USD pegged token and USD markets (mainnet: PAXG, tBTC, wBTC, wstETH).
+/// @notice Deploy Harbor USD pegged token and USD markets (mainnet: PAXG, tBTC, wBTC, stETH).
 contract Deploy_USD_mainnet is Deploy_USD_Minter, Script {
     /// @notice Deploy USD pegged token, leveraged tokens, and minter infrastructure.
     /// @param saltPrefix System salt for CREATE3 deployment (e.g., "harbor_v1").

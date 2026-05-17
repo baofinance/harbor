@@ -7,7 +7,7 @@ import {ConfigPeg_USD} from "script/config/pegs/ConfigPeg_USD.sol";
 import {ConfigMarket_USD_PAXG_mainnet} from "script/config/markets/ConfigMarket_USD_PAXG_mainnet.sol";
 import {ConfigMarket_USD_tBTC_mainnet} from "script/config/markets/ConfigMarket_USD_tBTC_mainnet.sol";
 import {ConfigMarket_USD_wBTC_mainnet} from "script/config/markets/ConfigMarket_USD_wBTC_mainnet.sol";
-import {ConfigMarket_USD_wstETH_mainnet} from "script/config/markets/ConfigMarket_USD_wstETH_mainnet.sol";
+import {ConfigMarket_USD_stETH_mainnet} from "script/config/markets/ConfigMarket_USD_stETH_mainnet.sol";
 import {Config_MinterMarket} from "script/config/ConfigBase.sol";
 
 /// @notice USD-specific minter deployment functionality.
@@ -19,6 +19,6 @@ abstract contract Deploy_USD_Minter is DeployMintersShared {
         markets[0] = new ConfigMarket_USD_PAXG_mainnet();
         markets[1] = new ConfigMarket_USD_tBTC_mainnet();
         markets[2] = new ConfigMarket_USD_wBTC_mainnet();
-        markets[3] = new ConfigMarket_USD_wstETH_mainnet();
+        markets[3] = new ConfigMarket_USD_stETH_mainnet();
     }
 }
