@@ -1360,8 +1360,9 @@ contract Minter_v3 is
                 );
                 collateralInBandE36 = Math.min(w.underlyingCollateralInLeftE36, collateralInBandE36);
             }
-            // Cap collateral to stay within fee budget (skip when uncapped)
-            if (maxFeeE36 != type(uint256).max) {
+            // Cap collateral to stay within fee budget (skip when uncapped or zero-fee band)
+            // bandFeeRatio == 0 means no fee, so no budget constraint can apply.
+            if (maxFeeE36 != type(uint256).max && bandFeeRatio > 0) {
                 uint256 remainingFeeE36 = maxFeeE36 - w.underlyingFeeE36;
                 uint256 maxCollateralForFeeE36 = Math.mulDiv(remainingFeeE36, 1 ether, bandFeeRatio);
                 if (collateralInBandE36 > maxCollateralForFeeE36) {
