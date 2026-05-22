@@ -18,14 +18,9 @@ import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol"
 
 import {Script} from "forge-std/Script.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {console2} from "forge-std/console2.sol";
-
-// TODO: put this in a file and have everything share it (or break it up or something)
-interface IFullMinterConfig {
-    function wrappedCollateralToken() external view returns (address);
-    function peg() external view returns (string memory);
-}
 
 /// @notice Deploy Minter v2 implementations and queue upgrade transactions for all minters.
 /// @dev Broadcasts implementation deployments, then queues UUPS upgrade calls as a Safe batch.
@@ -44,7 +39,7 @@ contract Deploy_Minter_v2_mainnet is
     function _doOneMinter(DeploymentTypes.State memory state, Config_MinterMarket[] memory markets) internal {
         for (uint i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            IFullMinterConfig cfg = IFullMinterConfig(address(markets[i]));
+            IHarborConfig cfg = IHarborConfig(address(markets[i]));
             address wrappedCollateral = cfg.wrappedCollateralToken();
             address peggedToken = _predictAddress(_key(cfg.peg(), "pegged"));
             address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));

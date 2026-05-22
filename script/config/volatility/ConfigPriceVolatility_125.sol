@@ -11,7 +11,7 @@ contract ConfigPriceVolatility_125 is ConfigPriceVolatilityBase {
         return 1.25e18;
     }
 
-    function minterConfig() public pure override returns (IMinter.Config memory) {
+    function minterConfig() public pure virtual override returns (IMinter.Config memory) {
         uint256[] memory mintPeggedBounds = new uint256[](6);
         mintPeggedBounds[0] = 1.26e18;
         mintPeggedBounds[1] = 1.35e18;

@@ -10,7 +10,7 @@ abstract contract ConfigCollateral_fxUSD_mainnet is ConfigChain_mainnet {
         return fxUSD();
     }
 
-    function wrappedCollateralToken() public pure virtual returns (address) {
+    function wrappedCollateralToken() public view virtual returns (address) {
         return fxSAVE();
     }
 

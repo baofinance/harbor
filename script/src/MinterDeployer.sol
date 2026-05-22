@@ -16,25 +16,7 @@ import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-
-/// @notice Extended market config interface with methods from collateral and chain configs.
-interface IFullMinterConfig {
-    function peg() external view returns (string memory);
-    function collateral() external view returns (string memory);
-    function wrappedCollateralToken() external view returns (address);
-    function minterConfig() external pure returns (IMinter.Config memory);
-    // Peg config
-    function minTotalSupply() external view returns (uint256);
-    // Stability pool config
-    function stabilityPoolWithdrawalDelay() external pure returns (uint256);
-    function stabilityPoolWithdrawalPeriod() external pure returns (uint256);
-    function stabilityPoolEarlyWithdrawalFeeRatio() external pure returns (uint256);
-    // StabilityPoolManager config (rebalanceThreshold comes from volatility config)
-    function rebalanceThreshold() external pure returns (uint256);
-    function rebalanceBountyRatio() external pure returns (uint256);
-    function harvestBountyRatio() external pure returns (uint256);
-    function harvestCutRatio() external pure returns (uint256);
-}
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 /// @notice Shared functionality for all minter deployment contracts.
 /// @dev Provides common infrastructure and deployment primitives.
@@ -140,7 +122,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
     /// @param state Deployment state (modified in place).
     /// @param market Market configuration.
     function _deployMinterInfrastructure(DeploymentTypes.State memory state, Config_MinterMarket market) private {
-        IFullMinterConfig cfg = IFullMinterConfig(address(market));
+        IHarborConfig cfg = IHarborConfig(address(market));
         string memory marketKey = MinterMarketConfigLib.salt(market);
 
         console.log("");
@@ -175,7 +157,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
 
     function _deployMinter(
         DeploymentTypes.State memory stateData,
-        IFullMinterConfig cfg,
+        IHarborConfig cfg,
         string memory marketKey
     ) internal {
         address wrappedCollateral = cfg.wrappedCollateralToken();
@@ -187,7 +169,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
 
     function _deployStabilityPools(
         DeploymentTypes.State memory stateData,
-        IFullMinterConfig cfg,
+        IHarborConfig cfg,
         string memory marketKey
     ) internal {
         address minter = _predictAddress(_key(marketKey, "minter"));
@@ -209,7 +191,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
         );
     }
 
-    function _registerRewardTokens(IFullMinterConfig cfg, string memory marketKey) internal {
+    function _registerRewardTokens(IHarborConfig cfg, string memory marketKey) internal {
         address spCollateral = _predictAddress(_key(marketKey, StabilityPoolCollateral));
         address spLeveraged = _predictAddress(_key(marketKey, StabilityPoolLeveraged));
         address wrappedCollateral = cfg.wrappedCollateralToken();
@@ -225,7 +207,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
 
     function _deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
-        IFullMinterConfig,
+        IHarborConfig,
         string memory marketKey
     ) internal {
         address minter = _predictAddress(_key(marketKey, "minter"));
@@ -237,7 +219,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
 
     function _deployGenesis(
         DeploymentTypes.State memory stateData,
-        IFullMinterConfig cfg,
+        IHarborConfig cfg,
         string memory marketKey
     ) internal {
         cfg;
@@ -246,7 +228,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
     }
 
     function _configureMinter(Config_MinterMarket market, string memory marketKey) internal {
-        IFullMinterConfig cfg = IFullMinterConfig(address(market));
+        IHarborConfig cfg = IHarborConfig(address(market));
         address minter = _predictAddress(_key(marketKey, "minter"));
         address priceOracle = _predictAddress(MinterMarketConfigLib.priceOracleKey(market));
 

@@ -20,6 +20,7 @@ interface IMarketConfig {
 /// @dev Provides type safety for minter market config parameters.
 ///      Concrete configs must provide peg() and collateral() methods via inherited components.
 ///      This contract doesn't declare the methods to avoid diamond inheritance conflicts.
+///      Concrete configs implement IHarborConfig — see script/config/IHarborConfig.sol.
 abstract contract Config_MinterMarket {
     // Methods provided by ConfigPeg_* and ConfigCollateral_* components via inheritance
 }

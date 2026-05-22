@@ -10,7 +10,7 @@ abstract contract ConfigCollateral_stETH_mainnet is ConfigChain_mainnet {
         return stETH();
     }
 
-    function wrappedCollateralToken() public pure virtual returns (address) {
+    function wrappedCollateralToken() public view virtual returns (address) {
         return wstETH();
     }
 
