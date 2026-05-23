@@ -227,10 +227,17 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
         deployGenesis(stateData, marketKey, minter);
     }
 
+    /// @notice Resolve the wrapped price oracle address for a market.
+    /// @dev Default: predicts the CREATE3 address of the pre-deployed oracle from harbor-price-aggregators.
+    ///      Override in test setups to deploy a mock oracle instead.
+    function _resolveWrappedPriceOracle(string memory key) internal virtual returns (address) {
+        return _predictAddress(key);
+    }
+
     function _configureMinter(Config_MinterMarket market, string memory marketKey) internal {
         IHarborConfig cfg = IHarborConfig(address(market));
         address minter = _predictAddress(_key(marketKey, "minter"));
-        address priceOracle = _predictAddress(MinterMarketConfigLib.priceOracleKey(market));
+        address priceOracle = _resolveWrappedPriceOracle(MinterMarketConfigLib.priceOracleKey(market));
 
         // Update minter configuration (incentive ratios)
         IMinter(minter).updateConfig(cfg.minterConfig());
