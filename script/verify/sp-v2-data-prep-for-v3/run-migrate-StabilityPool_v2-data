@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# run-migrate-StabilityPool_v2-data — local verification of the accumulator V1->V2
+# force-migration (prep for v3).
+#
+# Two-pronged verification against a single local mainnet-fork anvil session:
+#
+#   Prong A (black-box): capture all pool/holder state + interactions BEFORE, run the
+#     ACTUAL migrate script (--broadcast --local persists to anvil), capture AFTER, diff.
+#     The migration only reshapes internal storage, so the diff MUST be empty.
+#
+#   Prong B (white-box): MigrateBalancesTest upgrades each proxy to ForceMigrateAccumulator_v1,
+#     reads raw (V1, V2) integrals via balances(), remediates, and asserts the copy is correct.
+#     Runs in-memory on the un-migrated node, so it does not disturb anvil.
+#
+# forge test forks anvil IN-MEMORY (no writeback); run-script --broadcast --local PERSISTS.
+# So a single anvil session works: in-memory captures/checks see the un-migrated node, the
+# migrate script mutates it, then the after-capture forks the migrated node. START_TIMESTAMP
+# normalizes the timestamp drift the migrate txs introduce.
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# ── Configuration ────────────────────────────────────────────────────────────
+BLOCK="${BLOCK:-latest}"
+SALT="${SALT:-harbor_v1}"
+NETWORK="${NETWORK:-mainnet}"
+POOL_FILTER="${POOL_FILTER:-}"
+FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
+CAPTURE_TEST="script/verify/sp-v2-upgrade-prep-for-v3/MigrateCaptureTest.t.sol"
+BALANCES_TEST="script/verify/sp-v2-upgrade-prep-for-v3/MigrateBalancesTest.t.sol"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --include)
+      POOL_FILTER="$2"
+      shift 2
+      ;;
+    --block)
+      BLOCK="$2"
+      shift 2
+      ;;
+    -h | --help)
+      echo "Usage: $(basename "$0") [--block <n|latest>] [--include <pool-filter>]"
+      echo ""
+      echo "Env: BLOCK, SALT (default harbor_v1), NETWORK (default mainnet),"
+      echo "     POOL_FILTER, FORGE_VERBOSITY (default -vv)"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+prompt() {
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "$1"
+  echo "──────────────────────────────────────────────────────────────"
+  read -rn1 -p "Ready? [Y/n] " response
+  echo ""
+  if [[ "$response" =~ ^[Nn]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+}
+
+capture() {
+  local version="$1"
+  local env_args=(START_TIMESTAMP="$START_TIMESTAMP" VERSION="$version")
+  [[ -n "$POOL_FILTER" ]] && env_args+=(POOL_FILTER="$POOL_FILTER")
+  echo ""
+  echo "Capturing '$version' state..."
+  env "${env_args[@]}" forge test --match-path "$CAPTURE_TEST" --fork-url local $FORGE_VERBOSITY
+}
+
+echo "======================================================================"
+echo "  StabilityPool_v2 accumulator V1->V2 force-migration verification"
+echo "======================================================================"
+echo "  Fork block:  $BLOCK"
+echo "  Salt:        $SALT"
+[[ -n "$POOL_FILTER" ]] && echo "  Pool filter: $POOL_FILTER"
+
+# Compute START_TIMESTAMP from the fork block (shared by before/after captures).
+echo ""
+echo "Computing START_TIMESTAMP from block $BLOCK..."
+TS=$(cast block --rpc-url "$NETWORK" "$BLOCK" -f timestamp)
+START_TIMESTAMP=$((TS + 12000))
+echo "  block timestamp: $TS"
+echo "  START_TIMESTAMP: $START_TIMESTAMP  (+12000s buffer)"
+
+prompt "Start a fresh anvil fork:  script/anvil --block $BLOCK"
+
+# ── Prong A: capture BEFORE (in-memory; does not mutate anvil) ────────────────
+capture before
+
+# ── Prong B: white-box balances() check (in-memory; un-migrated node) ─────────
+echo ""
+echo "Prong B: balances() white-box check..."
+forge test --match-path "$BALANCES_TEST" --fork-url local $FORGE_VERBOSITY
+
+# ── Run the ACTUAL migrate script (persists to anvil) ─────────────────────────
+echo ""
+echo "Running Migrate_StabilityPool_v2_Data_mainnet (--broadcast --local)..."
+./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local
+
+# ── Prong A: capture AFTER (forks the now-migrated node) ──────────────────────
+capture after
+
+# ── Compare (expect: NO differences) ──────────────────────────────────────────
+echo ""
+echo "======================================================================"
+echo "  Comparison — expect NO differences (migration is transparent)"
+echo "======================================================================"
+if command -v meld >/dev/null 2>&1; then
+  meld tmp/before tmp/after
+else
+  if diff -ru tmp/before tmp/after; then
+    echo ""
+    echo "✅ PASS: before and after are identical."
+  else
+    echo ""
+    echo "❌ FAIL: differences found above — migration changed user-visible state."
+    exit 1
+  fi
+fi
