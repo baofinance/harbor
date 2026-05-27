@@ -2,7 +2,7 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
-/// @notice Minter v3 extensions: fee-capped minting.
+/// @notice Minter v3 extensions: fee-capped minting and absolute-amount fee queries in pegged space.
 // solhint-disable-next-line contract-name-capwords
 interface IMinter_v3 {
     /// @notice Mint pegged tokens with a fee cap. Stops minting when cumulative fee would exceed maxFeeRatio.
@@ -36,5 +36,36 @@ interface IMinter_v3 {
             uint256 peggedMinted,
             uint256 price,
             uint256 rate
+        );
+
+    /// @notice Returns the absolute mint fee and uncapped redeem bonus for a given pegged amount, both
+    /// expressed in pegged token units at current oracle prices.
+    ///
+    /// Intended for contract-to-contract callers (e.g. SP_v3 withdrawal fee, HY mechanism C) that need
+    /// the fee as an amount (not a ratio) for a specific withdrawal size. Does NOT handle
+    /// type(uint256).max as "all tokens" — callers must supply the actual amount.
+    ///
+    /// @param peggedIn The pegged token amount being evaluated (in pegged base units, 1e18-scaled).
+    /// @return mintFee The absolute mint fee in pegged units that the Minter would charge for minting
+    ///         the collateral-equivalent of `peggedIn`. Floored at zero. Used by SP_v3 as one component
+    ///         of the CR-based withdrawal fee.
+    /// @return peggedNotMinted The portion of `peggedIn` that falls in the disallow band (unmintable).
+    ///         Zero when CR is high enough that the full amount is mintable.
+    /// @return mintMaxFeeRatio The highest configured fee ratio across all non-disallow mint bands
+    ///         (1e18-scaled). Used by callers to cap or scale the fee.
+    /// @return redeemPeggedUncappedBonus The absolute uncapped redeem bonus in pegged units that the
+    ///         system would pay from the reserve pool for redeeming `peggedIn` at the current CR. The
+    ///         reserve pool is treated as unlimited (theoretical, not capped by actual balance). Floored
+    ///         at zero — positive only when CR is stressed enough to offer a redemption discount.
+    function peggedIncentivesByPegged(
+        uint256 peggedIn
+    )
+        external
+        view
+        returns (
+            uint256 mintFee,
+            uint256 peggedNotMinted,
+            uint256 mintMaxFeeRatio,
+            uint256 redeemPeggedUncappedBonus
         );
 }
