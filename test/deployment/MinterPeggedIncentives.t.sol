@@ -52,8 +52,8 @@ contract MinterPeggedIncentivesTest is MinterCappedMintSetUp {
         // mintMaxFeeRatio is independent of input — it scans all configured bands.
         _bootstrapCollateralRatio();
 
-        (uint256 mintFee, uint256 peggedNotMinted, uint256 mintMaxFeeRatio, uint256 redeemBonus) =
-            IMinter_v3(minter).peggedIncentivesByPegged(0);
+        (uint256 mintFee, uint256 peggedNotMinted, uint256 mintMaxFeeRatio, uint256 redeemBonus) = IMinter_v3(minter)
+            .peggedIncentivesByPegged(0);
 
         assertEq(mintFee, 0, "mintFee zero at zero input");
         assertEq(peggedNotMinted, 0, "peggedNotMinted zero at zero input");

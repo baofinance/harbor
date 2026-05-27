@@ -62,10 +62,5 @@ interface IMinter_v3 {
     )
         external
         view
-        returns (
-            uint256 mintFee,
-            uint256 peggedNotMinted,
-            uint256 mintMaxFeeRatio,
-            uint256 redeemPeggedUncappedBonus
-        );
+        returns (uint256 mintFee, uint256 peggedNotMinted, uint256 mintMaxFeeRatio, uint256 redeemPeggedUncappedBonus);
 }
