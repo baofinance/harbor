@@ -16,42 +16,52 @@
 # So a single anvil session works: in-memory captures/checks see the un-migrated node, the
 # migrate script mutates it, then the after-capture forks the migrated node. START_TIMESTAMP
 # normalizes the timestamp drift the migrate txs introduce.
+#
+# The fork block is resolved to a CONCRETE number once, then used identically for holder
+# discovery (collect-sp-holders --to-block), the anvil fork, and START_TIMESTAMP — so the
+# discovered set and the forked state always match. A full run records that block; later
+# runs can reuse it (--block capture / --skip-capture).
+#
+# Usage:
+#   run-migrate-StabilityPool_v2-data                      # full run at latest (records the block)
+#   run-migrate-StabilityPool_v2-data --skip-capture       # reuse saved holders + before-capture + block
+#   run-migrate-StabilityPool_v2-data --block <number>     # full run at a specific block
+#   run-migrate-StabilityPool_v2-data --block capture       # full run at the last recorded block
+#   options: --include <pool-filter>
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # ── Configuration ────────────────────────────────────────────────────────────
-BLOCK="${BLOCK:-latest}"
 SALT="${SALT:-harbor_v1}"
 NETWORK="${NETWORK:-mainnet}"
 POOL_FILTER="${POOL_FILTER:-}"
 FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
-CAPTURE_TEST="script/verify/sp-v2-upgrade-prep-for-v3/MigrateCaptureTest.t.sol"
-BALANCES_TEST="script/verify/sp-v2-upgrade-prep-for-v3/MigrateBalancesTest.t.sol"
+HERE="$(dirname "$0")"
+CAPTURE_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateCaptureTest.t.sol"
+BALANCES_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateBalancesTest.t.sol"
+HOLDERS_DIR="tmp/sp-holders"
+BLOCK_FILE="tmp/sp-capture-block"   # records the concrete block a full capture used
+
+BLOCK=""               # n | latest | capture ; default chosen below
+SKIP_CAPTURE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --include)
-      POOL_FILTER="$2"
-      shift 2
-      ;;
-    --block)
-      BLOCK="$2"
-      shift 2
-      ;;
+    --include)      POOL_FILTER="$2"; shift 2 ;;
+    --block)        BLOCK="$2"; shift 2 ;;
+    --skip-capture) SKIP_CAPTURE=true; shift ;;
     -h | --help)
-      echo "Usage: $(basename "$0") [--block <n|latest>] [--include <pool-filter>]"
-      echo ""
-      echo "Env: BLOCK, SALT (default harbor_v1), NETWORK (default mainnet),"
-      echo "     POOL_FILTER, FORGE_VERBOSITY (default -vv)"
-      exit 0
-      ;;
-    *)
-      echo "Unknown option: $1" >&2
-      exit 1
-      ;;
+      sed -n '/^# Usage:/,/pool-filter/p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# Default block: full run -> latest; skip-capture -> the recorded capture block.
+if [[ -z "$BLOCK" ]]; then
+  if $SKIP_CAPTURE; then BLOCK="capture"; else BLOCK="latest"; fi
+fi
 
 prompt() {
   echo ""
@@ -75,25 +85,65 @@ capture() {
   env "${env_args[@]}" forge test --match-path "$CAPTURE_TEST" --fork-url local $FORGE_VERBOSITY
 }
 
+# ── Resolve the fork block to a concrete number (used everywhere) ─────────────
+case "$BLOCK" in
+  latest)
+    RESOLVED=$(cast block-number --rpc-url "$NETWORK")
+    ;;
+  capture)
+    if [[ ! -f "$BLOCK_FILE" ]]; then
+      echo "ERROR: no recorded capture block at $BLOCK_FILE — run a full capture first." >&2
+      exit 1
+    fi
+    RESOLVED=$(cat "$BLOCK_FILE")
+    ;;
+  *)
+    RESOLVED="$BLOCK"
+    ;;
+esac
+
 echo "======================================================================"
 echo "  StabilityPool_v2 accumulator V1->V2 force-migration verification"
 echo "======================================================================"
-echo "  Fork block:  $BLOCK"
-echo "  Salt:        $SALT"
-[[ -n "$POOL_FILTER" ]] && echo "  Pool filter: $POOL_FILTER"
+echo "  Fork block:   $RESOLVED  (requested: $BLOCK)"
+echo "  Salt:         $SALT"
+echo "  Skip capture: $SKIP_CAPTURE"
+[[ -n "$POOL_FILTER" ]] && echo "  Pool filter:  $POOL_FILTER"
 
-# Compute START_TIMESTAMP from the fork block (shared by before/after captures).
-echo ""
-echo "Computing START_TIMESTAMP from block $BLOCK..."
-TS=$(cast block --rpc-url "$NETWORK" "$BLOCK" -f timestamp)
+# START_TIMESTAMP from the resolved block (shared by before/after captures).
+TS=$(cast block --rpc-url "$NETWORK" "$RESOLVED" -f timestamp)
 START_TIMESTAMP=$((TS + 12000))
-echo "  block timestamp: $TS"
-echo "  START_TIMESTAMP: $START_TIMESTAMP  (+12000s buffer)"
+echo "  START_TIMESTAMP: $START_TIMESTAMP  (block ts $TS + 12000s)"
 
-prompt "Start a fresh anvil fork:  script/anvil --block $BLOCK"
+if ! $SKIP_CAPTURE; then
+  # Record the block this capture is built against, so --block capture / --skip-capture reuse it.
+  mkdir -p "$(dirname "$BLOCK_FILE")"
+  echo "$RESOLVED" > "$BLOCK_FILE"
 
-# ── Prong A: capture BEFORE (in-memory; does not mutate anvil) ────────────────
-capture before
+  # Step 0: (re)generate holder files at the SAME block (Etherscan; needs ETHERSCAN_KEY).
+  echo ""
+  echo "Discovering holders -> $HOLDERS_DIR (Etherscan, to-block $RESOLVED)..."
+  "$HERE/collect-sp-holders" --to-block "$RESOLVED"
+else
+  # Reuse saved artifacts; fail clearly if they are missing.
+  if ! ls "$HOLDERS_DIR"/*.txt >/dev/null 2>&1; then
+    echo "ERROR: --skip-capture but no holder files in $HOLDERS_DIR — run a full capture first." >&2
+    exit 1
+  fi
+  if [[ ! -d tmp/before ]]; then
+    echo "ERROR: --skip-capture but tmp/before is missing — run a full capture first." >&2
+    exit 1
+  fi
+  echo ""
+  echo "Skip-capture: reusing $HOLDERS_DIR, tmp/before, and block $RESOLVED."
+fi
+
+prompt "Start a fresh anvil fork:  script/anvil --block $RESOLVED"
+
+# ── Prong A: capture BEFORE (skipped on --skip-capture; reuses saved tmp/before) ──
+if ! $SKIP_CAPTURE; then
+  capture before
+fi
 
 # ── Prong B: white-box balances() check (in-memory; un-migrated node) ─────────
 echo ""

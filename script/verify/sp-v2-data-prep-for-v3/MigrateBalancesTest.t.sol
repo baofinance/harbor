@@ -39,7 +39,7 @@ contract MigrateBalancesTest is
     Deploy_MCAP_Minter,
     Deploy_SILVER_Minter
 {
-    string internal constant HOLDERS_DIR = "script/verify/sp-v2-upgrade-prep-for-v3/holders/";
+    string internal constant HOLDERS_DIR = "tmp/sp-holders/";
 
     address internal migImpl;
 

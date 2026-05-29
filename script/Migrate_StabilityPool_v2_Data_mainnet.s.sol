@@ -32,7 +32,7 @@ import {Script} from "forge-std/Script.sol";
 ///   3. Restore proxy        -> the StabilityPool_v2 implementation it had before
 ///
 /// Holders are read at runtime from per-pool files produced by
-/// `script/verify/sp-v2-upgrade-prep-for-v3/collect-sp-holders` (UserDepositChange
+/// `script/verify/sp-v2-data-prep-for-v3/collect-sp-holders` (UserDepositChange
 /// logs). Pools with no holder file, or an empty one, are skipped.
 ///
 /// Run via:
@@ -54,7 +54,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     /// @dev Directory of per-pool holder files (one checksummed address per line, '#' comments).
-    string internal constant HOLDERS_DIR = "script/verify/sp-v2-upgrade-prep-for-v3/holders/";
+    string internal constant HOLDERS_DIR = "tmp/sp-holders/";
 
     /// @dev Deployed once, shared across all pools (no constructor params, deterministic bytecode).
     address internal migImpl;

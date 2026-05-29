@@ -1,43 +1,49 @@
 #!/usr/bin/env bash
 # collect-sp-holders — discover every account that has ever held a position in
-# each Harbor stability pool, by scanning each SP proxy's `UserDepositChange`
-# event logs.
+# each Harbor stability pool, via the Etherscan `logs/getLogs` API.
 #
-# Why UserDepositChange: an account gets a per-user reward snapshot exactly when
-# it is checkpointed (deposit -> receiver, withdraw -> sender, liquidation ->
-# account). UserDepositChange(owner, ...) fires on every one of those, so the
-# distinct set of `owner` values is precisely the set of accounts that may carry
-# legacy V1 accumulator storage. (Over-approximation is harmless: the on-chain
-# remediate() skips any account with no V1 data.)
+# Why Etherscan (not cast logs): some RPC providers cap eth_getLogs at ~10 blocks
+# per call, which makes scanning ~1M blocks impossible. Etherscan's getLogs is not
+# block-range limited (1000 records/page, paginated by block), same approach as the
+# sibling `collect-holders` script (which uses the tokentx endpoint).
 #
-# Output: one file per pool under holders/, one checksummed address per line,
-# with a comment header. These files are read at runtime by
-# Migrate_StabilityPool_v2_Data_mainnet.s.sol.
+# Why UserDepositChange: an account gets a per-user reward snapshot exactly when it
+# is checkpointed (deposit -> receiver, withdraw -> sender, liquidation -> account).
+# UserDepositChange(owner, ...) fires on every one of those, so the distinct set of
+# `owner` values is precisely the set of accounts that may carry legacy V1 storage.
+# (Over-approximation is harmless: on-chain remediate() skips accounts with no V1 data.)
 #
-# The RPC is resolved via foundry's `rpc_endpoints` alias (default: mainnet),
-# which expands ${MAINNET_RPC_URL} from .env — this script never reads .env.
+# Output: one file per pool under holders/, one checksummed address per line, with a
+# comment header. Read at runtime by Migrate_StabilityPool_v2_Data_mainnet.s.sol and
+# the verification tests.
+#
+# Requires ETHERSCAN_KEY in .env or the environment (sourced, never printed).
 #
 # Usage:
-#   collect-sp-holders               # full scan -> holders/
-#   collect-sp-holders --dry-run     # print pool->address table, no RPC
-#   collect-sp-holders --from-block 24049000 --chunk 50000
+#   collect-sp-holders                       # full scan -> holders/
+#   collect-sp-holders --dry-run             # print pool->address table, no API calls
+#   collect-sp-holders --to-block latest     # override fixed upper bound
 #   collect-sp-holders --out-dir tmp/holders-rerun   # for the re-run/verify facility
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# Load env for ETHERSCAN_KEY (same pattern as collect-holders).
+# shellcheck source=/dev/null
+[[ -f .env ]] && source .env
+
 # ── Configuration ────────────────────────────────────────────────────────────
 
-NETWORK="mainnet"
-FROM_BLOCK=24049000 # first harbor mainnet deployment (same as collect-holders)
-TO_BLOCK="25186514"
-CHUNK=50000 # block-range chunk size for eth_getLogs (range-limit safe)
+CHAIN_ID=1
+FROM_BLOCK=24049000   # first harbor mainnet deployment (same as collect-holders)
+TO_BLOCK="25186514"   # fixed upper bound (reproducible; match the verification fork block)
+OFFSET=1000           # Etherscan max records per page
 STATE_FILE="deployments/mainnet/harbor_v1.state.json"
 SALT_PREFIX="harbor_v1"
-OUT_DIR="script/verify/sp-v2-upgrade-prep-for-v3/holders"
+OUT_DIR="tmp/sp-holders"
 DRY_RUN=false
 
-# CREATE3 (solady) — same constants the repo's script/cast wrapper uses.
+# CREATE3 (solady) — same constants the repo's script/cast wrapper uses (local, no RPC).
 FACTORY="0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
 INIT_CODE_HASH="21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f"
 # topic0 = keccak("UserDepositChange(address,uint256,uint256)")
@@ -45,44 +51,18 @@ TOPIC0="0x5fa7d0e13a31540b6d42936e522173de31fa0c53aa5aff71e63c60fe02b2b50e"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --network)
-      NETWORK="$2"
-      shift 2
-      ;;
-    --from-block)
-      FROM_BLOCK="$2"
-      shift 2
-      ;;
-    --to-block)
-      TO_BLOCK="$2"
-      shift 2
-      ;;
-    --chunk)
-      CHUNK="$2"
-      shift 2
-      ;;
-    --out-dir)
-      OUT_DIR="$2"
-      shift 2
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    -h | --help)
-      sed -n '2,30p' "$0"
-      exit 0
-      ;;
-    *)
-      echo "Unknown option: $1" >&2
-      exit 1
-      ;;
+    --from-block) FROM_BLOCK="$2"; shift 2 ;;
+    --to-block)   TO_BLOCK="$2"; shift 2 ;;
+    --out-dir)    OUT_DIR="$2"; shift 2 ;;
+    --dry-run)    DRY_RUN=true; shift ;;
+    -h|--help)    sed -n '2,30p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-# Compute the CREATE3 proxy address for a full salt string (no RPC).
+# CREATE3 proxy address for a full salt string (local, no RPC).
 compute_create3_address() {
   local salt_string="$1"
   local salt preimage proxy_hash proxy rlp deployed_hash
@@ -95,7 +75,7 @@ compute_create3_address() {
   echo "0x${deployed_hash:26}"
 }
 
-# Distinct stability-pool salts (collateral + leveraged), e.g. "ETH::fxUSD::stabilityPoolCollateral".
+# Distinct stability-pool salts, e.g. "ETH::fxUSD::stabilityPoolCollateral".
 pool_salts() {
   local salts
   salts=$(jq -r '.implementations[].proxy' "$STATE_FILE")
@@ -106,38 +86,71 @@ pool_salts() {
   printf '%s\n' "$salts" | grep -E 'stabilityPool(Collateral|Leveraged)$' | sort -u
 }
 
-# Extract the indexed `owner` (topic[1]) from a `cast logs --json` array on stdin.
-extract_owners() {
+# Parse one Etherscan getLogs response on stdin.
+# Prints "COUNT LASTBLOCK" on line 1, then one owner address per subsequent line.
+# Exits non-zero on a genuine API error (not "No records found").
+parse_page() {
   python3 -c '
 import json, sys
-data = json.load(sys.stdin)
-for log in data:
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except Exception:
+    print("API returned non-JSON: " + raw[:200], file=sys.stderr)
+    sys.exit(2)
+status = str(d.get("status", "0"))
+result = d.get("result")
+if status != "1":
+    msg = str(d.get("message", ""))
+    if "No records" in msg or result == []:
+        print("0 0")
+        sys.exit(0)
+    print("Etherscan error: %s %r" % (msg, result), file=sys.stderr)
+    sys.exit(2)
+owners = []
+last = 0
+for log in result:
     topics = log.get("topics", [])
     if len(topics) >= 2:
-        print("0x" + topics[1][-40:])
+        owners.append("0x" + topics[1][-40:])
+    bn = int(log.get("blockNumber", "0x0"), 16)
+    if bn > last:
+        last = bn
+print("%d %d" % (len(result), last))
+for o in owners:
+    print(o)
 '
 }
 
-# Fetch all owners for one proxy, scanning [FROM_BLOCK, latest] in chunks.
+# Fetch all owner addresses for one proxy across [FROM_BLOCK, TO_BLOCK], paginating
+# by advancing fromBlock when a page is full.
 fetch_owners() {
-  local proxy="$1" latest="$2"
-  local from="$FROM_BLOCK" to logs rc
-  while ((from <= latest)); do
-    to=$((from + CHUNK - 1))
-    ((to > latest)) && to="$latest"
-    logs=$(cast logs --rpc-url "$NETWORK" --from-block "$from" --to-block "$to" \
-      "$TOPIC0" --address "$proxy" --json)
-    rc=$?
-    if [[ $rc -ne 0 ]]; then
-      echo "ERROR: cast logs failed for $proxy blocks $from-$to (rc=$rc)" >&2
+  local proxy="$1"
+  local from="$FROM_BLOCK" resp parsed meta count last
+  while true; do
+    if ! resp=$(curl -s "https://api.etherscan.io/v2/api?chainid=${CHAIN_ID}&module=logs&action=getLogs&address=${proxy}&topic0=${TOPIC0}&fromBlock=${from}&toBlock=${TO_BLOCK}&offset=${OFFSET}&page=1&apikey=${ETHERSCAN_KEY}"); then
+      echo "ERROR: curl failed for $proxy from $from" >&2
       exit 1
     fi
-    printf '%s' "$logs" | extract_owners
-    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-      echo "ERROR: failed parsing logs for $proxy blocks $from-$to" >&2
+    # pipefail makes this assignment's status the pipeline's; parse_page exits non-zero on a real API error.
+    if ! parsed=$(printf '%s' "$resp" | parse_page); then
+      echo "ERROR: parsing Etherscan response for $proxy from $from" >&2
       exit 1
     fi
-    from=$((to + 1))
+    meta=$(printf '%s\n' "$parsed" | head -1)
+    count=${meta%% *}
+    last=${meta##* }
+    printf '%s\n' "$parsed" | tail -n +2
+    # Stop when the page was not full.
+    if (( count < OFFSET )); then
+      break
+    fi
+    # Full page: continue from the last block (dedup handles overlap). Guard no-progress.
+    if (( last <= from )); then
+      echo "WARN: $proxy: full page ($count) all in block $last; possible truncation" >&2
+      break
+    fi
+    from=$last
   done
 }
 
@@ -147,41 +160,37 @@ mapfile -t SALTS < <(pool_salts)
 echo "# ${#SALTS[@]} stability pools from $STATE_FILE" >&2
 
 if [[ "$DRY_RUN" == true ]]; then
-  echo "# DRY RUN — pool -> proxy address (no RPC)" >&2
+  echo "# DRY RUN — pool -> proxy address (no API calls)" >&2
   for salt in "${SALTS[@]}"; do
     printf '%-44s %s\n' "$salt" "$(compute_create3_address "${SALT_PREFIX}::${salt}")"
   done
   exit 0
 fi
 
-# Resolve `latest` once so all pools scan the same upper bound.
-latest_block="$TO_BLOCK"
-if [[ "$TO_BLOCK" == "latest" ]]; then
-  latest_block=$(cast block-number --rpc-url "$NETWORK")
-fi
-echo "# scanning blocks $FROM_BLOCK -> $latest_block (chunk $CHUNK)" >&2
+: "${ETHERSCAN_KEY:?Set ETHERSCAN_KEY in .env or environment}"
+echo "# scanning UserDepositChange logs, blocks ${FROM_BLOCK} -> ${TO_BLOCK} (Etherscan)" >&2
 
 mkdir -p "$OUT_DIR"
 
 for salt in "${SALTS[@]}"; do
   proxy=$(compute_create3_address "${SALT_PREFIX}::${salt}")
   out_file="${OUT_DIR}/${salt}.txt"
+  echo "  scanning ${salt} (${proxy})..." >&2
 
-  # Collect, dedupe, checksum.
-  mapfile -t owners < <(fetch_owners "$proxy" "$latest_block" | sort -uf)
+  mapfile -t owners < <(fetch_owners "$proxy" | sort -uf)
 
   {
     echo "# Stability pool holders: ${salt}"
     echo "# proxy:  ${proxy}"
-    echo "# source: UserDepositChange logs, blocks ${FROM_BLOCK}-${latest_block}"
+    echo "# source: UserDepositChange logs (Etherscan), blocks ${FROM_BLOCK}-${TO_BLOCK}"
     echo "# generated: $(date -Iseconds)"
     for addr in "${owners[@]}"; do
       [[ -z "$addr" ]] && continue
       cast to-check-sum-address "$addr"
     done
-  } >"$out_file"
+  } > "$out_file"
 
-  echo "  ${salt}: ${#owners[@]} holders -> ${out_file}" >&2
+  echo "    ${salt}: ${#owners[@]} holders -> ${out_file}" >&2
 done
 
 echo "# done -> ${OUT_DIR}/" >&2
