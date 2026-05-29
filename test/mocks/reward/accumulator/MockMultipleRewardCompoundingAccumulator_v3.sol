@@ -58,13 +58,19 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
     }
 
     function tokenToExponentToIntegral(address token, uint8 exponent) public view returns (uint256 globalIntegral) {
-        globalIntegral = _tokenToExponentToIntegral(token, exponent);
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+        globalIntegral = $.tokenToExponentToIntegral[token][exponent];
     }
 
     function userRewardSnapshot(
         address account,
         address token
     ) public view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
-        (timestamp, integral, pending, claimed_) = _getUserRewardSnapshot(account, token);
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+        UserRewardSnapshotV2 storage snapshot = $.userRewardSnapshot[account][token];
+        timestamp = snapshot.timestamp;
+        integral = snapshot.integral;
+        pending = snapshot.rewards.pending;
+        claimed_ = snapshot.rewards.claimed;
     }
 }

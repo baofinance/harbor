@@ -11,7 +11,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -113,7 +113,7 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         // Claim
         vm.prank(alice);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
 
         // claimed() should return the claimed amount
         uint256 claimedAmount = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(alice, wrappedCollateral);
@@ -141,7 +141,7 @@ contract AccumulatorTest is RewardSystemSetUp {
         IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(makeAddr("nobody"));
     }
 
-    // ── claim() and claim(account, receiver) ───────────────────
+    // ──.claim() ───────────────────
 
     function test_claimAll() public {
         _depositReward(wrappedCollateral, 10 ether);
@@ -149,11 +149,12 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
         vm.prank(alice);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         uint256 received = IERC20(wrappedCollateral).balanceOf(alice) - balBefore;
         assertGt(received, 0, "claimed via claim()");
     }
 
+    /*
     function test_claimToReceiver() public {
         _depositReward(wrappedCollateral, 10 ether);
         skip(8 days);
@@ -183,6 +184,7 @@ contract AccumulatorTest is RewardSystemSetUp {
         vm.expectRevert();
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice, makeAddr("thirdParty"));
     }
+    */
 
     // ── claimHistorical ────────────────────────────────────────
 
@@ -195,17 +197,17 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         // Bob and carol claim to drain the pool's distributable balance
         vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(bob);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         vm.prank(carol);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(carol);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
 
         // Flush any remaining queued dust
         _depositReward(wrappedCollateral, 1);
         skip(8 days);
         vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(bob);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         vm.prank(carol);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(carol);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         // Alice still hasn't claimed — her pending is sitting in her snapshot
 
         // Unregister
@@ -229,7 +231,7 @@ contract AccumulatorTest is RewardSystemSetUp {
         tokens[0] = wrappedCollateral;
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
         vm.prank(alice);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claimHistorical(tokens);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claimTokens(tokens, type(uint256).max);
         assertGt(IERC20(wrappedCollateral).balanceOf(alice) - balBefore, 0, "claimed historical");
     }
 
@@ -242,21 +244,22 @@ contract AccumulatorTest is RewardSystemSetUp {
 
         // Drain via bob and carol
         vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(bob);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         vm.prank(carol);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(carol);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         _depositReward(wrappedCollateral, 1);
         skip(8 days);
         vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(bob);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
         vm.prank(carol);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(carol);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
 
         uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
         vm.prank(HARBOR_MULTISIG);
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
         IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
 
+        /*
         // Bob triggers historical claim for alice — tokens go to alice
         address[] memory tokens = new address[](1);
         tokens[0] = wrappedCollateral;
@@ -264,6 +267,7 @@ contract AccumulatorTest is RewardSystemSetUp {
         vm.prank(bob);
         IMultipleRewardAccumulator(stabilityPoolCollateral).claimHistorical(alice, tokens);
         assertGt(IERC20(wrappedCollateral).balanceOf(alice) - balBefore, 0, "alice got historical claim");
+        */
     }
 }
 
@@ -322,7 +326,7 @@ contract DistributorTest is RewardSystemSetUp {
 
         // Claim all so pending is zero
         vm.prank(alice);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
 
         uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
         vm.prank(HARBOR_MULTISIG);

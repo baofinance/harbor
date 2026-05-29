@@ -7,7 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
@@ -115,7 +115,7 @@ import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/Lin
 abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ReentrancyGuardTransientUpgradeable,
     LinearMultipleRewardDistributor_v3,
-    IMultipleRewardAccumulator
+    IMultipleRewardAccumulator_v3
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
@@ -128,7 +128,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     uint256 internal constant _REWARD_PRECISION = 1e18;
 
     /// @dev Compiler will pack this into single `uint256`.
-    struct RewardSnapshot {
+    struct RewardSnapshotNOTUSED {
         // The timestamp when the snapshot is updated.
         uint64 timestamp;
         // The reward integral until now.
@@ -144,11 +144,11 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
 
     /// @dev Compiler will pack this into two `uint256`.
-    struct UserRewardSnapshot {
+    struct UserRewardSnapshotNOTUSED {
         // The claim data for the user.
         ClaimData rewards;
         // The reward snapshot for user.
-        RewardSnapshot checkpoint;
+        RewardSnapshotNOTUSED checkpoint;
     }
 
     /// @dev V2: widened integral from uint192 to uint256. Occupies 3 slots.
@@ -166,8 +166,8 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
      *************/
 
     struct MultipleRewardCompoundingAccumulatorStorage {
-        /// @inheritdoc IMultipleRewardAccumulator
-        mapping(address => address) rewardReceiver;
+        /// @inheritdoc IMultipleRewardAccumulator_v3
+        mapping(address => address) rewardReceiverNOTUSED;
         /// @notice Mapping from reward token address to global reward snapshot.
         ///
         /// - The inner mapping records the `acc` at different `exponent`
@@ -175,65 +175,12 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         ///
         /// @dev The integral is defined as 1e18 * ∫(rate(t) * prod(t) / totalPoolShare(t) dt).
         mapping(address => mapping(uint8 => uint256)) tokenToExponentToIntegral;
-        /// @notice V1: Mapping from user address to reward token address to user reward snapshot.
-        /// @dev Kept for migration fallback. New data is written to userRewardSnapshotV2.
-        mapping(address => mapping(address => UserRewardSnapshot)) userRewardSnapshot;
+        /// @notice Mapping from user address to reward token address to user reward snapshot.
+        /// @dev Not used (and renamed); kept to retain the storage space layout.
+        mapping(address => mapping(address => UserRewardSnapshotNOTUSED)) userRewardSnapshotNOTUSED;
         /// @notice V2: Mapping from user address to reward token address to user reward snapshot.
         /// @dev Uses widened uint256 integral. All new writes go here.
-        mapping(address => mapping(address => UserRewardSnapshotV2)) userRewardSnapshotV2;
-    }
-
-    // slither-disable-next-line dead-code
-    function _tokenToExponentToIntegral(address token, uint8 exponent) internal view returns (uint256 globalIntegral) {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        globalIntegral = $.tokenToExponentToIntegral[token][exponent];
-    }
-
-    /// @dev Returns the full user reward snapshot with V2-first migration detection.
-    /// Centralises all migration logic in one place so callers don't need to know about V1/V2.
-    /// Fast path (migrated, integral > 0): 3 SLOADs from V2.
-    /// Rare path (migrated, integral = 0): 3 SLOADs from V2.
-    /// Fallback (unmigrated): 2 SLOADs from V1.
-    function _getUserRewardSnapshot(
-        address account,
-        address token
-    ) internal view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-
-        // Fast path: check V2 integral (1 SLOAD)
-        uint256 v2Integral = $.userRewardSnapshotV2[account][token].integral;
-        if (v2Integral != 0) {
-            UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
-            return (v2.timestamp, v2Integral, v2.rewards.pending, v2.rewards.claimed);
-        }
-
-        // Rare path: V2 integral is 0 — check if V2 is populated via timestamp (2 SLOADs)
-        uint64 v2Timestamp = $.userRewardSnapshotV2[account][token].timestamp;
-        if (v2Timestamp != 0) {
-            UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
-            return (v2Timestamp, 0, v2.rewards.pending, v2.rewards.claimed);
-        }
-
-        // Not migrated: fall back to V1 (2 SLOADs from different mapping)
-        UserRewardSnapshot storage v1 = $.userRewardSnapshot[account][token];
-        return (v1.checkpoint.timestamp, uint256(v1.checkpoint.integral), v1.rewards.pending, v1.rewards.claimed);
-    }
-
-    /// @dev Writes the user reward snapshot to V2 storage. Always writes to V2.
-    function _setUserRewardSnapshot(
-        address account,
-        address token,
-        uint64 timestamp,
-        uint256 integral,
-        uint128 pending,
-        uint128 claimed_
-    ) internal {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
-        v2.rewards.pending = pending;
-        v2.rewards.claimed = claimed_;
-        v2.timestamp = timestamp;
-        v2.integral = integral;
+        mapping(address => mapping(address => UserRewardSnapshotV2)) userRewardSnapshot;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.MultipleRewardCompoundingAccumulator")) - 1)) & ~bytes32(uint256(0xff))'
@@ -241,7 +188,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
 
     function _getMultipleRewardCompoundingAccumulatorStorage()
-        private
+        internal
         pure
         returns (MultipleRewardCompoundingAccumulatorStorage storage $)
     {
@@ -277,26 +224,29 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
      * Public View Functions *
      *************************/
 
+    /* deprecated
     function rewardReceiver(address account) external view returns (address) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         return $.rewardReceiver[account];
     }
+    */
 
-    /// @inheritdoc IMultipleRewardAccumulator
+    /// @inheritdoc IMultipleRewardAccumulator_v3
     function claimable(address account, address token) external view virtual override returns (uint256) {
         return _claimable(account, token, true);
     }
 
-    /// @inheritdoc IMultipleRewardAccumulator
+    /// @inheritdoc IMultipleRewardAccumulator_v3
     function claimed(address account, address token) external view returns (uint256) {
-        (, , , uint128 claimedAmount) = _getUserRewardSnapshot(account, token);
-        return claimedAmount;
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+        return $.userRewardSnapshot[account][token].rewards.claimed;
     }
 
     /****************************
      * Public Mutator Functions *
      ****************************/
 
+    /* deprecated
     /// @inheritdoc IMultipleRewardAccumulator
     function setRewardReceiver(address newReceiver) external {
         address caller = _msgSender();
@@ -306,8 +256,9 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
 
         emit UpdateRewardReceiver(caller, oldReceiver, newReceiver);
     }
+    */
 
-    /// @inheritdoc IMultipleRewardAccumulator
+    /// @inheritdoc IMultipleRewardAccumulator_v3
     function checkpoint(address account) external virtual override nonReentrant {
         _checkpoint(account);
     }
@@ -316,57 +267,45 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     // Claim
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @inheritdoc IMultipleRewardAccumulator
+    /// @inheritdoc IMultipleRewardAccumulator_v3
     function claim() external override nonReentrant {
-        address account = _msgSender();
-        _checkpoint(account);
-        address receiver = _resolveReceiver(account, address(0));
-        address[] memory tokens = activeRewardTokens();
-        for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver, type(uint256).max);
-        }
+        _claimAll(activeRewardTokens(), type(uint256).max);
     }
 
+    /* deprecated
     /// @inheritdoc IMultipleRewardAccumulator
     function claim(address account) external override nonReentrant {
-        _checkpoint(account);
-        address receiver = _resolveReceiver(account, address(0));
-        address[] memory tokens = activeRewardTokens();
-        for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver, type(uint256).max);
-        }
+        _claimAll(account, activeRewardTokens(), address(0));
     }
+    */
 
+    /* deprecated
     /// @inheritdoc IMultipleRewardAccumulator
     function claim(address account, address receiver) public override nonReentrant {
         if (account != _msgSender() && receiver != address(0)) {
             revert ClaimOthersRewardToAnother();
         }
-        _checkpoint(account);
-        receiver = _resolveReceiver(account, receiver);
-        address[] memory tokens = activeRewardTokens();
-        for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver, type(uint256).max);
-        }
+        _claimAll(account, activeRewardTokens(), receiver);
     }
+    */
 
+    /* deprecated
     /// @inheritdoc IMultipleRewardAccumulator
     function claimHistorical(address[] memory tokens) external nonReentrant {
-        address account = _msgSender();
-        _checkpoint(account);
-        address receiver = _resolveReceiver(account, address(0));
-        for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver, type(uint256).max);
-        }
+        _claimAll(_msgSender(), tokens, address(0));
     }
+    */
 
+    /* deprecated
     /// @inheritdoc IMultipleRewardAccumulator
     function claimHistorical(address account, address[] memory tokens) external nonReentrant {
-        _checkpoint(account);
-        address receiver = _resolveReceiver(account, address(0));
-        for (uint256 i = 0; i < tokens.length; i++) {
-            _claimSingle(account, tokens[i], receiver, type(uint256).max);
-        }
+        _claimAll(account, tokens, address(0));
+    }
+    */
+
+    /// @inheritdoc IMultipleRewardAccumulator_v3
+    function claimTokens(address[] memory tokens, uint256 maxAmount) external nonReentrant {
+        _claimAll(tokens, maxAmount);
     }
 
     /**********************
@@ -411,23 +350,11 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         address account,
         address token,
         bool includeTemporalPending
-    ) internal view virtual returns (uint256) {
-        (, uint256 userCheckpointIntegral, uint128 userPending, ) = _getUserRewardSnapshot(account, token);
-        return _claimableFrom(account, token, includeTemporalPending, userCheckpointIntegral, userPending);
-    }
-
-    /// @dev Core claimable calculation that accepts pre-read snapshot data.
-    /// Avoids re-reading the user snapshot when the caller already has it.
-    function _claimableFrom(
-        address account,
-        address token,
-        bool includeTemporalPending,
-        uint256 userCheckpointIntegral,
-        uint128 userPending
     ) internal view virtual returns (uint256 claimable_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+        UserRewardSnapshotV2 storage snapshot = $.userRewardSnapshot[account][token];
 
-        claimable_ = uint256(userPending);
+        claimable_ = uint256(snapshot.rewards.pending);
         (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
 
         if (shares > 0) {
@@ -447,6 +374,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
                     integral += DecrementalFloatingPoint._divByScaleFactor(integralAtScale, i);
                 }
             }
+            uint256 userCheckpointIntegral = snapshot.integral;
             if (integral > userCheckpointIntegral) {
                 claimable_ += Math.mulDiv(
                     shares,
@@ -482,66 +410,51 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
                 return;
             }
 
+            MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
             (uint128 currentProd, ) = _getTotalPoolShare();
             uint8 exponent = currentProd.exponent();
 
             for (uint256 i = 0; i < totalLength; i++) {
                 address token = (i < activeLength) ? activeTokens[i] : historicalTokens[i - activeLength];
-                (, uint256 snapIntegral, uint128 snapPending, uint128 snapClaimed) = _getUserRewardSnapshot(
-                    account,
-                    token
-                );
-                uint128 newPending = uint128(_claimableFrom(account, token, false, snapIntegral, snapPending));
-                _setUserRewardSnapshot(
-                    account,
-                    token,
-                    uint64(block.timestamp),
-                    _tokenToExponentToIntegral(token, exponent),
-                    newPending,
-                    snapClaimed
-                );
+                UserRewardSnapshotV2 storage snapshot = $.userRewardSnapshot[account][token];
+                snapshot.rewards.pending = uint128(_claimable(account, token, false));
+                snapshot.integral = $.tokenToExponentToIntegral[token][exponent];
+                snapshot.timestamp = uint64(block.timestamp);
             }
         }
-    }
-
-    /// @dev Resolve the receiver address: use stored receiver if set, otherwise account.
-    function _resolveReceiver(address account, address receiver) internal view returns (address) {
-        if (receiver == address(0)) {
-            MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-            receiver = $.rewardReceiver[account];
-            if (receiver == address(0)) {
-                receiver = account;
-            }
-        }
-        return receiver;
     }
 
     /// @dev Internal function to claim up to maxAmount of a single reward token.
     /// Caller should make sure `_checkpoint` is called before this function.
     ///
-    /// @param account The address of user to claim.
-    /// @param token The address of reward token.
-    /// @param receiver The address of recipient of the reward token.
-    /// @param maxAmount The maximum amount to claim. Use type(uint256).max for all.
-    function _claimSingle(
-        address account,
-        address token,
-        address receiver,
-        uint256 maxAmount
-    ) internal virtual returns (uint256) {
-        (uint64 ts, uint256 integral, uint128 pending, uint128 claimed_) = _getUserRewardSnapshot(account, token);
-        uint256 amount = pending;
-        if (amount > maxAmount) {
-            amount = maxAmount;
-        }
-        if (amount > 0) {
-            _setUserRewardSnapshot(account, token, ts, integral, pending - uint128(amount), claimed_ + uint128(amount));
+    /// @param tokens The list of reward token addresses.
+    /// @param maxAmount The maximum amount to be claimed.
+    function _claimAll(address[] memory tokens, uint256 maxAmount) internal virtual {
+        address account = _msgSender();
+        address receiver = account;
 
-            IERC20(token).safeTransfer(receiver, amount);
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
 
-            emit Claim(account, token, receiver, amount);
+        _checkpoint(account);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+            UserRewardSnapshotV2 memory snapshot = $.userRewardSnapshot[account][token];
+
+            uint256 amount = snapshot.rewards.pending;
+            if (amount > maxAmount) {
+                amount = maxAmount;
+            }
+            if (amount > 0) {
+                emit Claim(account, token, receiver, amount);
+
+                IERC20(token).safeTransfer(receiver, amount);
+
+                snapshot.rewards.pending -= uint128(amount);
+                snapshot.rewards.claimed += uint128(amount);
+                $.userRewardSnapshot[account][token] = snapshot;
+            }
         }
-        return amount;
     }
 
     /// @inheritdoc LinearMultipleRewardDistributor_v3
@@ -560,13 +473,11 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         }
 
         uint8 exponent = currentProd.exponent();
-        uint256 magnitude = uint256(currentProd.magnitude());
 
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         uint256 integral = $.tokenToExponentToIntegral[token][exponent];
 
-        uint256 toAdd = Math.mulDiv(amount * _REWARD_PRECISION, magnitude, totalShare);
-        integral += toAdd;
+        integral += Math.mulDiv(amount * _REWARD_PRECISION, uint256(currentProd.magnitude()), totalShare);
 
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }

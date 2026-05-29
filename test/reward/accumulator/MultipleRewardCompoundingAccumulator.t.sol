@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
-import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMockMultipleRewardCompoundingAccumulator} from "@harbor-test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
 
 import {Test, Vm} from "forge-std/Test.sol";
@@ -126,20 +126,10 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             // Test claim()
             vm.expectRevert(REENTRANT_ERROR);
             accumulator.reentrantCall(abi.encodeWithSelector(bytes4(keccak256("claim()")), ""));
-
-            // Test claim(address)
-            vm.expectRevert(REENTRANT_ERROR);
-            accumulator.reentrantCall(abi.encodeWithSelector(bytes4(keccak256("claim(address)")), address(0)));
-
-            // Test claim(address,address)
-            vm.expectRevert(REENTRANT_ERROR);
-            accumulator.reentrantCall(
-                abi.encodeWithSelector(bytes4(keccak256("claim(address,address)")), address(0), address(0))
-            );
         }
     }
 
-    function testReentrantClaimHistorical() public {
+    function testReentrantClaimTokens() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
             uint40 periodLength = 1 weeks;
@@ -150,15 +140,12 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
 
             // Test claimHistorical(address[])
             vm.expectRevert(REENTRANT_ERROR);
-            accumulator.reentrantCall(abi.encodeWithSignature("claimHistorical(address[])", emptyArray));
-
-            // Test claimHistorical(address,address[])
-            vm.expectRevert(REENTRANT_ERROR);
             accumulator.reentrantCall(
-                abi.encodeWithSignature("claimHistorical(address,address[])", address(0), emptyArray)
+                abi.encodeWithSignature("claimTokens(address[],uint256)", emptyArray, type(uint256).max)
             );
         }
     }
+
     struct TestParams {
         uint256 rewardCount;
         uint40 periodLength;
@@ -292,6 +279,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         }
     }
 
+    /*
     function testSetRewardReceiver() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -319,6 +307,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             assertEq(accumulator.rewardReceiver(deployer), address(0));
         }
     }
+    */
 
     function testClaimWithoutRewardReceiver() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
@@ -349,9 +338,11 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
 
             accumulator.checkpoint(deployer);
 
+            /*
             // Test reverting when claiming other to other
             vm.expectRevert(abi.encodeWithSelector(IMultipleRewardAccumulator.ClaimOthersRewardToAnother.selector));
             accumulator.claim(manager, deployer);
+            */
 
             // Test claim caller
             uint256[] memory claimable = new uint256[](rewardCount);
@@ -420,6 +411,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 assertEq(claimed, 0);
             }
 
+            /*
             // Claim as manager for deployer
             for (uint256 j = 0; j < rewardCount; j++) {
                 vm.expectEmit(true, true, true, true);
@@ -438,7 +430,9 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 assertEq(claimed, claimable[j]);
                 assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
             }
+            */
 
+            /*
             // Test claim to other
             // Reset the state for a new test
             (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
@@ -485,9 +479,11 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 assertEq(claimed, claimable[j]);
                 assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
             }
+            */
         }
     }
 
+    /*
     function testClaimWithRewardReceiver() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
             uint256 rewardCount = rewardCounts[i];
@@ -652,6 +648,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             }
         }
     }
+    */
 
     function testClaimHistoricalWithoutRewardReceiver() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
@@ -713,7 +710,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 vm.expectEmit(true, true, true, true);
                 emit IMultipleRewardAccumulator.Claim(deployer, tokenAddresses[j], deployer, claimable[j]);
             }
-            accumulator.claimHistorical(tokenAddresses);
+            accumulator.claimTokens(tokenAddresses, type(uint256).max);
 
             // Verify post-claim state
             for (uint256 j = 0; j < rewardCount; j++) {
@@ -769,6 +766,7 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             logs = vm.getRecordedLogs();
             assertEq(logs.length, 0);
 
+            /*
             // Claim historical as manager
             for (uint256 j = 0; j < rewardCount; j++) {
                 vm.expectEmit(true, true, true, true);
@@ -787,8 +785,11 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
                 assertEq(claimed, claimable[j]);
                 assertEq(accumulator.claimed(deployer, tokenAddresses[j]), claimable[j]);
             }
+            */
         }
     }
+
+    /*
 
     function testClaimHistoricalWithRewardReceiver() public {
         for (uint256 i = 0; i < rewardCounts.length; i++) {
@@ -930,6 +931,8 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
             }
         }
     }
+    */
+
     /// ═══════════════════════════════════════════════════════════════════════════════
     /// INTEGRAL OVERFLOW BOUNDS ANALYSIS
     /// ═══════════════════════════════════════════════════════════════════════════════

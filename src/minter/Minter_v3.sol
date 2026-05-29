@@ -30,7 +30,7 @@ import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
 import {Config_v2} from "@harbor/minter/library/Config_v2.sol";
 
-/// @title Bao Minter
+/// @title Harbor Minter
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
 /// @notice Provides a gas-efficient, feature-rich implementation for the `IMinter` interface.
 /// Functions are provided for users to mint (for wrapped collateral) and redeem (for wrapped collateral) pegged and leveraged tokens
@@ -579,8 +579,8 @@ contract Minter_v3 is
         // All mint-pegged rates are in [0, 1) enforced by config validation.
         // solhint-disable-next-line explicit-types
         uint bandCount = ConfigIncentiveLib._collateralRatioBandCount(config_);
-        // solhint-disable-next-line explicit-types
         // mintMaxFeeRatio = 0; not needed due to default value being 0
+        // solhint-disable-next-line explicit-types
         for (uint i = 0; i < bandCount; i++) {
             int256 bandRatio = ConfigIncentiveLib._incentiveRatio(config_, i);
             if (bandRatio == 1 ether) {
@@ -1371,7 +1371,7 @@ contract Minter_v3 is
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         MintPeggedWorkspace memory w;
         w.band = _findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
-        uint256 peggedTokenPriceE36 = _peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
+        w.peggedTokenPriceE36 = _peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
 
         w.underlyingCollateralInLeftE36 = wrappedCollateralIn * cr.rate; // scaled to 1e36
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1 ether; // scaled to 1e36
@@ -1433,7 +1433,7 @@ contract Minter_v3 is
             uint256 peggedMintedInBandE36 = Math.mulDiv(
                 collateralAddedInBandE36,
                 cr.price * 1 ether,
-                peggedTokenPriceE36
+                w.peggedTokenPriceE36
             );
 
             w.mintedE36 += peggedMintedInBandE36;

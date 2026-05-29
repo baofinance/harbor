@@ -247,15 +247,17 @@ contract StabilityPool_v3 is
         }
         LIQUIDATION_TOKEN = liquidationToken_;
 
+        if (withdrawalEndWindow_ == 0 || withdrawalStartDelay_ == 0) {
+            revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
+        }
+
         // set these two to the same thing, for public visibility
         // their purpose is the same thing - preventing a complete emptying of a non-empty pool
         MIN_TOTAL_ASSET_SUPPLY = minTotalAssetSupply;
         MIN_DEPOSIT = minTotalAssetSupply;
 
         // set immutable withdrawal window params
-        if (withdrawalStartDelay_ == 0 || withdrawalEndWindow_ == 0) {
-            revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
-        }
+
         WITHDRAWAL_START_DELAY = uint64(withdrawalStartDelay_);
         WITHDRAWAL_END_WINDOW = uint64(withdrawalEndWindow_);
     }

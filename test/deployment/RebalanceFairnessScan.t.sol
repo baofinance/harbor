@@ -7,7 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -628,7 +628,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 levClaimable = IMultipleRewardAccumulator(pool).claimable(who, leveraged);
         if (levClaimable > 0) {
             vm.startPrank(who);
-            IMultipleRewardAccumulator(pool).claim(who);
+            IMultipleRewardAccumulator(pool).claim();
             uint256 levBal = IERC20(leveraged).balanceOf(who);
             IERC20(leveraged).approve(minter, levBal);
             IMinter(minter).freeRedeemLeveragedToken(levBal, who); // → wCOL to who
@@ -639,7 +639,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 wcolClaimable = IMultipleRewardAccumulator(pool).claimable(who, wrappedCollateral);
         if (wcolClaimable > 0) {
             vm.prank(who);
-            IMultipleRewardAccumulator(pool).claim(who);
+            IMultipleRewardAccumulator(pool).claim();
         }
 
         // Step 3: Convert all wCOL in wallet → haXXX → deposit
