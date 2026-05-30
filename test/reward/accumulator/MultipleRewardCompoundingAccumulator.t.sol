@@ -7,7 +7,7 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMockMultipleRewardCompoundingAccumulator} from "@harbor-test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockMultipleRewardCompoundingAccumulator_v3} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
 
@@ -531,638 +531,161 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         assertGt(claimable, 0, "User has non-zero claimable at minimum rate");
         assertApproxEqAbs(claimable, 604800, 10, "Claimable matches accumulated amount");
     }
-}
 
-/*
-import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { MockERC20, MockMultipleRewardCompoundingAccumulator } from "@/types/index";
-import { expect } from "chai";
-import { MaxUint256, ZeroAddress, ZeroHash, toBigInt } from "ethers";
-import { ethers, network } from "hardhat";
+    // ═══════════════════════════════════════════════════════════════════════
+    // claimTokens(tokens, maxAmount) — v3 per-token cap behaviour
+    // ═══════════════════════════════════════════════════════════════════════
 
-describe("MultipleRewardCompoundingAccumulator.spec", async () => {
-  for (const rewardCount of [1, 3]) {
-    const periodLength = 86400 * 7;
-    const precision = 10n ** 18n;
+    /// @dev Stake the test contract, deposit rewards, warp the full period and checkpoint —
+    /// so each token has a known, non-zero pending read straight from the snapshot
+    /// (source of truth — avoids replicating the integral math here).
+    function _stakeAndAccruePending(
+        uint256 rewardCount
+    )
+        internal
+        returns (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        )
+    {
+        uint40 periodLength = 1 weeks;
+        (accumulator, tokenAddresses) = _setupAccumulator(rewardCount, periodLength);
+        accumulator.setTotalPoolShare(1234 ether, 1 ether);
+        accumulator.setUserPoolShare(456 ether, 1 ether);
+        // Different deposit per token so the multi-token test exercises distinct pending values.
+        for (uint256 j = 0; j < rewardCount; j++) {
+            accumulator.depositReward(tokenAddresses[j], 1000 ether * (j + 1));
+        }
+        vm.warp(block.timestamp + periodLength);
+        accumulator.checkpoint(deployer);
+        pending = new uint256[](rewardCount);
+        for (uint256 j = 0; j < rewardCount; j++) {
+            (, , uint256 p, ) = accumulator.userRewardSnapshot(deployer, tokenAddresses[j]);
+            require(p > 0, "no pending: bad setup");
+            pending[j] = p;
+        }
+    }
 
-    let deployer: HardhatEthersSigner;
-    let manager: HardhatEthersSigner;
-    let receiver: HardhatEthersSigner;
+    /// @notice maxAmount below pending: exactly maxAmount is transferred and the remainder
+    /// is left in pending. claimed advances by maxAmount.
+    function test_claimTokens_capBindsBelowPending_partialTransfer() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
 
-    let tokens: MockERC20[];
-    let tokenAddresses: string[];
-    let accumulator: MockMultipleRewardCompoundingAccumulator;
+        uint256 cap = pending[0] / 3;
+        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
 
-    context(`run with period[${periodLength}] rewards[${rewardCount}]`, async () => {
-      beforeEach(async () => {
-        [deployer, manager, receiver] = await ethers.getSigners();
-        const MockERC20 = await ethers.getContractFactory("MockERC20", deployer);
-        const MockMultipleRewardCompoundingAccumulator = await ethers.getContractFactory(
-          "MockMultipleRewardCompoundingAccumulator",
-          deployer
+        IMultipleRewardAccumulator(address(accumulator)).claimTokens(tokenAddresses, cap);
+
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore, cap, "transferred == cap");
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(claimedAfter, cap, "claimed += cap");
+        assertEq(pendingAfter, pending[0] - cap, "pending -= cap");
+    }
+
+    /// @notice maxAmount at or above pending: the full pending is paid out and pending goes to zero.
+    function test_claimTokens_capAtOrAbovePending_fullTransfer() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+
+        IMultipleRewardAccumulator(address(accumulator)).claimTokens(tokenAddresses, pending[0] * 10);
+
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore, pending[0], "transferred == full pending");
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(pendingAfter, 0, "pending zeroed");
+        assertEq(claimedAfter, pending[0], "claimed == original pending");
+    }
+
+    /// @notice maxAmount is applied INDEPENDENTLY per token (not a total budget across the array).
+    /// With tokens that have different pending values, each one is capped to maxAmount in the same call.
+    function test_claimTokens_capAppliedPerTokenIndependently() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(3);
+
+        // Pick a cap that binds on every token (smaller than the smallest pending).
+        uint256 cap = pending[0];
+        for (uint256 j = 1; j < pending.length; j++) {
+            if (pending[j] < cap) {
+                cap = pending[j];
+            }
+        }
+        cap = cap / 2;
+
+        uint256[] memory balBefore = new uint256[](3);
+        for (uint256 j = 0; j < 3; j++) {
+            balBefore[j] = IERC20(tokenAddresses[j]).balanceOf(deployer);
+        }
+
+        IMultipleRewardAccumulator(address(accumulator)).claimTokens(tokenAddresses, cap);
+
+        for (uint256 j = 0; j < 3; j++) {
+            string memory tag = string.concat(" (token ", vm.toString(j), ")");
+            assertEq(
+                IERC20(tokenAddresses[j]).balanceOf(deployer) - balBefore[j],
+                cap,
+                string.concat("transferred == cap per token", tag)
+            );
+            (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(
+                deployer,
+                tokenAddresses[j]
+            );
+            assertEq(claimedAfter, cap, string.concat("claimed == cap", tag));
+            assertEq(pendingAfter, pending[j] - cap, string.concat("pending -= cap", tag));
+        }
+    }
+
+    /// @notice maxAmount == 0 is a no-op: no transfer, pending unchanged, claimed unchanged.
+    function test_claimTokens_capZero_noTransfer() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+
+        IMultipleRewardAccumulator(address(accumulator)).claimTokens(tokenAddresses, 0);
+
+        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer), balBefore, "no tokens transferred");
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(pendingAfter, pending[0], "pending unchanged");
+        assertEq(claimedAfter, 0, "claimed unchanged");
+    }
+
+    /// @notice After a partial cap-bound claim, the remainder is still claimable in a second uncapped call
+    /// (no new rewards accrue because we don't advance time).
+    function test_claimTokens_remainderClaimableAfterPartial() public {
+        (
+            IMockMultipleRewardCompoundingAccumulator accumulator,
+            address[] memory tokenAddresses,
+            uint256[] memory pending
+        ) = _stakeAndAccruePending(1);
+
+        uint256 firstCap = pending[0] / 4;
+        IMultipleRewardAccumulator(address(accumulator)).claimTokens(tokenAddresses, firstCap);
+
+        uint256 balBefore = IERC20(tokenAddresses[0]).balanceOf(deployer);
+        IMultipleRewardAccumulator(address(accumulator)).claimTokens(tokenAddresses, type(uint256).max);
+
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore,
+            pending[0] - firstCap,
+            "second claim drains the remainder"
         );
-
-        tokens = [];
-        tokenAddresses = [];
-        for (let i = 0; i < rewardCount; i++) {
-          tokens.push(await MockERC20.deploy("R", "R", 18));
-          tokenAddresses.push(await tokens[i].getAddress());
-          await tokens[i].mint(deployer.address, ethers.parseEther("1000000"));
-        }
-        accumulator = await MockMultipleRewardCompoundingAccumulator.deploy(periodLength);
-        await accumulator.initialize();
-
-        await accumulator.grantRole(await accumulator.REWARD_MANAGER_ROLE(), manager.address);
-        for (let i = 0; i < rewardCount; i++) {
-          await accumulator.connect(manager).registerRewardToken(await tokens[i].getAddress(), deployer.address);
-          await tokens[i].approve(await accumulator.getAddress(), MaxUint256);
-        }
-      });
-
-      context("initialization", async () => {
-        it("should initialize correctly", async () => {
-          expect(await accumulator.periodLength()).to.eq(periodLength);
-          expect(await accumulator.getActiveRewardTokens()).to.deep.eq(tokenAddresses);
-          expect(await accumulator.getHistoricalRewardTokens()).to.deep.eq([]);
-          expect(await accumulator.hasRole(ZeroHash, deployer.address)).to.eq(true);
-        });
-      });
-
-      context("reentrant", async () => {
-        it("should prevent reentrant on checkpoint", async () => {
-          await expect(
-            accumulator.reentrantCall(accumulator.interface.encodeFunctionData("checkpoint", [ZeroAddress]))
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-        });
-
-        it("should prevent reentrant on claim", async () => {
-          await expect(accumulator.reentrantCall(accumulator.interface.encodeFunctionData("claim()"))).to.revertedWith(
-            "ReentrancyGuard: reentrant call"
-          );
-          await expect(
-            accumulator.reentrantCall(accumulator.interface.encodeFunctionData("claim(address)", [ZeroAddress]))
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-          await expect(
-            accumulator.reentrantCall(
-              accumulator.interface.encodeFunctionData("claim(address,address)", [ZeroAddress, ZeroAddress])
-            )
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-        });
-        it("should prevent reentrant on claimHistorical", async () => {
-          await expect(
-            accumulator.reentrantCall(
-              accumulator.interface.encodeFunctionData("claimHistorical(address,address[])", [ZeroAddress, []])
-            )
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-          await expect(
-            accumulator.reentrantCall(accumulator.interface.encodeFunctionData("claimHistorical(address[])", [[]]))
-          ).to.revertedWith("ReentrancyGuard: reentrant call");
-        });
-      });
-
-      context("#checkpoint", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-        });
-
-        it("should succeed when only checkpoint global snapshot", async () => {
-          const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-          await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          await accumulator.checkpoint(ZeroAddress);
-
-          for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            const rate = depositedAmount / toBigInt(periodLength);
-            expect(snapshot.integral).to.closeTo(
-              (rate * toBigInt(periodLength) * precision * precision) / TotalPoolShare,
-              100n * precision
-            );
-            expect(snapshot.timestamp).to.eq(timestamp + periodLength);
-          }
-        });
-
-        it("should succeed, when checkpoint normal user", async () => {
-          let timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-          await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          await accumulator.checkpoint(deployer.address);
-
-          for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            const rate = depositedAmount / toBigInt(periodLength);
-            expect(snapshot.integral).to.closeTo(
-              (rate * toBigInt(periodLength) * precision * precision) / TotalPoolShare,
-              100n * precision
-            );
-            expect(snapshot.timestamp).to.eq(timestamp + periodLength);
-
-            const userSnapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(userSnapshot.checkpoint.timestamp).to.eq(timestamp + periodLength);
-            expect(userSnapshot.checkpoint.integral).to.eq(snapshot.integral);
-            expect(userSnapshot.rewards.pending).to.closeTo(
-              (depositedAmount * UserPoolShare) / TotalPoolShare,
-              userSnapshot.rewards.pending / 1000000n
-            ); // error within 0.00001%
-          }
-
-          // deposit again
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-          await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          await accumulator.checkpoint(deployer.address);
-
-          for (let i = 0; i < rewardCount; i++) {
-            const snapshot = await accumulator.tokenToEpochExponentToIntegral(await tokens[i].getAddress(), 0);
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            const rate = depositedAmount / toBigInt(periodLength);
-            expect(snapshot.integral).to.closeTo(
-              ((rate * toBigInt(periodLength) * precision * precision) / TotalPoolShare) * 2n,
-              1000n * precision
-            );
-            expect(snapshot.timestamp).to.eq(timestamp + periodLength);
-
-            const userSnapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(userSnapshot.checkpoint.timestamp).to.eq(timestamp + periodLength);
-            expect(userSnapshot.checkpoint.integral).to.eq(snapshot.integral);
-            expect(userSnapshot.rewards.pending).to.closeTo(
-              ((depositedAmount * UserPoolShare) / TotalPoolShare) * 2n,
-              userSnapshot.rewards.pending / 1000000n
-            ); // error within 0.00001%
-          }
-        });
-      });
-
-      context("#setRewardReceiver", async () => {
-        it("should succeed", async () => {
-          expect(await accumulator.rewardReceiver(deployer.address)).to.eq(ZeroAddress);
-          await expect(accumulator.connect(deployer).setRewardReceiver(receiver.address))
-            .to.emit(accumulator, "UpdateRewardReceiver")
-            .withArgs(deployer.address, ZeroAddress, receiver.address);
-          expect(await accumulator.rewardReceiver(deployer.address)).to.eq(receiver.address);
-          await expect(accumulator.connect(deployer).setRewardReceiver(ZeroAddress))
-            .to.emit(accumulator, "UpdateRewardReceiver")
-            .withArgs(deployer.address, receiver.address, ZeroAddress);
-          expect(await accumulator.rewardReceiver(deployer.address)).to.eq(ZeroAddress);
-        });
-      });
-
-      context("#claim without setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(deployer.address);
-        });
-
-        it("should revert when claim other to other", async () => {
-          await expect(
-            accumulator["claim(address,address)"](manager.address, deployer.address)
-          ).to.revertedWithCustomError(accumulator, "ClaimOthersRewardToAnother");
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim()"]();
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator.connect(manager)["claim(address)"](deployer.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator.connect(manager)["claim(address)"](deployer.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim to other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(manager.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim(address,address)"](deployer.address, manager.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), manager.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim(address,address)"](deployer.address, manager.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-      });
-
-      context("#claim with setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(deployer.address);
-          await accumulator.connect(deployer).setRewardReceiver(receiver.address);
-        });
-
-        it("should revert when claim other to other", async () => {
-          await expect(
-            accumulator["claim(address,address)"](manager.address, deployer.address)
-          ).to.revertedWithCustomError(accumulator, "ClaimOthersRewardToAnother");
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim()"]();
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator.connect(manager)["claim(address)"](deployer.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator.connect(manager)["claim(address)"](deployer.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-
-        it("should succeed when claim to other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(manager.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          const tx = accumulator["claim(address,address)"](deployer.address, manager.address);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), manager.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claim(address,address)"](deployer.address, manager.address)).to.not.emit(
-            accumulator,
-            "Claim"
-          );
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(manager.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-        });
-      });
-
-      context("#claimHistorical without setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(ZeroAddress);
-          for (let i = 0; i < rewardCount; i++) {
-            await accumulator.connect(manager).unregisterRewardToken(await tokens[i].getAddress());
-          }
-          await accumulator.checkpoint(deployer.address);
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator["claimHistorical(address[])"](tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claimHistorical(address[])"](tokenAddresses)).to.not.emit(accumulator, "Claim");
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(deployer.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator
-            .connect(manager)
-            ["claimHistorical(address,address[])"](deployer.address, tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), deployer.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(deployer.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(
-            accumulator.connect(manager)["claimHistorical(address,address[])"](deployer.address, tokenAddresses)
-          ).to.not.emit(accumulator, "Claim");
-        });
-      });
-
-      context("#claimHistorical with setting rewardReceiver", async () => {
-        const BaseRewardAmount = ethers.parseEther("2233");
-        const TotalPoolShare = ethers.parseEther("1234");
-        const UserPoolShare = ethers.parseEther("456");
-
-        beforeEach(async () => {
-          await accumulator.setTotalPoolShare(TotalPoolShare, 10n ** 18n);
-          await accumulator.setUserPoolShare(UserPoolShare, 10n ** 18n);
-          for (let i = 0; i < rewardCount; i++) {
-            const depositedAmount = BaseRewardAmount * toBigInt(i + 1);
-            await accumulator.depositReward(await tokens[i].getAddress(), depositedAmount);
-          }
-          if (periodLength > 0) {
-            const timestamp = (await ethers.provider.getBlock("latest"))!.timestamp;
-            await network.provider.send("evm_setNextBlockTimestamp", [timestamp + periodLength]);
-          }
-          await accumulator.checkpoint(ZeroAddress);
-          for (let i = 0; i < rewardCount; i++) {
-            await accumulator.connect(manager).unregisterRewardToken(await tokens[i].getAddress());
-          }
-          await accumulator.checkpoint(deployer.address);
-          await accumulator.connect(deployer).setRewardReceiver(receiver.address);
-        });
-
-        it("should succeed when claim caller", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator["claimHistorical(address[])"](tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(accumulator["claimHistorical(address[])"](tokenAddresses)).to.not.emit(accumulator, "Claim");
-        });
-
-        it("should succeed when claim other", async () => {
-          const claimable = [];
-          const before = [];
-          for (let i = 0; i < rewardCount; i++) {
-            claimable.push(await accumulator.claimable(deployer.address, await tokens[i].getAddress()));
-            before.push(await tokens[i].balanceOf(receiver.address));
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.gt(0n);
-            expect(snapshot.rewards.claimed).to.eq(0n);
-          }
-          await expect(accumulator["claim()"]()).to.not.emit(accumulator, "Claim");
-          const tx = accumulator
-            .connect(manager)
-            ["claimHistorical(address,address[])"](deployer.address, tokenAddresses);
-          for (let i = 0; i < rewardCount; i++) {
-            await expect(tx)
-              .to.emit(accumulator, "Claim")
-              .withArgs(deployer.address, await tokens[i].getAddress(), receiver.address, claimable[i]);
-          }
-          for (let i = 0; i < rewardCount; i++) {
-            expect(await accumulator.claimable(deployer.address, await tokens[i].getAddress())).to.eq(0n);
-            expect(await tokens[i].balanceOf(receiver.address)).to.eq(before[i] + claimable[i]);
-            const snapshot = await accumulator.userRewardSnapshot(deployer.address, await tokens[i].getAddress());
-            expect(snapshot.rewards.pending).to.eq(0n);
-            expect(snapshot.rewards.claimed).to.eq(claimable[i]);
-            expect(await accumulator.claimed(deployer.address, await tokens[i].getAddress())).to.eq(claimable[i]);
-          }
-          await expect(
-            accumulator.connect(manager)["claimHistorical(address,address[])"](deployer.address, tokenAddresses)
-          ).to.not.emit(accumulator, "Claim");
-        });
-      });
-    });
-  }
-});
-*/
+        (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
+        assertEq(pendingAfter, 0, "pending fully drained");
+        assertEq(claimedAfter, pending[0], "claimed == original pending");
+    }
+}
