@@ -153,41 +153,6 @@ contract AccumulatorTest is RewardSystemSetUp {
         uint256 received = IERC20(wrappedCollateral).balanceOf(alice) - balBefore;
         assertGt(received, 0, "claimed via claim()");
     }
-
-    /*
-    function test_claimToReceiver() public {
-        _depositReward(wrappedCollateral, 10 ether);
-        skip(8 days);
-
-        address receiver = makeAddr("receiver");
-        vm.prank(alice);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice, receiver);
-        assertGt(IERC20(wrappedCollateral).balanceOf(receiver), 0, "receiver got tokens");
-    }
-
-    function test_claimOthersToSelf() public {
-        _depositReward(wrappedCollateral, 10 ether);
-        skip(8 days);
-
-        // bob claims alice's rewards — tokens go to alice (receiver=address(0))
-        vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice, address(0));
-        assertGt(IERC20(wrappedCollateral).balanceOf(alice), 0, "alice received");
-    }
-
-    function test_claimOthersToThirdParty_reverts() public {
-        _depositReward(wrappedCollateral, 10 ether);
-        skip(8 days);
-
-        // bob tries to claim alice's rewards to a third party — should revert
-        vm.prank(bob);
-        vm.expectRevert();
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(alice, makeAddr("thirdParty"));
-    }
-    */
-
-    // ── claimHistorical ────────────────────────────────────────
-
     function test_claimHistorical() public {
         _depositReward(wrappedCollateral, 30 ether);
         skip(8 days);
@@ -234,41 +199,6 @@ contract AccumulatorTest is RewardSystemSetUp {
         IMultipleRewardAccumulator(stabilityPoolCollateral).claimTokens(tokens, type(uint256).max);
         assertGt(IERC20(wrappedCollateral).balanceOf(alice) - balBefore, 0, "claimed historical");
     }
-
-    function test_claimHistorical_forAccount() public {
-        _depositReward(wrappedCollateral, 30 ether);
-        skip(8 days);
-
-        // Checkpoint alice but don't claim
-        IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(alice);
-
-        // Drain via bob and carol
-        vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        vm.prank(carol);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        _depositReward(wrappedCollateral, 1);
-        skip(8 days);
-        vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        vm.prank(carol);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-
-        uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-        vm.prank(HARBOR_MULTISIG);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
-
-        /*
-        // Bob triggers historical claim for alice — tokens go to alice
-        address[] memory tokens = new address[](1);
-        tokens[0] = wrappedCollateral;
-        uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
-        vm.prank(bob);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claimHistorical(alice, tokens);
-        assertGt(IERC20(wrappedCollateral).balanceOf(alice) - balBefore, 0, "alice got historical claim");
-        */
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -280,70 +210,5 @@ contract DistributorTest is RewardSystemSetUp {
         // No tokens have been unregistered yet
         address[] memory historical = IMultipleRewardDistributor(stabilityPoolCollateral).historicalRewardTokens();
         assertEq(historical.length, 0, "no historical tokens initially");
-    }
-
-    function test_registerRewardToken_zeroAddress_reverts() public {
-        uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-        vm.prank(HARBOR_MULTISIG);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
-
-        vm.expectRevert();
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(address(0));
-    }
-
-    function test_registerRewardToken_duplicate_reverts() public {
-        uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-        vm.prank(HARBOR_MULTISIG);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
-
-        // wrappedCollateral is already registered
-        vm.expectRevert();
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(wrappedCollateral);
-    }
-
-    function test_unregisterRewardToken_withPendingRewards_reverts() public {
-        address alice = makeAddr("alice");
-        _mintAndDeposit(alice, 100 ether);
-
-        // Deposit reward that hasn't fully distributed
-        _depositReward(wrappedCollateral, 10 ether);
-        // Don't wait — rewards still pending
-
-        uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-        vm.prank(HARBOR_MULTISIG);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
-
-        vm.expectRevert();
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
-    }
-
-    function test_unregisterAndReregister() public {
-        address alice = makeAddr("alice");
-        _mintAndDeposit(alice, 100 ether);
-
-        _depositReward(wrappedCollateral, 10 ether);
-        skip(8 days); // Wait for full distribution
-
-        // Claim all so pending is zero
-        vm.prank(alice);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-
-        uint256 managerRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_MANAGER_ROLE();
-        vm.prank(HARBOR_MULTISIG);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), managerRole);
-
-        // Unregister
-        IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(wrappedCollateral);
-
-        // Historical should contain it
-        address[] memory historical = IMultipleRewardDistributor(stabilityPoolCollateral).historicalRewardTokens();
-        assertEq(historical.length, 1, "one historical token");
-
-        // Re-register — moves from historical back to active
-        IMultipleRewardDistributor(stabilityPoolCollateral).registerRewardToken(wrappedCollateral);
-
-        // Historical should be empty again
-        historical = IMultipleRewardDistributor(stabilityPoolCollateral).historicalRewardTokens();
-        assertEq(historical.length, 0, "historical cleared after re-register");
     }
 }

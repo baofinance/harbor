@@ -354,41 +354,4 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken));
         assertApproxEqRel(claimable, REWARD_AMOUNT, 0.01e18, "User1 should have claimable rewards after registration");
     }
-
-    /*
-    function testSetRewardReceiver() public {
-        // User1 deposits
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        // Distribute rewards
-        vm.startPrank(rewardDepositor);
-        IMultipleRewardDistributor(stabilityPoolCollateral).depositReward(address(rewardToken), REWARD_AMOUNT);
-        vm.stopPrank();
-        skip(7 days); // Wait for rewards to accumulate
-
-        // User1 sets reward receiver to user3
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).setRewardReceiver(user3);
-
-        // User1 claims rewards which should go to user3
-        vm.prank(user1);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken)),
-            0,
-            "User1 should have no claimable rewards after claiming"
-        );
-
-        // Check user3 received the rewards
-        uint256 user3Balance = IERC20(rewardToken).balanceOf(user3);
-        uint256 user1Balance = IERC20(rewardToken).balanceOf(user1);
-
-        // Assert that rewards were transferred correctly
-        assertApproxEqRel(user3Balance, REWARD_AMOUNT, 1e16, "User3 should have received rewards");
-        assertEq(user1Balance, 0, "User1 should not have received rewards");
-    }
-    */
-
-    // Add remaining tests from original StabilityPoolSpec...
 }
