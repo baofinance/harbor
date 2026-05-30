@@ -207,7 +207,11 @@ contract MigrateCaptureTest is
         // Claim for each user
         for (uint256 i = 0; i < users.length; i++) {
             vm.prank(users[i]);
-            try IMultipleRewardAccumulator(proxy).claim(users[i]) {
+            // Use the no-arg claim() (selector 0x4e71d92d). vm.prank above makes msg.sender = users[i],
+            // so this is a self-claim under both v2 and v3. The claim(address) overload exists on v2
+            // but was removed in v3 — using it here makes the v3 capture's claims revert and surface
+            // as spurious diffs.
+            try IMultipleRewardAccumulator(proxy).claim() {
                 vm.serializeString(_jsonKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "true");
             } catch {
                 vm.serializeString(_jsonKey, string.concat(prefix, "_user_", vm.toString(i), "_success"), "false");
@@ -264,11 +268,9 @@ contract MigrateCaptureTest is
             _serializeUint(string.concat(ui, "_withdrawalEnd"), uint256(wEnd));
         }
 
-        vm.serializeString(
-            _jsonKey,
-            string.concat(ui, "_rewardReceiver"),
-            vm.toString(IMultipleRewardAccumulator(proxy).rewardReceiver(user))
-        );
+        // rewardReceiver intentionally not captured: removed in v3 (so reading it reverts), and
+        // unused on mainnet (no one called setRewardReceiver — value would always be 0x0).
+        // The migration does not touch reward-receiver storage, so dropping it loses no signal.
 
         for (uint256 t = 0; t < activeTokens.length; t++) {
             string memory ut = string.concat(ui, "_reward_", vm.toString(t));

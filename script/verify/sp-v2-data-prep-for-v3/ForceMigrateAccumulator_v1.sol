@@ -24,14 +24,14 @@ import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
 contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
     // ── Storage layout (mirrors Accumulator_v2) ─────────────────────────────
 
-    struct ClaimData {
-        uint128 pending;
-        uint128 claimed;
-    }
-
     struct RewardSnapshot {
         uint64 timestamp;
         uint192 integral;
+    }
+
+    struct ClaimData {
+        uint128 pending;
+        uint128 claimed;
     }
 
     /// @dev V1: 2 slots per entry.
@@ -48,8 +48,10 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
     }
 
     struct AccumulatorStorage {
+        // these are not used but are needed as placeholders
         mapping(address => address) rewardReceiver;
         mapping(address => mapping(uint8 => uint256)) tokenToExponentToIntegral;
+        // user -> token -> reward snapshot
         mapping(address => mapping(address => UserRewardSnapshot)) userRewardSnapshot;
         mapping(address => mapping(address => UserRewardSnapshotV2)) userRewardSnapshotV2;
     }
@@ -79,6 +81,15 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
         newIntegral = $.userRewardSnapshotV2[account][token].integral;
     }
 
+    function snapshots(
+        address account,
+        address token
+    ) external view returns (UserRewardSnapshot memory v1, UserRewardSnapshotV2 memory v2) {
+        AccumulatorStorage storage $ = _getAccumulatorStorage();
+        v1 = $.userRewardSnapshot[account][token];
+        v2 = $.userRewardSnapshotV2[account][token];
+    }
+
     // ── Remediation ─────────────────────────────────────────────────────────
 
     /// @notice Copy V1 snapshot data to V2 format for each holder/token pair.
@@ -102,9 +113,9 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
 
                 // Skip if no V1 data
                 UserRewardSnapshot storage v1 = $.userRewardSnapshot[account][token];
-                if (v1.checkpoint.timestamp == 0) {
-                    continue;
-                }
+                // if (v1.checkpoint.timestamp == 0) {
+                //     continue;
+                // }
 
                 // Copy V1 → V2
                 v2.rewards.pending = v1.rewards.pending;

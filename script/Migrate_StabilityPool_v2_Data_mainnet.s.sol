@@ -6,7 +6,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
-import {ForceMigrateAccumulator_v1} from "@harbor-script/verify/sp-v3-migration/ForceMigrateAccumulator_v1.sol";
+import {ForceMigrateAccumulator_v1} from "@harbor-script/verify/sp-v2-data-prep-for-v3/ForceMigrateAccumulator_v1.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";

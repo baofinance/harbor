@@ -6,7 +6,7 @@ import {console2 as console} from "forge-std/console2.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
-import {ForceMigrateAccumulator_v1} from "@harbor-script/verify/sp-v3-migration/ForceMigrateAccumulator_v1.sol";
+import {ForceMigrateAccumulator_v1} from "@harbor-script/verify/sp-v2-data-prep-for-v3/ForceMigrateAccumulator_v1.sol";
 
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
@@ -82,6 +82,20 @@ contract MigrateBalancesTest is
         }
     }
 
+    function logV1(ForceMigrateAccumulator_v1.UserRewardSnapshot memory v1) private view {
+        console.log("        v1.timestamp: %s", v1.checkpoint.timestamp);
+        console.log("        v1.integral:  %s", v1.checkpoint.integral);
+        console.log("        v1.pending: %s", v1.rewards.pending);
+        console.log("        v1.claimed: %s", v1.rewards.claimed);
+    }
+
+    function logV2(ForceMigrateAccumulator_v1.UserRewardSnapshotV2 memory v2) private view {
+        console.log("        v2.timestamp: %s", v2.timestamp);
+        console.log("        v2.integral:  %s", v2.integral);
+        console.log("        v2.pending: %s", v2.rewards.pending);
+        console.log("        v2.claimed: %s", v2.rewards.claimed);
+    }
+
     function _checkPool(string memory marketKey, string memory spType) internal returns (bool) {
         string memory saltKey = string.concat(marketKey, "::", spType);
         address pool = _predictAddress(_key(marketKey, spType));
@@ -103,20 +117,41 @@ contract MigrateBalancesTest is
         ForceMigrateAccumulator_v1 mig = ForceMigrateAccumulator_v1(pool);
 
         // 2. Snapshot raw (V1, V2) integrals before remediation.
+        console.log("scanning pre state...");
         uint256[][] memory preOld = new uint256[][](holders.length);
         uint256[][] memory preNew = new uint256[][](holders.length);
         for (uint256 h = 0; h < holders.length; h++) {
             preOld[h] = new uint256[](tokens.length);
             preNew[h] = new uint256[](tokens.length);
             for (uint256 t = 0; t < tokens.length; t++) {
+                string memory label = string.concat(
+                    saltKey,
+                    " holder ",
+                    vm.toString(holders[h]),
+                    " token ",
+                    vm.toString(t)
+                );
+                console.log("     ", label);
+
                 (preOld[h][t], preNew[h][t]) = mig.balances(holders[h], tokens[t]);
+
+                (
+                    ForceMigrateAccumulator_v1.UserRewardSnapshot memory v1,
+                    ForceMigrateAccumulator_v1.UserRewardSnapshotV2 memory v2
+                ) = mig.snapshots(holders[h], tokens[t]);
+                logV1(v1);
+                logV2(v2);
             }
         }
+        console.log("done scanning pre state");
 
         // 3. Remediate.
         vm.prank(owner);
         mig.remediate(tokens, holders);
 
+        console.log("done remediating.");
+
+        console.log("scanning post state...");
         // 4. Assert the copy is correct for every holder/token.
         for (uint256 h = 0; h < holders.length; h++) {
             for (uint256 t = 0; t < tokens.length; t++) {
@@ -133,17 +168,27 @@ contract MigrateBalancesTest is
                 assertEq(postOld, preOld[h][t], string.concat("old changed: ", label));
 
                 if (preNew[h][t] != 0) {
+                    console.log("      ", label, " already migrated");
                     // Already migrated: V2 unchanged.
                     assertEq(postNew, preNew[h][t], string.concat("already-migrated changed: ", label));
                 } else if (preOld[h][t] != 0) {
+                    console.log("      ", label, " now migrated");
                     // Was unmigrated: V2 now equals V1 (pure copy).
                     assertEq(postNew, preOld[h][t], string.concat("not copied: ", label));
                 } else {
+                    console.log("      ", label, " no v1 data to migrate");
                     // No V1 data: stays zero.
                     assertEq(postNew, 0, string.concat("spurious V2: ", label));
                 }
+                (
+                    ForceMigrateAccumulator_v1.UserRewardSnapshot memory v1,
+                    ForceMigrateAccumulator_v1.UserRewardSnapshotV2 memory v2
+                ) = mig.snapshots(holders[h], tokens[t]);
+                logV1(v1);
+                logV2(v2);
             }
         }
+        console.log("done scanning post state.");
 
         console.log("    > %s: %d holders OK", saltKey, holders.length);
         return true;

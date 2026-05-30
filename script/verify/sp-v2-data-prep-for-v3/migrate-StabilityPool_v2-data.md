@@ -34,7 +34,8 @@ Key facts (verified):
 | `../../Migrate_StabilityPool_v2_Data_mainnet.s.sol` | The migration: per pool, queue upgrade→ForceMigrate, `remediate(tokens, holders)`, restore→v2. Reads the holder files. |
 | `MigrateCaptureTest.t.sol` | **Prong A** (black-box): capture all pool/holder state + interactions to JSON for a before/after diff |
 | `MigrateBalancesTest.t.sol` | **Prong B** (white-box): upgrade→ForceMigrate, assert `balances()` copies V1→V2 correctly |
-| `run-migrate-StabilityPool_v2-data` | Local end-to-end verification driver |
+| `../../Deploy_StabilityPool_v3_mainnet.s.sol` | **Prod** v2→v3 upgrade, reused unmodified for **Validation 2**. Plain `upgradeToAndCall(impl, "")` (no initialize/reinitializer — v3 sets immutables in its constructor; the one-shot data fix lives in ForceMigrate). On `--local` it touches only the local state copy. |
+| `run-migrate-StabilityPool_v2-data` | Local end-to-end driver: discover → before → prongs → **migrate (prod)** → after (v2 diff) → **v3 (prod)** → after-v3 (v3 diff) |
 
 Holder discovery uses `UserDepositChange(owner,…)` — the event emitted whenever an account is
 checkpointed (deposit→receiver, withdraw→sender, liquidation→account). The distinct `owner`
@@ -46,28 +47,42 @@ did not were verified to have zero `UserDepositChange`/`Deposit`-as-receiver eve
 
 ## Local verification (one command)
 
-Start nothing first — the runner prompts you. It regenerates holders, captures before, runs
-both prongs + the real migrate script against a local anvil fork, captures after, and diffs.
+Start nothing first — the runner prompts you to start anvil. It resolves the fork block to a
+concrete number, regenerates holders at that block, captures before, runs both prongs + the
+real migrate script, captures after, **then upgrades to v3 and captures again** — two diffs.
 
 ```bash
-script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data
-# options: --block <n|latest> (default 25186514, matched to discovery), --include <pool-filter>
+script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data            # full run at latest
+script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data --skip-capture   # reuse saved before/holders/block
+script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data --block <n|capture>
+# --block: latest (default, → concrete number, recorded) | capture (last recorded block) | <number>
+# --skip-capture: reuse tmp/sp-holders + tmp/before + recorded block; skip discovery & before-capture
+# --include <pool-filter>
 ```
 
 What it does, in one anvil session (`forge test` forks in-memory; `run-script --broadcast
---local` persists to anvil — so the order is correct without cycling anvil):
+--local` persists to anvil — so the order is correct without cycling anvil). The block is
+resolved once and used identically for discovery, the fork, and START_TIMESTAMP:
 
-1. Discover holders → `tmp/sp-holders/` (Etherscan, `--to-block <fork block>`).
+1. Discover holders → `tmp/sp-holders/` (Etherscan, `--to-block <resolved block>`); record the block.
 2. **Prong A**: `VERSION=before` capture → `tmp/before/{pre,post}/*.json`.
 3. **Prong B**: `MigrateBalancesTest` asserts the V1→V2 copy on the un-migrated node.
-4. Run the **actual** `Migrate_StabilityPool_v2_Data_mainnet` (`--broadcast --local`) — this
-   persists upgrade→remediate→restore to anvil.
-5. **Prong A**: `VERSION=after` capture → `tmp/after/{pre,post}/*.json`.
-6. `diff -ru tmp/before tmp/after` — **MUST be empty** (the migration changed nothing
-   observable). `meld tmp/before tmp/after` if available.
+4. Run the **actual** `Migrate_StabilityPool_v2_Data_mainnet` (`--broadcast --local`) — persists
+   upgrade→remediate→restore-v2 to anvil.
+5. **Prong A**: `VERSION=after` capture → `tmp/after/…`.
+6. **Validation 1 (v2 transparency)**: `diff tmp/before tmp/after` — **MUST be empty**. Proves the
+   migration changed nothing observable. (Also proves pure-copy ≡ on-demand: "before" reads
+   unmigrated users via the V1 fallback, "after" via pure-copied V2 data.)
+7. Run `Deploy_StabilityPool_v3_mainnet` (`--broadcast --local`) — upgrades all pools to v3.
+8. **Prong A**: `VERSION=after-v3` capture → `tmp/after-v3/…`.
+9. **Validation 2 (v3 completeness)**: `diff tmp/before tmp/after-v3` — **MUST be empty**. v3 has
+   no V1 fallback, so any holder the migrate **missed** reads `claimable=0` here and the diff
+   exposes it. This is the gate that closes Validation 1's blind spot.
 
-The empty diff also proves the pure-copy ≡ on-demand equivalence: "before" reads unmigrated
-users via the V1 fallback, "after" reads the same users via pure-copied V2 data.
+**Why two validations:** ending on v2 keeps the fallback, so Validation 1's diff cannot, alone,
+detect an *incomplete* migration (a missed holder still reads correctly via V1). Validation 2
+removes the fallback (v3) and re-checks against the same baseline, so incompleteness surfaces.
+The v3 upgrade here is verification-only — the production migration ends on v2.
 
 ## Producing the mainnet Safe batch
 

@@ -12,6 +12,12 @@
 #     reads raw (V1, V2) integrals via balances(), remediates, and asserts the copy is correct.
 #     Runs in-memory on the un-migrated node, so it does not disturb anvil.
 #
+# Two validation gates via before/after capture diffs:
+#   Validation 1 (v2 transparency): after the migrate (pool ends on v2), diff vs before — proves
+#     nothing observable changed. The v2 fallback means this ALONE can't detect a missed holder.
+#   Validation 2 (v3 completeness): then upgrade all pools to StabilityPool_v3 (no fallback) and
+#     diff vs before — a holder the migrate missed now reads claimable=0, so the diff exposes it.
+#
 # forge test forks anvil IN-MEMORY (no writeback); run-script --broadcast --local PERSISTS.
 # So a single anvil session works: in-memory captures/checks see the un-migrated node, the
 # migrate script mutates it, then the after-capture forks the migrated node. START_TIMESTAMP
@@ -20,69 +26,104 @@
 # The fork block is resolved to a CONCRETE number once, then used identically for holder
 # discovery (collect-sp-holders --to-block), the anvil fork, and START_TIMESTAMP — so the
 # discovered set and the forked state always match. A full run records that block; later
-# runs can reuse it (--block capture / --skip-capture).
+# runs can reuse it (--block capture).
 #
 # Usage:
 #   run-migrate-StabilityPool_v2-data                      # full run at latest (records the block)
-#   run-migrate-StabilityPool_v2-data --skip-capture       # reuse saved holders + before-capture + block
+#   run-migrate-StabilityPool_v2-data --block capture      # reuse saved holders at the recorded block (errors if none recorded)
 #   run-migrate-StabilityPool_v2-data --block <number>     # full run at a specific block
-#   run-migrate-StabilityPool_v2-data --block capture       # full run at the last recorded block
 #   options: --include <pool-filter>
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # ── Configuration ────────────────────────────────────────────────────────────
-SALT="${SALT:-harbor_v1}"
-NETWORK="${NETWORK:-mainnet}"
-POOL_FILTER="${POOL_FILTER:-}"
+SALT="harbor_v1"
+NETWORK="mainnet"
+POOL_FILTER=""
 FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
 HERE="$(dirname "$0")"
 CAPTURE_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateCaptureTest.t.sol"
 BALANCES_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateBalancesTest.t.sol"
 HOLDERS_DIR="tmp/sp-holders"
-BLOCK_FILE="tmp/sp-capture-block"   # records the concrete block a full capture used
+BLOCK_FILE="tmp/sp-capture-block" # records the concrete block a capture used
 
-BLOCK=""               # n | latest | capture ; default chosen below
-SKIP_CAPTURE=false
+BLOCK="" # n | latest | capture ; default = latest
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --include)      POOL_FILTER="$2"; shift 2 ;;
-    --block)        BLOCK="$2"; shift 2 ;;
-    --skip-capture) SKIP_CAPTURE=true; shift ;;
+    --include)
+      POOL_FILTER="$2"
+      shift 2
+      ;;
+    --block)
+      BLOCK="$2"
+      shift 2
+      ;;
     -h | --help)
       sed -n '/^# Usage:/,/pool-filter/p' "$0" | sed 's/^# \{0,1\}//'
-      exit 0 ;;
-    *) echo "Unknown option: $1" >&2; exit 1 ;;
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
   esac
 done
 
-# Default block: full run -> latest; skip-capture -> the recorded capture block.
-if [[ -z "$BLOCK" ]]; then
-  if $SKIP_CAPTURE; then BLOCK="capture"; else BLOCK="latest"; fi
-fi
+# Default block. "--block capture" is also the signal to skip discovery
+# and reuse the saved artifacts (errors below if BLOCK_FILE is missing).
+[[ -z "$BLOCK" ]] && BLOCK="latest"
+SKIP_CAPTURE_HOLDERS=false
+[[ "$BLOCK" == "capture" ]] && SKIP_CAPTURE_HOLDERS=true
+
+echotty() {
+  echo "$*"
+
+  if [[ ! -t 1 ]]; then
+    echo "$*" >/dev/tty
+  fi
+}
 
 prompt() {
-  echo ""
-  echo "──────────────────────────────────────────────────────────────"
-  echo "$1"
-  echo "──────────────────────────────────────────────────────────────"
+  echotty ""
+  echotty "──────────────────────────────────────────────────────────────"
+  echotty "$1"
+  echotty "──────────────────────────────────────────────────────────────"
   read -rn1 -p "Ready? [Y/n] " response
-  echo ""
+  echotty "" >/dev/tty
+
   if [[ "$response" =~ ^[Nn]$ ]]; then
-    echo "Aborted."
+    echotty "Aborted."
     exit 1
   fi
 }
 
-capture() {
+capture_state() {
   local version="$1"
   local env_args=(START_TIMESTAMP="$START_TIMESTAMP" VERSION="$version")
   [[ -n "$POOL_FILTER" ]] && env_args+=(POOL_FILTER="$POOL_FILTER")
   echo ""
   echo "Capturing '$version' state..."
   env "${env_args[@]}" forge test --match-path "$CAPTURE_TEST" --fork-url local $FORGE_VERBOSITY
+}
+
+# Diff tmp/before against tmp/<other>; returns non-zero on differences.
+compare_state() {
+  local other="$1" title="$2"
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "  $title — expect NO differences"
+  echo "──────────────────────────────────────────────────────────────"
+  if command -v meld >/dev/null 2>&1; then
+    meld tmp/before "tmp/$other" &
+  fi
+  if diff -ru tmp/before "tmp/$other"; then
+    echo "  ✅ PASS: tmp/before == tmp/$other"
+    return 0
+  fi
+  echo "  ❌ FAIL: differences above ($title)"
+  return 1
 }
 
 # ── Resolve the fork block to a concrete number (used everywhere) ─────────────
@@ -107,7 +148,7 @@ echo "  StabilityPool_v2 accumulator V1->V2 force-migration verification"
 echo "======================================================================"
 echo "  Fork block:   $RESOLVED  (requested: $BLOCK)"
 echo "  Salt:         $SALT"
-echo "  Skip capture: $SKIP_CAPTURE"
+echo "  Skip capture: $SKIP_CAPTURE_HOLDERS"
 [[ -n "$POOL_FILTER" ]] && echo "  Pool filter:  $POOL_FILTER"
 
 # START_TIMESTAMP from the resolved block (shared by before/after captures).
@@ -115,10 +156,10 @@ TS=$(cast block --rpc-url "$NETWORK" "$RESOLVED" -f timestamp)
 START_TIMESTAMP=$((TS + 12000))
 echo "  START_TIMESTAMP: $START_TIMESTAMP  (block ts $TS + 12000s)"
 
-if ! $SKIP_CAPTURE; then
-  # Record the block this capture is built against, so --block capture / --skip-capture reuse it.
+if ! $SKIP_CAPTURE_HOLDERS; then
+  # Record the block this capture is built against, so --block capture reuse it.
   mkdir -p "$(dirname "$BLOCK_FILE")"
-  echo "$RESOLVED" > "$BLOCK_FILE"
+  echo "$RESOLVED" >"$BLOCK_FILE"
 
   # Step 0: (re)generate holder files at the SAME block (Etherscan; needs ETHERSCAN_KEY).
   echo ""
@@ -135,15 +176,19 @@ else
     exit 1
   fi
   echo ""
-  echo "Skip-capture: reusing $HOLDERS_DIR, tmp/before, and block $RESOLVED."
+  echo "Skip-capture: reusing $HOLDERS_DIR and block $RESOLVED."
 fi
 
 prompt "Start a fresh anvil fork:  script/anvil --block $RESOLVED"
 
-# ── Prong A: capture BEFORE (skipped on --skip-capture; reuses saved tmp/before) ──
-if ! $SKIP_CAPTURE; then
-  capture before
-fi
+# once anvil is started, set the owner balance - this is dubious: it should already have balance
+# but fixing that is not part of the verification, so we donate a ton of eth to the owner
+echo "giving the multisig some ETH..."
+cast rpc anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0x21e19e0c9bab2400000
+cast balance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
+
+# ── Prong A: capture BEFORE ──
+capture_state before
 
 # ── Prong B: white-box balances() check (in-memory; un-migrated node) ─────────
 echo ""
@@ -155,23 +200,28 @@ echo ""
 echo "Running Migrate_StabilityPool_v2_Data_mainnet (--broadcast --local)..."
 ./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local
 
-# ── Prong A: capture AFTER (forks the now-migrated node) ──────────────────────
-capture after
+# ── Validation 1 (v2 transparency): capture AFTER the migrate, diff vs before ──
+# Pool ends on v2 (fallback still present), so this proves the migration changed
+# nothing observable. NOTE: with the fallback present this diff cannot, on its own,
+# detect an INCOMPLETE migration (a missed holder still reads correctly via V1).
+capture_state after
+fail=0
+compare_state after "Validation 1: v2 transparency (migrate, ends on v2)" || fail=1
 
-# ── Compare (expect: NO differences) ──────────────────────────────────────────
+# ── Validation 2 (v3 completeness): upgrade to v3 (no fallback), diff vs before ──
+# StabilityPool_v3 removes the V1 fallback, so any holder the migrate script MISSED
+# now reads claimable=0 under v3 → the diff exposes it. This is the completeness gate.
+echo ""
+echo "Upgrading all pools to StabilityPool_v3 (completeness detector)..."
+./script/run-script Deploy_StabilityPool_v3_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local
+capture_state after-v3
+compare_state after-v3 "Validation 2: v3 completeness (no fallback — exposes any unmigrated holder)" || fail=1
+
 echo ""
 echo "======================================================================"
-echo "  Comparison — expect NO differences (migration is transparent)"
-echo "======================================================================"
-if command -v meld >/dev/null 2>&1; then
-  meld tmp/before tmp/after
-else
-  if diff -ru tmp/before tmp/after; then
-    echo ""
-    echo "✅ PASS: before and after are identical."
-  else
-    echo ""
-    echo "❌ FAIL: differences found above — migration changed user-visible state."
-    exit 1
-  fi
+if ((fail)); then
+  echo "  ❌ FAIL — see differences above."
+  exit 1
 fi
+echo "  ✅ PASS — v2 transparent AND v3-complete: safe to remove the fallback."
+echo "======================================================================"
