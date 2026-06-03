@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# compare-migration-artifacts DIR1 DIR2
+#
+# Compare two directories produced by run-migrate-StabilityPool_v2-data --compare-dir.
+# Applies transforms to eliminate known run-to-run noise before diffing.
+# Originals in DIR1/DIR2 are never modified.
+#
+# Transforms applied to forge-log-raw.txt:
+#   - ISO timestamp in the batch JSON filename logged by the Deployer
+#   - Elapsed time reported by run-script
+# Each transform replaces at most one occurrence (no /g flag).
+#
+# Usage:
+#   compare-migration-artifacts tmp/comparison/run1 tmp/comparison/run2
+#   compare-migration-artifacts tmp/comparison/inefficient tmp/comparison/efficient
+
+set -euo pipefail
+
+DIR1="${1:?usage: $0 DIR1 DIR2}"
+DIR2="${2:?usage: $0 DIR1 DIR2}"
+
+[[ -d "$DIR1" ]] || { echo "ERROR: $DIR1 is not a directory" >&2; exit 1; }
+[[ -d "$DIR2" ]] || { echo "ERROR: $DIR2 is not a directory" >&2; exit 1; }
+
+TMP1=$(mktemp -d)
+TMP2=$(mktemp -d)
+trap 'rm -rf "$TMP1" "$TMP2"' EXIT
+
+cp -r "$DIR1/." "$TMP1/"
+cp -r "$DIR2/." "$TMP2/"
+
+# ── Transforms (forge-log-raw.txt only) ──────────────────────────────────────
+
+# ISO timestamp embedded in the batch JSON filename: 2026-06-03T12:45:30Z
+sed -Ei \
+  's|Migrate_StabilityPool_v2_Data_mainnet_[0-9T:Z-]+_harbor_multisig\.json|Migrate_StabilityPool_v2_Data_mainnet_<timestamp>_harbor_multisig.json|' \
+  "$TMP1/forge-log-raw.txt" "$TMP2/forge-log-raw.txt"
+
+# Elapsed time: "  Took: 0m 42s"
+sed -Ei \
+  's/  Took: [0-9]+m [0-9]+s/  Took: <time>/' \
+  "$TMP1/forge-log-raw.txt" "$TMP2/forge-log-raw.txt"
+
+# ── Compare ──────────────────────────────────────────────────────────────────
+
+DIFF_EXIT=0
+diff -ru "$TMP1" "$TMP2" || DIFF_EXIT=$?
+
+if command -v meld >/dev/null 2>&1; then
+  meld "$TMP1" "$TMP2"   # foreground: blocks until user closes meld, then trap cleans up
+fi
+
+exit $DIFF_EXIT

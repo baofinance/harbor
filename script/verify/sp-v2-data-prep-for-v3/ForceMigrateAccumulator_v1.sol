@@ -3,6 +3,7 @@
 pragma solidity 0.8.30;
 
 import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
+import {console2 as console} from "forge-std/console2.sol";
 
 /// @title ForceMigrateAccumulator_v1
 /// @notice One-shot upgrade that copies user reward snapshot data from
@@ -68,7 +69,17 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
 
     // ── Events ──────────────────────────────────────────────────────────────
 
-    event AccountMigrated(address indexed account, address indexed token);
+    event AccountAlreadyMigrated(address indexed account, address indexed token);
+    event AccountNoDataToMigrate(address indexed account, address indexed token);
+    event AccountMigrated(
+        address indexed account,
+        address indexed token,
+        uint256 pending,
+        uint256 claimed,
+        uint256 timestamp,
+        uint256 integral
+    );
+
     event MigrationComplete(uint256 holderCount, uint256 tokenCount);
 
     // ── View ─────────────────────────────────────────────────────────────────
@@ -105,25 +116,37 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
             for (uint256 j = 0; j < tokens.length; j++) {
                 address token = tokens[j];
 
-                // Skip if already migrated
+                // Skip if already migrated: any non-zero value in v2
                 UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
-                if (v2.integral != 0 || v2.timestamp != 0) {
+                if (v2.integral != 0 || v2.timestamp != 0 || v2.rewards.pending != 0 || v2.rewards.claimed != 0) {
+                    emit AccountAlreadyMigrated(account, token);
+                    console.log("AccountAlreadyMigrated(%s, %s)", account, token);
                     continue;
                 }
 
-                // Skip if no V1 data
+                // Skip if no V1 data: all zero in v1
                 UserRewardSnapshot storage v1 = $.userRewardSnapshot[account][token];
-                // if (v1.checkpoint.timestamp == 0) {
-                //     continue;
-                // }
+                if (
+                    v1.checkpoint.integral == 0 &&
+                    v1.checkpoint.timestamp == 0 &&
+                    v1.rewards.pending == 0 &&
+                    v1.rewards.claimed == 0
+                ) {
+                    emit AccountNoDataToMigrate(account, token);
+                    console.log("AccountNoDataToMigrate(%s, %s)", account, token);
+                }
 
-                // Copy V1 → V2
+                // only get here if there is non-zero data in v1 and all zero data in v2
+                // So, copy V1 → V2
                 v2.rewards.pending = v1.rewards.pending;
                 v2.rewards.claimed = v1.rewards.claimed;
                 v2.timestamp = v1.checkpoint.timestamp;
                 v2.integral = uint256(v1.checkpoint.integral);
 
-                emit AccountMigrated(account, token);
+                emit AccountMigrated(account, token, v2.rewards.pending, v2.rewards.claimed, v2.timestamp, v2.integral);
+                console.log("AccountMigrated(%s, %s):", account, token);
+                console.log("   pending=%s, claimed=%s", v2.rewards.pending, v2.rewards.claimed);
+                console.log("   timestamp=%s, integral=%s", v2.timestamp, v2.integral);
             }
         }
 

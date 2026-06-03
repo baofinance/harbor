@@ -32,7 +32,12 @@
 #   run-migrate-StabilityPool_v2-data                      # full run at latest (records the block)
 #   run-migrate-StabilityPool_v2-data --block capture      # reuse saved holders at the recorded block (errors if none recorded)
 #   run-migrate-StabilityPool_v2-data --block <number>     # full run at a specific block
-#   options: --include <pool-filter>
+#   options: --include <pool-filter>  --compare-dir <dir>
+#
+# --compare-dir <dir>
+#   After the migrate script runs, copy the raw batch JSON and forge log into <dir>
+#   as batch-raw.json and forge-log-raw.txt.  Used for side-by-side comparison
+#   between branches.  Use compare-migration-artifacts to diff two such directories.
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -48,7 +53,8 @@ BALANCES_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateBalancesTest.t.sol"
 HOLDERS_DIR="tmp/sp-holders"
 BLOCK_FILE="tmp/sp-capture-block" # records the concrete block a capture used
 
-BLOCK="" # n | latest | capture ; default = latest
+BLOCK=""       # n | latest | capture ; default = latest
+COMPARE_DIR="" # if set, copy batch JSON + forge log here after the migrate run
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,8 +66,12 @@ while [[ $# -gt 0 ]]; do
       BLOCK="$2"
       shift 2
       ;;
+    --compare-dir)
+      COMPARE_DIR="$2"
+      shift 2
+      ;;
     -h | --help)
-      sed -n '/^# Usage:/,/pool-filter/p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '/^# Usage:/,/compare-migration-artifacts/p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -155,6 +165,13 @@ echo "  Skip capture: $SKIP_CAPTURE_HOLDERS"
 TS=$(cast block --rpc-url "$NETWORK" "$RESOLVED" -f timestamp)
 START_TIMESTAMP=$((TS + 12000))
 echo "  START_TIMESTAMP: $START_TIMESTAMP  (block ts $TS + 12000s)"
+[[ -n "$COMPARE_DIR" ]] && echo "  Compare dir:  $COMPARE_DIR"
+
+# Ensure local state is a fresh copy of mainnet before every run so the broadcast
+# step reads the same deployed addresses as the mainnet reference.
+mkdir -p "deployments/local/$NETWORK"
+echo "cp" "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
+cp "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
 
 if ! $SKIP_CAPTURE_HOLDERS; then
   # Record the block this capture is built against, so --block capture reuse it.
@@ -198,7 +215,22 @@ forge test --match-path "$BALANCES_TEST" --fork-url local $FORGE_VERBOSITY
 # ── Run the ACTUAL migrate script (persists to anvil) ─────────────────────────
 echo ""
 echo "Running Migrate_StabilityPool_v2_Data_mainnet (--broadcast --local)..."
-./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local
+MIGRATE_LOG=$(mktemp)
+trap 'rm -f "$MIGRATE_LOG"' EXIT
+./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local \
+  2>&1 | tee "$MIGRATE_LOG"
+
+if [[ -n "$COMPARE_DIR" ]]; then
+  mkdir -p "$COMPARE_DIR"
+  cp "$MIGRATE_LOG" "$COMPARE_DIR/forge-log-raw.txt"
+  if ls "deployments/local/$NETWORK/batch/Migrate_StabilityPool_v2_Data_mainnet_"*.json >/dev/null 2>&1; then
+    BATCH_JSON=$(ls -t "deployments/local/$NETWORK/batch/Migrate_StabilityPool_v2_Data_mainnet_"*.json | head -1)
+    cp "$BATCH_JSON" "$COMPARE_DIR/batch-raw.json"
+    echo "  Compare artifacts saved to $COMPARE_DIR/ (batch: $(basename "$BATCH_JSON"))"
+  else
+    echo "WARNING: --compare-dir set but no batch JSON found in deployments/local/$NETWORK/batch/" >&2
+  fi
+fi
 
 # ── Validation 1 (v2 transparency): capture AFTER the migrate, diff vs before ──
 # Pool ends on v2 (fallback still present), so this proves the migration changed
