@@ -1,0 +1,4 @@
+# Stability pool holders: SILVER::fxUSD::stabilityPoolLeveraged
+# proxy:  0x24aef2d27146497b18df180791424b1010bf1889
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
+# generated: 2026-06-04T16:37:41+01:00

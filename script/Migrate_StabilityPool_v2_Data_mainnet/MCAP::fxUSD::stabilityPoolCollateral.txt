@@ -1,0 +1,4 @@
+# Stability pool holders: MCAP::fxUSD::stabilityPoolCollateral
+# proxy:  0x7928a145eed1374f5594c799290419b80fcd03f0
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
+# generated: 2026-06-04T16:37:38+01:00

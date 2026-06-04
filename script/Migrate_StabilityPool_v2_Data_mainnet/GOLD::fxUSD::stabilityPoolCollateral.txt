@@ -1,0 +1,5 @@
+# Stability pool holders: GOLD::fxUSD::stabilityPoolCollateral
+# proxy:  0xc1ef32d4b959f2200efdeddedada226461d14dac
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
+# generated: 2026-06-04T16:37:35+01:00
+# no-work: 0x1a9152528AEFbcD9E5df4E0770f4F510e7056913

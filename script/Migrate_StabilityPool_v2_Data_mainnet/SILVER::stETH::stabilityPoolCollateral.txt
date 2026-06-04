@@ -1,0 +1,4 @@
+# Stability pool holders: SILVER::stETH::stabilityPoolCollateral
+# proxy:  0x1c9c1cf9aa9fc86df980086cbc5a5607522cfc3e
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
+# generated: 2026-06-04T16:37:42+01:00

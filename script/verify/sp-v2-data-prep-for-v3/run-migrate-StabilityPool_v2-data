@@ -181,7 +181,7 @@ if ! $SKIP_CAPTURE_HOLDERS; then
   # Step 0: (re)generate holder files at the SAME block (Etherscan; needs ETHERSCAN_KEY).
   echo ""
   echo "Discovering holders -> $HOLDERS_DIR (Etherscan, to-block $RESOLVED)..."
-  "$HERE/collect-sp-holders" --to-block "$RESOLVED"
+  script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders --to-block "$RESOLVED"
 else
   # Reuse saved artifacts; fail clearly if they are missing.
   if ! ls "$HOLDERS_DIR"/*.txt >/dev/null 2>&1; then
@@ -195,6 +195,19 @@ else
   echo ""
   echo "Skip-capture: reusing $HOLDERS_DIR and block $RESOLVED."
 fi
+
+# Filter holder files: reads V1/V2 storage slots on-chain at the fork block,
+# comments out addresses that need no migration work, and writes the filtered
+# files to script/verify/sp-v2-data-prep-for-v3/holders/ (git-tracked).
+echo ""
+echo "Filtering holder files at block $RESOLVED..."
+forge script script/Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol \
+  --tc FilterSpHolders \
+  --sig "run()" \
+  --rpc-url "$NETWORK" \
+  --fork-block-number "$RESOLVED" \
+  --ffi \
+  $FORGE_VERBOSITY
 
 prompt "Start a fresh anvil fork:  script/anvil --block $RESOLVED"
 
@@ -217,7 +230,10 @@ echo ""
 echo "Running Migrate_StabilityPool_v2_Data_mainnet (--broadcast --local)..."
 MIGRATE_LOG=$(mktemp)
 trap 'rm -f "$MIGRATE_LOG"' EXIT
-./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local \
+# POOL_INCLUDE is read by Migrate_StabilityPool_v2_Data_mainnet via vm.envOr to
+# filter pools by market-key segment (e.g. ETH -> only ::ETH:: pools). Empty = all.
+POOL_INCLUDE="$POOL_FILTER" \
+  ./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local \
   2>&1 | tee "$MIGRATE_LOG"
 
 if [[ -n "$COMPARE_DIR" ]]; then
@@ -243,9 +259,12 @@ compare_state after "Validation 1: v2 transparency (migrate, ends on v2)" || fai
 # ── Validation 2 (v3 completeness): upgrade to v3 (no fallback), diff vs before ──
 # StabilityPool_v3 removes the V1 fallback, so any holder the migrate script MISSED
 # now reads claimable=0 under v3 → the diff exposes it. This is the completeness gate.
+# POOL_INCLUDE scopes the v3 upgrade to the same pools as the migrate (so --include ETH
+# does not upgrade unmigrated non-ETH pools to v3, which would break them on the fork).
 echo ""
-echo "Upgrading all pools to StabilityPool_v3 (completeness detector)..."
-./script/run-script Deploy_StabilityPool_v3_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local
+echo "Upgrading StabilityPool_v3 (completeness detector)${POOL_FILTER:+ — only ::$POOL_FILTER:: pools}..."
+POOL_INCLUDE="$POOL_FILTER" \
+  ./script/run-script Deploy_StabilityPool_v3_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local
 capture_state after-v3
 compare_state after-v3 "Validation 2: v3 completeness (no fallback — exposes any unmigrated holder)" || fail=1
 

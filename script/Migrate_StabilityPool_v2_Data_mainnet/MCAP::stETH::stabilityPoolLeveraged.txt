@@ -1,0 +1,4 @@
+# Stability pool holders: MCAP::stETH::stabilityPoolLeveraged
+# proxy:  0x505bfc99d2fb1a1424b2a4aa81303346df4f27e9
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
+# generated: 2026-06-04T16:37:40+01:00

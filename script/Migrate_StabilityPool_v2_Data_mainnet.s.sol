@@ -32,8 +32,8 @@ import {Script} from "forge-std/Script.sol";
 ///   3. Restore proxy        -> the StabilityPool_v2 implementation it had before
 ///
 /// Holders are read at runtime from per-pool files produced by
-/// `script/verify/sp-v2-data-prep-for-v3/collect-sp-holders` (UserDepositChange
-/// logs). Pools with no holder file, or an empty one, are skipped.
+/// `script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders` (UserDepositChange
+/// logs) and filtered by `FilterSpHolders.s.sol`. Pools with no holder file, or an empty one, are skipped.
 ///
 /// Run via:
 ///   script/run-script Migrate_StabilityPool_v2_Data_mainnet --salt harbor_v1 --network mainnet --broadcast --local
@@ -47,6 +47,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
     Deploy_SILVER_Minter
 {
     using LibString for address;
+    using LibString for string;
 
     // StabilityPoolCollateral / StabilityPoolLeveraged inherited from the StabilityPool deployment helper.
 
@@ -54,7 +55,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     /// @dev Directory of per-pool holder files (one checksummed address per line, '#' comments).
-    string internal constant HOLDERS_DIR = "tmp/sp-holders/";
+    string internal constant HOLDERS_DIR = "script/Migrate_StabilityPool_v2_Data_mainnet/";
 
     /// @dev Deployed once, shared across all pools (no constructor params, deterministic bytecode).
     address internal migImpl;
@@ -68,6 +69,15 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
     }
 
     function _migratePool(string memory marketKey, string memory spType) internal {
+        // POOL_INCLUDE: optional env-var filter on market key segment.
+        // ::VALUE:: wrapping ensures "ETH" matches "::ETH::" but not "::stETH::".
+        string memory include = vm.envOr("POOL_INCLUDE", string(""));
+        if (bytes(include).length > 0) {
+            if (!string.concat("::", marketKey, "::").contains(string.concat("::", include, "::"))) {
+                return;
+            }
+        }
+
         string memory key = _key(marketKey, spType);
         address pool = _predictAddress(key);
 

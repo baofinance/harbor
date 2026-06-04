@@ -36,10 +36,22 @@ contract Deploy_StabilityPool_v3_mainnet is
     Deploy_SILVER_Minter
 {
     using LibString for address;
+    using LibString for string;
 
     function _doOneMinter(DeploymentTypes.State memory state, Config_MinterMarket[] memory markets) internal {
+        // POOL_INCLUDE: optional env-var filter on market key segment, consistent with
+        // Migrate_StabilityPool_v2_Data_mainnet. ::VALUE:: ensures "ETH" matches "::ETH::"
+        // but not "::stETH::". Empty = all pools (production default).
+        string memory include = vm.envOr("POOL_INCLUDE", string(""));
+
         for (uint i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
+
+            if (bytes(include).length > 0) {
+                if (!string.concat("::", marketKey, "::").contains(string.concat("::", include, "::"))) {
+                    continue;
+                }
+            }
             address minter = _predictAddress(_key(marketKey, "minter"));
             address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
             address collateralToken = IHarborConfig(address(markets[i])).wrappedCollateralToken();

@@ -1,0 +1,6 @@
+# Stability pool holders: EUR::fxUSD::stabilityPoolLeveraged
+# proxy:  0xc5e0da7e0a178850438e5e97ed59b6eb2562e88e
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
+# generated: 2026-06-04T16:37:33+01:00
+# no-work: 0x1a9152528AEFbcD9E5df4E0770f4F510e7056913
+# no-work: 0xb9ab9578a34a05c86124c399735fdE44dEc80E7F

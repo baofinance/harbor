@@ -511,7 +511,7 @@ contract MigrateCaptureTest is
 
         // PRE FILES: state snapshot before any interactions (one per pool)
         for (uint256 i = 0; i < pools.length; i++) {
-            if (bytes(poolFilter).length > 0 && !pools[i].label.contains(poolFilter)) {
+            if (!_poolMatchesFilter(pools[i].label, poolFilter)) {
                 continue;
             }
             activeCount++;
@@ -531,7 +531,7 @@ contract MigrateCaptureTest is
 
         // INTERACTIONS: deposit, depositReward, warp, claim, withdraw
         for (uint256 i = 0; i < pools.length; i++) {
-            if (bytes(poolFilter).length > 0 && !pools[i].label.contains(poolFilter)) {
+            if (!_poolMatchesFilter(pools[i].label, poolFilter)) {
                 continue;
             }
             _jsonKey = string.concat("post_", vm.toString(i));
@@ -543,7 +543,7 @@ contract MigrateCaptureTest is
 
         // POST FILES: interaction results + state after interactions (one per pool)
         for (uint256 i = 0; i < pools.length; i++) {
-            if (bytes(poolFilter).length > 0 && !pools[i].label.contains(poolFilter)) {
+            if (!_poolMatchesFilter(pools[i].label, poolFilter)) {
                 continue;
             }
             _jsonKey = string.concat("post_", vm.toString(i));
@@ -563,5 +563,15 @@ contract MigrateCaptureTest is
         }
 
         console.log("Pool count:", activeCount);
+    }
+
+    /// @dev Match poolFilter against a label as a ::-delimited segment, so "ETH"
+    /// matches "ETH::fxUSD::..." but NOT "BTC::stETH::..." — consistent with the
+    /// ::SEGMENT:: filter in Migrate_StabilityPool_v2_Data_mainnet. Empty = match all.
+    function _poolMatchesFilter(string memory label, string memory poolFilter) internal pure returns (bool) {
+        if (bytes(poolFilter).length == 0) {
+            return true;
+        }
+        return string.concat("::", label, "::").contains(string.concat("::", poolFilter, "::"));
     }
 }

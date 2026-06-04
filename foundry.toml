@@ -61,6 +61,7 @@ fs_permissions = [
   { access = "read-write", path = "./results" },     # regression files
   { access = "read-write", path = "./deployments" }, # deployment logs
   { access = "read-write", path = "./tmp" },         # temp files - can be removed
+  { access = "read-write", path = "./script/Migrate_StabilityPool_v2_Data_mainnet" }, # filtered holder files (git-tracked migration input)
 ]
 
 gas_limit = "18446744073709551615"

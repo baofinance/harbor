@@ -88,7 +88,7 @@ The v3 upgrade here is verification-only — the production migration ends on v2
 
 ```bash
 # 1. Discover holders (fixed --to-block for reproducibility)
-script/verify/sp-v2-data-prep-for-v3/collect-sp-holders --to-block <block>
+script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders --to-block <block>
 
 # 2. Build the Safe batch JSON (no --local: writes deployments/mainnet/batch/*.json)
 script/run-script Migrate_StabilityPool_v2_Data_mainnet --salt harbor_v1 --network mainnet --broadcast
@@ -104,7 +104,7 @@ genuinely-new users that need migration — it catches a *discovery miss*. To ve
 
 ```bash
 # Re-discover up to a later block, into a separate dir, and diff.
-script/verify/sp-v2-data-prep-for-v3/collect-sp-holders --to-block latest --out-dir tmp/sp-holders-rerun
+script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders --to-block latest --out-dir tmp/sp-holders-rerun
 diff -ru tmp/sp-holders tmp/sp-holders-rerun
 ```
 

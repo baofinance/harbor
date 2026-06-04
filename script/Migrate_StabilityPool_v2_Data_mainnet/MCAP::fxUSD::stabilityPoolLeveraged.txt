@@ -1,0 +1,4 @@
+# Stability pool holders: MCAP::fxUSD::stabilityPoolLeveraged
+# proxy:  0x8cf0c5f1394e137389d6dbfe91c56d00decddad8
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
+# generated: 2026-06-04T16:37:39+01:00
