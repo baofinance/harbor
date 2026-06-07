@@ -2,19 +2,13 @@
 #
 # decode-safe-batch.sh
 #
-# Decode the calldata in a Safe transaction-builder batch using your LOCAL
-# Foundry build artifacts (out/), and optionally label every address with a
-# human-readable name from a deployment registry.
+# Decode the calldata in a Safe transaction-builder batch using LOCAL Foundry
+# build artifacts (out/), label addresses from a deployment registry, and
+# recursively decode nested calldata (e.g. the initializer inside
+# upgradeToAndCall(address,bytes)).
 #
 # Usage:
 #   ./decode-safe-batch.sh [-r registry.json] [-o out-dir] <batch.json>
-#
-#   <batch.json>     Safe batch. Only its `transactions` array is read;
-#                    the version/chainId/meta header is ignored.
-#   -r registry.json Deployment registry for address -> name labels.
-#                      implementations: keyed by address, name = .contractType
-#                      proxies:         keyed by name,    address = .address
-#   -o out-dir       Foundry artifacts dir (default: "out").
 #
 # Requires: jq, cast (run `forge build` first). awk is used for labeling.
 
@@ -69,7 +63,6 @@ command -v cast >/dev/null 2>&1 || {
   exit 1
 }
 
-# calldata-decode subcommand has changed names across Foundry versions.
 if cast calldata-decode --help >/dev/null 2>&1; then
   DECODE=(cast calldata-decode)
 elif cast decode-calldata --help >/dev/null 2>&1; then
@@ -79,9 +72,7 @@ else
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# 1. selector -> signature, from every artifact's methodIdentifiers map.
-# ---------------------------------------------------------------------------
+# selector -> signature, from every artifact's methodIdentifiers map.
 echo "Indexing selectors from $OUT_DIR ..." >&2
 declare -A SIG
 while read -r selector signature; do
@@ -93,11 +84,7 @@ done < <(
 )
 echo "Indexed ${#SIG[@]} unique selectors." >&2
 
-# ---------------------------------------------------------------------------
-# 2. address -> label, from the registry (optional).
-#    impl address -> "<contractType> (impl)"
-#    proxy address -> "<proxy-name> (proxy)"
-# ---------------------------------------------------------------------------
+# address -> label, from the registry (optional).
 declare -A LABEL
 MAPFILE=""
 if [[ -n "$REGISTRY" ]]; then
@@ -109,7 +96,7 @@ if [[ -n "$REGISTRY" ]]; then
   trap 'rm -f "$MAPFILE"' EXIT
   jq -r '
     (.implementations // {} | to_entries[]
-       | [(.key|ascii_downcase), (.value.contractType + " (impl)")] | @tsv),
+       | [(.key|ascii_downcase), (.value.contractType + " (impl for " + .value.proxy + ")")] | @tsv),
     (.proxies // {} | to_entries[]
        | [(.value.address|ascii_downcase), (.key + " (proxy)")] | @tsv)
   ' "$REGISTRY" >"$MAPFILE"
@@ -119,6 +106,8 @@ if [[ -n "$REGISTRY" ]]; then
   echo "Loaded ${#LABEL[@]} address labels from $(basename "$REGISTRY")." >&2
 fi
 echo >&2
+
+#>>> HELPERS (kept between markers so they can be unit-tested in isolation)
 
 # Append "  // <name>" after any known 42-char address on a line.
 annotate() {
@@ -146,9 +135,55 @@ label_for() {
   printf '%s' "${LABEL[$a]:-}"
 }
 
-# ---------------------------------------------------------------------------
-# 3. Walk ONLY .transactions[] (header is never touched).
-# ---------------------------------------------------------------------------
+# Decode one calldata blob. $1 = 0x-calldata, $2 = indent prefix.
+# Recurses into the bytes arg of upgradeToAndCall(address,bytes) (sel 4f1ef286).
+decode_call() {
+  local data="$1" pad="${2:-}"
+  local selector="${data:2:8}"
+  selector="${selector,,}"
+  printf '%sselector: 0x%s\n' "$pad" "$selector"
+
+  local signature="${SIG[$selector]:-}"
+  if [[ -z "$signature" ]]; then
+    printf '%sfunction: <not found in %s>\n' "$pad" "$OUT_DIR"
+    printf '%s          (fallback: cast 4byte-calldata %s)\n' "$pad" "$data"
+    return
+  fi
+  printf '%sfunction: %s\n' "$pad" "$signature"
+
+  # Special case: upgradeToAndCall(address,bytes) -> recurse into the bytes.
+  if [[ "$selector" == "4f1ef286" ]]; then
+    local parts impl inner lbl
+    readarray -t parts < <("${DECODE[@]}" "$signature" "$data" 2>/dev/null || true)
+    impl="${parts[0]:-}"
+    inner="${parts[1]:-}"
+    inner="${inner%%[[:space:]]*}"
+    lbl="$(label_for "$impl")"
+    printf '%sargs:\n' "$pad"
+    if [[ -n "$lbl" ]]; then
+      printf '%s  newImplementation: %s  // %s\n' "$pad" "$impl" "$lbl"
+    else
+      printf '%s  newImplementation: %s\n' "$pad" "$impl"
+    fi
+    if [[ -z "$inner" || "$inner" == "0x" ]]; then
+      printf '%s  data: 0x  (empty - no initializer call)\n' "$pad"
+    else
+      printf '%s  data: %d bytes -> nested call on new implementation:\n' "$pad" "$(((${#inner} - 2) / 2))"
+      decode_call "$inner" "$pad        "
+    fi
+    return
+  fi
+
+  # Generic: decode args and label any known addresses.
+  printf '%sargs:\n' "$pad"
+  if ! "${DECODE[@]}" "$signature" "$data" 2>/dev/null | annotate | sed "s/^/${pad}  /"; then
+    printf '%s  <decode failed - signature/calldata mismatch>\n' "$pad"
+  fi
+}
+
+#<<< HELPERS
+
+# Walk ONLY .transactions[] (header is never touched).
 total=$(jq '.transactions | length' "$BATCH")
 idx=0
 while IFS=$'\t' read -r to value data; do
@@ -168,22 +203,7 @@ while IFS=$'\t' read -r to value data; do
     continue
   fi
 
-  selector="${data:2:8}"
-  selector="${selector,,}"
-  printf 'selector: 0x%s\n' "$selector"
-
-  signature="${SIG[$selector]:-}"
-  if [[ -z "$signature" ]]; then
-    printf 'function: <not found in %s>\n' "$OUT_DIR"
-    printf '          (network fallback: cast 4byte-calldata %s)\n\n' "$data"
-    continue
-  fi
-
-  printf 'function: %s\n' "$signature"
-  printf 'args:\n'
-  if ! "${DECODE[@]}" "$signature" "$data" 2>/dev/null | annotate | sed 's/^/  /'; then
-    printf '  <decode failed - signature/calldata mismatch>\n'
-  fi
+  decode_call "$data" ""
   printf '\n'
 done < <(jq -r '.transactions[] | [.to, (.value // "0"), (.data // "0x")] | @tsv' "$BATCH")
 

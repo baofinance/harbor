@@ -1,7 +1,8 @@
 # Stability pool holders: BTC::fxUSD::stabilityPoolLeveraged
 # proxy:  0x9e56f1e1e80ebf165a1daa99f9787b41cd5bfe40
-# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
-# generated: 2026-06-04T16:37:27+01:00
+# to-block: 25266428
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25266428
+# generated: 2026-06-07T16:31:26+01:00
 # no-work: 0x0cd7E1660D63a6aEbDA782a2Eb7f2875716aC3E8
 # no-work: 0x2880a6bb2cD1DF6E03dC8BbFBEd009DE586c2603
 # no-work: 0x343537cB9417f8953101c48dABa965A99d09A39E

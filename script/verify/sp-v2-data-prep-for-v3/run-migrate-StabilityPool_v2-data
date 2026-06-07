@@ -177,13 +177,13 @@ echo "giving the multisig some ETH..."
 cast rpc --rpc-url local anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0x21e19e0c9bab2400000
 cast balance --rpc-url local 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
 
-# ── Prong A: capture BEFORE ──
-capture_state before
-
 # ── Prong B: white-box balances() check (in-memory; un-migrated node) ─────────
 echo ""
 echo "Prong B: balances() white-box check..."
 forge test --match-path "$BALANCES_TEST" --fork-url local $FORGE_VERBOSITY
+
+# ── Prong A: capture BEFORE ──
+capture_state before
 
 # ── Run the ACTUAL migrate script (persists to anvil) ─────────────────────────
 echo ""

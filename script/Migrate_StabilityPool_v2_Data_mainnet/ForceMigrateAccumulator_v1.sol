@@ -106,7 +106,7 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
     /// @dev Pure data copy — no recalculation. Idempotent: already-migrated users are skipped.
     /// @param tokens The reward token addresses to migrate.
     /// @param holders The holder addresses to migrate.
-    function remediate(address[] calldata tokens, address[] calldata holders) external onlyOwner {
+    function remediate(address[] calldata tokens, address[] calldata holders, address upgradeTo) external onlyOwner {
         AccumulatorStorage storage $ = _getAccumulatorStorage();
 
         for (uint256 i = 0; i < holders.length; i++) {
@@ -145,5 +145,10 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
         }
 
         emit MigrationComplete(holders.length, tokens.length);
+
+        // finally upgrade to the new address, if non-zero which is just used for tests
+        if (upgradeTo != address(0)) {
+            upgradeToAndCall(upgradeTo, "");
+        }
     }
 }

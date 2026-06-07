@@ -1,4 +1,5 @@
 # Stability pool holders: GOLD::stETH::stabilityPoolCollateral
 # proxy:  0x215c28dcce0041ef9a17277ca271f100d9f345cf
-# source: UserDepositChange logs (Etherscan), blocks 24049000-25229142
-# generated: 2026-06-04T16:37:36+01:00
+# to-block: 25266428
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25266428
+# generated: 2026-06-07T16:31:35+01:00

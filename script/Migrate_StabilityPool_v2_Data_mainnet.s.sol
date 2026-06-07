@@ -106,25 +106,30 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
         console.log("    > %s: %d holders, %d tokens", _saltString(key), holders.length, tokens.length);
 
         // 1. Upgrade to the migration contract.
+        // 2. Remediate: copy V1 -> V2 for every holder/token pair -v=======v
+        // 3. Restore the original (StabilityPool_v2) implementation-----------------------------v=========v
         queue(
             pool,
-            abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (migImpl, "")),
+            abi.encodeCall(
+                UUPSUpgradeable.upgradeToAndCall,
+                (migImpl, abi.encodeCall(ForceMigrateAccumulator_v1.remediate, (tokens, holders, currentImpl)))
+            ),
             "upgrade to ForceMigrateAccumulator_v1"
         );
 
-        // 2. Remediate: copy V1 -> V2 for every holder/token pair.
-        queue(
-            pool,
-            abi.encodeCall(ForceMigrateAccumulator_v1.remediate, (tokens, holders)),
-            string.concat("remediate ", _saltString(key))
-        );
+        // // 2. Remediate: copy V1 -> V2 for every holder/token pair.
+        // queue(
+        //     pool,
+        //     abi.encodeCall(ForceMigrateAccumulator_v1.remediate, (tokens, holders, currentImpl)),
+        //     string.concat("remediate ", _saltString(key))
+        // );
 
         // 3. Restore the original (StabilityPool_v2) implementation.
-        queue(
-            pool,
-            abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (currentImpl, "")),
-            string.concat("restore to ", currentImpl.toHexString())
-        );
+        // queue(
+        //     pool,
+        //     abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (currentImpl, "")),
+        //     string.concat("restore to ", currentImpl.toHexString())
+        // );
     }
 
     /// @dev Read a pool's holder list from HOLDERS_DIR/<marketKey>::<spType>.txt.

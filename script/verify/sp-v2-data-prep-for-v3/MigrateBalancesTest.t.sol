@@ -147,7 +147,7 @@ contract MigrateBalancesTest is
 
         // 3. Remediate.
         vm.prank(owner);
-        mig.remediate(tokens, holders);
+        mig.remediate(tokens, holders, address(0));
 
         console.log("done remediating.");
 
