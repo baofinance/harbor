@@ -3,7 +3,6 @@
 pragma solidity 0.8.30;
 
 import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
-import {console2 as console} from "forge-std/console2.sol";
 
 /// @title ForceMigrateAccumulator_v1
 /// @notice One-shot upgrade that copies user reward snapshot data from
@@ -120,7 +119,6 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
                 UserRewardSnapshotV2 storage v2 = $.userRewardSnapshotV2[account][token];
                 if (v2.integral != 0 || v2.timestamp != 0 || v2.rewards.pending != 0 || v2.rewards.claimed != 0) {
                     emit AccountAlreadyMigrated(account, token);
-                    console.log("AccountAlreadyMigrated(%s, %s)", account, token);
                     continue;
                 }
 
@@ -133,7 +131,6 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
                     v1.rewards.claimed == 0
                 ) {
                     emit AccountNoDataToMigrate(account, token);
-                    console.log("AccountNoDataToMigrate(%s, %s)", account, token);
                 }
 
                 // only get here if there is non-zero data in v1 and all zero data in v2
@@ -144,9 +141,6 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
                 v2.integral = uint256(v1.checkpoint.integral);
 
                 emit AccountMigrated(account, token, v2.rewards.pending, v2.rewards.claimed, v2.timestamp, v2.integral);
-                console.log("AccountMigrated(%s, %s):", account, token);
-                console.log("   pending=%s, claimed=%s", v2.rewards.pending, v2.rewards.claimed);
-                console.log("   timestamp=%s, integral=%s", v2.timestamp, v2.integral);
             }
         }
 

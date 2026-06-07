@@ -6,7 +6,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
-import {ForceMigrateAccumulator_v1} from "@harbor-script/verify/sp-v2-data-prep-for-v3/ForceMigrateAccumulator_v1.sol";
+import {ForceMigrateAccumulator_v1} from "@harbor-script/Migrate_StabilityPool_v2_Data_mainnet/ForceMigrateAccumulator_v1.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
@@ -107,7 +107,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
 
         // 1. Upgrade to the migration contract.
         queue(
-            key,
+            pool,
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (migImpl, "")),
             "upgrade to ForceMigrateAccumulator_v1"
         );
@@ -121,7 +121,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
 
         // 3. Restore the original (StabilityPool_v2) implementation.
         queue(
-            key,
+            pool,
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (currentImpl, "")),
             string.concat("restore to ", currentImpl.toHexString())
         );

@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+#
+# decode-safe-batch.sh
+#
+# Decode the calldata in a Safe transaction-builder batch using your LOCAL
+# Foundry build artifacts (out/), and optionally label every address with a
+# human-readable name from a deployment registry.
+#
+# Usage:
+#   ./decode-safe-batch.sh [-r registry.json] [-o out-dir] <batch.json>
+#
+#   <batch.json>     Safe batch. Only its `transactions` array is read;
+#                    the version/chainId/meta header is ignored.
+#   -r registry.json Deployment registry for address -> name labels.
+#                      implementations: keyed by address, name = .contractType
+#                      proxies:         keyed by name,    address = .address
+#   -o out-dir       Foundry artifacts dir (default: "out").
+#
+# Requires: jq, cast (run `forge build` first). awk is used for labeling.
+
+set -euo pipefail
+
+REGISTRY="deployments/mainnet/harbor_v1.state.json"
+OUT_DIR="out"
+usage() { echo "usage: $0 [-r registry.json] [-o out-dir] <batch.json>" >&2; }
+
+while getopts ":r:o:h" opt; do
+  case "$opt" in
+    r) REGISTRY="$OPTARG" ;;
+    o) OUT_DIR="$OPTARG" ;;
+    h)
+      usage
+      exit 0
+      ;;
+    \?)
+      echo "unknown option -$OPTARG" >&2
+      usage
+      exit 2
+      ;;
+    :)
+      echo "option -$OPTARG needs an argument" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+BATCH="${1:-}"
+[[ -n "$BATCH" ]] || {
+  usage
+  exit 2
+}
+
+command -v jq >/dev/null 2>&1 || {
+  echo "error: jq not found" >&2
+  exit 1
+}
+command -v cast >/dev/null 2>&1 || {
+  echo "error: cast not found (install Foundry)" >&2
+  exit 1
+}
+[[ -f "$BATCH" ]] || {
+  echo "error: batch file not found: $BATCH" >&2
+  exit 1
+}
+[[ -d "$OUT_DIR" ]] || {
+  echo "error: artifacts dir not found: $OUT_DIR (run 'forge build')" >&2
+  exit 1
+}
+
+# calldata-decode subcommand has changed names across Foundry versions.
+if cast calldata-decode --help >/dev/null 2>&1; then
+  DECODE=(cast calldata-decode)
+elif cast decode-calldata --help >/dev/null 2>&1; then
+  DECODE=(cast decode-calldata)
+else
+  echo "error: no calldata-decode subcommand in this cast" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 1. selector -> signature, from every artifact's methodIdentifiers map.
+# ---------------------------------------------------------------------------
+echo "Indexing selectors from $OUT_DIR ..." >&2
+declare -A SIG
+while read -r selector signature; do
+  [[ -n "$selector" ]] && SIG["$selector"]="$signature"
+done < <(
+  find "$OUT_DIR" -type f -name '*.json' -print0 |
+    xargs -0 jq -r '(.methodIdentifiers // {}) | to_entries[] | "\(.value) \(.key)"' 2>/dev/null |
+    sort -u
+)
+echo "Indexed ${#SIG[@]} unique selectors." >&2
+
+# ---------------------------------------------------------------------------
+# 2. address -> label, from the registry (optional).
+#    impl address -> "<contractType> (impl)"
+#    proxy address -> "<proxy-name> (proxy)"
+# ---------------------------------------------------------------------------
+declare -A LABEL
+MAPFILE=""
+if [[ -n "$REGISTRY" ]]; then
+  [[ -f "$REGISTRY" ]] || {
+    echo "error: registry not found: $REGISTRY" >&2
+    exit 1
+  }
+  MAPFILE="$(mktemp)"
+  trap 'rm -f "$MAPFILE"' EXIT
+  jq -r '
+    (.implementations // {} | to_entries[]
+       | [(.key|ascii_downcase), (.value.contractType + " (impl)")] | @tsv),
+    (.proxies // {} | to_entries[]
+       | [(.value.address|ascii_downcase), (.key + " (proxy)")] | @tsv)
+  ' "$REGISTRY" >"$MAPFILE"
+  while IFS=$'\t' read -r addr label; do
+    [[ -n "$addr" ]] && LABEL["$addr"]="$label"
+  done <"$MAPFILE"
+  echo "Loaded ${#LABEL[@]} address labels from $(basename "$REGISTRY")." >&2
+fi
+echo >&2
+
+# Append "  // <name>" after any known 42-char address on a line.
+annotate() {
+  if [[ -n "$MAPFILE" ]]; then
+    awk 'BEGIN { FS = "\t" }
+         FNR == NR { m[tolower($1)] = $2; next }
+         {
+           line = $0; out = ""
+           while (match(line, /0x[0-9a-fA-F]+/)) {
+             tok = substr(line, RSTART, RLENGTH)
+             out = out substr(line, 1, RSTART - 1) tok
+             k = tolower(tok)
+             if (length(tok) == 42 && (k in m)) out = out "  // " m[k]
+             line = substr(line, RSTART + RLENGTH)
+           }
+           print out line
+         }' "$MAPFILE" -
+  else
+    cat
+  fi
+}
+
+label_for() {
+  local a="${1,,}"
+  printf '%s' "${LABEL[$a]:-}"
+}
+
+# ---------------------------------------------------------------------------
+# 3. Walk ONLY .transactions[] (header is never touched).
+# ---------------------------------------------------------------------------
+total=$(jq '.transactions | length' "$BATCH")
+idx=0
+while IFS=$'\t' read -r to value data; do
+  idx=$((idx + 1))
+  printf '== tx %d/%d ==============================================\n' "$idx" "$total"
+
+  to_lbl="$(label_for "$to")"
+  if [[ -n "$to_lbl" ]]; then
+    printf 'to:       %s  // %s\n' "$to" "$to_lbl"
+  else
+    printf 'to:       %s\n' "$to"
+  fi
+  printf 'value:    %s\n' "$value"
+
+  if [[ -z "$data" || "$data" == "0x" || "$data" == "null" ]]; then
+    printf 'data:     (none - plain transfer)\n\n'
+    continue
+  fi
+
+  selector="${data:2:8}"
+  selector="${selector,,}"
+  printf 'selector: 0x%s\n' "$selector"
+
+  signature="${SIG[$selector]:-}"
+  if [[ -z "$signature" ]]; then
+    printf 'function: <not found in %s>\n' "$OUT_DIR"
+    printf '          (network fallback: cast 4byte-calldata %s)\n\n' "$data"
+    continue
+  fi
+
+  printf 'function: %s\n' "$signature"
+  printf 'args:\n'
+  if ! "${DECODE[@]}" "$signature" "$data" 2>/dev/null | annotate | sed 's/^/  /'; then
+    printf '  <decode failed - signature/calldata mismatch>\n'
+  fi
+  printf '\n'
+done < <(jq -r '.transactions[] | [.to, (.value // "0"), (.data // "0x")] | @tsv' "$BATCH")
+
+echo "Done: $idx transaction(s)." >&2

@@ -49,8 +49,7 @@ HERE="$(dirname "$0")"
 CAPTURE_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateCaptureTest.t.sol"
 BALANCES_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateBalancesTest.t.sol"
 
-BLOCK=""       # <number> | latest ; default = latest
-COMPARE_DIR="" # if set, copy batch JSON + forge log here after the migrate run
+BLOCK="" # <number> | latest ; default = latest
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,10 +59,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --block)
       BLOCK="$2"
-      shift 2
-      ;;
-    --compare-dir)
-      COMPARE_DIR="$2"
       shift 2
       ;;
     -h | --help)
@@ -160,7 +155,6 @@ echo "  Salt:         $SALT"
 TS=$(cast block --rpc-url "$NETWORK" "$RESOLVED" -f timestamp)
 START_TIMESTAMP=$((TS + 12000))
 echo "  START_TIMESTAMP: $START_TIMESTAMP  (block ts $TS + 12000s)"
-[[ -n "$COMPARE_DIR" ]] && echo "  Compare dir:  $COMPARE_DIR"
 
 # Ensure local state is a fresh copy of mainnet before every run so the broadcast
 # step reads the same deployed addresses as the mainnet reference.
@@ -180,8 +174,8 @@ prompt "Start a fresh anvil fork:  script/anvil --block $RESOLVED"
 # once anvil is started, set the owner balance - this is dubious: it should already have balance
 # but fixing that is not part of the verification, so we donate a ton of eth to the owner
 echo "giving the multisig some ETH..."
-cast rpc anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0x21e19e0c9bab2400000
-cast balance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
+cast rpc --rpc-url local anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0x21e19e0c9bab2400000
+cast balance --rpc-url local 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2
 
 # ── Prong A: capture BEFORE ──
 capture_state before
@@ -201,18 +195,6 @@ trap 'rm -f "$MIGRATE_LOG"' EXIT
 POOL_INCLUDE="$POOL_FILTER" \
   ./script/run-script Migrate_StabilityPool_v2_Data_mainnet --network "$NETWORK" --salt "$SALT" --broadcast --local \
   2>&1 | tee "$MIGRATE_LOG"
-
-if [[ -n "$COMPARE_DIR" ]]; then
-  mkdir -p "$COMPARE_DIR"
-  cp "$MIGRATE_LOG" "$COMPARE_DIR/forge-log-raw.txt"
-  if ls "deployments/local/$NETWORK/batch/Migrate_StabilityPool_v2_Data_mainnet_"*.json >/dev/null 2>&1; then
-    BATCH_JSON=$(ls -t "deployments/local/$NETWORK/batch/Migrate_StabilityPool_v2_Data_mainnet_"*.json | head -1)
-    cp "$BATCH_JSON" "$COMPARE_DIR/batch-raw.json"
-    echo "  Compare artifacts saved to $COMPARE_DIR/ (batch: $(basename "$BATCH_JSON"))"
-  else
-    echo "WARNING: --compare-dir set but no batch JSON found in deployments/local/$NETWORK/batch/" >&2
-  fi
-fi
 
 # ── Validation 1 (v2 transparency): capture AFTER the migrate, diff vs before ──
 # Pool ends on v2 (fallback still present), so this proves the migration changed
