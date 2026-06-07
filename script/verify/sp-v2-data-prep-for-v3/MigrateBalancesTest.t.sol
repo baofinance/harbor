@@ -194,7 +194,7 @@ contract MigrateBalancesTest is
         return true;
     }
 
-    // ── Holder file reading (same format as collect-sp-holders output) ────────
+    // ── Holder file reading (same format as capture-sp-holders output) ────────
 
     function _readHolders(string memory saltKey) internal returns (address[] memory holders) {
         string memory path = string.concat(HOLDERS_DIR, saltKey, ".txt");

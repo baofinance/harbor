@@ -24,7 +24,7 @@ import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol"
 ///
 /// This mirrors script/test/MainnetForkUpgradeTest.t.sol (the v1->v2 upgrade verifier) but:
 ///   - derives pools + minters from salt keys (no hardcoded addresses), and
-///   - reads each pool's depositors from holders/<saltKey>.txt (collect-sp-holders output),
+///   - reads each pool's depositors from holders/<saltKey>.txt (capture-sp-holders output),
 /// so the captured set is exactly the migrated set across all 22 pools.
 ///
 /// Produces per-pool files in:

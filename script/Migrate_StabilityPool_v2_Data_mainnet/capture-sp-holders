@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# collect-sp-holders — discover every account that has ever held a position in
+# capture-sp-holders — discover every account that has ever held a position in
 # each Harbor stability pool, via the Etherscan `logs/getLogs` API.
 #
 # Why Etherscan (not cast logs): some RPC providers cap eth_getLogs at ~10 blocks
@@ -13,17 +13,25 @@
 # `owner` values is precisely the set of accounts that may carry legacy V1 storage.
 # (Over-approximation is harmless: on-chain remediate() skips accounts with no V1 data.)
 #
-# Output: one file per pool under holders/, one checksummed address per line, with a
-# comment header. Read at runtime by Migrate_StabilityPool_v2_Data_mainnet.s.sol and
-# the verification tests.
+# Output: one raw file per pool under --out-dir (default tmp/sp-holders/), one
+# checksummed address per line, with a comment header. The verification tests read
+# these raw files (all historical holders).
+#
+# Then, unless --no-filter, runs FilterSpHolders.s.sol to produce the FILTERED holder
+# files in script/Migrate_StabilityPool_v2_Data_mainnet/ (git-tracked): holders that
+# need no migration work are commented out. Migrate_StabilityPool_v2_Data_mainnet.s.sol
+# reads the filtered files. This makes "collect + filter" a single step used by both
+# the production deployment and the verification script.
 #
 # Requires ETHERSCAN_KEY in .env or the environment (sourced, never printed).
+# Filtering also requires a "mainnet" foundry RPC alias (on-chain V1/V2 storage check).
 #
 # Usage:
-#   collect-sp-holders                       # full scan -> holders/
-#   collect-sp-holders --dry-run             # print pool->address table, no API calls
-#   collect-sp-holders --to-block latest     # override fixed upper bound
-#   collect-sp-holders --out-dir tmp/holders-rerun   # for the re-run/verify facility
+#   capture-sp-holders                       # scan + filter at latest (block recorded in the files)
+#   capture-sp-holders --dry-run             # print pool->address table, no API calls
+#   capture-sp-holders --to-block <number>   # pin a specific block (default: latest, resolved)
+#   capture-sp-holders --no-filter           # raw discovery only (skip FilterSpHolders)
+#   capture-sp-holders --out-dir tmp/holders-rerun   # for the re-run/verify facility
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -36,12 +44,14 @@ cd "$(git rev-parse --show-toplevel)"
 
 CHAIN_ID=1
 FROM_BLOCK=24049000   # first harbor mainnet deployment (same as collect-holders)
-TO_BLOCK="25186514"   # fixed upper bound (reproducible; match the verification fork block)
+TO_BLOCK="latest"     # default: resolved to a concrete block (recorded in the output files)
 OFFSET=1000           # Etherscan max records per page
 STATE_FILE="deployments/mainnet/harbor_v1.state.json"
 SALT_PREFIX="harbor_v1"
 OUT_DIR="tmp/sp-holders"
 DRY_RUN=false
+FILTER=true     # run FilterSpHolders after discovery; --no-filter to skip
+RPC="mainnet"   # foundry alias for the FilterSpHolders on-chain storage check
 
 # CREATE3 (solady) — same constants the repo's script/cast wrapper uses (local, no RPC).
 FACTORY="0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
@@ -55,7 +65,8 @@ while [[ $# -gt 0 ]]; do
     --to-block)   TO_BLOCK="$2"; shift 2 ;;
     --out-dir)    OUT_DIR="$2"; shift 2 ;;
     --dry-run)    DRY_RUN=true; shift ;;
-    -h|--help)    sed -n '2,30p' "$0"; exit 0 ;;
+    --no-filter)  FILTER=false; shift ;;
+    -h|--help)    sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -168,6 +179,21 @@ if [[ "$DRY_RUN" == true ]]; then
 fi
 
 : "${ETHERSCAN_KEY:?Set ETHERSCAN_KEY in .env or environment}"
+
+# Resolve "latest" to a concrete block NOW, so the scan, the file headers, and the
+# filter all use the SAME block. The concrete number is written into the output files
+# (never the word "latest"), which makes the capture reproducible and self-documenting
+# (each file records its "# to-block: <N>"). (set -e does not catch failures in
+# command-substitution assignments, so check the result explicitly.)
+if [[ "$TO_BLOCK" == "latest" ]]; then
+  TO_BLOCK=$(cast block-number --rpc-url "$RPC") || { echo "ERROR: cast block-number failed (rpc: $RPC)" >&2; exit 1; }
+  echo "# resolved latest -> block ${TO_BLOCK}" >&2
+fi
+if [[ ! "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: --to-block must be a number or 'latest' (got: ${TO_BLOCK})" >&2
+  exit 1
+fi
+
 echo "# scanning UserDepositChange logs, blocks ${FROM_BLOCK} -> ${TO_BLOCK} (Etherscan)" >&2
 
 mkdir -p "$OUT_DIR"
@@ -182,6 +208,7 @@ for salt in "${SALTS[@]}"; do
   {
     echo "# Stability pool holders: ${salt}"
     echo "# proxy:  ${proxy}"
+    echo "# to-block: ${TO_BLOCK}"
     echo "# source: UserDepositChange logs (Etherscan), blocks ${FROM_BLOCK}-${TO_BLOCK}"
     echo "# generated: $(date -Iseconds)"
     for addr in "${owners[@]}"; do
@@ -193,4 +220,26 @@ for salt in "${SALTS[@]}"; do
   echo "    ${salt}: ${#owners[@]} holders -> ${out_file}" >&2
 done
 
-echo "# done -> ${OUT_DIR}/" >&2
+echo "# raw discovery done -> ${OUT_DIR}/" >&2
+
+# Filter: comment out holders that need no migration work (on-chain V1/V2 check at
+# TO_BLOCK). Reads $OUT_DIR, writes the git-tracked filtered files consumed by
+# Migrate_StabilityPool_v2_Data_mainnet.s.sol.
+if [[ "$FILTER" == true ]]; then
+  echo "# filtering holders (on-chain V1/V2 check at block ${TO_BLOCK})..." >&2
+  fork_args=()
+  if [[ "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
+    fork_args=(--fork-block-number "$TO_BLOCK")
+  fi
+  SP_HOLDERS_RAW_DIR="$OUT_DIR" \
+    forge script script/Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol \
+    --tc FilterSpHolders \
+    --sig "run()" \
+    --rpc-url "$RPC" \
+    "${fork_args[@]}" \
+    --ffi \
+    -vv >&2
+  echo "# filtered -> script/Migrate_StabilityPool_v2_Data_mainnet/" >&2
+else
+  echo "# --no-filter: skipped FilterSpHolders" >&2
+fi

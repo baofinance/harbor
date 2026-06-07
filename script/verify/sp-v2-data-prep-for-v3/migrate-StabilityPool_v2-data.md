@@ -30,7 +30,8 @@ Key facts (verified):
 
 | File | Role |
 |------|------|
-| `collect-sp-holders` | Discover holders per pool via Etherscan `UserDepositChange` logs → `tmp/sp-holders/<saltKey>.txt` |
+| `../../Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders` | Discover holders per pool via Etherscan `UserDepositChange` logs → `tmp/sp-holders/<saltKey>.txt`, then run `FilterSpHolders` to write the git-tracked filtered files (unless `--no-filter`) |
+| `../../Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol` | Comment out holders needing no migration (on-chain V1/V2 check) → `script/Migrate_StabilityPool_v2_Data_mainnet/<saltKey>.txt` |
 | `../../Migrate_StabilityPool_v2_Data_mainnet.s.sol` | The migration: per pool, queue upgrade→ForceMigrate, `remediate(tokens, holders)`, restore→v2. Reads the holder files. |
 | `MigrateCaptureTest.t.sol` | **Prong A** (black-box): capture all pool/holder state + interactions to JSON for a before/after diff |
 | `MigrateBalancesTest.t.sol` | **Prong B** (white-box): upgrade→ForceMigrate, assert `balances()` copies V1→V2 correctly |
@@ -53,10 +54,8 @@ real migrate script, captures after, **then upgrades to v3 and captures again** 
 
 ```bash
 script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data            # full run at latest
-script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data --skip-capture   # reuse saved before/holders/block
-script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data --block <n|capture>
-# --block: latest (default, → concrete number, recorded) | capture (last recorded block) | <number>
-# --skip-capture: reuse tmp/sp-holders + tmp/before + recorded block; skip discovery & before-capture
+script/verify/sp-v2-data-prep-for-v3/run-migrate-StabilityPool_v2-data --block <number>   # full run at a specific block
+# --block: latest (default, → concrete number) | <number>
 # --include <pool-filter>
 ```
 
@@ -64,7 +63,7 @@ What it does, in one anvil session (`forge test` forks in-memory; `run-script --
 --local` persists to anvil — so the order is correct without cycling anvil). The block is
 resolved once and used identically for discovery, the fork, and START_TIMESTAMP:
 
-1. Discover holders → `tmp/sp-holders/` (Etherscan, `--to-block <resolved block>`); record the block.
+1. Discover + filter holders → `tmp/sp-holders/` (raw) and `script/Migrate_StabilityPool_v2_Data_mainnet/` (filtered), at the resolved block (recorded in each file's `# to-block:` header).
 2. **Prong A**: `VERSION=before` capture → `tmp/before/{pre,post}/*.json`.
 3. **Prong B**: `MigrateBalancesTest` asserts the V1→V2 copy on the un-migrated node.
 4. Run the **actual** `Migrate_StabilityPool_v2_Data_mainnet` (`--broadcast --local`) — persists
@@ -88,7 +87,7 @@ The v3 upgrade here is verification-only — the production migration ends on v2
 
 ```bash
 # 1. Discover holders (fixed --to-block for reproducibility)
-script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders --to-block <block>
+script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders --to-block <block>
 
 # 2. Build the Safe batch JSON (no --local: writes deployments/mainnet/batch/*.json)
 script/run-script Migrate_StabilityPool_v2_Data_mainnet --salt harbor_v1 --network mainnet --broadcast
@@ -104,7 +103,8 @@ genuinely-new users that need migration — it catches a *discovery miss*. To ve
 
 ```bash
 # Re-discover up to a later block, into a separate dir, and diff.
-script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders --to-block latest --out-dir tmp/sp-holders-rerun
+# --no-filter: raw discovery only, so the git-tracked filtered files are not touched.
+script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders --to-block latest --out-dir tmp/sp-holders-rerun --no-filter
 diff -ru tmp/sp-holders tmp/sp-holders-rerun
 ```
 
@@ -117,5 +117,7 @@ files: it flags any holder with `oldIntegral != 0 && newIntegral == 0`.
 
 - `tmp/sp-holders/` is ephemeral (gitignored). The runner regenerates it; the mainnet flow
   regenerates it in step 1 above.
-- Fork block default (`25186514`) is kept in sync between `collect-sp-holders` (`TO_BLOCK`) and
-  the runner (`BLOCK`) so the verification forks exactly the state the holders were found in.
+- Both `capture-sp-holders` and the runner default the fork block to **latest**, resolved to a
+  concrete number. `capture-sp-holders` records it in each holder file (`# to-block: <N>`), so
+  every capture is self-documenting and the verification forks exactly the state the holders were
+  found in. Each run re-discovers holders fresh at the resolved block.

@@ -24,13 +24,11 @@
 # normalizes the timestamp drift the migrate txs introduce.
 #
 # The fork block is resolved to a CONCRETE number once, then used identically for holder
-# discovery (collect-sp-holders --to-block), the anvil fork, and START_TIMESTAMP — so the
-# discovered set and the forked state always match. A full run records that block; later
-# runs can reuse it (--block capture).
+# discovery (capture-sp-holders --to-block), the anvil fork, and START_TIMESTAMP — so the
+# discovered set and the forked state always match.
 #
 # Usage:
-#   run-migrate-StabilityPool_v2-data                      # full run at latest (records the block)
-#   run-migrate-StabilityPool_v2-data --block capture      # reuse saved holders at the recorded block (errors if none recorded)
+#   run-migrate-StabilityPool_v2-data                      # full run at latest
 #   run-migrate-StabilityPool_v2-data --block <number>     # full run at a specific block
 #   options: --include <pool-filter>  --compare-dir <dir>
 #
@@ -50,10 +48,8 @@ FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
 HERE="$(dirname "$0")"
 CAPTURE_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateCaptureTest.t.sol"
 BALANCES_TEST="script/verify/sp-v2-data-prep-for-v3/MigrateBalancesTest.t.sol"
-HOLDERS_DIR="tmp/sp-holders"
-BLOCK_FILE="tmp/sp-capture-block" # records the concrete block a capture used
 
-BLOCK=""       # n | latest | capture ; default = latest
+BLOCK=""       # <number> | latest ; default = latest
 COMPARE_DIR="" # if set, copy batch JSON + forge log here after the migrate run
 
 while [[ $# -gt 0 ]]; do
@@ -81,11 +77,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Default block. "--block capture" is also the signal to skip discovery
-# and reuse the saved artifacts (errors below if BLOCK_FILE is missing).
+# Default block.
 [[ -z "$BLOCK" ]] && BLOCK="latest"
-SKIP_CAPTURE_HOLDERS=false
-[[ "$BLOCK" == "capture" ]] && SKIP_CAPTURE_HOLDERS=true
 
 echotty() {
   echo "$*"
@@ -139,26 +132,28 @@ compare_state() {
 # ── Resolve the fork block to a concrete number (used everywhere) ─────────────
 case "$BLOCK" in
   latest)
-    RESOLVED=$(cast block-number --rpc-url "$NETWORK")
-    ;;
-  capture)
-    if [[ ! -f "$BLOCK_FILE" ]]; then
-      echo "ERROR: no recorded capture block at $BLOCK_FILE — run a full capture first." >&2
+    RESOLVED=$(cast block-number --rpc-url "$NETWORK") || {
+      echo "ERROR: cast block-number failed (rpc: $NETWORK)" >&2
       exit 1
-    fi
-    RESOLVED=$(cat "$BLOCK_FILE")
+    }
     ;;
   *)
     RESOLVED="$BLOCK"
     ;;
 esac
 
+# Guard: a non-numeric block (cast failure, corrupt capture file, or a typo'd
+# --block) must fail clearly rather than silently forking at an empty/garbage block.
+if [[ ! "$RESOLVED" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: resolved fork block is not numeric: '${RESOLVED}' (requested: $BLOCK)" >&2
+  exit 1
+fi
+
 echo "======================================================================"
 echo "  StabilityPool_v2 accumulator V1->V2 force-migration verification"
 echo "======================================================================"
 echo "  Fork block:   $RESOLVED  (requested: $BLOCK)"
 echo "  Salt:         $SALT"
-echo "  Skip capture: $SKIP_CAPTURE_HOLDERS"
 [[ -n "$POOL_FILTER" ]] && echo "  Pool filter:  $POOL_FILTER"
 
 # START_TIMESTAMP from the resolved block (shared by before/after captures).
@@ -173,41 +168,12 @@ mkdir -p "deployments/local/$NETWORK"
 echo "cp" "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
 cp "deployments/$NETWORK/$SALT.state.json" "deployments/local/$NETWORK/$SALT.state.json"
 
-if ! $SKIP_CAPTURE_HOLDERS; then
-  # Record the block this capture is built against, so --block capture reuse it.
-  mkdir -p "$(dirname "$BLOCK_FILE")"
-  echo "$RESOLVED" >"$BLOCK_FILE"
-
-  # Step 0: (re)generate holder files at the SAME block (Etherscan; needs ETHERSCAN_KEY).
-  echo ""
-  echo "Discovering holders -> $HOLDERS_DIR (Etherscan, to-block $RESOLVED)..."
-  script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders --to-block "$RESOLVED"
-else
-  # Reuse saved artifacts; fail clearly if they are missing.
-  if ! ls "$HOLDERS_DIR"/*.txt >/dev/null 2>&1; then
-    echo "ERROR: --skip-capture but no holder files in $HOLDERS_DIR — run a full capture first." >&2
-    exit 1
-  fi
-  if [[ ! -d tmp/before ]]; then
-    echo "ERROR: --skip-capture but tmp/before is missing — run a full capture first." >&2
-    exit 1
-  fi
-  echo ""
-  echo "Skip-capture: reusing $HOLDERS_DIR and block $RESOLVED."
-fi
-
-# Filter holder files: reads V1/V2 storage slots on-chain at the fork block,
-# comments out addresses that need no migration work, and writes the filtered
-# files to script/verify/sp-v2-data-prep-for-v3/holders/ (git-tracked).
+# (Re)generate raw holder files AND the filtered (git-tracked) files at the fork
+# block. capture-sp-holders does both: Etherscan discovery (needs ETHERSCAN_KEY)
+# then FilterSpHolders (on-chain V1/V2 check at --to-block).
 echo ""
-echo "Filtering holder files at block $RESOLVED..."
-forge script script/Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol \
-  --tc FilterSpHolders \
-  --sig "run()" \
-  --rpc-url "$NETWORK" \
-  --fork-block-number "$RESOLVED" \
-  --ffi \
-  $FORGE_VERBOSITY
+echo "Discovering + filtering holders (Etherscan + on-chain, to-block $RESOLVED)..."
+script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders --to-block "$RESOLVED"
 
 prompt "Start a fresh anvil fork:  script/anvil --block $RESOLVED"
 

@@ -32,7 +32,7 @@ import {Script} from "forge-std/Script.sol";
 ///   3. Restore proxy        -> the StabilityPool_v2 implementation it had before
 ///
 /// Holders are read at runtime from per-pool files produced by
-/// `script/Migrate_StabilityPool_v2_Data_mainnet/collect-sp-holders` (UserDepositChange
+/// `script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders` (UserDepositChange
 /// logs) and filtered by `FilterSpHolders.s.sol`. Pools with no holder file, or an empty one, are skipped.
 ///
 /// Run via:

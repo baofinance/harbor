@@ -7,8 +7,9 @@ import {LibString} from "@solady/utils/LibString.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {Script} from "forge-std/Script.sol";
 
-/// @notice Reads holder files from tmp/sp-holders/, checks each address against
-/// on-chain V1/V2 storage at the fork block, and writes filtered copies to
+/// @notice Reads raw holder files (default tmp/sp-holders/, override via the
+/// SP_HOLDERS_RAW_DIR env var), checks each address against on-chain V1/V2 storage
+/// at the fork block, and writes filtered copies to
 /// script/Migrate_StabilityPool_v2_Data_mainnet/ alongside this script.
 ///
 /// Addresses that need no migration work (every token either has no V1 data or
@@ -18,12 +19,13 @@ import {Script} from "forge-std/Script.sol";
 /// The filtered files are git-tracked: they form the auditable record of which
 /// holders were included in the migration batch and which were skipped.
 /// Migrate_StabilityPool_v2_Data_mainnet reads from FILTERED_DIR.
-/// MigrateCaptureTest and MigrateBalancesTest still read from tmp/sp-holders/
+/// MigrateCaptureTest and MigrateBalancesTest still read the raw holder files
 /// so the verification gate covers ALL historical holders.
 ///
 /// The pool address is read from the "# proxy: 0x..." comment in each input file.
 ///
-/// Run via:
+/// Normally invoked by capture-sp-holders (which discovers the raw holders first).
+/// Standalone:
 ///   forge script script/Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol --tc FilterSpHolders \
 ///     --sig "run()" --rpc-url mainnet --fork-block-number <N> --ffi -vv
 contract FilterSpHolders is Script {
@@ -39,13 +41,14 @@ contract FilterSpHolders is Script {
     bytes32 private constant _V1_BASE = bytes32(uint256(_ACCUMULATOR_STORAGE) + 2);
     bytes32 private constant _V2_BASE = bytes32(uint256(_ACCUMULATOR_STORAGE) + 3);
 
-    string private constant HOLDERS_DIR = "tmp/sp-holders/";
     string private constant FILTERED_DIR = "script/Migrate_StabilityPool_v2_Data_mainnet/";
     uint256 private constant NOT_FOUND = type(uint256).max;
 
     function run() public {
+        // Raw holder dir: capture-sp-holders sets SP_HOLDERS_RAW_DIR to its --out-dir.
+        string memory rawDir = vm.envOr("SP_HOLDERS_RAW_DIR", string("tmp/sp-holders"));
         vm.createDir(FILTERED_DIR, true);
-        VmSafe.DirEntry[] memory entries = vm.readDir(HOLDERS_DIR);
+        VmSafe.DirEntry[] memory entries = vm.readDir(rawDir);
         for (uint256 i = 0; i < entries.length; i++) {
             if (entries[i].isDir) {
                 continue;
