@@ -3,6 +3,7 @@
 pragma solidity 0.8.30;
 
 import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
+import {TokenUUPS} from "@bao/TokenUUPS.sol";
 
 /// @title ForceMigrateAccumulator_v1
 /// @notice One-shot upgrade that copies user reward snapshot data from
@@ -108,6 +109,7 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
     /// @param holders The holder addresses to migrate.
     function remediate(address[] calldata tokens, address[] calldata holders, address upgradeTo) external onlyOwner {
         AccumulatorStorage storage $ = _getAccumulatorStorage();
+        TokenUUPS.ensureUUPSUpgradeable(upgradeTo);
 
         for (uint256 i = 0; i < holders.length; i++) {
             address account = holders[i];
@@ -131,6 +133,7 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
                     v1.rewards.claimed == 0
                 ) {
                     emit AccountNoDataToMigrate(account, token);
+                    continue;
                 }
 
                 // only get here if there is non-zero data in v1 and all zero data in v2
@@ -146,9 +149,7 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
 
         emit MigrationComplete(holders.length, tokens.length);
 
-        // finally upgrade to the new address, if non-zero which is just used for tests
-        if (upgradeTo != address(0)) {
-            upgradeToAndCall(upgradeTo, "");
-        }
+        // finally upgrade to the new address
+        upgradeToAndCall(upgradeTo, "");
     }
 }

@@ -41,6 +41,9 @@ contract MigrateBalancesTest is
 {
     string internal constant HOLDERS_DIR = "tmp/sp-holders/";
 
+    /// @dev ERC-1967 implementation slot — used to read/assert the proxy's current impl.
+    bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
     address internal migImpl;
 
     function setUp() public {
@@ -111,7 +114,11 @@ contract MigrateBalancesTest is
         );
         address owner = IBaoOwnable(pool).owner();
 
-        // 1. Upgrade to the migration contract.
+        // The original (StabilityPool_v2) implementation — the restore target the production
+        // batch bakes into remediate's calldata.
+        address currentImpl = address(uint160(uint256(vm.load(pool, IMPL_SLOT))));
+
+        // 1. Upgrade to the migration contract to READ the pre-migration (V1, V2) integrals.
         vm.prank(owner);
         UUPSUpgradeable(pool).upgradeToAndCall(migImpl, "");
         ForceMigrateAccumulator_v1 mig = ForceMigrateAccumulator_v1(pool);
@@ -145,11 +152,33 @@ contract MigrateBalancesTest is
         }
         console.log("done scanning pre state");
 
-        // 3. Remediate.
+        // 3. Restore the original impl so the production call runs from the real starting state.
         vm.prank(owner);
-        mig.remediate(tokens, holders, address(0));
+        UUPSUpgradeable(pool).upgradeToAndCall(currentImpl, "");
 
-        console.log("done remediating.");
+        // 4. Run the EXACT production batch transaction: one atomic
+        //    upgradeToAndCall(migImpl, remediate(tokens, holders, currentImpl)) that
+        //    upgrades, remediates, and self-restores to the original implementation.
+        vm.prank(owner);
+        UUPSUpgradeable(pool).upgradeToAndCall(
+            migImpl,
+            abi.encodeCall(ForceMigrateAccumulator_v1.remediate, (tokens, holders, currentImpl))
+        );
+        console.log("done remediating (production calldata).");
+
+        // 5. The proxy is restored to its original implementation and is functional again
+        //    (a v2-only call the pauser would have reverted now succeeds).
+        assertEq(
+            address(uint160(uint256(vm.load(pool, IMPL_SLOT)))),
+            currentImpl,
+            string.concat("impl not restored: ", saltKey)
+        );
+        IMultipleRewardDistributor(pool).activeRewardTokens();
+
+        // 6. Re-upgrade to the migration contract to READ the post-migration state
+        //    (the production call restored away from it).
+        vm.prank(owner);
+        UUPSUpgradeable(pool).upgradeToAndCall(migImpl, "");
 
         console.log("scanning post state...");
         // 4. Assert the copy is correct for every holder/token.

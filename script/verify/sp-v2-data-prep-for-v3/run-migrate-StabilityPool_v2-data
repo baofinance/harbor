@@ -30,12 +30,7 @@
 # Usage:
 #   run-migrate-StabilityPool_v2-data                      # full run at latest
 #   run-migrate-StabilityPool_v2-data --block <number>     # full run at a specific block
-#   options: --include <pool-filter>  --compare-dir <dir>
 #
-# --compare-dir <dir>
-#   After the migrate script runs, copy the raw batch JSON and forge log into <dir>
-#   as batch-raw.json and forge-log-raw.txt.  Used for side-by-side comparison
-#   between branches.  Use compare-migration-artifacts to diff two such directories.
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -62,7 +57,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h | --help)
-      sed -n '/^# Usage:/,/compare-migration-artifacts/p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '/^# Usage:/,/^#$/p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)

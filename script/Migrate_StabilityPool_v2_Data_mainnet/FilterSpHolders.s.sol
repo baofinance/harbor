@@ -33,8 +33,7 @@ contract FilterSpHolders is Script {
 
     // ── Accumulator storage layout (mirrors ForceMigrateAccumulator_v1) ────────
     // chisel: keccak256(abi.encode(uint256(keccak256("bao.storage.MultipleRewardCompoundingAccumulator")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant _ACCUMULATOR_STORAGE =
-        0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
+    bytes32 private constant _ACCUMULATOR_STORAGE = 0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
 
     // userRewardSnapshot  (V1) at offset +2: 2 slots (rewards, checkpoint)
     // userRewardSnapshotV2 (V2) at offset +3: 3 slots (rewards, timestamp, integral)
@@ -129,9 +128,9 @@ contract FilterSpHolders is Script {
             bytes32 v2Entry = keccak256(abi.encode(tokens[j], keccak256(abi.encode(holder, _V2_BASE))));
 
             bool hasV1 = vm.load(pool, v1Entry) != 0 || vm.load(pool, bytes32(uint256(v1Entry) + 1)) != 0;
-            bool hasV2 = vm.load(pool, v2Entry) != 0
-                || vm.load(pool, bytes32(uint256(v2Entry) + 1)) != 0
-                || vm.load(pool, bytes32(uint256(v2Entry) + 2)) != 0;
+            bool hasV2 = vm.load(pool, v2Entry) != 0 ||
+                vm.load(pool, bytes32(uint256(v2Entry) + 1)) != 0 ||
+                vm.load(pool, bytes32(uint256(v2Entry) + 2)) != 0;
 
             if (hasV1 && !hasV2) {
                 return true;
