@@ -13,6 +13,12 @@
       "contractType": "BaoPauser_v1",
       "deploymentTime": "2026-03-21T13:44:18Z"
     },
+    "0x0908f9C9f5B0263fb1BdeE20C577aBd4b767a2d4": {
+      "proxy": "*",
+      "contractSource": "script/Migrate_StabilityPool_v2_Data_mainnet/ForceMigrateAccumulator_v1.sol",
+      "contractType": "ForceMigrateAccumulator_v1",
+      "deploymentTime": "2026-06-07 16:17:00Z"
+    },
     "0x1aE2baBA0c81CA98ae1F6B1dB87A367b8f13E112": {
       "proxy": "ETH::fxUSD::stabilityPoolLeveraged",
       "contractSource": "@harbor/minter/PostRebalanceRemediationForStabilityPool_v2.sol",
