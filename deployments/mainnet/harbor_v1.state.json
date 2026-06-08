@@ -17,7 +17,7 @@
       "proxy": "*",
       "contractSource": "script/Migrate_StabilityPool_v2_Data_mainnet/ForceMigrateAccumulator_v1.sol",
       "contractType": "ForceMigrateAccumulator_v1",
-      "deploymentTime": "Jun-08-2026T12:23:59Z"
+      "deploymentTime": "2026-06-08T12:23:59Z"
     },
     "0x1aE2baBA0c81CA98ae1F6B1dB87A367b8f13E112": {
       "proxy": "ETH::fxUSD::stabilityPoolLeveraged",
