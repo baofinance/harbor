@@ -1,6 +1,6 @@
 # Stability pool holders: SILVER::stETH::stabilityPoolLeveraged
 # proxy:  0x4c0f988b3c0c58f5ea323238e9d62b79582738e6
-# to-block: 25266428
-# source: UserDepositChange logs (Etherscan), blocks 24049000-25266428
-# generated: 2026-06-07T16:31:41+01:00
+# to-block: 25272609
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25272609
+# generated: 2026-06-08T13:11:44+01:00
 # no-work: 0xb9ab9578a34a05c86124c399735fdE44dEc80E7F

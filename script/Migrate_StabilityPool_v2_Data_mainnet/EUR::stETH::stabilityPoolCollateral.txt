@@ -1,8 +1,8 @@
 # Stability pool holders: EUR::stETH::stabilityPoolCollateral
 # proxy:  0x000564b33ffde65e6c3b718166856654e039d69b
-# to-block: 25266428
-# source: UserDepositChange logs (Etherscan), blocks 24049000-25266428
-# generated: 2026-06-07T16:31:32+01:00
+# to-block: 25272609
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25272609
+# generated: 2026-06-08T13:11:35+01:00
 # no-work: 0x619e71ec0d528520961571Dcea6f13f8B63410E3
 # no-work: 0xbA26035B9CD76cdA5b767A966b8A3392E476Fc0F
 # no-work: 0xD1AE4d9205F07333916f628850Fc79f1366dC2F8

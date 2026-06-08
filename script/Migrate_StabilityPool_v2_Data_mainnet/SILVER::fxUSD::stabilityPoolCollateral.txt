@@ -1,7 +1,7 @@
 # Stability pool holders: SILVER::fxUSD::stabilityPoolCollateral
 # proxy:  0x7619664fe05c9cbda5b622455856d7ca11cb8800
-# to-block: 25266428
-# source: UserDepositChange logs (Etherscan), blocks 24049000-25266428
-# generated: 2026-06-07T16:31:39+01:00
+# to-block: 25272609
+# source: UserDepositChange logs (Etherscan), blocks 24049000-25272609
+# generated: 2026-06-08T13:11:42+01:00
 # no-work: 0x1a9152528AEFbcD9E5df4E0770f4F510e7056913
 # no-work: 0xF1e73F7d7656b9b00d970b58aaB3Bb19b5518060
