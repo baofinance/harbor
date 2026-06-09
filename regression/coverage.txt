@@ -58,7 +58,7 @@
 | src/price/StakedETHWrappedPriceOracle_v1.sol                                | X   0% (0/29)      | X   0% (0/27)      | X   0% (0/5)     | X   0% (0/4)      |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol             | X   0% (0/136)     | X   0% (0/171)     | X   0% (0/16)    | X   0% (0/21)     |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol          | X  73% (108/147)   | X  76% (139/184)   | X  61% (11/18)   | X  68% (15/22)    |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol          | X  98% (89/91)     | X  98% (113/115)   | X  83% (10/12)   | ✓ 100% (12/12)    |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol          | X  89% (89/100)    | X  89% (113/127)   | X  83% (10/12)   | X  86% (12/14)    |
 | src/reward/distributor/LinearMultipleRewardDistributor.sol                  | X   0% (0/77)      | X   0% (0/86)      | X   0% (0/12)    | X   0% (0/14)     |
 | src/reward/distributor/LinearMultipleRewardDistributor_v2.sol               | X  58% (45/77)     | X  63% (54/86)     | X  25% (3/12)    | X  50% (7/14)     |
 | src/reward/distributor/LinearMultipleRewardDistributor_v3.sol               | ✓ 100% (77/77)     | ✓ 100% (86/86)     | ✓ 100% (12/12)   | ✓ 100% (14/14)    |
@@ -66,4 +66,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                            | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                         | X  79% (15/19)     | X  73% (19/26)     | X  50% (2/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                                      | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                                       | X  55% (4427/8040) | X  54% (4683/8670) | X  43% (389/913) | X  56% (637/1145) |
+| Total                                                                       | X  55% (4427/8049) | X  54% (4683/8682) | X  43% (389/913) | X  56% (637/1147) |

@@ -664,6 +664,134 @@ contract MultipleRewardCompoundingAccumulatorTest is Test {
         assertEq(claimedAfter, 0, "claimed unchanged");
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Historical token behaviour — claimable/claimed/claimTokens work for
+    // deregistered tokens. Verifies the §N plan assumption that the SP
+    // accumulator treats active and historical tokens identically for claims.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev Distribute 1000 ether over one period, checkpoint deployer (100% shares),
+    /// then deregister so the token is in historicalRewardTokens with a known
+    /// exact pending. Returns the exact pendingAtCheckpoint read from storage
+    /// (the authoritative source — no math replication needed).
+    function _earnCheckpointDeregister() internal returns (address acc, address token, uint256 pendingAtCheckpoint) {
+        (IMockMultipleRewardCompoundingAccumulator tmpAcc, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
+        acc = address(tmpAcc);
+        token = tokens[0];
+
+        IMockMultipleRewardCompoundingAccumulator(acc).setTotalPoolShare(1000 ether, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(1000 ether, 1 ether); // deployer owns 100%
+
+        IMockMultipleRewardCompoundingAccumulator(acc).depositReward(token, 1000 ether);
+        vm.warp(block.timestamp + 1 weeks);
+
+        // Checkpoint deployer: locks accrued rewards into snapshot.pending.
+        IMultipleRewardAccumulator(acc).checkpoint(deployer);
+        (, , uint128 p, ) = IMockMultipleRewardCompoundingAccumulator(acc).userRewardSnapshot(deployer, token);
+        pendingAtCheckpoint = uint256(p);
+        require(pendingAtCheckpoint > 0, "_earnCheckpointDeregister: no pending");
+
+        // Move token to historical set.
+        vm.prank(manager);
+        IMockMultipleRewardCompoundingAccumulator(acc).unregisterRewardToken(token);
+        assertFalse(
+            IMockMultipleRewardCompoundingAccumulator(acc).isActiveRewardToken(token),
+            "token should be historical"
+        );
+    }
+
+    /// @notice claimable() returns the exact snapshot.pending after deregistration.
+    /// After checkpoint + deregistration, the integral is frozen and temporal rewards
+    /// are zero, so claimable = snapshot.pending exactly.
+    function test_historicalToken_claimable_correctAfterDeregistration() public {
+        (address acc, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+
+        uint256 claimable = IMultipleRewardAccumulator(acc).claimable(deployer, token);
+        assertEq(claimable, pendingAtCheckpoint, "claimable == snapshot.pending (exact)");
+    }
+
+    /// @notice claimTokens() transfers exactly snapshot.pending for a historical token.
+    function test_historicalToken_claimTokens_transfersCorrectAmount() public {
+        (address acc, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+
+        address[] memory toks = new address[](1);
+        toks[0] = token;
+        uint256 balBefore = IERC20(token).balanceOf(deployer);
+
+        IMultipleRewardAccumulator(acc).claimTokens(toks, type(uint256).max);
+
+        assertEq(IERC20(token).balanceOf(deployer) - balBefore, pendingAtCheckpoint, "received == snapshot.pending");
+    }
+
+    /// @notice After a full claim, claimed == original pending and claimable == 0.
+    function test_historicalToken_claimed_tracksPaymentToZero() public {
+        (address acc, address token, uint256 pendingAtCheckpoint) = _earnCheckpointDeregister();
+
+        address[] memory toks = new address[](1);
+        toks[0] = token;
+        IMultipleRewardAccumulator(acc).claimTokens(toks, type(uint256).max);
+
+        (, , uint128 pendingAfter, uint128 claimedAfter) = IMockMultipleRewardCompoundingAccumulator(acc)
+            .userRewardSnapshot(deployer, token);
+        assertEq(uint256(claimedAfter), pendingAtCheckpoint, "claimed == original pending");
+        assertEq(uint256(pendingAfter), 0, "pending zeroed after full claim");
+        assertEq(IMultipleRewardAccumulator(acc).claimable(deployer, token), 0, "claimable == 0 after full claim");
+    }
+
+    /// @notice An account with zero pool shares and no prior checkpoint earns nothing.
+    /// Uses manager (never checkpointed) with global shares set to 0: pending=0,
+    /// accrual = 0*integral = 0, temporal = 0 => claimable = 0.
+    function test_historicalToken_zeroShares_hasZeroClaimable() public {
+        (address acc, address token, ) = _earnCheckpointDeregister();
+
+        // Set global shares to 0. manager was never checkpointed so snapshot.pending = 0.
+        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(0, 1 ether);
+
+        assertEq(IMultipleRewardAccumulator(acc).claimable(manager, token), 0, "zero shares: zero claimable");
+    }
+
+    /// @notice Gap scenario: if shares decrease AFTER rewards accumulate into the integral
+    /// but BEFORE the user snapshot is checkpointed, the claim uses the post-change share
+    /// count. This demonstrates why AC's _beforeTokenTransfer must checkpoint historical
+    /// tokens before allowing share transfers.
+    function test_historicalToken_gapScenario_shareCountUsedAtClaimTime() public {
+        (IMockMultipleRewardCompoundingAccumulator tmpAcc, address[] memory tokens) = _setupAccumulator(1, 1 weeks);
+        address acc = address(tmpAcc);
+        address token = tokens[0];
+
+        IMockMultipleRewardCompoundingAccumulator(acc).setTotalPoolShare(1000 ether, 1 ether);
+        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(1000 ether, 1 ether); // deployer has 100%
+
+        IMockMultipleRewardCompoundingAccumulator(acc).depositReward(token, 1000 ether);
+        vm.warp(block.timestamp + 1 weeks);
+
+        // Global checkpoint only — deployer's user snapshot is NOT updated.
+        IMultipleRewardAccumulator(acc).checkpoint(address(0));
+
+        // Deregister: no more rewards accumulate.
+        vm.prank(manager);
+        IMockMultipleRewardCompoundingAccumulator(acc).unregisterRewardToken(token);
+
+        // Correct entitlement (1000e18 shares = 100%): read from view before changing shares.
+        uint256 correctEntitlement = IMultipleRewardAccumulator(acc).claimable(deployer, token);
+        assertGt(correctEntitlement, 0, "should have earned rewards");
+
+        // Shares halved WITHOUT prior checkpoint — this is the gap.
+        IMockMultipleRewardCompoundingAccumulator(acc).setUserPoolShare(500 ether, 1 ether);
+
+        // What the view reports with the post-gap share count.
+        uint256 gapEntitlement = IMultipleRewardAccumulator(acc).claimable(deployer, token);
+        assertLt(gapEntitlement, correctEntitlement, "gap: half shares gives less claimable");
+
+        // Claim transfers exactly what the view reported — no surprise, no rounding.
+        address[] memory toks = new address[](1);
+        toks[0] = token;
+        uint256 balBefore = IERC20(token).balanceOf(deployer);
+        IMultipleRewardAccumulator(acc).claimTokens(toks, type(uint256).max);
+
+        assertEq(IERC20(token).balanceOf(deployer) - balBefore, gapEntitlement, "received == gapEntitlement (exact)");
+    }
+
     /// @notice After a partial cap-bound claim, the remainder is still claimable in a second uncapped call
     /// (no new rewards accrue because we don't advance time).
     function test_claimTokens_remainderClaimableAfterPartial() public {

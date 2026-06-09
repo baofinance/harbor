@@ -7,6 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
@@ -231,15 +232,33 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
     */
 
-    /// @inheritdoc IMultipleRewardAccumulator_v3
+    /// @inheritdoc IClaimReward
     function claimable(address account, address token) external view virtual override returns (uint256) {
         return _claimable(account, token, true);
     }
 
-    /// @inheritdoc IMultipleRewardAccumulator_v3
+    /// @inheritdoc IClaimReward
     function claimed(address account, address token) external view returns (uint256) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
         return $.userRewardSnapshot[account][token].rewards.claimed;
+    }
+
+    /// @inheritdoc IClaimReward
+    function claimable(address account, address[] memory tokens) external view returns (uint256[] memory amounts) {
+        amounts = new uint256[](tokens.length);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            // slither-disable-next-line calls-loop — token count is caller-supplied; each call is O(1)
+            amounts[i] = _claimable(account, tokens[i], true);
+        }
+    }
+
+    /// @inheritdoc IClaimReward
+    function claimed(address account, address[] memory tokens) external view returns (uint256[] memory amounts) {
+        amounts = new uint256[](tokens.length);
+        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
+        for (uint256 i = 0; i < tokens.length; i++) {
+            amounts[i] = $.userRewardSnapshot[account][tokens[i]].rewards.claimed;
+        }
     }
 
     /****************************
@@ -267,43 +286,12 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     // Claim
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// @inheritdoc IMultipleRewardAccumulator_v3
+    /// @inheritdoc IClaimReward
     function claim() external override nonReentrant {
         _claimAll(activeRewardTokens(), type(uint256).max);
     }
 
-    /* deprecated
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claim(address account) external override nonReentrant {
-        _claimAll(account, activeRewardTokens(), address(0));
-    }
-    */
-
-    /* deprecated
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claim(address account, address receiver) public override nonReentrant {
-        if (account != _msgSender() && receiver != address(0)) {
-            revert ClaimOthersRewardToAnother();
-        }
-        _claimAll(account, activeRewardTokens(), receiver);
-    }
-    */
-
-    /* deprecated
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claimHistorical(address[] memory tokens) external nonReentrant {
-        _claimAll(_msgSender(), tokens, address(0));
-    }
-    */
-
-    /* deprecated
-    /// @inheritdoc IMultipleRewardAccumulator
-    function claimHistorical(address account, address[] memory tokens) external nonReentrant {
-        _claimAll(account, tokens, address(0));
-    }
-    */
-
-    /// @inheritdoc IMultipleRewardAccumulator_v3
+    /// @inheritdoc IClaimReward
     function claimTokens(address[] memory tokens, uint256 maxAmount) external nonReentrant {
         _claimAll(tokens, maxAmount);
     }
