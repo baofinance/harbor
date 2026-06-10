@@ -16,7 +16,6 @@ import "@harbor-test/Useful.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 import {TestGraph} from "@harbor-test/Graph.t.sol";
-
 abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
     string rewardFile;
     uint256 initialPoolDeposit;
@@ -62,7 +61,7 @@ abstract contract TestGraphReward is TestGraph, TestStabilityPoolSetUp {
         doActions();
 
         // get claimable
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), steam);
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(address(this), aa(steam))[0];
 
         // get claim - wrap in a snapshot to avoid changes of state
         uint256 claim = IERC20(steam).balanceOf(address(this));

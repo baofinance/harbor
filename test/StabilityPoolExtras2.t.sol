@@ -122,7 +122,7 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
         // Verify zero rewards were accumulated
         assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, address(rewardToken)),
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(address(rewardToken)))[0],
             0,
             "No rewards should be accumulated"
         );

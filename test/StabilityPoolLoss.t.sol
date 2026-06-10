@@ -239,7 +239,7 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         _liquidate(pool, lossAmount);
 
         // Check user can still claim rewards after loss
-        uint256 claimable = IMultipleRewardAccumulator(pool).claimable(user1, rewardToken);
+        uint256 claimable = IMultipleRewardAccumulator(pool).claimable(user1, aa(rewardToken))[0];
         // there are substantial rounding errors as distribution is calculated per second
         // and that results in truncation - the remainder is added to the queue
         assertApproxEqAbs(claimable, rewardAmount, 1e6);
@@ -432,13 +432,13 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
         uint256 toleranceDelayed
     ) internal view {
         assertApproxEqAbs(
-            IMultipleRewardAccumulator(pool).claimable(user, immediateReward),
+            IMultipleRewardAccumulator(pool).claimable(user, aa(immediateReward))[0],
             claimableImmediate,
             toleranceImmediate,
             string.concat(context, ", ", vm.getLabel(user), ", immediate")
         );
         assertApproxEqAbs(
-            IMultipleRewardAccumulator(pool).claimable(user, delayedReward),
+            IMultipleRewardAccumulator(pool).claimable(user, aa(delayedReward))[0],
             claimableDelayed,
             toleranceDelayed,
             string.concat(context, ", ", vm.getLabel(user), ", delayed")
@@ -469,13 +469,13 @@ contract TestStabilityPoolRewardsAndLoss is TestStabilityPoolBaseSetUp {
             vm.revertToState(snap);
 
             assertApproxEqAbs(
-                IMultipleRewardAccumulator(pool).claimable(user, immediateReward),
+                IMultipleRewardAccumulator(pool).claimable(user, aa(immediateReward))[0],
                 claimableImmediate,
                 1,
                 string.concat(context, ", ", vm.getLabel(user), "immediate, vs claim()")
             );
             assertApproxEqAbs(
-                IMultipleRewardAccumulator(pool).claimable(user, delayedReward),
+                IMultipleRewardAccumulator(pool).claimable(user, aa(delayedReward))[0],
                 claimableDelayed,
                 1,
                 string.concat(context, ", ", vm.getLabel(user), ", delayed, vs claim()")

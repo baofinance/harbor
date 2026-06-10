@@ -588,7 +588,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         vm.revertToState(snap);
 
         assertApproxEqAbs(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user, wrappedCollateralToken),
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user, aa(wrappedCollateralToken))[0],
             claimable,
             1,
             string.concat(vm.getLabel(user), "claimable(), vs claim()")

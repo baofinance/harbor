@@ -14,9 +14,10 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {Array} from "@harbor-test/Array.sol";
 
 /// @title Reward system tests — accumulator, distributor — using deployment framework
-contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter {
+contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array {
     address minter;
     address stabilityPoolCollateral;
     address stabilityPoolLeveraged;
@@ -108,7 +109,9 @@ contract AccumulatorTest is RewardSystemSetUp {
         _depositReward(wrappedCollateral, 10 ether);
         skip(8 days);
 
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(alice, wrappedCollateral);
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(alice, aa(wrappedCollateral))[
+            0
+        ];
         assertGt(claimable, 0, "has claimable");
 
         // Claim
@@ -116,7 +119,10 @@ contract AccumulatorTest is RewardSystemSetUp {
         IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
 
         // claimed() should return the claimed amount
-        uint256 claimedAmount = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(alice, wrappedCollateral);
+        uint256 claimedAmount = IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(
+            alice,
+            aa(wrappedCollateral)
+        )[0];
         assertEq(claimedAmount, claimable, "claimed matches");
     }
 
@@ -130,7 +136,9 @@ contract AccumulatorTest is RewardSystemSetUp {
         IMultipleRewardAccumulator(stabilityPoolCollateral).checkpoint(alice);
 
         // Claimable should reflect distributed rewards
-        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(alice, wrappedCollateral);
+        uint256 claimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(alice, aa(wrappedCollateral))[
+            0
+        ];
         assertGt(claimable, 0, "claimable after checkpoint");
     }
 
@@ -196,7 +204,7 @@ contract AccumulatorTest is RewardSystemSetUp {
         tokens[0] = wrappedCollateral;
         uint256 balBefore = IERC20(wrappedCollateral).balanceOf(alice);
         vm.prank(alice);
-        IMultipleRewardAccumulator(stabilityPoolCollateral).claimTokens(tokens, type(uint256).max);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim(tokens);
         assertGt(IERC20(wrappedCollateral).balanceOf(alice) - balBefore, 0, "claimed historical");
     }
 }

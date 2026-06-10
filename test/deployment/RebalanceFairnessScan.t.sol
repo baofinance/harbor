@@ -580,14 +580,14 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         uint256 peggedBal = IERC20(pegged).balanceOf(who) +
             IERC20(stabilityPoolCollateral).balanceOf(who) +
             IERC20(stabilityPoolLeveraged).balanceOf(who);
-        uint256 wcolColl = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, wrappedCollateral);
-        uint256 wcolLev = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, wrappedCollateral);
+        uint256 wcolColl = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
+        uint256 wcolLev = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
         uint256 wcolWallet = IERC20(wrappedCollateral).balanceOf(who);
         // wCOL → COL (× rate) → haXXX (× price): combined × rate × price / 1e36
         uint256 wcolInHaXXX = ((((wcolColl + wcolLev + wcolWallet) * oracleRate) / 1 ether) * oraclePrice) / 1 ether;
         uint256 levInHaXXX = _levToHaXXX(
             IERC20(leveraged).balanceOf(who) +
-                IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, leveraged)
+                IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0]
         );
         return peggedBal + wcolInHaXXX + levInHaXXX;
     }
@@ -625,7 +625,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         IBaoRoles(minter).grantRoles(who, zeroFeeRole);
 
         // Step 1: Claim and convert hsXXX (if any) → wCOL via freeRedeem
-        uint256 levClaimable = IMultipleRewardAccumulator(pool).claimable(who, leveraged);
+        uint256 levClaimable = IMultipleRewardAccumulator(pool).claimable(who, aa(leveraged))[0];
         if (levClaimable > 0) {
             vm.startPrank(who);
             IMultipleRewardAccumulator(pool).claim();
@@ -636,7 +636,7 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         }
 
         // Step 2: Claim wCOL (harvest + any coll rebalance reward)
-        uint256 wcolClaimable = IMultipleRewardAccumulator(pool).claimable(who, wrappedCollateral);
+        uint256 wcolClaimable = IMultipleRewardAccumulator(pool).claimable(who, aa(wrappedCollateral))[0];
         if (wcolClaimable > 0) {
             vm.prank(who);
             IMultipleRewardAccumulator(pool).claim();

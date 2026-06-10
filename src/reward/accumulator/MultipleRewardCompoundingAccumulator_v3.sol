@@ -225,24 +225,6 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
      * Public View Functions *
      *************************/
 
-    /* deprecated
-    function rewardReceiver(address account) external view returns (address) {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        return $.rewardReceiver[account];
-    }
-    */
-
-    /// @inheritdoc IClaimReward
-    function claimable(address account, address token) external view virtual override returns (uint256) {
-        return _claimable(account, token, true);
-    }
-
-    /// @inheritdoc IClaimReward
-    function claimed(address account, address token) external view returns (uint256) {
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        return $.userRewardSnapshot[account][token].rewards.claimed;
-    }
-
     /// @inheritdoc IClaimReward
     function claimable(address account, address[] memory tokens) external view returns (uint256[] memory amounts) {
         amounts = new uint256[](tokens.length);
@@ -265,18 +247,6 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
      * Public Mutator Functions *
      ****************************/
 
-    /* deprecated
-    /// @inheritdoc IMultipleRewardAccumulator
-    function setRewardReceiver(address newReceiver) external {
-        address caller = _msgSender();
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        address oldReceiver = $.rewardReceiver[caller];
-        $.rewardReceiver[caller] = newReceiver;
-
-        emit UpdateRewardReceiver(caller, oldReceiver, newReceiver);
-    }
-    */
-
     /// @inheritdoc IMultipleRewardAccumulator_v3
     function checkpoint(address account) external virtual override nonReentrant {
         _checkpoint(account);
@@ -287,13 +257,20 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @inheritdoc IClaimReward
-    function claim() external override nonReentrant {
-        _claimAll(activeRewardTokens(), type(uint256).max);
+    function claim() external override nonReentrant returns (address[] memory tokens, uint256[] memory amounts) {
+        tokens = activeRewardTokens();
+        amounts = _claimVector(tokens);
     }
 
     /// @inheritdoc IClaimReward
-    function claimTokens(address[] memory tokens, uint256 maxAmount) external nonReentrant {
-        _claimAll(tokens, maxAmount);
+    function claim(address[] memory tokens) external override nonReentrant returns (uint256[] memory amounts) {
+        amounts = _claimVector(tokens);
+    }
+
+    /// @inheritdoc IClaimReward
+    function claim(address token, uint256 maxAmount) external override nonReentrant returns (uint256 amount) {
+        _checkpoint(_msgSender());
+        amount = _claimOneToken(_msgSender(), token, maxAmount);
     }
 
     /**********************
@@ -412,36 +389,28 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         }
     }
 
-    /// @dev Internal function to claim up to maxAmount of a single reward token.
-    /// Caller should make sure `_checkpoint` is called before this function.
-    ///
-    /// @param tokens The list of reward token addresses.
-    /// @param maxAmount The maximum amount to be claimed.
-    function _claimAll(address[] memory tokens, uint256 maxAmount) internal virtual {
+    function _claimVector(address[] memory tokens) private returns (uint256[] memory amounts) {
         address account = _msgSender();
-        address receiver = account;
-
-        MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-
         _checkpoint(account);
-
+        amounts = new uint256[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
-            address token = tokens[i];
-            UserRewardSnapshotV2 memory snapshot = $.userRewardSnapshot[account][token];
+            amounts[i] = _claimOneToken(account, tokens[i], type(uint256).max);
+        }
+    }
 
-            uint256 amount = snapshot.rewards.pending;
-            if (amount > maxAmount) {
-                amount = maxAmount;
-            }
-            if (amount > 0) {
-                emit Claim(account, token, receiver, amount);
-
-                IERC20(token).safeTransfer(receiver, amount);
-
-                snapshot.rewards.pending -= uint128(amount);
-                snapshot.rewards.claimed += uint128(amount);
-                $.userRewardSnapshot[account][token] = snapshot;
-            }
+    function _claimOneToken(address account, address token, uint256 cap) private returns (uint256 amount) {
+        ClaimData storage rewards = _getMultipleRewardCompoundingAccumulatorStorage()
+            .userRewardSnapshot[account][token]
+            .rewards;
+        amount = rewards.pending;
+        if (amount > cap) {
+            amount = cap;
+        }
+        if (amount > 0) {
+            emit Claim(account, token, account, amount);
+            IERC20(token).safeTransfer(account, amount);
+            rewards.pending -= uint128(amount);
+            rewards.claimed += uint128(amount);
         }
     }
 

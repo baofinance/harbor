@@ -295,8 +295,11 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         m.stabilityPoolLeveragedPegged = IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
         m.stabilityPoolCollateralCollateral = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
         m.stabilityPoolLeveragedLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
-        m.userCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user, wrappedCollateralToken);
-        m.userLeveraged = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(user, leveragedToken);
+        m.userCollateral = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(
+            user,
+            aa(wrappedCollateralToken)
+        )[0];
+        m.userLeveraged = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(user, aa(leveragedToken))[0];
         m.userBalanceSPCollateral = IERC20(stabilityPoolCollateral).balanceOf(user);
         m.userBalanceSPLeveraged = IERC20(stabilityPoolLeveraged).balanceOf(user);
         m.leveragedTokenPrice = IMinter(minter).leveragedTokenPrice();

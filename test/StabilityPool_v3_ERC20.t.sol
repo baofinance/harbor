@@ -12,12 +12,13 @@ import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 
 import {DeployEURSetUp} from "@harbor-test/deployment/DeployEURSetUp.t.sol";
 import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
+import {Array} from "@harbor-test/Array.sol";
 
 /// @title TestStabilityPool_v3_ERC20
 /// @notice Coverage tests for StabilityPool_v3 ERC20 functions and transfer equivalence.
 ///         Uses IERC20/IERC20Metadata interfaces per CLAUDE.md.
 ///         Inherits production deployment infrastructure (DeployEURSetUp) for realistic test setup.
-contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase {
+contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase, Array {
     function _permitTarget() internal view override returns (address) {
         return sp;
     }
@@ -439,8 +440,8 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase {
         skip(2 weeks); // let rewards fully drip
 
         // Snapshot pending rewards before transfer
-        uint256 user1ClaimableBefore = IMultipleRewardAccumulator(sp).claimable(user1, wrappedCollateralToken);
-        uint256 user2ClaimableBefore = IMultipleRewardAccumulator(sp).claimable(user2, wrappedCollateralToken);
+        uint256 user1ClaimableBefore = IMultipleRewardAccumulator(sp).claimable(user1, aa(wrappedCollateralToken))[0];
+        uint256 user2ClaimableBefore = IMultipleRewardAccumulator(sp).claimable(user2, aa(wrappedCollateralToken))[0];
         assertGt(user1ClaimableBefore, 0, "user1 has rewards");
         assertGt(user2ClaimableBefore, 0, "user2 has rewards");
 
@@ -450,13 +451,13 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase {
 
         // Pending rewards should be preserved (within tiny rounding)
         assertApproxEqAbs(
-            IMultipleRewardAccumulator(sp).claimable(user1, wrappedCollateralToken),
+            IMultipleRewardAccumulator(sp).claimable(user1, aa(wrappedCollateralToken))[0],
             user1ClaimableBefore,
             1,
             "user1 rewards preserved"
         );
         assertApproxEqAbs(
-            IMultipleRewardAccumulator(sp).claimable(user2, wrappedCollateralToken),
+            IMultipleRewardAccumulator(sp).claimable(user2, aa(wrappedCollateralToken))[0],
             user2ClaimableBefore,
             1,
             "user2 rewards preserved"
@@ -477,8 +478,8 @@ contract TestStabilityPool_v3_ERC20 is DeployEURSetUp, PermitTestBase {
         _depositReward(sp, wrappedCollateralToken, wrappedCollateralToken, 20 ether);
         skip(2 weeks);
 
-        uint256 user1Claimable = IMultipleRewardAccumulator(sp).claimable(user1, wrappedCollateralToken);
-        uint256 user2Claimable = IMultipleRewardAccumulator(sp).claimable(user2, wrappedCollateralToken);
+        uint256 user1Claimable = IMultipleRewardAccumulator(sp).claimable(user1, aa(wrappedCollateralToken))[0];
+        uint256 user2Claimable = IMultipleRewardAccumulator(sp).claimable(user2, aa(wrappedCollateralToken))[0];
 
         // user2's claim should be ~3x user1's (150 vs 50)
         assertApproxEqRel(user2Claimable, user1Claimable * 3, 0.01 ether, "user2 ~3x user1");

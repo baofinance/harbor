@@ -4,7 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 /// @title IClaimReward
 /// @notice Shared claim interface implemented by StabilityPool_v3 and AutoCompounder_v1.
 /// @dev Both contracts distribute reward tokens proportionally to their depositors/shareholders.
-///      Scalar view functions are the primary implementation; vector overloads are convenience wrappers.
+///      Callers obtain the token list from activeRewardTokens() / historicalRewardTokens()
+///      (on IMultipleRewardDistributor) before calling view or mutator functions here.
 interface IClaimReward {
     /// @notice Emitted when a user claims pending rewards.
     /// @param account  The address whose rewards were claimed.
@@ -17,27 +18,30 @@ interface IClaimReward {
      * Public View Functions *
      *************************/
 
-    /// @notice Amount of `token` that `account` can claim right now.
-    function claimable(address account, address token) external view returns (uint256);
-
-    /// @notice Amount of each element of `tokens` that `account` can claim right now.
+    /// @notice Pending claimable amount for `account` for each token in `tokens`.
     function claimable(address account, address[] memory tokens) external view returns (uint256[] memory amounts);
 
-    /// @notice Lifetime amount of `token` claimed by `account`.
-    function claimed(address account, address token) external view returns (uint256);
-
-    /// @notice Lifetime amount of each element of `tokens` claimed by `account`.
+    /// @notice Lifetime claimed amount by `account` for each token in `tokens`.
     function claimed(address account, address[] memory tokens) external view returns (uint256[] memory amounts);
 
     /****************************
      * Public Mutator Functions *
      ****************************/
 
-    /// @notice Claim all pending active-token rewards for msg.sender.
-    function claim() external;
+    /// @notice Claim all pending active-token rewards to msg.sender.
+    /// @dev Equivalent to claim(activeRewardTokens()).
+    /// @return tokens  The active reward tokens that were processed.
+    /// @return amounts Amount of each token received, parallel to `tokens`.
+    function claim() external returns (address[] memory tokens, uint256[] memory amounts);
 
-    /// @notice Claim pending rewards for the specified tokens for msg.sender.
-    /// @param tokens     Reward tokens to claim (may include historical tokens).
-    /// @param maxAmount  Total claim cap across all tokens; pass type(uint256).max for no cap.
-    function claimTokens(address[] memory tokens, uint256 maxAmount) external;
+    /// @notice Claim all pending rewards for the specified tokens to msg.sender.
+    /// @param tokens Reward tokens to claim (may include historical tokens).
+    /// @return amounts Amount of each token received, parallel to `tokens`.
+    function claim(address[] memory tokens) external returns (uint256[] memory amounts);
+
+    /// @notice Claim up to `maxAmount` of a single token to msg.sender.
+    /// @param token     The reward token to claim.
+    /// @param maxAmount Maximum amount to transfer; pass type(uint256).max for no cap.
+    /// @return amount   Actual amount transferred.
+    function claim(address token, uint256 maxAmount) external returns (uint256 amount);
 }

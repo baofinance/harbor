@@ -18,12 +18,13 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 
 import {console2} from "forge-std/console2.sol";
 import {FmtLib} from "@harbor/util/FmtLib.sol";
+import {Array} from "@harbor-test/Array.sol";
 
 /// @title RebalanceFairnessTest
 /// @notice Worked example from doc/ideas/rebalance-fairness.md using real contract code
 /// deployed via the production deployment scripts. Simulates all actors through
 /// rebalance scenarios to measure the exact income redistribution.
-contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
+contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
     using MinterMarketConfigLib for Config_MinterMarket;
 
     // Deployed contract addresses
@@ -205,10 +206,12 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
         uint256 peggedColl = IERC20(stabilityPoolCollateral).balanceOf(who);
         uint256 peggedLev = IERC20(stabilityPoolLeveraged).balanceOf(who);
         uint256 peggedWallet = IERC20(pegged).balanceOf(who);
-        uint256 fxSAVEcoll = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, wrappedCollateral);
-        uint256 fxSAVElev = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, wrappedCollateral);
+        uint256 fxSAVEcoll = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[
+            0
+        ];
+        uint256 fxSAVElev = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
         uint256 levWallet = IERC20(leveraged).balanceOf(who);
-        uint256 levClaimable = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, leveraged);
+        uint256 levClaimable = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
         return
             _haETHToFxUSD(peggedColl + peggedLev + peggedWallet) +
             _fxSAVEToFxUSD(fxSAVEcoll + fxSAVElev) +
@@ -337,9 +340,9 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter {
     }
 
     function _snapshotClaimable(address who) internal view returns (ClaimableSnapshot memory s) {
-        s.fxSAVE_collSP = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, wrappedCollateral);
-        s.fxSAVE_levSP = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, wrappedCollateral);
-        s.levToken_levSP = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, leveraged);
+        s.fxSAVE_collSP = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(who, aa(wrappedCollateral))[0];
+        s.fxSAVE_levSP = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(wrappedCollateral))[0];
+        s.levToken_levSP = IMultipleRewardAccumulator(stabilityPoolLeveraged).claimable(who, aa(leveraged))[0];
     }
 
     function _logActor(string memory name, address who) internal view {
