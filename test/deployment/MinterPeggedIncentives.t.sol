@@ -198,4 +198,98 @@ contract MinterPeggedIncentivesTest is MinterCappedMintSetUp {
         assertEq(mintFeeLow, 0, "at CR=1.25: mintFee = 0 (disallow band)");
         assertGt(redeemBonusLow, 0, "at CR=1.25: redeemBonus > 0");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Exact band-boundary behaviour
+    //
+    // Band bounds are *upper* bounds. _findBand is asymmetric at the boundary:
+    //   mint   uses `CR <= upperBound`  → boundary CR falls in the LOWER band (inclusive)
+    //   redeem uses `CR <  upperBound`  → boundary CR falls in the UPPER band (exclusive)
+    // and a stored upper bound of 1.0 is decoded as (1 ether - 1), so CR = 1.0 is
+    // excluded from the sub-1.0 band. These tests pin each of those seams.
+    //
+    // At price = rate = 1 (and full backing, CR >= 1) the unit conversions are identity,
+    // so a small peggedIn fully consumed within one band gives mintFee = peggedIn * bandRate
+    // and redeemBonus = peggedIn * bandDiscount exactly.
+    // ═══════════════════════════════════════════════════════════════
+
+    /// @dev From the bootstrap state (underlyingCollateral = 1000, pegged = 500, CR = 2.0),
+    /// zero-fee mint `peggedToAdd` pegged. Minting pegged adds equal collateral and pegged
+    /// (at parity), lowering CR. Used to position CR exactly on, or inside, a chosen band.
+    function _mintToLowerCR(uint256 peggedToAdd) internal {
+        deal(wrappedCollateral, address(this), peggedToAdd);
+        IERC20(wrappedCollateral).approve(minter, peggedToAdd);
+        IMinter(minter).freeMintPeggedToken(peggedToAdd, address(this));
+    }
+
+    function test_peggedIncentives_mintFee_atExactUpperBound_usesLowerBand() public {
+        // CR exactly on the 1.40 boundary. Mint's inclusive `<=` comparator assigns the
+        // boundary to the LOWER band (1.31–1.40, 2%), not the band above (1.40–1.50, 1%).
+        _bootstrapCollateralRatio();
+        _mintToLowerCR(750 ether); // (1000+750)/(500+750) = 1750/1250 = 1.40
+        assertEq(IMinter(minter).collateralRatio(), 1.40e18, "precondition: CR = 1.40 exactly");
+
+        uint256 peggedIn = 1 ether;
+        (uint256 mintFee, uint256 peggedNotMinted, , ) = IMinter_v3(minter).peggedIncentivesByPegged(peggedIn);
+
+        assertEq(peggedNotMinted, 0, "all of peggedIn is mintable in-band");
+        assertEq(mintFee, 2e16, "mintFee = peggedIn * 2% - boundary owned by the lower band");
+    }
+
+    function test_peggedIncentives_mintFee_aboveUpperBound_usesUpperBand() public {
+        // CR inside (1.40, 1.50] — one band above the 1.40 boundary. The same input that
+        // paid 2% at exactly 1.40 now pays 1%, confirming the flip happens at the boundary.
+        _bootstrapCollateralRatio();
+        _mintToLowerCR(600 ether); // (1600)/(1100) ≈ 1.4545
+        uint256 cr = IMinter(minter).collateralRatio();
+        assertGt(cr, 1.40e18, "precondition: CR above 1.40");
+        assertLt(cr, 1.50e18, "precondition: CR below 1.50");
+
+        uint256 peggedIn = 1 ether;
+        (uint256 mintFee, uint256 peggedNotMinted, , ) = IMinter_v3(minter).peggedIncentivesByPegged(peggedIn);
+
+        assertEq(peggedNotMinted, 0, "all of peggedIn is mintable in-band");
+        assertEq(mintFee, 1e16, "mintFee = peggedIn * 1% - band above the 1.40 boundary");
+    }
+
+    function test_peggedIncentives_redeemBonus_atExactUpperBound_usesUpperBand() public {
+        // CR exactly on the 1.10 boundary. Redeem's exclusive `<` comparator assigns the
+        // boundary to the UPPER band (1.10–1.29, 0.3% bonus), not the 1.00–1.10 band (0.75%).
+        _bootstrapCollateralRatio();
+        _mintToLowerCR(4500 ether); // (5500)/(5000) = 1.10
+        assertEq(IMinter(minter).collateralRatio(), 1.10e18, "precondition: CR = 1.10 exactly");
+
+        uint256 peggedIn = 1 ether;
+        (, , , uint256 redeemBonus) = IMinter_v3(minter).peggedIncentivesByPegged(peggedIn);
+
+        assertEq(redeemBonus, 3e15, "redeemBonus = peggedIn * 0.3% - boundary owned by the upper band");
+    }
+
+    function test_peggedIncentives_redeemBonus_atDepegSeam_usesUpperBand() public {
+        // CR exactly 1.0 (the depeg seam). The sub-1.0 band's stored upper bound 1.0 is
+        // decoded as (1 ether - 1), so CR = 1.0 is excluded from it and falls in the
+        // 1.00–1.10 band (0.75% bonus), not the <1.0 band (1%).
+        _bootstrapCollateralRatio();
+        // Drop the collateral price to 0.5 so CR = 1000 * 0.5 / 500 = 1.0 exactly.
+        mockOracle.setLatestAnswer(0.5 ether, 1 ether);
+        assertEq(IMinter(minter).collateralRatio(), 1e18, "precondition: CR = 1.0 exactly");
+
+        uint256 peggedIn = 1 ether;
+        (, , , uint256 redeemBonus) = IMinter_v3(minter).peggedIncentivesByPegged(peggedIn);
+
+        assertEq(redeemBonus, 7.5e15, "redeemBonus = peggedIn * 0.75% - 1.00-1.10 band, not the <1.0 band");
+    }
+
+    function test_peggedIncentives_mintMaxFeeRatio_invariantToBoundaryCR() public {
+        // mintMaxFeeRatio scans the whole config for the highest non-disallow band (2%).
+        // It must be independent of the current CR, including when CR sits on a band boundary.
+        _bootstrapCollateralRatio(); // CR = 2.0 (interior of the top band)
+        (, , uint256 maxInterior, ) = IMinter_v3(minter).peggedIncentivesByPegged(1 ether);
+
+        _mintToLowerCR(750 ether); // CR -> 1.40 exactly (a band boundary)
+        (, , uint256 maxBoundary, ) = IMinter_v3(minter).peggedIncentivesByPegged(1 ether);
+
+        assertEq(maxInterior, 2e16, "mintMaxFeeRatio = highest non-disallow band (2%)");
+        assertEq(maxBoundary, maxInterior, "mintMaxFeeRatio unchanged when CR sits on a boundary");
+    }
 }

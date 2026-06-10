@@ -114,9 +114,9 @@ contract StabilityPool_v3 is
     /// @param amount The amount of token currently.
     /// @param updatedAt The timestamp in day when the struct is updated.
     struct TokenBalance {
-        uint128 product; // TODO: this could be 124 bits
+        uint128 product;
         uint104 amount; // This has to store 1e36
-        uint40 updatedAt; // TODO: this could be days rather than seconds requiring fewer bits
+        uint40 updatedAt;
     }
 
     /// @dev The withdrawal request window for an account

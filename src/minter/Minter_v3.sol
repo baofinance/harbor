@@ -361,26 +361,35 @@ contract Minter_v3 is
     function redeemPeggedForCollateralRatio(
         uint256 targetCollateralRatio
     ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
-        // TODO: add a check for no pegged tokens
         MinterStorage storage $ = _getMinterStorage();
-        (uint256 price, ) = _fetchMax($.priceOracle);
-        uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
-        if (targetCollateralRatio > currentCollateralRatio) {
-            if (currentCollateralRatio < 1 ether) {
-                // we're depegged, so all we can do is redeem them all
-                peggedForCollateral = peggedTokenBalance_;
-            } else {
-                peggedForCollateral =
-                    (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
-                    (targetCollateralRatio - 1 ether);
+        if (peggedTokenBalance_ > 0) {
+            (uint256 price, ) = _fetchMax($.priceOracle);
+            uint256 collateralTokenBalance_ = $.underlyingCollateral;
+            uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
+            if (targetCollateralRatio > currentCollateralRatio) {
+                // calculate pegged
+                if (currentCollateralRatio < 1 ether) {
+                    // we're depegged, so all we can do is redeem them all
+                    peggedForCollateral = peggedTokenBalance_;
+                } else {
+                    // targetCR > currentCR >= 1 ether so:
+                    //   targetCR * peggedBalance >= collateral * price  (numerator subtraction safe)
+                    //   targetCR - 1 ether > 0                          (denominator subtraction safe)
+                    unchecked {
+                        peggedForCollateral =
+                            (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
+                            (targetCollateralRatio - 1 ether);
+                    }
+                }
+                // targetCR > currentCR so:
+                //   targetCR > collateral * price / peggedBalance
+                //   peggedBallance > collateral * price / targetCR
+                unchecked {
+                    peggedForLeveraged =
+                        peggedTokenBalance_ - Math.mulDiv(collateralTokenBalance_, price, targetCollateralRatio);
+                }
             }
-            peggedForLeveraged =
-                peggedTokenBalance_ - Math.mulDiv(collateralTokenBalance_, price, targetCollateralRatio);
-        } else {
-            peggedForCollateral = 0;
-            peggedForLeveraged = 0;
         }
     }
 
@@ -1059,7 +1068,7 @@ contract Minter_v3 is
                         );
                     }
                 } else {
-                    leveragedOut = peggedForLeveraged; // TODO: the third place initial price of 1 ether is assumed
+                    leveragedOut = peggedForLeveraged; // initial price of leverage = 1 ether
                 }
                 // mint the tokens to the receiver
                 // wake-disable-next-line reentrancy
