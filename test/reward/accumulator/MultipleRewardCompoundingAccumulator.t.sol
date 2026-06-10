@@ -564,8 +564,16 @@ contract MultipleRewardCompoundingAccumulatorTest is Test, Array {
         assertEq(amounts.length, 2, "return length matches token count");
         assertEq(amounts[0], pending[0], "amounts[0] == pending[0]");
         assertEq(amounts[1], pending[1], "amounts[1] == pending[1]");
-        assertEq(IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore[0], pending[0], "balance[0] increased by pending[0]");
-        assertEq(IERC20(tokenAddresses[1]).balanceOf(deployer) - balBefore[1], pending[1], "balance[1] increased by pending[1]");
+        assertEq(
+            IERC20(tokenAddresses[0]).balanceOf(deployer) - balBefore[0],
+            pending[0],
+            "balance[0] increased by pending[0]"
+        );
+        assertEq(
+            IERC20(tokenAddresses[1]).balanceOf(deployer) - balBefore[1],
+            pending[1],
+            "balance[1] increased by pending[1]"
+        );
     }
 
     /// @notice claim(token, maxAmount) return value equals the amount actually transferred.

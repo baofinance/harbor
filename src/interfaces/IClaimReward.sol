@@ -30,9 +30,7 @@ interface IClaimReward {
 
     /// @notice Claim all pending active-token rewards to msg.sender.
     /// @dev Equivalent to claim(activeRewardTokens()).
-    /// @return tokens  The active reward tokens that were processed.
-    /// @return amounts Amount of each token received, parallel to `tokens`.
-    function claim() external returns (address[] memory tokens, uint256[] memory amounts);
+    function claim() external;
 
     /// @notice Claim all pending rewards for the specified tokens to msg.sender.
     /// @param tokens Reward tokens to claim (may include historical tokens).

@@ -257,9 +257,8 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     // ═══════════════════════════════════════════════════════════════════════
 
     /// @inheritdoc IClaimReward
-    function claim() external override nonReentrant returns (address[] memory tokens, uint256[] memory amounts) {
-        tokens = activeRewardTokens();
-        amounts = _claimVector(tokens);
+    function claim() external override nonReentrant {
+        _claimVector(activeRewardTokens());
     }
 
     /// @inheritdoc IClaimReward

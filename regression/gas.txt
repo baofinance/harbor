@@ -122,15 +122,15 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | assetBalanceOf         | 8.049e+03 |
 | balanceOf              | 5.785e+03 |
 | checkpoint             | 1.450e+05 |
-| claim()                | 2.604e+05 |
-| claimable              | 2.273e+04 |
-| claimed                | 4.036e+03 |
+| claim()                | 2.989e+05 |
+| claimable              | 2.269e+04 |
+| claimed                | 4.002e+03 |
 | decimals               | 2.670e+02 |
 | deposit                | 2.749e+05 |
 | depositReward          | 6.726e+04 |
 | getWithdrawalRequest   | 2.745e+03 |
 | grantRoles             | 2.640e+04 |
-| historicalRewardTokens | 5.214e+03 |
+| historicalRewardTokens | 5.180e+03 |
 | initialize             | 2.042e+05 |
 | name                   | 5.050e+02 |
 | nonces                 | 2.654e+03 |
@@ -148,7 +148,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | transferFrom           | 1.256e+05 |
 | transferOwnership      | 1.207e+04 |
 | unregisterRewardToken  | 9.142e+04 |
-| withdraw               | 1.797e+05 |
+| withdraw               | 2.571e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |       max |
