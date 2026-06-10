@@ -728,7 +728,7 @@ contract Minter_v3 is
         uint256 wrappedCollateralIn,
         address receiver,
         uint256 minPeggedOut
-    ) external override nonReentrant returns (uint256 peggedOut) {
+    ) external override returns (uint256 peggedOut) {
         (peggedOut, ) = _mintPeggedTokenCapped(wrappedCollateralIn, receiver, minPeggedOut, type(uint256).max);
     }
 
@@ -745,7 +745,7 @@ contract Minter_v3 is
         address receiver,
         uint256 minPeggedOut,
         uint256 maxFeeRatio
-    ) external nonReentrant returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
+    ) external returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
         (peggedOut, wrappedCollateralUsed) = _mintPeggedTokenCapped(
             wrappedCollateralIn,
             receiver,
@@ -759,7 +759,7 @@ contract Minter_v3 is
         address receiver,
         uint256 minPeggedOut,
         uint256 maxFeeRatio
-    ) internal returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
+    ) internal nonReentrant returns (uint256 peggedOut, uint256 wrappedCollateralUsed) {
         MinterStorage storage $ = _getMinterStorage();
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
 
@@ -938,7 +938,7 @@ contract Minter_v3 is
         uint256 leveragedIn,
         address receiver,
         uint256 minWrappedCollateralOut
-    ) external override returns (uint256 wrappedCollateralOut) {
+    ) external override nonReentrant returns (uint256 wrappedCollateralOut) {
         MinterStorage storage $ = _getMinterStorage();
         leveragedIn = Token.allOf(_msgSender(), LEVERAGED_TOKEN, leveragedIn);
 
@@ -1012,7 +1012,7 @@ contract Minter_v3 is
         uint256 peggedForCollateral,
         uint256 peggedForLeveraged,
         address receiver
-    ) external nonReentrant onlyRoles(ZERO_FEE_ROLE) returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
+    ) external onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
         if (peggedForCollateral + peggedForLeveraged > 0) {
             MinterStorage storage $ = _getMinterStorage();
             uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -1119,7 +1119,7 @@ contract Minter_v3 is
     function freeRedeemLeveragedToken(
         uint256 leveragedIn,
         address receiver
-    ) external override onlyRoles(ZERO_FEE_ROLE) returns (uint256 collateralOut) {
+    ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
