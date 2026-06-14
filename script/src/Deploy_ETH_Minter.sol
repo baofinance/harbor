@@ -12,7 +12,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 /// @notice ETH-specific minter deployment functionality.
 abstract contract Deploy_ETH_Minter is MinterDeployer {
     /// @notice Create ETH-specific config objects.
-    function createETHMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
+    function createETHMintersConfig() internal virtual returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_mainnet();
