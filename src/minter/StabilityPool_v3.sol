@@ -15,8 +15,10 @@ import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.so
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
+
 // solhint-disable not-rely-on-time
 // slither-disable-start timestamp
 
@@ -45,7 +47,7 @@ contract StabilityPool_v3 is
     ERC20,
     MultipleRewardCompoundingAccumulator_v3,
     TokenHolder,
-    IStabilityPool
+    IStabilityPool_v3
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
