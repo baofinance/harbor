@@ -2,11 +2,6 @@
 #   tag alone        — ignore the whole tag
 #   tag file1 file2  — ignore specific files within the tag only
 
-# deploy/harbor-1.1: StabilityPool_v2.sol additionally had @custom:oz-upgrades-from
-# added for the OZ upgrade validation of SP_v1->SP_v2. HEAD holds the 1.2
-# with that annotation.
-deploy/harbor-1.1 src/minter/StabilityPool_v2.sol
-
 # deploy/harbor-1.2: PostRebalanceRemediationForStabilityPool_v2.sol was a one-shot
 # upgrade implementation. After remediation, the proxy was upgraded back to
 # StabilityPool_v2. The source now lives in script/verify/spl-remediation/ alongside
