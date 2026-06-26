@@ -27,7 +27,7 @@ import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
 ///         Extends v1 with auto-compounder integration: after each harvest() or rebalance(),
 ///         compound() is triggered on any registered AutoCompounder for each stability pool.
 /// @dev Uses UUPS proxy, erc7201 storage (same slot as v1 — struct extended safely).
-/// @custom:oz-upgrades
+/// @custom:oz-upgrades-from src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 // solhint-disable-next-line contract-name-capwords
 contract StabilityPoolManager_v2 is
     Initializable,
