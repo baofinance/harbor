@@ -72,7 +72,7 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
         // Deploy only the fxUSD market (index 0)
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0];
-        deployForPeg("fairness_test", peg, mktConfigs, "mainnet", true, toDeploy);
+        deployHarborForPeg("fairness_test", peg, mktConfigs, "mainnet", true, toDeploy);
 
         // Resolve deployed addresses
         _setSaltPrefix("fairness_test");

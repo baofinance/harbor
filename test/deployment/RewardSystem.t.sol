@@ -43,7 +43,7 @@ contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array {
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0];
-        deployForPeg("reward_cov", peg, mktConfigs, "mainnet", true, toDeploy);
+        deployHarborForPeg("reward_cov", peg, mktConfigs, "mainnet", true, toDeploy);
 
         _setSaltPrefix("reward_cov");
         string memory marketKey = "ETH::fxUSD";

@@ -172,7 +172,7 @@ contract DeployMintersTest is
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createBTCMintersConfig();
-        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, mktConfigs);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, mktConfigs);
         _compareMintersAgainstReference(refSalt, peg, mktConfigs);
     }
 
@@ -181,7 +181,7 @@ contract DeployMintersTest is
         _forkAndSetup();
 
         (ConfigPeg btcPeg, Config_MinterMarket[] memory btcMkts) = createBTCMintersConfig();
-        deployForPeg(string.concat(refSalt, "_candidate"), btcPeg, btcMkts, "mainnet", true, btcMkts);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), btcPeg, btcMkts, "mainnet", true, btcMkts);
 
         _compareMintersAgainstReference(refSalt, btcPeg, btcMkts);
     }
@@ -191,7 +191,7 @@ contract DeployMintersTest is
         _forkAndSetup();
 
         (ConfigPeg ethPeg, Config_MinterMarket[] memory ethMkts) = createETHMintersConfig();
-        deployForPeg(string.concat(refSalt, "_candidate"), ethPeg, ethMkts, "mainnet", true, ethMkts);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), ethPeg, ethMkts, "mainnet", true, ethMkts);
 
         _compareMintersAgainstReference(refSalt, ethPeg, ethMkts);
     }
@@ -201,7 +201,7 @@ contract DeployMintersTest is
 
         (ConfigPeg eurPeg, Config_MinterMarket[] memory eurMkts) = createEURMintersConfig();
         Config_MinterMarket[] memory fxUSDMarkets = parseCollateralFilter(eurMkts, "fxUSD");
-        deployForPeg(string.concat(refSalt, "_candidate"), eurPeg, eurMkts, "mainnet", true, fxUSDMarkets);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), eurPeg, eurMkts, "mainnet", true, fxUSDMarkets);
 
         _compareMintersAgainstReference(refSalt, eurPeg, fxUSDMarkets);
     }
@@ -212,7 +212,7 @@ contract DeployMintersTest is
 
         (ConfigPeg goldPeg, Config_MinterMarket[] memory goldMkts) = createGOLDMintersConfig();
         Config_MinterMarket[] memory fxUSDMarkets = parseCollateralFilter(goldMkts, "fxUSD");
-        deployForPeg(string.concat(refSalt, "_candidate"), goldPeg, goldMkts, "mainnet", true, fxUSDMarkets);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), goldPeg, goldMkts, "mainnet", true, fxUSDMarkets);
 
         _compareMintersAgainstReference(refSalt, goldPeg, fxUSDMarkets);
     }
@@ -223,7 +223,7 @@ contract DeployMintersTest is
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
         // Deploy peg only, no markets
         Config_MinterMarket[] memory noMarkets = new Config_MinterMarket[](0);
-        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, noMarkets);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, noMarkets);
         _compareMintersAgainstReference(refSalt, peg, noMarkets);
     }
 
@@ -233,7 +233,7 @@ contract DeployMintersTest is
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
         // Deploy peg + fxUSD market only
         Config_MinterMarket[] memory fxUSDOnly = parseCollateralFilter(mktConfigs, "fxUSD");
-        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, fxUSDOnly);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, fxUSDOnly);
         _compareMintersAgainstReference(refSalt, peg, fxUSDOnly);
     }
 
@@ -243,7 +243,7 @@ contract DeployMintersTest is
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createSILVERMintersConfig();
         // Deploy peg + stETH market only
         Config_MinterMarket[] memory stETHOnly = parseCollateralFilter(mktConfigs, "stETH");
-        deployForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, stETHOnly);
+        deployHarborForPeg(string.concat(refSalt, "_candidate"), peg, mktConfigs, "mainnet", true, stETHOnly);
         _compareMintersAgainstReference(refSalt, peg, stETHOnly);
     }
 

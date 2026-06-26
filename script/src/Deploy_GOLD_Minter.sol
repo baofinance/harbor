@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {console2 as console} from "forge-std/console2.sol";
-import {MinterDeployer} from "@harbor-script/src/MinterDeployer.sol";
+import {HarborDeployStack} from "@harbor-script/src/HarborDeployStack.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {ConfigPeg_GOLD} from "@harbor-script/config/pegs/ConfigPeg_GOLD.sol";
@@ -11,7 +11,7 @@ import {ConfigMarket_GOLD_stETH_mainnet} from "@harbor-script/config/markets/Con
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice GOLD-specific minter deployment functionality.
-abstract contract Deploy_GOLD_Minter is MinterDeployer {
+abstract contract Deploy_GOLD_Minter is HarborDeployStack {
     /// @notice Create GOLD-specific config objects.
     function createGOLDMintersConfig() internal returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_GOLD();

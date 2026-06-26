@@ -19,7 +19,7 @@ contract Deploy_EUR_mainnet is Deploy_EUR_Minter, Script {
         Config_MinterMarket[] memory marketsToDeploy = parseCollateralFilter(allMarkets, collateral);
 
         vm.startBroadcast();
-        deployForPeg(saltPrefix, peg, allMarkets, network, deployPeg, marketsToDeploy);
+        deployHarborForPeg(saltPrefix, peg, allMarkets, network, deployPeg, marketsToDeploy);
         vm.stopBroadcast();
     }
 }

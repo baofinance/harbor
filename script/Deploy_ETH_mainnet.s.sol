@@ -19,7 +19,7 @@ contract Deploy_ETH_mainnet is Deploy_ETH_Minter, Script {
         Config_MinterMarket[] memory marketsToDeploy = parseCollateralFilter(allMarkets, collateral);
 
         vm.startBroadcast();
-        deployForPeg(saltPrefix, peg, allMarkets, network, deployPeg, marketsToDeploy);
+        deployHarborForPeg(saltPrefix, peg, allMarkets, network, deployPeg, marketsToDeploy);
         vm.stopBroadcast();
     }
 }

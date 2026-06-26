@@ -43,7 +43,7 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter {
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0];
-        deployForPeg("test_eth", peg, mktConfigs, "mainnet", true, toDeploy);
+        deployHarborForPeg("test_eth", peg, mktConfigs, "mainnet", true, toDeploy);
 
         _setSaltPrefix("test_eth");
         string memory mk = "ETH::fxUSD";

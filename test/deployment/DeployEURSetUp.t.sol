@@ -56,7 +56,7 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
 
         (ConfigPeg peg_, Config_MinterMarket[] memory mktConfigs) = createEURMintersConfig();
 
-        deployForPeg("test_eur", peg_, mktConfigs, "mainnet", true, mktConfigs);
+        deployHarborForPeg("test_eur", peg_, mktConfigs, "mainnet", true, mktConfigs);
 
         _setSaltPrefix("test_eur");
 

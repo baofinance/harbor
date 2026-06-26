@@ -18,9 +18,20 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
-/// @notice Shared functionality for all minter deployment contracts.
-/// @dev Provides common infrastructure and deployment primitives.
-abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, StabilityPool, StabilityPoolManager, Genesis {
+/// @notice The shared Harbor deploy stack: aggregates the per-contract deployers and exposes
+///         `deployHarborForPeg`, which stands up a peg's full minter market (pegged/leveraged
+///         tokens, minter, stability pools, SPM, genesis).
+/// @dev Inherited by both the production `Deploy_<PEG>_mainnet` scripts and the `test/` setups
+///      (via `Deploy_<PEG>_Minter`), so the real deploy code is exercised throughout the suite,
+///      not only in a dedicated deploy test.
+abstract contract HarborDeployStack is
+    PeggedToken,
+    LeveragedToken,
+    Minter,
+    StabilityPool,
+    StabilityPoolManager,
+    Genesis
+{
     using LibString for string;
 
     // ========== MARKET LOOKUP ==========
@@ -71,7 +82,7 @@ abstract contract MinterDeployer is PeggedToken, LeveragedToken, Minter, Stabili
     /// @param network Network name (e.g., "mainnet").
     /// @param deployPeg Whether to deploy the pegged token.
     /// @param marketsToDeploy Markets to deploy (empty array = none).
-    function deployForPeg(
+    function deployHarborForPeg(
         string memory saltPrefix,
         ConfigPeg peg,
         Config_MinterMarket[] memory allMarkets,
