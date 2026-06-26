@@ -31,8 +31,8 @@
 | script/src/Deploy_GOLD_Minter.sol                                           | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
 | script/src/Deploy_MCAP_Minter.sol                                           | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
 | script/src/Deploy_SILVER_Minter.sol                                         | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
+| script/src/HarborDeployStack.sol                                            | X  84% (72/86)     | X  82% (83/101)    | X  25% (1/4)     | X  82% (9/11)     |
 | script/src/HarborDeployer.sol                                               | X  56% (9/16)      | X  73% (8/11)      | ✓ 100% (0/0)     | X  20% (1/5)      |
-| script/src/MinterDeployer.sol                                               | X  84% (72/86)     | X  82% (83/101)    | X  25% (1/4)     | X  82% (9/11)     |
 | script/src/contracts/Genesis.sol                                            | X  77% (10/13)     | X  73% (11/15)     | ✓ 100% (0/0)     | X  67% (2/3)      |
 | script/src/contracts/LeveragedToken.sol                                     | ✓ 100% (18/18)     | ✓ 100% (26/26)     | ✓ 100% (0/0)     | ✓ 100% (2/2)      |
 | script/src/contracts/Minter.sol                                             | X  62% (32/52)     | X  63% (38/60)     | ✓ 100% (0/0)     | X  60% (6/10)     |
@@ -66,4 +66,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                            | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                         | X  79% (15/19)     | X  73% (19/26)     | X  50% (2/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                                      | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                                       | X  55% (4429/8042) | X  54% (4680/8667) | X  43% (389/913) | X  56% (639/1147) |
+| Total                                                                       | X  55% (4430/8043) | X  54% (4681/8668) | X  43% (389/913) | X  56% (639/1147) |

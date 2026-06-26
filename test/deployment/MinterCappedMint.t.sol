@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {BaoTest} from "@bao-test/BaoTest.sol";
+import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
-import {MinterDeploySetUp} from "@harbor-test/deployment/MinterDeploySetUp.t.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
@@ -14,7 +15,7 @@ import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.
 
 /// @title MinterCappedMintTest
 /// @notice Tests for Minter_v3 fee-capped minting, deployed via production deployment scripts.
-contract MinterCappedMintSetUp is MinterDeploySetUp, Deploy_ETH_Minter {
+contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
     address minter;
     address pegged;
     address wrappedCollateral;
@@ -25,41 +26,35 @@ contract MinterCappedMintSetUp is MinterDeploySetUp, Deploy_ETH_Minter {
         return false;
     }
 
-    // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for caching.
-    function _forkBlock() internal pure override returns (uint256) {
-        return 24699497;
-    }
+    function setUp() public virtual {
+        // Bootstrap the BaoFactory, then fork mainnet. The fork resets chain state, so the test must be
+        // re-registered as the factory operator AFTER the fork for the CREATE3 deploy to run.
+        address factory = _ensureBaoFactory();
+        // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for fork caching.
+        vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
+        vm.startPrank(IBaoFactory(factory).owner());
+        IBaoFactory(factory).setOperator(address(this), 365 days);
+        vm.stopPrank();
 
-    function _saltPrefix() internal pure override returns (string memory) {
-        return "capped_test";
-    }
-
-    // Deploy ETH::fxUSD market (one collateral) via the production deploy scripts (Minter_v3).
-    function _mintersConfig()
-        internal
-        override
-        returns (ConfigPeg peg, Config_MinterMarket[] memory allMarkets, Config_MinterMarket[] memory marketsToDeploy)
-    {
-        (peg, allMarkets) = createETHMintersConfig();
-        marketsToDeploy = new Config_MinterMarket[](1);
+        // Deploy the ETH::fxUSD market (one collateral) via the production deploy scripts (Minter_v3).
+        (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createETHMintersConfig();
+        Config_MinterMarket[] memory marketsToDeploy = new Config_MinterMarket[](1);
         marketsToDeploy[0] = allMarkets[0];
-    }
+        _setSaltPrefix("capped_test");
+        deployHarborForPeg("capped_test", peg, allMarkets, "mainnet", true, marketsToDeploy);
 
-    function _afterDeploy(ConfigPeg, Config_MinterMarket[] memory) internal override {
         minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
         pegged = _predictAddress(_key("ETH", "pegged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        // Install mock oracle (price=1, rate=1) via the Minter's setter.
+        // Install mock oracle (price=1, rate=1) + grant zero-fee role for bootstrap minting.
         mockOracle = new MockWrappedPriceOracle();
         mockOracle.setLatestAnswer(1 ether, 1 ether);
-        vm.prank(HARBOR_MULTISIG);
-        IMinter(minter).updatePriceOracle(address(mockOracle));
-
-        // Grant zero-fee role so the test can free-mint in bootstrap.
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        vm.prank(HARBOR_MULTISIG);
+        vm.startPrank(HARBOR_MULTISIG);
+        IMinter(minter).updatePriceOracle(address(mockOracle));
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
+        vm.stopPrank();
     }
 
     /// @dev Mint pegged + leveraged to create a collateral ratio where minting is allowed with fees.
