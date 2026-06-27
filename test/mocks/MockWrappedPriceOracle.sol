@@ -11,10 +11,21 @@ contract MockWrappedPriceOracle is IWrappedPriceOracle {
     uint256 private _maxUnderlyingPrice;
     uint256 private _minWrappedRate;
     uint256 private _maxWrappedRate;
+    // The quote denomination the oracle prices in (e.g. "ETH"). Real Harbor aggregators expose quoteName();
+    // this mock models it so consumers that validate the oracle's denomination see faithful behaviour.
+    string private _quoteName = "ETH";
 
     constructor() {
         _minUnderlyingPrice = _maxUnderlyingPrice = 2000 ether;
         _minWrappedRate = _maxWrappedRate = 10e17; // 1.0
+    }
+
+    function quoteName() external view returns (string memory) {
+        return _quoteName;
+    }
+
+    function setQuoteName(string memory quoteName_) external {
+        _quoteName = quoteName_;
     }
 
     function latestAnswer()
