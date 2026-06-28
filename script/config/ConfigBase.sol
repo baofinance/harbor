@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
+
 /// @notice Base contract for all Harbor configuration contracts.
 /// @dev Config contracts provide keys via methods, not string parsing.
 abstract contract ConfigBase {
@@ -50,7 +52,7 @@ library MinterMarketConfigLib {
     /// @param config The minter market config contract.
     /// @return The salt in "peg::collateral" format (e.g., "BTC::stETH").
     function salt(Config_MinterMarket config) internal view returns (string memory) {
-        return string.concat(peg(config), "::", collateral(config));
+        return SaltString.key(peg(config), collateral(config));
     }
 
     /// @notice Computes the price oracle key for a minter market config.
@@ -58,6 +60,6 @@ library MinterMarketConfigLib {
     /// @param config The minter market config contract.
     /// @return The key in "collateral::peg::wrappedPriceAggregator" format (e.g., "fxUSD::BTC::wrappedPriceAggregator").
     function priceOracleKey(Config_MinterMarket config) internal view returns (string memory) {
-        return string.concat(collateral(config), "::", peg(config), "::wrappedPriceAggregator");
+        return SaltString.key(collateral(config), peg(config), "wrappedPriceAggregator");
     }
 }

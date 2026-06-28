@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -25,14 +26,14 @@ contract MinterUpgradeTest is BaoTest, HarborDeployer {
     }
 
     function _predict(string memory marketKey, string memory suffix) internal returns (address) {
-        return _predictAddress(_key(marketKey, suffix));
+        return _predictAddress(SaltString.key(marketKey, suffix));
     }
 
     // ---- ETH::fxUSD rebalance tests (the market with known sub-threshold CR) ----
     // Role checks are in MainnetRoles.t.sol (shared between upgrade and deploy workflows)
 
     function _ethFxUSD() internal returns (address minter, address spm, address leveraged) {
-        string memory key = "ETH::fxUSD";
+        string memory key = SaltString.key("ETH", "fxUSD"); // the live market under test (no config in a fork verify)
         minter = _predict(key, "minter");
         spm = _predict(key, "stabilityPoolManager");
         leveraged = _predict(key, "leveraged");

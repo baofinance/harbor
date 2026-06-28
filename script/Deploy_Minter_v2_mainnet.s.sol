@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 
@@ -41,8 +42,8 @@ contract Deploy_Minter_v2_mainnet is
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
             IHarborConfig cfg = IHarborConfig(address(markets[i]));
             address wrappedCollateral = cfg.wrappedCollateralToken();
-            address peggedToken = _predictAddress(_key(cfg.peg(), "pegged"));
-            address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
+            address peggedToken = _predictAddress(SaltString.key(cfg.peg(), "pegged"));
+            address leveragedToken = _predictAddress(SaltString.key(marketKey, "leveraged"));
 
             (address impl, string memory key) = deployMinterImplementation(
                 state,

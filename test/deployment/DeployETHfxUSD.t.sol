@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -46,13 +47,13 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter {
         deployHarborForPeg("test_eth", peg, mktConfigs, "mainnet", true, toDeploy);
 
         _setSaltPrefix("test_eth");
-        string memory mk = "ETH::fxUSD";
-        minter = _predictAddress(_key(mk, "minter"));
-        stabilityPoolCollateral = _predictAddress(_key(mk, "stabilityPoolCollateral"));
-        stabilityPoolLeveraged = _predictAddress(_key(mk, "stabilityPoolLeveraged"));
-        stabilityPoolManager = _predictAddress(_key(mk, "stabilityPoolManager"));
-        pegged = _predictAddress(_key("ETH", "pegged"));
-        leveraged = _predictAddress(_key(mk, "leveraged"));
+        string memory mk = MinterMarketConfigLib.salt(mktConfigs[0]); // "ETH::fxUSD"
+        minter = _predictAddress(SaltString.key(mk, "minter"));
+        stabilityPoolCollateral = _predictAddress(SaltString.key(mk, "stabilityPoolCollateral"));
+        stabilityPoolLeveraged = _predictAddress(SaltString.key(mk, "stabilityPoolLeveraged"));
+        stabilityPoolManager = _predictAddress(SaltString.key(mk, "stabilityPoolManager"));
+        pegged = _predictAddress(SaltString.key(peg.key(), "pegged"));
+        leveraged = _predictAddress(SaltString.key(mk, "leveraged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         mockOracle = new MockWrappedPriceOracle();

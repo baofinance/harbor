@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -37,7 +38,7 @@ abstract contract StabilityPool is HarborDeployer {
         address liquidationToken
     ) internal virtual returns (address impl) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory spKey = _key(marketKey, spType);
+        string memory spKey = SaltString.key(marketKey, spType);
         console.log("    > %s", spKey);
 
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
@@ -74,7 +75,7 @@ abstract contract StabilityPool is HarborDeployer {
         address liquidationToken
     ) internal returns (address proxy) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory spKey = _key(marketKey, spType);
+        string memory spKey = SaltString.key(marketKey, spType);
         console.log("    > %s", spKey);
 
         address impl = deployStabilityPoolImplementation(spType, stateData, marketConfig, minter, liquidationToken);
@@ -92,11 +93,11 @@ abstract contract StabilityPool is HarborDeployer {
     /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
     /// @param spType "stabilityPoolCollateral" or "stabilityPoolLeveraged".
     function grantStabilityPoolRoles(string memory marketKey, string memory spType) internal {
-        string memory spKey = _key(marketKey, spType);
+        string memory spKey = SaltString.key(marketKey, spType);
         address sp = _predictAddress(spKey);
 
         // SPM gets REBALANCER + REWARD_DEPOSITOR
-        address spm = _predictAddress(_key(marketKey, "stabilityPoolManager"));
+        address spm = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
         StabilityPool_v3 pool = StabilityPool_v3(sp);
         uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
         _grantRoles(spKey, sp, spm, "stabilityPoolManager", roles, "REBALANCER | REWARD_DEPOSITOR");

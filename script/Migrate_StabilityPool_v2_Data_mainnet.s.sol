@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
@@ -78,7 +79,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
             }
         }
 
-        string memory key = _key(marketKey, spType);
+        string memory key = SaltString.key(marketKey, spType);
         address pool = _predictAddress(key);
 
         // Read current implementation (restored after remediation).
@@ -136,7 +137,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
     /// Lines starting with '#' are comments; every other non-empty line is an address.
     /// Returns an empty array when the file is absent (pool skipped by the caller).
     function _readHolders(string memory marketKey, string memory spType) internal returns (address[] memory holders) {
-        string memory path = string.concat(HOLDERS_DIR, marketKey, "::", spType, ".txt");
+        string memory path = string.concat(HOLDERS_DIR, SaltString.key(marketKey, spType), ".txt");
         if (!vm.isFile(path)) {
             return new address[](0);
         }

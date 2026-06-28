@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -43,8 +44,8 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
         _setSaltPrefix("capped_test");
         deployHarborForPeg("capped_test", peg, allMarkets, "mainnet", true, marketsToDeploy);
 
-        minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
-        pegged = _predictAddress(_key("ETH", "pegged"));
+        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
+        pegged = _predictAddress(SaltString.key("ETH", "pegged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Install mock oracle (price=1, rate=1) + grant zero-fee role for bootstrap minting.

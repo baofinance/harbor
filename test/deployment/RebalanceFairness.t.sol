@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -76,12 +77,12 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
 
         // Resolve deployed addresses
         _setSaltPrefix("fairness_test");
-        minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
-        stabilityPoolCollateral = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        stabilityPoolLeveraged = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        stabilityPoolManager = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolManager"));
-        pegged = _predictAddress(_key("ETH", "pegged"));
-        leveraged = _predictAddress(_key("ETH", "fxUSD", "leveraged"));
+        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
+        stabilityPoolCollateral = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        stabilityPoolLeveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
+        stabilityPoolManager = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
+        pegged = _predictAddress(SaltString.key("ETH", "pegged"));
+        leveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Install mock oracle so we can control price/rate

@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
@@ -70,7 +71,7 @@ contract DeployMintersTest is
 
         // Pegged token
         specs[idx++] = ContractSpec({
-            salt: string.concat(pegName, "::pegged"),
+            salt: SaltString.key(pegName, "pegged"),
             artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
             marketKey: ""
         });
@@ -79,7 +80,7 @@ contract DeployMintersTest is
         for (uint256 i = 0; i < mktConfigs.length; i++) {
             string memory marketKey = mktConfigs[i].salt();
             specs[idx++] = ContractSpec({
-                salt: string.concat(marketKey, "::leveraged"),
+                salt: SaltString.key(marketKey, "leveraged"),
                 artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
                 marketKey: marketKey
             });
@@ -90,32 +91,32 @@ contract DeployMintersTest is
             string memory marketKey = mktConfigs[i].salt();
             // Order matches ownership transfer list
             specs[idx++] = ContractSpec({
-                salt: string.concat(marketKey, "::reservePool"),
+                salt: SaltString.key(marketKey, "reservePool"),
                 artifact: "out/ReservePool_v1.sol/ReservePool_v1.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: string.concat(marketKey, "::minter"),
+                salt: SaltString.key(marketKey, "minter"),
                 artifact: "out/Minter_v2.sol/Minter_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: string.concat(marketKey, "::stabilityPoolCollateral"),
+                salt: SaltString.key(marketKey, "stabilityPoolCollateral"),
                 artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: string.concat(marketKey, "::stabilityPoolLeveraged"),
+                salt: SaltString.key(marketKey, "stabilityPoolLeveraged"),
                 artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: string.concat(marketKey, "::stabilityPoolManager"),
+                salt: SaltString.key(marketKey, "stabilityPoolManager"),
                 artifact: "out/StabilityPoolManager_v1.sol/StabilityPoolManager_v1.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: string.concat(marketKey, "::genesis"),
+                salt: SaltString.key(marketKey, "genesis"),
                 artifact: "out/Genesis_v1.sol/Genesis_v1.json",
                 marketKey: marketKey
             });
@@ -297,10 +298,10 @@ contract DeployMintersTest is
 
         for (uint256 i = 0; i < specs.length; i++) {
             ContractSpec memory spec = specs[i];
-            string memory fullRefSalt = string.concat(referenceSalt, "::", spec.salt);
+            string memory fullRefSalt = SaltString.key(referenceSalt, spec.salt);
 
-            bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", spec.salt));
-            bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", spec.salt));
+            bytes32 refSaltHash = keccak256(abi.encodePacked(SaltString.key(referenceSalt, spec.salt)));
+            bytes32 candSaltHash = keccak256(abi.encodePacked(SaltString.key(candidateSalt, spec.salt)));
 
             address refAddr = IBaoFactory(_baoFactory).predictAddress(refSaltHash);
             address candAddr = IBaoFactory(_baoFactory).predictAddress(candSaltHash);
@@ -391,8 +392,8 @@ contract DeployMintersTest is
         for (uint256 i = 0; i < specs.length; i++) {
             ContractSpec memory spec = specs[i];
 
-            bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", spec.salt));
-            bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", spec.salt));
+            bytes32 refSaltHash = keccak256(abi.encodePacked(SaltString.key(referenceSalt, spec.salt)));
+            bytes32 candSaltHash = keccak256(abi.encodePacked(SaltString.key(candidateSalt, spec.salt)));
 
             refKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(refSaltHash);
             candKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(candSaltHash);
@@ -403,8 +404,8 @@ contract DeployMintersTest is
         for (uint256 i = 0; i < mktConfigs.length; i++) {
             string memory oracleSalt = mktConfigs[i].priceOracleKey();
 
-            bytes32 refSaltHash = keccak256(abi.encodePacked(referenceSalt, "::", oracleSalt));
-            bytes32 candSaltHash = keccak256(abi.encodePacked(candidateSalt, "::", oracleSalt));
+            bytes32 refSaltHash = keccak256(abi.encodePacked(SaltString.key(referenceSalt, oracleSalt)));
+            bytes32 candSaltHash = keccak256(abi.encodePacked(SaltString.key(candidateSalt, oracleSalt)));
 
             refKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(refSaltHash);
             candKnownAddrs[idx] = IBaoFactory(_baoFactory).predictAddress(candSaltHash);

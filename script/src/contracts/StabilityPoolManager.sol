@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -56,7 +57,7 @@ abstract contract StabilityPoolManager is HarborDeployer {
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
     ) internal virtual returns (address proxy) {
-        string memory spmKey = _key(marketKey, "stabilityPoolManager");
+        string memory spmKey = SaltString.key(marketKey, "stabilityPoolManager");
         console.log("    > %s", spmKey);
 
         address impl = deployStabilityPoolManagerImplementation(
@@ -77,7 +78,7 @@ abstract contract StabilityPoolManager is HarborDeployer {
     /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
     /// @param config The SPM configuration parameters.
     function configureStabilityPoolManager(string memory marketKey, SPMConfig memory config) internal {
-        address spm = _predictAddress(_key(marketKey, "stabilityPoolManager"));
+        address spm = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
         IStabilityPoolManager(spm).updateRebalanceThreshold(config.rebalanceThreshold);
         IStabilityPoolManager(spm).updateRebalanceBountyRatio(config.rebalanceBountyRatio);
         IStabilityPoolManager(spm).updateHarvestBountyRatio(config.harvestBountyRatio);
@@ -110,7 +111,7 @@ abstract contract StabilityPoolManager is HarborDeployer {
         string memory marketKey,
         string memory name
     ) internal returns (address proxy) {
-        string memory feeReceiverKey = _key(marketKey, "spmFeeReceiver");
+        string memory feeReceiverKey = SaltString.key(marketKey, "spmFeeReceiver");
         console.log("    > %s", feeReceiverKey);
 
         address impl = deploySPMFeeReceiverImplementation(stateData, feeReceiverKey);

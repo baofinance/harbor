@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Script} from "forge-std/Script.sol";
@@ -13,7 +14,7 @@ contract Pause_SPL_ETH_fxUSD is Script, HarborDeployer {
 
     function build() internal override {
         queue(
-            _key("ETH", "fxUSD", "stabilityPoolLeveraged"),
+            SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"),
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (BAO_PAUSER, "")),
             "pause: upgrade to BaoPauser_v1"
         );

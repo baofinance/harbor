@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -31,12 +32,12 @@ abstract contract RebalanceCheckBase is BaoTest, HarborDeployer {
         vm.createSelectFork(mainnet, FORK_BLOCK);
 
         _setSaltPrefix("harbor_v1");
-        stabilityPoolManager = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolManager"));
-        stabilityPoolCollateral = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        stabilityPoolLeveraged = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
-        pegged = _predictAddress(_key("ETH", "pegged"));
-        leveraged = _predictAddress(_key("ETH", "fxUSD", "leveraged"));
+        stabilityPoolManager = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
+        stabilityPoolCollateral = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        stabilityPoolLeveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
+        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
+        pegged = _predictAddress(SaltString.key("ETH", "pegged"));
+        leveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
     }
 
     function _upgradeSpm() internal {

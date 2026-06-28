@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -38,7 +39,7 @@ abstract contract Genesis is HarborDeployer {
         string memory marketKey,
         address minter
     ) internal returns (address proxy) {
-        string memory genesisKey = _key(marketKey, "genesis");
+        string memory genesisKey = SaltString.key(marketKey, "genesis");
         console.log("    > %s", genesisKey);
 
         address impl = deployGenesisImplementation(stateData, genesisKey, minter);
@@ -56,7 +57,7 @@ abstract contract Genesis is HarborDeployer {
         string memory saltPrefix,
         string memory marketKey
     ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(saltPrefix, "::", marketKey, "::genesis"));
+        bytes32 salt = keccak256(abi.encodePacked(SaltString.key(saltPrefix, marketKey, "genesis")));
         return IBaoFactory(baoFactoryAddr).predictAddress(salt);
     }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 
@@ -52,8 +53,8 @@ contract Deploy_StabilityPool_v3_mainnet is
                     continue;
                 }
             }
-            address minter = _predictAddress(_key(marketKey, "minter"));
-            address leveragedToken = _predictAddress(_key(marketKey, "leveraged"));
+            address minter = _predictAddress(SaltString.key(marketKey, "minter"));
+            address leveragedToken = _predictAddress(SaltString.key(marketKey, "leveraged"));
             address collateralToken = IHarborConfig(address(markets[i])).wrappedCollateralToken();
 
             address implLeveraged = deployStabilityPoolImplementation(
@@ -74,12 +75,12 @@ contract Deploy_StabilityPool_v3_mainnet is
 
             // Queue Safe upgrade transactions
             queue(
-                _key(marketKey, StabilityPoolLeveraged),
+                SaltString.key(marketKey, StabilityPoolLeveraged),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implLeveraged, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implLeveraged.toHexString())
             );
             queue(
-                _key(marketKey, StabilityPoolCollateral),
+                SaltString.key(marketKey, StabilityPoolCollateral),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implCollateral, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implCollateral.toHexString())
             );

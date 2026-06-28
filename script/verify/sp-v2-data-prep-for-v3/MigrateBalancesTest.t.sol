@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
@@ -85,14 +86,14 @@ contract MigrateBalancesTest is
         }
     }
 
-    function logV1(ForceMigrateAccumulator_v1.UserRewardSnapshot memory v1) private view {
+    function logV1(ForceMigrateAccumulator_v1.UserRewardSnapshot memory v1) private pure {
         console.log("        v1.timestamp: %s", v1.checkpoint.timestamp);
         console.log("        v1.integral:  %s", v1.checkpoint.integral);
         console.log("        v1.pending: %s", v1.rewards.pending);
         console.log("        v1.claimed: %s", v1.rewards.claimed);
     }
 
-    function logV2(ForceMigrateAccumulator_v1.UserRewardSnapshotV2 memory v2) private view {
+    function logV2(ForceMigrateAccumulator_v1.UserRewardSnapshotV2 memory v2) private pure {
         console.log("        v2.timestamp: %s", v2.timestamp);
         console.log("        v2.integral:  %s", v2.integral);
         console.log("        v2.pending: %s", v2.rewards.pending);
@@ -100,8 +101,8 @@ contract MigrateBalancesTest is
     }
 
     function _checkPool(string memory marketKey, string memory spType) internal returns (bool) {
-        string memory saltKey = string.concat(marketKey, "::", spType);
-        address pool = _predictAddress(_key(marketKey, spType));
+        string memory saltKey = SaltString.key(marketKey, spType);
+        address pool = _predictAddress(SaltString.key(marketKey, spType));
         address[] memory holders = _readHolders(saltKey);
         if (holders.length == 0) {
             return false;

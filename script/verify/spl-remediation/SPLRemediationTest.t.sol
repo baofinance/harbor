@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -48,12 +49,12 @@ abstract contract SPLTestBase is BaoTest, HarborDeployer {
 
     function _initAddresses() internal {
         _setSaltPrefix("harbor_v1");
-        spl = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        spc = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        minter = _predictAddress(_key("ETH", "fxUSD", "minter"));
-        lev = _predictAddress(_key("ETH", "fxUSD", "leveraged"));
-        peg = _predictAddress(_key("ETH", "pegged"));
-        spm = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolManager"));
+        spl = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
+        spc = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
+        lev = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
+        peg = _predictAddress(SaltString.key("ETH", "pegged"));
+        spm = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
         proxyOwner = IBaoOwnable(spl).owner();
     }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 
@@ -15,19 +16,19 @@ import {ConfigPriceVolatility_130} from "@harbor-script/config/volatility/Config
 contract UpdateVolatility_test3_SILVER is Script, HarborDeployer {
     function build() internal override {
         queue(
-            _key("SILVER", "fxUSD", "minter"),
+            SaltString.key("SILVER", "fxUSD", "minter"),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_125().minterConfig())),
             "updateConfig(125_month1)"
         );
 
         queue(
-            _key("SILVER", "fxUSD", "stabilityPoolManager"),
+            SaltString.key("SILVER", "fxUSD", "stabilityPoolManager"),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (125e16)),
             "updateRebalanceThreshold(125)"
         );
 
         queue(
-            _key("SILVER", "stETH", "minter"),
+            SaltString.key("SILVER", "stETH", "minter"),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_130().minterConfig())),
             "updateConfig(130_month1)"
         );

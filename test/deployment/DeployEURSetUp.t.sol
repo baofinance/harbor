@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -61,27 +62,27 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
         _setSaltPrefix("test_eur");
 
         // EUR::fxUSD
-        string memory mkFx = "EUR::fxUSD";
-        minterFxUSD = _predictAddress(_key(mkFx, "minter"));
-        spCollFxUSD = _predictAddress(_key(mkFx, "stabilityPoolCollateral"));
-        spLevFxUSD = _predictAddress(_key(mkFx, "stabilityPoolLeveraged"));
-        spmFxUSD = _predictAddress(_key(mkFx, "stabilityPoolManager"));
-        acCollFxUSD = _predictAddress(_key(mkFx, "autoCompounderCollateral"));
-        acLevFxUSD = _predictAddress(_key(mkFx, "autoCompounderLeveraged"));
+        string memory mkFx = MinterMarketConfigLib.salt(mktConfigs[0]); // "EUR::fxUSD"
+        minterFxUSD = _predictAddress(SaltString.key(mkFx, "minter"));
+        spCollFxUSD = _predictAddress(SaltString.key(mkFx, "stabilityPoolCollateral"));
+        spLevFxUSD = _predictAddress(SaltString.key(mkFx, "stabilityPoolLeveraged"));
+        spmFxUSD = _predictAddress(SaltString.key(mkFx, "stabilityPoolManager"));
+        acCollFxUSD = _predictAddress(SaltString.key(mkFx, "autoCompounderCollateral"));
+        acLevFxUSD = _predictAddress(SaltString.key(mkFx, "autoCompounderLeveraged"));
         wrappedCollateralFxUSD = IMinter(minterFxUSD).WRAPPED_COLLATERAL_TOKEN();
 
         // EUR::stETH
-        string memory mkSt = "EUR::stETH";
-        minterStETH = _predictAddress(_key(mkSt, "minter"));
-        spCollStETH = _predictAddress(_key(mkSt, "stabilityPoolCollateral"));
-        spLevStETH = _predictAddress(_key(mkSt, "stabilityPoolLeveraged"));
-        spmStETH = _predictAddress(_key(mkSt, "stabilityPoolManager"));
-        acCollStETH = _predictAddress(_key(mkSt, "autoCompounderCollateral"));
-        acLevStETH = _predictAddress(_key(mkSt, "autoCompounderLeveraged"));
+        string memory mkSt = MinterMarketConfigLib.salt(mktConfigs[1]); // "EUR::stETH"
+        minterStETH = _predictAddress(SaltString.key(mkSt, "minter"));
+        spCollStETH = _predictAddress(SaltString.key(mkSt, "stabilityPoolCollateral"));
+        spLevStETH = _predictAddress(SaltString.key(mkSt, "stabilityPoolLeveraged"));
+        spmStETH = _predictAddress(SaltString.key(mkSt, "stabilityPoolManager"));
+        acCollStETH = _predictAddress(SaltString.key(mkSt, "autoCompounderCollateral"));
+        acLevStETH = _predictAddress(SaltString.key(mkSt, "autoCompounderLeveraged"));
         wrappedCollateralStETH = IMinter(minterStETH).WRAPPED_COLLATERAL_TOKEN();
 
         // Shared pegged token
-        pegged = _predictAddress(_key("EUR", "pegged"));
+        pegged = _predictAddress(SaltString.key(peg_.key(), "pegged"));
 
         // Mock oracles (price=1, rate=1 for simple accounting)
         mockOracleFxUSD = new MockWrappedPriceOracle();

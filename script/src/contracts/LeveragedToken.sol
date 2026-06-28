@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -38,7 +39,7 @@ abstract contract LeveragedToken is HarborDeployer {
     ) internal returns (address leveragedToken) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
 
-        string memory leveragedKey = _key(marketKey, "leveraged");
+        string memory leveragedKey = SaltString.key(marketKey, "leveraged");
         string memory tokenName = ConfigTokenNames(address(marketConfig)).leveragedName();
         string memory tokenSymbol = ConfigTokenNames(address(marketConfig)).leveragedSymbol();
 
@@ -53,7 +54,7 @@ abstract contract LeveragedToken is HarborDeployer {
         leveragedToken = _deployProxyViaStubAndRecord(stateData, leveragedKey, impl, initData);
 
         // Grant minter roles
-        address minter = _predictAddress(_key(marketKey, "minter"));
+        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
         uint256 roles = IMintableRole(leveragedToken).MINTER_ROLE() | IBurnableRole(leveragedToken).BURNER_ROLE();
         _grantRoles(leveragedKey, leveragedToken, minter, marketKey, roles, "MINTER | BURNER");
     }

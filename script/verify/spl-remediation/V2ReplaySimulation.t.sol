@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -247,12 +248,12 @@ contract V2ReplaySimulation is BaoTest, HarborDeployer {
         vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         _setSaltPrefix("harbor_v1");
 
-        spm = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolManager"));
-        minterAddr = _predictAddress(_key("ETH", "fxUSD", "minter"));
-        spl = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        spc = _predictAddress(_key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        lev = _predictAddress(_key("ETH", "fxUSD", "leveraged"));
-        peg = _predictAddress(_key("ETH", "pegged"));
+        spm = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
+        minterAddr = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
+        spl = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
+        spc = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        lev = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
+        peg = _predictAddress(SaltString.key("ETH", "pegged"));
         proxyOwner = IBaoOwnable(minterAddr).owner();
         realOracle = IMinter(minterAddr).priceOracle();
 

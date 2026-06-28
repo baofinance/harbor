@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import "forge-std/Test.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -91,9 +92,9 @@ contract MigrateCaptureTest is
     }
 
     function _registerPool(string memory marketKey, string memory spType) internal {
-        string memory saltKey = string.concat(marketKey, "::", spType);
-        address proxy = _predictAddress(_key(marketKey, spType));
-        address minter = _predictAddress(_key(marketKey, "minter"));
+        string memory saltKey = SaltString.key(marketKey, spType);
+        address proxy = _predictAddress(SaltString.key(marketKey, spType));
+        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
         pools.push(PoolConfig(proxy, minter, saltKey));
 
         address[] memory holders = _readHolders(saltKey);
