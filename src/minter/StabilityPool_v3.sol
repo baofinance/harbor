@@ -80,15 +80,10 @@ contract StabilityPool_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LIQUIDATION_TOKEN;
 
-    /// @dev the pool cannot have less than this supply once it has reached that supply
+    /// @dev the pool cannot have less than this supply once it has reached it — a deposit must leave the total at
+    ///      zero or at least this floor (checked on the resulting total, symmetric with withdraw)
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MIN_TOTAL_ASSET_SUPPLY;
-
-    /// @dev the minimum deposit size, used to guarantee the MIN_TOTAL_ASSET_SUPPLY if non-zero
-    /// Although strictly it is only needed for the first deposit, it's a small amount and so not a big penalty for all
-    /// with the added protection of making multiple small deposit attack vectors harder
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint256 public immutable MIN_DEPOSIT; // = MIN_TOTAL_ASSET_SUPPLY;
 
     /// @dev immutable withdrawal window configuration
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -253,10 +248,8 @@ contract StabilityPool_v3 is
             revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
         }
 
-        // set these two to the same thing, for public visibility
-        // their purpose is the same thing - preventing a complete emptying of a non-empty pool
+        // the floor preventing a non-empty pool from being emptied below a dust threshold (share-price safety)
         MIN_TOTAL_ASSET_SUPPLY = minTotalAssetSupply;
-        MIN_DEPOSIT = minTotalAssetSupply;
 
         // set immutable withdrawal window params
 
@@ -331,6 +324,15 @@ contract StabilityPool_v3 is
         startDelay = WITHDRAWAL_START_DELAY;
         endWindow = WITHDRAWAL_END_WINDOW;
     }
+
+    /// @inheritdoc IStabilityPool
+    /// @notice The minimum single-call deposit. No longer a distinct value: the deposit floor is enforced on the
+    ///         resulting total supply (see deposit), so this is an alias for MIN_TOTAL_ASSET_SUPPLY.
+    // solhint-disable-next-line func-name-mixedcase
+    function MIN_DEPOSIT() external view returns (uint256) {
+        return MIN_TOTAL_ASSET_SUPPLY;
+    }
+
     /****************************
      * Public Mutator Functions *
      ****************************/
@@ -350,11 +352,6 @@ contract StabilityPool_v3 is
         assetsDeposited = Token.allOf(sender, ASSET_TOKEN, assetAmount);
         if (assetsDeposited < minAmount) {
             revert DepositAmountLessThanMinimum(assetsDeposited, minAmount);
-        }
-        // although not strictly necessary: it is only needed for the first deposit
-        // we enforce this limit on all deposits because it is a small amount (1$)
-        if (assetsDeposited < MIN_TOTAL_ASSET_SUPPLY) {
-            revert DepositAmountLessThanMinimum(assetsDeposited, MIN_TOTAL_ASSET_SUPPLY);
         }
 
         // Required for ERC20 compatibility - we're actually minting ourselves
@@ -381,6 +378,13 @@ contract StabilityPool_v3 is
         TokenBalance memory supply = $.totalAssetSupply;
         supply.amount += uint104(assetsDeposited);
         supply.updatedAt = uint40(block.timestamp);
+
+        // The floor is on the resulting total, not the per-deposit amount (symmetric with withdraw): an
+        // established pool accepts any deposit; only a first deposit that under-fills the floor reverts. A zero
+        // deposit can't reach here (Token.allOf above reverts ZeroInputBalance), so the total is always > 0.
+        if (supply.amount < MIN_TOTAL_ASSET_SUPPLY) {
+            revert DepositAmountLessThanMinimum(supply.amount, MIN_TOTAL_ASSET_SUPPLY);
+        }
 
         _recordTotalSupply(supply);
 

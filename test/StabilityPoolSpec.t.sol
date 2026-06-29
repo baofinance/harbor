@@ -80,6 +80,57 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
     }
 
+    // The deposit floor is on the RESULTING TOTAL, not the per-deposit amount: once the pool is established
+    // (total >= MIN_TOTAL_ASSET_SUPPLY) a deposit far below the floor must still be accepted — it cannot take the
+    // total below the floor. (The previous per-deposit floor wrongly rejected such deposits.)
+    function test_deposit_smallIntoEstablishedPool_succeeds() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+
+        // Establish the pool well above the floor (user1 is provisioned + approved by the setup).
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+        assertGt(supplyBefore, floor, "pool established above the floor");
+
+        // A 1-wei deposit (far below the floor) into the established pool is accepted.
+        deal(peggedToken, user2, 1);
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, 1);
+        uint256 deposited = IStabilityPool(stabilityPoolCollateral).deposit(1, user2, 0);
+        vm.stopPrank();
+
+        assertEq(deposited, 1, "dust deposit accepted");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), supplyBefore + 1, "total grew by the dust amount");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), 1, "user2 credited the dust deposit");
+    }
+
+    // The floor still bites where it matters: a first deposit that would leave the pool with a non-zero total
+    // below MIN_TOTAL_ASSET_SUPPLY reverts (the resulting total, not the per-deposit amount, is the trigger).
+    function test_deposit_firstBelowFloor_reverts() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "pool starts empty");
+
+        uint256 belowFloor = floor - 1;
+        deal(peggedToken, user1, belowFloor);
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, belowFloor);
+        vm.expectRevert(
+            abi.encodeWithSelector(IStabilityPool.DepositAmountLessThanMinimum.selector, belowFloor, floor)
+        );
+        IStabilityPool(stabilityPoolCollateral).deposit(belowFloor, user1, 0);
+        vm.stopPrank();
+    }
+
+    // MIN_DEPOSIT is retained on the interface but is now an alias for MIN_TOTAL_ASSET_SUPPLY (no separate value).
+    function test_MIN_DEPOSIT_aliasesMinTotalAssetSupply() public view {
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).MIN_DEPOSIT(),
+            IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY(),
+            "MIN_DEPOSIT aliases MIN_TOTAL_ASSET_SUPPLY"
+        );
+    }
+
     function testDepositMaxAmount() public {
         // User1 deposits max amount
         vm.startPrank(user1);
