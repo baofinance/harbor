@@ -43,8 +43,12 @@ abstract contract StabilityPool is HarborDeployer {
 
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
         bool isCollateral = keccak256(bytes(spType)) == keccak256("stabilityPoolCollateral");
-        string memory tokenName = isCollateral ? names.spCollateralName() : names.spLeveragedName();
-        string memory tokenSymbol = isCollateral ? names.spCollateralSymbol() : names.spLeveragedSymbol();
+        string memory tokenName = isCollateral
+            ? names.stabilityPoolCollateralName()
+            : names.stabilityPoolLeveragedName();
+        string memory tokenSymbol = isCollateral
+            ? names.stabilityPoolCollateralSymbol()
+            : names.stabilityPoolLeveragedSymbol();
 
         IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(address(marketConfig));
 

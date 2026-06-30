@@ -42,82 +42,44 @@ abstract contract ConfigTokenNames {
         return string.concat("hs", _collateral().upper(), "-", _peg().upper());
     }
 
-    // ── Stability pool tokens ───────────────────────────────────────────
+    // ── Liquidation / stability pool tokens ─────────────────────────────
 
     enum Liquidation {
         Collateral,
         Leveraged
     }
 
-    function _spStrings(Liquidation liquidation) private view returns (string memory name, string memory symbol) {
-        string memory liqSymbol = liquidation == Liquidation.Collateral
-            ? _collateral()
-            : string.concat("hs", _collateral().upper());
+    /// @notice The liquidation symbol embedded in stability-pool token names: the collateral for a
+    ///         collateral liquidation, else the leveraged ("hs…") symbol for a leveraged liquidation.
+    function liquidationSymbol(Liquidation liquidation) public view returns (string memory) {
+        return liquidation == Liquidation.Collateral ? _collateral() : string.concat("hs", _collateral().upper());
+    }
 
+    function _stabilityPoolStrings(
+        Liquidation liquidation
+    ) private view returns (string memory name, string memory symbol) {
+        string memory liqSymbol = liquidationSymbol(liquidation);
         name = string.concat("Harbor stability pool: ", peggedSymbol(), " (", liqSymbol, ")");
         symbol = string.concat("hsp", _peg(), "(", liqSymbol, ")");
     }
 
     /// @notice Collateral stability pool name (e.g., "Harbor SP: haETH").
-    function spCollateralName() public view returns (string memory name) {
-        (name, ) = _spStrings(Liquidation.Collateral);
+    function stabilityPoolCollateralName() public view returns (string memory name) {
+        (name, ) = _stabilityPoolStrings(Liquidation.Collateral);
     }
 
     /// @notice Collateral stability pool symbol (e.g., "sp(haETH)").
-    function spCollateralSymbol() public view returns (string memory symbol) {
-        (, symbol) = _spStrings(Liquidation.Collateral);
+    function stabilityPoolCollateralSymbol() public view returns (string memory symbol) {
+        (, symbol) = _stabilityPoolStrings(Liquidation.Collateral);
     }
 
     /// @notice Leveraged stability pool name (e.g., "Harbor SP: hsFXUSD-ETH").
-    function spLeveragedName() public view returns (string memory name) {
-        (name, ) = _spStrings(Liquidation.Leveraged);
+    function stabilityPoolLeveragedName() public view returns (string memory name) {
+        (name, ) = _stabilityPoolStrings(Liquidation.Leveraged);
     }
 
     /// @notice Leveraged stability pool symbol (e.g., "sp(hsFXUSD-ETH)").
-    function spLeveragedSymbol() public view returns (string memory symbol) {
-        (, symbol) = _spStrings(Liquidation.Leveraged);
-    }
-
-    // ── Auto-compounder tokens ─────────────────────────────────────────
-
-    function _acStrings(Liquidation liquidation) private view returns (string memory name, string memory symbol) {
-        string memory liqSymbol = liquidation == Liquidation.Collateral
-            ? _collateral()
-            : string.concat("hs", _collateral().upper());
-
-        name = string.concat("Harbor auto-compounder: ", peggedSymbol(), " (", liqSymbol, ")");
-        symbol = string.concat("hc", _peg(), "(", liqSymbol, ")");
-    }
-
-    /// @notice Collateral auto-compounder name (e.g., "Harbor auto-compounder: haETH (fxUSD)").
-    function acCollateralName() public view returns (string memory name) {
-        (name, ) = _acStrings(Liquidation.Collateral);
-    }
-
-    /// @notice Collateral auto-compounder symbol (e.g., "hcETH(fxUSD)").
-    function acCollateralSymbol() public view returns (string memory symbol) {
-        (, symbol) = _acStrings(Liquidation.Collateral);
-    }
-
-    /// @notice Leveraged auto-compounder name (e.g., "Harbor auto-compounder: haETH (hsFXUSD)").
-    function acLeveragedName() public view returns (string memory name) {
-        (name, ) = _acStrings(Liquidation.Leveraged);
-    }
-
-    /// @notice Leveraged auto-compounder symbol (e.g., "hcETH(hsFXUSD)").
-    function acLeveragedSymbol() public view returns (string memory symbol) {
-        (, symbol) = _acStrings(Liquidation.Leveraged);
-    }
-
-    // ── HarborYield token (one per peg) ────────────────────────────────
-
-    /// @notice HarborYield name (e.g., "Harbor yield: ETH").
-    function harborYieldName() public view returns (string memory) {
-        return string.concat("Harbor yield: ", _peg());
-    }
-
-    /// @notice HarborYield symbol (e.g., "hyETH").
-    function harborYieldSymbol() public view returns (string memory) {
-        return string.concat("hy", _peg().upper());
+    function stabilityPoolLeveragedSymbol() public view returns (string memory symbol) {
+        (, symbol) = _stabilityPoolStrings(Liquidation.Leveraged);
     }
 }

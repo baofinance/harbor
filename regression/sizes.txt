@@ -1,17 +1,17 @@
 | Contract                          |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |-----------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
 | ConfigIncentiveLib                |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| ConfigMarket_BTC_fxUSD_mainnet    |              6,832 |               17,744 |               6,860 |    1,435,000 |            143.50 |
-| ConfigMarket_BTC_stETH_mainnet    |              6,858 |               17,718 |               6,886 |    1,440,460 |            144.05 |
-| ConfigMarket_ETH_fxUSD_mainnet    |              6,832 |               17,744 |               6,860 |    1,435,000 |            143.50 |
-| ConfigMarket_EUR_fxUSD_mainnet    |              6,834 |               17,742 |               6,862 |    1,435,420 |            143.54 |
-| ConfigMarket_EUR_stETH_mainnet    |              6,860 |               17,716 |               6,888 |    1,440,880 |            144.09 |
-| ConfigMarket_GOLD_fxUSD_mainnet   |              6,836 |               17,740 |               6,864 |    1,435,840 |            143.58 |
-| ConfigMarket_GOLD_stETH_mainnet   |              6,862 |               17,714 |               6,890 |    1,441,300 |            144.13 |
-| ConfigMarket_MCAP_fxUSD_mainnet   |              6,838 |               17,738 |               6,866 |    1,436,260 |            143.63 |
-| ConfigMarket_MCAP_stETH_mainnet   |              6,864 |               17,712 |               6,892 |    1,441,720 |            144.17 |
-| ConfigMarket_SILVER_fxUSD_mainnet |              6,832 |               17,744 |               6,860 |    1,435,000 |            143.50 |
-| ConfigMarket_SILVER_stETH_mainnet |              6,858 |               17,718 |               6,886 |    1,440,460 |            144.05 |
+| ConfigMarket_BTC_fxUSD_mainnet    |              6,317 |               18,259 |               6,345 |    1,326,850 |            132.69 |
+| ConfigMarket_BTC_stETH_mainnet    |              6,343 |               18,233 |               6,371 |    1,332,310 |            133.23 |
+| ConfigMarket_ETH_fxUSD_mainnet    |              6,317 |               18,259 |               6,345 |    1,326,850 |            132.69 |
+| ConfigMarket_EUR_fxUSD_mainnet    |              6,319 |               18,257 |               6,347 |    1,327,270 |            132.73 |
+| ConfigMarket_EUR_stETH_mainnet    |              6,345 |               18,231 |               6,373 |    1,332,730 |            133.27 |
+| ConfigMarket_GOLD_fxUSD_mainnet   |              6,321 |               18,255 |               6,349 |    1,327,690 |            132.77 |
+| ConfigMarket_GOLD_stETH_mainnet   |              6,347 |               18,229 |               6,375 |    1,333,150 |            133.31 |
+| ConfigMarket_MCAP_fxUSD_mainnet   |              6,323 |               18,253 |               6,351 |    1,328,110 |            132.81 |
+| ConfigMarket_MCAP_stETH_mainnet   |              6,349 |               18,227 |               6,377 |    1,333,570 |            133.36 |
+| ConfigMarket_SILVER_fxUSD_mainnet |              6,317 |               18,259 |               6,345 |    1,326,850 |            132.69 |
+| ConfigMarket_SILVER_stETH_mainnet |              6,343 |               18,233 |               6,371 |    1,332,310 |            133.23 |
 | ConfigPeg_BTC                     |                766 |               23,810 |                 794 |      161,140 |             16.11 |
 | ConfigPeg_ETH                     |                766 |               23,810 |                 794 |      161,140 |             16.11 |
 | ConfigPeg_EUR                     |                768 |               23,808 |                 796 |      161,560 |             16.16 |
