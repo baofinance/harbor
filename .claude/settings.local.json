@@ -47,7 +47,9 @@
       "Bash(git -C ../harbor-yield.wip-hytoken show wip-yieldToken:test/mocks/Mock1inchRouter.sol)",
       "Bash(git -C ~/.claude/plans add -A)",
       "Bash(git -C ~/.claude/plans commit -m \"SP_v3 not deployed, permit all-at-once, bao-base ERC20Metadata, Campaign I migration\")",
-      "Bash(git -C ../harbor-yield.wip-hytoken show wip-hytoken:src/hyToken_v1.sol)"
+      "Bash(git -C ../harbor-yield.wip-hytoken show wip-hytoken:src/hyToken_v1.sol)",
+      "Bash(forge test *)",
+      "Bash(git -C ~/.claude/plans commit -am \"numerical-testing-rigour: feeRange band-count DONE \\(areDisallows?author:bandCount for balances; fees keep author bounds\\); mp flat-exact; verified seeds 1-7 + mutation-checked; 65% confirmed not-a-bug \\(disallow cap\\)\")"
     ]
   }
 }

@@ -92,253 +92,147 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     uint256 constant TINY_DEPOSIT = 1; // Extremely small deposit to test edge cases
     uint256 constant REWARD_AMOUNT = 50 ether;
 
-    function testComplexDepositLossWithdrawSequence() public {
-        // Multiple users make deposits of different sizes
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
-
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
-
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
-
-        // Verify initial balances
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user2InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 user3InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        assertEq(user1InitialBalance, DEPOSIT_AMOUNT, "User1 initial balance should match deposit");
-        assertEq(user2InitialBalance, DEPOSIT_AMOUNT * 2, "User2 initial balance should match deposit");
-        assertEq(user3InitialBalance, DEPOSIT_AMOUNT * 3, "User3 initial balance should match deposit");
-        assertEq(user3InitialBalance, user1InitialBalance * 3, "Initial balance ratio should be 1:3");
-
-        // First partial liquidation (DEPOSIT_AMOUNT out of total 6*DEPOSIT_AMOUNT)
-        // Expected loss per user: ~16.67% of their balance
-        _liquidate(DEPOSIT_AMOUNT);
-
-        // After first liquidation, balances should be reduced by ~16.67%
-        uint256 user1AfterLiquidation1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user3AfterLiquidation1 = IERC20(stabilityPoolCollateral).balanceOf(user3);
-
-        uint256 expectedUser1BalanceAfterLiq1 = (user1InitialBalance * 5) / 6;
-        uint256 expectedUser3BalanceAfterLiq1 = (user3InitialBalance * 5) / 6;
-
-        assertApproxEqRel(
-            user1AfterLiquidation1,
-            expectedUser1BalanceAfterLiq1,
-            0.01e18, // 1% tolerance for rounding
-            "User1 balance after liquidation 1 should be ~5/6 of initial"
-        );
-        assertApproxEqRel(
-            user3AfterLiquidation1,
-            expectedUser3BalanceAfterLiq1,
-            0.01e18,
-            "User3 balance after liquidation 1 should be ~5/6 of initial"
-        );
-        assertApproxEqRel(
-            user3AfterLiquidation1,
-            user1AfterLiquidation1 * 3,
-            0.01e18,
-            "Balance ratio should remain ~1:3 after liquidation"
-        );
-
-        // More deposits
-        vm.prank(user4);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 4, user4, 0);
-
-        // User1 withdraws DEPOSIT_AMOUNT/4
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        vm.warp(block.timestamp + 2 hours);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 4, user1, 0);
-
-        // After withdrawal, user1's balance should be reduced by DEPOSIT_AMOUNT/4
-        uint256 user1AfterWithdraw = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user3AfterUser1Withdraw = IERC20(stabilityPoolCollateral).balanceOf(user3);
-
-        uint256 expectedUser1BalanceAfterWithdraw = user1AfterLiquidation1 - (DEPOSIT_AMOUNT / 4);
-
-        assertApproxEqRel(
-            user1AfterWithdraw,
-            expectedUser1BalanceAfterWithdraw,
-            0.01e18,
-            "User1 balance after withdrawal should be reduced by withdrawal amount"
-        );
-
-        // User3's balance should remain unchanged after user1's withdrawal
-        assertEq(
-            user3AfterUser1Withdraw,
-            user3AfterLiquidation1,
-            "User3 balance should not change after user1's withdrawal"
-        );
-        // At this point, proportionality is broken because user1 withdrew funds
-
-        // Another liquidation - DEPOSIT_AMOUNT*2 out of remaining ~8.75*DEPOSIT_AMOUNT
-        // Expected loss per user: ~23% of their current balance
-        _liquidate(DEPOSIT_AMOUNT * 2);
-
-        // User2 withdraws DEPOSIT_AMOUNT/2
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        vm.warp(block.timestamp + 2 hours);
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
-
-        // Final liquidation - DEPOSIT_AMOUNT/2 out of remaining ~6.25*DEPOSIT_AMOUNT
-        // Expected loss per user: ~8% of their current balance
-        _liquidate(DEPOSIT_AMOUNT / 2);
-
-        // Check final balances
-        uint256 user1FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user2FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 user3FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        uint256 user4FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user4);
-
-        // All balances should be positive
-        assertTrue(user1FinalBalance > 0, "User1 should have balance > 0");
-        assertTrue(user2FinalBalance > 0, "User2 should have balance > 0");
-        assertTrue(user3FinalBalance > 0, "User3 should have balance > 0");
-        assertTrue(user4FinalBalance > 0, "User4 should have balance > 0");
-
-        // Calculate expected ratio: original proportion adjusted for user1's withdrawal
-        // User1 withdrew ~25% of their balance after first liquidation
-        // Expect final balances to reflect operations and maintain relative proportions
-
-        // User1 should have ~75% of what would be proportional to user3
-        uint256 expectedProportionalBalance = user3FinalBalance / 3;
-        uint256 adjustedExpectedBalance = (expectedProportionalBalance * 75) / 100;
-
-        assertApproxEqRel(
-            user1FinalBalance,
-            adjustedExpectedBalance,
-            0.20e18, // 20% tolerance due to multiple operations with rounding
-            "User1 balance should be ~75% of the proportional amount compared to user3"
-        );
-
-        // User2 withdrew after second liquidation, so should have ~75% of twice user1's balance
-        assertApproxEqRel(
-            user2FinalBalance,
-            (user1FinalBalance * 2 * 75) / 100,
-            0.25e18, // 25% tolerance
-            "User2 balance should reflect initial proportion and withdrawal"
-        );
-
-        // User4 joined later, should have ~4/3 times user3's balance
-        assertApproxEqRel(
-            user4FinalBalance,
-            (user3FinalBalance * 4) / 3,
-            0.2 ether, // 20% tolerance
-            "User4 balance should be proportional to later entry"
-        );
+    function _threeParts(uint256 a, uint256 b, uint256 c) private pure returns (uint256[] memory parts) {
+        parts = new uint256[](3);
+        parts[0] = a;
+        parts[1] = b;
+        parts[2] = c;
     }
 
-    // Test sequence with multiple deposits, losses and withdrawals to ensure complex scenarios work
-    function testComplexDepositLossWithdrawSequence2() public {
-        // Multiple users make deposits of different sizes
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+    // Pro-rata correctness under a single clean loss: three users at 1:2:3 lose an exact tenth of the pool,
+    // so every post-loss balance is an exact rational and the pool conserves value to the wei.
+    function test_rebalance_singleLoss_exactProRata() public {
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(user3);
+        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        vm.stopPrank();
 
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        // Lose 60 of 600 (exactly 1/10): loss*1e18 / 600e18 = 1e17 divides evenly, so the ceiling division
+        // leaves no remainder and the product factor is exactly 0.9. Every balance scales by 0.9 with no dust.
+        _liquidate(60 ether);
 
-        vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
+        uint256 b1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 b2 = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 b3 = IERC20(stabilityPoolCollateral).balanceOf(user3);
+        assertEq(b1, 90 ether, "user1 = 0.9 * 100");
+        assertEq(b2, 180 ether, "user2 = 0.9 * 200");
+        assertEq(b3, 270 ether, "user3 = 0.9 * 300");
+        // Supply drops by exactly the loss; the users sum to it with zero dust.
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 540 ether, "supply = 600 - 60");
+        assertConserved(_threeParts(b1, b2, b3), 540 ether, 0, "single loss conserved exactly");
+    }
 
-        // Verify initial balances
-        uint256 user1InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user2InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 user3InitialBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        assertEq(user1InitialBalance, DEPOSIT_AMOUNT, "User1 initial balance should match deposit");
-        assertEq(user2InitialBalance, DEPOSIT_AMOUNT * 2, "User2 initial balance should match deposit");
-        assertEq(user3InitialBalance, DEPOSIT_AMOUNT * 3, "User3 initial balance should match deposit");
+    // After a clean loss, a user withdraws an exact amount during their request window (no early-withdrawal
+    // fee). Their balance drops by exactly the withdrawal; the others are untouched; value stays conserved.
+    function test_rebalance_lossThenWithdraw_exactProRata() public {
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(user3);
+        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        vm.stopPrank();
 
-        // First partial liquidation
-        _liquidate(DEPOSIT_AMOUNT);
+        // Clean 1/10 loss -> 90 / 180 / 270 (see test_rebalance_singleLoss_exactProRata).
+        _liquidate(60 ether);
 
-        // Capture actual values after first liquidation
-        uint256 user1AfterLiquidation1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user2AfterLiquidation1 = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 user3AfterLiquidation1 = IERC20(stabilityPoolCollateral).balanceOf(user3);
-
-        // Verify actual values match expected - this step documents the actual behavior
-        // From the trace, we can see user1 has 83333333333333333300
-        assertEq(user1AfterLiquidation1, 83333333333333333300, "User1 balance after liquidation 1");
-        assertEq(user2AfterLiquidation1, 166666666666666666600, "User2 balance after liquidation 1");
-        assertEq(user3AfterLiquidation1, 249999999999999999900, "User3 balance after liquidation 1");
-
-        // More deposits
-        vm.prank(user4);
-        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 4, user4, 0);
-
-        // User1 withdraws portion of their balance
-        vm.prank(user1);
+        // user1 withdraws 40 of their 90, inside an active request window so no fee is charged.
+        vm.startPrank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 s1, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
-        vm.warp(uint256(s1) + 1);
-        vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 4, user1, 0);
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1);
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).withdraw(40 ether, user1, 0);
+        vm.stopPrank();
 
-        // Capture actual values after withdrawal
-        uint256 user1AfterWithdraw = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        // From the trace, we know this is 58333333333333333300
-        assertEq(user1AfterWithdraw, 58333333333333333300, "User1 balance after withdrawal");
+        uint256 b1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 b2 = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 b3 = IERC20(stabilityPoolCollateral).balanceOf(user3);
+        assertEq(b1, 50 ether, "user1 = 90 - 40 withdrawn");
+        assertEq(b2, 180 ether, "user2 unchanged by user1's withdrawal");
+        assertEq(b3, 270 ether, "user3 unchanged by user1's withdrawal");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 500 ether, "supply = 540 - 40");
+        assertConserved(_threeParts(b1, b2, b3), 500 ether, 0, "loss-then-withdraw conserved exactly");
+    }
 
-        // Another liquidation
-        _liquidate(DEPOSIT_AMOUNT * 2);
+    // Two losses in a row where the first does NOT divide evenly, so the pool keeps a ceiling-division
+    // remainder. User ratios stay exact (all balances scale by the same product), and value is conserved:
+    // users never sum above supply, and the shortfall is bounded by the rounding the pool retains.
+    function test_rebalance_sequentialLosses_conserved() public {
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(user3);
+        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        vm.stopPrank();
 
-        // User2 withdraws
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
-        (uint64 s2, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user2);
-        vm.warp(uint256(s2) + 1);
-        vm.prank(user2);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, user2, 0);
+        // 100/600 does not divide evenly; the ceiling division retains a remainder for the pool.
+        _liquidate(100 ether);
+        // Second loss on the reduced pool.
+        _liquidate(100 ether);
 
-        // Final liquidation
-        _liquidate(DEPOSIT_AMOUNT / 2);
+        uint256 b1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 b2 = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 b3 = IERC20(stabilityPoolCollateral).balanceOf(user3);
+        // Supply is reduced by exactly each loss: 600 - 100 - 100 = 400.
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 400 ether, "supply = 600 - 100 - 100");
 
-        // Get final balances
-        uint256 user1FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
-        uint256 user2FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user2);
-        uint256 user3FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user3);
-        uint256 user4FinalBalance = IERC20(stabilityPoolCollateral).balanceOf(user4);
+        // Ratios are loss-invariant: every balance is deposit_i * (the same product), so 1:2:3 holds exactly.
+        assertEq(b2, 2 * b1, "user2 : user1 == 2 : 1");
+        assertEq(b3, 3 * b1, "user3 : user1 == 3 : 1");
 
-        // Verify exact values based on trace data
-        assertEq(user1FinalBalance, 41399999999999999990, "User1 final balance");
-        assertEq(user2FinalBalance, 72285714285714285657, "User2 final balance");
-        assertEq(user3FinalBalance, 177428571428571428561, "User3 final balance");
-        assertEq(user4FinalBalance, 283885714285714285812, "User4 final balance");
+        // Conservation: no value created, and the shortfall is only the rounding the pool retains. Each loss
+        // rounds loss-per-unit up by < 1 (scaled by 1e18), so it keeps < supplyBefore/1e18 asset-wei; supply
+        // only shrinks, so 600e18/1e18 = 600 bounds each of the two losses. Plus at most 1 wei floor per user.
+        uint256 maxDust = 2 * (600 ether / 1e18) + 3;
+        assertConserved(_threeParts(b1, b2, b3), 400 ether, maxDust, "two losses conserved within retained rounding");
+    }
 
-        // All balances should be positive
-        assertTrue(user1FinalBalance > 0, "User1 should have balance > 0");
-        assertTrue(user2FinalBalance > 0, "User2 should have balance > 0");
-        assertTrue(user3FinalBalance > 0, "User3 should have balance > 0");
-        assertTrue(user4FinalBalance > 0, "User4 should have balance > 0");
+    // A loss large enough to breach the floor is capped so the pool is left at exactly
+    // MIN_TOTAL_ASSET_SUPPLY. Every user keeps a positive proportional share; shares never sum above the floor.
+    function test_rebalance_lossWipesToFloor() public {
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(100 ether, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(200 ether, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(user3);
+        IStabilityPool(stabilityPoolCollateral).deposit(300 ether, user3, 0);
+        vm.stopPrank();
 
-        // Now verify proportional relationships with tighter tolerances
-        // The exact observed ratio between user3 and user1 is 177428571428571428400 / 41399999999999999952 ≈ 4.29
-        assertApproxEqRel(
-            (user1FinalBalance * 429) / 100, // Use observed ratio instead of estimated ratio
-            user3FinalBalance,
-            0.01e18, // 1% tolerance is much tighter
-            "User1 to User3 ratio should match observed value"
-        );
+        uint256 minSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        // Sweep the entire withdrawable amount (supply - floor); notifyLoss caps the loss at supply - floor.
+        _liquidate(600 ether - minSupply);
 
-        // The exact observed ratio between user2 and user1 is 72285714285714285562 / 41399999999999999952 ≈ 1.75
-        assertApproxEqRel(
-            (user1FinalBalance * 175) / 100,
-            user2FinalBalance,
-            0.01e18, // 1% tolerance
-            "User1 to User2 ratio should match observed value"
-        );
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), minSupply, "supply floored at MIN_TOTAL_ASSET_SUPPLY");
 
-        // The exact observed ratio between user4 and user3 is 283885714285714285553 / 177428571428571428400 ≈ 1.6
-        assertApproxEqRel(
-            (user3FinalBalance * 160) / 100,
-            user4FinalBalance,
-            0.01e18, // 1% tolerance
-            "User3 to User4 ratio should match observed value"
+        uint256 b1 = IERC20(stabilityPoolCollateral).balanceOf(user1);
+        uint256 b2 = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 b3 = IERC20(stabilityPoolCollateral).balanceOf(user3);
+        assertGt(b1, 0, "user1 keeps a share");
+        assertGt(b2, 0, "user2 keeps a share");
+        assertGt(b3, 0, "user3 keeps a share");
+        assertEq(b2, 2 * b1, "user2 : user1 == 2 : 1");
+        assertEq(b3, 3 * b1, "user3 : user1 == 3 : 1");
+
+        // Users sum to at most the floor; the pool retains only rounding dust (< supplyBefore/1e18 + N).
+        assertConserved(
+            _threeParts(b1, b2, b3),
+            minSupply,
+            600 ether / 1e18 + 3,
+            "wipe-to-floor conserved within retained rounding"
         );
     }
 

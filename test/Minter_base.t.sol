@@ -3,13 +3,12 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -32,141 +31,7 @@ import {Array} from "@harbor-test/Array.sol";
 
 import {ConfigFile} from "@harbor-test/Config.sol";
 
-abstract contract TestExtras is Test {
-    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff, uint256 maxRelDiff) internal pure returns (bool near) {
-        uint256 absDiff = a > b ? a - b : b - a;
-        if (isNear(a, b, maxAbsDiff)) {
-            return true;
-        }
-
-        uint256 relDiff;
-        uint256 larger = a > b ? a : b;
-        if (larger > 0) {
-            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
-            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
-            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
-        }
-        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
-
-        return (relDiff <= maxRelDiff);
-    }
-
-    function isNear(uint256 a, uint256 b, uint256 maxAbsDiff) internal pure returns (bool near) {
-        uint256 absDiff = a > b ? a - b : b - a;
-        return (absDiff <= maxAbsDiff);
-    }
-
-    /**
-     * @dev Asserts that two values are within acceptable proximity using either absolute or relative tolerance
-     * @param a First value
-     * @param b Second value
-     * @param maxAbsDiff Maximum absolute difference allowed
-     * @param maxRelDiff Maximum relative difference allowed (in 1e18 format where 1e18 = 100%)
-     * @param message Error message on failure
-     */
-    function assertNear(
-        uint256 a,
-        uint256 b,
-        uint256 maxAbsDiff,
-        uint256 maxRelDiff,
-        string memory message
-    ) internal pure {
-        uint256 absDiff = a > b ? a - b : b - a;
-        if (absDiff <= maxAbsDiff) {
-            // SUCCESS (abs): Log and exit.
-            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
-            return;
-        }
-
-        uint256 relDiff;
-        uint256 larger = a > b ? a : b;
-        if (larger > 0) {
-            // Calculate relDiff with rounding up to match Foundry's internal logic and avoid truncation to zero.
-            // This is equivalent to: Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Up)
-            relDiff = Math.mulDiv(absDiff, 1e18, larger, Math.Rounding.Ceil);
-        }
-        // No need for an else, relDiff defaults to 0 which is correct if a,b are 0.
-
-        if (relDiff <= maxRelDiff) {
-            // SUCCESS (rel): Log and exit.
-            vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
-            return;
-        }
-
-        // FAILURE: Both checks failed. Revert with a clear message.
-        // We use assertApproxEqRel as it's generally more informative for large numbers.
-        vm.assertApproxEqRel(
-            a,
-            b,
-            maxRelDiff,
-            string.concat(
-                message,
-                " (outside both abs (max: ",
-                Useful.toString(maxAbsDiff),
-                ", real: ",
-                Useful.toString(absDiff),
-                "} & rel tolerances)"
-            )
-        );
-    }
-
-    function assertNear(
-        int256 a,
-        int256 b,
-        uint256 maxAbsDiff,
-        uint256 maxRelDiff,
-        string memory message
-    ) internal pure {
-        uint256 absDiff = SignedMath.abs(a - b);
-        if (absDiff <= maxAbsDiff) {
-            // SUCCESS (abs): Log and exit.
-            vm.assertApproxEqAbs(a, b, absDiff, string.concat(message, " - within abs tolerance"));
-            return;
-        }
-
-        // Use magnitudes for relative comparison
-        uint256 magA = SignedMath.abs(a);
-        uint256 magB = SignedMath.abs(b);
-        uint256 denom = magA > magB ? magA : magB;
-
-        if (denom > 0) {
-            // relDiff = ceil(absDiff / denom) in 1e18 scale
-            uint256 relDiff = Math.mulDiv(absDiff, 1e18, denom, Math.Rounding.Ceil);
-            if (relDiff <= maxRelDiff) {
-                // SUCCESS (rel)
-                vm.assertApproxEqRel(a, b, maxRelDiff, string.concat(message, " - within rel tolerance"));
-                return;
-            }
-        }
-
-        // FAILURE: outside both tolerances
-        vm.assertApproxEqRel(
-            a,
-            b,
-            maxRelDiff,
-            string.concat(
-                message,
-                " (outside both abs (max: ",
-                Useful.toString(maxAbsDiff),
-                ", real: ",
-                Useful.toString(absDiff),
-                "} & rel tolerances)"
-            )
-        );
-    }
-
-    /// @dev Overload for just checking absolute tolerance - its just an alias for existing vm call
-    /// we prefer this as it's shorter text to type
-    function assertNear(uint256 a, uint256 b, uint256 maxAbsDiff, string memory message) internal pure {
-        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
-    }
-
-    function assertNear(int256 a, int256 b, uint256 maxAbsDiff, string memory message) internal pure {
-        vm.assertApproxEqAbs(a, b, maxAbsDiff, message);
-    }
-}
-
-contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
+contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile {
     address minter;
     IMinter.Config config;
     bool isConfigSet = false;
@@ -212,6 +77,19 @@ contract TestMinterSetUp is TestExtras, Clog, Array, ConfigFile {
 
     function _basisPointToEther(int amount) private pure returns (int256) {
         return (amount * 1 ether) / 10000;
+    }
+
+    /// @dev The number of adjacent incentive bands whose fee/discount rate differs — i.e. how many distinct
+    ///      fee "steps" an operation's collateral-ratio path can straddle. A flat config returns 0, so the
+    ///      operation is exactly path-independent (splitting it changes nothing but per-step rounding). Each
+    ///      transition admits a bounded, magnitude-scaled divergence between doing an operation in one call
+    ///      versus many, because the fee is recomputed per band as the collateral ratio moves during the op.
+    function _bandTransitions(int256[] memory incentiveRatios) internal pure returns (uint256 transitions) {
+        for (uint256 i = 1; i < incentiveRatios.length; i++) {
+            if (incentiveRatios[i] != incentiveRatios[i - 1]) {
+                transitions++;
+            }
+        }
     }
 
     function ic(
@@ -802,7 +680,7 @@ contract TestMinterBasics is TestMinterSetUp {
         price = (price * 1000) / 999;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price);
         IMinter(minter).mintLeveragedToken(0.001 ether, user, 0);
-        assertNear(IMinter(minter).leveragedTokenBalance(), 4 ether, 0, 0.1 ether, "leveraged minted");
+        assertApprox(IMinter(minter).leveragedTokenBalance(), 4 ether, 0, 0.1 ether, "leveraged minted");
     }
 
     function test_firstMintRedeem2() public {
