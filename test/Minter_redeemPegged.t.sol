@@ -328,6 +328,48 @@ contract TestMinterRedeemPegged is TestMinterMint {
     // Redeem Pegged
     //---------------------------------------------------------------------------------------------
 
+    // Golden hand-computed case (no formula re-derivation): redeem 2000 pegged at oracle price 2000 (rate 1.0),
+    // 0.8% redeem fee, collateral ratio >= 1 so the pegged price is exactly 1.0.
+    //   fee (in pegged)     = 0.8% * 2000    = 16 pegged
+    //   net pegged          = 2000 - 16      = 1984
+    //   collateral returned = 1984 / 2000    = 0.992 collateral   (exact)
+    //   fee (in collateral) = 16 / 2000      = 0.008 collateral   (exact)
+    function test_redeemPegged_goldenExact() public {
+        setUp_collateral(2 ether, 0); // CR == 1.0: minter holds 4000 pegged backed by 2 collateral
+        deal(address(peggedToken), sender, 2000 ether);
+        vm.startPrank(sender);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        uint256 feeBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
+        uint256 returned = IMinter(minter).redeemPeggedToken(2000 ether, receiver, 0);
+        vm.stopPrank();
+
+        assertEq(returned, 0.992 ether, "returned = 1984 / 2000 = 0.992");
+        assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver) - feeBefore, 0.008 ether, "fee = 16 / 2000 = 0.008");
+        assertEq(
+            IERC20(Deployed.wstETH).balanceOf(receiver),
+            0.992 ether,
+            "receiver got exactly the returned collateral"
+        );
+    }
+
+    // Rounding direction (intentional, pinned so a future flip is caught). Redeem rounds DOWN like mint, verified
+    // against the contract with a non-integer amount.
+    //
+    // Redeeming 2000 + 1 wei pegged at price 2000, 0.8% fee, CR >= 1:
+    //   fee (pegged)        = floor((2000e18 + 1) * 0.008)  = 16e18          (the +1 wei is below the fee granularity)
+    //   net pegged          = 2000e18 + 1 - 16e18           = 1984e18 + 1
+    //   collateral returned = (1984e18 + 1) / 2000          = 0.992e18 + 0.5 (rational) -> floors to 0.992e18
+    // The user receives 0.992 ether (the floor), never 0.992 ether + 1.
+    function test_redeemPegged_userAmountRoundsDown() public {
+        setUp_collateral(2 ether, 0); // CR == 1.0, clean price 2000
+        deal(address(peggedToken), sender, 2000 ether + 1);
+        vm.startPrank(sender);
+        IERC20(peggedToken).approve(minter, type(uint256).max);
+        uint256 returned = IMinter(minter).redeemPeggedToken(2000 ether + 1, receiver, 0);
+        vm.stopPrank();
+        assertEq(returned, 0.992 ether, "returned floors to 0.992, not 0.992 + 1 wei");
+    }
+
     function _redeemPeggedToken(uint256 peggedIn) private {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 

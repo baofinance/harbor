@@ -9,6 +9,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import "@harbor-test/Useful.sol";
 import {TestMinterMint} from "@harbor-test/Minter_mint.t.sol";
@@ -264,6 +265,91 @@ contract TestMinterMintPegged is TestMinterMint {
                 price: price_,
                 rate: rate_
             });
+    }
+
+    // Golden hand-computed case (no formula re-derivation): oracle price 2000, rate 1.0, mint fee 0.5%,
+    // collateral ratio > 1 so the pegged price is exactly 1.0. Minting 1 collateral:
+    //   fee          = 0.5% * 1        = 0.005 collateral
+    //   net collateral = 1 - 0.005     = 0.995
+    //   minted       = 0.995 * 2000    = 1990 pegged   (exact — every term divides evenly)
+    function test_mintPegged_goldenExact() public {
+        setUp_collateral(0, 1 ether); // collateral ratio ~2 (> 1): pegged price is exactly 1e18
+
+        deal(address(Deployed.wstETH), sender, 1 ether);
+        vm.startPrank(sender);
+        IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+        uint256 feeBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, receiver, 0);
+        vm.stopPrank();
+
+        assertEq(minted, 1990 ether, "minted = (1 - 0.005) * 2000");
+        assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver) - feeBefore, 0.005 ether, "fee = 0.5% of 1 collateral");
+        assertEq(IERC20(peggedToken).balanceOf(receiver), 1990 ether, "receiver got exactly the minted pegged");
+    }
+
+    function test_ROUNDPROBE() public {
+        setUp_collateral(0, 1 ether); // CR > 1, pegged price 1.0, mint fee 0.5%
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 fr = uint256(ultimate(config.mintPeggedIncentiveConfig.incentiveRatios)); // 0.5%
+        for (uint256 k = 0; k < 6; k++) {
+            uint256 c = 1 ether + 100 * k; // vary the sub-wei fee remainder
+            (, uint256 wf, , uint256 pm, , ) = IMinter(minter).mintPeggedTokenDryRun(c);
+            // exact rational fee (in wrapped) = c*fr/1e18 ; exact minted = (c - feeExact)*price*rate/(1e18*1e18)
+            uint256 feeFloor = (c * fr) / 1 ether;
+            uint256 feeRem = (c * fr) % 1 ether; // 0..1e18-1 ; >0 means non-integer
+            uint256 mintedExactNum = (c - wf) * price * rate; // /1e36 exact
+            console2.log(
+                string.concat(
+                    "PROBE c=",
+                    Useful.toString(c),
+                    " fee=",
+                    Useful.toString(wf),
+                    " feeFloor=",
+                    Useful.toString(feeFloor),
+                    " rem/1e15=",
+                    Useful.toString(feeRem / 1e15)
+                )
+            );
+            console2.log(
+                string.concat(
+                    "PROBE   minted=",
+                    Useful.toString(pm),
+                    " mintedNum%1e36=",
+                    Useful.toString(mintedExactNum % 1e36)
+                )
+            );
+        }
+    }
+
+    // Rounding direction (intentional, pinned so a future flip is caught). The Minter rounds DOWN throughout:
+    // the fee to the receiver floors, and the pegged the user receives floors. Both are verified against the
+    // contract with deliberately non-integer inputs, not assumed.
+    //
+    // Fee floors: minting 1e18 + 100 collateral at 0.5% gives an exact fee of 5e15 + 0.5 wei; the contract
+    // pays the feeReceiver 5e15 (floored), never 5e15 + 1.
+    function test_mintPegged_feeRoundsDown() public {
+        setUp_collateral(0, 1 ether); // CR > 1, pegged price 1.0, mint fee 0.5%
+        uint256 c = 1 ether + 100; // (c * 0.005) = 5e15 + 0.5 wei — a half-wei fee remainder
+        deal(address(Deployed.wstETH), sender, c);
+        vm.startPrank(sender);
+        IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+        uint256 feeBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
+        IMinter(minter).mintPeggedToken(c, receiver, 0);
+        vm.stopPrank();
+        assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver) - feeBefore, 5e15, "fee floors to 5e15, not 5e15 + 1");
+    }
+
+    // Minted floors: an odd oracle price makes (net collateral) * price / 1e18 = 1990e18 + 0.995 (rational);
+    // the user receives 1990e18 (floored), never 1990e18 + 1.
+    function test_mintPegged_userAmountRoundsDown() public {
+        setUp_collateral(0, 1 ether); // CR > 1, pegged price 1.0, mint fee 0.5%
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(2000 ether + 1); // odd price forces a fractional quotient
+        deal(address(Deployed.wstETH), sender, 1 ether);
+        vm.startPrank(sender);
+        IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
+        uint256 minted = IMinter(minter).mintPeggedToken(1 ether, receiver, 0);
+        vm.stopPrank();
+        assertEq(minted, 1990 ether, "minted floors to 1990, not 1990 + 1 wei");
     }
 
     function test_mintPeggedBasic() public {
