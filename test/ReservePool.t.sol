@@ -177,8 +177,9 @@ contract TestReservePool is TestReservePoolSetUp {
     }
 
     function test_notERC20() public {
-        // request
-        vm.expectRevert();
+        // requestBonus reads IERC20(token).balanceOf first; token has no code, so Solidity's extcodesize
+        // guard on the call reverts with empty data (no selector) - distinct from any custom-error revert.
+        vm.expectRevert(bytes(""));
         vm.prank(minter);
         IReservePool(reservePool).requestBonus(tokenNotERC20, bonusReceiver, 1 ether);
     }

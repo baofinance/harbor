@@ -8,6 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -326,7 +327,11 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         setUp_collateral(20 ether, 0 ether);
         deal(peggedToken, user1, 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 10 * price, "user1 has");
-        vm.expectRevert(); // should be amount exceeds balance, but hey-ho BaoUSD
+        // user1 holds 10*price but deposits 20*price; the OZ-ERC20 pegged token's transferFrom reverts on
+        // insufficient balance (allowance is max from setUp), and SafeERC20 bubbles it unchanged.
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 10 * price, 20 * price)
+        );
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(20 * price, receiver, 0);
         // 1 deposit -----------------------------------------------------------

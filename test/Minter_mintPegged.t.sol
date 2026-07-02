@@ -336,7 +336,15 @@ contract TestMinterMintPegged is TestMinterMint {
         uint256 feeBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
         IMinter(minter).mintPeggedToken(c, receiver, 0);
         vm.stopPrank();
-        assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver) - feeBefore, 5e15, "fee floors to 5e15, not 5e15 + 1");
+        // The fee floors to 5e15; the ceil a rounding-flip bug would produce (5e15 + 1) must be rejected — so the
+        // exact assertion is proven to discriminate the flip on every run (a continuous mutation-check).
+        assertDiscriminates(
+            IERC20(Deployed.wstETH).balanceOf(feeReceiver) - feeBefore,
+            5e15,
+            0,
+            5e15 + 1,
+            "fee floors to 5e15"
+        );
     }
 
     // Minted floors: an odd oracle price makes (net collateral) * price / 1e18 = 1990e18 + 0.995 (rational);
@@ -349,7 +357,9 @@ contract TestMinterMintPegged is TestMinterMint {
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);
         uint256 minted = IMinter(minter).mintPeggedToken(1 ether, receiver, 0);
         vm.stopPrank();
-        assertEq(minted, 1990 ether, "minted floors to 1990, not 1990 + 1 wei");
+        // Minted floors to 1990; the ceil (1990 + 1) a rounding-flip would produce must be rejected — the
+        // discrimination that used to need a manual src mutation now runs on every CI.
+        assertDiscriminates(minted, 1990 ether, 0, 1990 ether + 1, "minted floors to 1990");
     }
 
     function test_mintPeggedBasic() public {

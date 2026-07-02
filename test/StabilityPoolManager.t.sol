@@ -429,10 +429,11 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR + 1);
         assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
-        vm.expectRevert();
+        // threshold must be strictly > 1 ether; 1 ether hits the `newRatio <= 1 ether` guard.
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager.InvalidRebalanceThreshold.selector, 1 ether));
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1 ether);
 
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager.InvalidRebalanceThreshold.selector, 0.9 ether));
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(0.9 ether);
 
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1 ether + 1);
@@ -1128,9 +1129,9 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         vm.expectRevert(abi.encodeWithSelector(IStabilityPoolManager.InvalidHarvestBountyRatio.selector, 1.1 ether));
         IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(1.1 ether);
 
-        // Try with non-owner which should fail
+        // Try with non-owner which should fail (BaoOwnableRoles onlyOwner reverts Unauthorized).
         vm.prank(address(0xBEEF));
-        vm.expectRevert();
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(0.2 ether);
     }
 
@@ -1162,9 +1163,9 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         emit IStabilityPoolManager.UpdateFeeReceiver(feeReceiver, newFeeReceiver);
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(newFeeReceiver);
 
-        // Try with non-owner which should fail
+        // Try with non-owner which should fail (BaoOwnableRoles onlyOwner reverts Unauthorized).
         vm.prank(address(0xBEEF));
-        vm.expectRevert();
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(address(0xDEAD));
     }
 

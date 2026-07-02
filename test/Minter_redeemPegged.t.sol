@@ -367,7 +367,9 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IERC20(peggedToken).approve(minter, type(uint256).max);
         uint256 returned = IMinter(minter).redeemPeggedToken(2000 ether + 1, receiver, 0);
         vm.stopPrank();
-        assertEq(returned, 0.992 ether, "returned floors to 0.992, not 0.992 + 1 wei");
+        // Returned floors to 0.992; the ceil (0.992 + 1) a rounding-flip would produce must be rejected — the
+        // discrimination that used to need a manual src mutation now runs on every CI.
+        assertDiscriminates(returned, 0.992 ether, 0, 0.992 ether + 1, "returned floors to 0.992");
     }
 
     function _redeemPeggedToken(uint256 peggedIn) private {
