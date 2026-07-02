@@ -824,4 +824,101 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             "New rewards accumulate after post-upgrade liquidation"
         );
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Slot-level storage equivalence — the evidence behind skipping OZ's
+    // storage-layout check for the uint104 → uint128 widening of
+    // TokenBalance.amount (upgrades-core rejects any size-changing retype and
+    // ignores annotations on struct members; see bin/validate).
+    // ═══════════════════════════════════════════════════════════════════════
+
+    bytes32 internal constant STABILITYPOOL_STORAGE =
+        0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
+
+    /// @dev First slot of a TokenBalance stored in a mapping at member offset `member` of the
+    /// ERC-7201 namespace, keyed by `account`.
+    function _mappedSlot(address account, uint256 member) internal pure returns (bytes32 slot) {
+        return keccak256(abi.encode(account, uint256(STABILITYPOOL_STORAGE) + member));
+    }
+
+    /// @notice The v2 → v3 upgrade leaves every storage slot BYTE-IDENTICAL. The widened
+    /// TokenBalance layout occupies the first slot's former zero padding (v2: product 16B +
+    /// amount 13B + 3B padding; v3: product 16B + amount 16B) and `updatedAt` keeps its own
+    /// second slot in both, so raw v2 data reads back unchanged through v3 code. Verified over
+    /// rich state — a decayed product, a loaded loss-error queue, reward snapshots, a pending
+    /// withdrawal request and several history rows — then exercised past the old uint104
+    /// ceiling to show the reclaimed bytes are live and the neighbours untouched.
+    function test_upgradeFromV2_SlotLevelStorageIdentical() public {
+        // Rich v2 state, including a near-scale deposit that is still legal under uint104.
+        _deposit(user1, 1e31);
+        vm.warp(block.timestamp + 1 hours);
+        _deposit(user2, 123456789012345678901);
+        vm.warp(block.timestamp + 1 hours);
+        _liquidate(3e30);
+        _depositReward(steam, 1e21);
+        vm.warp(block.timestamp + 1 days);
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+
+        // The slots that hold TokenBalance data plus their neighbours in the namespace.
+        bytes32[] memory slots = new bytes32[](12);
+        slots[0] = STABILITYPOOL_STORAGE; // totalAssetSupply: product | amount
+        slots[1] = bytes32(uint256(STABILITYPOOL_STORAGE) + 1); // totalAssetSupply: updatedAt
+        slots[2] = _mappedSlot(user1, 2); // assetBalances[user1]: product | amount
+        slots[3] = bytes32(uint256(_mappedSlot(user1, 2)) + 1); // assetBalances[user1]: updatedAt
+        slots[4] = _mappedSlot(user2, 2);
+        slots[5] = bytes32(uint256(_mappedSlot(user2, 2)) + 1);
+        slots[6] = keccak256(abi.encode(uint256(0), uint256(STABILITYPOOL_STORAGE) + 3)); // history[0]
+        slots[7] = keccak256(abi.encode(uint256(1), uint256(STABILITYPOOL_STORAGE) + 3)); // history[1]
+        slots[8] = bytes32(uint256(STABILITYPOOL_STORAGE) + 4); // totalAssetSupplyHistoryLength
+        slots[9] = bytes32(uint256(STABILITYPOOL_STORAGE) + 5); // lastAssetLossError
+        slots[10] = _mappedSlot(user1, 6); // withdrawalRequests[user1]: start | end
+        slots[11] = bytes32(uint256(STABILITYPOOL_STORAGE) + 7); // feePayment
+
+        bytes32[] memory before = new bytes32[](slots.length);
+        for (uint256 i = 0; i < slots.length; i++) {
+            before[i] = vm.load(stabilityPoolCollateral, slots[i]);
+        }
+        uint256 supplyBefore = IStabilityPool(stabilityPoolCollateral).totalAssetSupply();
+        uint256 balance1Before = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1);
+        uint256 balance2Before = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        uint256 claimableBefore = StabilityPool_v2(stabilityPoolCollateral).claimable(user1, steam);
+
+        _upgradeToV3();
+
+        for (uint256 i = 0; i < slots.length; i++) {
+            assertEq(vm.load(stabilityPoolCollateral, slots[i]), before[i], "slot must be byte-identical");
+        }
+        assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), supplyBefore, "totalSupply preserved");
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), balance1Before, "user1 preserved");
+        assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2), balance2Before, "user2 preserved");
+        address[] memory tokens = new address[](1);
+        tokens[0] = steam;
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, tokens)[0],
+            claimableBefore,
+            "claimable preserved"
+        );
+
+        // The reclaimed bytes are live: cross the old uint104 ceiling, then decode the raw slot
+        // and confirm the neighbours are untouched. After a deposit the account is freshly
+        // checkpointed, so its stored raw amount equals the view and its product snapshot equals
+        // the supply product.
+        _deposit(user1, 15e30);
+        uint256 userWord = uint256(vm.load(stabilityPoolCollateral, _mappedSlot(user1, 2)));
+        uint256 supplyWord = uint256(vm.load(stabilityPoolCollateral, STABILITYPOOL_STORAGE));
+        assertGt(uint128(userWord >> 128), uint256(type(uint104).max), "amount now occupies bytes above uint104");
+        assertEq(
+            uint256(uint128(userWord >> 128)),
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            "stored amount equals the view after the fresh checkpoint"
+        );
+        assertEq(uint128(userWord), uint128(supplyWord), "product snapshot equals the supply product");
+        assertEq(
+            uint256(uint40(uint256(vm.load(stabilityPoolCollateral, bytes32(uint256(_mappedSlot(user1, 2)) + 1))))),
+            block.timestamp,
+            "updatedAt occupies its own slot untouched by the widened amount"
+        );
+    }
 }
