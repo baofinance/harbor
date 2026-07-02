@@ -48,14 +48,14 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         uint256 totalAssetSupply = IERC20(pool).totalSupply();
         uint256 userBalance = IERC20(pool).balanceOf(user1);
 
-        // Assertions - with proper tolerance for rounding
         uint256 expectedRemainingSupply = depositAmount - lossAmount;
 
-        // The total supply will be exact (or very close)
-        assertApproxEqAbs(totalAssetSupply, expectedRemainingSupply, 10);
+        // Total supply is reduced by exactly the loss — no tolerance.
+        assertEq(totalAssetSupply, expectedRemainingSupply, "supply = deposit - loss");
 
-        // The user balance might differ slightly due to rounding/error tracking
-        assertApproxEqAbs(userBalance, expectedRemainingSupply, TOLERANCE_LARGE);
+        // Sole depositor: their rebased balance tracks the pool total up to the shared product's rounding
+        // (a few wei either side; bounded by supplyBefore/1e18 + 1 flooring). Symmetric — stETH-style rebasing.
+        assertApprox(userBalance, totalAssetSupply, depositAmount / 1e18 + 1, "basic loss conserved");
     }
 
     /// @notice Test loss distribution across multiple users with various deposit ratios
@@ -94,8 +94,18 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
         assertApproxEqAbs(IERC20(pool).balanceOf(user2), user2Deposit_ - expectedUser2Loss, TOLERANCE_LARGE);
 
-        // Total assets check
-        assertApproxEqAbs(IERC20(pool).totalSupply(), totalDeposit - lossAmount, 10);
+        // Total supply is reduced by EXACTLY the loss (the pool subtracts it exactly) — no tolerance.
+        assertEq(IERC20(pool).totalSupply(), totalDeposit - lossAmount, "supply = deposits - loss");
+
+        // Conservation: the two rebased balances sum to the pool total up to the shared product's rounding
+        // (< supplyBefore/1e18 from the ceiling loss-distribution, +1 wei flooring per user). Symmetric — the
+        // product can round the sum a hair over as well as under (stETH-style; never exploitable, withdraw caps).
+        assertApprox(
+            IERC20(pool).balanceOf(user1) + IERC20(pool).balanceOf(user2),
+            IERC20(pool).totalSupply(),
+            totalDeposit / 1e18 + 2,
+            "loss conserved across users"
+        );
     }
 
     /// @notice Test withdrawals after loss with varying amounts
@@ -177,11 +187,18 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
             expectedRemaining = depositAmount - intendedLossAmount;
         }
 
-        // Assertions with appropriate tolerance
-        assertApproxEqAbs(IERC20(pool).totalSupply(), expectedRemaining, 10);
+        // Total supply is reduced by exactly the (MIN-capped) loss — no tolerance.
+        assertEq(IERC20(pool).totalSupply(), expectedRemaining, "supply = deposit - actual loss");
 
+        // Sole depositor: their rebased balance tracks the pool total up to the shared product's rounding (a few
+        // wei either side; bounded by supplyBefore/1e18 + 1 flooring). Symmetric — stETH-style rebasing rounding.
         uint256 remainingBalance = IERC20(pool).balanceOf(user1);
-        assertApproxEqAbs(remainingBalance, expectedRemaining, TOLERANCE_LARGE);
+        assertApprox(
+            remainingBalance,
+            IERC20(pool).totalSupply(),
+            depositAmount / 1e18 + 1,
+            "near-total loss conserved"
+        );
 
         // Test withdrawal after near-total loss if there's anything left
         if (remainingBalance > MIN_TOTAL_ASSET_SUPPLY) {
@@ -238,11 +255,15 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
         // Action: Simulate loss through sweep
         _liquidate(pool, lossAmount);
 
-        // Check user can still claim rewards after loss
+        // Check user can still claim rewards after loss. The reward streams at rate = amount/period, so after one
+        // full period the sole depositor's claimable is the deposited reward less the rate truncation (amount mod
+        // period, < period) and <=1 wei of integral flooring. A floored integral share can never exceed what was
+        // distributed, so this is one-sided conservation with a derived dust — not a blanket 1e6.
         uint256 claimable = IMultipleRewardAccumulator(pool).claimable(user1, aa(rewardToken))[0];
-        // there are substantial rounding errors as distribution is calculated per second
-        // and that results in truncation - the remainder is added to the queue
-        assertApproxEqAbs(claimable, rewardAmount, 1e6);
+        uint256 period = IMultipleRewardDistributor(pool).REWARD_PERIOD_LENGTH();
+        uint256[] memory parts = new uint256[](1);
+        parts[0] = claimable;
+        assertConserved(parts, rewardAmount, period + 1, "reward conserved after loss");
     }
 
     /// @notice Test multiple loss notifications in sequence
@@ -283,11 +304,67 @@ contract TestStabilityPoolLoss is TestStabilityPoolBaseSetUp {
 
             remainingBalance -= lossAmounts[i];
 
-            // Verify balance after each loss with appropriate tolerance
-            assertApproxEqAbs(IERC20(pool).totalSupply(), remainingBalance, TOLERANCE_SMALL);
+            // Total supply is reduced by exactly each loss — no tolerance.
+            assertEq(IERC20(pool).totalSupply(), remainingBalance, "supply = deposit - losses so far");
 
-            assertApproxEqAbs(IERC20(pool).balanceOf(user1), remainingBalance, TOLERANCE_LARGE);
+            // The pool rebases balances via a shared decremental-floating-point product (stETH-style), so the sole
+            // depositor's balance tracks the pool total only up to that product's rounding — a few wei either side
+            // per loss (bounded by supplyBefore/1e18 + 1 flooring). Symmetric, not one-sided: the product can round
+            // the balance a hair above supply as well as below (never exploitable — withdraw caps at supply).
+            assertApprox(
+                IERC20(pool).balanceOf(user1),
+                IERC20(pool).totalSupply(),
+                (i + 1) * (depositAmount / 1e18 + 1),
+                "sequential losses conserved (rebasing rounding)"
+            );
         }
+    }
+
+    /// @notice Loss conservation exercised at 0, 1, and N (3) depositors (loop rule). After each loss the total
+    /// supply drops by exactly the loss, and the rebased balances sum to the total within the shared product's
+    /// rounding (a few wei either side; bounded by supplyBefore/1e18 + one wei of flooring per depositor).
+    function test_loss_sumConservedAcrossUsers() public {
+        address pool = stabilityPools[0];
+
+        // 0 depositors: the empty pool has zero supply and no balances — the (empty) sum trivially conserves.
+        assertEq(IERC20(pool).totalSupply(), 0, "empty pool supply is zero");
+
+        // 1 depositor.
+        deal(peggedToken, user1, 120 ether);
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(pool, type(uint256).max);
+        IStabilityPool(pool).deposit(120 ether, user1, 0);
+        vm.stopPrank();
+        uint256 supplyBefore = IERC20(pool).totalSupply();
+        _liquidate(pool, 30 ether);
+        assertEq(IERC20(pool).totalSupply(), supplyBefore - 30 ether, "1 depositor: supply -= loss");
+        assertApprox(
+            IERC20(pool).balanceOf(user1),
+            IERC20(pool).totalSupply(),
+            supplyBefore / 1e18 + 1,
+            "1 depositor conserved"
+        );
+
+        // N = 3 depositors: two more join, then another loss.
+        deal(peggedToken, user2, 200 ether);
+        deal(peggedToken, user3, 300 ether);
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(pool, type(uint256).max);
+        IStabilityPool(pool).deposit(200 ether, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(user3);
+        IERC20(peggedToken).approve(pool, type(uint256).max);
+        IStabilityPool(pool).deposit(300 ether, user3, 0);
+        vm.stopPrank();
+        supplyBefore = IERC20(pool).totalSupply();
+        _liquidate(pool, 100 ether);
+        assertEq(IERC20(pool).totalSupply(), supplyBefore - 100 ether, "3 depositors: supply -= loss");
+        assertApprox(
+            IERC20(pool).balanceOf(user1) + IERC20(pool).balanceOf(user2) + IERC20(pool).balanceOf(user3),
+            IERC20(pool).totalSupply(),
+            supplyBefore / 1e18 + 3,
+            "3 depositors conserved"
+        );
     }
 
     /// @notice Test loss distribution with deposits/withdrawals between loss events

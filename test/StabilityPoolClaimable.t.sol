@@ -79,24 +79,50 @@ contract TestStabilityPoolClaimable is TestStabilityPoolRebalanceSetUp {
         uint256 rewardAmount = 300 ether; // 100 per user
         _depositRewardAndWait(rewardToken1, rewardAmount);
 
-        // Check claimable amounts - should be distributed equally as all have equal deposits
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0],
-            rewardAmount / 3,
-            0.01e18 // Allow 1% deviation due to rounding
-        );
+        // Equal deposits => equal split. The reward streams at rate = amount/period, so only amount - (amount mod
+        // period) is distributed over one period; each equal share is that, divided three ways (floored). So each
+        // claimable sits within (period/3 + 1 wei) below rewardAmount/3 — a derived bound, not a blanket 1%.
+        uint256 period = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
+        uint256 c1 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        uint256 c2 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0];
+        uint256 c3 = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[0];
+        assertApproxEqAbs(c1, rewardAmount / 3, period / 3 + 1, "user1 share");
+        assertApproxEqAbs(c2, rewardAmount / 3, period / 3 + 1, "user2 share");
+        assertApproxEqAbs(c3, rewardAmount / 3, period / 3 + 1, "user3 share");
 
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0],
-            rewardAmount / 3,
-            0.01e18
-        );
+        // Conservation: the three claimables never sum to more than the reward deposited; the shortfall is the
+        // rate truncation (< period) plus <=1 wei of per-user integral flooring.
+        uint256[] memory parts = new uint256[](3);
+        parts[0] = c1;
+        parts[1] = c2;
+        parts[2] = c3;
+        assertConserved(parts, rewardAmount, period + 3, "reward conserved across users");
+    }
 
-        assertApproxEqRel(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[0],
-            rewardAmount / 3,
-            0.01e18
-        );
+    /// @notice Reward conservation with unequal deposits and a deliberately non-round reward: the per-user
+    /// claimables never sum to more than the reward deposited (a reward, unlike a rebasing balance, is a floored
+    /// integral share and cannot exceed what was distributed). The shortfall is the rate truncation
+    /// (rate = amount/period loses amount mod period, < period) plus <=1 wei of per-user integral flooring.
+    function test_reward_sumEqualsDistributed() public {
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 2, user2, 0);
+        vm.stopPrank();
+        vm.startPrank(user3);
+        IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT * 3, user3, 0);
+        vm.stopPrank();
+
+        uint256 rewardAmount = 123.456789 ether; // non-round, so the split truncates
+        _depositRewardAndWait(rewardToken1, rewardAmount);
+
+        uint256 period = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_PERIOD_LENGTH();
+        uint256[] memory parts = new uint256[](3);
+        parts[0] = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, aa(rewardToken1))[0];
+        parts[1] = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user2, aa(rewardToken1))[0];
+        parts[2] = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user3, aa(rewardToken1))[0];
+        assertConserved(parts, rewardAmount, period + 3, "reward conserved across users");
     }
 
     function testClaimableAfterWithdraw() public {
