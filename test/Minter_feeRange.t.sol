@@ -1122,6 +1122,10 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         // Balance quantities: non-disallow branch is band-transition-scaled (flat => 0 transitions => exact),
         // the disallow branch keeps the author's cap-aware bound (near a disallow the mint hard-caps, so all
         // capped quantities diverge large-relative at the boundary granularity — legitimate, not a bug).
+        // minterWrapped/minterUnderlying additionally carry the FEE-path divergence (minterWrapped is the fee
+        // receiver's exact counterparty: delta(minterWrapped) == -delta(feeWrapped)): each step floors the fee
+        // computation (and the underlying write) once more than the single shot does, <= 1 wei per step beyond
+        // the carry-protected division, so their abs term is (transitions + 1) * steps, not transitions * steps.
         assertApprox(
             minted,
             mintedSteps,
@@ -1157,14 +1161,14 @@ abstract contract TestMinterIntegralFees is TestMinterFeeRange {
         assertApprox(
             post.minterWrapped,
             postSteps.minterWrapped,
-            areDisallows ? 9e10 : _mpTransitions() * steps,
+            areDisallows ? 9e10 : (_mpTransitions() + 1) * steps,
             areDisallows ? 4e15 : (_mpTransitions() + 1) * steps,
             "mp integral minter wrapped"
         );
         assertApprox(
             post.minterUnderlying,
             postSteps.minterUnderlying,
-            areDisallows ? 9e10 : _mpTransitions() * steps,
+            areDisallows ? 9e10 : (_mpTransitions() + 1) * steps,
             areDisallows ? 4e15 : (_mpTransitions() + 1) * steps,
             "mp integral minter underlying"
         );
