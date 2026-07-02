@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
-import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager_v1.t.sol";
+import {TestStabilityPoolManagerSetUp} from "@harbor-test/StabilityPoolManager.t.sol";
 
 import "@harbor-test/Useful.sol";
 

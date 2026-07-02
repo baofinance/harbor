@@ -1,16 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(forge test:*)",
       "Bash(cat:*)",
       "WebFetch(domain:dashboard.tenderly.co)",
-      "Bash(/tmp/investigate_contract.sh:*)",
       "Bash(chmod:*)",
-      "Bash(bash:*)",
       "Bash(forge inspect:*)",
       "Bash(cast call:*)",
-      "Bash(forge clean:*)",
-      "Bash(forge build:*)",
       "Bash(./script/check_pool_overflow_risk.py:*)",
       "Bash(find:*)",
       "Bash(yarn coverage:*)",
@@ -26,30 +21,12 @@
       "WebFetch(domain:forum.gl-inet.com)",
       "WebFetch(domain:workspace.google.com)",
       "Bash(yarn validate:*)",
-      "Bash(git -C ../harbor-yield.wip-hytoken branch -a)",
-      "Bash(git -C ../harbor-yield.wip-hytoken log --oneline -10)",
-      "Bash(git -C ../harbor-yield.wip-hytoken log --oneline wip-hytoken ^main)",
-      "Bash(git -C ../harbor-yield.wip-hytoken log --oneline wip-yieldToken ^main)",
-      "Bash(git -C ../harbor-yield.wip-hytoken log --oneline wip-yieldToken ^wip-hytoken)",
-      "Bash(git -C ../harbor-yield.wip-hytoken log --oneline main -3)",
-      "Bash(git -C ../harbor-yield.wip-hytoken log --oneline origin/main -5)",
-      "Bash(git -C ../harbor-yield.wip-hytoken show --stat wip-hytoken)",
-      "Bash(git -C ../harbor-yield.wip-hytoken show --stat wip-yieldToken)",
-      "Bash(git -C ../harbor-yield.wip-hytoken diff --stat wip-hytoken wip-yieldToken)",
-      "Bash(git -C ../harbor-yield.wip-hytoken diff wip-hytoken wip-yieldToken -- src)",
-      "Bash(git -C ../harbor-yield.wip-hytoken diff --stat wip-hytoken wip-yieldToken -- src)",
       "Bash(ls /home/tfras/github/baofinance/harbor/deployments/*.state.json)",
-      "Bash(git -C ../harbor-yield.wip-hytoken ls-tree -r --name-only wip-yieldToken -- test/ src/)",
-      "Bash(git -C ../harbor-yield.wip-hytoken show wip-yieldToken:test/HarborAnchoredVault_v1.t.sol)",
-      "Bash(git -C ../harbor-yield.wip-hytoken show wip-yieldToken:test/base/HarborAnchoredVault_v1TestBase.sol)",
-      "Bash(git -C ../harbor-yield.wip-hytoken show wip-yieldToken:test/hyToken_v1.advanced.t.sol)",
-      "Bash(git -C ../harbor-yield.wip-hytoken show wip-yieldToken:test/hyToken_v1.t.sol)",
-      "Bash(git -C ../harbor-yield.wip-hytoken show wip-yieldToken:test/mocks/Mock1inchRouter.sol)",
       "Bash(git -C ~/.claude/plans add -A)",
-      "Bash(git -C ~/.claude/plans commit -m \"SP_v3 not deployed, permit all-at-once, bao-base ERC20Metadata, Campaign I migration\")",
-      "Bash(git -C ../harbor-yield.wip-hytoken show wip-hytoken:src/hyToken_v1.sol)",
+      "Bash(git -C ~/.claude/plans commit -m)",
+      "Bash(git -C ~/.claude/plans commit -am)",
       "Bash(forge test *)",
-      "Bash(git -C ~/.claude/plans commit -am \"numerical-testing-rigour: feeRange band-count DONE \\(areDisallows?author:bandCount for balances; fees keep author bounds\\); mp flat-exact; verified seeds 1-7 + mutation-checked; 65% confirmed not-a-bug \\(disallow cap\\)\")"
+      "Bash(forge build *)"
     ]
   }
 }
