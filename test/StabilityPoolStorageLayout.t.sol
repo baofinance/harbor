@@ -3,36 +3,38 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 
+import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
+import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+
 // ═══════════════════════════════════════════════════════════════════════════
-// Isolated proof that widening StabilityPool's TokenBalance.amount from uint104
-// (v2, live) to uint128 (v3) is storage-layout compatible: v2-written data reads
-// back identically under v3, and v3 uses only the bytes that were zero padding in
-// v2. Two minimal contracts hold the two struct versions at the SAME ERC-7201
-// named-storage slot; vm.etch swaps the code while the storage persists, so a
-// value written under one layout is read under the other. This is the whole of
-// the padding argument, with no proxy, migration, or manual slot arithmetic.
+// Runtime proof that widening StabilityPool's TokenBalance.amount from uint104
+// (v2, live) to uint128 (v3) is storage-layout compatible: data written under
+// the REAL StabilityPool_v2.TokenBalance reads back identically under the REAL
+// StabilityPool_v3.TokenBalance, and v3 uses only the bytes that were zero
+// padding in v2. This complements bin/storage-successor — which proves the same
+// byte-compatibility statically (in validate) against these same structs — with
+// an EVM read/write proof, and references the real structs (not copies) so it
+// tracks the contracts.
 //
-// Field packing (compiler-determined, identical container-independent):
+// Two minimal contracts hold the two real structs at the SAME ERC-7201 slot;
+// vm.etch swaps the code while the storage persists, so a value written under
+// one layout is read under the other.
+//
+// Field packing (compiler-determined):
 //   v2:  slot0 = [product:0-15][amount(104):16-28][pad:29-31] ; slot1 = [updatedAt:0-4]
 //   v3:  slot0 = [product:0-15][amount(128):16-31]            ; slot1 = [updatedAt:0-4]
 // The 3 pad bytes (29-31) of v2's slot0 become amount's high bytes in v3, and
-// updatedAt keeps its own slot1 in both — so old data is unchanged and the widened
-// amount only ever occupies the former padding.
+// updatedAt keeps its own slot1 in both — so old data is unchanged and the
+// widened amount only ever occupies the former padding.
 // ═══════════════════════════════════════════════════════════════════════════
 
 // The real StabilityPool ERC-7201 location (`bao.storage.StabilityPool`); both mirrors
 // share it so an etch preserves the slot across the code swap.
 bytes32 constant LAYOUT_SLOT = 0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
 
-/// @dev Mirrors StabilityPool_v2's TokenBalance (uint104 amount) at the named-storage slot.
+/// @dev Reads/writes the REAL StabilityPool_v2.TokenBalance (uint104 amount) at the named-storage slot.
 contract TokenBalanceLayoutV104 {
-    struct TokenBalance {
-        uint128 product;
-        uint104 amount;
-        uint40 updatedAt;
-    }
-
-    function _slot() private pure returns (TokenBalance storage $) {
+    function _slot() private pure returns (StabilityPool_v2.TokenBalance storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := LAYOUT_SLOT
@@ -40,27 +42,21 @@ contract TokenBalanceLayoutV104 {
     }
 
     function write(uint128 product, uint104 amount, uint40 updatedAt) external {
-        TokenBalance storage $ = _slot();
+        StabilityPool_v2.TokenBalance storage $ = _slot();
         $.product = product;
         $.amount = amount;
         $.updatedAt = updatedAt;
     }
 
     function read() external view returns (uint128 product, uint256 amount, uint40 updatedAt) {
-        TokenBalance storage $ = _slot();
+        StabilityPool_v2.TokenBalance storage $ = _slot();
         return ($.product, $.amount, $.updatedAt);
     }
 }
 
-/// @dev Mirrors StabilityPool_v3's TokenBalance (uint128 amount) at the same slot.
+/// @dev Reads/writes the REAL StabilityPool_v3.TokenBalance (uint128 amount) at the same slot.
 contract TokenBalanceLayoutV128 {
-    struct TokenBalance {
-        uint128 product;
-        uint128 amount;
-        uint40 updatedAt;
-    }
-
-    function _slot() private pure returns (TokenBalance storage $) {
+    function _slot() private pure returns (StabilityPool_v3.TokenBalance storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := LAYOUT_SLOT
@@ -68,14 +64,14 @@ contract TokenBalanceLayoutV128 {
     }
 
     function write(uint128 product, uint128 amount, uint40 updatedAt) external {
-        TokenBalance storage $ = _slot();
+        StabilityPool_v3.TokenBalance storage $ = _slot();
         $.product = product;
         $.amount = amount;
         $.updatedAt = updatedAt;
     }
 
     function read() external view returns (uint128 product, uint256 amount, uint40 updatedAt) {
-        TokenBalance storage $ = _slot();
+        StabilityPool_v3.TokenBalance storage $ = _slot();
         return ($.product, $.amount, $.updatedAt);
     }
 }
@@ -135,35 +131,35 @@ contract StabilityPoolStorageLayoutTest is Test {
         );
     }
 
-    // Two views of the SAME storage slot, one per struct version — the layout claim reduced to its
+    // Two views of the SAME storage slot, one per real struct — the layout claim reduced to its
     // essence: no etch, no code swap, just the compiler's packing of the two structs against one slot.
 
-    function _slotV104() private pure returns (TokenBalanceLayoutV104.TokenBalance storage $) {
+    function _slotV104() private pure returns (StabilityPool_v2.TokenBalance storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := LAYOUT_SLOT
         }
     }
 
-    function _slotV128() private pure returns (TokenBalanceLayoutV128.TokenBalance storage $) {
+    function _slotV128() private pure returns (StabilityPool_v3.TokenBalance storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := LAYOUT_SLOT
         }
     }
 
-    /// @notice The v104 and v128 structs pack identically over one physical slot: writing through
-    /// the uint104 view and reading through the uint128 view yields the same product/amount/updatedAt
+    /// @notice The v2 and v3 structs pack identically over one physical slot: writing through the
+    /// uint104 view and reading through the uint128 view yields the same product/amount/updatedAt
     /// (old data preserved), and a uint128 write above the old ceiling is seen by the uint104 view as
     /// only its low 104 bits (the widened bytes are amount's own former padding). Same proof as the
     /// etch tests, with the code swap removed.
     function test_v104AndV128StructViewsShareStorage() public {
-        TokenBalanceLayoutV104.TokenBalance storage v104 = _slotV104();
+        StabilityPool_v2.TokenBalance storage v104 = _slotV104();
         v104.product = uint128(1e36);
         v104.amount = type(uint104).max;
         v104.updatedAt = uint40(1_234_567_890);
 
-        TokenBalanceLayoutV128.TokenBalance storage v128 = _slotV128();
+        StabilityPool_v3.TokenBalance storage v128 = _slotV128();
         assertEq(v128.product, uint128(1e36), "product identical across the two struct views");
         assertEq(uint256(v128.amount), uint256(type(uint104).max), "v104-written amount reads identical under uint128");
         assertEq(v128.updatedAt, uint40(1_234_567_890), "updatedAt identical across the two struct views");

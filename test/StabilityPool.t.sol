@@ -51,7 +51,7 @@ contract MockStabilityPool is StabilityPool_v3 {
     ) StabilityPool_v3(minter_, liquidationToken_, 3600, 90000, 1 ether, "Mock SP", "mSP") {}
 
     /// @notice Exposes the product value for testing purposes
-    function __totalSupply() external view returns (TokenBalance_v3 memory) {
+    function __totalSupply() external view returns (TokenBalance memory) {
         return _getStabilityPoolStorage().totalAssetSupply;
     }
 

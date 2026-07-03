@@ -40,7 +40,11 @@ import {ERC20MetadataLib_v1} from "@harbor/util/ERC20MetadataLib_v1.sol";
 /// @author rootminus0x1 forked from Aladdin's Fx framework and significantly changed
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
-/// @custom:oz-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
+/// bao-upgrades from is a bitwise property check for compatibility, stricker than oz-upgrades-from,
+/// but with the ability to widen properties if there is space in the slot without moving other properties
+/// which is not currently supported by oz-upgrades-from for erc7201 storage due to lack of solc support for
+/// property level attributes.
+/// @custom:bao-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
 // solhint-disable-next-line contract-name-capwords
 contract StabilityPool_v3 is
     Initializable,
@@ -82,8 +86,9 @@ contract StabilityPool_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LIQUIDATION_TOKEN;
 
-    /// @dev the pool cannot have less than this supply once it has reached it — a deposit must leave the total at
-    ///      zero or at least this floor (checked on the resulting total, symmetric with withdraw)
+    /// @dev the pool cannot have less than this supply once it has reached it
+    ///      a deposit must leave the total at zero or at least this floor
+    ///      (checked on the resulting total, symmetric with withdraw)
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MIN_TOTAL_ASSET_SUPPLY;
 
@@ -107,26 +112,20 @@ contract StabilityPool_v3 is
      * Structs *
      ***********/
 
-    /// @dev The token balance struct. Two storage slots: `product` and `amount` exactly fill the
-    /// first (16 + 16 bytes); `updatedAt` occupies the second. The v2 layout (uint104 amount) used
-    /// 29 bytes of the first slot with zero padding above — widening `amount` to uint128 occupies
-    /// exactly those padding bytes, so v2 proxy data reads back unchanged (no migration).
-    ///
+    /// @dev The balance layout.
+    ///      Binary-compatible with v2 `TokenBalance`: same field order and the same two storage slots.
+    ///      `product` (uint128) fills slot-0 bytes 0-15 and
+    ///      `updatedAt` sits in slot 1 under both v2 and v3 layouts,  so widening `amount` to uint128
+    ///      consumes only slot-0 bytes 29-31 — the zero padding the uint104 `amount` left unused.
+    ///      uint128 (max ~3.4e38, ~3.4e20 whole tokens) now covers the protocol's amount envelope with wide headroom.
     /// @param product The encoding product data, see the comments of `DecrementalFloatingPoint`.
-    /// @param amount The amount of token currently; uint128 (max ~3.4e38) covers the protocol's
-    ///        amount envelope (max observed mint ~2e33) with headroom.
+    /// @param amount The amount of token currently held.
     /// @param updatedAt The timestamp when the struct is updated.
+    /// @custom:bao-retyped-from amount uint104
     struct TokenBalance {
         uint128 product;
-        uint104 amount;
-        uint40 updatedAt;
-    }
-
-    // solhint-disable-next-line contract-name-capwords
-    struct TokenBalance_v3 {
-        uint128 product;
-        uint128 amount;
-        uint40 updatedAt;
+        uint128 amount; // This has to store 1e36
+        uint40 updatedAt; // this is in the second slot
     }
 
     /// @dev The withdrawal request window for an account
@@ -147,13 +146,31 @@ contract StabilityPool_v3 is
      * Variables *
      *************/
 
-    // Share-with-proxy Storage
-    // ------------------------
+    // uint128 balances, storage-compatible with the deployed v2 — no migration
+    // -------------------------------------------------------------------------
+    // A pool's `amount` is the pegged token it holds, which scales as collateral * price / 1e18 and, across
+    // the protocol's price/amount envelope, reaches v2's uint104 ceiling (~2.03e31 wei, ~2e13 whole tokens) —
+    // where a raw downcast would silently truncate a balance and a checked accumulation past 2**104 would
+    // revert and brick deposits. So `TokenBalance.amount` is uint128 (~3.4e38), with wide headroom, and every
+    // balance write casts through `SafeCast.toUint128` so an amount exceeding the range reverts rather than
+    // truncating.
+    //
+    // Widening uint104 -> uint128 needs NO storage migration: it consumes only the zero padding that uint104
+    // `amount` left in slot-0 bytes 29-31 (see TokenBalance above), so `product`, `updatedAt`, and every
+    // member here (totalAssetSupply and each assetBalances / totalAssetSupplyHistory entry) keep their byte
+    // offsets. A live v2 proxy that only ever stored `amount` <= uint104 max reads back identically as
+    // uint128; a fresh deployment uses the full range from the start.
+    //
+    // OpenZeppelin's upgrade check cannot verify this widen: it rejects any retype, and its
+    // @custom:oz-retyped-from escape hatch cannot reach a field INSIDE a namespaced struct because solc does
+    // not expose struct-member NatSpec (ethereum/solidity#12295, OpenZeppelin/openzeppelin-upgrades#802). So
+    // the contract carries @custom:bao-upgrades-from (which OZ ignores, validating it in isolation) and the
+    // widen is declared with the struct-level @custom:bao-retyped-from on TokenBalance; `bin/validate` then
+    // runs bin/storage-successor to prove the new layout is a byte-compatible successor of v2's — the only
+    // accepted change being exactly this documented in-place widen (also proven in
+    // test/StabilityPoolStorageLayout.t.sol).
+
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
-    /// @dev ERC20 allowances and nonces (for EIP-2612 permit) are stored in Solady ERC20's
-    ///      hand-picked magic slots (see `@solady/tokens/ERC20.sol`). They do not collide with
-    ///      this ERC7201 namespace — Solady's slots end in non-zero bytes while ERC7201 slots
-    ///      always end in `0x00`. No storage field for allowances here.
     struct StabilityPoolStorage {
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
@@ -173,47 +190,17 @@ contract StabilityPool_v3 is
         FeePayment feePayment;
     }
 
-    // StabilityPoolStorage_v3 is binary compatible with StabilityPoolStorage
-    // solhint-disable-next-line contract-name-capwords
-    struct StabilityPoolStorage_v3 {
-        /// @dev The TokenBalance struct for current total supply.
-        TokenBalance_v3 totalAssetSupply;
-        /// @dev Mapping account address to TokenBalance struct. Accessed via assetBalanceOf
-        mapping(address => TokenBalance_v3) assetBalances;
-        /// @notice Mapping from index to history totalSupply.
-        /// If there are multiple updates at the same timestamp, only the last one will be recorded.
-        mapping(uint256 => TokenBalance_v3) totalAssetSupplyHistory;
-        uint256 totalAssetSupplyHistoryLength; // number of total supply history records
-        /// @notice The address of token wrapper for liquidated base token;
-        // address wrapper;
-        /// @notice Error trackers for the error correction in the loss calculation.
-        uint256 lastAssetLossError;
-        /// @notice Mapping from account to withdrawal request
-        mapping(address => WithdrawalRequest) withdrawalRequests;
-        /// @dev Packed fee configuration (address + uint96)
-        FeePayment feePayment;
-    }
-
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
     bytes32 private constant _STABILITYPOOL_STORAGE =
         0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
 
     // internal as it is used in testing
-    function _getStabilityPoolStorage() internal pure returns (StabilityPoolStorage_v3 storage $) {
+    function _getStabilityPoolStorage() internal pure returns (StabilityPoolStorage storage $) {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := _STABILITYPOOL_STORAGE
         }
     }
-
-    /**********
-     * Errors *
-     **********/
-
-    // `InsufficientBalance()` and `InsufficientAllowance()` are provided by Solady's ERC20
-    // (selectors 0xf4d678b8 and 0x13be252b respectively). `_transferBalance` reverts with
-    // `InsufficientBalance()`; `_spendAllowance` reverts with `InsufficientAllowance()`.
-    // Both are in scope via the ERC20 inheritance.
 
     /***************
      * Constructor *
@@ -229,7 +216,7 @@ contract StabilityPool_v3 is
         __UUPSUpgradeable_init();
         __ReentrancyGuardTransient_init();
 
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         // initialize fee configuration on the proxy
         if (earlyWithdrawalFee_ > _MAX_EARLY_WITHDRAWAL_FEE) {
@@ -240,7 +227,7 @@ contract StabilityPool_v3 is
         }
         $.feePayment = FeePayment({feeAddress: feeAddress_, earlyWithdrawalFee: uint96(earlyWithdrawalFee_)});
 
-        TokenBalance_v3 memory initialSupply = TokenBalance_v3({
+        TokenBalance memory initialSupply = TokenBalance({
             product: DecrementalFloatingPoint.init(),
             amount: 0,
             updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
@@ -301,29 +288,29 @@ contract StabilityPool_v3 is
 
     /// @inheritdoc IStabilityPool
     function totalAssetSupply() external view returns (uint256 totalSupply_) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         totalSupply_ = $.totalAssetSupply.amount;
     }
 
     /// @inheritdoc IStabilityPool
     // solhint-disable-next-line explicit-types
     function totalAssetSupplyHistory(uint index) external view returns (uint40 atDay, uint256 amount) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
-        TokenBalance_v3 memory record = $.totalAssetSupplyHistory[index];
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory record = $.totalAssetSupplyHistory[index];
         atDay = record.updatedAt;
         amount = record.amount;
     }
 
     /// @inheritdoc IStabilityPool
     function assetBalanceOf(address account) external view returns (uint256 amount) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
-        TokenBalance_v3 memory balance = $.assetBalances[account];
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.assetBalances[account];
         amount = _getCompoundedBalance(balance.amount, balance.product, $.totalAssetSupply.product);
     }
 
     /// @inheritdoc IStabilityPool
     function lastAssetLossError() external view returns (uint256) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.lastAssetLossError;
     }
 
@@ -332,7 +319,7 @@ contract StabilityPool_v3 is
     /// @inheritdoc IStabilityPool
     /// @notice Returns the configured withdrawal request window for an account.
     function getWithdrawalRequest(address account) external view returns (uint64 start, uint64 end) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         WithdrawalRequest memory request = $.withdrawalRequests[account];
         start = request.start;
         end = request.end;
@@ -341,14 +328,14 @@ contract StabilityPool_v3 is
     /// @inheritdoc IStabilityPool
     /// @notice Returns the current early withdrawal fee ratio (scaled by 1e18).
     function getEarlyWithdrawalFee() external view returns (uint256) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return uint256($.feePayment.earlyWithdrawalFee);
     }
 
     /// @inheritdoc IStabilityPool
     /// @notice Returns the current fee recipient address for early withdrawal fees.
     function getFeeAddress() external view returns (address) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         return $.feePayment.feeAddress;
     }
 
@@ -389,7 +376,7 @@ contract StabilityPool_v3 is
         }
 
         // Required for ERC20 compatibility - we're actually minting ourselves
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         // If depositing before the end of a valid withdrawal window, cancel the request
         WithdrawalRequest memory request = $.withdrawalRequests[sender];
@@ -409,7 +396,7 @@ contract StabilityPool_v3 is
         // do the deposit
         // update the global record
         // Amounts beyond the balance field revert (SafeCast) - a raw downcast would silently truncate.
-        TokenBalance_v3 memory supply = $.totalAssetSupply;
+        TokenBalance memory supply = $.totalAssetSupply;
         supply.amount = (uint256(supply.amount) + assetsDeposited).toUint128();
         supply.updatedAt = uint40(block.timestamp);
 
@@ -423,7 +410,7 @@ contract StabilityPool_v3 is
         _recordTotalSupply(supply);
 
         // update the user record
-        TokenBalance_v3 memory balance = $.assetBalances[receiver];
+        TokenBalance memory balance = $.assetBalances[receiver];
         balance.amount = (uint256(balance.amount) + assetsDeposited).toUint128();
         $.assetBalances[receiver] = balance;
         emit UserDepositChange(receiver, balance.amount, 0);
@@ -441,7 +428,7 @@ contract StabilityPool_v3 is
             revert InvalidReceiver(address(0));
         }
 
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         address sender = _msgSender();
         // slither-disable-next-line reentrancy-no-eth
@@ -450,7 +437,7 @@ contract StabilityPool_v3 is
         // Read any existing withdrawal request (optional)
         WithdrawalRequest memory request = $.withdrawalRequests[sender];
 
-        TokenBalance_v3 memory balance = $.assetBalances[sender];
+        TokenBalance memory balance = $.assetBalances[sender];
         if (assetAmount == type(uint256).max) {
             assetsWithdrawn = balance.amount;
         } else if (assetAmount > balance.amount) {
@@ -479,7 +466,7 @@ contract StabilityPool_v3 is
         }
 
         // floor the total supply at the minimum
-        TokenBalance_v3 memory supply = $.totalAssetSupply;
+        TokenBalance memory supply = $.totalAssetSupply;
         if (supply.amount - assetsWithdrawn < MIN_TOTAL_ASSET_SUPPLY) {
             assetsWithdrawn = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
             // if fee pushed us below min, trim fee as well
@@ -525,7 +512,7 @@ contract StabilityPool_v3 is
     /// @dev Window is [start, end] where start = now + WITHDRAWAL_START_DELAY and end = start + WITHDRAWAL_END_WINDOW.
     function requestWithdrawal() external nonReentrant {
         address sender = _msgSender();
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         uint64 start = uint64(block.timestamp + WITHDRAWAL_START_DELAY);
         uint64 end = uint64(start + WITHDRAWAL_END_WINDOW);
         $.withdrawalRequests[sender] = WithdrawalRequest({start: start, end: end});
@@ -539,31 +526,27 @@ contract StabilityPool_v3 is
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
     // slither-disable-next-line reentrancy-events,reentrancy-benign,reentrancy-no-eth // function is only called from nonReentrant external functions
     function _checkpoint(address account) internal virtual override {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
         super._checkpoint(account);
 
         if (account != address(0)) {
-            TokenBalance_v3 memory supply = $.totalAssetSupply;
-            TokenBalance_v3 memory balance = $.assetBalances[account];
+            TokenBalance memory supply = $.totalAssetSupply;
+            TokenBalance memory balance = $.assetBalances[account];
             uint128 newBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product).toUint128();
             if (newBalance != balance.amount) {
                 // no unchecked here, just in case
                 emit UserDepositChange(account, newBalance, balance.amount - newBalance);
             }
-            balance = TokenBalance_v3({
-                amount: newBalance,
-                product: supply.product,
-                updatedAt: uint40(block.timestamp)
-            });
+            balance = TokenBalance({amount: newBalance, product: supply.product, updatedAt: uint40(block.timestamp)});
             $.assetBalances[account] = balance;
         }
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
     function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
-        TokenBalance_v3 memory supply = $.totalAssetSupply;
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory supply = $.totalAssetSupply;
         currentProd = supply.product;
         totalShare = supply.amount;
     }
@@ -572,8 +555,8 @@ contract StabilityPool_v3 is
     function _getUserPoolShare(
         address account
     ) internal view virtual override returns (uint128 previousProd, uint256 share) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
-        TokenBalance_v3 memory balance = $.assetBalances[account];
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory balance = $.assetBalances[account];
         previousProd = balance.product;
         share = balance.amount;
     }
@@ -582,8 +565,8 @@ contract StabilityPool_v3 is
     /// @param loss The amount of asset lost.
 
     function _notifyLoss(uint256 loss) internal {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
-        TokenBalance_v3 memory supply = $.totalAssetSupply;
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
+        TokenBalance memory supply = $.totalAssetSupply;
         if (supply.amount == 0) {
             return;
         }
@@ -636,8 +619,8 @@ contract StabilityPool_v3 is
 
     /// @dev Internal function to record the historical total supply.
     /// @param supply The new total supply to record.
-    function _recordTotalSupply(TokenBalance_v3 memory supply) private {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+    function _recordTotalSupply(TokenBalance memory supply) private {
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         uint256 totalSupplyHistoryLength_ = $.totalAssetSupplyHistoryLength;
 
         // slither-disable-next-line incorrect-equality
@@ -695,7 +678,7 @@ contract StabilityPool_v3 is
     ///      current total-supply product. Solady's magic balance slot is never written to;
     ///      this override is the sole source of truth.
     function balanceOf(address account) public view override returns (uint256 amount) {
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         amount = _getCompoundedBalance(
             $.assetBalances[account].amount,
             $.assetBalances[account].product,
@@ -735,9 +718,9 @@ contract StabilityPool_v3 is
         _checkpoint(from);
         _checkpoint(to);
 
-        StabilityPoolStorage_v3 storage $ = _getStabilityPoolStorage();
+        StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
-        TokenBalance_v3 memory fromBalance = $.assetBalances[from];
+        TokenBalance memory fromBalance = $.assetBalances[from];
         if (amount > fromBalance.amount) {
             revert InsufficientBalance();
         }
@@ -746,7 +729,7 @@ contract StabilityPool_v3 is
         }
         $.assetBalances[from] = fromBalance;
 
-        TokenBalance_v3 memory toBalance = $.assetBalances[to];
+        TokenBalance memory toBalance = $.assetBalances[to];
         toBalance.amount = (uint256(toBalance.amount) + amount).toUint128();
         toBalance.product = $.totalAssetSupply.product;
         toBalance.updatedAt = uint40(block.timestamp);
