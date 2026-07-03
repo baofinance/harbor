@@ -10,7 +10,7 @@ import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardA
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
-import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
 
 /// @notice Sizes the gap between the StabilityPool's two ledgers — the exact supply counter
 /// (`totalAssetSupply.amount`) and the product-decayed user balances (Σ balanceOf) — across the
@@ -446,6 +446,24 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
     /// @dev The deterministic counterexample [604800, 5763, 6, 17947] — reaches gap < 0.
     function _reproduceNegativeGap() internal returns (address[] memory actors) {
         return _buildGapScenario(5763, 604800, 6, 17947);
+    }
+
+    /// @notice Reward conservation's root guarantee: `_accumulateReward` divides the reward by
+    /// `_getTotalPoolShare().totalShare` but credits each user by `balanceOf`, so the credited total is
+    /// `reward * Sum(balanceOf) / divisor`. For that total never to exceed the reward, the divisor must be at
+    /// least `Sum(balanceOf)`. `_reproduceNegativeGap` yields a negative ledger gap (`Sum(balanceOf) > supply`),
+    /// the exact condition that stresses it.
+    function test_rewardDivisor_ge_sumBalance() public {
+        address[] memory actors = _reproduceNegativeGap();
+        uint256 sumBalance = 0;
+        for (uint256 i = 0; i < actors.length; i++) {
+            sumBalance += IERC20(pool).balanceOf(actors[i]);
+        }
+        assertGe(
+            MockStabilityPool(pool).__rewardDivisor(),
+            sumBalance,
+            "reward divisor must be >= Sum(balanceOf) so rewards never over-credit"
+        );
     }
 
     /// @notice Repeatable capture of the last-withdrawal failure (red-first, becomes green when fixed). After

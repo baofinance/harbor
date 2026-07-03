@@ -450,6 +450,23 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
         assertEq(handler.monotoneViolations(), 0, "claimable dropped without the actor claiming");
     }
 
+    /// @notice The reward divisor (`_getTotalPoolShare().totalShare`) must never sit below Sum(balanceOf). Every
+    /// reward accumulate divides by it while crediting each user by `balanceOf`, so a divisor below the summed
+    /// balances credits `reward * Sum(balanceOf) / divisor > reward` — an over-credit. The divisor tracks
+    /// Sum(balanceOf) through a product-decaying aggregate; this pins that it is always pool-favoured (>=).
+    function invariant_rewardDivisor_ge_sumBalance() public view {
+        uint256 sum = 0;
+        uint256 count = handler.actorCount();
+        for (uint256 a = 0; a < count; a++) {
+            sum += IERC20(stabilityPoolCollateral).balanceOf(handler.actorAt(a));
+        }
+        assertGe(
+            MockStabilityPool(stabilityPoolCollateral).__rewardDivisor(),
+            sum,
+            "reward divisor below Sum(balanceOf): rewards would over-credit"
+        );
+    }
+
     /// @notice Capital deposited by a zero-balance receiver captures none of the rewards streamed
     /// before the deposit: claimable is exactly unchanged by the deposit itself.
     function invariant_no_retroactive_reward() public view {

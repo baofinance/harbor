@@ -186,6 +186,13 @@ contract StabilityPool_v3 is
         mapping(address => WithdrawalRequest) withdrawalRequests;
         /// @dev Packed fee configuration (address + uint96)
         FeePayment feePayment;
+        /// @dev The reward-share aggregate: the denominator every reward accumulate divides by. It tracks
+        /// Sum(balanceOf) — decaying with the product across losses like every user balance — rather than the
+        /// exact `totalAssetSupply.amount`. The two coincide on deposit/withdraw and diverge only across a loss
+        /// (supply drops by the exact loss; this decays via the product), and it is that divergence that must be
+        /// on the reward denominator: dividing by the exact supply over-credits when the loss accounting lifts
+        /// Sum(balanceOf) above supply.
+        TokenBalance totalRewardShare;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -231,6 +238,7 @@ contract StabilityPool_v3 is
             updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
         });
         $.totalAssetSupply = initialSupply;
+        $.totalRewardShare = initialSupply; // reward divisor starts empty at the initial product, like the supply
         $.totalAssetSupplyHistory[0] = initialSupply;
         $.totalAssetSupplyHistoryLength = 1;
     }
@@ -407,6 +415,10 @@ contract StabilityPool_v3 is
 
         _recordTotalSupply(supply);
 
+        // Mirror the deposit into the reward-share aggregate (the reward divisor) so it tracks Sum(balanceOf),
+        // keeping the divisor from sitting below the summed user weights (which would over-credit rewards).
+        _updateRewardShare($, supply.product, int256(assetsDeposited));
+
         // update the user record
         TokenBalance memory balance = $.assetBalances[receiver];
         balance.amount = (uint256(balance.amount) + assetsDeposited).toUint128();
@@ -491,6 +503,9 @@ contract StabilityPool_v3 is
         supply.updatedAt = uint40(block.timestamp);
         _recordTotalSupply(supply);
 
+        // Mirror the outflow out of the reward-share aggregate (see deposit).
+        _updateRewardShare($, supply.product, -int256(assetsWithdrawn + feeAmount));
+
         // Debit the balance, capped at supply. A compounded balance can exceed the pool's total by the loss-
         // accounting rounding, and that excess is not backed by assets; capping keeps Sum(balanceOf) within
         // supply. The cap only lowers a balance that exceeds supply — a balance within supply is debited unchanged.
@@ -549,7 +564,25 @@ contract StabilityPool_v3 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
         currentProd = supply.product;
-        totalShare = supply.amount;
+        // Divide rewards by the reward-share aggregate, not the exact supply: it tracks Sum(balanceOf), so the
+        // credited total (reward * Sum(balanceOf) / totalShare) never exceeds the reward even when the loss
+        // accounting lifts Sum(balanceOf) above supply.
+        TokenBalance memory rewardShare = $.totalRewardShare;
+        totalShare = _getCompoundedBalance(rewardShare.amount, rewardShare.product, supply.product);
+    }
+
+    /// @dev Update the reward-share aggregate (the reward divisor) by a signed `delta` at the current product:
+    /// compound the stored total to now, apply the delta (floored at zero), restore at the current product. The
+    /// aggregate tracks Sum(balanceOf) so the reward denominator never sits below the summed user weights, which
+    /// would over-credit. Called on deposit (positive delta) and withdraw (negative).
+    function _updateRewardShare(StabilityPoolStorage storage $, uint128 currentProduct, int256 delta) private {
+        TokenBalance memory rewardShare = $.totalRewardShare;
+        int256 updated = int256(_getCompoundedBalance(rewardShare.amount, rewardShare.product, currentProduct)) +
+            delta;
+        rewardShare.amount = (updated > int256(0) ? uint256(updated) : uint256(0)).toUint128();
+        rewardShare.product = currentProduct;
+        rewardShare.updatedAt = uint40(block.timestamp);
+        $.totalRewardShare = rewardShare;
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
