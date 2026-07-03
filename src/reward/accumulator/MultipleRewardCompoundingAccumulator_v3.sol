@@ -230,7 +230,11 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         amounts = new uint256[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
             // slither-disable-next-line calls-loop — token count is caller-supplied; each call is O(1)
-            amounts[i] = _claimable(account, tokens[i], true);
+            uint256 pending = _claimable(account, tokens[i], true);
+            // report what a claim would actually pay: capped at the reward the pool holds, matching
+            // _claimOneToken, so an over-credited ledger never promises more than can be transferred.
+            uint256 held = IERC20(tokens[i]).balanceOf(address(this));
+            amounts[i] = pending > held ? held : pending;
         }
     }
 
@@ -401,16 +405,22 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         ClaimData storage rewards = _getMultipleRewardCompoundingAccumulatorStorage()
             .userRewardSnapshot[account][token]
             .rewards;
-        amount = rewards.pending;
-        if (amount > cap) {
-            amount = cap;
-        }
+        uint256 pending = rewards.pending;
+        uint256 want = pending > cap ? cap : pending;
+        // Never transfer more than the pool holds. Sum(pending) across accounts can exceed the reward the pool
+        // holds when the ledger over-credits (share-decayed balances summing above the supply the reward was
+        // divided by), which would revert the last claimant's transfer. Pay what is held and write off the
+        // shortfall (want - amount) — over-credit the pool never held — with the claimed portion, so it is not
+        // left as un-payable dangling pending. `token` is a reward token, distinct from any principal the pool
+        // custodies, so balanceOf is the reward balance.
+        uint256 held = IERC20(token).balanceOf(address(this));
+        amount = want > held ? held : want;
         if (amount > 0) {
             emit Claim(account, token, account, amount);
             IERC20(token).safeTransfer(account, amount);
-            rewards.pending -= uint128(amount);
-            rewards.claimed += uint128(amount);
         }
+        rewards.claimed += uint128(amount);
+        rewards.pending = uint128(pending - want);
     }
 
     /// @inheritdoc LinearMultipleRewardDistributor_v3

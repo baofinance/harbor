@@ -408,18 +408,23 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         assertLe(misCredit, misCreditBound, "fuzz: realized mis-credit within injected*gapBound/S");
     }
 
-    /// @dev Reproduce the fuzz counterexample [604800, 5763, 6, 17947, 2e21] deterministically: deposits, a
-    /// loss, a checkpoint pass, and a second loss push Sum(balanceOf) ABOVE supply (gap < 0). Returns actors.
-    function _reproduceNegativeGap() internal returns (address[] memory actors) {
-        uint256 n = bound(uint256(5763), 1, 20);
-        uint256 t = bound(uint256(604800), minSupply + n, 1e31);
+    /// @dev Build a deposits + loss + checkpoint-pass + second-loss scenario that can push Sum(balanceOf)
+    /// above supply (gap < 0). Parameterised so the deterministic reproduction and the fuzz test share it.
+    function _buildGapScenario(
+        uint256 nSeed,
+        uint256 tSeed,
+        uint256 uSeed,
+        uint256 lossSeed
+    ) internal returns (address[] memory actors) {
+        uint256 n = bound(nSeed, 1, 20);
+        uint256 t = bound(tSeed, minSupply + n, 1e31);
         actors = _mkActors(n);
         uint256 deposited = 0;
         for (uint256 i = 0; i < n; i++) {
             uint256 remaining = t - deposited;
             uint256 amount = i + 1 == n
                 ? remaining
-                : bound(uint256(keccak256(abi.encode(uint256(6), i))), 1, remaining - (n - 1 - i));
+                : bound(uint256(keccak256(abi.encode(uSeed, i))), 1, remaining - (n - 1 - i));
             if (i == 0 && amount < minSupply) {
                 amount = minSupply;
             }
@@ -428,15 +433,20 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         }
         uint256 headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            _loss(bound(uint256(17947), 1, headroom));
+            _loss(bound(lossSeed, 1, headroom));
         }
         for (uint256 i = 0; i < n; i++) {
             IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
         }
         headroom = IERC20(pool).totalSupply() - minSupply;
         if (headroom > 0) {
-            _loss(bound(uint256(keccak256(abi.encode(uint256(17947)))), 1, headroom));
+            _loss(bound(uint256(keccak256(abi.encode(lossSeed))), 1, headroom));
         }
+    }
+
+    /// @dev The deterministic counterexample [604800, 5763, 6, 17947] — reaches gap < 0.
+    function _reproduceNegativeGap() internal returns (address[] memory actors) {
+        return _buildGapScenario(5763, 604800, 6, 17947);
     }
 
     /// @notice Repeatable capture of the last-withdrawal failure (red-first, becomes green when fixed). After
@@ -467,5 +477,128 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         // after every full exit the over-credit is written off: capping the recorded balance at supply burns
         // the phantom excess, so Sum(balanceOf) no longer exceeds supply.
         assertGe(_gap(actors), 0, "over-credit written off: Sum(balanceOf) <= supply after the exits");
+    }
+
+    /// @notice The CLAIM breaks the same way (red-first, becomes green when fixed). With a negative gap the
+    /// reward integral divides by supply (_getTotalPoolShare) but credits by balanceOf (_getUserPoolShare), and
+    /// Sum(balanceOf) > supply — so Sum(claimable) = reward * Sum(balanceOf) / supply exceeds the reward the pool
+    /// holds by reward * |gap| / supply. A large reward makes that material (~1.28e10 wei here for reward 5e28,
+    /// far above the flooring), so once earlier claimants drain the pool the last claimant's safeTransfer reverts
+    /// on insufficient balance. GREEN once _claimOneToken caps the payout at what the pool holds.
+    function test_claim_survivesOverCredit() public {
+        address[] memory actors = _reproduceNegativeGap();
+        assertLt(_gap(actors), 0, "precondition: over-credited (Sum(balanceOf) > supply)");
+
+        uint256 reward = 5e28; // near the distributor's uint96 queue ceiling — makes the over-credit material
+        deal(steam, rewardDepositor, reward);
+        vm.startPrank(rewardDepositor);
+        IERC20(steam).approve(pool, reward);
+        IMultipleRewardDistributor(pool).depositReward(steam, reward);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 8 days); // whole stream distributable
+
+        // the books credit more than the pool holds: Sum(claimable) exceeds the streamed reward.
+        address[] memory tokens = new address[](1);
+        tokens[0] = steam;
+        uint256 sumClaimable = 0;
+        for (uint256 i = 0; i < actors.length; i++) {
+            sumClaimable += IClaimReward(pool).claimable(actors[i], tokens)[0];
+        }
+        assertGt(sumClaimable, IERC20(steam).balanceOf(pool), "the scenario over-credits: Sum(claimable) > held reward");
+
+        // every actor claims without reverting, and claimable() (read immediately before the claim) equals what
+        // they actually receive — the last claimant's over-credit is capped at the held balance in both.
+        for (uint256 i = 0; i < actors.length; i++) {
+            uint256 claimableBefore = IClaimReward(pool).claimable(actors[i], tokens)[0];
+            uint256 claimedBefore = IClaimReward(pool).claimed(actors[i], tokens)[0];
+            vm.startPrank(actors[i]);
+            IMultipleRewardAccumulator_v3(pool).claim();
+            vm.stopPrank();
+            uint256 received = IClaimReward(pool).claimed(actors[i], tokens)[0] - claimedBefore;
+            assertEq(received, claimableBefore, "claimable() must equal what is actually claimed");
+        }
+    }
+
+    /// @notice Fuzz the claimable() == claimed invariant across random over-credit scenarios and reward sizes.
+    /// For any (n, deposits, losses, reward) the reward is streamed to completion and every actor claims in
+    /// turn; whatever claimable() reports immediately before a claim must equal what that claim pays, and no
+    /// claim may revert. This exercises the payout/claimable cap over the whole envelope, not just the one
+    /// deterministic seed above.
+    function test_claim_claimableMatchesClaimed_fuzz(
+        uint256 nSeed,
+        uint256 tSeed,
+        uint256 uSeed,
+        uint256 lossSeed,
+        uint256 rSeed
+    ) public {
+        address[] memory actors = _buildGapScenario(nSeed, tSeed, uSeed, lossSeed);
+
+        uint256 reward = bound(rSeed, 1, 5e28); // up to near the distributor's uint96 queue ceiling
+        deal(steam, rewardDepositor, reward);
+        vm.startPrank(rewardDepositor);
+        IERC20(steam).approve(pool, reward);
+        IMultipleRewardDistributor(pool).depositReward(steam, reward);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 8 days); // whole stream distributable
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = steam;
+        for (uint256 i = 0; i < actors.length; i++) {
+            uint256 claimableBefore = IClaimReward(pool).claimable(actors[i], tokens)[0];
+            uint256 claimedBefore = IClaimReward(pool).claimed(actors[i], tokens)[0];
+            vm.startPrank(actors[i]);
+            IMultipleRewardAccumulator_v3(pool).claim();
+            vm.stopPrank();
+            uint256 received = IClaimReward(pool).claimed(actors[i], tokens)[0] - claimedBefore;
+            assertEq(received, claimableBefore, "claimable() must equal what is actually claimed");
+        }
+    }
+
+    /// @dev EXPLORATORY: step through the negative-gap scenario logging supply vs Sum(balanceOf) after each step.
+    function test_investigate_negativeGapSteps() public {
+        uint256 n = bound(uint256(5763), 1, 20);
+        uint256 t = bound(uint256(604800), minSupply + n, 1e31);
+        address[] memory actors = _mkActors(n);
+        uint256 deposited = 0;
+        for (uint256 i = 0; i < n; i++) {
+            uint256 remaining = t - deposited;
+            uint256 amount = i + 1 == n
+                ? remaining
+                : bound(uint256(keccak256(abi.encode(uint256(6), i))), 1, remaining - (n - 1 - i));
+            if (i == 0 && amount < minSupply) {
+                amount = minSupply;
+            }
+            _deposit(actors[i], amount);
+            deposited += amount;
+        }
+        console2.log("n", n);
+        _logStep("after deposits", actors);
+
+        uint256 loss1 = bound(uint256(17947), 1, IERC20(pool).totalSupply() - minSupply);
+        console2.log("loss1", loss1);
+        _loss(loss1);
+        _logStep("after loss1", actors);
+
+        for (uint256 i = 0; i < n; i++) {
+            IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
+        }
+        _logStep("after checkpoints", actors);
+
+        uint256 loss2 = bound(uint256(keccak256(abi.encode(uint256(17947)))), 1, IERC20(pool).totalSupply() - minSupply);
+        console2.log("loss2", loss2);
+        _loss(loss2);
+        _logStep("after loss2", actors);
+    }
+
+    function _logStep(string memory label, address[] memory actors) internal view {
+        uint256 sum = 0;
+        for (uint256 i = 0; i < actors.length; i++) {
+            sum += IERC20(pool).balanceOf(actors[i]);
+        }
+        console2.log(label);
+        console2.log("  supply    ", IERC20(pool).totalSupply());
+        console2.log("  sumBalance", sum);
+        console2.log("  gap       ", _gap(actors));
+        console2.log("  lossError ", IStabilityPool(pool).lastAssetLossError());
     }
 }
