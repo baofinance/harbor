@@ -149,11 +149,9 @@ contract StabilityPool_v3 is
     // uint128 balances, storage-compatible with the deployed v2 — no migration
     // -------------------------------------------------------------------------
     // A pool's `amount` is the pegged token it holds, which scales as collateral * price / 1e18 and, across
-    // the protocol's price/amount envelope, reaches v2's uint104 ceiling (~2.03e31 wei, ~2e13 whole tokens) —
-    // where a raw downcast would silently truncate a balance and a checked accumulation past 2**104 would
-    // revert and brick deposits. So `TokenBalance.amount` is uint128 (~3.4e38), with wide headroom, and every
-    // balance write casts through `SafeCast.toUint128` so an amount exceeding the range reverts rather than
-    // truncating.
+    // the protocol's price/amount envelope, reaches into v2's uint104 ceiling (~2.03e31 wei, ~2e13 whole
+    // tokens). `TokenBalance.amount` is therefore uint128 (~3.4e38), with wide headroom; every balance write
+    // goes through `SafeCast.toUint128`, so an amount beyond the field width reverts.
     //
     // Widening uint104 -> uint128 needs NO storage migration: it consumes only the zero padding that uint104
     // `amount` left in slot-0 bytes 29-31 (see TokenBalance above), so `product`, `updatedAt`, and every
@@ -347,8 +345,8 @@ contract StabilityPool_v3 is
     }
 
     /// @inheritdoc IStabilityPool
-    /// @notice The minimum single-call deposit. No longer a distinct value: the deposit floor is enforced on the
-    ///         resulting total supply (see deposit), so this is an alias for MIN_TOTAL_ASSET_SUPPLY.
+    /// @notice The minimum single-call deposit — an alias for MIN_TOTAL_ASSET_SUPPLY: the deposit floor is
+    ///         enforced on the resulting total supply (see deposit).
     // solhint-disable-next-line func-name-mixedcase
     function MIN_DEPOSIT() external view returns (uint256) {
         return MIN_TOTAL_ASSET_SUPPLY;
@@ -395,7 +393,7 @@ contract StabilityPool_v3 is
 
         // do the deposit
         // update the global record
-        // Amounts beyond the balance field revert (SafeCast) - a raw downcast would silently truncate.
+        // Amounts beyond the balance field width revert via SafeCast.toUint128.
         TokenBalance memory supply = $.totalAssetSupply;
         supply.amount = (uint256(supply.amount) + assetsDeposited).toUint128();
         supply.updatedAt = uint40(block.timestamp);
@@ -465,14 +463,18 @@ contract StabilityPool_v3 is
             assetsWithdrawn -= feeAmount;
         }
 
-        // floor the total supply at the minimum
+        // Cap the amount leaving the pool (assetsWithdrawn + feeAmount) so total supply stays at or above
+        // MIN_TOTAL_ASSET_SUPPLY. Compared additively because a compounded balance can exceed supply: the loss
+        // accounting rounds each share's decay up, so the summed balances can sit a little above the exact supply.
         TokenBalance memory supply = $.totalAssetSupply;
-        if (supply.amount - assetsWithdrawn < MIN_TOTAL_ASSET_SUPPLY) {
-            assetsWithdrawn = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
-            // if fee pushed us below min, trim fee as well
-            if (supply.amount - assetsWithdrawn - feeAmount < MIN_TOTAL_ASSET_SUPPLY) {
-                uint256 maxFee = supply.amount - MIN_TOTAL_ASSET_SUPPLY - assetsWithdrawn;
-                if (feeAmount > maxFee) feeAmount = maxFee;
+        uint256 maxOutflow = supply.amount > MIN_TOTAL_ASSET_SUPPLY ? supply.amount - MIN_TOTAL_ASSET_SUPPLY : 0;
+        if (assetsWithdrawn + feeAmount > maxOutflow) {
+            // pay the withdrawer as much as the pool holds above the floor; trim the fee to fit.
+            if (assetsWithdrawn > maxOutflow) {
+                assetsWithdrawn = maxOutflow;
+                feeAmount = 0;
+            } else {
+                feeAmount = maxOutflow - assetsWithdrawn;
             }
         }
 
@@ -483,17 +485,17 @@ contract StabilityPool_v3 is
         }
         emit Withdraw(sender, receiver, assetsWithdrawn);
 
-        // update the global record
-        unchecked {
-            supply.amount = (uint256(supply.amount) - (assetsWithdrawn + feeAmount)).toUint128();
-            supply.updatedAt = uint40(block.timestamp);
-        }
+        // Debit supply. The cap above keeps the outflow within supply - MIN; toUint128 bounds the field width.
+        uint256 supplyBefore = supply.amount; // supply before this debit, to cap the balance below
+        supply.amount = (uint256(supply.amount) - (assetsWithdrawn + feeAmount)).toUint128();
+        supply.updatedAt = uint40(block.timestamp);
         _recordTotalSupply(supply);
 
-        // update the user record
-        unchecked {
-            balance.amount = (uint256(balance.amount) - (assetsWithdrawn + feeAmount)).toUint128();
-        }
+        // Debit the balance, capped at supply. A compounded balance can exceed the pool's total by the loss-
+        // accounting rounding, and that excess is not backed by assets; capping keeps Sum(balanceOf) within
+        // supply. The cap only lowers a balance that exceeds supply — a balance within supply is debited unchanged.
+        uint256 effectiveBalance = balance.amount <= supplyBefore ? balance.amount : supplyBefore;
+        balance.amount = (effectiveBalance - (assetsWithdrawn + feeAmount)).toUint128();
         $.assetBalances[sender] = balance;
 
         emit UserDepositChange(sender, balance.amount, 0);
@@ -535,7 +537,6 @@ contract StabilityPool_v3 is
             TokenBalance memory balance = $.assetBalances[account];
             uint128 newBalance = _getCompoundedBalance(balance.amount, balance.product, supply.product).toUint128();
             if (newBalance != balance.amount) {
-                // no unchecked here, just in case
                 emit UserDepositChange(account, newBalance, balance.amount - newBalance);
             }
             balance = TokenBalance({amount: newBalance, product: supply.product, updatedAt: uint40(block.timestamp)});

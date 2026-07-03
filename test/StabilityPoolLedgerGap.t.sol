@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ITokenHolder} from "@bao/TokenHolder.sol";
@@ -405,5 +406,66 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         uint256 misCredit = _abs(int256(injected) - int256(credited));
         uint256 misCreditBound = (injected * (maxSupplyEver / ONE + stores)) / IERC20(pool).totalSupply() + n + 3;
         assertLe(misCredit, misCreditBound, "fuzz: realized mis-credit within injected*gapBound/S");
+    }
+
+    /// @dev Reproduce the fuzz counterexample [604800, 5763, 6, 17947, 2e21] deterministically: deposits, a
+    /// loss, a checkpoint pass, and a second loss push Sum(balanceOf) ABOVE supply (gap < 0). Returns actors.
+    function _reproduceNegativeGap() internal returns (address[] memory actors) {
+        uint256 n = bound(uint256(5763), 1, 20);
+        uint256 t = bound(uint256(604800), minSupply + n, 1e31);
+        actors = _mkActors(n);
+        uint256 deposited = 0;
+        for (uint256 i = 0; i < n; i++) {
+            uint256 remaining = t - deposited;
+            uint256 amount = i + 1 == n
+                ? remaining
+                : bound(uint256(keccak256(abi.encode(uint256(6), i))), 1, remaining - (n - 1 - i));
+            if (i == 0 && amount < minSupply) {
+                amount = minSupply;
+            }
+            _deposit(actors[i], amount);
+            deposited += amount;
+        }
+        uint256 headroom = IERC20(pool).totalSupply() - minSupply;
+        if (headroom > 0) {
+            _loss(bound(uint256(17947), 1, headroom));
+        }
+        for (uint256 i = 0; i < n; i++) {
+            IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
+        }
+        headroom = IERC20(pool).totalSupply() - minSupply;
+        if (headroom > 0) {
+            _loss(bound(uint256(keccak256(abi.encode(uint256(17947)))), 1, headroom));
+        }
+    }
+
+    /// @notice Repeatable capture of the last-withdrawal failure (red-first, becomes green when fixed). After
+    /// the deterministic over-credit (gap < 0: Sum(balanceOf) > supply), the actors withdraw their full
+    /// balances in turn. Actors 0..n-2 exit fine, but the LAST withdrawer's recorded balance now exceeds the
+    /// remaining supply, so withdraw()'s unchecked supply update `supply.amount - (assetsWithdrawn + feeAmount)`
+    /// (StabilityPool_v3 line 488) underflows and `.toUint128()` reverts SafeCastOverflowedUintDowncast — the
+    /// SafeCast added with the uint128 widen turns the would-be silent corruption into a clean revert, but the
+    /// pool still cannot pay the last exit its recorded balance. FIXED by capping the outflow at what the pool
+    /// holds and writing off the phantom excess (cap the recorded balance at supply before debiting): every
+    /// actor now exits and the over-credit closes. (The reward CLAIM does not revert in this scenario — the
+    /// over-credit is far smaller than the reward balance — so this was a withdrawal fix, not the claim cap.)
+    function test_lastWithdrawalSurvivesOverCredit() public {
+        address[] memory actors = _reproduceNegativeGap();
+        assertLt(_gap(actors), 0, "precondition: the scenario is over-credited (Sum(balanceOf) > supply)");
+
+        for (uint256 i = 0; i < actors.length; i++) {
+            uint256 bal = IERC20(pool).balanceOf(actors[i]);
+            if (bal == 0) {
+                continue;
+            }
+            vm.startPrank(actors[i]);
+            // was RED before the withdrawal cap: the last actor's balance exceeded the remaining supply, the
+            // supply update underflowed, and SafeCast.toUint128 reverted. The cap now pays what the pool holds.
+            IStabilityPool(pool).withdraw(type(uint256).max, actors[i], 0);
+            vm.stopPrank();
+        }
+        // after every full exit the over-credit is written off: capping the recorded balance at supply burns
+        // the phantom excess, so Sum(balanceOf) no longer exceeds supply.
+        assertGe(_gap(actors), 0, "over-credit written off: Sum(balanceOf) <= supply after the exits");
     }
 }
