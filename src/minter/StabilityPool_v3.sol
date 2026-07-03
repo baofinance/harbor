@@ -187,11 +187,10 @@ contract StabilityPool_v3 is
         /// @dev Packed fee configuration (address + uint96)
         FeePayment feePayment;
         /// @dev The reward-share aggregate: the denominator every reward accumulate divides by. It tracks
-        /// Sum(balanceOf) — decaying with the product across losses like every user balance — rather than the
-        /// exact `totalAssetSupply.amount`. The two coincide on deposit/withdraw and diverge only across a loss
-        /// (supply drops by the exact loss; this decays via the product), and it is that divergence that must be
-        /// on the reward denominator: dividing by the exact supply over-credits when the loss accounting lifts
-        /// Sum(balanceOf) above supply.
+        /// Sum(balanceOf) — decaying with the product across losses like every user balance. It coincides with
+        /// `totalAssetSupply.amount` on deposit/withdraw and diverges only across a loss (the supply drops by the
+        /// exact loss; this decays via the product), so it, not the exact supply, is the total a reward is split
+        /// across for the credited shares to sum to the reward.
         TokenBalance totalRewardShare;
     }
 
@@ -415,8 +414,8 @@ contract StabilityPool_v3 is
 
         _recordTotalSupply(supply);
 
-        // Mirror the deposit into the reward-share aggregate (the reward divisor) so it tracks Sum(balanceOf),
-        // keeping the divisor from sitting below the summed user weights (which would over-credit rewards).
+        // Mirror the deposit into the reward-share aggregate (the reward divisor): it tracks Sum(balanceOf), so
+        // the deposit adds to it as it does to each user balance and the supply. See _getTotalPoolShare.
         _updateRewardShare($, supply.product, int256(assetsDeposited));
 
         // update the user record
@@ -560,15 +559,32 @@ contract StabilityPool_v3 is
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
+    /// @dev Returns the reward divisor: the reward-share aggregate rescaled to the current product. The aggregate
+    /// (see `totalRewardShare` and `_updateRewardShare`) is maintained so that, at every point,
+    ///
+    ///     totalShare  >=  Sum over stakers of balanceOf
+    ///
+    /// which is what makes a reward conserve: crediting each staker `reward * balanceOf / totalShare` sums to
+    /// `reward * Sum(balanceOf) / totalShare <= reward`. The bound holds by construction, not by tolerance:
+    ///
+    /// - The aggregate and Sum(balanceOf) rescale the same underlying total — the pool's net deposits decayed by
+    ///   the product. A deposit/withdrawal moves both by the same amount; a loss scales both by the same product
+    ///   factor; only a checkpoint or transfer moves them apart, and only by re-flooring a balance downward.
+    /// - User balances rescale with the FLOOR `_scaleAdjustedValue` (each <= its exact value), so Sum(balanceOf)
+    ///   is at most that total.
+    /// - The aggregate rescales with the CEIL `_scaleAdjustedValueCeil` (>= its exact value), both where it is
+    ///   restored on deposit/withdraw and where it is read here, so totalShare is at least that total.
+    /// - Rounding the aggregate up and balances down, the two never cross: totalShare >= total >= Sum(balanceOf),
+    ///   and no accumulation of per-operation rounding can pull the divisor under the summed balances.
+    ///
+    /// The `> _MAX_EXPONENT_DIFFERENCE` rescale truncation is unreachable for a live aggregate: SCALE_FACTOR^8 is
+    /// 1e72 while every amount is uint128 (< 1e39), so a snapshot old enough to truncate already values under one wei.
     function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
         currentProd = supply.product;
-        // Divide rewards by the reward-share aggregate, not the exact supply: it tracks Sum(balanceOf), so the
-        // credited total (reward * Sum(balanceOf) / totalShare) never exceeds the reward even when the loss
-        // accounting lifts Sum(balanceOf) above supply.
         TokenBalance memory rewardShare = $.totalRewardShare;
-        totalShare = _getCompoundedBalance(rewardShare.amount, rewardShare.product, supply.product);
+        totalShare = _scaleAdjustedValueCeil(rewardShare.amount, supply.product, rewardShare.product);
     }
 
     /// @dev Update the reward-share aggregate (the reward divisor) by a signed `delta` at the current product:
@@ -577,7 +593,9 @@ contract StabilityPool_v3 is
     /// would over-credit. Called on deposit (positive delta) and withdraw (negative).
     function _updateRewardShare(StabilityPoolStorage storage $, uint128 currentProduct, int256 delta) private {
         TokenBalance memory rewardShare = $.totalRewardShare;
-        int256 updated = int256(_getCompoundedBalance(rewardShare.amount, rewardShare.product, currentProduct)) +
+        // Round the aggregate UP through the product change (ceil), so it stays >= the floor-rounded user
+        // balances it must bound. See _scaleAdjustedValueCeil.
+        int256 updated = int256(_scaleAdjustedValueCeil(rewardShare.amount, currentProduct, rewardShare.product)) +
             delta;
         rewardShare.amount = (updated > int256(0) ? uint256(updated) : uint256(0)).toUint128();
         rewardShare.product = currentProduct;

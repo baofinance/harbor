@@ -466,6 +466,51 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         );
     }
 
+    /// @notice Stress the divisor's `>= Sum(balanceOf)` guarantee against the pattern that erodes it most: many
+    /// deposit and partial-withdraw cycles across rotating actors (each re-floors the aggregate), interleaved with
+    /// losses that advance the product and diverge the actors' snapshots. The ceil-rounded aggregate stays at or
+    /// above Sum(balanceOf) at every step.
+    function test_rewardDivisor_ge_sumBalance_adversarial() public {
+        address[] memory actors = _mkActors(4);
+        _deposit(actors[0], minSupply * 100); // seed well above the floor
+        _assertDivisorGeSumBalance(actors);
+
+        for (uint256 round = 0; round < 60; round++) {
+            address actor = actors[round % actors.length];
+            _deposit(actor, 1e6 + round * 7); // re-floors the aggregate at the current product
+            _assertDivisorGeSumBalance(actors);
+
+            uint256 balance = IERC20(pool).balanceOf(actor);
+            if (balance > 3) {
+                vm.startPrank(actor);
+                IStabilityPool(pool).withdraw(balance / 3, actor, 0); // partial exit — another aggregate re-floor
+                vm.stopPrank();
+                _assertDivisorGeSumBalance(actors);
+            }
+
+            if (round % 4 == 0) {
+                uint256 headroom = IERC20(pool).totalSupply() - minSupply;
+                if (headroom > 3) {
+                    _loss(headroom / 4); // advance the product, diverge the snapshots
+                    _assertDivisorGeSumBalance(actors);
+                }
+            }
+        }
+    }
+
+    /// @dev The reward divisor must never sit below Sum(balanceOf) (see StabilityPool_v3._getTotalPoolShare).
+    function _assertDivisorGeSumBalance(address[] memory actors) internal view {
+        uint256 sumBalance = 0;
+        for (uint256 i = 0; i < actors.length; i++) {
+            sumBalance += IERC20(pool).balanceOf(actors[i]);
+        }
+        assertGe(
+            MockStabilityPool(pool).__rewardDivisor(),
+            sumBalance,
+            "reward divisor fell below Sum(balanceOf) under re-flooring stress"
+        );
+    }
+
     /// @notice Repeatable capture of the last-withdrawal failure (red-first, becomes green when fixed). After
     /// the deterministic over-credit (gap < 0: Sum(balanceOf) > supply), the actors withdraw their full
     /// balances in turn. Actors 0..n-2 exit fine, but the LAST withdrawer's recorded balance now exceeds the

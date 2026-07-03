@@ -301,6 +301,36 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         }
     }
 
+    /// @dev Ceiling counterpart of `_scaleAdjustedValue`: rescales `baseValue` through the product change,
+    /// rounding UP at both roundings (the magnitude rescale and the scale-factor division), so the result is
+    /// always >= the exact real value. The reward-share aggregate rescales with this while user balances rescale
+    /// with the floor `_scaleAdjustedValue`; rounding the aggregate up and balances down keeps the aggregate at
+    /// or above Sum(balanceOf), so a reward divided across it sums to at most the reward.
+    function _scaleAdjustedValueCeil(
+        uint256 baseValue,
+        uint128 toProd,
+        uint128 fromProd
+    ) internal pure returns (uint256 adjusted) {
+        uint8 fromExp = fromProd.exponent();
+        uint8 toExp = toProd.exponent();
+        uint256 fromMag = fromProd.magnitude();
+        uint256 toMag = toProd.magnitude();
+
+        if (baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE) {
+            adjusted = 0;
+        } else {
+            uint256 diff = toExp - fromExp;
+            // Round the magnitude rescale up: floor result, plus 1 whenever the multiplication left a remainder.
+            uint256 scaled = Math.mulDiv(baseValue, toMag, fromMag);
+            if (mulmod(baseValue, toMag, fromMag) != 0) {
+                scaled += 1;
+            }
+            // Then ceil-divide by SCALE_FACTOR^diff: pre-add (divisor - 1) before the shared floor divide.
+            uint256 divisor = uint256(DecrementalFloatingPoint.SCALE_FACTOR) ** diff;
+            adjusted = DecrementalFloatingPoint._divByScaleFactor(scaled + divisor - 1, diff);
+        }
+    }
+
     /// @dev Internal function to compute the amount of asset deposited after several liquidation.
     ///
     /// @param initialBalance The amount of asset deposited initially.
