@@ -16,6 +16,7 @@ import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {StabilityPool_v3_SeedUpgrader} from "@harbor-script/Migrate_StabilityPool_v3_Seed/StabilityPool_v3_SeedUpgrader.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 
@@ -99,9 +100,12 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(amount, user, 0);
     }
 
-    /// @dev Deploy v3 implementation and upgrade the proxy
+    /// @dev Migrate the proxy to v3 via the seed-upgrader: it seeds totalRewardShare = max(Sum(balanceOf), supply)
+    /// from the current holders, then upgrades to the real v3 — mirroring the production migration flow (see
+    /// script/Migrate_StabilityPool_v3_Seed). user1/user2 are the only depositors across the migration tests, so
+    /// they are the complete holder list; a zero-balance holder contributes 0 and is harmless.
     function _upgradeToV3() internal {
-        // Deploy impl BEFORE prank — constructor makes external calls that consume prank
+        // Deploy impls BEFORE prank — constructors make external calls that consume the prank.
         address v3Impl = address(
             new StabilityPool_v3(
                 minter,
@@ -113,8 +117,25 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
                 "SP"
             )
         );
+        address seedUpgraderImpl = address(
+            new StabilityPool_v3_SeedUpgrader(
+                minter,
+                wrappedCollateralToken,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW,
+                1 ether,
+                "StabilityPool",
+                "SP"
+            )
+        );
+        address[] memory holders = new address[](2);
+        holders[0] = user1;
+        holders[1] = user2;
         vm.prank(owner);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(
+            seedUpgraderImpl,
+            abi.encodeCall(StabilityPool_v3_SeedUpgrader.seedAndUpgrade, (holders, v3Impl))
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════

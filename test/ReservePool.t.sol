@@ -177,9 +177,12 @@ contract TestReservePool is TestReservePoolSetUp {
     }
 
     function test_notERC20() public {
-        // requestBonus reads IERC20(token).balanceOf first; token has no code, so Solidity's extcodesize
-        // guard on the call reverts with empty data (no selector) - distinct from any custom-error revert.
-        vm.expectRevert(bytes(""));
+        // requestBonus reads IERC20(token).balanceOf first; the token has no code, so Solidity's extcodesize
+        // guard reverts. The revert data is not portable across run modes: test/coverage runs see empty data,
+        // but --gas-report (yarn gas) enables the call inspector which replaces it with a synthetic
+        // "call to non-contract address 0x..." reason. No single expectRevert parameter matches both, so this
+        // must stay parameterless - it asserts only that the call reverts.
+        vm.expectRevert();
         vm.prank(minter);
         IReservePool(reservePool).requestBonus(tokenNotERC20, bonusReceiver, 1 ether);
     }

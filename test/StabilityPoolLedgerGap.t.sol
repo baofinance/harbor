@@ -278,12 +278,12 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         }
     }
 
-    /// @notice Realized reward mis-credit across a positive gap: engineer gap ≈ S/1e18 with the
-    /// error recipe, stream a reward to completion, and compare what the books credit
-    /// (claimed + claimable + queued + undistributed) against what was injected. The shortfall
-    /// must track the prediction distributed·gap/S (the stranded pro-rata slice), within 1 wei
-    /// per floor event. Then absorb the error (gap → ~0) and verify a second stream mis-credits
-    /// ~nothing.
+    /// @notice Reward conservation across a positive gap: engineer gap ≈ S/1e18 with the error recipe, stream a
+    /// reward to completion, and compare what the books credit (claimed + claimable + queued + undistributed)
+    /// against what was injected. The reward divisor tracks Sum(balanceOf) rounded up (not the exact, larger
+    /// supply), so the reward is distributed in full: the mis-credit is floor-level, not the injected·gap/S a
+    /// supply divisor would strand across the gap. Then absorb the error (gap → ~0) and confirm a second stream
+    /// also mis-credits ~nothing.
     function test_misCredit_streamOverGap() public {
         string memory csv = "./results/sp-ledger-gap-miscredit.csv";
         vm.writeFile(csv, "phase,gap,injected,credited,misCredit,predicted\n");
@@ -299,9 +299,17 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         uint256 reward = 5e21;
         (uint256 credited, uint256 injected) = _streamAndMeasure(actors, reward);
         int256 misCredit = int256(injected) - int256(credited);
-        // predicted stranding: distributed·gap/S; ±1 wei per actor claimable floor, ±2 integral floors
+        // A supply divisor would strand injected·gap/S of the reward across the positive gap; the ceil divisor
+        // (Sum(balanceOf) rounded up) distributes it in full, leaving only floor-level mis-credit. Discriminate
+        // against that stranding — the concrete wrong value a divisor regression would reintroduce (here 5000 vs 2).
         uint256 predicted = (injected * uint256(gap)) / IERC20(pool).totalSupply();
-        assertApprox(_abs(misCredit), predicted, actors.length + 3, "misCredit over positive gap = distributed*gap/S");
+        assertDiscriminates(
+            _abs(misCredit),
+            0,
+            actors.length + 3,
+            predicted,
+            "reward conserved across positive gap - not supply-divisor stranding"
+        );
         string memory row = string.concat("positiveGap,", vm.toString(gap), ",", vm.toString(injected));
         row = string.concat(row, ",", vm.toString(credited), ",", vm.toString(misCredit));
         row = string.concat(row, ",", vm.toString(predicted));
@@ -541,13 +549,13 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         assertGe(_gap(actors), 0, "over-credit written off: Sum(balanceOf) <= supply after the exits");
     }
 
-    /// @notice The CLAIM breaks the same way (red-first, becomes green when fixed). With a negative gap the
-    /// reward integral divides by supply (_getTotalPoolShare) but credits by balanceOf (_getUserPoolShare), and
-    /// Sum(balanceOf) > supply — so Sum(claimable) = reward * Sum(balanceOf) / supply exceeds the reward the pool
-    /// holds by reward * |gap| / supply. A large reward makes that material (~1.28e10 wei here for reward 5e28,
-    /// far above the flooring), so once earlier claimants drain the pool the last claimant's safeTransfer reverts
-    /// on insufficient balance. GREEN once _claimOneToken caps the payout at what the pool holds.
-    function test_claim_survivesOverCredit() public {
+    /// @notice A reward claim is NOT over-credited across a negative balance gap. Even with Sum(balanceOf) > supply
+    /// (the reward integral credits by balanceOf), the divisor tracks Sum(balanceOf) rounded UP rather than the
+    /// smaller supply, so Sum(claimable) <= the reward the pool holds — the pool-favoured direction, never over. A
+    /// large reward (near the distributor's uint96 queue ceiling) makes any over-credit material, so the <=-held
+    /// bound is a real check, not flooring noise. Every actor then claims without reverting and claimable() (read
+    /// just before the claim) equals what it receives — no payout cap is needed because nothing is over-credited.
+    function test_claim_noOverCreditAcrossNegativeGap() public {
         address[] memory actors = _reproduceNegativeGap();
         assertLt(_gap(actors), 0, "precondition: over-credited (Sum(balanceOf) > supply)");
 
@@ -559,17 +567,23 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         vm.stopPrank();
         vm.warp(block.timestamp + 8 days); // whole stream distributable
 
-        // the books credit more than the pool holds: Sum(claimable) exceeds the streamed reward.
+        // the books never credit more than the pool holds: with the divisor tracking Sum(balanceOf) rounded up,
+        // Sum(claimable) <= the held reward — the opposite of the supply-divisor over-credit this scenario would
+        // otherwise produce (Sum(claimable) = reward·Sum(balanceOf)/supply > reward when Sum(balanceOf) > supply).
         address[] memory tokens = new address[](1);
         tokens[0] = steam;
         uint256 sumClaimable = 0;
         for (uint256 i = 0; i < actors.length; i++) {
             sumClaimable += IClaimReward(pool).claimable(actors[i], tokens)[0];
         }
-        assertGt(sumClaimable, IERC20(steam).balanceOf(pool), "the scenario over-credits: Sum(claimable) > held reward");
+        assertLe(
+            sumClaimable,
+            IERC20(steam).balanceOf(pool),
+            "no over-credit across the negative gap: Sum(claimable) <= held reward"
+        );
 
         // every actor claims without reverting, and claimable() (read immediately before the claim) equals what
-        // they actually receive — the last claimant's over-credit is capped at the held balance in both.
+        // they actually receive — no payout cap is needed because the divisor prevents the over-credit entirely.
         for (uint256 i = 0; i < actors.length; i++) {
             uint256 claimableBefore = IClaimReward(pool).claimable(actors[i], tokens)[0];
             uint256 claimedBefore = IClaimReward(pool).claimed(actors[i], tokens)[0];

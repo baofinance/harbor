@@ -387,27 +387,17 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
         );
     }
 
-    /// @notice Conservation of every reward token: on-chain claimed + claimable (which already
-    /// includes each actor's share of the temporal pending) + the distributor's queued remainder
-    /// (LinearReward keeps its rate-truncation queued, it is never leaked) + the undistributed
-    /// stream tail must never exceed what was injected, and may fall short only by a derived dust:
-    /// - Stranded pro-rata slice: _accumulateReward divides by the EXACT supply (supply.amount,
-    ///   decremented exactly per loss) but credits PRODUCT-DECAYED user weights (ceiling-division
-    ///   loss + lastAssetLossError queue), which sum to supply − ε. ε has two components:
-    ///   (a) the loss over-application error, < the supply AT THAT LOSS in 1e18-units — at most
-    ///   one loss's error is outstanding (the queue self-corrects), so ≤ maxSupplyEver/1e18
-    ///   (verified against a replayed counterexample: ε 37,583 with maxSupply/1e18 145,286 but
-    ///   current supply/1e18 only 28,309 — the CURRENT supply does NOT bound it); and (b) the
-    ///   accumulated stored-balance flooring — every user checkpoint re-floors the stored amount,
-    ///   permanently dropping up to 1 wei of weight, at most 2 checkpoints per handler call. Each
-    ///   distribution of A mis-credits A·ε/S, and S never falls below MIN_TOTAL_ASSET_SUPPLY, so
-    ///   the total mis-credit is bounded by injected · (maxSupplyEver/1e18 + 1) / MIN.
-    ///   The sign swings BOTH ways: over-applied error strands a slice with no owner (shortfall),
-    ///   while an error-absorbed loss (supply drops, product doesn't) over-credits claimable
-    ///   beyond what was injected (excess — phantom value invariant_sp_solvent shows cannot all
-    ///   be paid). Hence a symmetric assertApprox, not the one-sided assertConserved.
-    /// - Plus at most 2 integral-floor events per handler call (each checkpoint distributes
-    ///   pending) and 2 wei per actor (the claimable and temporal-pending floors).
+    /// @notice Conservation of every reward token, one-directional: on-chain claimed + claimable (which already
+    /// includes each actor's share of the temporal pending) + the distributor's queued remainder (LinearReward
+    /// keeps its rate-truncation queued, never leaked) + the undistributed stream tail must never EXCEED what was
+    /// injected -- an overshoot is a real over-credit, never tolerated as dust -- and may fall short only by the
+    /// pool-favoured under-credit. The reward divisor (_getTotalPoolShare) rounds the pool's share aggregate UP,
+    /// so it is always >= Sum(balanceOf) and each distribution of A credits at most A; the parts can never
+    /// over-run injected. The permitted shortfall is the pool-favoured under-credit the loss accounting strands:
+    /// the divisor tracks Sum(balanceOf), which the ceiling-division loss leaves below the exact supply by up to
+    /// maxSupplyEver/1e18, so each distribution of A mis-credits at most A*(maxSupplyEver/1e18)/S (S never drops
+    /// below MIN_TOTAL_ASSET_SUPPLY) -- bounded by injected*(maxSupplyEver/1e18 + 1)/MIN over the run -- plus a few
+    /// wei of stored-balance and temporal-pending flooring per checkpoint and per actor.
     function invariant_reward_conserved() public view {
         uint256 actorTotal = handler.actorCount();
         address[] memory tokens = _rewardTokensArray();
@@ -425,19 +415,30 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
         for (uint256 t = 0; t < tokens.length; t++) {
             (, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(stabilityPoolCollateral)
                 .rewardData(tokens[t]);
-            uint256 parts = sumClaimed[t] + sumClaimable[t] + queued;
-            parts += finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
+            uint256[] memory partsVec = new uint256[](4);
+            partsVec[0] = sumClaimed[t];
+            partsVec[1] = sumClaimable[t];
+            partsVec[2] = queued;
+            partsVec[3] = finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
 
-            uint256 misCredit = Math.mulDiv(
+            // The tightening is one-directional: assertConserved FORBIDS parts > injected (a real over-credit the
+            // old symmetric assertApprox tolerated up to the whole misCredit band). The permitted shortfall is the
+            // pool-favoured under-credit the loss accounting still strands: the divisor tracks Sum(balanceOf), which
+            // sits below the exact supply by up to maxSupplyEver/1e18 (the loss over-application), so each
+            // distribution of A mis-credits at most A*(maxSupplyEver/1e18)/S (S >= MIN), plus a few wei of flooring
+            // per checkpoint and per actor.
+            uint256 maxDust = Math.mulDiv(
                 handler.injected(tokens[t]),
                 handler.maxSupplyEver() / 1 ether + 1 + 2 * handler.calls(),
                 handler.MIN_TOTAL_ASSET_SUPPLY()
-            );
-            uint256 tolerance = misCredit + 2 * handler.calls() + 2 * actorTotal + 2;
-            assertApprox(
-                parts,
+            ) +
+                2 * handler.calls() +
+                2 * actorTotal +
+                2;
+            assertConserved(
+                partsVec,
                 handler.injected(tokens[t]),
-                tolerance,
+                maxDust,
                 string.concat("reward conservation: ", vm.toString(tokens[t]))
             );
         }
