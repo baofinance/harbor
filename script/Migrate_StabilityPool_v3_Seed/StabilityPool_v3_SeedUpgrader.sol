@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 
 /// @title StabilityPool_v3_SeedUpgrader
@@ -13,8 +11,6 @@ import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 ///         holders' balances and then upgrades the proxy to the real StabilityPool_v3. It is thrown away after
 ///         the migration. See `~/.claude/plans/stabilitypool-v3-upgrade-seed.md`.
 contract StabilityPool_v3_SeedUpgrader is StabilityPool_v3 {
-    using SafeCast for uint256;
-
     event RewardShareSeeded(uint256 seed);
 
     constructor(
@@ -54,11 +50,8 @@ contract StabilityPool_v3_SeedUpgrader is StabilityPool_v3 {
         }
         uint256 supply = $.totalAssetSupply.amount;
         uint256 seed = sum > supply ? sum : supply;
-        $.totalRewardShare = TokenBalance({
-            amount: seed.toUint128(),
-            product: currentProduct,
-            updatedAt: uint40(block.timestamp)
-        });
+        // gap = supply - divisor, where divisor = seed = max(Sum(balanceOf), supply) >= Sum(balanceOf).
+        $.rewardDivisorGap = int256(supply) - int256(seed);
         emit RewardShareSeeded(seed);
         upgradeToAndCall(stabilityPoolV3, "");
     }

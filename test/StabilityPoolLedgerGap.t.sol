@@ -629,4 +629,48 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
             assertEq(received, claimableBefore, "claimable() must equal what is actually claimed");
         }
     }
+
+    // ─── delta encoding: reward divisor stored as `totalAssetSupply.amount - rewardDivisorGap` ───
+
+    /// @notice A pool that has taken no loss has supply == Sum(balanceOf), so the gap field is 0 and the reward
+    /// divisor is exactly the supply.
+    function test_delta_zeroInitDivisorEqualsSupply() public {
+        address[] memory actors = _mkActors(3);
+        _depositShape(actors, 1e24, false);
+
+        assertEq(_gap(actors), int256(0), "no loss: supply == Sum(balanceOf)");
+        assertEq(MockStabilityPool(pool).__rewardDivisorGap(), int256(0), "no loss: rewardDivisorGap is zero");
+        assertEq(MockStabilityPool(pool).__rewardDivisor(), IERC20(pool).totalSupply(), "divisor == supply");
+    }
+
+    /// @notice Deposits and withdrawals move supply and the divisor by the same amount, so they leave the gap
+    /// field untouched (only losses change it). Exercised at 0, 1 and 2 operations over a non-zero gap.
+    function test_delta_unchangedByDepositWithdraw() public {
+        address[] memory actors = _mkActors(3);
+        _depositShape(actors, 1e24, false);
+        _loss(IERC20(pool).totalSupply() / ONE + 1); // error recipe: leaves a non-zero gap
+
+        int256 gap = MockStabilityPool(pool).__rewardDivisorGap();
+        assertGt(gap, int256(0), "precondition: the loss left a non-zero gap");
+
+        _deposit(actors[0], 5e23); // 1 operation
+        assertEq(MockStabilityPool(pool).__rewardDivisorGap(), gap, "deposit leaves the gap unchanged");
+        _assertDivisorGeSumBalance(actors);
+
+        vm.startPrank(actors[1]); // 2nd operation
+        IStabilityPool(pool).withdraw(2e23, actors[1], 0);
+        vm.stopPrank();
+        assertEq(MockStabilityPool(pool).__rewardDivisorGap(), gap, "withdraw leaves the gap unchanged");
+        _assertDivisorGeSumBalance(actors);
+    }
+
+    /// @notice After a give-back leaves Sum(balanceOf) > supply, the divisor stays >= Sum(balanceOf): the loss
+    /// path drives the gap field negative, lifting the divisor above supply.
+    function test_delta_negativeGapMaintainsDivisor() public {
+        address[] memory actors = _reproduceNegativeGap();
+        assertLt(_gap(actors), int256(0), "precondition: Sum(balanceOf) > supply (negative gap)");
+
+        assertLt(MockStabilityPool(pool).__rewardDivisorGap(), int256(0), "rewardDivisorGap is negative");
+        _assertDivisorGeSumBalance(actors);
+    }
 }

@@ -169,7 +169,7 @@ contract StabilityPool_v3 is
     // test/StabilityPoolStorageLayout.t.sol).
 
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
-    /// @custom:bao-added totalRewardShare
+    /// @custom:bao-added rewardDivisorGap
     struct StabilityPoolStorage {
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
@@ -187,12 +187,13 @@ contract StabilityPool_v3 is
         mapping(address => WithdrawalRequest) withdrawalRequests;
         /// @dev Packed fee configuration (address + uint96)
         FeePayment feePayment;
-        /// @dev The reward-share aggregate: the denominator every reward accumulate divides by. It tracks
-        /// Sum(balanceOf) — decaying with the product across losses like every user balance. It coincides with
-        /// `totalAssetSupply.amount` on deposit/withdraw and diverges only across a loss (the supply drops by the
-        /// exact loss; this decays via the product), so it, not the exact supply, is the total a reward is split
-        /// across for the credited shares to sum to the reward.
-        TokenBalance totalRewardShare;
+        /// @dev The reward-divisor gap: `rewardDivisor = totalAssetSupply.amount - rewardDivisorGap`. The divisor
+        /// is the denominator every reward accumulate divides by; it tracks Sum(balanceOf) so credited shares sum to
+        /// the reward. The gap (supply - divisor) is 0 while `supply == Sum(balanceOf)`, goes negative when a
+        /// give-back leaves `Sum(balanceOf) > supply`, and moves ONLY on losses - deposit/withdraw shift supply and
+        /// the divisor by the same amount, leaving the gap unchanged. Being always at the current product, it needs
+        /// no product field.
+        int256 rewardDivisorGap;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPool")) - 1)) & ~bytes32(uint256(0xff))'
@@ -238,7 +239,7 @@ contract StabilityPool_v3 is
             updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
         });
         $.totalAssetSupply = initialSupply;
-        $.totalRewardShare = initialSupply; // reward divisor starts empty at the initial product, like the supply
+        // rewardDivisorGap defaults to 0: supply == Sum(balanceOf), so the divisor (supply - 0) == supply.
         $.totalAssetSupplyHistory[0] = initialSupply;
         $.totalAssetSupplyHistoryLength = 1;
     }
@@ -415,10 +416,6 @@ contract StabilityPool_v3 is
 
         _recordTotalSupply(supply);
 
-        // Mirror the deposit into the reward-share aggregate (the reward divisor): it tracks Sum(balanceOf), so
-        // the deposit adds to it as it does to each user balance and the supply. See _getTotalPoolShare.
-        _updateRewardShare($, supply.product, int256(assetsDeposited));
-
         // update the user record
         TokenBalance memory balance = $.assetBalances[receiver];
         balance.amount = (uint256(balance.amount) + assetsDeposited).toUint128();
@@ -503,9 +500,6 @@ contract StabilityPool_v3 is
         supply.updatedAt = uint40(block.timestamp);
         _recordTotalSupply(supply);
 
-        // Mirror the outflow out of the reward-share aggregate (see deposit).
-        _updateRewardShare($, supply.product, -int256(assetsWithdrawn + feeAmount));
-
         // Debit the balance, capped at supply. A compounded balance can exceed the pool's total by the loss-
         // accounting rounding, and that excess is not backed by assets; capping keeps Sum(balanceOf) within
         // supply. The cap only lowers a balance that exceeds supply — a balance within supply is debited unchanged.
@@ -560,48 +554,28 @@ contract StabilityPool_v3 is
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
-    /// @dev Returns the reward divisor: the reward-share aggregate rescaled to the current product. The aggregate
-    /// (see `totalRewardShare` and `_updateRewardShare`) is maintained so that, at every point,
+    /// @dev The reward divisor, `totalAssetSupply.amount - rewardDivisorGap`. It is held at or above the summed
+    /// user weights,
     ///
     ///     totalShare  >=  Sum over stakers of balanceOf
     ///
-    /// which is what makes a reward conserve: crediting each staker `reward * balanceOf / totalShare` sums to
-    /// `reward * Sum(balanceOf) / totalShare <= reward`. The bound holds by construction, not by tolerance:
+    /// so crediting each staker `reward * balanceOf / totalShare` sums to `reward * Sum(balanceOf) / totalShare
+    /// <= reward` - rewards conserve by construction, not by tolerance. The bound holds because:
+    /// - supply and Sum(balanceOf) begin equal (gap 0) and a deposit/withdrawal moves both by the same amount, so
+    ///   the gap - the divisor's distance from Sum(balanceOf) - is untouched off the loss path;
+    /// - a loss rescales the divisor with the CEIL `_scaleAdjustedValueCeil` while balances rescale with the FLOOR
+    ///   `_scaleAdjustedValue`, so `divisor = ceil(divisor_old * P'/P) >= Sum(balanceOf_old) * P'/P >=
+    ///   Sum floor(balanceOf_i * P'/P) = Sum(balanceOf_new)`; a give-back (supply drops, product held) drives the
+    ///   gap negative, lifting the divisor above supply to keep it >= Sum(balanceOf).
     ///
-    /// - The aggregate and Sum(balanceOf) rescale the same underlying total — the pool's net deposits decayed by
-    ///   the product. A deposit/withdrawal moves both by the same amount; a loss scales both by the same product
-    ///   factor; only a checkpoint or transfer moves them apart, and only by re-flooring a balance downward.
-    /// - User balances rescale with the FLOOR `_scaleAdjustedValue` (each <= its exact value), so Sum(balanceOf)
-    ///   is at most that total.
-    /// - The aggregate rescales with the CEIL `_scaleAdjustedValueCeil` (>= its exact value), both where it is
-    ///   restored on deposit/withdraw and where it is read here, so totalShare is at least that total.
-    /// - Rounding the aggregate up and balances down, the two never cross: totalShare >= total >= Sum(balanceOf),
-    ///   and no accumulation of per-operation rounding can pull the divisor under the summed balances.
-    ///
-    /// The `> _MAX_EXPONENT_DIFFERENCE` rescale truncation is unreachable for a live aggregate: SCALE_FACTOR^8 is
-    /// 1e72 while every amount is uint128 (< 1e39), so a snapshot old enough to truncate already values under one wei.
+    /// Rounding the divisor up and balances down, the two never cross. The `> _MAX_EXPONENT_DIFFERENCE` rescale
+    /// truncation is unreachable for a live divisor: SCALE_FACTOR^8 is 1e72 while every amount is uint128 (< 1e39).
     function _getTotalPoolShare() internal view virtual override returns (uint128 currentProd, uint256 totalShare) {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
         currentProd = supply.product;
-        TokenBalance memory rewardShare = $.totalRewardShare;
-        totalShare = _scaleAdjustedValueCeil(rewardShare.amount, supply.product, rewardShare.product);
-    }
-
-    /// @dev Update the reward-share aggregate (the reward divisor) by a signed `delta` at the current product:
-    /// compound the stored total to now, apply the delta (floored at zero), restore at the current product. The
-    /// aggregate tracks Sum(balanceOf) so the reward denominator never sits below the summed user weights, which
-    /// would over-credit. Called on deposit (positive delta) and withdraw (negative).
-    function _updateRewardShare(StabilityPoolStorage storage $, uint128 currentProduct, int256 delta) private {
-        TokenBalance memory rewardShare = $.totalRewardShare;
-        // Round the aggregate UP through the product change (ceil), so it stays >= the floor-rounded user
-        // balances it must bound. See _scaleAdjustedValueCeil.
-        int256 updated = int256(_scaleAdjustedValueCeil(rewardShare.amount, currentProduct, rewardShare.product)) +
-            delta;
-        rewardShare.amount = (updated > int256(0) ? uint256(updated) : uint256(0)).toUint128();
-        rewardShare.product = currentProduct;
-        rewardShare.updatedAt = uint40(block.timestamp);
-        $.totalRewardShare = rewardShare;
+        // supply - gap; the invariant above keeps this >= Sum(balanceOf) >= 0, so the cast is safe.
+        totalShare = uint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
@@ -658,6 +632,10 @@ contract StabilityPool_v3 is
             // Store the over-application as the new error
             $.lastAssetLossError = (assetLossPerUnitStaked * uint256(supply.amount)) - lossNumerator;
         }
+        // Snapshot the divisor (supply - gap) at the current product before supply and product change.
+        uint128 previousProduct = supply.product;
+        uint256 divisorBefore = uint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
+
         // Reduce supply by loss amount
         supply.amount = (uint256(supply.amount) - loss).toUint128();
 
@@ -667,6 +645,13 @@ contract StabilityPool_v3 is
         uint128 newProductFactor = 1 ether - uint128(assetLossPerUnitStaked);
         supply.product = supply.product.mul(newProductFactor);
         supply.updatedAt = uint40(block.timestamp);
+
+        // Rescale the divisor to the new product with the CEIL (>= the floor-rescaled balances) and store the gap
+        // supply - divisor. A give-back holds the product and drops supply, so the gap goes negative; either way
+        // the divisor stays >= Sum(balanceOf).
+        uint256 divisorAfter = _scaleAdjustedValueCeil(divisorBefore, supply.product, previousProduct);
+        $.rewardDivisorGap = int256(uint256(supply.amount)) - int256(divisorAfter);
+
         _recordTotalSupply(supply);
     }
 

@@ -100,12 +100,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(amount, user, 0);
     }
 
-    /// @dev Migrate the proxy to v3 via the seed-upgrader: it seeds totalRewardShare = max(Sum(balanceOf), supply)
-    /// from the current holders, then upgrades to the real v3 — mirroring the production migration flow (see
-    /// script/Migrate_StabilityPool_v3_Seed). user1/user2 are the only depositors across the migration tests, so
-    /// they are the complete holder list; a zero-balance holder contributes 0 and is harmless.
+    /// @dev Migrate the proxy to v3 driven by the pre-flight ledger gap, as production will: a gap >= 0 upgrades
+    /// plain (the delta encoding zero-inits rewardDivisorGap, leaving divisor == supply >= Sum(balanceOf)); a
+    /// negative gap seeds the divisor via the SeedUpgrader first (divisor = max(Sum(balanceOf), supply)).
     function _upgradeToV3() internal {
-        // Deploy impls BEFORE prank — constructors make external calls that consume the prank.
+        // Deploy impl BEFORE prank — the constructor makes external calls that consume the prank.
         address v3Impl = address(
             new StabilityPool_v3(
                 minter,
@@ -117,6 +116,13 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
                 "SP"
             )
         );
+
+        if (_ledgerGap() >= 0) {
+            vm.prank(owner);
+            UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
+            return;
+        }
+
         address seedUpgraderImpl = address(
             new StabilityPool_v3_SeedUpgrader(
                 minter,
@@ -136,6 +142,14 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             seedUpgraderImpl,
             abi.encodeCall(StabilityPool_v3_SeedUpgrader.seedAndUpgrade, (holders, v3Impl))
         );
+    }
+
+    /// @dev The ledger gap over the test's holders: `totalAssetSupply - Sum(assetBalanceOf)`. Read from the v2
+    /// pool pre-upgrade (v2 has no gap field); >= 0 means a plain upgrade leaves the divisor >= Sum(balanceOf).
+    function _ledgerGap() internal view returns (int256 gap) {
+        uint256 sum = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1) +
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        gap = int256(IStabilityPool(stabilityPoolCollateral).totalAssetSupply()) - int256(sum);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
