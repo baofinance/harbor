@@ -7,17 +7,18 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {MinterCappedMintSetUp} from "@harbor-test/deployment/MinterCappedMint.t.sol";
 
 /// @title MinterFreeMintCappedTest
-/// @notice A fee-free pegged mint that stops at the governance disallow floor — the redistribute wind
-/// leg — is composed from two existing Minter calls rather than a bespoke Minter function:
+/// @notice Validates the OFF-CHAIN capacity computation a redistribute keeper uses to size a fee-free mint
+/// so it stops at the governance disallow floor. HarborYield does NOT cap on-chain — its VaultManager
+/// reverts (RedistributeMintDisallowed) if a wind's mint would leave the target market in the disallow
+/// band; the keeper is responsible for sizing the transfer to stay clear, from two existing Minter calls:
 ///   1. `mintPeggedTokenDryRun(probe)` with a large probe walks the fee bands to the floor and reports
 ///      the fee'd `collateralTaken` (= backing + fee) and `fee`; the fee-free backing capacity to the
 ///      floor is `collateralTaken - fee`.
-///   2. `freeMintPeggedToken(min(amount, capacity))` mints that backing fee-free.
-/// `_cappedFreeMint` below is that sequence — the function under test and the reference for
-/// VaultManager (Batch 2). Correctness is checked against INDEPENDENT oracles: the config-derived floor
-/// and an analytic backing-to-floor formula — never by feeding the sequence's own output back in.
-/// Reuses MinterCappedMintSetUp's ETH::fxUSD market (mock oracle price=1e18, rate=1e18; bootstrap
-/// CR=2.0; disallow floor CR=1.31).
+///   2. `freeMintPeggedToken(min(amount, capacity))` mints that backing fee-free, landing at/below the floor.
+/// `_cappedFreeMint` below is that keeper-sizing sequence — the function under test. Correctness is checked
+/// against INDEPENDENT oracles: the config-derived floor and an analytic backing-to-floor formula — never
+/// by feeding the sequence's own output back in. Reuses MinterCappedMintSetUp's ETH::fxUSD market (mock
+/// oracle price=1e18, rate=1e18; bootstrap CR=2.0; disallow floor CR=1.31).
 contract MinterFreeMintCappedTest is MinterCappedMintSetUp {
     /// @dev Probe input for the capacity dry-run: large enough to exceed any market's capacity to the
     /// floor (so the walk is floor-bound, not input-bound — `allOfQuiet` passes a concrete value through
@@ -25,9 +26,10 @@ contract MinterFreeMintCappedTest is MinterCappedMintSetUp {
     uint256 internal constant FLOOR_PROBE = 1e40;
 
     // ── Function under test ───────────────────────────────────────────────────────────────────────
-    /// @dev The redistribute wind's capped fee-free mint, composed from existing Minter calls. Pulls
+    /// @dev The keeper's off-chain fee-free capacity sizing, expressed on-chain for the test. Pulls
     /// `min(amount, capacity)` wrapped collateral from the caller and mints it fee-free; returns (0,0)
-    /// at/below the floor. This is the exact sequence VaultManager._windFromToken will run (Batch 2).
+    /// at/below the floor. Mirrors how a redistribute keeper sizes a transfer to stay under VaultManager's
+    /// disallow guard — it is NOT run on-chain (VaultManager reverts an over-large wind rather than caps it).
     function _cappedFreeMint(uint256 amount, address receiver) internal returns (uint256 peggedOut, uint256 used) {
         (, uint256 fee, uint256 collateralToFloor, , , ) = IMinter(minter).mintPeggedTokenDryRun(FLOOR_PROBE);
         uint256 capacity = collateralToFloor - fee; // fee-free backing to the floor ("collateral added")
