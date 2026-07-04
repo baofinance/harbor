@@ -169,6 +169,7 @@ contract StabilityPool_v3 is
     // test/StabilityPoolStorageLayout.t.sol).
 
     /// @custom:storage-location erc7201:bao.storage.StabilityPool
+    /// @custom:bao-added totalRewardShare
     struct StabilityPoolStorage {
         /// @dev The TokenBalance struct for current total supply.
         TokenBalance totalAssetSupply;
