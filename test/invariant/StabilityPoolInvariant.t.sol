@@ -15,6 +15,7 @@ import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 
 import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
+import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice Stateful fuzz handler for the StabilityPool. Each external function is one bounded
 /// action the invariant fuzzer can sequence: deposit / windowed and immediate (fee) withdrawal /
@@ -320,7 +321,7 @@ contract StabilityPoolInvariantHandler is Test {
 /// forge-config: default.invariant.runs = 64
 /// forge-config: default.invariant.depth = 128
 /// forge-config: default.invariant.fail_on_revert = true
-contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
+contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, StabilityPoolConservation {
     StabilityPoolInvariantHandler internal handler;
 
     function setUp() public override {
@@ -373,18 +374,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
     /// 1 wei of compounded-balance flooring per actor per checkpoint, at most 2 checkpoints per
     /// handler call.
     function invariant_pool_conserved() public view {
-        uint256 sum = 0;
-        uint256 count = handler.actorCount();
-        for (uint256 a = 0; a < count; a++) {
-            sum += IERC20(stabilityPoolCollateral).balanceOf(handler.actorAt(a));
-        }
-        uint256 tolerance = handler.maxSupplyEver() / 1 ether + 2 * handler.calls() + count;
-        assertApprox(
-            sum,
-            IERC20(stabilityPoolCollateral).totalSupply(),
-            tolerance,
-            "sum of actor balances vs totalSupply"
-        );
+        _assertPoolConserved(stabilityPoolCollateral, _actorsArray(), handler.maxSupplyEver(), handler.calls());
     }
 
     /// @notice Conservation of every reward token, one-directional: on-chain claimed + claimable (which already
@@ -399,49 +389,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
     /// below MIN_TOTAL_ASSET_SUPPLY) -- bounded by injected*(maxSupplyEver/1e18 + 1)/MIN over the run -- plus a few
     /// wei of stored-balance and temporal-pending flooring per checkpoint and per actor.
     function invariant_reward_conserved() public view {
-        uint256 actorTotal = handler.actorCount();
-        address[] memory tokens = _rewardTokensArray();
-        uint256[] memory sumClaimed = new uint256[](tokens.length);
-        uint256[] memory sumClaimable = new uint256[](tokens.length);
-        for (uint256 a = 0; a < actorTotal; a++) {
-            address actor = handler.actorAt(a);
-            uint256[] memory claimedVector = IClaimReward(stabilityPoolCollateral).claimed(actor, tokens);
-            uint256[] memory claimableVector = IClaimReward(stabilityPoolCollateral).claimable(actor, tokens);
-            for (uint256 t = 0; t < tokens.length; t++) {
-                sumClaimed[t] += claimedVector[t];
-                sumClaimable[t] += claimableVector[t];
-            }
-        }
-        for (uint256 t = 0; t < tokens.length; t++) {
-            (, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(stabilityPoolCollateral)
-                .rewardData(tokens[t]);
-            uint256[] memory partsVec = new uint256[](4);
-            partsVec[0] = sumClaimed[t];
-            partsVec[1] = sumClaimable[t];
-            partsVec[2] = queued;
-            partsVec[3] = finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
-
-            // The tightening is one-directional: assertConserved FORBIDS parts > injected (a real over-credit the
-            // old symmetric assertApprox tolerated up to the whole misCredit band). The permitted shortfall is the
-            // pool-favoured under-credit the loss accounting still strands: the divisor tracks Sum(balanceOf), which
-            // sits below the exact supply by up to maxSupplyEver/1e18 (the loss over-application), so each
-            // distribution of A mis-credits at most A*(maxSupplyEver/1e18)/S (S >= MIN), plus a few wei of flooring
-            // per checkpoint and per actor.
-            uint256 maxDust = Math.mulDiv(
-                handler.injected(tokens[t]),
-                handler.maxSupplyEver() / 1 ether + 1 + 2 * handler.calls(),
-                handler.MIN_TOTAL_ASSET_SUPPLY()
-            ) +
-                2 * handler.calls() +
-                2 * actorTotal +
-                2;
-            assertConserved(
-                partsVec,
-                handler.injected(tokens[t]),
-                maxDust,
-                string.concat("reward conservation: ", vm.toString(tokens[t]))
-            );
-        }
+        _assertRewardConserved(stabilityPoolCollateral, _actorsArray(), _ghosts());
     }
 
     /// @notice An actor's claimable never decreases (beyond the 2-wei two-floor composition)
@@ -486,39 +434,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
     /// mirror image of the stranded slice in invariant_reward_conserved; at this dust scale the
     /// LAST claimer's claim can revert for want of a few wei).
     function invariant_sp_solvent() public view {
-        assertGe(
-            IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
-            IERC20(stabilityPoolCollateral).totalSupply(),
-            "asset balance below total supply"
-        );
-        uint256 actorTotal = handler.actorCount();
-        address[] memory tokens = _rewardTokensArray();
-        uint256[] memory obligations = new uint256[](tokens.length);
-        for (uint256 a = 0; a < actorTotal; a++) {
-            uint256[] memory claimableVector = IClaimReward(stabilityPoolCollateral).claimable(
-                handler.actorAt(a),
-                tokens
-            );
-            for (uint256 t = 0; t < tokens.length; t++) {
-                obligations[t] += claimableVector[t];
-            }
-        }
-        for (uint256 t = 0; t < tokens.length; t++) {
-            (, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(stabilityPoolCollateral)
-                .rewardData(tokens[t]);
-            obligations[t] += queued;
-            obligations[t] += finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
-            uint256 overCredit = Math.mulDiv(
-                handler.injected(tokens[t]),
-                handler.maxSupplyEver() / 1 ether + 1 + 2 * handler.calls(),
-                handler.MIN_TOTAL_ASSET_SUPPLY()
-            );
-            assertGe(
-                IERC20(tokens[t]).balanceOf(stabilityPoolCollateral) + overCredit,
-                obligations[t],
-                string.concat("reward balance below obligations: ", vm.toString(tokens[t]))
-            );
-        }
+        _assertSpSolvent(stabilityPoolCollateral, _actorsArray(), _ghosts());
     }
 
     /// @dev The handler's reward-token list as a memory array, for the vector claim views.
@@ -528,5 +444,24 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp {
         for (uint256 t = 0; t < tokenTotal; t++) {
             tokens[t] = handler.rewardTokenAt(t);
         }
+    }
+
+    function _actorsArray() internal view returns (address[] memory actors) {
+        uint256 count = handler.actorCount();
+        actors = new address[](count);
+        for (uint256 a = 0; a < count; a++) {
+            actors[a] = handler.actorAt(a);
+        }
+    }
+
+    function _ghosts() internal view returns (SpConservationGhosts memory g) {
+        g.tokens = _rewardTokensArray();
+        g.injected = new uint256[](g.tokens.length);
+        for (uint256 t = 0; t < g.tokens.length; t++) {
+            g.injected[t] = handler.injected(g.tokens[t]);
+        }
+        g.maxSupplyEver = handler.maxSupplyEver();
+        g.calls = handler.calls();
+        g.minSupply = handler.MIN_TOTAL_ASSET_SUPPLY();
     }
 }

@@ -6,6 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
@@ -120,6 +121,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint for uint128;
+    using SafeCast for uint256;
 
     /*************
      * Constants *
@@ -410,7 +412,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             for (uint256 i = 0; i < totalLength; i++) {
                 address token = (i < activeLength) ? activeTokens[i] : historicalTokens[i - activeLength];
                 UserRewardSnapshotV2 storage snapshot = $.userRewardSnapshot[account][token];
-                snapshot.rewards.pending = uint128(_claimable(account, token, false));
+                snapshot.rewards.pending = _claimable(account, token, false).toUint128();
                 snapshot.integral = $.tokenToExponentToIntegral[token][exponent];
                 snapshot.timestamp = uint64(block.timestamp);
             }
@@ -436,7 +438,9 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             emit Claim(account, token, account, amount);
             IERC20(token).safeTransfer(account, amount);
         }
-        rewards.claimed += uint128(amount);
+        rewards.claimed += amount.toUint128();
+        // pending - amount <= pending <= uint128 max (pending is the uint128 field read above, amount <= pending),
+        // so this never truncates.
         rewards.pending = uint128(pending - amount);
     }
 
@@ -451,7 +455,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         // slither-disable-next-line incorrect-equality
         if (totalShare == 0) {
             // no deposits, queue rewards
-            _getRewardData(token).queued += uint96(amount);
+            _getRewardData(token).queued += amount.toUint96();
             return;
         }
 
