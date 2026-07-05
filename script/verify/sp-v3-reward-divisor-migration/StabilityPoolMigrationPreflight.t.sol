@@ -1,0 +1,248 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+import {Test} from "forge-std/Test.sol";
+import {console2 as console} from "forge-std/console2.sol";
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
+
+import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
+import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
+import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
+import {Deploy_GOLD_Minter} from "@harbor-script/src/Deploy_GOLD_Minter.sol";
+import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
+import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
+
+/// @title StabilityPoolMigrationPreflight — is every deployed pool safe to upgrade v2->v3 with a plain upgrade?
+/// @notice The v2->v3 reward-divisor migration relies on the delta encoding: a plain `upgradeToAndCall(v3)` leaves
+///         `rewardDivisorGap` zero-initialised, so the reward divisor reads `totalAssetSupply.amount`, which is
+///         `>= Sum(balanceOf)` only when the pool's ledger gap `supply - Sum(balanceOf)` is >= 0. This pre-flight
+///         measures that gap for every deployed StabilityPool on a mainnet fork and classifies each:
+///           - `plain`     : gap >= 0  -> a plain upgrade is safe (divisor = supply >= Sum(balanceOf));
+///           - `seed`      : gap  < 0  -> a plain upgrade would over-credit; seed the divisor via the SeedUpgrader
+///                                        (`seedAndUpgrade(holders, v3)`) instead;
+///           - `empty`     : no captured holders and totalSupply == 0 -> nothing to migrate;
+///           - `recapture` : the captured holders do not account for the supply -> the list is stale, re-capture.
+///
+///         PASSES iff every deployed pool is `plain` or `empty` (a plain all-pools upgrade is safe) AND the
+///         measurement is reliable. FAILS - naming the pool - if any needs a `seed`, has an incomplete/stale
+///         holder list, or the harness did not run. Per-pool results -> ./results/sp-pool-gaps.csv.
+///
+///         RUN AT MIGRATION TIME:
+///           1. Pause the pools (freeze state) and re-capture the holder .txt files up to the migration block.
+///           2. Set CAPTURE_BLOCK to that block.
+///           3. `forge test --mc StabilityPoolMigrationPreflight -vv`  (needs MAINNET_RPC_URL, archival at the block).
+///           4. Green -> plain-upgrade every pool. Red -> the message names the pool(s) to seed or re-capture.
+///
+///         Read-only. Reuses the market enumeration + captured holder files from Migrate_StabilityPool_v2_Data_mainnet.
+contract StabilityPoolMigrationPreflight is
+    Test,
+    Deploy_BTC_Minter,
+    Deploy_ETH_Minter,
+    Deploy_EUR_Minter,
+    Deploy_GOLD_Minter,
+    Deploy_MCAP_Minter,
+    Deploy_SILVER_Minter
+{
+    /// @dev The captured holder lists (bare `0x...` = holder; `# no-work: 0x...` = holder that needed no
+    ///      reward-migration work but still holds a balance; other `#` lines = header). BOTH address forms count.
+    string internal constant HOLDERS_DIR = "script/Migrate_StabilityPool_v2_Data_mainnet/";
+    string internal constant CSV = "./results/sp-pool-gaps.csv";
+    /// @dev The block the holder lists were captured to (their `# to-block`), so the sum is over the complete set.
+    ///      At migration time, re-capture the lists to the migration block and set this to it.
+    uint256 internal constant CAPTURE_BLOCK = 25272609;
+    /// @dev A gap above this fraction of supply (parts-per-billion) is not rounding dust - the holder list is
+    ///      stale/incomplete and must be re-captured. Legitimate gaps measure ~0 ppb; the incomplete-list artifact
+    ///      measures ~9e8 ppb, so this cleanly separates them.
+    uint256 internal constant MAX_REL_GAP_PPB = 1_000_000; // 0.1% of supply
+
+    uint256 internal deployedCount;
+    uint256 internal negativeGapCount; // pools that need a seed (Sum(balanceOf) > supply)
+    uint256 internal emptyNonZeroCount; // no-holder pools with supply > 0 (holder list missed depositors)
+    uint256 internal looseGapCount; // holder pools whose gap exceeds rounding level (holder list stale)
+
+    function setUp() public {
+        vm.createSelectFork(vm.rpcUrl("mainnet"), CAPTURE_BLOCK);
+        _setSaltPrefix("harbor_v1");
+    }
+
+    function test_migrationPreflight() public {
+        vm.writeFile(CSV, "pool,action,totalSupply,sumBalanceOf,gap,relGapPpb\n");
+
+        Config_MinterMarket[] memory markets;
+        (, markets) = createBTCMintersConfig();
+        _scan(markets);
+        (, markets) = createETHMintersConfig();
+        _scan(markets);
+        (, markets) = createEURMintersConfig();
+        _scan(markets);
+        (, markets) = createGOLDMintersConfig();
+        _scan(markets);
+        (, markets) = createMCAPMintersConfig();
+        _scan(markets);
+        (, markets) = createSILVERMintersConfig();
+        _scan(markets);
+
+        console.log("Pre-flight: %d pools deployed, %d need a seed (negative gap)", deployedCount, negativeGapCount);
+
+        assertGt(deployedCount, 0, "no pools scanned - fork / enumeration broken");
+        assertEq(emptyNonZeroCount, 0, "a no-holder pool has totalSupply > 0 - holder list incomplete, re-capture");
+        assertEq(looseGapCount, 0, "a pool's gap exceeds rounding level - holder list stale, re-capture");
+        assertEq(negativeGapCount, 0, "a pool has a negative gap - seed it via the SeedUpgrader before plain upgrade");
+    }
+
+    function _scan(Config_MinterMarket[] memory markets) internal {
+        for (uint256 i = 0; i < markets.length; i++) {
+            string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
+            _measure(SaltString.key(marketKey, "stabilityPoolCollateral"));
+            _measure(SaltString.key(marketKey, "stabilityPoolLeveraged"));
+        }
+    }
+
+    function _measure(string memory saltKey) internal {
+        address pool = _predictAddress(saltKey);
+        if (pool.code.length == 0) {
+            return; // not deployed - nothing to migrate
+        }
+        deployedCount++;
+
+        uint256 totalSupply = IStabilityPool(pool).totalAssetSupply();
+        address[] memory holders = _readHolders(saltKey);
+        uint256 sumBalance = 0;
+        for (uint256 h = 0; h < holders.length; h++) {
+            sumBalance += IStabilityPool(pool).assetBalanceOf(holders[h]);
+        }
+        int256 gap = int256(totalSupply) - int256(sumBalance);
+        uint256 relGapPpb = totalSupply == 0 ? 0 : (_abs(gap) * 1e9) / totalSupply; // |gap| as parts-per-billion of supply
+
+        // Classify the pool for the migration and flag any condition that blocks an all-pools plain upgrade.
+        string memory action;
+        if (holders.length == 0) {
+            // No captured holders: the pool must be empty. A non-zero supply means depositors were missed.
+            action = "empty";
+            if (totalSupply != 0) {
+                emptyNonZeroCount++;
+                console.log(string.concat("INCOMPLETE: ", saltKey, " has no captured holders but totalSupply > 0"));
+            }
+        } else if (relGapPpb >= MAX_REL_GAP_PPB) {
+            // The captured holders do not account for the supply: the list is stale, re-capture before migrating.
+            action = "recapture";
+            looseGapCount++;
+            console.log(string.concat("INCOMPLETE: ", saltKey, " gap exceeds rounding level - holder list stale"));
+        } else if (gap < 0) {
+            // Sum(balanceOf) > supply: a plain upgrade (divisor = supply) would over-credit. Seed this pool.
+            action = "seed";
+            negativeGapCount++;
+            console.log(string.concat("SEED REQUIRED: ", saltKey, " has a negative gap"));
+        } else {
+            action = "plain";
+        }
+
+        console.log(
+            string.concat(
+                saltKey,
+                " action=",
+                action,
+                " totalSupply=",
+                vm.toString(totalSupply),
+                " gap=",
+                vm.toString(gap)
+            )
+        );
+        vm.writeLine(
+            CSV,
+            string.concat(
+                saltKey,
+                ",",
+                action,
+                ",",
+                vm.toString(totalSupply),
+                ",",
+                vm.toString(sumBalance),
+                ",",
+                vm.toString(gap),
+                ",",
+                vm.toString(relGapPpb)
+            )
+        );
+    }
+
+    function _abs(int256 x) internal pure returns (uint256 absolute) {
+        absolute = x < 0 ? uint256(-x) : uint256(x);
+    }
+
+    // Holder-file reader for the FILTERED capture format: bare `0x...` lines are holders that needed
+    // reward-migration work; `# no-work: 0x...` lines are holders that needed none but still hold a balance. BOTH
+    // are real holders and must be summed - reading only the bare lines undercounts Sum(balanceOf) massively (the
+    // no-work holders are usually the majority). Other `#` header lines (proxy, source, ...) are skipped.
+    function _readHolders(string memory saltKey) internal returns (address[] memory holders) {
+        string memory path = string.concat(HOLDERS_DIR, saltKey, ".txt");
+        if (!vm.isFile(path)) {
+            return new address[](0);
+        }
+        uint256 count = 0;
+        while (true) {
+            string memory line = vm.readLine(path);
+            if (bytes(line).length == 0) {
+                break;
+            }
+            if (_isHolderLine(line)) {
+                count++;
+            }
+        }
+        vm.closeFile(path);
+
+        holders = new address[](count);
+        uint256 idx = 0;
+        while (true) {
+            string memory line = vm.readLine(path);
+            if (bytes(line).length == 0) {
+                break;
+            }
+            if (_isHolderLine(line)) {
+                holders[idx] = _holderAddress(line);
+                idx++;
+            }
+        }
+        vm.closeFile(path);
+    }
+
+    /// @dev A holder line is a bare `0x...` address, or a `# no-work: 0x...` filtered entry. Header `#` lines
+    ///      (e.g. `# proxy: 0x...`) are not holders and return false.
+    function _isHolderLine(string memory line) internal pure returns (bool) {
+        bytes memory b = bytes(line);
+        if (b.length == 0) {
+            return false;
+        }
+        if (b[0] != 0x23) {
+            return true; // bare address line
+        }
+        return _hasPrefix(b, "# no-work: ");
+    }
+
+    /// @dev The holder address is the trailing `0x`+40-hex (42 chars): a bare line IS it, a `# no-work: ` line
+    ///      suffixes it. Taking the last 42 chars is robust to the comment prefix length.
+    function _holderAddress(string memory line) internal returns (address) {
+        bytes memory b = bytes(line);
+        bytes memory a = new bytes(42);
+        uint256 start = b.length - 42;
+        for (uint256 i = 0; i < 42; i++) {
+            a[i] = b[start + i];
+        }
+        return vm.parseAddress(string(a));
+    }
+
+    function _hasPrefix(bytes memory b, string memory prefixStr) internal pure returns (bool) {
+        bytes memory p = bytes(prefixStr);
+        if (b.length < p.length) {
+            return false;
+        }
+        for (uint256 i = 0; i < p.length; i++) {
+            if (b[i] != p[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+}

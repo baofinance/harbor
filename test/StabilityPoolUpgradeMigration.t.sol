@@ -16,6 +16,7 @@ import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {StabilityPool_v3_SeedUpgrader} from "@harbor-script/Migrate_StabilityPool_v3_Seed/StabilityPool_v3_SeedUpgrader.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 
@@ -99,9 +100,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(amount, user, 0);
     }
 
-    /// @dev Deploy v3 implementation and upgrade the proxy
+    /// @dev Migrate the proxy to v3 driven by the pre-flight ledger gap, as production will: a gap >= 0 upgrades
+    /// plain (the delta encoding zero-inits rewardDivisorGap, leaving divisor == supply >= Sum(balanceOf)); a
+    /// negative gap seeds the divisor via the SeedUpgrader first (divisor = max(Sum(balanceOf), supply)).
     function _upgradeToV3() internal {
-        // Deploy impl BEFORE prank — constructor makes external calls that consume prank
+        // Deploy impl BEFORE prank — the constructor makes external calls that consume the prank.
         address v3Impl = address(
             new StabilityPool_v3(
                 minter,
@@ -113,8 +116,40 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
                 "SP"
             )
         );
+
+        if (_ledgerGap() >= 0) {
+            vm.prank(owner);
+            UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
+            return;
+        }
+
+        address seedUpgraderImpl = address(
+            new StabilityPool_v3_SeedUpgrader(
+                minter,
+                wrappedCollateralToken,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW,
+                1 ether,
+                "StabilityPool",
+                "SP"
+            )
+        );
+        address[] memory holders = new address[](2);
+        holders[0] = user1;
+        holders[1] = user2;
         vm.prank(owner);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(
+            seedUpgraderImpl,
+            abi.encodeCall(StabilityPool_v3_SeedUpgrader.seedAndUpgrade, (holders, v3Impl))
+        );
+    }
+
+    /// @dev The ledger gap over the test's holders: `totalAssetSupply - Sum(assetBalanceOf)`. Read from the v2
+    /// pool pre-upgrade (v2 has no gap field); >= 0 means a plain upgrade leaves the divisor >= Sum(balanceOf).
+    function _ledgerGap() internal view returns (int256 gap) {
+        uint256 sum = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1) +
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
+        gap = int256(IStabilityPool(stabilityPoolCollateral).totalAssetSupply()) - int256(sum);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

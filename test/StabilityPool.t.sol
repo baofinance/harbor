@@ -55,6 +55,17 @@ contract MockStabilityPool is StabilityPool_v3 {
         return _getStabilityPoolStorage().totalAssetSupply;
     }
 
+    /// @notice Exposes the reward divisor (`_getTotalPoolShare().totalShare`) — the denominator every
+    /// reward accumulate divides by. Reward conservation requires it be >= Sum(balanceOf).
+    function __rewardDivisor() external view returns (uint256 totalShare) {
+        (, totalShare) = _getTotalPoolShare();
+    }
+
+    /// @notice Exposes the reward-divisor gap, where `rewardDivisor == totalAssetSupply.amount - rewardDivisorGap`.
+    function __rewardDivisorGap() external view returns (int256 gap) {
+        gap = _getStabilityPoolStorage().rewardDivisorGap;
+    }
+
     /// @notice Exposes the notifyReward function for testing purposes
     function __notifyReward(address rewardToken, uint256 rewardAmount) external {
         return _notifyReward(rewardToken, rewardAmount);

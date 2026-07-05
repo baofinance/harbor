@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ITokenHolder} from "@bao/TokenHolder.sol";
@@ -11,7 +10,7 @@ import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardA
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
-import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
+import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
 
 /// @notice Sizes the gap between the StabilityPool's two ledgers — the exact supply counter
 /// (`totalAssetSupply.amount`) and the product-decayed user balances (Σ balanceOf) — across the
@@ -279,12 +278,12 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         }
     }
 
-    /// @notice Realized reward mis-credit across a positive gap: engineer gap ≈ S/1e18 with the
-    /// error recipe, stream a reward to completion, and compare what the books credit
-    /// (claimed + claimable + queued + undistributed) against what was injected. The shortfall
-    /// must track the prediction distributed·gap/S (the stranded pro-rata slice), within 1 wei
-    /// per floor event. Then absorb the error (gap → ~0) and verify a second stream mis-credits
-    /// ~nothing.
+    /// @notice Reward conservation across a positive gap: engineer gap ≈ S/1e18 with the error recipe, stream a
+    /// reward to completion, and compare what the books credit (claimed + claimable + queued + undistributed)
+    /// against what was injected. The reward divisor tracks Sum(balanceOf) rounded up (not the exact, larger
+    /// supply), so the reward is distributed in full: the mis-credit is floor-level, not the injected·gap/S a
+    /// supply divisor would strand across the gap. Then absorb the error (gap → ~0) and confirm a second stream
+    /// also mis-credits ~nothing.
     function test_misCredit_streamOverGap() public {
         string memory csv = "./results/sp-ledger-gap-miscredit.csv";
         vm.writeFile(csv, "phase,gap,injected,credited,misCredit,predicted\n");
@@ -300,9 +299,17 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         uint256 reward = 5e21;
         (uint256 credited, uint256 injected) = _streamAndMeasure(actors, reward);
         int256 misCredit = int256(injected) - int256(credited);
-        // predicted stranding: distributed·gap/S; ±1 wei per actor claimable floor, ±2 integral floors
+        // A supply divisor would strand injected·gap/S of the reward across the positive gap; the ceil divisor
+        // (Sum(balanceOf) rounded up) distributes it in full, leaving only floor-level mis-credit. Discriminate
+        // against that stranding — the concrete wrong value a divisor regression would reintroduce (here 5000 vs 2).
         uint256 predicted = (injected * uint256(gap)) / IERC20(pool).totalSupply();
-        assertApprox(_abs(misCredit), predicted, actors.length + 3, "misCredit over positive gap = distributed*gap/S");
+        assertDiscriminates(
+            _abs(misCredit),
+            0,
+            actors.length + 3,
+            predicted,
+            "reward conserved across positive gap - not supply-divisor stranding"
+        );
         string memory row = string.concat("positiveGap,", vm.toString(gap), ",", vm.toString(injected));
         row = string.concat(row, ",", vm.toString(credited), ",", vm.toString(misCredit));
         row = string.concat(row, ",", vm.toString(predicted));
@@ -444,6 +451,69 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         }
     }
 
+    /// @notice Reward conservation's root guarantee: `_accumulateReward` divides the reward by
+    /// `_getTotalPoolShare().totalShare` but credits each user by `balanceOf`, so the credited total is
+    /// `reward * Sum(balanceOf) / divisor`. For that total never to exceed the reward, the divisor must be at
+    /// least `Sum(balanceOf)`. `_reproduceNegativeGap` yields a negative ledger gap (`Sum(balanceOf) > supply`),
+    /// the exact condition that stresses it.
+    function test_rewardDivisor_ge_sumBalance() public {
+        address[] memory actors = _reproduceNegativeGap();
+        uint256 sumBalance = 0;
+        for (uint256 i = 0; i < actors.length; i++) {
+            sumBalance += IERC20(pool).balanceOf(actors[i]);
+        }
+        assertGe(
+            MockStabilityPool(pool).__rewardDivisor(),
+            sumBalance,
+            "reward divisor must be >= Sum(balanceOf) so rewards never over-credit"
+        );
+    }
+
+    /// @notice Stress the divisor's `>= Sum(balanceOf)` guarantee against the pattern that erodes it most: many
+    /// deposit and partial-withdraw cycles across rotating actors (each re-floors the aggregate), interleaved with
+    /// losses that advance the product and diverge the actors' snapshots. The ceil-rounded aggregate stays at or
+    /// above Sum(balanceOf) at every step.
+    function test_rewardDivisor_ge_sumBalance_adversarial() public {
+        address[] memory actors = _mkActors(4);
+        _deposit(actors[0], minSupply * 100); // seed well above the floor
+        _assertDivisorGeSumBalance(actors);
+
+        for (uint256 round = 0; round < 60; round++) {
+            address actor = actors[round % actors.length];
+            _deposit(actor, 1e6 + round * 7); // re-floors the aggregate at the current product
+            _assertDivisorGeSumBalance(actors);
+
+            uint256 balance = IERC20(pool).balanceOf(actor);
+            if (balance > 3) {
+                vm.startPrank(actor);
+                IStabilityPool(pool).withdraw(balance / 3, actor, 0); // partial exit — another aggregate re-floor
+                vm.stopPrank();
+                _assertDivisorGeSumBalance(actors);
+            }
+
+            if (round % 4 == 0) {
+                uint256 headroom = IERC20(pool).totalSupply() - minSupply;
+                if (headroom > 3) {
+                    _loss(headroom / 4); // advance the product, diverge the snapshots
+                    _assertDivisorGeSumBalance(actors);
+                }
+            }
+        }
+    }
+
+    /// @dev The reward divisor must never sit below Sum(balanceOf) (see StabilityPool_v3._getTotalPoolShare).
+    function _assertDivisorGeSumBalance(address[] memory actors) internal view {
+        uint256 sumBalance = 0;
+        for (uint256 i = 0; i < actors.length; i++) {
+            sumBalance += IERC20(pool).balanceOf(actors[i]);
+        }
+        assertGe(
+            MockStabilityPool(pool).__rewardDivisor(),
+            sumBalance,
+            "reward divisor fell below Sum(balanceOf) under re-flooring stress"
+        );
+    }
+
     /// @dev The deterministic counterexample [604800, 5763, 6, 17947] — reaches gap < 0.
     function _reproduceNegativeGap() internal returns (address[] memory actors) {
         return _buildGapScenario(5763, 604800, 6, 17947);
@@ -479,13 +549,13 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         assertGe(_gap(actors), 0, "over-credit written off: Sum(balanceOf) <= supply after the exits");
     }
 
-    /// @notice The CLAIM breaks the same way (red-first, becomes green when fixed). With a negative gap the
-    /// reward integral divides by supply (_getTotalPoolShare) but credits by balanceOf (_getUserPoolShare), and
-    /// Sum(balanceOf) > supply — so Sum(claimable) = reward * Sum(balanceOf) / supply exceeds the reward the pool
-    /// holds by reward * |gap| / supply. A large reward makes that material (~1.28e10 wei here for reward 5e28,
-    /// far above the flooring), so once earlier claimants drain the pool the last claimant's safeTransfer reverts
-    /// on insufficient balance. GREEN once _claimOneToken caps the payout at what the pool holds.
-    function test_claim_survivesOverCredit() public {
+    /// @notice A reward claim is NOT over-credited across a negative balance gap. Even with Sum(balanceOf) > supply
+    /// (the reward integral credits by balanceOf), the divisor tracks Sum(balanceOf) rounded UP rather than the
+    /// smaller supply, so Sum(claimable) <= the reward the pool holds — the pool-favoured direction, never over. A
+    /// large reward (near the distributor's uint96 queue ceiling) makes any over-credit material, so the <=-held
+    /// bound is a real check, not flooring noise. Every actor then claims without reverting and claimable() (read
+    /// just before the claim) equals what it receives — no payout cap is needed because nothing is over-credited.
+    function test_claim_noOverCreditAcrossNegativeGap() public {
         address[] memory actors = _reproduceNegativeGap();
         assertLt(_gap(actors), 0, "precondition: over-credited (Sum(balanceOf) > supply)");
 
@@ -497,17 +567,23 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         vm.stopPrank();
         vm.warp(block.timestamp + 8 days); // whole stream distributable
 
-        // the books credit more than the pool holds: Sum(claimable) exceeds the streamed reward.
+        // the books never credit more than the pool holds: with the divisor tracking Sum(balanceOf) rounded up,
+        // Sum(claimable) <= the held reward — the opposite of the supply-divisor over-credit this scenario would
+        // otherwise produce (Sum(claimable) = reward·Sum(balanceOf)/supply > reward when Sum(balanceOf) > supply).
         address[] memory tokens = new address[](1);
         tokens[0] = steam;
         uint256 sumClaimable = 0;
         for (uint256 i = 0; i < actors.length; i++) {
             sumClaimable += IClaimReward(pool).claimable(actors[i], tokens)[0];
         }
-        assertGt(sumClaimable, IERC20(steam).balanceOf(pool), "the scenario over-credits: Sum(claimable) > held reward");
+        assertLe(
+            sumClaimable,
+            IERC20(steam).balanceOf(pool),
+            "no over-credit across the negative gap: Sum(claimable) <= held reward"
+        );
 
         // every actor claims without reverting, and claimable() (read immediately before the claim) equals what
-        // they actually receive — the last claimant's over-credit is capped at the held balance in both.
+        // they actually receive — no payout cap is needed because the divisor prevents the over-credit entirely.
         for (uint256 i = 0; i < actors.length; i++) {
             uint256 claimableBefore = IClaimReward(pool).claimable(actors[i], tokens)[0];
             uint256 claimedBefore = IClaimReward(pool).claimed(actors[i], tokens)[0];
@@ -554,51 +630,47 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         }
     }
 
-    /// @dev EXPLORATORY: step through the negative-gap scenario logging supply vs Sum(balanceOf) after each step.
-    function test_investigate_negativeGapSteps() public {
-        uint256 n = bound(uint256(5763), 1, 20);
-        uint256 t = bound(uint256(604800), minSupply + n, 1e31);
-        address[] memory actors = _mkActors(n);
-        uint256 deposited = 0;
-        for (uint256 i = 0; i < n; i++) {
-            uint256 remaining = t - deposited;
-            uint256 amount = i + 1 == n
-                ? remaining
-                : bound(uint256(keccak256(abi.encode(uint256(6), i))), 1, remaining - (n - 1 - i));
-            if (i == 0 && amount < minSupply) {
-                amount = minSupply;
-            }
-            _deposit(actors[i], amount);
-            deposited += amount;
-        }
-        console2.log("n", n);
-        _logStep("after deposits", actors);
+    // ─── delta encoding: reward divisor stored as `totalAssetSupply.amount - rewardDivisorGap` ───
 
-        uint256 loss1 = bound(uint256(17947), 1, IERC20(pool).totalSupply() - minSupply);
-        console2.log("loss1", loss1);
-        _loss(loss1);
-        _logStep("after loss1", actors);
+    /// @notice A pool that has taken no loss has supply == Sum(balanceOf), so the gap field is 0 and the reward
+    /// divisor is exactly the supply.
+    function test_delta_zeroInitDivisorEqualsSupply() public {
+        address[] memory actors = _mkActors(3);
+        _depositShape(actors, 1e24, false);
 
-        for (uint256 i = 0; i < n; i++) {
-            IMultipleRewardAccumulator_v3(pool).checkpoint(actors[i]);
-        }
-        _logStep("after checkpoints", actors);
-
-        uint256 loss2 = bound(uint256(keccak256(abi.encode(uint256(17947)))), 1, IERC20(pool).totalSupply() - minSupply);
-        console2.log("loss2", loss2);
-        _loss(loss2);
-        _logStep("after loss2", actors);
+        assertEq(_gap(actors), int256(0), "no loss: supply == Sum(balanceOf)");
+        assertEq(MockStabilityPool(pool).__rewardDivisorGap(), int256(0), "no loss: rewardDivisorGap is zero");
+        assertEq(MockStabilityPool(pool).__rewardDivisor(), IERC20(pool).totalSupply(), "divisor == supply");
     }
 
-    function _logStep(string memory label, address[] memory actors) internal view {
-        uint256 sum = 0;
-        for (uint256 i = 0; i < actors.length; i++) {
-            sum += IERC20(pool).balanceOf(actors[i]);
-        }
-        console2.log(label);
-        console2.log("  supply    ", IERC20(pool).totalSupply());
-        console2.log("  sumBalance", sum);
-        console2.log("  gap       ", _gap(actors));
-        console2.log("  lossError ", IStabilityPool(pool).lastAssetLossError());
+    /// @notice Deposits and withdrawals move supply and the divisor by the same amount, so they leave the gap
+    /// field untouched (only losses change it). Exercised at 0, 1 and 2 operations over a non-zero gap.
+    function test_delta_unchangedByDepositWithdraw() public {
+        address[] memory actors = _mkActors(3);
+        _depositShape(actors, 1e24, false);
+        _loss(IERC20(pool).totalSupply() / ONE + 1); // error recipe: leaves a non-zero gap
+
+        int256 gap = MockStabilityPool(pool).__rewardDivisorGap();
+        assertGt(gap, int256(0), "precondition: the loss left a non-zero gap");
+
+        _deposit(actors[0], 5e23); // 1 operation
+        assertEq(MockStabilityPool(pool).__rewardDivisorGap(), gap, "deposit leaves the gap unchanged");
+        _assertDivisorGeSumBalance(actors);
+
+        vm.startPrank(actors[1]); // 2nd operation
+        IStabilityPool(pool).withdraw(2e23, actors[1], 0);
+        vm.stopPrank();
+        assertEq(MockStabilityPool(pool).__rewardDivisorGap(), gap, "withdraw leaves the gap unchanged");
+        _assertDivisorGeSumBalance(actors);
+    }
+
+    /// @notice After a give-back leaves Sum(balanceOf) > supply, the divisor stays >= Sum(balanceOf): the loss
+    /// path drives the gap field negative, lifting the divisor above supply.
+    function test_delta_negativeGapMaintainsDivisor() public {
+        address[] memory actors = _reproduceNegativeGap();
+        assertLt(_gap(actors), int256(0), "precondition: Sum(balanceOf) > supply (negative gap)");
+
+        assertLt(MockStabilityPool(pool).__rewardDivisorGap(), int256(0), "rewardDivisorGap is negative");
+        _assertDivisorGeSumBalance(actors);
     }
 }

@@ -229,12 +229,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     function claimable(address account, address[] memory tokens) external view returns (uint256[] memory amounts) {
         amounts = new uint256[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
-            // slither-disable-next-line calls-loop — token count is caller-supplied; each call is O(1)
-            uint256 pending = _claimable(account, tokens[i], true);
-            // report what a claim would actually pay: capped at the reward the pool holds, matching
-            // _claimOneToken, so an over-credited ledger never promises more than can be transferred.
-            uint256 held = IERC20(tokens[i]).balanceOf(address(this));
-            amounts[i] = pending > held ? held : pending;
+            amounts[i] = _claimable(account, tokens[i], true);
         }
     }
 
@@ -298,6 +293,36 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
                 Math.mulDiv(baseValue, toMag, fromMag),
                 toExp - fromExp
             );
+        }
+    }
+
+    /// @dev Ceiling counterpart of `_scaleAdjustedValue`: rescales `baseValue` through the product change,
+    /// rounding UP at both roundings (the magnitude rescale and the scale-factor division), so the result is
+    /// always >= the exact real value. The reward-share aggregate rescales with this while user balances rescale
+    /// with the floor `_scaleAdjustedValue`; rounding the aggregate up and balances down keeps the aggregate at
+    /// or above Sum(balanceOf), so a reward divided across it sums to at most the reward.
+    function _scaleAdjustedValueCeil(
+        uint256 baseValue,
+        uint128 toProd,
+        uint128 fromProd
+    ) internal pure returns (uint256 adjusted) {
+        uint8 fromExp = fromProd.exponent();
+        uint8 toExp = toProd.exponent();
+        uint256 fromMag = fromProd.magnitude();
+        uint256 toMag = toProd.magnitude();
+
+        if (baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE) {
+            adjusted = 0;
+        } else {
+            uint256 diff = toExp - fromExp;
+            // Round the magnitude rescale up: floor result, plus 1 whenever the multiplication left a remainder.
+            uint256 scaled = Math.mulDiv(baseValue, toMag, fromMag);
+            if (mulmod(baseValue, toMag, fromMag) != 0) {
+                scaled += 1;
+            }
+            // Then ceil-divide by SCALE_FACTOR^diff: pre-add (divisor - 1) before the shared floor divide.
+            uint256 divisor = uint256(DecrementalFloatingPoint.SCALE_FACTOR) ** diff;
+            adjusted = DecrementalFloatingPoint._divByScaleFactor(scaled + divisor - 1, diff);
         }
     }
 
@@ -406,21 +431,13 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             .userRewardSnapshot[account][token]
             .rewards;
         uint256 pending = rewards.pending;
-        uint256 want = pending > cap ? cap : pending;
-        // Never transfer more than the pool holds. Sum(pending) across accounts can exceed the reward the pool
-        // holds when the ledger over-credits (share-decayed balances summing above the supply the reward was
-        // divided by), which would revert the last claimant's transfer. Pay what is held and write off the
-        // shortfall (want - amount) — over-credit the pool never held — with the claimed portion, so it is not
-        // left as un-payable dangling pending. `token` is a reward token, distinct from any principal the pool
-        // custodies, so balanceOf is the reward balance.
-        uint256 held = IERC20(token).balanceOf(address(this));
-        amount = want > held ? held : want;
+        amount = pending > cap ? cap : pending; // the caller's `cap` bounds a partial claim; the rest stays pending
         if (amount > 0) {
             emit Claim(account, token, account, amount);
             IERC20(token).safeTransfer(account, amount);
         }
         rewards.claimed += uint128(amount);
-        rewards.pending = uint128(pending - want);
+        rewards.pending = uint128(pending - amount);
     }
 
     /// @inheritdoc LinearMultipleRewardDistributor_v3
@@ -431,7 +448,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         }
 
         (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
-
+        // slither-disable-next-line incorrect-equality
         if (totalShare == 0) {
             // no deposits, queue rewards
             _getRewardData(token).queued += uint96(amount);
