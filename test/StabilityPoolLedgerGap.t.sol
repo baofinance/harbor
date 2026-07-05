@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
@@ -672,5 +673,14 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
 
         assertLt(MockStabilityPool(pool).__rewardDivisorGap(), int256(0), "rewardDivisorGap is negative");
         _assertDivisorGeSumBalance(actors);
+    }
+
+    /// @notice The documented "reward <= uint96.max" assumption is ENFORCED, not just assumed: a reward that would
+    /// overflow the uint96 `queued` field (no stakers -> totalShare == 0 -> the reward is queued) reverts via
+    /// SafeCast instead of silently truncating.
+    function test_reward_overUint96QueuedReverts() public {
+        uint256 over = uint256(type(uint96).max) + 1; // one over the uint96 queued field
+        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(96), over));
+        MockStabilityPool(pool).__accumulateReward(steam, over);
     }
 }

@@ -80,6 +80,11 @@ contract MockStabilityPool is StabilityPool_v3 {
         _distributePendingReward();
     }
 
+    /// @notice Exposes reward accumulation for testing the narrow-field cast on the totalShare==0 queue path.
+    function __accumulateReward(address token, uint256 amount) external {
+        _accumulateReward(token, amount);
+    }
+
     function __getCompoundedBalance(
         uint256 initialBalance,
         uint128 initialProduct,
