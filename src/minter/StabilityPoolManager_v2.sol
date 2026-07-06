@@ -387,36 +387,34 @@ contract StabilityPoolManager_v2 is
             );
         }
 
-        // Cap the liquidation amounts to what each pool actually holds
-        peggedForCollateral = Math.min(peggedForCollateral, poolHoldingCollateral);
-        peggedForLeveraged = Math.min(peggedForLeveraged, poolHoldingLeveraged);
+        // Sweep the pegged backing from each pool into this manager. Each pool caps the sweep at its own solvency
+        // headroom above MIN_TOTAL_ASSET_SUPPLY (StabilityPool.sweep), matching the write-down cap in its _notifyLoss,
+        // so a pool may hand back less pegged than requested. Measure the balance delta around each sweep to learn
+        // what was actually taken, and drive the redeem and notifications off those actuals - we must never redeem or
+        // notify more pegged than we hold, or a pool would be left backing supply it no longer has.
+        if (peggedForCollateral > 0) {
+            uint256 peggedBefore = IERC20(PEGGED_TOKEN).balanceOf(address(this));
+            ITokenHolder(_STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
+            peggedForCollateral = IERC20(PEGGED_TOKEN).balanceOf(address(this)) - peggedBefore;
+        }
+        if (peggedForLeveraged > 0) {
+            uint256 peggedBefore = IERC20(PEGGED_TOKEN).balanceOf(address(this));
+            ITokenHolder(_STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
+            peggedForLeveraged = IERC20(PEGGED_TOKEN).balanceOf(address(this)) - peggedBefore;
+        }
         peggedLiquidated = peggedForCollateral + peggedForLeveraged;
 
-        // make sure we're going to liquidate at least the minimum
+        // make sure we actually swept at least the minimum
         if (peggedLiquidated < minPeggedLiquidated) {
             revert InsufficientLiquidation(PEGGED_TOKEN, peggedLiquidated, minPeggedLiquidated);
         }
 
-        // do the actual liquidation for each pool
-        // * take the pegged tokens to be liquidated
-        // * liquidate them into the other token (collateral/leveraged)
-        // * extract the feed and transfer to the fee receiver
-        // * transfer the remainder to the stability pool, notifying it of that "reward"
-
         uint256 rebalanceBountyRatio_ = $.rebalanceBountyRatio;
 
-        // allow the minter to burn my pegged tokens I've just swept up
+        // allow the minter to burn the pegged tokens I've just swept up, then liquidate them into the reward token:
+        // * extract the bounty and transfer to the bounty receiver
+        // * transfer the remainder to the stability pool, notifying it of that "reward"
         IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedLiquidated);
-
-        // sweep the pegged from each pool - this just snaffles the tokens, no accounting: that is done later
-        if (peggedForCollateral > 0) {
-            ITokenHolder(_STABILITY_POOL_COLLATERAL).sweep(PEGGED_TOKEN, peggedForCollateral, address(this));
-        }
-        if (peggedForLeveraged > 0) {
-            ITokenHolder(_STABILITY_POOL_LEVERAGED).sweep(PEGGED_TOKEN, peggedForLeveraged, address(this));
-        }
-
-        // now liquidate the tokens to be liquidated for the reward
         (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter(MINTER).freeRedeemPeggedToken(
             peggedForCollateral,
             peggedForLeveraged,

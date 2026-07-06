@@ -10,15 +10,18 @@ import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
-/// @notice The StabilityPool's fixture-agnostic conservation checks, shared by every test that drives the pool through
-/// stateful sequences: the stateful invariant (StabilityPoolInvariant), the deterministic ledger-gap scenarios
-/// (StabilityPoolLedgerGap), and the envelope-fit fuzz (StabilityPoolEnvelope). Each reads only public pool/reward
-/// state (balanceOf, totalSupply, claimed, claimable, rewardData, token balances) and takes the ghost accounting the
-/// caller tracks as parameters, so it works against any fixture - a hand-rolled mock or the real deployForPeg protocol.
+/// @notice The StabilityPool's fixture-agnostic conservation checks and the raw accumulations under them, shared by
+/// every test that drives the pool through stateful sequences: the stateful invariant (StabilityPoolInvariant), the
+/// deterministic ledger-gap scenarios (StabilityPoolLedgerGap), and the envelope-fit fuzz (StabilityPoolEnvelope).
+/// Everything reads only public pool/reward state (balanceOf, totalSupply, claimed, claimable, rewardData, token
+/// balances) and takes the ghost accounting the caller tracks as parameters, so it works against any fixture - a
+/// hand-rolled mock or the real deployForPeg protocol.
 ///
-/// The white-box divisor check (`__rewardDivisor() >= Sum(balanceOf)`) and the per-action probe checks (claimable
-/// monotonicity, no-retroactive-reward) are deliberately NOT here: the first needs an internal accessor only the mock
-/// exposes, the others need handler instrumentation - both belong with their owning test.
+/// The accumulations (`_sumBalances`, `_ledgerGap`, `_creditedTotals`) are exposed so a caller with its own bespoke
+/// assertion (a specific bound, a discriminating value, a CSV row) can build on the same computation the derived-bound
+/// asserts use, rather than re-deriving it. The white-box divisor check needs the mock's internal accessor and lives
+/// in the `MockStabilityPoolConservation` sub-mixin below; the per-action probe checks (claimable monotonicity,
+/// no-retroactive-reward) need handler instrumentation and stay with their owning test.
 ///
 /// The tolerances are the pool's derived arithmetic: the loss over-application (up to `maxSupplyEver/1e18` asset wei,
 /// the ceiling-division loss error) plus per-checkpoint and per-actor stored-balance flooring (<= 1 wei each), and for
@@ -36,6 +39,39 @@ abstract contract StabilityPoolConservation is BaoTest {
         uint256 minSupply;
     }
 
+    // ─── raw accumulations (shared by the asserts below and by callers with bespoke assertions) ───
+
+    /// @notice Sum of the actors' product-rebased balances.
+    function _sumBalances(address pool, address[] memory actors) internal view returns (uint256 sum) {
+        for (uint256 a = 0; a < actors.length; a++) {
+            sum += IERC20(pool).balanceOf(actors[a]);
+        }
+    }
+
+    /// @notice The signed ledger gap: totalSupply - Sum(balanceOf). Positive = users under-credited (loss
+    /// over-applied); negative = over-credited (claimable can exceed tokens held).
+    function _ledgerGap(address pool, address[] memory actors) internal view returns (int256) {
+        return int256(IERC20(pool).totalSupply()) - int256(_sumBalances(pool, actors));
+    }
+
+    /// @notice Per token, the total credited: claimed + claimable + the distributor's queued remainder + the
+    /// undistributed stream tail. What must never exceed the injected amount.
+    function _creditedTotals(
+        address pool,
+        address[] memory actors,
+        address[] memory tokens
+    ) internal view returns (uint256[] memory total) {
+        (uint256[] memory sumClaimed, uint256[] memory sumClaimable) = _sumClaimedClaimable(pool, actors, tokens);
+        total = new uint256[](tokens.length);
+        for (uint256 t = 0; t < tokens.length; t++) {
+            (, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(pool).rewardData(tokens[t]);
+            uint256 undistributed = finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
+            total[t] = sumClaimed[t] + sumClaimable[t] + queued + undistributed;
+        }
+    }
+
+    // ─── derived-bound asserts ───
+
     /// @notice The actors' product-rebased balances sum to the recorded total supply, within the loss over-application
     /// and per-store flooring. Symmetric: the sum can sit either side as the loss-error queue fills and drains.
     function _assertPoolConserved(
@@ -44,18 +80,23 @@ abstract contract StabilityPoolConservation is BaoTest {
         uint256 maxSupplyEver,
         uint256 calls
     ) internal view {
-        uint256 sum = 0;
-        for (uint256 a = 0; a < actors.length; a++) {
-            sum += IERC20(pool).balanceOf(actors[a]);
-        }
         uint256 tolerance = maxSupplyEver / 1 ether + 2 * calls + actors.length;
-        assertApprox(sum, IERC20(pool).totalSupply(), tolerance, "sum of actor balances vs totalSupply");
+        assertApprox(
+            _sumBalances(pool, actors),
+            IERC20(pool).totalSupply(),
+            tolerance,
+            "sum of actor balances vs totalSupply"
+        );
     }
 
     /// @notice Every reward token conserves one-directionally: claimed + claimable + the distributor's queued remainder
     /// + the undistributed stream tail may never EXCEED what was injected (a real over-credit), and may fall short only
     /// by the pool-favoured under-credit the loss accounting strands.
-    function _assertRewardConserved(address pool, address[] memory actors, SpConservationGhosts memory g) internal view {
+    function _assertRewardConserved(
+        address pool,
+        address[] memory actors,
+        SpConservationGhosts memory g
+    ) internal view {
         (uint256[] memory sumClaimed, uint256[] memory sumClaimable) = _sumClaimedClaimable(pool, actors, g.tokens);
         for (uint256 t = 0; t < g.tokens.length; t++) {
             _assertTokenConserved(pool, g, t, sumClaimed[t], sumClaimable[t], actors.length);
@@ -86,19 +127,23 @@ abstract contract StabilityPoolConservation is BaoTest {
         uint256 sumClaimable,
         uint256 actorCount
     ) private view {
-        (, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(pool).rewardData(g.tokens[t]);
         uint256[] memory partsVec = new uint256[](4);
         partsVec[0] = sumClaimed;
         partsVec[1] = sumClaimable;
-        partsVec[2] = queued;
-        partsVec[3] = finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
-        uint256 maxDust = Math.mulDiv(g.injected[t], g.maxSupplyEver / 1 ether + 1 + 2 * g.calls, g.minSupply) +
-            2 *
-            g.calls +
-            2 *
-            actorCount +
-            2;
-        assertConserved(partsVec, g.injected[t], maxDust, string.concat("reward conservation: ", vm.toString(g.tokens[t])));
+        {
+            (, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(pool).rewardData(
+                g.tokens[t]
+            );
+            partsVec[2] = queued;
+            partsVec[3] = finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
+        }
+        uint256 maxDust = _strandedRewardBound(g, t) + 2 * g.calls + 2 * actorCount + 2;
+        assertConserved(
+            partsVec,
+            g.injected[t],
+            maxDust,
+            string.concat("reward conservation: ", vm.toString(g.tokens[t]))
+        );
     }
 
     /// @dev One reward token's solvency, in its own frame. `baseObligation` is the actors' summed claimable.
@@ -112,12 +157,19 @@ abstract contract StabilityPoolConservation is BaoTest {
         uint256 obligation = baseObligation +
             queued +
             (finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0);
-        uint256 overCredit = Math.mulDiv(g.injected[t], g.maxSupplyEver / 1 ether + 1 + 2 * g.calls, g.minSupply);
+        uint256 overCredit = _strandedRewardBound(g, t);
         assertGe(
             IERC20(g.tokens[t]).balanceOf(pool) + overCredit,
             obligation,
             string.concat("reward balance below obligations: ", vm.toString(g.tokens[t]))
         );
+    }
+
+    /// @dev The reward slice the loss ceiling-division error can strand per token: injected scaled by the outstanding
+    /// loss over-application (maxSupplyEver/1e18, a rounding guard, and 2 per checkpoint call) over the min supply. The
+    /// pool-favoured under-credit floor for conservation, and the mirror allowance for reward solvency.
+    function _strandedRewardBound(SpConservationGhosts memory g, uint256 t) private pure returns (uint256) {
+        return Math.mulDiv(g.injected[t], g.maxSupplyEver / 1 ether + 1 + 2 * g.calls, g.minSupply);
     }
 
     /// @dev Sum each actor's claimed and claimable across `tokens`, split out to keep the checks under the stack limit.
@@ -136,5 +188,26 @@ abstract contract StabilityPoolConservation is BaoTest {
                 sumClaimable[t] += claimableVector[t];
             }
         }
+    }
+}
+
+/// @notice The minimal white-box accessor a mock StabilityPool exposes for the divisor check - referenced by interface
+/// so the shared helper never imports the test contract that defines the mock.
+interface IStabilityPoolRewardDivisor {
+    function __rewardDivisor() external view returns (uint256); // solhint-disable-line func-name-mixedcase
+}
+
+/// @notice Adds the white-box divisor check for mock-based tests (StabilityPoolInvariant, StabilityPoolLedgerGap). The
+/// real deployForPeg protocol has no such accessor, so real-SP tests inherit `StabilityPoolConservation` directly and
+/// rely on the black-box `_assertRewardConserved`/`_assertSpSolvent` for the same guarantee's observable consequence.
+abstract contract MockStabilityPoolConservation is StabilityPoolConservation {
+    /// @notice The reward divisor (`_getTotalPoolShare().totalShare`) must never sit below Sum(balanceOf): a divisor
+    /// below the summed balances credits `reward * Sum(balanceOf) / divisor > reward` - an over-credit.
+    function _assertDivisorGeSumBalance(address pool, address[] memory actors) internal view {
+        assertGe(
+            IStabilityPoolRewardDivisor(pool).__rewardDivisor(),
+            _sumBalances(pool, actors),
+            "reward divisor below Sum(balanceOf): rewards would over-credit"
+        );
     }
 }

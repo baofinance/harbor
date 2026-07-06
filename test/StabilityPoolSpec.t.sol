@@ -122,6 +122,128 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         vm.stopPrank();
     }
 
+    // The last holder withdrawing their whole balance takes the pool to 0; only a request for the whole remaining
+    // supply reaches 0 - a smaller request leaves the floor.
+    function test_withdraw_lastHolderDrainsToZero() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 depositAmount = 3 * floor; // sole holder, well above the floor
+
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1); // inside the no-fee window
+
+        uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "last holder drains supply to pristine 0");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "last holder's balance is 0 after full exit");
+        assertEq(
+            IERC20(peggedToken).balanceOf(user1) - walletBefore,
+            depositAmount,
+            "last holder receives full deposit"
+        );
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0, "pool holds no asset once drained");
+    }
+
+    // A partial withdrawal that would leave the total in the (0, floor) dust zone is clamped to leave exactly the floor.
+    function test_withdraw_partialLeavingDustClampedToFloor() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 depositAmount = 2 * floor;
+
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1);
+
+        // Request 1.5*floor: leaves floor/2 (dust) if honoured, so it must clamp to leave exactly the floor.
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).withdraw(depositAmount - floor / 2, user1, 0);
+        vm.stopPrank();
+
+        assertEq(
+            IERC20(stabilityPoolCollateral).totalSupply(),
+            floor,
+            "partial that would leave dust is clamped to floor"
+        );
+    }
+
+    // After the pool drains to 0, a fresh deposit (>= floor) re-seeds it cleanly: the re-seeding holder's balance equals
+    // their deposit, with no residue from the drained pool.
+    function test_withdraw_drainThenRedeposit_reseeds() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(3 * floor, user1, 0);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1);
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        vm.stopPrank();
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "drained to 0");
+
+        uint256 reseed = 2 * floor;
+        deal(peggedToken, user2, reseed);
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, reseed);
+        IStabilityPool(stabilityPoolCollateral).deposit(reseed, user2, 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), reseed, "re-seed sets supply to the fresh deposit");
+        assertEq(
+            IERC20(stabilityPoolCollateral).balanceOf(user2),
+            reseed,
+            "re-seeder's balance equals deposit - no residue"
+        );
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "drained holder retains nothing");
+    }
+
+    // A non-sole holder cannot drain the pool to 0: a full-balance withdrawal is clamped to leave the floor and the
+    // other holder's stake untouched - one holder can never take another's.
+    function test_withdraw_nonSoleHolderCannotDrainOthersStake() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).deposit(5 * floor, user1, 0);
+        vm.stopPrank();
+        // user2 is a small legit holder (a sub-floor deposit into an established pool is allowed)
+        deal(peggedToken, user2, floor / 2);
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, floor / 2);
+        IStabilityPool(stabilityPoolCollateral).deposit(floor / 2, user2, 0);
+        vm.stopPrank();
+        uint256 user2Balance = IERC20(stabilityPoolCollateral).balanceOf(user2);
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+
+        // user1 requests their FULL balance in the no-fee window - but they are NOT the sole holder
+        vm.startPrank(user1);
+        IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
+        vm.warp(uint256(start) + 1);
+        vm.startPrank(user1);
+        uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+        vm.stopPrank();
+
+        // Clamped to leave exactly the floor - the pool did NOT drain to 0, and user2 keeps their full stake.
+        assertEq(withdrawn, supplyBefore - floor, "user1 clamped to leave the floor - cannot take it all");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "pool left at the floor, not drained to 0");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user2), user2Balance, "other holder's stake untouched");
+        assertGe(
+            IERC20(peggedToken).balanceOf(stabilityPoolCollateral),
+            IERC20(stabilityPoolCollateral).totalSupply(),
+            "pool stays solvent (asset >= supply)"
+        );
+    }
+
     // MIN_DEPOSIT is retained on the interface but is now an alias for MIN_TOTAL_ASSET_SUPPLY (no separate value).
     function test_MIN_DEPOSIT_aliasesMinTotalAssetSupply() public view {
         assertEq(
@@ -164,14 +286,10 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
     }
 
     function testWithdrawAll() public {
-        // Setup: User1 deposits
+        // A sole holder withdrawing all drains the pool to 0.
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
-        // Get the minimum total asset supply
-        uint256 minTotalAssetSupply = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
-
-        // User1 withdraws all (but system will keep minimum)
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
         (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
@@ -180,15 +298,9 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
         vm.stopPrank();
 
-        // Check withdrawal results - should withdraw all except the minimum
-        uint256 expectedWithdrawn = DEPOSIT_AMOUNT - minTotalAssetSupply;
-        assertEq(withdrawn, expectedWithdrawn, "Should withdraw all except minimum");
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), minTotalAssetSupply, "Should leave minimum in pool");
-        assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
-            minTotalAssetSupply,
-            "User should have minimum balance"
-        );
+        assertEq(withdrawn, DEPOSIT_AMOUNT, "sole holder withdraws their whole deposit");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "pool drained to 0");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "holder balance is 0 after full exit");
     }
 
     function testRewardDistribution() public {
@@ -274,6 +386,22 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
             initialBalance - DEPOSIT_AMOUNT / 4,
             "User1 should have reduced balance"
         );
+    }
+
+    /// The owner (which holds no REBALANCER_ROLE) can sweep - proves the onlyOwnerOrRoles OWNER branch, not just the
+    /// role path testSweepByRebalancer covers. A stray non-asset token (a mistaken transfer) is the owner-recovery case.
+    function testSweepByOwner() public {
+        address stray = address(new MockERC20("Stray", "STRAY", 18));
+        MockERC20(stray).mint(stabilityPoolCollateral, 5 ether);
+
+        address poolOwner = IBaoOwnable(stabilityPoolCollateral).owner();
+        address recipient = makeAddr("strayRecipient");
+        vm.startPrank(poolOwner);
+        ITokenHolder(stabilityPoolCollateral).sweep(stray, 5 ether, recipient);
+        vm.stopPrank();
+
+        assertEq(IERC20(stray).balanceOf(recipient), 5 ether, "owner sweeps a stray non-asset token to the recipient");
+        assertEq(IERC20(stray).balanceOf(stabilityPoolCollateral), 0, "pool's stray balance fully swept");
     }
 
     function testSweepFailsByUnauthorized() public {

@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
@@ -15,7 +14,7 @@ import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 
 import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
-import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
+import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice Stateful fuzz handler for the StabilityPool. Each external function is one bounded
 /// action the invariant fuzzer can sequence: deposit / windowed and immediate (fee) withdrawal /
@@ -321,7 +320,7 @@ contract StabilityPoolInvariantHandler is Test {
 /// forge-config: default.invariant.runs = 64
 /// forge-config: default.invariant.depth = 128
 /// forge-config: default.invariant.fail_on_revert = true
-contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, StabilityPoolConservation {
+contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPoolConservation {
     StabilityPoolInvariantHandler internal handler;
 
     function setUp() public override {
@@ -404,16 +403,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, StabilityPoolCons
     /// balances credits `reward * Sum(balanceOf) / divisor > reward` — an over-credit. The divisor tracks
     /// Sum(balanceOf) through a product-decaying aggregate; this pins that it is always pool-favoured (>=).
     function invariant_rewardDivisor_ge_sumBalance() public view {
-        uint256 sum = 0;
-        uint256 count = handler.actorCount();
-        for (uint256 a = 0; a < count; a++) {
-            sum += IERC20(stabilityPoolCollateral).balanceOf(handler.actorAt(a));
-        }
-        assertGe(
-            MockStabilityPool(stabilityPoolCollateral).__rewardDivisor(),
-            sum,
-            "reward divisor below Sum(balanceOf): rewards would over-credit"
-        );
+        _assertDivisorGeSumBalance(stabilityPoolCollateral, _actorsArray());
     }
 
     /// @notice Capital deposited by a zero-balance receiver captures none of the rewards streamed

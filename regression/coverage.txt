@@ -46,10 +46,10 @@
 | src/minter/Minter_v3.sol                                                    | X  99% (619/627)   | X  99% (678/685)   | X  93% (99/106)  | X  99% (69/70)    |
 | src/minter/ReservePool_v1.sol                                               | X  94% (15/16)     | ✓ 100% (15/15)     | ✓ 100% (3/3)     | X  80% (4/5)      |
 | src/minter/StabilityPoolManager_v1.sol                                      | X   0% (0/166)     | X   0% (0/177)     | X   0% (0/21)    | X   0% (0/24)     |
-| src/minter/StabilityPoolManager_v2.sol                                      | X  92% (175/191)   | X  91% (188/206)   | X  67% (20/30)   | X  93% (25/27)    |
+| src/minter/StabilityPoolManager_v2.sol                                      | X  92% (177/193)   | X  91% (192/210)   | X  67% (20/30)   | X  93% (25/27)    |
 | src/minter/StabilityPool_v1.sol                                             | X   0% (0/203)     | X   0% (0/223)     | X   0% (0/33)    | X   0% (0/22)     |
 | src/minter/StabilityPool_v2.sol                                             | X  61% (122/199)   | X  58% (127/219)   | X  19% (6/31)    | X  73% (16/22)    |
-| src/minter/StabilityPool_v3.sol                                             | ✓ 100% (242/242)   | ✓ 100% (261/261)   | ✓ 100% (33/33)   | ✓ 100% (30/30)    |
+| src/minter/StabilityPool_v3.sol                                             | ✓ 100% (246/246)   | ✓ 100% (265/265)   | ✓ 100% (31/31)   | ✓ 100% (31/31)    |
 | src/minter/TokenDistributor_v1.sol                                          | X  96% (94/98)     | X  97% (112/116)   | X  77% (10/13)   | X  93% (14/15)    |
 | src/minter/library/ConfigIncentiveLib.sol                                   | ✓ 100% (24/24)     | ✓ 100% (17/17)     | ✓ 100% (2/2)     | ✓ 100% (9/9)      |
 | src/minter/library/Config_v1.sol                                            | X   0% (0/79)      | X   0% (0/95)      | X   0% (0/20)    | X   0% (0/6)      |
@@ -66,4 +66,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                            | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                         | X  79% (15/19)     | X  73% (19/26)     | X  50% (2/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                                      | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                                       | X  56% (4602/8205) | X  55% (4873/8846) | X  43% (397/921) | X  57% (667/1173) |
+| Total                                                                       | X  56% (4663/8269) | X  55% (4956/8935) | X  43% (395/919) | X  57% (681/1188) |

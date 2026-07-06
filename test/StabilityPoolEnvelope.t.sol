@@ -8,6 +8,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -17,6 +18,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice A named market's supported operating envelope, in the units a director thinks in: dollars and counts. The
 /// harness translates these to what the protocol needs (a pegged token count and the oracle's 1e18-scaled price/rate),
@@ -50,14 +52,14 @@ library EnvelopeLib {
     /// that locates the field limit is a separate entry (later batch).
     function ethFxUSD() internal pure returns (Envelope memory e) {
         e = Envelope({
-            name: "ETH/fxUSD",
-            maxPoolValueUSD: 1e9 ether, // $1B
-            maxPoolUsers: 1000,
-            pegPriceUSD: 4000 ether, // $4000
-            minCollateralUSD: 0.98 ether, // fxUSD ~ $1
-            maxCollateralUSD: 1.02 ether,
-            minWrapRate: 1 ether, // fxSAVE / fxUSD, >= 1x and rising as yield accrues
-            maxWrapRate: 1.5 ether
+            name: "1B, 1e3, 1e3, 1e2",
+            maxPoolValueUSD: 1e10 ether, // $01B
+            maxPoolUsers: 1e4,
+            pegPriceUSD: 1 ether, // $1
+            minCollateralUSD: 1e-6 ether,
+            maxCollateralUSD: 1e6 ether,
+            minWrapRate: 0.001 ether,
+            maxWrapRate: 1000 ether
         });
     }
 }
@@ -71,7 +73,7 @@ library EnvelopeLib {
 ///
 /// This batch covers deposit/withdraw. Harvest, rebalance, the reward-field corner, and richer arranged state land in
 /// later batches (the `StartState` and the keeper set grow with them).
-abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter {
+abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, StabilityPoolConservation {
     // capped so the fork fuzz stays feasible; the declared business cap (maxPoolUsers) can be far larger and is
     // exercised by the deterministic max-users test rather than every fuzz run.
     uint256 internal constant MAX_FUZZ_USERS = 8;
@@ -146,8 +148,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter {
         background = makeAddr("background");
         _createUsers(MAX_FUZZ_USERS);
 
-        // a nominal envelope point (range midpoints) so the seed mint has a price to work from
-        _setEnvelopePoint((e.minCollateralUSD + e.maxCollateralUSD) / 2, (e.minWrapRate + e.maxWrapRate) / 2);
+        // a nominal envelope point (geometric-mean centre of the log-range) so the seed mint has a price to work from
+        _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate());
         _seedPool(); // a permanent MIN_DEPOSIT seed so every actor can fully exit later
     }
 
@@ -332,6 +334,175 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter {
         uint256 walletBefore = IERC20(pegged).balanceOf(users[0]);
         _withdrawAll(users[0]);
         assertEq(IERC20(pegged).balanceOf(users[0]) - walletBefore, poolPegged, "whole-pool exit returns everything");
+    }
+
+    // ─── harvest walk ───
+
+    function _nominalCollateralUSD() internal pure returns (uint256) {
+        Envelope memory e = buildEnvelope();
+        return Math.sqrt(e.minCollateralUSD * e.maxCollateralUSD); // geometric-mean centre of the log-range
+    }
+
+    function _nominalWrapRate() internal pure returns (uint256) {
+        Envelope memory e = buildEnvelope();
+        return Math.sqrt(e.minWrapRate * e.maxWrapRate);
+    }
+
+    /// @dev Grow the pool to `poolPegged` split across the first `n` users (each mints pegged through the minter and
+    /// deposits), so a harvest/rebalance reward lands in the integral/pending path (stakers present), not the
+    /// stakerless queue. Returns each user's deposited share.
+    function _growPool(uint256 poolPegged, uint256 n) internal returns (uint256[] memory shares) {
+        shares = _equalSplit(poolPegged, n);
+        _mintPeggedAtLeast(poolPegged);
+        for (uint256 i = 0; i < n; i++) {
+            IERC20(pegged).transfer(users[i], shares[i]);
+            _deposit(users[i], shares[i]);
+        }
+    }
+
+    /// @dev Accrue yield on the Minter-held collateral (a wrap-rate bump) and have a keeper harvest it to the pool.
+    /// Returns the reward delivered to the collateral StabilityPool (its wrapped-collateral balance delta).
+    function _harvest() internal returns (uint256 injectedToPool) {
+        currentRate = (currentRate * 1001) / 1000; // +0.1% yield on the wrapped collateral
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+        uint256 rewardBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
+        address keeper = makeAddr("keeper");
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+        injectedToPool = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
+    }
+
+    /// @dev Every possible pool holder (the seed, the arranged background, the deposit actors) - zero-balance entries
+    /// contribute nothing to the conservation sums.
+    function _allActors() internal view returns (address[] memory actors) {
+        actors = new address[](users.length + 2);
+        actors[0] = address(this);
+        actors[1] = background;
+        for (uint256 i = 0; i < users.length; i++) {
+            actors[i + 2] = users[i];
+        }
+    }
+
+    /// @dev The conservation ghosts for a single wrapped-collateral reward of `injected`, over a pool that peaked at
+    /// `maxSupplyEver` with `calls` checkpoint-inducing operations.
+    function _rewardGhosts(
+        uint256 injected,
+        uint256 maxSupplyEver,
+        uint256 calls
+    ) internal view returns (SpConservationGhosts memory g) {
+        g.tokens = new address[](1);
+        g.tokens[0] = wrappedCollateral;
+        g.injected = new uint256[](1);
+        g.injected[0] = injected;
+        g.maxSupplyEver = maxSupplyEver;
+        g.calls = calls;
+        g.minSupply = IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
+    }
+
+    /// @notice Harvest happy path across the envelope: a full pool of stakers, yield accrued on Minter-held collateral,
+    /// a keeper harvests it in. The reward reaches the pool, and once the stream completes it conserves - the credited
+    /// total (claimed + claimable + queued + undistributed) never exceeds what was injected, and the pool stays solvent
+    /// - checked with the SAME shared assertions the invariant proves. Run at the nominal operating point; Batch 3
+    /// pushes it to the cheap-wrapped corner where the reward-field capacity bites.
+    function test_envelope_harvest_holds() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate());
+        uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
+
+        uint256 injected = _harvest();
+        assertGt(injected, 0, "harvest delivered a reward to the pool");
+
+        vm.warp(block.timestamp + 8 days); // whole stream distributable
+
+        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        _assertRewardConserved(stabilityPool, _allActors(), g);
+        _assertSpSolvent(stabilityPool, _allActors(), g);
+    }
+
+    // ─── rebalance walk ───
+
+    /// @dev Mint a leveraged buffer so the collateral ratio starts healthy (~1.5x) and can then be dropped below the
+    /// rebalance threshold.
+    function _mintLeveragedBuffer(uint256 peggedBacked) internal {
+        uint256 collateral = _collateralFor(peggedBacked) / 2;
+        deal(wrappedCollateral, address(this), collateral);
+        IERC20(wrappedCollateral).approve(minter, collateral);
+        IMinter(minter).freeMintLeveragedToken(collateral, address(this));
+    }
+
+    /// @dev Lower the collateral price until the collateral ratio falls below the rebalance threshold.
+    function _dropPriceBelowRebalanceThreshold() internal {
+        for (uint256 i = 0; i < 50 && !IStabilityPoolManager(stabilityPoolManager).rebalanceable(); i++) {
+            currentPrice = (currentPrice * 9) / 10; // -10% collateral price lowers the collateral ratio
+            mockOracle.setLatestAnswer(currentPrice, currentRate);
+        }
+        assertTrue(
+            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            "could not drive the collateral ratio below the rebalance threshold"
+        );
+    }
+
+    /// @dev A keeper rebalances: the Minter liquidates pool pegged and returns collateral to the StabilityPool as the
+    /// liquidation reward. Returns the reward delivered to the collateral pool.
+    function _rebalance() internal returns (uint256 injectedToPool) {
+        uint256 rewardBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
+        address keeper = makeAddr("keeper");
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
+        vm.stopPrank();
+        injectedToPool = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
+    }
+
+    /// @notice Rebalance happy path across the envelope: a full pool of stakers, the collateral ratio dropped below the
+    /// rebalance threshold, a keeper rebalances - the Minter liquidates pool pegged and returns collateral to the pool
+    /// as the reward. The reward reaches the pool and conserves, and the pool stays solvent through the liquidation
+    /// (which also decays the product) - the SAME shared assertions the invariant proves. This is the path that drives
+    /// the reward field; run at the nominal point here, pushed to the corner in Batch 3.
+    function test_envelope_rebalance_holds() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate());
+        uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
+        _mintLeveragedBuffer(poolPegged);
+
+        _dropPriceBelowRebalanceThreshold();
+        uint256 injected = _rebalance();
+        assertGt(injected, 0, "rebalance delivered a collateral reward to the pool");
+
+        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        _assertRewardConserved(stabilityPool, _allActors(), g);
+        _assertSpSolvent(stabilityPool, _allActors(), g);
+    }
+
+    // ─── deterministic reward-field corner (the fuzz reaches this < 1/256 runs; never leave it to the fuzzer) ───
+
+    /// @notice The reward-field corner: the full pool ($maxPoolValueUSD) liquidated in one rebalance at the CHEAPEST
+    /// wrapped collateral (minCollateral x minRate) - the point that maximises the reward token count the pool's uint128
+    /// `pending` field must hold, `poolValueUSD / wrappedUSD`. Grown at a healthy nominal price so minting works, then
+    /// moved to the corner (which drops the collateral ratio below the rebalance threshold AND maximises the returned
+    /// collateral). Green = the reward field holds the whole-pool reward at the corner; a SafeCast revert here is the
+    /// documented envelope exceeding the field, to be fixed or narrowed.
+    function test_envelope_corner_rebalance_holds() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate);
+        uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
+        _mintLeveragedBuffer(poolPegged);
+
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate); // cheapest wrapped: CR below threshold + max reward
+        assertTrue(
+            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
+        );
+
+        uint256 injected = _rebalance();
+        assertGt(injected, 0, "rebalance delivered the whole-pool collateral reward at the corner");
+
+        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        _assertRewardConserved(stabilityPool, _allActors(), g);
+        _assertSpSolvent(stabilityPool, _allActors(), g);
     }
 
     // ─── helpers ───

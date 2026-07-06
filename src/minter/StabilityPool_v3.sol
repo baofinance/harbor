@@ -452,12 +452,6 @@ contract StabilityPool_v3 is
         } else {
             assetsWithdrawn = assetAmount;
         }
-        if (assetsWithdrawn == 0) {
-            revert WithdrawZeroAmount();
-        }
-        if (assetsWithdrawn < minAmount) {
-            revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
-        }
 
         // Determine fee policy
         // - If no request: fee applies
@@ -467,24 +461,33 @@ contract StabilityPool_v3 is
         bool inWindow = hasRequest && block.timestamp >= request.start && block.timestamp <= request.end;
         // Role-based fee exemption: addresses with EXEMPT_WITHDRAWAL_FEE_ROLE never pay early-withdrawal fees
         bool isExempt = hasAnyRole(sender, EXEMPT_WITHDRAWAL_FEE_ROLE);
+        // Cap the gross outflow (assetsWithdrawn is still the whole amount leaving the pool) to keep total supply out
+        // of the forbidden (0, MIN_TOTAL_ASSET_SUPPLY) dust zone: a request for the whole remaining supply drains the
+        // pool to exactly 0 (the last holder exits fully - symmetric with the deposit floor), any smaller request
+        // leaves at least the floor.
+        TokenBalance memory supply = $.totalAssetSupply;
+        uint256 maxOutflow = assetsWithdrawn >= supply.amount
+            ? supply.amount
+            : (supply.amount > MIN_TOTAL_ASSET_SUPPLY ? supply.amount - MIN_TOTAL_ASSET_SUPPLY : 0);
+        if (assetsWithdrawn > maxOutflow) {
+            assetsWithdrawn = maxOutflow;
+        }
+
+        // Charge the early-withdrawal fee on the ACTUAL (capped) outflow - clamp-then-fee - so the fee is a true
+        // percentage of what leaves the pool, carved out of the outflow so the total leaving stays within the cap.
         if (!inWindow && !isExempt) {
             feeAmount = (assetsWithdrawn * uint256($.feePayment.earlyWithdrawalFee)) / 1 ether;
             assetsWithdrawn -= feeAmount;
         }
 
-        // Cap the amount leaving the pool (assetsWithdrawn + feeAmount) so total supply stays at or above
-        // MIN_TOTAL_ASSET_SUPPLY. Compared additively because a compounded balance can exceed supply: the loss
-        // accounting rounds each share's decay up, so the summed balances can sit a little above the exact supply.
-        TokenBalance memory supply = $.totalAssetSupply;
-        uint256 maxOutflow = supply.amount > MIN_TOTAL_ASSET_SUPPLY ? supply.amount - MIN_TOTAL_ASSET_SUPPLY : 0;
-        if (assetsWithdrawn + feeAmount > maxOutflow) {
-            // pay the withdrawer as much as the pool holds above the floor; trim the fee to fit.
-            if (assetsWithdrawn > maxOutflow) {
-                assetsWithdrawn = maxOutflow;
-                feeAmount = 0;
-            } else {
-                feeAmount = maxOutflow - assetsWithdrawn;
-            }
+        // Validate the FINAL amount leaving, after the fee and the floor cap: zero means nothing can be withdrawn (a
+        // partial request that would breach the floor caps to zero here), and minAmount is the caller's post-fee
+        // slippage floor - only the final amount can honour it.
+        if (assetsWithdrawn == 0) {
+            revert WithdrawZeroAmount();
+        }
+        if (assetsWithdrawn < minAmount) {
+            revert WithdrawAmountLessThanMinimum(assetsWithdrawn, minAmount);
         }
 
         // Close any existing withdrawal request after successful withdrawal
@@ -594,14 +597,9 @@ contract StabilityPool_v3 is
     function _notifyLoss(uint256 loss) internal {
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
-        if (supply.amount == 0) {
-            return;
-        }
-        // Enforce minimum balance to prevent complete depletion
-        if (loss >= supply.amount - MIN_TOTAL_ASSET_SUPPLY) {
-            // Loss would breach minimum - limit it
-            loss = supply.amount - MIN_TOTAL_ASSET_SUPPLY;
-        }
+        // Cap the loss so the supply is written down no further than the floor - the same cap the rebalance sweep
+        // applies to the pegged it removes (see _capToFloor), keeping pegged retained and supply owed in lock-step.
+        loss = _capToFloor(loss);
         if (loss == 0) {
             return; // No loss to apply
         }
@@ -673,9 +671,40 @@ contract StabilityPool_v3 is
 
     // Rebalancing support
     // -------------------------------------------------------
-    /// @notice function used to control access to the sweep function for extracting harvestable amounts
-    function _checkSweeper() internal view override(TokenHolder) {
-        _checkOwnerOrRoles(REBALANCER_ROLE);
+    /// @notice Sweep an owned token balance to `receiver`; the asset (pegged) sweep is capped so the pool's pegged
+    ///         backing can never drop below its MIN_TOTAL_ASSET_SUPPLY floor.
+    /// @dev Reimplements the base TokenHolder.sweep (receiver check, allOf, Swept, _sweep) with a headroom cap on the
+    ///      asset token applied before the event, so the emitted amount is exactly what transfers. During a
+    ///      liquidation the rebalancer sweeps the pool's pegged backing and _notifyLoss writes the supply down, capped
+    ///      at supply - MIN_TOTAL_ASSET_SUPPLY; capping the asset sweep at that same headroom keeps the retained pegged
+    ///      in lock-step with the remaining supply, so the floored supply is never left unbacked (mirrors withdraw's
+    ///      maxOutflow). Non-asset tokens (stray-token/dust recovery) sweep in full. Access is the owner or the
+    ///      REBALANCER_ROLE (onlyOwnerOrRoles), replacing the base onlySweeper hook.
+    function sweep(
+        address token,
+        uint256 amount,
+        address receiver
+    ) external override(TokenHolder) onlyOwnerOrRoles(REBALANCER_ROLE) nonReentrant {
+        Token.ensureNonZeroAddress(receiver);
+        amount = Token.allOf(address(this), token, amount);
+        if (token == ASSET_TOKEN) {
+            amount = _capToFloor(amount);
+        }
+        if (amount > 0) {
+            emit Swept(token, amount, receiver);
+            _sweep(token, amount, receiver);
+        }
+    }
+
+    /// @notice Cap an asset-token outflow at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY - it may take the pool
+    ///         down to the floor but no further (a loss must leave every holder their share of the min). Shared by the
+    ///         rebalance `sweep` (caps the pegged handed to the liquidator) and `_notifyLoss` (caps the supply written
+    ///         down): applied to both, the pegged the pool retains and the supply it owes fall in lock-step, so a
+    ///         liquidation past the floor leaves the floored supply still fully backed. Returns 0 when supply is 0.
+    function _capToFloor(uint256 amount) internal view returns (uint256) {
+        uint256 supply = totalSupply();
+        uint256 headroom = supply > MIN_TOTAL_ASSET_SUPPLY ? supply - MIN_TOTAL_ASSET_SUPPLY : 0;
+        return amount > headroom ? headroom : amount;
     }
 
     /// @inheritdoc IStabilityPool

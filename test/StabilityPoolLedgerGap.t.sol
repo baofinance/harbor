@@ -12,6 +12,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
 import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
+import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 
 /// @notice Sizes the gap between the StabilityPool's two ledgers — the exact supply counter
 /// (`totalAssetSupply.amount`) and the product-decayed user balances (Σ balanceOf) — across the
@@ -25,7 +26,7 @@ import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityP
 ///
 /// Results are written as CSVs to ./results/sp-ledger-gap-*.csv (one file per test — forge runs
 /// tests in parallel and files are never removed).
-contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
+contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPoolConservation {
     uint256 internal constant ONE = 1 ether; // the 1e18 per-unit-staked precision of _notifyLoss
 
     address internal pool;
@@ -88,11 +89,7 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
     /// (loss over-applied, rewards stranded); negative = users over-credited (claimable can exceed
     /// tokens held).
     function _gap(address[] memory actors) internal view returns (int256 gap) {
-        uint256 sum = 0;
-        for (uint256 i = 0; i < actors.length; i++) {
-            sum += IERC20(pool).balanceOf(actors[i]);
-        }
-        gap = int256(IERC20(pool).totalSupply()) - int256(sum);
+        return _ledgerGap(pool, actors);
     }
 
     function _abs(int256 x) internal pure returns (uint256 absolute) {
@@ -355,13 +352,7 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
     function _creditedTotal(address[] memory actors) internal view returns (uint256 total) {
         address[] memory tokens = new address[](1);
         tokens[0] = steam;
-        for (uint256 i = 0; i < actors.length; i++) {
-            total += IClaimReward(pool).claimed(actors[i], tokens)[0];
-            total += IClaimReward(pool).claimable(actors[i], tokens)[0];
-        }
-        (, uint256 finishAt, uint256 rate, uint256 queued) = IMultipleRewardDistributor(pool).rewardData(steam);
-        total += queued;
-        total += finishAt > block.timestamp ? rate * (finishAt - block.timestamp) : 0;
+        return _creditedTotals(pool, actors, tokens)[0];
     }
 
     /// @notice Fuzz over the SP-native axes with corners capped by construction (no vm.assume):
@@ -458,16 +449,7 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
     /// least `Sum(balanceOf)`. `_reproduceNegativeGap` yields a negative ledger gap (`Sum(balanceOf) > supply`),
     /// the exact condition that stresses it.
     function test_rewardDivisor_ge_sumBalance() public {
-        address[] memory actors = _reproduceNegativeGap();
-        uint256 sumBalance = 0;
-        for (uint256 i = 0; i < actors.length; i++) {
-            sumBalance += IERC20(pool).balanceOf(actors[i]);
-        }
-        assertGe(
-            MockStabilityPool(pool).__rewardDivisor(),
-            sumBalance,
-            "reward divisor must be >= Sum(balanceOf) so rewards never over-credit"
-        );
+        _assertDivisorGeSumBalance(_reproduceNegativeGap());
     }
 
     /// @notice Stress the divisor's `>= Sum(balanceOf)` guarantee against the pattern that erodes it most: many
@@ -504,15 +486,7 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
 
     /// @dev The reward divisor must never sit below Sum(balanceOf) (see StabilityPool_v3._getTotalPoolShare).
     function _assertDivisorGeSumBalance(address[] memory actors) internal view {
-        uint256 sumBalance = 0;
-        for (uint256 i = 0; i < actors.length; i++) {
-            sumBalance += IERC20(pool).balanceOf(actors[i]);
-        }
-        assertGe(
-            MockStabilityPool(pool).__rewardDivisor(),
-            sumBalance,
-            "reward divisor fell below Sum(balanceOf) under re-flooring stress"
-        );
+        _assertDivisorGeSumBalance(pool, actors);
     }
 
     /// @dev The deterministic counterexample [604800, 5763, 6, 17947] — reaches gap < 0.
@@ -682,5 +656,114 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp {
         uint256 over = uint256(type(uint96).max) + 1; // one over the uint96 queued field
         vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(96), over));
         MockStabilityPool(pool).__accumulateReward(steam, over);
+    }
+
+    /// @notice An over-sized liquidation - requested loss above the headroom (supply - MIN_TOTAL_ASSET_SUPPLY) - floors
+    /// the supply at the minimum and caps the swept pegged at the same headroom, so held pegged equals supply: the pool
+    /// holds exactly enough to honour what it owes.
+    function test_liquidationPastFloor_staysSolvent() public {
+        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        address[] memory actors = _mkActors(1);
+        _deposit(actors[0], 1e20);
+
+        uint256 supplyBefore = IERC20(pool).totalSupply();
+        _loss(supplyBefore - floor / 2);
+
+        uint256 supply = IERC20(pool).totalSupply();
+        uint256 held = IERC20(peggedToken).balanceOf(pool);
+        assertEq(supply, floor, "supply floored at MIN_TOTAL_ASSET_SUPPLY");
+        assertEq(held, supply, "held pegged equals supply - solvent at the floor");
+    }
+
+    /// @notice From a pool floored at the minimum, the sole holder withdrawing their whole balance drains it to 0 and is
+    /// paid what the pool holds, less the early-withdrawal fee (no request window opened).
+    function test_liquidationPastFloor_lastHolderDrainsToZero() public {
+        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        address[] memory actors = _mkActors(1);
+        _deposit(actors[0], 1e20);
+        _loss(IERC20(pool).totalSupply() - floor / 2);
+        assertEq(IERC20(peggedToken).balanceOf(pool), IERC20(pool).totalSupply(), "floored and solvent");
+
+        uint256 walletBefore = IERC20(peggedToken).balanceOf(actors[0]);
+        vm.startPrank(actors[0]);
+        IStabilityPool(pool).withdraw(type(uint256).max, actors[0], 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(pool).totalSupply(), 0, "sole holder drains the floored pool to 0");
+        assertEq(IERC20(peggedToken).balanceOf(pool), 0, "no pegged left once drained");
+        assertGt(IERC20(peggedToken).balanceOf(actors[0]) - walletBefore, 0, "holder is paid on exit");
+    }
+
+    /// @dev Floor the pool via an over-sized liquidation and return the sole depositor; asserts held equals supply
+    /// (solvent at the floor) as the shared precondition for the pokes below.
+    function _liquidatePastFloor() internal returns (address depositor) {
+        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        address[] memory actors = _mkActors(1);
+        depositor = actors[0];
+        _deposit(depositor, 1e20);
+        _loss(IERC20(pool).totalSupply() - floor / 2);
+        assertEq(IERC20(peggedToken).balanceOf(pool), IERC20(pool).totalSupply(), "precondition: solvent at the floor");
+    }
+
+    /// @dev Full exit inside the no-fee withdrawal window; returns the pegged received.
+    function _exit(address who) internal returns (uint256 received) {
+        vm.startPrank(who);
+        IStabilityPool(pool).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool(pool).getWithdrawalRequest(who);
+        vm.warp(uint256(start) + 1);
+        uint256 before = IERC20(peggedToken).balanceOf(who);
+        vm.startPrank(who);
+        IStabilityPool(pool).withdraw(type(uint256).max, who, 0);
+        vm.stopPrank();
+        received = IERC20(peggedToken).balanceOf(who) - before;
+    }
+
+    /// @notice A newcomer depositing into a floored pool recovers their full principal on exit; a prior holder's
+    /// floored stake is never paid from a newcomer's deposit.
+    function test_liquidationPastFloor_newcomerKeepsPrincipal() public {
+        _liquidatePastFloor();
+        address newcomer = makeAddr("newcomer");
+        uint256 amount = 1e19;
+        _deposit(newcomer, amount);
+        uint256 received = _exit(newcomer);
+        assertApproxEqAbs(received, amount, 2, "newcomer recovers full principal");
+    }
+
+    /// @notice A reward streamed into a floored pool is never over-credited: a depositor's claimable never exceeds the
+    /// reward the pool holds, and the claim pays exactly that.
+    function test_liquidationPastFloor_rewardNotOverCredited() public {
+        address depositor = _liquidatePastFloor();
+        uint256 reward = 1e18;
+        deal(steam, rewardDepositor, reward);
+        vm.startPrank(rewardDepositor);
+        IERC20(steam).approve(pool, reward);
+        IMultipleRewardDistributor(pool).depositReward(steam, reward);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 8 days);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = steam;
+        uint256 claimable = IClaimReward(pool).claimable(depositor, tokens)[0];
+        assertLe(claimable, IERC20(steam).balanceOf(pool), "claimable <= reward held: no over-credit");
+
+        uint256 before = IERC20(steam).balanceOf(depositor);
+        vm.startPrank(depositor);
+        IMultipleRewardAccumulator_v3(pool).claim();
+        vm.stopPrank();
+        assertEq(IERC20(steam).balanceOf(depositor) - before, claimable, "claim pays exactly claimable, no shortfall");
+    }
+
+    /// @notice A second over-sized loss on a floored pool takes nothing - the headroom is 0 at the floor - so supply
+    /// stays at the floor and held pegged stays equal to it.
+    function test_liquidationPastFloor_secondLossStaysSolvent() public {
+        _liquidatePastFloor();
+        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        _loss(IERC20(peggedToken).balanceOf(pool));
+
+        uint256 supply = IERC20(pool).totalSupply();
+        uint256 held = IERC20(peggedToken).balanceOf(pool);
+        assertEq(supply, floor, "supply stays at the floor");
+        assertEq(held, supply, "held pegged stays equal to supply - still solvent");
     }
 }

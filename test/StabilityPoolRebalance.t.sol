@@ -239,8 +239,14 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
     // Updated test for small loss amounts that correctly expects non-zero error
     function testNotifyLossVerySmallAmount(uint256 depositAmount, uint256 sweepAmount) public {
         // Make a large deposit to better show the effect
-        depositAmount = bound(depositAmount, 1 ether, 1_000_000 ether);
         sweepAmount = bound(sweepAmount, 1, 1 ether);
+        // keep the deposit above floor + the max sweep so the sweep stays within the pool's headroom: this exercises
+        // the small-loss error correction, not the floor cap on the sweep
+        depositAmount = bound(
+            depositAmount,
+            IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY() + 1 ether,
+            1_000_000 ether
+        );
 
         // depositAmount = 100_000 ether; // 100 thousand tokens
         // sweepAmount = 1; // 1 wei
@@ -566,19 +572,17 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
         IStabilityPool(stabilityPoolCollateral).withdraw(withdrawAmount, user1, 0);
 
-        // User1 attempts to withdraw their balance but gets 0 tokens due to MIN_TOTAL_ASSET_SUPPLY constraint
-        // After complete liquidation, the minimum supply is protected and cannot be withdrawn
+        // A partial withdrawal at the floor would leave the total in the (0, MIN_TOTAL_ASSET_SUPPLY) dust zone, so it
+        // reverts rather than silently paying 0 (only a request for the whole remaining supply could drain to 0).
         vm.prank(user1);
-        uint256 actualWithdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
+        vm.expectRevert(IStabilityPool.WithdrawZeroAmount.selector);
+        IStabilityPool(stabilityPoolCollateral).withdraw(actualUser1Balance, user1, 0);
 
-        // The withdrawal should return 0 because it would violate MIN_TOTAL_ASSET_SUPPLY
-        assertEq(actualWithdrawn, 0, "Withdrawal should return 0 tokens due to MIN_TOTAL_ASSET_SUPPLY constraint");
-
-        // User1's balance should remain unchanged after failed withdrawal
+        // The revert leaves user1's balance unchanged.
         assertEq(
             IERC20(stabilityPoolCollateral).balanceOf(user1),
             actualUser1Balance,
-            "User1 balance should remain unchanged after failed withdrawal due to MIN_TOTAL_ASSET_SUPPLY constraint"
+            "user1 balance unchanged after the reverted withdrawal"
         );
 
         // 7. Make a new deposit after complete liquidation to verify the system still works
@@ -593,7 +597,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         );
         assertEq(
             IERC20(stabilityPoolCollateral).totalSupply(),
-            DEPOSIT_AMOUNT * 5 + minSupply, // User1's withdrawal returned 0, so no tokens were removed
+            DEPOSIT_AMOUNT * 5 + minSupply, // user1's withdrawal reverted, so no tokens were removed
             "Total supply incorrect after new deposit"
         );
 
@@ -659,12 +663,13 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         uint256 poolBalance = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
         assertEq(poolBalance, directAmount, "Pool should have received tokens");
 
-        // 5. Call sweep which will internally call _notifyLoss on zero supply
+        // 5. Liquidate at zero supply: the asset sweep caps at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY, which
+        //    is 0 when supply is 0, so it takes nothing (and _notifyLoss on zero supply applies no loss).
         _liquidate(directAmount);
 
-        // 6. Verify the tokens were swept
+        // 6. The directly-transferred tokens remain - the asset sweep took nothing.
         uint256 poolBalanceAfter = IERC20(peggedToken).balanceOf(stabilityPoolCollateral);
-        assertEq(poolBalanceAfter, 0, "Pool should have zero balance after sweep");
+        assertEq(poolBalanceAfter, directAmount, "asset sweep takes nothing at zero supply - headroom is 0");
 
         // 7. Verify supply remains at zero
         uint256 finalSupply = IERC20(stabilityPoolCollateral).totalSupply();

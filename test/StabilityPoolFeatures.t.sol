@@ -342,58 +342,83 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     // when the v4 fix reorders to clamp-then-fee.
     // ═══════════════════════════════════════════════════════════════════════
 
-    function test_withdraw_feeTrimmedWhenBreachingMin() public {
-        // Single depositor, deposit = MIN + 0.01. Withdraw all without request.
-        // The first clamp triggers (assetsWithdrawn after fee > supply - MIN).
-        // Fee trim also triggers but maxFee = 0, so fee is trimmed to zero.
-        //
-        // NOTE: This test will fail when the v4 fee fix is applied — the fee
-        // calculation will change from fee-then-clamp to clamp-then-fee.
-
+    function test_withdraw_drainToZero_chargesFullFee() public {
+        // A sole holder just above the floor withdrawing all without a request drains the pool to 0, and the
+        // early-withdrawal fee is charged on the full amount (the floor clamp does not bind on a drain).
         setUp_collateral(1 ether, 0 ether, user1);
         uint256 depositAmount = 1.01 ether;
         deal(peggedToken, user1, depositAmount);
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
 
+        uint256 expectedFee = (depositAmount * IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee()) /
+            1 ether;
         uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(FEE_ADDRESS);
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
 
-        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
-        assertEq(supplyAfter, 1 ether, "supply at MIN");
-
-        // Fee should have been trimmed to 0
-        uint256 feeCollected = IERC20(peggedToken).balanceOf(FEE_ADDRESS) - feeReceiverBefore;
-        assertEq(feeCollected, 0, "fee trimmed to zero");
-
-        // User got 0.01 ether (the delta above MIN)
-        assertEq(withdrawn, 0.01 ether, "user got delta above MIN");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "pool drained to 0");
+        assertEq(withdrawn, depositAmount - expectedFee, "holder receives their deposit less the fee");
+        assertEq(IERC20(peggedToken).balanceOf(FEE_ADDRESS) - feeReceiverBefore, expectedFee, "fee charged in full");
     }
 
-    function test_withdraw_feeTrimmedWithTwoDepositors() public {
-        // Single depositor with 1.05 ether. Withdraw all without request.
-        // Same pattern as above but with a larger delta above MIN.
-        // After clamp: assetsWithdrawn = supply - MIN = 0.05.
-        // Fee was calculated on the original 1.05 = 0.02625, but maxFee = 0 after clamp.
-        //
-        // NOTE: This test will fail when the v4 fee fix is applied.
-
+    function test_withdraw_drainToZero_chargesFullFee_higherBalance() public {
+        // Same drain-to-0 with the fee charged in full, at a larger balance above the floor.
         setUp_collateral(1 ether, 0 ether, user1);
-        deal(peggedToken, user1, 1.05 ether);
+        uint256 depositAmount = 1.05 ether;
+        deal(peggedToken, user1, depositAmount);
         vm.prank(user1);
-        IStabilityPool(stabilityPoolCollateral).deposit(1.05 ether, user1, 0);
+        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
 
-        // Withdraw all without request — triggers clamp AND fee trim
+        uint256 expectedFee = (depositAmount * IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee()) /
+            1 ether;
         uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(FEE_ADDRESS);
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
 
-        uint256 supplyAfter = IERC20(stabilityPoolCollateral).totalSupply();
-        assertEq(supplyAfter, 1 ether, "supply at MIN");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "pool drained to 0");
+        assertEq(withdrawn, depositAmount - expectedFee, "holder receives their deposit less the fee");
+        assertEq(IERC20(peggedToken).balanceOf(FEE_ADDRESS) - feeReceiverBefore, expectedFee, "fee charged in full");
+    }
 
-        uint256 feeCollected = IERC20(peggedToken).balanceOf(FEE_ADDRESS) - feeReceiverBefore;
-        assertEq(feeCollected, 0, "fee trimmed to zero after clamp");
-        assertEq(withdrawn, 0.05 ether, "user got delta above MIN");
+    // A partial withdrawal clamped at the floor charges the early-withdrawal fee on the ACTUAL (clamped) outflow, not on
+    // the requested amount - the fee is a true percentage of what leaves the pool.
+    function test_withdraw_partialClampChargesFeeOnClampedOutflow() public {
+        setUp_collateral(1 ether, 0 ether, user1);
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+
+        // user1 large, user2 sub-floor: user1 withdrawing all is a PARTIAL clamped to leave the floor, not a drain
+        deal(peggedToken, user1, 5 * floor);
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, 5 * floor);
+        IStabilityPool(stabilityPoolCollateral).deposit(5 * floor, user1, 0);
+        vm.stopPrank();
+        deal(peggedToken, user2, floor / 2);
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, floor / 2);
+        IStabilityPool(stabilityPoolCollateral).deposit(floor / 2, user2, 0);
+        vm.stopPrank();
+
+        uint256 supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
+        uint256 clampedOutflow = supplyBefore - floor; // the outflow after the floor clamp (a partial)
+        uint256 feeRate = IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee();
+        uint256 expectedFee = (clampedOutflow * feeRate) / 1 ether; // fee on the CLAMPED outflow
+
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(FEE_ADDRESS);
+        uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
+        vm.prank(user1);
+        IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
+
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "pool left at the floor");
+        assertEq(
+            IERC20(peggedToken).balanceOf(FEE_ADDRESS) - feeReceiverBefore,
+            expectedFee,
+            "fee is a true percentage of the clamped outflow"
+        );
+        assertEq(
+            IERC20(peggedToken).balanceOf(user1) - walletBefore,
+            clampedOutflow - expectedFee,
+            "user1 receives the clamped outflow less the proper fee"
+        );
     }
 }

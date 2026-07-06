@@ -130,48 +130,21 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
 
     // Test withdrawing entire balance using exact amount
     function testWithdrawExactBalance() public {
-        // Setup: Make a deposit
+        // A sole holder requesting their exact whole balance drains the pool to 0.
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
-        // Get exact balance
         uint256 exactBalance = IERC20(stabilityPoolCollateral).balanceOf(user1);
 
-        // Calculate maximum withdrawable amount considering MIN_TOTAL_ASSET_SUPPLY protection
-        uint256 MIN_TOTAL_ASSET_SUPPLY = 1 ether;
-        uint256 totalSupply = IERC20(stabilityPoolCollateral).totalSupply();
-        uint256 maxWithdrawable = totalSupply > MIN_TOTAL_ASSET_SUPPLY ? totalSupply - MIN_TOTAL_ASSET_SUPPLY : 0;
-
-        // When trying to withdraw the exact balance, the pool will limit it to maxWithdrawable
-        uint256 expectedWithdrawal = exactBalance > maxWithdrawable ? maxWithdrawable : exactBalance;
-
-        // Withdraw exactly the user's balance (but expect it to be limited by protection)
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
         vm.warp(block.timestamp + 2 hours);
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(exactBalance, user1, 0);
 
-        assertEq(
-            withdrawn,
-            expectedWithdrawal,
-            "Should withdraw maximum allowed amount considering MIN_TOTAL_ASSET_SUPPLY protection"
-        );
-
-        // The remaining balance should be the original balance minus what was actually withdrawn
-        uint256 expectedRemainingBalance = exactBalance - expectedWithdrawal;
-        assertEq(
-            IERC20(stabilityPoolCollateral).balanceOf(user1),
-            expectedRemainingBalance,
-            "Balance should reflect actual withdrawal amount"
-        );
-
-        // Pool total supply should not go below MIN_TOTAL_ASSET_SUPPLY
-        assertGe(
-            IERC20(stabilityPoolCollateral).totalSupply(),
-            MIN_TOTAL_ASSET_SUPPLY,
-            "Pool should maintain minimum total asset supply"
-        );
+        assertEq(withdrawn, exactBalance, "sole holder withdraws their exact whole balance");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "balance is 0 after full exit");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "pool drained to 0");
     }
 
     // Test totalAssetSupplyHistory with invalid index

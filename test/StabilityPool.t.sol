@@ -390,20 +390,20 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 3 * price);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 3 * price);
 
-        // withdraw rest
+        // withdraw rest - the last holder drains the pool to 0
         _beginWithdrawal(user1);
         vm.prank(user1);
         withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, receiver, 0);
         // 3 withdraw ---------------------------------------------------------------------------
-        assertEq(withdrawn, 3 * price - 1 ether, "withdraw 3 (-1)"); // include the minimum pool size
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 1 ether);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 1 ether);
+        assertEq(withdrawn, 3 * price, "withdraw 3 (drains to 0)");
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 0);
 
-        // deposit -1
+        // deposit all remaining
         vm.prank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, receiver, 0);
         // 4 deposit ------------------------------------------------------------------------------
-        assertEq(deposited, 10 * price - 1 ether, "returned value 10");
+        assertEq(deposited, 10 * price, "returned value 10");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 10 * price);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0);

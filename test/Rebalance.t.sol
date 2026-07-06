@@ -94,6 +94,8 @@ contract TestLiquidate is TestStabilityPool2SetUp {
     function test_liquidateFailure() public {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         uint256 liquidated;
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 supplyBefore;
 
         // set up - no leveraged tokens
         setUp_collateral(8 ether, 0 ether); // 8:0 CR = 1
@@ -103,35 +105,38 @@ contract TestLiquidate is TestStabilityPool2SetUp {
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (1) ----------------------------------------------------------------------------------------
 
-        // some deposits - liquidate more than deposit?
+        // a full liquidation removes the pool's balance down to the floor, never below it
         setUp_collateral(1 ether, 0 ether, user1); // 9:0 CR = 1
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+        supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (2) ----------------------------------------------------------------------------------------
-        assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
+        assertEq(liquidated, supplyBefore - floor, "liquidation removes everything above the floor");
 
-        // does it work when depegged?
+        // the drain-to-floor invariant holds even when the collateral is depegged
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1
         price /= 2;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // depeg: CR = 0.5
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+        supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         liquidated = IStabilityPoolManager(stabilityPoolManagerCollateral).rebalance(bountyReceiver, 0);
         // (3) ----------------------------------------------------------------------------------------
-        assertEq(liquidated, 1 * price, "liquidated more than deposited"); // token liquidated 8:0
+        assertEq(liquidated, supplyBefore - floor, "liquidation removes everything above the floor");
 
         price *= 2;
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price); // CR = 1 again
-        // some deposits - liquidate more than min
+        // minLiquidated above the available headroom (supply - floor) reverts, reporting that headroom
         setUp_collateral(1 ether, 0 ether, user1); // CR = 1
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(1 * price, user1, 0);
+        supplyBefore = IERC20(stabilityPoolCollateral).totalSupply();
         vm.expectRevert(
             abi.encodeWithSelector(
                 IStabilityPoolManager.InsufficientLiquidation.selector,
                 peggedToken,
-                1 * price,
+                supplyBefore - floor,
                 2 * price
             )
         );
