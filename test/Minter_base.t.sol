@@ -365,6 +365,13 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile {
 
         vm.prank(owner);
         IBaoRoles(minter).grantRoles(zeroFee, zeroFeeRole);
+
+        // free* is onlyOwnerOrRoles, so the owner is authorised without ZERO_FEE_ROLE. Guard that no setup path
+        // grants the role to the owner - a grant-to-owner would hide the owner path behind the role path in tests.
+        assertFalse(
+            IBaoRoles(minter).hasAnyRole(IBaoOwnable(minter).owner(), IMinter(minter).ZERO_FEE_ROLE()),
+            "owner must not hold ZERO_FEE_ROLE"
+        );
     }
 
     function setUp() public virtual {

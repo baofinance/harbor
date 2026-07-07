@@ -995,7 +995,7 @@ contract Minter_v3 is
     function freeMintPeggedToken(
         uint256 wrappedCollateralIn,
         address receiver
-    ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
+    ) external override onlyOwnerOrRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 peggedOut) {
         MinterStorage storage $ = _getMinterStorage();
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
         uint256 underlyingCollateralInE36 = wrappedCollateralIn * rate;
@@ -1021,7 +1021,12 @@ contract Minter_v3 is
         uint256 peggedForCollateral,
         uint256 peggedForLeveraged,
         address receiver
-    ) external onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
+    )
+        external
+        onlyOwnerOrRoles(ZERO_FEE_ROLE)
+        nonReentrant
+        returns (uint256 wrappedCollateralOut, uint256 leveragedOut)
+    {
         if (peggedForCollateral + peggedForLeveraged > 0) {
             MinterStorage storage $ = _getMinterStorage();
             uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -1094,7 +1099,7 @@ contract Minter_v3 is
     function freeMintLeveragedToken(
         uint256 wrappedCollateralIn,
         address receiver
-    ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
+    ) external override onlyOwnerOrRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 leveragedOut) {
         MinterStorage storage $ = _getMinterStorage();
         // how much collateral to use
         (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
@@ -1128,7 +1133,7 @@ contract Minter_v3 is
     function freeRedeemLeveragedToken(
         uint256 leveragedIn,
         address receiver
-    ) external override onlyRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 collateralOut) {
+    ) external override onlyOwnerOrRoles(ZERO_FEE_ROLE) nonReentrant returns (uint256 collateralOut) {
         MinterStorage storage $ = _getMinterStorage();
 
         uint256 leveragedTokenBalance_ = _leveragedTokenBalance();

@@ -14,11 +14,15 @@ import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
+import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
 import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
+import {HarborTestSetup} from "@harbor-test/HarborTestSetup.sol";
 
 /// @notice A named market's supported operating envelope, in the units a director thinks in: dollars and counts. The
 /// harness translates these to what the protocol needs (a pegged token count and the oracle's 1e18-scaled price/rate),
@@ -73,7 +77,7 @@ library EnvelopeLib {
 ///
 /// This batch covers deposit/withdraw. Harvest, rebalance, the reward-field corner, and richer arranged state land in
 /// later batches (the `StartState` and the keeper set grow with them).
-abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, StabilityPoolConservation {
+abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, StabilityPoolConservation, HarborTestSetup {
     // capped so the fork fuzz stays feasible; the declared business cap (maxPoolUsers) can be far larger and is
     // exercised by the deterministic max-users test rather than every fuzz run.
     uint256 internal constant MAX_FUZZ_USERS = 8;
@@ -99,17 +103,21 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     }
 
     function setUp() public virtual {
-        Envelope memory e = buildEnvelope();
-
         // ── stand up the real protocol via the production deploy scripts (RebalanceFairness model) ──
+        // _ensureBaoFactory gives the full deploy capability in-EVM; the only mainnet state the deploy needs is the
+        // collateral pair, so mock those two tokens locally and run with no fork.
         address factory = _ensureBaoFactory();
-        vm.selectFork(vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497)); // pinned; real fxSAVE/fxUSD exist
         address factoryOwner = IBaoFactory(factory).owner();
         vm.startPrank(factoryOwner);
         IBaoFactory(factory).setOperator(address(this), 365 days);
         vm.stopPrank();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
+        // mock the collateral pair at the config's own addresses so the deploy wires to local mocks, not mainnet
+        address underlyingToken = ConfigCollateral_fxUSD_mainnet(address(mktConfigs[0])).collateralToken();
+        address wrappedToken = ConfigCollateral_fxUSD_mainnet(address(mktConfigs[0])).wrappedCollateralToken();
+        vm.etch(underlyingToken, address(new MockERC20("fxUSD", "fxUSD", 18)).code); // decimals is immutable -> in code
+        vm.etch(wrappedToken, address(new MockERC20("fxSAVE", "fxSAVE", 18)).code);
         Config_MinterMarket[] memory toDeploy = new Config_MinterMarket[](1);
         toDeploy[0] = mktConfigs[0]; // the fxUSD market
         deployHarborForPeg("envelope_test", peg, mktConfigs, "mainnet", true, toDeploy);
@@ -124,12 +132,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 
         mockOracle = new MockWrappedPriceOracle();
 
-        // ── grant this test contract the roles it needs to build positions and arrange losses ──
+        // ── point the minter at the mock oracle. The free-mints run as the owner (genesisMint pranks minter.owner(),
+        // and free* is onlyOwnerOrRoles), so ZERO_FEE_ROLE is never granted in this harness. ──
         address minterOwner = IBaoOwnable(minter).owner();
-        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         vm.startPrank(minterOwner);
         IMinter(minter).updatePriceOracle(address(mockOracle));
-        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
         vm.stopPrank();
 
         address spOwner = IBaoOwnable(stabilityPool).owner();
@@ -151,6 +158,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         // a nominal envelope point (geometric-mean centre of the log-range) so the seed mint has a price to work from
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate());
         _seedPool(); // a permanent MIN_DEPOSIT seed so every actor can fully exit later
+
+        // the owner drives the free-mints directly (onlyOwnerOrRoles), so it must never be granted ZERO_FEE_ROLE
+        assertFalse(
+            IBaoRoles(minter).hasAnyRole(IBaoOwnable(minter).owner(), IMinter(minter).ZERO_FEE_ROLE()),
+            "owner must not hold ZERO_FEE_ROLE"
+        );
     }
 
     // ─── derivations: USD (director-facing) → protocol (token count + 1e18 oracle values) ───
@@ -194,9 +207,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     /// @dev Mint at least `target` pegged to this contract (backed by real collateral at the current price).
     function _mintPeggedAtLeast(uint256 target) internal returns (uint256 minted) {
         uint256 collateral = _collateralFor(target) + 1 ether; // slack for the flooring in the mint
-        deal(wrappedCollateral, address(this), collateral);
-        IERC20(wrappedCollateral).approve(minter, collateral);
-        minted = IMinter(minter).freeMintPeggedToken(collateral, address(this));
+        (minted, ) = genesisMint(minter, collateral, 0, address(this));
     }
 
     function _deposit(address who, uint256 amount) internal {
@@ -427,9 +438,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     /// rebalance threshold.
     function _mintLeveragedBuffer(uint256 peggedBacked) internal {
         uint256 collateral = _collateralFor(peggedBacked) / 2;
-        deal(wrappedCollateral, address(this), collateral);
-        IERC20(wrappedCollateral).approve(minter, collateral);
-        IMinter(minter).freeMintLeveragedToken(collateral, address(this));
+        genesisMint(minter, 0, collateral, address(this));
     }
 
     /// @dev Lower the collateral price until the collateral ratio falls below the rebalance threshold.
@@ -503,6 +512,45 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
         _assertRewardConserved(stabilityPool, _allActors(), g);
         _assertSpSolvent(stabilityPool, _allActors(), g);
+    }
+
+    // ─── the reward-field worst case: the whole-pool reward concentrated in one holder's pending field ───
+
+    /// @notice The reward field's worst case - the whole pool concentrated on ONE holder. A single whale deposits the
+    /// entire pool (the permanent MIN_DEPOSIT seed is the only other holder), the wrapped collateral sits at its
+    /// cheapest, and one full rebalance returns the whole-pool collateral reward - so the ENTIRE reward accrues to a
+    /// SINGLE holder's uint128 `pending` field, the maximum any one reward-accrual field must hold (poolValueUSD /
+    /// wrappedUSD). The field holds the concentrated reward and the whale reads it back; conservation and solvency hold
+    /// across every holder. A revert or a collapsed read-back at a market-reachable corner is the located field limit -
+    /// resolved by widening the field or narrowing the documented market, never asserted as intended.
+    function test_envelope_peakPendingRewards_holds() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate);
+        uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD);
+        _growPool(poolPegged, 1); // the whole pool in ONE holder (users[0]); the MIN_DEPOSIT seed is the only other
+        _mintLeveragedBuffer(poolPegged);
+
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate); // cheapest wrapped: CR below threshold + max reward count
+        assertTrue(
+            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            "the cheap-wrapped corner drives the collateral ratio below the rebalance threshold"
+        );
+
+        uint256 injected = _rebalance();
+        assertGt(injected, 0, "rebalance delivered the whole-pool collateral reward at the corner");
+
+        // conservation and solvency across every holder - the SAME shared checks the invariant proves
+        SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+        _assertRewardConserved(stabilityPool, _allActors(), g);
+        _assertSpSolvent(stabilityPool, _allActors(), g);
+
+        // the concentration landed in ONE field: the whale owns ~the whole pool, so its single pending field carries
+        // essentially the whole reward. injected/2 is a robust floor a uint128 truncation - which would collapse the
+        // field by orders of magnitude - cannot clear; the conservation above pins the aggregate exactly.
+        address[] memory rewardTokens = new address[](1);
+        rewardTokens[0] = wrappedCollateral;
+        uint256 whaleClaimable = IClaimReward(stabilityPool).claimable(users[0], rewardTokens)[0];
+        assertGe(whaleClaimable, injected / 2, "the whole-pool reward concentrated in the whale's single pending field");
     }
 
     // ─── helpers ───
