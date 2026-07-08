@@ -431,6 +431,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             // field-width limit (e.g. the minter cannot return more wrapped collateral than it holds)
             return "ERC20-insufficient-balance";
         }
+        if (sel == 0xbbefdf6a) {
+            // NoHarvestable(): the yield rounded to zero at this point - nothing to harvest, not a field-width limit
+            return "no-harvestable";
+        }
         return vm.toString(err); // other custom error / Panic: raw hex (selector + args)
     }
 
@@ -815,6 +819,90 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     function rebalanceOnlyProbe() external returns (uint256 injected) {
         require(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "swept point not rebalanceable");
         injected = _rebalance();
+    }
+
+    /// @notice Harvest reward sweep: grow a pool so the minter holds a large wrapped-collateral balance, then accrue
+    /// yield (a wrap-rate bump) and harvest it - the STREAMED reward path (StabilityPoolManager.harvest -> depositReward
+    /// -> LinearReward `rate` uint80 / `queued` uint96), distinct from the rebalance path's one-shot accumulator
+    /// integral. Grow at the cheapest wrap rate so the minter's wrapped holdings (and thus the harvested count) are
+    /// largest; sweep the pool so that count crosses the streamed-field widths and the fuzzer locates where they
+    /// overflow. Correctness on a hold: the shared conservation + solvency, asserted unconditionally.
+    /// forge-config: default.fuzz.runs = 512
+    function testFuzz_harvest_sweep(uint256 poolSeed) public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate);
+
+        uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        try this.growProbe(poolPegged) {
+            // pool grew - proceed to stress the streamed reward path
+        } catch (bytes memory err) {
+            _record("harvest", poolPegged, "broke", string.concat("grow: ", _revertReason(err)));
+            return;
+        }
+
+        try this.harvestProbe() returns (uint256 injected) {
+            vm.warp(block.timestamp + 8 days); // whole stream distributable
+            SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+            // a harvest that SUCCEEDS must conserve and stay solvent - a silent over-credit or insolvency is a bug at
+            // any size, so assert unconditionally. Only a clean revert (below) is a located limit.
+            _assertRewardConserved(stabilityPool, _allActors(), g);
+            _assertSpSolvent(stabilityPool, _allActors(), g);
+            _record("harvest", poolPegged, "held", string.concat("injected=", vm.toString(injected)));
+        } catch (bytes memory err) {
+            _record("harvest", poolPegged, "broke", _revertReason(err));
+        }
+    }
+
+    /// @dev External so the harvest runs as one attributable unit. Accrues yield (a wrap-rate bump) and harvests it to
+    /// the pool, returning the reward delivered.
+    function harvestProbe() external returns (uint256 injected) {
+        injected = _harvest();
+    }
+
+    /// @notice Claim reward sweep: inject a whole-pool reward via a rebalance (accrued into the uint192 integral,
+    /// claimable in uint256), then have the whale CLAIM - which checkpoints the account and writes its uint128
+    /// `pending`. Sweep the pool so the accrued reward crosses uint128; the fuzzer locates where the pending write
+    /// overflows. A silent truncation instead of a clean revert is caught too: the whale must receive essentially the
+    /// whole reward, so a shrunk payout fails. Correctness on a hold: conservation + full payout, unconditional.
+    /// forge-config: default.fuzz.runs = 512
+    function testFuzz_claim_sweep(uint256 poolSeed) public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate);
+
+        uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        try this.growProbe(poolPegged) {
+            // pool grew - proceed to inject and claim
+        } catch (bytes memory err) {
+            _record("claim", poolPegged, "broke", string.concat("grow: ", _revertReason(err)));
+            return;
+        }
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate); // corner: CR below threshold + max reward count
+
+        try this.rebalanceThenClaimProbe() returns (uint256 injected, uint256 claimedOut) {
+            SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+            // the claim checkpoints the whale (writing its uint128 pending) then pays out. Conservation must hold and
+            // the whale must receive essentially the whole reward - a silent pending truncation would shrink the
+            // payout. Both asserted unconditionally; only a clean revert (below) is a located limit.
+            _assertRewardConserved(stabilityPool, _allActors(), g);
+            assertGe(claimedOut, injected / 2, "claim paid out the whole-pool reward from the whale's pending field");
+            _record("claim", poolPegged, "held", string.concat("claimed=", vm.toString(claimedOut)));
+        } catch (bytes memory err) {
+            _record("claim", poolPegged, "broke", _revertReason(err));
+        }
+    }
+
+    /// @dev External so the rebalance+claim runs as one attributable unit. Rebalances to inject a whole-pool reward,
+    /// warps the stream complete, then the whale claims (checkpointing its uint128 pending). Returns the injected
+    /// reward and the wrapped collateral the whale actually received.
+    function rebalanceThenClaimProbe() external returns (uint256 injected, uint256 claimedOut) {
+        require(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "swept point not rebalanceable");
+        injected = _rebalance();
+        vm.warp(block.timestamp + 8 days);
+        uint256 whaleBefore = IERC20(wrappedCollateral).balanceOf(users[0]);
+        vm.startPrank(users[0]);
+        IClaimReward(stabilityPool).claim();
+        vm.stopPrank();
+        claimedOut = IERC20(wrappedCollateral).balanceOf(users[0]) - whaleBefore;
     }
 
     // ─── helpers ───
