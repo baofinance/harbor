@@ -11,7 +11,7 @@ src/minter/Genesis_v1.sol:Genesis_v1
 | claim                    |  87507 | 8.751e+04 |
 | claimable                |  11608 | 1.161e+04 |
 | deposit                  |  67470 | 6.747e+04 |
-| endGenesis               | 348880 | 3.489e+05 |
+| endGenesis               | 351122 | 3.511e+05 |
 | genesisIsEnded           |   2349 | 2.349e+03 |
 | initialize               |  71460 | 7.146e+04 |
 | owner                    |   2401 | 2.401e+03 |
@@ -30,10 +30,10 @@ src/minter/Minter_v3.sol:Minter_v3
 | collateralTokenBalance                           |   2358 | 2.358e+03 |
 | config                                           |  71930 | 7.193e+04 |
 | feeReceiver                                      |   2442 | 2.442e+03 |
-| freeMintLeveragedToken                           | 143700 | 1.437e+05 |
-| freeMintPeggedToken                              | 167375 | 1.674e+05 |
-| freeRedeemLeveragedToken                         |  87087 | 8.709e+04 |
-| freeRedeemPeggedToken                            | 134485 | 1.345e+05 |
+| freeMintLeveragedToken                           | 145861 | 1.459e+05 |
+| freeMintPeggedToken                              | 169496 | 1.695e+05 |
+| freeRedeemLeveragedToken                         |  90279 | 9.028e+04 |
+| freeRedeemPeggedToken                            | 136606 | 1.366e+05 |
 | grantRoles                                       |  26400 | 2.640e+04 |
 | harvestable                                      |  29760 | 2.976e+04 |
 | hasAllRoles                                      |   2615 | 2.615e+03 |
@@ -96,7 +96,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | hasStabilityPool           |    581 | 5.810e+02 |
 | initialize                 |  70690 | 7.069e+04 |
 | owner                      |   2423 | 2.423e+03 |
-| rebalance                  | 612566 | 6.126e+05 |
+| rebalance                  | 614687 | 6.147e+05 |
 | rebalanceBountyRatio       |   2354 | 2.354e+03 |
 | rebalanceThreshold         |   2370 | 2.370e+03 |
 | rebalanceable              |  29310 | 2.931e+04 |

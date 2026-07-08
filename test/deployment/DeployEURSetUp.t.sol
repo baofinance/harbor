@@ -59,8 +59,6 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
 
         deployHarborForPeg("test_eur", peg_, mktConfigs, "mainnet", true, mktConfigs);
 
-        _setSaltPrefix("test_eur");
-
         // EUR::fxUSD
         string memory mkFx = MinterMarketConfigLib.salt(mktConfigs[0]); // "EUR::fxUSD"
         minterFxUSD = _predictAddress(SaltString.key(mkFx, "minter"));

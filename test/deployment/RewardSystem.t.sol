@@ -46,7 +46,6 @@ contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array {
         toDeploy[0] = mktConfigs[0];
         deployHarborForPeg("reward_cov", peg, mktConfigs, "mainnet", true, toDeploy);
 
-        _setSaltPrefix("reward_cov");
         string memory marketKey = MinterMarketConfigLib.salt(mktConfigs[0]); // "ETH::fxUSD"
         minter = _predictAddress(SaltString.key(marketKey, "minter"));
         stabilityPoolCollateral = _predictAddress(SaltString.key(marketKey, "stabilityPoolCollateral"));

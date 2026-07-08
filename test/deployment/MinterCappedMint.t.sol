@@ -41,7 +41,6 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
         (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createETHMintersConfig();
         Config_MinterMarket[] memory marketsToDeploy = new Config_MinterMarket[](1);
         marketsToDeploy[0] = allMarkets[0];
-        _setSaltPrefix("capped_test");
         deployHarborForPeg("capped_test", peg, allMarkets, "mainnet", true, marketsToDeploy);
 
         minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));

@@ -76,7 +76,6 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
         deployHarborForPeg("fairness_test", peg, mktConfigs, "mainnet", true, toDeploy);
 
         // Resolve deployed addresses
-        _setSaltPrefix("fairness_test");
         minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
         stabilityPoolCollateral = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
         stabilityPoolLeveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));

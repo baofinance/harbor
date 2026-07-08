@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
@@ -12,7 +11,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -21,6 +20,8 @@ import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.so
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
+import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
+import {ConfigPeg_ETH} from "@harbor-script/config/pegs/ConfigPeg_ETH.sol";
 import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
 import {HarborTestSetup} from "@harbor-test/HarborTestSetup.sol";
 
@@ -68,6 +69,24 @@ library EnvelopeLib {
     }
 }
 
+/// @notice ETH::fxUSD market with the StabilityPoolManager's harvest cut and harvest/rebalance bounties zeroed, so all
+/// yield and rewards flow to depositors - the envelope's conservation and read-back assertions then measure the pool
+/// mechanics alone, not perturbed by a keeper bounty or a protocol cut. A test-only variant of the production market,
+/// changed through the deployment config (the config-axis approach) rather than an imperative setter in setUp.
+contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_mainnet {
+    function harvestCutRatio() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function harvestBountyRatio() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function rebalanceBountyRatio() public pure override returns (uint256) {
+        return 0;
+    }
+}
+
 /// @notice Envelope-fit harness: stands up the REAL protocol (Minter + StabilityPool + StabilityPoolManager) via the
 /// production `deployForPeg` scripts, arranges a starting state, then drives user/keeper actions against it and reads
 /// every result back for correctness — the minter-test discipline that surfaces truncation and rounding. Green means
@@ -98,19 +117,34 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 
     function buildEnvelope() internal pure virtual returns (Envelope memory);
 
+    /// @dev A short filesystem-safe market identifier, so each market's stress sweep writes its own constraints CSV
+    /// (tmp/sp-constraints-<slug>.csv); separate files keep parallel test contracts from racing on one file.
+    function _marketSlug() internal pure virtual returns (string memory);
+
     function _shouldPersistState() internal pure override returns (bool) {
         return false;
     }
 
+    /// @dev The envelope's own config: the production ETH peg plus a zeroed-fee variant of the ETH::fxUSD market, so the
+    /// pool mechanics are measured without the StabilityPoolManager's harvest cut or bounties skimming value from
+    /// depositors. Overriding this (rather than editing the production config) keeps the whole config test-owned; a
+    /// derived market that sweeps a config axis (Batch 2) overrides it to build its own config.
+    function createETHMintersConfig()
+        internal
+        virtual
+        override
+        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
+    {
+        peg = new ConfigPeg_ETH();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
+    }
+
     function setUp() public virtual {
         // ── stand up the real protocol via the production deploy scripts (RebalanceFairness model) ──
-        // _ensureBaoFactory gives the full deploy capability in-EVM; the only mainnet state the deploy needs is the
-        // collateral pair, so mock those two tokens locally and run with no fork.
-        address factory = _ensureBaoFactory();
-        address factoryOwner = IBaoFactory(factory).owner();
-        vm.startPrank(factoryOwner);
-        IBaoFactory(factory).setOperator(address(this), 365 days);
-        vm.stopPrank();
+        // _ensureBaoFactory gives the full deploy capability in-EVM and registers this test as the factory operator;
+        // the only mainnet state the deploy needs is the collateral pair, so mock those two tokens and run with no fork.
+        _ensureBaoFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
         // mock the collateral pair at the config's own addresses so the deploy wires to local mocks, not mainnet
@@ -122,7 +156,6 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         toDeploy[0] = mktConfigs[0]; // the fxUSD market
         deployHarborForPeg("envelope_test", peg, mktConfigs, "mainnet", true, toDeploy);
 
-        _setSaltPrefix("envelope_test");
         minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
         stabilityPool = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
         stabilityPoolManager = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
@@ -130,26 +163,19 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         leveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        mockOracle = new MockWrappedPriceOracle();
-
-        // ── point the minter at the mock oracle. The free-mints run as the owner (genesisMint pranks minter.owner(),
-        // and free* is onlyOwnerOrRoles), so ZERO_FEE_ROLE is never granted in this harness. ──
-        address minterOwner = IBaoOwnable(minter).owner();
-        vm.startPrank(minterOwner);
-        IMinter(minter).updatePriceOracle(address(mockOracle));
-        vm.stopPrank();
+        // The price oracle is a separately-deployed dependency (harbor-price-aggregators): the deploy wires the minter
+        // to its predicted CREATE3 address while that address is still codeless, exactly as production does. So etch the
+        // settable mock AFTER the deploy - at the same _wrappedPriceOracleAddress the deploy used - which exercises the
+        // deploy's codeless reference and puts the mock in place before the first read (the seed mint). etch copies code
+        // not storage, so the answer is set per envelope point via mockOracle.setLatestAnswer.
+        address priceOracle = _wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(mktConfigs[0]));
+        vm.etch(priceOracle, address(new MockWrappedPriceOracle()).code);
+        mockOracle = MockWrappedPriceOracle(priceOracle);
 
         address spOwner = IBaoOwnable(stabilityPool).owner();
         uint256 rebalancerRole = IStabilityPool(stabilityPool).REBALANCER_ROLE();
         vm.startPrank(spOwner);
         IBaoRoles(stabilityPool).grantRoles(address(this), rebalancerRole); // to arrange prior losses
-        vm.stopPrank();
-
-        address spmOwner = IBaoOwnable(stabilityPoolManager).owner();
-        vm.startPrank(spmOwner);
-        IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(0);
-        IStabilityPoolManager(stabilityPoolManager).updateHarvestBountyRatio(0);
-        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0);
         vm.stopPrank();
 
         background = makeAddr("background");
@@ -164,6 +190,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             IBaoRoles(minter).hasAnyRole(IBaoOwnable(minter).owner(), IMinter(minter).ZERO_FEE_ROLE()),
             "owner must not hold ZERO_FEE_ROLE"
         );
+
+        // start this market's constraints file fresh; the stress-sweep probes append one row per fuzz run
+        vm.writeFile(_constraintsFile(), "market,action,w,price,rate,outcome,detail\n");
     }
 
     // ─── derivations: USD (director-facing) → protocol (token count + 1e18 oracle values) ───
@@ -345,6 +374,164 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         uint256 walletBefore = IERC20(pegged).balanceOf(users[0]);
         _withdrawAll(users[0]);
         assertEq(IERC20(pegged).balanceOf(users[0]) - walletBefore, poolPegged, "whole-pool exit returns everything");
+    }
+
+    // ─── scatter-gun stress sweep: push each permissionless action PAST the envelope to LOCATE the constraint ───
+    // Each fuzz run appends one row to tmp/sp-constraints-<slug>.csv (via try/catch, so a red run still emits the
+    // grid). Within the envelope (w <= the envelope pool) the action MUST hold - a break there is a finding and the
+    // test fails. Past the envelope the located limit is only recorded - the constraints table is the deliverable.
+
+    function _constraintsFile() internal pure returns (string memory) {
+        return string.concat("tmp/sp-constraints-", _marketSlug(), ".csv");
+    }
+
+    function _record(string memory action, uint256 w, string memory outcome, string memory detail) internal {
+        vm.writeLine(
+            _constraintsFile(),
+            string.concat(
+                _marketSlug(),
+                ",",
+                action,
+                ",",
+                vm.toString(w),
+                ",",
+                vm.toString(currentPrice),
+                ",",
+                vm.toString(currentRate),
+                ",",
+                outcome,
+                ",",
+                detail
+            )
+        );
+    }
+
+    function _revertReason(bytes memory err) internal pure returns (string memory) {
+        if (err.length < 4) {
+            return err.length == 0 ? "revert(no-data)" : vm.toString(err);
+        }
+        bytes4 sel;
+        assembly {
+            sel := mload(add(err, 0x20))
+        }
+        bytes memory data = new bytes(err.length - 4); // the arguments, after the 4-byte selector
+        for (uint256 i = 0; i < data.length; i++) {
+            data[i] = err[i + 4];
+        }
+        if (sel == 0x08c379a0 && data.length >= 64) {
+            return abi.decode(data, (string)); // Error(string)
+        }
+        if (sel == 0x6dfcc650 && data.length == 64) {
+            // OZ SafeCast SafeCastOverflowedUintDowncast(uint8 bits, uint256 value): the field-width overflow
+            (uint256 bits, ) = abi.decode(data, (uint256, uint256));
+            return string.concat("SafeCast-overflow-uint", vm.toString(bits));
+        }
+        if (sel == 0xe450d38c) {
+            // OZ ERC20InsufficientBalance(address, uint256 balance, uint256 needed): a token-balance shortfall, not a
+            // field-width limit (e.g. the minter cannot return more wrapped collateral than it holds)
+            return "ERC20-insufficient-balance";
+        }
+        return vm.toString(err); // other custom error / Panic: raw hex (selector + args)
+    }
+
+    /// @notice Deposit sweep: a fresh user deposits a swept amount into the StabilityPool at a swept oracle point,
+    /// pushing PAST the envelope pool into the `TokenBalance.amount` width regime (uint128 in v3, ~3.4e38 - widened
+    /// from v2's uint104 by Batch L). Whenever the deposit SUCCEEDS it must read back exactly (balance == amount, supply
+    /// moved by the amount) - asserted at every size, since a silent truncation is a bug regardless of the envelope.
+    /// Only a clean revert (the width) is a located limit, and only past the envelope. Funds via `deal` so the pool's
+    /// own deposit width is isolated from the minter's mint reach (the mint sweep is a separate probe).
+    function testFuzz_deposit_sweep(uint256 collateralSeed, uint256 rateSeed, uint256 wSeed) public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(
+            bound(collateralSeed, e.minCollateralUSD, e.maxCollateralUSD),
+            bound(rateSeed, e.minWrapRate, e.maxWrapRate)
+        );
+        uint256 envelopePool = _poolPeggedFor(e.maxPoolValueUSD);
+        // log-scale over the full PHYSICAL input range [MIN_DEPOSIT, uint256 max]: the fuzzer locates the field break
+        // within it, rather than a range sized to the field under test. _logScale samples every order of magnitude
+        // equally, so the boundary (many orders below the max) is actually reached.
+        uint256 w = _logScale(wSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
+
+        address user = users[0];
+        deal(pegged, user, w);
+        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
+        vm.startPrank(user);
+        try IStabilityPool(stabilityPool).deposit(w, user, 0) {
+            vm.stopPrank();
+            bool exact = IERC20(stabilityPool).balanceOf(user) == w &&
+                IERC20(stabilityPool).totalSupply() == supplyBefore + w;
+            _record("deposit", w, exact ? "held" : "broke", exact ? "" : "readback-mismatch");
+            // a deposit that SUCCEEDS must read back exactly - a silent truncation is a bug at ANY size, in or out of
+            // the envelope, so assert unconditionally. Only a clean revert (below) is a located limit.
+            assertTrue(exact, string.concat("deposit succeeded but did not read back exactly @ w=", vm.toString(w)));
+        } catch (bytes memory err) {
+            vm.stopPrank();
+            string memory reason = _revertReason(err);
+            _record("deposit", w, "broke", reason);
+            // a clean revert is the located limit only PAST the envelope; within it the action must hold
+            if (w <= envelopePool) {
+                assertTrue(false, string.concat("within-envelope deposit reverted @ w=", vm.toString(w), ": ", reason));
+            }
+        }
+    }
+
+    /// @notice Withdraw sweep: a fresh user deposits a swept amount then fully exits inside the no-fee window. Whenever
+    /// the round-trip SUCCEEDS it must return EXACTLY the deposit and clear the position - asserted at every size, since
+    /// a silent wrong value is a bug regardless of the envelope. Only a clean revert (the deposit hitting the uint128
+    /// width) is a located limit, and only past the envelope. The multi-step exit runs in an external self-call unit.
+    function testFuzz_withdraw_sweep(uint256 collateralSeed, uint256 rateSeed, uint256 wSeed) public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(
+            bound(collateralSeed, e.minCollateralUSD, e.maxCollateralUSD),
+            bound(rateSeed, e.minWrapRate, e.maxWrapRate)
+        );
+        uint256 envelopePool = _poolPeggedFor(e.maxPoolValueUSD);
+        // log-scale over the full physical input range - see testFuzz_deposit_sweep
+        uint256 w = _logScale(wSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
+
+        try this.depositThenWithdrawProbe(w, users[0]) returns (uint256 returned, uint256 residual) {
+            bool exact = returned == w && residual == 0;
+            _record("withdraw", w, exact ? "held" : "broke", exact ? "" : "roundtrip-mismatch");
+            // a deposit+withdraw that SUCCEEDS must round-trip EXACTLY - a silent wrong value is a bug at any size, so
+            // assert unconditionally. Only a clean revert (below) is a located limit.
+            assertTrue(
+                exact,
+                string.concat(
+                    "deposit/withdraw round-trip not exact @ w=",
+                    vm.toString(w),
+                    " returned=",
+                    vm.toString(returned)
+                )
+            );
+        } catch (bytes memory err) {
+            string memory reason = _revertReason(err);
+            _record("withdraw", w, "broke", reason);
+            // a clean revert (e.g. the deposit hits the width) is the located limit only past the envelope
+            if (w <= envelopePool) {
+                assertTrue(
+                    false,
+                    string.concat("within-envelope deposit/withdraw reverted @ w=", vm.toString(w), ": ", reason)
+                );
+            }
+        }
+    }
+
+    /// @dev External so the try/catch above treats the whole deposit->request->withdraw round-trip as one unit; it
+    /// reverts (caught above, = a located limit) only if a STEP reverts. Returns the round-trip result so the caller
+    /// asserts correctness unconditionally - a silent wrong value must fail everywhere, not just be caught here.
+    function depositThenWithdrawProbe(uint256 w, address user) external returns (uint256 returned, uint256 residual) {
+        deal(pegged, user, w);
+        vm.startPrank(user);
+        IStabilityPool(stabilityPool).deposit(w, user, 0);
+        IStabilityPool(stabilityPool).requestWithdrawal();
+        vm.stopPrank();
+        (uint64 start, ) = IStabilityPool(stabilityPool).getWithdrawalRequest(user);
+        vm.warp(uint256(start) + 1);
+        vm.startPrank(user);
+        IStabilityPool(stabilityPool).withdraw(type(uint256).max, user, 0);
+        vm.stopPrank();
+        returned = IERC20(pegged).balanceOf(user);
+        residual = IERC20(stabilityPool).balanceOf(user);
     }
 
     // ─── harvest walk ───
@@ -550,7 +737,84 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         address[] memory rewardTokens = new address[](1);
         rewardTokens[0] = wrappedCollateral;
         uint256 whaleClaimable = IClaimReward(stabilityPool).claimable(users[0], rewardTokens)[0];
-        assertGe(whaleClaimable, injected / 2, "the whole-pool reward concentrated in the whale's single pending field");
+        assertGe(
+            whaleClaimable,
+            injected / 2,
+            "the whole-pool reward concentrated in the whale's single pending field"
+        );
+    }
+
+    // ─── scatter-gun reward sweeps: drive the keeper external functions PAST the envelope to LOCATE the reward field
+    // that binds first. Named for the EXTERNAL FUNCTION exercised, not the internal field: the reward path is a
+    // hierarchy of widths (LinearReward `rate` uint80, `queued` uint96; the accumulator `pending`/`claimed` uint128,
+    // `integral` uint192), and which one binds depends on the function - a one-shot liquidation reward and a streamed
+    // harvest stress different fields - so the sweep uncovers it rather than presuming a target. Correctness oracle on
+    // a SUCCESS: the SAME shared conservation + solvency the `*_holds` guardrails use, asserted UNCONDITIONALLY (a
+    // silent over-credit or insolvency is a bug at any size). Only a clean revert past the envelope is a located limit.
+
+    /// @notice Rebalance reward sweep: grow a pool - a single whale holding a swept size from MIN_DEPOSIT up to the
+    /// supply field's own uint128 width - so the reward limit is located GIVEN that (2a) deposit limit AND the whole
+    /// reward concentrates in ONE `pending` field (the worst case). Then drop the wrapped collateral to the envelope
+    /// corner (CR below the rebalance threshold; the whole-pool collateral is liquidated back to the pool as the
+    /// reward, count = poolValue / wrappedUSD, which scales with the swept pool) and rebalance - the fuzzer finds where
+    /// a reward field overflows. Grow at the envelope's own (min) wrap rate, the rate the corner rebalance uses, so the
+    /// minter holds exactly the wrapped count it must return (a grow/rebalance rate mismatch would strand it). The grow
+    /// and rebalance each run in their own external unit so a caught revert is attributable. Correctness on a hold: the
+    /// shared conservation + solvency, asserted unconditionally.
+    /// forge-config: default.fuzz.runs = 512
+    function testFuzz_rebalance_sweep(uint256 poolSeed) public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate);
+
+        // pool swept big, up to the supply field's own width; grown in its own unit so exceeding that field (the 2a
+        // deposit/supply limit, cross-confirmed here) is recorded and stops this run rather than masking a reward find.
+        uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
+        try this.growProbe(poolPegged) {
+            // pool grew - proceed to stress the reward path
+        } catch (bytes memory err) {
+            _record("rebalance", poolPegged, "broke", string.concat("grow: ", _revertReason(err)));
+            return;
+        }
+
+        // drop to the envelope corner: CR below the rebalance threshold (rebalanceable at any pool size, since CR is a
+        // ratio) and the cheapest wrapped, maximising the reward count the whale's single pending field must hold
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate);
+
+        try this.rebalanceOnlyProbe() returns (uint256 injected) {
+            vm.warp(block.timestamp + 8 days); // whole stream distributable
+            SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
+            // a rebalance that SUCCEEDS must conserve and stay solvent, and the whole reward must remain claimable by
+            // the whale - a uint128 pending truncation would collapse that credit. All asserted unconditionally: a
+            // silent wrong value is a bug at any size; only a clean revert (below) is a located limit.
+            _assertRewardConserved(stabilityPool, _allActors(), g);
+            _assertSpSolvent(stabilityPool, _allActors(), g);
+            address[] memory rewardTokens = new address[](1);
+            rewardTokens[0] = wrappedCollateral;
+            assertGe(
+                IClaimReward(stabilityPool).claimable(users[0], rewardTokens)[0],
+                injected / 2,
+                "whole-pool reward concentrated in the whale's single pending field"
+            );
+            _record("rebalance", poolPegged, "held", string.concat("injected=", vm.toString(injected)));
+        } catch (bytes memory err) {
+            _record("rebalance", poolPegged, "broke", _revertReason(err));
+        }
+    }
+
+    /// @dev External so a pool that exceeds the supply field reverts as one attributable unit. Grows the whole pool
+    /// into a single whale (users[0]) at the current healthy price - concentrating the later reward in ONE pending
+    /// field - and mints the leveraged buffer so the pool can be driven below the rebalance threshold.
+    function growProbe(uint256 poolPegged) external {
+        _growPool(poolPegged, 1);
+        _mintLeveragedBuffer(poolPegged);
+    }
+
+    /// @dev External so the try/catch treats the rebalance as one located-limit unit (it reverts only if a STEP
+    /// reverts). The swept cheap point is already set by the caller; this asserts the pool is rebalanceable there and
+    /// rebalances, returning the reward delivered to the pool.
+    function rebalanceOnlyProbe() external returns (uint256 injected) {
+        require(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "swept point not rebalanceable");
+        injected = _rebalance();
     }
 
     // ─── helpers ───
@@ -561,6 +825,32 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         shares[0] = each + (total - each * n); // first absorbs the remainder
         for (uint256 i = 1; i < n; i++) {
             shares[i] = each;
+        }
+    }
+
+    /// @dev Log-uniform fuzz sample in [lo, hi]: pick an octave (bit-width) uniformly, then a value within it, so every
+    /// order of magnitude is equally likely. A plain `bound` over a huge range samples almost only the top octave and
+    /// never reaches a boundary many orders below the max - this is the "help" that lets the fuzzer locate one. The
+    /// range passed in is the physical input range (MIN_DEPOSIT..uint256 max, 1 wei..a price), never sized to the field
+    /// under test; the located limit is discovered, not encoded in the sweep bound.
+    function _logScale(uint256 seed, uint256 lo, uint256 hi) internal pure returns (uint256 v) {
+        if (lo < 1) {
+            lo = 1;
+        }
+        if (hi <= lo) {
+            return lo;
+        }
+        uint256 bits = bound(seed, Math.log2(lo), Math.log2(hi));
+        uint256 octaveLo = uint256(1) << bits;
+        uint256 octaveHi = bits >= 255 ? type(uint256).max : (uint256(2) << bits) - 1;
+        // a decorrelated second draw for the mantissa within the octave, so within-octave resolution is not tied to the
+        // octave choice; deterministic in `seed` for fuzz reproducibility
+        v = bound(uint256(keccak256(abi.encode(seed, bits))), octaveLo, octaveHi);
+        if (v < lo) {
+            v = lo;
+        }
+        if (v > hi) {
+            v = hi;
         }
     }
 
@@ -576,5 +866,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
     function buildEnvelope() internal pure override returns (Envelope memory) {
         return EnvelopeLib.ethFxUSD();
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "ethFxUSD";
     }
 }

@@ -46,7 +46,6 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter {
         toDeploy[0] = mktConfigs[0];
         deployHarborForPeg("test_eth", peg, mktConfigs, "mainnet", true, toDeploy);
 
-        _setSaltPrefix("test_eth");
         string memory mk = MinterMarketConfigLib.salt(mktConfigs[0]); // "ETH::fxUSD"
         minter = _predictAddress(SaltString.key(mk, "minter"));
         stabilityPoolCollateral = _predictAddress(SaltString.key(mk, "stabilityPoolCollateral"));
