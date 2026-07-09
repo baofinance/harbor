@@ -733,13 +733,52 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         _growPool(poolPegged, MAX_FUZZ_USERS);
 
         uint256 injected = _harvest();
-        assertGt(injected, 0, "harvest delivered a reward to the pool");
+        // the pools' DIRECT share of a harvest is what remains after the keeper bounty and the protocol cut (the cut
+        // returns to the pools later through the FeeReceiver split - a separate flow). Under the production config
+        // (1% bounty + 99% cut) that residual is ZERO, so assert against the deployed ratios, not a fixed premise.
+        uint256 residualRatio = 1e18 -
+            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() -
+            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        if (residualRatio > 0) {
+            assertGt(injected, 0, "harvest delivered the pools' residual share");
+        } else {
+            // bounty + cut consume the whole harvest, but each ratio application floors once, so the flooring
+            // remainder (< 2 wei across the two) still reaches the pools - forwarded rather than stranded
+            assertLe(injected, 2, "at most flooring dust reaches the pools when bounty + cut consume the harvest");
+        }
 
         vm.warp(block.timestamp + 8 days); // whole stream distributable
 
         SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
         _assertRewardConserved(stabilityPool, _allActors(), g);
         _assertSpSolvent(stabilityPool, _allActors(), g);
+    }
+
+    /// @notice DIAGNOSTIC (run to learn, not a pass/fail pin yet): is the harvest's uint80 reward-rate overflow
+    /// reachable WITHIN the declared envelope? Grow the envelope-MAX pool at the cheapest collateral (largest
+    /// wrapped-token holdings), then let the wrapped collateral appreciate to the envelope's MAX rate in one
+    /// un-harvested step (the largest single-step yield the envelope declares) and harvest. Logs the harvestable and
+    /// whether the resulting stream rate overflows uint80 - telling us whether the flagged harvest limit is
+    /// envelope-internal (a DoS, since harvest is all-or-nothing) or only reachable past the envelope (a located limit
+    /// like the deposit width).
+    function test_envelope_harvestCorner_reachability() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
+        currentRate = e.maxWrapRate; // one un-harvested step: the wrapped collateral appreciates from min to MAX rate
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+        emit log_named_uint("envelope-corner poolPegged", poolPegged);
+        emit log_named_uint("envelope-corner harvestable (wrapped tokens)", IMinter(minter).harvestable());
+        address keeper = makeAddr("harvestKeeper");
+        vm.startPrank(keeper);
+        try IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0) returns (uint256 harvested) {
+            vm.stopPrank();
+            emit log_named_uint("HELD at envelope corner - limit is past-envelope; harvested", harvested);
+        } catch (bytes memory err) {
+            vm.stopPrank();
+            emit log_named_string("OVERFLOWED at envelope corner - envelope-internal DoS", _revertReason(err));
+        }
     }
 
     // ─── rebalance walk ───
@@ -1075,5 +1114,154 @@ contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
 
     function _marketSlug() internal pure override returns (string memory) {
         return "ethFxUSD";
+    }
+}
+
+// ─── config-corner markets: each stretches ONE deployment-config param off the measurement baseline and re-runs the
+// ENTIRE suite (every fuzz walk, sweep, and corner) against it; each writes its own tmp/sp-constraints-<slug>.csv so a
+// break is attributed to the config that produced it ───
+
+/// @notice ETH peg with the minimum-deposit floor collapsed to 1 wei - the smallest legal position. Every sweep's
+/// lower bound, the pool seed, and the supply floor all sit at the absolute small side, so divisor-style breaks
+/// (a tiny value blowing up a division) surface here rather than hiding above the ~$1 floor.
+contract ConfigPeg_ETH_minDeposit1Wei is ConfigPeg_ETH {
+    function minDeposit() public pure override returns (uint256) {
+        return 1;
+    }
+
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1;
+    }
+}
+
+/// @notice ETH peg with a huge minimum-deposit floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions
+/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme.
+contract ConfigPeg_ETH_minDepositHuge is ConfigPeg_ETH {
+    function minDeposit() public pure override returns (uint256) {
+        return 1e24;
+    }
+
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e24;
+    }
+}
+
+/// @notice Early-withdrawal fee at the maximum the pool accepts (100%). Every probe exits INSIDE the no-fee window,
+/// so green means the fee is never charged where it must not be - any accidental in-window fee charge breaks a
+/// round-trip loudly at this tripwire value.
+contract ConfigMarket_ETH_fxUSD_earlyWithdrawalFeeMax is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function stabilityPoolEarlyWithdrawalFeeRatio() public pure override returns (uint256) {
+        return 1 ether;
+    }
+}
+
+/// @notice Rebalance threshold lowered to 1.05x (the tightest production volatility tier): rebalances arm much later,
+/// so the corner rebalances fire from a far thinner collateral cushion.
+contract ConfigMarket_ETH_fxUSD_rebalanceThreshold105 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function rebalanceThreshold() public pure override returns (uint256) {
+        return 1.05e18;
+    }
+}
+
+/// @notice The PRODUCTION ETH::fxUSD market unmodified (1% keeper bounties, 99% harvest cut): the zeroed-fee baseline
+/// proves the pool mechanics, this proves the SHIPPED config - the same envelope must hold with the production skims
+/// in place (a harvest's direct pool share is zero here; the cut returns via the FeeReceiver split).
+contract StabilityPoolEnvelope_ETH_fxUSD_prodFees is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.ethFxUSD();
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "ethFxUSD_prodFees";
+    }
+
+    function createETHMintersConfig()
+        internal
+        override
+        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
+    {
+        peg = new ConfigPeg_ETH();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_mainnet();
+    }
+}
+
+contract StabilityPoolEnvelope_ETH_fxUSD_minDeposit1Wei is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.ethFxUSD();
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "ethFxUSD_minDeposit1wei";
+    }
+
+    function createETHMintersConfig()
+        internal
+        override
+        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
+    {
+        peg = new ConfigPeg_ETH_minDeposit1Wei();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
+    }
+}
+
+contract StabilityPoolEnvelope_ETH_fxUSD_minDepositHuge is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.ethFxUSD();
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "ethFxUSD_minDepositHuge";
+    }
+
+    function createETHMintersConfig()
+        internal
+        override
+        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
+    {
+        peg = new ConfigPeg_ETH_minDepositHuge();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
+    }
+}
+
+contract StabilityPoolEnvelope_ETH_fxUSD_feeMax is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.ethFxUSD();
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "ethFxUSD_feeMax";
+    }
+
+    function createETHMintersConfig()
+        internal
+        override
+        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
+    {
+        peg = new ConfigPeg_ETH();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_earlyWithdrawalFeeMax();
+    }
+}
+
+contract StabilityPoolEnvelope_ETH_fxUSD_rebalance105 is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.ethFxUSD();
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "ethFxUSD_rebalance105";
+    }
+
+    function createETHMintersConfig()
+        internal
+        override
+        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
+    {
+        peg = new ConfigPeg_ETH();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_rebalanceThreshold105();
     }
 }
