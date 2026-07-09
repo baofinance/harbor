@@ -51,10 +51,6 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
     address george; // Outside SPs, deposits into Lev SP after rebalance
     address eve; // Holds only leveraged tokens (the market maker / leveraged-side liquidity)
 
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     function setUp() public virtual {
         // Deploy BaoFactory locally
         address factory = _ensureBaoFactory();

@@ -11,6 +11,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {LinearReward} from "@harbor/reward/distributor/LinearReward.sol";
 
 // solhint-disable no-empty-blocks
@@ -38,7 +39,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
     Initializable,
     ContextUpgradeable,
     HarborOwnableRoles,
-    IMultipleRewardDistributor
+    IMultipleRewardDistributor_v3
 {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
@@ -143,6 +144,20 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         address token
     ) external view override returns (uint256 distributable, uint256 undistributed) {
         (distributable, undistributed) = _pendingRewards(token);
+    }
+
+    /// @inheritdoc IMultipleRewardDistributor_v3
+    function maxDepositReward(address token) external view returns (uint256) {
+        if (REWARD_PERIOD_LENGTH == 0) {
+            return type(uint256).max; // immediate distribution: there is no linear stream to overflow
+        }
+        LinearReward.RewardData storage data = _getRewardData(token);
+        // committed = the reward already parked in `queued` plus the current stream re-folded on a restream; the
+        // `rate * period` term upper-bounds that re-fold (an active period's window is at most one period), so the bound
+        // stays safe without reconstructing `increase`'s branches. cap = the largest amount the rate field can carry.
+        uint256 committed = uint256(data.queued) + uint256(data.rate) * REWARD_PERIOD_LENGTH;
+        uint256 cap = uint256(type(uint80).max) * REWARD_PERIOD_LENGTH;
+        return committed >= cap ? 0 : cap - committed;
     }
 
     /****************************

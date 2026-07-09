@@ -18,6 +18,7 @@ import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol";
@@ -109,6 +110,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 
     address internal minter;
     address internal stabilityPool; // the collateral-side StabilityPool
+    address internal stabilityPoolLeveraged; // the leveraged-side StabilityPool (harvest splits across both)
     address internal stabilityPoolManager;
     address internal pegged;
     address internal leveraged;
@@ -126,10 +128,6 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     /// @dev A short filesystem-safe market identifier, so each market's stress sweep writes its own constraints CSV
     /// (tmp/sp-constraints-<slug>.csv); separate files keep parallel test contracts from racing on one file.
     function _marketSlug() internal pure virtual returns (string memory);
-
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
 
     /// @dev The envelope's own config: the production ETH peg plus a zeroed-fee variant of the ETH::fxUSD market, so the
     /// pool mechanics are measured without the StabilityPoolManager's harvest cut or bounties skimming value from
@@ -164,6 +162,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 
         minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
         stabilityPool = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
+        stabilityPoolLeveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
         stabilityPoolManager = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
         pegged = _predictAddress(SaltString.key("ETH", "pegged"));
         leveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
@@ -742,9 +741,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         if (residualRatio > 0) {
             assertGt(injected, 0, "harvest delivered the pools' residual share");
         } else {
-            // bounty + cut consume the whole harvest, but each ratio application floors once, so the flooring
-            // remainder (< 2 wei across the two) still reaches the pools - forwarded rather than stranded
-            assertLe(injected, 2, "at most flooring dust reaches the pools when bounty + cut consume the harvest");
+            // bounty + cut consume the whole harvest; both pool shares floor and the sub-wei remainder is never swept
+            // (it stays in the minter as harvestable), so the pools receive NOTHING - no dust transfer (the #7 fix)
+            assertEq(injected, 0, "no dust reaches the pools when bounty + cut consume the harvest");
         }
 
         vm.warp(block.timestamp + 8 days); // whole stream distributable
@@ -754,31 +753,190 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         _assertSpSolvent(stabilityPool, _allActors(), g);
     }
 
-    /// @notice DIAGNOSTIC (run to learn, not a pass/fail pin yet): is the harvest's uint80 reward-rate overflow
-    /// reachable WITHIN the declared envelope? Grow the envelope-MAX pool at the cheapest collateral (largest
-    /// wrapped-token holdings), then let the wrapped collateral appreciate to the envelope's MAX rate in one
-    /// un-harvested step (the largest single-step yield the envelope declares) and harvest. Logs the harvestable and
-    /// whether the resulting stream rate overflows uint80 - telling us whether the flagged harvest limit is
-    /// envelope-internal (a DoS, since harvest is all-or-nothing) or only reachable past the envelope (a located limit
-    /// like the deposit width).
-    function test_envelope_harvestCorner_reachability() public {
+    /// @notice The harvest HOLDS at the envelope corner (the #1 DoS fix). At the envelope-MAX pool, cheapest collateral
+    /// (largest wrapped-token holdings), and the MAX single-step wrap-rate jump - the largest single-step yield the
+    /// envelope declares - the harvest no longer reverts on the reward stream's rate field. It deposits up to the
+    /// stream's capacity and leaves the excess as harvestable in the minter (partial-harvest / defer), so only `swept`
+    /// leaves the minter and the rest stays claimable by the next harvest. Under a config whose residual reaches the
+    /// pools (zeroed cut) the pool's residual share exceeds the uint80 rate field at this corner, so pre-2f this reverted
+    /// SafeCast-overflow-uint80 (harvest is all-or-nothing = an envelope-internal DoS); post-2f it succeeds. The
+    /// assertions are width-agnostic - holds by DEFERRING now (uint80) and by FITTING once 2g widens the field.
+    function test_envelope_harvestCorner_holds() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
         uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
         _growPool(poolPegged, MAX_FUZZ_USERS);
         currentRate = e.maxWrapRate; // one un-harvested step: the wrapped collateral appreciates from min to MAX rate
         mockOracle.setLatestAnswer(currentPrice, currentRate);
-        emit log_named_uint("envelope-corner poolPegged", poolPegged);
-        emit log_named_uint("envelope-corner harvestable (wrapped tokens)", IMinter(minter).harvestable());
+
+        uint256 residualRatio = 1e18 -
+            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() -
+            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        uint256 harvestableBefore = IMinter(minter).harvestable();
+        uint256 rewardBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
+
         address keeper = makeAddr("harvestKeeper");
         vm.startPrank(keeper);
-        try IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0) returns (uint256 harvested) {
-            vm.stopPrank();
-            emit log_named_uint("HELD at envelope corner - limit is past-envelope; harvested", harvested);
-        } catch (bytes memory err) {
-            vm.stopPrank();
-            emit log_named_string("OVERFLOWED at envelope corner - envelope-internal DoS", _revertReason(err));
+        uint256 swept = IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0); // MUST NOT revert (the DoS fix)
+        vm.stopPrank();
+        uint256 injected = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
+
+        // only `swept` leaves the minter; the harvestable drops by exactly that and the unswept remainder stays
+        assertLe(swept, harvestableBefore, "harvest swept no more than was harvestable");
+        assertEq(
+            IMinter(minter).harvestable(),
+            harvestableBefore - swept,
+            "the unswept remainder (deferred + flooring) stays as harvestable"
+        );
+        if (residualRatio > 0) {
+            assertGt(injected, 0, "some reward reached the pool at the corner (capped, not reverted)");
         }
+    }
+
+    /// @dev Deposit `amount` pegged (minted fresh) into `pool` for `who` - used to give the leveraged-side pool its own
+    /// holdings so the harvest split across both pools is exercised.
+    function _depositPeggedTo(address pool, address who, uint256 amount) internal {
+        _mintPeggedAtLeast(amount);
+        IERC20(pegged).transfer(who, amount);
+        vm.startPrank(who);
+        IERC20(pegged).approve(pool, amount);
+        IStabilityPool(pool).deposit(amount, who, 0);
+        vm.stopPrank();
+    }
+
+    /// @notice Partial-harvest defers the excess (the DoS fix, at a testable scale). Forcing the collateral pool's reward
+    /// capacity to a small value via a mock isolates the manager's cap-and-defer logic from the field width (so it holds
+    /// across the 2g widen): a harvest whose residual exceeds that capacity deposits EXACTLY the capacity and leaves the
+    /// rest as harvestable, and a second harvest drains more - progress, not an all-or-nothing stall.
+    function test_harvest_deferCapsExcessAndDrains() public {
+        uint256 residualRatio = 1e18 -
+            IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio() -
+            IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        if (residualRatio == 0) {
+            return; // a full-cut config sends no residual to the pools; the cap is unobservable here
+        }
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
+        _growPool(_poolPeggedFor(e.maxPoolValueUSD / 1e4, e.pegPriceUSD), MAX_FUZZ_USERS);
+
+        // accrue yield, then force a small capacity so the residual far exceeds it and must be deferred
+        currentRate = (currentRate * 1001) / 1000;
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+        uint256 smallCap = IMinter(minter).harvestable() / 10; // well below the residual, so the harvest caps and defers
+        require(smallCap > 0, "fixture must produce a harvestable residual");
+        vm.mockCall(
+            stabilityPool,
+            abi.encodeWithSelector(bytes4(keccak256("maxDepositReward(address)")), wrappedCollateral),
+            abi.encode(smallCap)
+        );
+
+        address keeper = makeAddr("harvestKeeper");
+        uint256 rewardBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+        uint256 injected1 = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
+
+        assertEq(injected1, smallCap, "harvest deposited exactly the capped capacity, not the full residual");
+        assertGt(IMinter(minter).harvestable(), 0, "the excess above the cap is retained as harvestable");
+
+        // a second harvest drains more of the retained remainder (the mock persists across calls)
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+        uint256 injected2 = IERC20(wrappedCollateral).balanceOf(stabilityPool) - rewardBefore;
+        assertGt(injected2, injected1, "a second harvest drains more of the retained remainder");
+    }
+
+    /// @notice Both pools take their FLOORED share - the leveraged pool no longer absorbs the split remainder. With both
+    /// pools holding pegged in an uneven ratio (so the residual split leaves a 1-wei remainder), each pool receives
+    /// EXACTLY floor(residual * itsHoldings / total) and the remainder stays in the minter. Pre-2f the leveraged pool was
+    /// handed `residual - floor(collateralShare)` (the remainder, a systematic advantage); post-2f both floor.
+    function test_harvest_bothPoolsFloored() public {
+        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        if (1e18 - bountyRatio - cutRatio == 0) {
+            return; // no residual to split under a full-cut config
+        }
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
+        // uneven holdings across the two pools so the residual split can leave a remainder
+        uint256 base = _poolPeggedFor(e.maxPoolValueUSD / 1e4, e.pegPriceUSD);
+        _growPool(base, MAX_FUZZ_USERS); // collateral pool (plus the setUp seed)
+        _depositPeggedTo(stabilityPoolLeveraged, background, 2 * base); // leveraged pool holds ~twice as much
+
+        // accrue yield until the split across the (uneven) holdings leaves a remainder (a 2-way floor loses 0 or 1 wei)
+        uint256 residual;
+        uint256 expectedCol;
+        uint256 expectedLev;
+        for (uint256 i = 0; i < 8; i++) {
+            currentRate = (currentRate * 1001) / 1000;
+            mockOracle.setLatestAnswer(currentPrice, currentRate);
+            uint256 harvestable = IMinter(minter).harvestable();
+            residual = harvestable - (harvestable * bountyRatio) / 1e18 - (harvestable * cutRatio) / 1e18;
+            uint256 totalHold = IERC20(pegged).balanceOf(stabilityPool) +
+                IERC20(pegged).balanceOf(stabilityPoolLeveraged);
+            expectedCol = (residual * IERC20(pegged).balanceOf(stabilityPool)) / totalHold;
+            expectedLev = (residual * IERC20(pegged).balanceOf(stabilityPoolLeveraged)) / totalHold;
+            if (expectedCol + expectedLev < residual) {
+                break; // the split leaves a remainder - the discriminating case
+            }
+        }
+        require(expectedCol + expectedLev < residual, "fixture must produce a split remainder");
+
+        uint256 colBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
+        uint256 levBefore = IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged);
+        address keeper = makeAddr("harvestKeeper");
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+
+        assertEq(
+            IERC20(wrappedCollateral).balanceOf(stabilityPool) - colBefore,
+            expectedCol,
+            "collateral pool got exactly its floored share"
+        );
+        assertEq(
+            IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged) - levBefore,
+            expectedLev,
+            "leveraged pool got exactly its floored share, not the split remainder"
+        );
+        assertGt(IMinter(minter).harvestable(), 0, "the split remainder stays in the minter as harvestable");
+    }
+
+    /// @notice maxDepositReward is the conservative field-safe capacity `cap - committed`, with `cap = uint80.max *
+    /// REWARD_PERIOD_LENGTH` and `committed = queued + rate * REWARD_PERIOD_LENGTH`. On a fresh stream it is the full
+    /// cap; after a reward is streamed it drops by exactly the committed amount. This is the value the harvest caps each
+    /// pool's deposit against, so `depositReward` can never overflow the rate field.
+    function test_maxDepositReward_conservativeBound() public {
+        uint256 period = IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH();
+        uint256 cap = uint256(type(uint80).max) * period;
+
+        // a fresh stream (nothing queued or streaming) offers the full rate-field cap
+        assertEq(
+            IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral),
+            cap,
+            "fresh stream: capacity is the full rate-field cap"
+        );
+
+        // stream a reward, then the capacity drops by exactly committed = queued + rate * period
+        address spOwner = IBaoOwnable(stabilityPool).owner();
+        uint256 depositorRole = IMultipleRewardDistributor_v3(stabilityPool).REWARD_DEPOSITOR_ROLE();
+        vm.startPrank(spOwner);
+        IBaoRoles(stabilityPool).grantRoles(address(this), depositorRole);
+        vm.stopPrank();
+        uint256 reward = 1e24; // rate = reward / period stays well within uint80
+        deal(wrappedCollateral, address(this), reward);
+        IERC20(wrappedCollateral).approve(stabilityPool, reward);
+        IMultipleRewardDistributor_v3(stabilityPool).depositReward(wrappedCollateral, reward);
+
+        (, , uint256 rate, uint256 queued) = IMultipleRewardDistributor_v3(stabilityPool).rewardData(wrappedCollateral);
+        uint256 committed = queued + rate * period;
+        assertEq(
+            IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral),
+            cap - committed,
+            "streamed: capacity is cap minus the committed reward"
+        );
     }
 
     // ─── rebalance walk ───
@@ -1175,11 +1333,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD_prodFees is StabilityPoolEnvelopeBase {
         return "ethFxUSD_prodFees";
     }
 
-    function createETHMintersConfig()
-        internal
-        override
-        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
-    {
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_mainnet();
@@ -1195,11 +1349,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD_minDeposit1Wei is StabilityPoolEnvelope
         return "ethFxUSD_minDeposit1wei";
     }
 
-    function createETHMintersConfig()
-        internal
-        override
-        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
-    {
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH_minDeposit1Wei();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
@@ -1215,11 +1365,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD_minDepositHuge is StabilityPoolEnvelope
         return "ethFxUSD_minDepositHuge";
     }
 
-    function createETHMintersConfig()
-        internal
-        override
-        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
-    {
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH_minDepositHuge();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
@@ -1235,11 +1381,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD_feeMax is StabilityPoolEnvelopeBase {
         return "ethFxUSD_feeMax";
     }
 
-    function createETHMintersConfig()
-        internal
-        override
-        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
-    {
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_earlyWithdrawalFeeMax();
@@ -1255,11 +1397,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD_rebalance105 is StabilityPoolEnvelopeBa
         return "ethFxUSD_rebalance105";
     }
 
-    function createETHMintersConfig()
-        internal
-        override
-        returns (ConfigPeg peg, Config_MinterMarket[] memory markets)
-    {
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_rebalanceThreshold105();

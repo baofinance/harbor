@@ -44,10 +44,6 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
     MockWrappedPriceOracle mockOracleFxUSD;
     MockWrappedPriceOracle mockOracleStETH;
 
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     function setUp() public virtual {
         address factory = _ensureBaoFactory();
         vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);

@@ -96,14 +96,7 @@ abstract contract HarborDeployStack is
         // Load or seed state
         DeploymentTypes.State memory state = _shouldPersistState()
             ? DeploymentState.load(_stateFileRead())
-            : DeploymentTypes.State({
-                network: network,
-                saltPrefix: saltPrefix,
-                directoryPrefix: "",
-                implementations: new DeploymentTypes.ImplementationRecord[](0),
-                proxies: new DeploymentTypes.ProxyRecord[](0),
-                baoFactory: address(0)
-            });
+            : DeploymentState.fresh(saltPrefix, network);
         state.baoFactory = baoFactory();
 
         console.log("=== Deploying Minter Contracts ===");

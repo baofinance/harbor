@@ -17,7 +17,7 @@ import {Token} from "@bao/Token.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
-import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
+import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
 
@@ -450,64 +450,87 @@ contract StabilityPoolManager_v2 is
     function _harvestToPool(uint256 amount, address pool) private {
         if (amount > 0) {
             IERC20(WRAPPED_COLLATERAL_TOKEN).forceApprove(pool, amount);
-            IMultipleRewardDistributor(pool).depositReward(WRAPPED_COLLATERAL_TOKEN, amount);
+            IMultipleRewardDistributor_v3(pool).depositReward(WRAPPED_COLLATERAL_TOKEN, amount);
             IERC20(WRAPPED_COLLATERAL_TOKEN).forceApprove(pool, 0);
         }
     }
 
+    /// @dev A pool's share of the harvest residual, clamped to what its reward stream can meaningfully take. A share
+    /// below one period's length streams nothing - its rate `share / REWARD_PERIOD_LENGTH` floors to zero, so it would
+    /// only sit in `queued` - so it is skipped (left unharvested in the minter to accumulate) rather than transferred as
+    /// dust. A share above the stream's remaining capacity is capped so `depositReward` cannot overflow the rate field,
+    /// the excess likewise left unharvested. Returns the amount to actually deposit into `pool`.
+    function _cappedPoolShare(uint256 share, address pool) private view returns (uint256) {
+        if (share < IMultipleRewardDistributor_v3(pool).REWARD_PERIOD_LENGTH()) {
+            return 0; // dust: below one period the stream rate floors to zero, so avoid the pointless transfer
+        }
+        return Math.min(share, IMultipleRewardDistributor_v3(pool).maxDepositReward(WRAPPED_COLLATERAL_TOKEN));
+    }
+
     /// @inheritdoc IStabilityPoolManager
     // slither-disable-next-line reentrancy-no-eth
-    function harvest(
-        address bountyReceiver,
-        uint256 minBounty
-    ) external nonReentrant returns (uint256 harvestedAmount) {
+    function harvest(address bountyReceiver, uint256 minBounty) external nonReentrant returns (uint256 harvested) {
         if (bountyReceiver == address(0)) {
             revert IERC20Errors.ERC20InvalidReceiver(bountyReceiver);
         }
-        // Check if there's anything to harvest
         uint256 harvestableAmount = IMinter(MINTER).harvestable();
         if (harvestableAmount == 0) {
             revert NoHarvestable();
         }
-        uint256 harvestableRemaining = harvestableAmount;
 
-        // Calculate bounty
+        // Split the harvest into its parts up front, each floored from its ratio. The pools' shares are then capped at
+        // each stream's remaining capacity, so the reward-stream write can never overflow - the uncapped excess is left
+        // unharvested in the minter, still counted as harvestable, for the next call (the keeper drains it in chunks).
+        // Sweeping only the SUM of the parts - never the whole harvestable - means the flooring/deferred remainder is
+        // never moved, so there are no dust transfers to the pools.
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         uint256 bountyAmount = (harvestableAmount * $.harvestBountyRatio) / 1 ether;
         if (bountyAmount < minBounty) {
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
         uint256 cutAmount = (harvestableAmount * $.harvestCutRatio) / 1 ether;
+        uint256 residual = harvestableAmount - bountyAmount - cutAmount; // the pools' share (bounty + cut <= 1 ether)
 
-        // harvest everything - one loss recorded in stability pool (which is expensive in gas)
-        ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvestableAmount, address(this));
+        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
 
-        // distribute the harvest deductions
+        uint256 toCollateral;
+        uint256 toLeveraged;
+        uint256 toTreasury;
+        if (totalPoolHolding > 0) {
+            // both pools take their FLOORED share (neither absorbs the split remainder), each capped at its stream's
+            // remaining capacity
+            toCollateral = _cappedPoolShare(
+                Math.mulDiv(residual, poolHoldingCollateral, totalPoolHolding),
+                _STABILITY_POOL_COLLATERAL
+            );
+            toLeveraged = _cappedPoolShare(
+                Math.mulDiv(residual, poolHoldingLeveraged, totalPoolHolding),
+                _STABILITY_POOL_LEVERAGED
+            );
+        } else {
+            // no pools have a balance: the residual goes to the treasury (no reward stream, so nothing to cap)
+            toTreasury = residual;
+        }
+
+        // sweep exactly what is distributed; anything not swept (deferred pool excess + the split flooring) stays in the
+        // minter as harvestable
+        harvested = bountyAmount + cutAmount + toCollateral + toLeveraged + toTreasury;
+        ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvested, address(this));
+
         if (bountyAmount > 0) {
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
-            harvestableRemaining -= bountyAmount;
         }
         if (cutAmount > 0) {
             address cutReceiver = $.feeReceiver == address(0) ? TREASURY : $.feeReceiver;
             IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(cutReceiver, cutAmount);
-            harvestableRemaining -= cutAmount;
         }
-
-        // Calculate total pool balances (similar to Harvester_v1)
-        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, ) = _poolHoldings();
-
-        // Distribute proportionally based on current holdings
-        if (totalPoolHolding > 0) {
-            uint256 harvestedToCollateral = Math.mulDiv(harvestableRemaining, poolHoldingCollateral, totalPoolHolding);
-            _harvestToPool(harvestedToCollateral, _STABILITY_POOL_COLLATERAL);
-            _harvestToPool(harvestableRemaining - harvestedToCollateral, _STABILITY_POOL_LEVERAGED);
-        } else {
-            // Send to treasury if no pools have a balance
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(TREASURY, harvestableRemaining);
+        if (toTreasury > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(TREASURY, toTreasury);
         }
+        _harvestToPool(toCollateral, _STABILITY_POOL_COLLATERAL);
+        _harvestToPool(toLeveraged, _STABILITY_POOL_LEVERAGED);
 
-        emit Harvested(harvestableAmount);
+        emit Harvested(harvested);
         _compoundRegistered();
-        return harvestableAmount;
     }
 }

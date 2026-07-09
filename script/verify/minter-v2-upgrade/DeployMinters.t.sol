@@ -35,12 +35,6 @@ contract DeployMintersTest is
     using stdJson for string;
     using MinterMarketConfigLib for Config_MinterMarket;
 
-    // ========== DEPLOYER OVERRIDES ==========
-
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     // ========== TEST INFRASTRUCTURE ==========
 
     // Label width for aligned output (longest salt prefix like "harbor_v1_candidate" = 19)

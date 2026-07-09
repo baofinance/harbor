@@ -46,11 +46,11 @@
 | PriceOracle_v1                    |              1,958 |               22,618 |               2,010 |      411,700 |             41.17 |
 | ReservePool_v1                    |              4,760 |               19,816 |               5,009 |    1,002,090 |            100.21 |
 | StabilityPoolManager_v1           |             11,209 |               13,367 |              13,057 |    2,372,370 |            237.24 |
-| StabilityPoolManager_v2           |             13,008 |               11,568 |              14,912 |    2,750,720 |            275.07 |
+| StabilityPoolManager_v2           |             13,466 |               11,110 |              15,391 |    2,847,110 |            284.71 |
 | StabilityPool_v1                  |             21,092 |                3,484 |              23,085 |    4,449,250 |            444.93 |
 | StabilityPool_v2                  |             20,711 |                3,865 |              22,579 |    4,367,990 |            436.80 |
-| StabilityPool_v3                  |             23,317 |                1,259 |              25,677 |    4,920,170 |            492.02 |
-| StabilityPool_v3_SeedUpgrader     |             23,824 |                  752 |              26,205 |    5,026,850 |            502.69 |
+| StabilityPool_v3                  |             23,588 |                  988 |              25,969 |    4,977,290 |            497.73 |
+| StabilityPool_v3_SeedUpgrader     |             24,110 |                  466 |              26,512 |    5,087,120 |            508.71 |
 | StakedETHWrappedPriceOracle_v1    |              3,695 |               20,881 |               4,653 |      785,530 |             78.55 |
 | TokenDistributor_v1               |             10,116 |               14,460 |              10,365 |    2,126,850 |            212.69 |
 | WordCodec                         |                 85 |               24,491 |                 135 |       18,350 |              1.84 |

@@ -23,10 +23,6 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
 
     MockWrappedPriceOracle mockOracle;
 
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     function setUp() public virtual {
         // Bootstrap the BaoFactory, then fork mainnet. The fork resets chain state, so the test must be
         // re-registered as the factory operator AFTER the fork for the CREATE3 deploy to run.

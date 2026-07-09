@@ -1170,10 +1170,11 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
     }
 
     function test_harvestWithCutAndFeeReceiver_(uint256 bounty, uint256 cut) public {
-        bounty = bound(bounty, 0, 1 ether);
-        cut = bound(cut, 0, 1 ether - bounty);
-        // Bound result 374701533993322492
-        // Bound result 347222887455236596
+        // keep bounty + cut <= 99% so the residual to the pools stays well above the per-period dust floor and each pool
+        // takes a real streamed share. The 100%-cut / no-residual corner (where the pools correctly receive nothing) is
+        // covered by the envelope no-dust tests, not re-derived here.
+        bounty = bound(bounty, 0, 0.99 ether);
+        cut = bound(cut, 0, 0.99 ether - bounty);
         // Set cut first (bounty=0 so any cut ≤ 100% is valid), then bounty.
         // Fuzz bounds guarantee bounty + cut ≤ 100%, so the second update is always valid.
         vm.startPrank(owner);
@@ -1189,10 +1190,22 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         uint256 harvestableAmount = IMinter(minter).harvestable();
         assertApproxEqAbs(harvestableAmount, 100 ether, 100, "harvestable should be 100 ether");
 
+        // the harvest emits (and returns) what it actually harvests: bounty + cut + each pool's FLOORED share of the
+        // residual. The split remainder is left in the minter, not swept, so the event amount is that sum - not the full
+        // harvestable, as it was when the harvest swept everything.
+        uint256 bountyAmount = (harvestableAmount * bounty) / 1 ether;
+        uint256 cutAmount = (harvestableAmount * cut) / 1 ether;
+        uint256 residualAmount = harvestableAmount - bountyAmount - cutAmount;
+        uint256 totalHolding = IERC20(peggedToken).balanceOf(stabilityPoolCollateral) +
+            IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
+        uint256 swept = bountyAmount +
+            cutAmount +
+            (residualAmount * IERC20(peggedToken).balanceOf(stabilityPoolCollateral)) / totalHolding +
+            (residualAmount * IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)) / totalHolding;
+
         address harvester = makeAddr("harvester");
-        // Expect Harvested event with the correct amount
         vm.expectEmit();
-        emit IStabilityPoolManager.Harvested(harvestableAmount);
+        emit IStabilityPoolManager.Harvested(swept);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         assertEq(
             IERC20(peggedToken).balanceOf(stabilityPoolManager),
@@ -1225,8 +1238,8 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
             "stabilityPoolLeveraged should get some"
         );
 
-        // Verify harvested amount
-        assertApproxEqAbs(harvested, 100 ether, 100, "Should return total harvested amount");
+        // the harvest returns exactly what it swept (bounty + cut + each pool's floored share)
+        assertEq(harvested, swept, "returns the amount actually harvested");
     }
 
     function test_harvestWithoutSufficientTokens_() public {

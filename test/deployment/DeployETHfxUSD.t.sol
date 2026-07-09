@@ -29,10 +29,6 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter {
 
     MockWrappedPriceOracle mockOracle;
 
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     function setUp() public virtual {
         address factory = _ensureBaoFactory();
         // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for caching
