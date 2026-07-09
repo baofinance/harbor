@@ -60,7 +60,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | redeemLeveragedTokenIncentiveRatio               |  29170 | 2.917e+04 |
 | redeemPeggedForCollateralRatio                   |  19090 | 1.909e+04 |
 | redeemPeggedToken                                | 132192 | 1.322e+05 |
-| redeemPeggedTokenDryRun                          |  61655 | 6.166e+04 |
+| redeemPeggedTokenDryRun                          |  61574 | 6.157e+04 |
 | redeemPeggedTokenIncentiveRatio                  |  30066 | 3.007e+04 |
 | reservePool                                      |   2411 | 2.411e+03 |
 | reset                                            |  28647 | 2.865e+04 |

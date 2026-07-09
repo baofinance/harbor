@@ -8,6 +8,7 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -388,6 +389,59 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         uint256 walletBefore = IERC20(pegged).balanceOf(users[0]);
         _withdrawAll(users[0]);
         assertEq(IERC20(pegged).balanceOf(users[0]) - walletBefore, poolPegged, "whole-pool exit returns everything");
+    }
+
+    // ─── deterministic width-boundary corners (the balance-field regression pins, on the REAL deployForPeg pool) ───
+    // The fuzz sweeps cross these boundaries probabilistically; these pin the exact historical defect points every
+    // run. The 104-bit measurement run (the field retyped to uint104) demonstrated the same assertions go red the
+    // moment the field narrows - the regression these guard.
+
+    /// @notice A deposit just past 2^104 is recorded exactly. This is the v2 defect point: the raw uint104 cast kept
+    /// only the low bits, so the pool pulled the full amount but credited ~1e18 - silent loss of the entire 2^104
+    /// part. The widened field must credit it in full.
+    function test_widthCorner_depositPastUint104RecordedExactly() public {
+        uint256 amount = 2 ** 104 + 1 ether;
+        address user = users[0];
+        deal(pegged, user, amount);
+        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
+        vm.startPrank(user);
+        IStabilityPool(stabilityPool).deposit(amount, user, 0);
+        vm.stopPrank();
+        assertEq(IERC20(stabilityPool).balanceOf(user), amount, "deposit past 2^104 credited exactly");
+        assertEq(IERC20(stabilityPool).totalSupply(), supplyBefore + amount, "supply records the deposit exactly");
+    }
+
+    /// @notice Two deposits that each fit uint104 but whose SUM crosses 2^104 must both succeed - the availability
+    /// half of the v2 width defect: no cast truncated, but the checked += on the uint104 total Panicked on the second
+    /// deposit, bricking deposits for everyone once the pool was ~2e31 full.
+    function test_widthCorner_supplyAccumulationCrossesUint104() public {
+        uint256 half = 15e30; // 1.5e31: fits uint104 alone, crosses 2^104 (~2.03e31) combined
+        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
+        for (uint256 i = 0; i < 2; i++) {
+            address user = users[i];
+            deal(pegged, user, half);
+            vm.startPrank(user);
+            IStabilityPool(stabilityPool).deposit(half, user, 0);
+            vm.stopPrank();
+        }
+        assertEq(IERC20(stabilityPool).totalSupply(), supplyBefore + 2 * half, "accumulated supply records exactly");
+    }
+
+    /// @notice Beyond the balance field there is no legal recording, so the deposit must REVERT cleanly - never
+    /// truncate (2^128 is a multiple of 2^104, so the v2 raw cast truncated it away silently and the deposit
+    /// SUCCEEDED crediting only the remainder). The supply total is written first, so the overflowing value the
+    /// checked cast reports is the pre-existing supply plus the deposit.
+    function test_widthCorner_depositBeyondUint128Reverts() public {
+        uint256 amount = 2 ** 128 + 1 ether;
+        address user = users[0];
+        deal(pegged, user, amount);
+        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
+        vm.startPrank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, 128, supplyBefore + amount)
+        );
+        IStabilityPool(stabilityPool).deposit(amount, user, 0);
+        vm.stopPrank();
     }
 
     /// @notice The depositor-count corner: the declared business cap (maxPoolUsers, 10,000) of SEPARATE accounts each
