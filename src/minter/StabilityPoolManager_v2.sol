@@ -7,11 +7,10 @@ import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/intro
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {ITokenHolder} from "@bao/TokenHolder.sol";
+import {TokenHolder_v2, ITokenHolder} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
@@ -34,7 +33,7 @@ contract StabilityPoolManager_v2 is
     UUPSUpgradeable,
     BaoOwnableRoles,
     ERC165Upgradeable,
-    ReentrancyGuardTransientUpgradeable,
+    TokenHolder_v2,
     IStabilityPoolManager_v2
 {
     using SafeERC20 for IERC20;
@@ -135,7 +134,6 @@ contract StabilityPoolManager_v2 is
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ERC165_init();
-        __ReentrancyGuardTransient_init();
     }
 
     /// @notice The check that allows this contract to be upgraded

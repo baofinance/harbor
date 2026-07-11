@@ -10,7 +10,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ERC20} from "@solady/tokens/ERC20.sol";
 
 import {Token} from "@bao/Token.sol";
-import {TokenHolder} from "@bao/TokenHolder.sol";
+import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 
 import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
@@ -51,7 +51,7 @@ contract StabilityPool_v3 is
     UUPSUpgradeable,
     ERC20,
     MultipleRewardCompoundingAccumulator_v3,
-    TokenHolder,
+    TokenHolder_v2,
     IStabilityPool_v3
 {
     using SafeERC20 for IERC20;
@@ -671,29 +671,26 @@ contract StabilityPool_v3 is
 
     // Rebalancing support
     // -------------------------------------------------------
-    /// @notice Sweep an owned token balance to `receiver`; the asset (pegged) sweep is capped so the pool's pegged
-    ///         backing can never drop below its MIN_TOTAL_ASSET_SUPPLY floor.
-    /// @dev Reimplements the base TokenHolder.sweep (receiver check, allOf, Swept, _sweep) with a headroom cap on the
-    ///      asset token applied before the event, so the emitted amount is exactly what transfers. During a
+    /// @notice Cap the asset (pegged) sweep so the pool's pegged backing can never drop below its
+    ///         MIN_TOTAL_ASSET_SUPPLY floor. Non-asset tokens (stray-token/dust recovery) sweep in full.
+    /// @dev Overrides the TokenHolder_v2._sweep hook: caps the asset-token amount at the pool's headroom, then
+    ///      delegates to super._sweep, which emits Swept and transfers exactly the capped amount. During a
     ///      liquidation the rebalancer sweeps the pool's pegged backing and _notifyLoss writes the supply down, capped
     ///      at supply - MIN_TOTAL_ASSET_SUPPLY; capping the asset sweep at that same headroom keeps the retained pegged
     ///      in lock-step with the remaining supply, so the floored supply is never left unbacked (mirrors withdraw's
-    ///      maxOutflow). Non-asset tokens (stray-token/dust recovery) sweep in full. Access is the owner or the
-    ///      REBALANCER_ROLE (onlyOwnerOrRoles), replacing the base onlySweeper hook.
-    function sweep(
-        address token,
-        uint256 amount,
-        address receiver
-    ) external override(TokenHolder) onlyOwnerOrRoles(REBALANCER_ROLE) nonReentrant {
-        Token.ensureNonZeroAddress(receiver);
-        amount = Token.allOf(address(this), token, amount);
+    ///      maxOutflow).
+    function _sweep(address token, uint256 amount, address receiver) internal override(TokenHolder_v2) {
         if (token == ASSET_TOKEN) {
             amount = _capToFloor(amount);
         }
-        if (amount > 0) {
-            emit Swept(token, amount, receiver);
-            _sweep(token, amount, receiver);
-        }
+        super._sweep(token, amount, receiver);
+    }
+
+    /// @notice Access hook for `sweep`: allow the owner or the REBALANCER_ROLE.
+    /// @dev Overrides the TokenHolder_v2._checkSweeper default (owner-only) so the rebalancer can sweep the pool's
+    ///      pegged backing to the liquidator during a rebalance.
+    function _checkSweeper() internal view override(TokenHolder_v2) {
+        _checkOwnerOrRoles(REBALANCER_ROLE);
     }
 
     /// @notice Cap an asset-token outflow at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY - it may take the pool

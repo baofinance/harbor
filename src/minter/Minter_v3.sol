@@ -8,11 +8,10 @@ import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Cont
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {Token} from "@bao/Token.sol";
-import {TokenHolder, ITokenHolder} from "@bao/TokenHolder.sol";
+import {TokenHolder_v2, ITokenHolder} from "@bao/TokenHolder_v2.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -104,9 +103,8 @@ contract Minter_v3 is
     Initializable,
     UUPSUpgradeable,
     ContextUpgradeable,
-    ReentrancyGuardTransientUpgradeable,
     BaoOwnableRoles,
-    TokenHolder,
+    TokenHolder_v2,
     IMinter,
     IMinter_v3
 {
@@ -202,7 +200,6 @@ contract Minter_v3 is
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __Context_init();
-        __ReentrancyGuardTransient_init();
         MinterStorage storage $ = _getMinterStorage();
         $.peggedTokenBalance = 0;
         $.underlyingCollateral = 0;
@@ -2068,7 +2065,7 @@ contract Minter_v3 is
     // Harvesting support
     // -------------------------------------------------------
     /// @notice function used to control access to the sweep function for extracting harvestable amounts
-    function _checkSweeper() internal view override(TokenHolder) {
+    function _checkSweeper() internal view override(TokenHolder_v2) {
         _checkOwnerOrRoles(HARVESTER_ROLE);
     }
 }
