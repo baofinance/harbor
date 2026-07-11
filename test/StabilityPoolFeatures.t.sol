@@ -320,6 +320,13 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 0, 1 ether, "Test", "T");
     }
 
+    // A zero minimum total asset supply is rejected: it is the reward-integral floor, and a zero floor lets the
+    // per-share reward integral grow unbounded (division by a vanishing pool share).
+    function test_constructor_zeroMinTotalAssetSupply_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidMinTotalAssetSupply.selector, 0));
+        new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 0, "Test", "T");
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Withdraw fee trim when fee + withdrawal would breach MIN_TOTAL_ASSET_SUPPLY
     //

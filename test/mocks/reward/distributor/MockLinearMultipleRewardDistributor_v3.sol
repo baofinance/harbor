@@ -3,7 +3,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
-import {LinearReward} from "@harbor/reward/distributor/LinearReward.sol";
+import {LinearReward_v2} from "@harbor/reward/distributor/LinearReward_v2.sol";
 
 contract MockLinearMultipleRewardDistributor_v3 is LinearMultipleRewardDistributor_v3 {
     // used to discover if the _accumulateReward virtual function has been called
@@ -26,7 +26,7 @@ contract MockLinearMultipleRewardDistributor_v3 is LinearMultipleRewardDistribut
     function getRewardDataStorage(
         address token
     ) external view returns (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued) {
-        LinearReward.RewardData storage data = _getRewardData(token);
+        LinearReward_v2.RewardData_v2 storage data = _getRewardData(token);
         return (data.lastUpdate, data.finishAt, data.rate, data.queued);
     }
 }

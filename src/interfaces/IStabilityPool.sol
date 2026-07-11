@@ -106,6 +106,9 @@ interface IStabilityPool {
     /// @dev Thrown when withdrawal window parameters are invalid
     error InvalidWithdrawalWindow(uint256 startDelay, uint256 endWindow);
 
+    /// @dev Thrown when the minimum total asset supply is zero (the reward-integral floor requires it to be positive)
+    error InvalidMinTotalAssetSupply(uint256 minTotalAssetSupply);
+
     /// @dev Thrown when attempting to withdraw without an active request or after it ended
     error NoActiveWithdrawalRequest(address owner);
 

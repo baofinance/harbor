@@ -276,6 +276,12 @@ contract StabilityPool_v3 is
             revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
         }
 
+        // A zero floor is rejected: MIN_TOTAL_ASSET_SUPPLY is the reward-integral divisor floor, and a zero floor
+        // admits a vanishing pool share, making the per-share reward integral unbounded (see maxDepositReward).
+        if (minTotalAssetSupply == 0) {
+            revert InvalidMinTotalAssetSupply(minTotalAssetSupply);
+        }
+
         // the floor preventing a non-empty pool from being emptied below a dust threshold (share-price safety)
         MIN_TOTAL_ASSET_SUPPLY = minTotalAssetSupply;
 

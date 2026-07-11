@@ -904,13 +904,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         assertGt(IMinter(minter).harvestable(), 0, "the split remainder stays in the minter as harvestable");
     }
 
-    /// @notice maxDepositReward is the conservative field-safe capacity `cap - committed`, with `cap = uint80.max *
+    /// @notice maxDepositReward is the conservative field-safe capacity `cap - committed`, with `cap = uint128.max *
     /// REWARD_PERIOD_LENGTH` and `committed = queued + rate * REWARD_PERIOD_LENGTH`. On a fresh stream it is the full
     /// cap; after a reward is streamed it drops by exactly the committed amount. This is the value the harvest caps each
     /// pool's deposit against, so `depositReward` can never overflow the rate field.
     function test_maxDepositReward_conservativeBound() public {
         uint256 period = IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH();
-        uint256 cap = uint256(type(uint80).max) * period;
+        uint256 cap = uint256(type(uint128).max) * period;
 
         // a fresh stream (nothing queued or streaming) offers the full rate-field cap
         assertEq(

@@ -13,6 +13,7 @@ import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {LinearReward} from "@harbor/reward/distributor/LinearReward.sol";
+import {LinearReward_v2} from "@harbor/reward/distributor/LinearReward_v2.sol";
 
 // solhint-disable no-empty-blocks
 // solhint-disable not-rely-on-time
@@ -45,6 +46,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
     using SafeERC20 for IERC20;
 
     using LinearReward for LinearReward.RewardData;
+    using LinearReward_v2 for LinearReward_v2.RewardData_v2;
 
     /*************
      * Constants *
@@ -68,12 +70,16 @@ abstract contract LinearMultipleRewardDistributor_v3 is
      *************/
 
     struct LinearMultipleRewardDistributorStorage {
-        /// @notice Mapping from reward token address to linear distribution reward data.
-        mapping(address => LinearReward.RewardData) rewardData;
+        /// @dev Legacy v1-layout reward data; read once by the v2->v3 reinitializer to seed the widened `rewardData`
+        ///      below, then vestigial. Stays at slot 0 so the deployed data is read in place.
+        /// @custom:oz-renamed-from rewardData
+        mapping(address => LinearReward.RewardData) rewardDataUNUSED;
         /// @dev The list of active reward tokens.
         EnumerableSet.AddressSet activeRewardTokens;
         /// @dev The list of historical reward tokens.
         EnumerableSet.AddressSet historicalRewardTokens;
+        /// @notice Mapping from reward token address to the widened linear distribution reward data.
+        mapping(address => LinearReward_v2.RewardData_v2) rewardData;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.LinearMultipleRewardDistributor")) - 1)) & ~bytes32(uint256(0xff))'
@@ -116,7 +122,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         address token
     ) external view returns (uint256 lastUpdate, uint256 finishAt, uint256 rate, uint256 queued) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
-        LinearReward.RewardData memory data = $.rewardData[token];
+        LinearReward_v2.RewardData_v2 memory data = $.rewardData[token];
         return (data.lastUpdate, data.finishAt, data.rate, data.queued);
     }
 
@@ -151,12 +157,12 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         if (REWARD_PERIOD_LENGTH == 0) {
             return type(uint256).max; // immediate distribution: there is no linear stream to overflow
         }
-        LinearReward.RewardData storage data = _getRewardData(token);
+        LinearReward_v2.RewardData_v2 storage data = _getRewardData(token);
         // committed = the reward already parked in `queued` plus the current stream re-folded on a restream; the
         // `rate * period` term upper-bounds that re-fold (an active period's window is at most one period), so the bound
         // stays safe without reconstructing `increase`'s branches. cap = the largest amount the rate field can carry.
-        uint256 committed = uint256(data.queued) + uint256(data.rate) * REWARD_PERIOD_LENGTH;
-        uint256 cap = uint256(type(uint80).max) * REWARD_PERIOD_LENGTH;
+        uint256 committed = data.queued + uint256(data.rate) * REWARD_PERIOD_LENGTH;
+        uint256 cap = uint256(type(uint128).max) * REWARD_PERIOD_LENGTH;
         return committed >= cap ? 0 : cap - committed;
     }
 
@@ -210,7 +216,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         if (!$.activeRewardTokens.remove(token)) {
             revert NotActiveRewardToken();
         }
-        LinearReward.RewardData memory _data = $.rewardData[token];
+        LinearReward_v2.RewardData_v2 memory _data = $.rewardData[token];
         unchecked {
             (uint256 _distributable, uint256 _undistributed) = _data.pending();
             if (_data.queued < REWARD_PERIOD_LENGTH) {
@@ -240,7 +246,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         if (REWARD_PERIOD_LENGTH == 0) {
             _accumulateReward(token, amount);
         } else {
-            LinearReward.RewardData memory data = $.rewardData[token];
+            LinearReward_v2.RewardData_v2 memory data = $.rewardData[token];
             data.increase(REWARD_PERIOD_LENGTH, amount);
             $.rewardData[token] = data;
         }
@@ -270,7 +276,7 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         }
     }
 
-    function _getRewardData(address token) internal view returns (LinearReward.RewardData storage) {
+    function _getRewardData(address token) internal view returns (LinearReward_v2.RewardData_v2 storage) {
         LinearMultipleRewardDistributorStorage storage $ = _getLinearMultipleRewardDistributorStorage();
         return $.rewardData[token];
     }
