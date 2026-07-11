@@ -160,10 +160,18 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         LinearReward_v2.RewardData_v2 storage data = _getRewardData(token);
         // committed = the reward already parked in `queued` plus the current stream re-folded on a restream; the
         // `rate * period` term upper-bounds that re-fold (an active period's window is at most one period), so the bound
-        // stays safe without reconstructing `increase`'s branches. cap = the largest amount the rate field can carry.
+        // stays safe without reconstructing `increase`'s branches.
         uint256 committed = data.queued + uint256(data.rate) * REWARD_PERIOD_LENGTH;
-        uint256 cap = uint256(type(uint128).max) * REWARD_PERIOD_LENGTH;
+        uint256 cap = _depositRewardCap();
         return committed >= cap ? 0 : cap - committed;
+    }
+
+    /// @dev The absolute cap on a token's `committed` (queued + rate * REWARD_PERIOD_LENGTH). Here it is the rate-field
+    ///      capacity `type(uint128).max * REWARD_PERIOD_LENGTH` - the largest amount the rate field can carry. A derived
+    ///      contract whose reward accounting imposes a tighter bound (e.g. an accumulator whose per-share integral must
+    ///      fit uint256) overrides this to intersect that bound with the field capacity.
+    function _depositRewardCap() internal view virtual returns (uint256) {
+        return uint256(type(uint128).max) * REWARD_PERIOD_LENGTH;
     }
 
     /****************************

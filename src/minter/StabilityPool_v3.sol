@@ -220,7 +220,6 @@ contract StabilityPool_v3 is
     ) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
-        __ReentrancyGuardTransient_init();
 
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
 
@@ -585,6 +584,14 @@ contract StabilityPool_v3 is
         currentProd = supply.product;
         // supply - gap; the invariant above keeps this >= Sum(balanceOf) >= 0, so the cast is safe.
         totalShare = uint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
+    }
+
+    /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
+    /// @dev A non-empty pool holds supply >= MIN_TOTAL_ASSET_SUPPLY (the withdraw floor leaves either the floor or an
+    /// empty pool), and the divisor is held >= Sum(balanceOf), which at the floor is the retained MIN. So the reward
+    /// divisor never falls below MIN_TOTAL_ASSET_SUPPLY while a reward can be accumulated - it is the integral cap's floor.
+    function _minTotalShare() internal view virtual override returns (uint256) {
+        return MIN_TOTAL_ASSET_SUPPLY;
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3

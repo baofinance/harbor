@@ -13,12 +13,12 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
     uint128 public product;
     uint256 public userPoolShare;
     uint128 public userProduct;
+    uint256 public minTotalPoolShare;
 
     constructor(uint40 period) MultipleRewardCompoundingAccumulator_v3(_ROLE_0, _ROLE_1, period) {}
 
     function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
-        __ReentrancyGuardTransient_init();
     }
 
     function setTotalPoolShare(uint256 _totalPoolShare, uint128 _product) external {
@@ -29,6 +29,10 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
     function setUserPoolShare(uint256 _userPoolShare, uint128 _userProduct) external {
         userPoolShare = _userPoolShare;
         userProduct = _userProduct;
+    }
+
+    function setMinTotalPoolShare(uint256 _minTotalPoolShare) external {
+        minTotalPoolShare = _minTotalPoolShare;
     }
 
     function reentrantCall(bytes calldata _data) external nonReentrant {
@@ -50,6 +54,10 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
 
     function _getUserPoolShare(address) internal view virtual override returns (uint128, uint256) {
         return (userProduct, userPoolShare);
+    }
+
+    function _minTotalShare() internal view virtual override returns (uint256) {
+        return minTotalPoolShare;
     }
 
     function _accumulateReward(address token, uint256 amount) internal virtual override {

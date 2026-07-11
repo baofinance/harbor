@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -115,7 +115,7 @@ import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/Lin
 /// https://github.com/liquity/dev/blob/main/papers/Scalable_Reward_Distribution_with_Compounding_Stakes.pdf
 // solhint-disable-next-line contract-name-capwords
 abstract contract MultipleRewardCompoundingAccumulator_v3 is
-    ReentrancyGuardTransientUpgradeable,
+    ReentrancyGuardTransient,
     LinearMultipleRewardDistributor_v3,
     IMultipleRewardAccumulator_v3
 {
@@ -129,6 +129,14 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
 
     /// @dev The precision used to calculate accumulated rewards.
     uint256 internal constant _REWARD_PRECISION = 1e18;
+
+    /// @dev Headroom for the reward-integral cap: the number of full-cap reward deposits that can accumulate into a
+    ///      single exponent's per-share integral before it would overflow uint256. `_depositRewardCap` caps a deposit
+    ///      so its accumulated `toAdd` is at most `type(uint256).max / _INTEGRAL_HEADROOM` (worst case: total share at
+    ///      the pool floor, magnitude at `MAGNITUDE_PRECISION`), so up to this many deposits fit at one exponent.
+    ///      1e6 weekly deposits is ~19,000 years - unreachable before an exponent-changing liquidation resets the
+    ///      integral to a fresh slot.
+    uint256 internal constant _INTEGRAL_HEADROOM = 1e6;
 
     /// @dev Compiler will pack this into single `uint256`.
     struct RewardSnapshotNOTUSED {
@@ -204,16 +212,6 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /***************
      * Constructor *
      ***************/
-
-    // solhint-disable-next-line func-name-mixedcase
-    // function __MultipleRewardCompoundingAccumulator_init() internal onlyInitializing {
-    //     // __LinearMultipleRewardDistributor_init();
-    //     __ReentrancyGuardTransient_init();
-    //     // __MultipleRewardCompoundingAccumulator_init_unchained();
-    // }
-
-    // // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
-    // function __MultipleRewardCompoundingAccumulator_init_unchained() internal onlyInitializing {}
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     /// @dev we don't disable initializers here, because this contract is abstract - the deriving contract should do that.
@@ -469,6 +467,23 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }
 
+    /// @inheritdoc LinearMultipleRewardDistributor_v3
+    /// @dev Intersects the rate-field capacity with the reward-integral capacity. `_accumulateReward` stores
+    ///      `toAdd = amount * _REWARD_PRECISION * magnitude / totalShare` into a uint256 per-exponent integral and
+    ///      accumulates it, so an unbounded `amount` on a small pool overflows the store. Capping `committed` at
+    ///      `integralCap` holds each `toAdd` to at most `type(uint256).max / _INTEGRAL_HEADROOM` in the worst case
+    ///      (`totalShare` at the pool floor `_minTotalShare()`, `magnitude` at `MAGNITUDE_PRECISION`), leaving room for
+    ///      `_INTEGRAL_HEADROOM` deposits to accumulate at one exponent. A deposit streams and is accumulated later
+    ///      against a `totalShare` that may have fallen to the floor, so the floor - not the live share - is the bound.
+    function _depositRewardCap() internal view virtual override returns (uint256) {
+        uint256 integralCap = Math.mulDiv(
+            type(uint256).max,
+            _minTotalShare(),
+            _REWARD_PRECISION * uint256(DecrementalFloatingPoint.MAGNITUDE_PRECISION) * _INTEGRAL_HEADROOM
+        );
+        return Math.min(super._depositRewardCap(), integralCap);
+    }
+
     /// @dev Internal function to get the total pool shares.
     function _getTotalPoolShare() internal view virtual returns (uint128 currentProd, uint256 totalShare);
 
@@ -476,4 +491,9 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     ///
     /// @param account The address of user to query.
     function _getUserPoolShare(address account) internal view virtual returns (uint128 previousProd, uint256 share);
+
+    /// @dev The floor on the total pool share while the pool is non-empty - the worst-case divisor the reward-integral
+    ///      cap (`_depositRewardCap`) must assume. A deposited reward streams and is accumulated later
+    ///      (`_accumulateReward`) against the then-current total share, which may have fallen to this floor.
+    function _minTotalShare() internal view virtual returns (uint256);
 }

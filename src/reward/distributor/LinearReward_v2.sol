@@ -13,10 +13,12 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///         uint96/uint80: `queued` (the carry, which accumulates up to the `maxDepositReward` cap) takes a full
 ///         slot, and `rate` widens to uint128 alongside the two uint40 timestamps, sized so the `maxDepositReward`
 ///         cap - not the rate field - is what bounds a deposit.
+// solhint-disable-next-line contract-name-capwords
 library LinearReward_v2 {
     using SafeCast for uint256;
 
     /// @dev Two 32-byte slots. slot 0: `queued`. slot 1: `rate` (128 bits) + `lastUpdate` + `finishAt` (48 bits spare).
+    // solhint-disable-next-line contract-name-capwords
     struct RewardData_v2 {
         // The amount of rewards pending to distribute (the carry).
         uint256 queued;
