@@ -176,6 +176,10 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
      * Variables *
      *************/
 
+    /// @custom:storage-location erc7201:bao.storage.MultipleRewardCompoundingAccumulator
+    /// @custom:bao-renamed-from rewardReceiverNOTUSED rewardReceiver
+    /// @custom:bao-renamed-from userRewardSnapshotNOTUSED userRewardSnapshot
+    /// @custom:bao-renamed-from userRewardSnapshot userRewardSnapshotV2
     struct MultipleRewardCompoundingAccumulatorStorage {
         /// @inheritdoc IMultipleRewardAccumulator_v3
         mapping(address => address) rewardReceiverNOTUSED;

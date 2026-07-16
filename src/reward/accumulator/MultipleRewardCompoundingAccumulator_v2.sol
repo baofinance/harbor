@@ -165,6 +165,7 @@ abstract contract MultipleRewardCompoundingAccumulator is
      * Variables *
      *************/
 
+    /// @custom:storage-location erc7201:bao.storage.MultipleRewardCompoundingAccumulator
     struct MultipleRewardCompoundingAccumulatorStorage {
         /// @inheritdoc IMultipleRewardAccumulator
         mapping(address => address) rewardReceiver;

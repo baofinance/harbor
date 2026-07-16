@@ -66,6 +66,7 @@ abstract contract LinearMultipleRewardDistributor is
      * Variables *
      *************/
 
+    /// @custom:storage-location erc7201:bao.storage.LinearMultipleRewardDistributor
     struct LinearMultipleRewardDistributorStorage {
         /// @notice Mapping from reward token address to linear distribution reward data.
         mapping(address => LinearReward.RewardData) rewardData;

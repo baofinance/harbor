@@ -69,9 +69,12 @@ abstract contract LinearMultipleRewardDistributor_v3 is
      * Variables *
      *************/
 
+    /// @custom:storage-location erc7201:bao.storage.LinearMultipleRewardDistributor
+    /// @custom:bao-renamed-from rewardDataUNUSED rewardData
+    /// @custom:bao-added rewardData
     struct LinearMultipleRewardDistributorStorage {
-        /// @dev Legacy v1-layout reward data; read once by the v2->v3 reinitializer to seed the widened `rewardData`
-        ///      below, then vestigial. Stays at slot 0 so the deployed data is read in place.
+        /// @dev Legacy v1-layout reward data; read once by the v2->v3 StabilityPool_v3_Upgrader migrator to seed the
+        ///      widened `rewardData` below, then vestigial. Stays at slot 0 so the deployed data is read in place.
         /// @custom:oz-renamed-from rewardData
         mapping(address => LinearReward.RewardData) rewardDataUNUSED;
         /// @dev The list of active reward tokens.

@@ -904,20 +904,24 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         assertGt(IMinter(minter).harvestable(), 0, "the split remainder stays in the minter as harvestable");
     }
 
-    /// @notice maxDepositReward is the conservative field-safe capacity `cap - committed`, with `cap = uint128.max *
-    /// REWARD_PERIOD_LENGTH` and `committed = queued + rate * REWARD_PERIOD_LENGTH`. On a fresh stream it is the full
-    /// cap; after a reward is streamed it drops by exactly the committed amount. This is the value the harvest caps each
-    /// pool's deposit against, so `depositReward` can never overflow the rate field.
+    /// @notice maxDepositReward is the conservative deposit capacity `cap - committed`, where `cap` is the smaller of
+    /// the rate-field capacity (`uint128.max * REWARD_PERIOD_LENGTH`) and the reward-integral capacity (which keeps the
+    /// accumulated per-share integral inside uint256). On the envelope pools the integral cap binds, so `cap` sits
+    /// strictly below the field cap. A fresh stream offers the full `cap`; after a reward is streamed it drops by
+    /// exactly `committed = queued + rate * period`. This is the value the harvest caps each pool's deposit against, so
+    /// `depositReward` can overflow neither the rate field nor the reward integral. (The exact cap boundary - that a
+    /// deposit of `cap` is the largest that keeps the integral safe - is pinned in the discrimination test.)
     function test_maxDepositReward_conservativeBound() public {
         uint256 period = IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH();
-        uint256 cap = uint256(type(uint128).max) * period;
+        uint256 fieldCap = uint256(type(uint128).max) * period;
 
-        // a fresh stream (nothing queued or streaming) offers the full rate-field cap
-        assertEq(
-            IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral),
-            cap,
-            "fresh stream: capacity is the full rate-field cap"
-        );
+        // A fresh stream (nothing queued or streaming) offers the full cap. On the envelope pools the reward-integral
+        // cap binds strictly below the rate-field cap - a regression dropping the integral bound would return fieldCap.
+        // `cap` is a constant here (the integral cap uses the immutable MIN_TOTAL_ASSET_SUPPLY, not live share), so it
+        // is a valid reference for the post-stream assertion below.
+        uint256 cap = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral);
+        assertLt(cap, fieldCap, "integral cap binds below the rate-field cap");
+        assertGt(cap, 0, "cap is positive");
 
         // stream a reward, then the capacity drops by exactly committed = queued + rate * period
         address spOwner = IBaoOwnable(stabilityPool).owner();
@@ -925,7 +929,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         vm.startPrank(spOwner);
         IBaoRoles(stabilityPool).grantRoles(address(this), depositorRole);
         vm.stopPrank();
-        uint256 reward = 1e24; // rate = reward / period stays well within uint80
+        uint256 reward = 1e24; // well within the cap, so depositReward streams it without overflowing
         deal(wrappedCollateral, address(this), reward);
         IERC20(wrappedCollateral).approve(stabilityPool, reward);
         IMultipleRewardDistributor_v3(stabilityPool).depositReward(wrappedCollateral, reward);

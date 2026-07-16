@@ -19,8 +19,11 @@ import {TokenUUPS} from "@bao/TokenUUPS.sol";
 ///   2. Call `remediate(tokens, holders)` to copy V1 → V2 for each holder/token pair
 ///   3. Upgrade proxy to StabilityPool_v3
 ///
+/// @dev Validated in isolation, not as a storage successor: it declares only the accumulator namespace it touches
+///      (below), reached by assembly at the fixed slot - which storage-successor auto-verifies against the
+///      namespace's canonical ERC-7201 hash. An oz-upgrades-from comparison would false-flag the StabilityPool_v2
+///      namespaces it does NOT touch as "deleted". Kept as documentation and precedent for the upgrade process.
 /// @custom:oz-upgrades
-/// @custom:oz-upgrades-from src/minter/StabilityPool_v2.sol:StabilityPool_v2
 // solhint-disable-next-line contract-name-capwords
 contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
     // ── Storage layout (mirrors Accumulator_v2) ─────────────────────────────
@@ -48,6 +51,7 @@ contract ForceMigrateAccumulator_v1 is HarborPauser_v1 {
         uint256 integral;
     }
 
+    /// @custom:storage-location erc7201:bao.storage.MultipleRewardCompoundingAccumulator
     struct AccumulatorStorage {
         // these are not used but are needed as placeholders
         mapping(address => address) rewardReceiver;

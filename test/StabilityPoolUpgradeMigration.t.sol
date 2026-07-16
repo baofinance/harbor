@@ -16,7 +16,7 @@ import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 import {StabilityPool_v2} from "@harbor/minter/StabilityPool_v2.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
-import {StabilityPool_v3_SeedUpgrader} from "@harbor-script/Migrate_StabilityPool_v3_Seed/StabilityPool_v3_SeedUpgrader.sol";
+import {StabilityPool_v3_Upgrader} from "@harbor-script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol";
 
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 
@@ -100,11 +100,13 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         IStabilityPool(stabilityPoolCollateral).deposit(amount, user, 0);
     }
 
-    /// @dev Migrate the proxy to v3 driven by the pre-flight ledger gap, as production will: a gap >= 0 upgrades
-    /// plain (the delta encoding zero-inits rewardDivisorGap, leaving divisor == supply >= Sum(balanceOf)); a
-    /// negative gap seeds the divisor via the SeedUpgrader first (divisor = max(Sum(balanceOf), supply)).
+    /// @dev Migrate the proxy to v3 exactly as production will: deploy the throwaway StabilityPool_v3_Upgrader as a
+    /// temporary implementation and call `migrateAndUpgrade`, which in one transaction widen-copies the reward streams,
+    /// writes the reward-divisor gap, and reinstates the real v3 implementation. The gap is `supply - Sum(balanceOf)`
+    /// read from the v2 pool pre-upgrade (see `_ledgerGap`), so the v3 divisor (`supply - gap`) equals Sum(balanceOf).
     function _upgradeToV3() internal {
-        // Deploy impl BEFORE prank — the constructor makes external calls that consume the prank.
+        // Deploy impls and read the gap BEFORE the prank — the constructors and the ledger read make external calls
+        // that would otherwise consume it.
         address v3Impl = address(
             new StabilityPool_v3(
                 minter,
@@ -116,36 +118,17 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
                 "SP"
             )
         );
+        int256 gap = _ledgerGap();
+        address upgraderImpl = address(new StabilityPool_v3_Upgrader(owner));
+        bytes memory initData = abi.encodeCall(StabilityPool_v3_Upgrader.migrateAndUpgrade, (gap, v3Impl));
 
-        if (_ledgerGap() >= 0) {
-            vm.prank(owner);
-            UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
-            return;
-        }
-
-        address seedUpgraderImpl = address(
-            new StabilityPool_v3_SeedUpgrader(
-                minter,
-                wrappedCollateralToken,
-                WITHDRAWAL_START_DELAY,
-                WITHDRAWAL_END_WINDOW,
-                1 ether,
-                "StabilityPool",
-                "SP"
-            )
-        );
-        address[] memory holders = new address[](2);
-        holders[0] = user1;
-        holders[1] = user2;
-        vm.prank(owner);
-        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(
-            seedUpgraderImpl,
-            abi.encodeCall(StabilityPool_v3_SeedUpgrader.seedAndUpgrade, (holders, v3Impl))
-        );
+        vm.startPrank(owner);
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(upgraderImpl, initData);
+        vm.stopPrank();
     }
 
-    /// @dev The ledger gap over the test's holders: `totalAssetSupply - Sum(assetBalanceOf)`. Read from the v2
-    /// pool pre-upgrade (v2 has no gap field); >= 0 means a plain upgrade leaves the divisor >= Sum(balanceOf).
+    /// @dev The ledger gap over the test's holders: `totalAssetSupply - Sum(assetBalanceOf)`, read from the v2 pool
+    /// pre-upgrade (v2 has no gap field). Fed to the upgrader so the v3 divisor (`supply - gap`) equals Sum(balanceOf).
     function _ledgerGap() internal view returns (int256 gap) {
         uint256 sum = IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1) +
             IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2);
@@ -928,13 +911,24 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         assertEq(IStabilityPool(stabilityPoolCollateral).totalAssetSupply(), supplyBefore, "totalSupply preserved");
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1), balance1Before, "user1 preserved");
         assertEq(IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user2), balance2Before, "user2 preserved");
+        // Claimable is NOT preserved — and must not be: the upgrade seeds rewardDivisorGap = supply - Sum(balanceOf),
+        // so v3 divides pending rewards by Sum(balanceOf) where v2 divided by supply. With two unequal holders after a
+        // liquidation those differ by the flooring residual, so v3 distributes the fraction v2 locked and claimable
+        // rises by exactly the divisor ratio. All of user1's steam claimable here is pending (the only reward is
+        // deposited after both checkpoints), so it scales as 1/divisor: expected = claimableBefore * supply / Sum.
         address[] memory tokens = new address[](1);
         tokens[0] = steam;
-        assertEq(
-            IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, tokens)[0],
-            claimableBefore,
-            "claimable preserved"
-        );
+        uint256 postClaimable = IMultipleRewardAccumulator(stabilityPoolCollateral).claimable(user1, tokens)[0];
+        uint256 v3Divisor = balance1Before + balance2Before; // supply - gap == Sum(balanceOf)
+        uint256 expectedClaimable = (claimableBefore * supplyBefore) / v3Divisor;
+        // expectedClaimable floors the real ratio (claimableBefore * supply / Sum) once, losing < 1 wei; postClaimable
+        // equals that real ratio to within < 1 wei under its own construction (pending-only claimable scales purely as
+        // 1/divisor with no divisor-independent term, and the integral floor is amplified by balance/MAGNITUDE ~
+        // 1e31/1e36 < 1). So the two agree to <= 1 wei - far below the ~137-wei divisor uplift, so the band still
+        // rejects the old v2-preserved value.
+        uint256 tol = 1;
+        assertApproxEqAbs(postClaimable, expectedClaimable, tol, "claimable rises by the divisor ratio");
+        assertDiscriminates(postClaimable, expectedClaimable, tol, claimableBefore, "not the v2-preserved value");
 
         // The reclaimed bytes are live: cross the old uint104 ceiling, then decode the raw slot
         // and confirm the neighbours are untouched. After a deposit the account is freshly
