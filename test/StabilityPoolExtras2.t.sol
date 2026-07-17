@@ -129,8 +129,10 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
     }
 
     // Test withdrawing entire balance using exact amount
-    function testWithdrawExactBalance() public {
-        // A sole holder requesting their exact whole balance drains the pool to 0.
+    // A request naming the exact whole balance (the non-sentinel branch, as opposed to `type(uint256).max`) is capped
+    // the same way: the sole holder is paid their balance less the retained floor, which the pool never releases.
+    function testWithdrawExactBalanceIsCappedAtTheFloor() public {
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).deposit(DEPOSIT_AMOUNT, user1, 0);
 
@@ -142,9 +144,9 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
         vm.prank(user1);
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(exactBalance, user1, 0);
 
-        assertEq(withdrawn, exactBalance, "sole holder withdraws their exact whole balance");
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), 0, "balance is 0 after full exit");
-        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), 0, "pool drained to 0");
+        assertEq(withdrawn, exactBalance - floor, "an exact-balance request is capped at the headroom above the floor");
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(user1), floor, "the retained floor is still the holder's");
+        assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "the floor is retained, never drained to 0");
     }
 
     // Test totalAssetSupplyHistory with invalid index

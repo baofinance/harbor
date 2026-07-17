@@ -390,20 +390,21 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 3 * price);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 3 * price);
 
-        // withdraw rest - the last holder drains the pool to 0
+        // withdraw rest - the last holder is capped at the headroom, so the floor stays behind (and stays theirs)
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
         _beginWithdrawal(user1);
         vm.prank(user1);
         withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, receiver, 0);
         // 3 withdraw ---------------------------------------------------------------------------
-        assertEq(withdrawn, 3 * price, "withdraw 3 (drains to 0)");
-        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 0);
-        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 0);
+        assertEq(withdrawn, 3 * price - floor, "withdraw 3 (capped at the floor)");
+        assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), floor);
+        assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), floor);
 
-        // deposit all remaining
+        // deposit all remaining - on top of the retained floor, restoring the full 10
         vm.prank(user1);
         deposited = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, receiver, 0);
         // 4 deposit ------------------------------------------------------------------------------
-        assertEq(deposited, 10 * price, "returned value 10");
+        assertEq(deposited, 10 * price - floor, "returned value 10 less the floor already held");
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolCollateral), 10 * price);
         assertEq(IERC20(stabilityPoolCollateral).balanceOf(receiver), 10 * price);
         assertEq(IERC20(peggedToken).balanceOf(user1), 0);

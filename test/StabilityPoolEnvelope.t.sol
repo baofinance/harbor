@@ -943,6 +943,33 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         );
     }
 
+    /// @notice The reward-integral cap derives from the IMMUTABLE pool floor, never the live share. A deposited reward
+    /// streams and is accumulated LATER (`_accumulateReward`) against the total share as it stands THEN - which may by
+    /// then have fallen back to the floor - so sizing the cap off the live share would under-protect in exactly the
+    /// case the cap exists for. Growing the live share orders of magnitude clear of the floor must therefore leave the
+    /// cap untouched; an implementation reading the live share would scale it by that same factor. Deliberately
+    /// formula-free: re-deriving `integralCap` here would copy `_REWARD_PRECISION`/`_INTEGRAL_HEADROOM` (both internal)
+    /// and could only re-assert the implementation against itself.
+    function test_maxDepositReward_capIndependentOfLiveShare() public {
+        uint256 floor = IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 capBefore = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral);
+        assertGt(capBefore, 0, "precondition: a fresh stream offers a positive cap");
+
+        // Grow the live share orders of magnitude clear of the floor, so a live-share cap would differ materially.
+        _depositPeggedTo(stabilityPool, address(this), 1000 * floor);
+        assertGt(
+            IERC20(stabilityPool).totalSupply() / floor,
+            100,
+            "precondition: the live share sits orders of magnitude above the floor"
+        );
+
+        assertEq(
+            IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral),
+            capBefore,
+            "the cap must derive from the immutable floor, not the live share"
+        );
+    }
+
     // ─── rebalance walk ───
 
     /// @dev Mint a leveraged buffer so the collateral ratio starts healthy (~1.5x) and can then be dropped below the

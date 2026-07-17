@@ -466,17 +466,17 @@ contract StabilityPool_v3 is
         bool inWindow = hasRequest && block.timestamp >= request.start && block.timestamp <= request.end;
         // Role-based fee exemption: addresses with EXEMPT_WITHDRAWAL_FEE_ROLE never pay early-withdrawal fees
         bool isExempt = hasAnyRole(sender, EXEMPT_WITHDRAWAL_FEE_ROLE);
-        // Cap the gross outflow (assetsWithdrawn is still the whole amount leaving the pool) to keep total supply out
-        // of the forbidden (0, MIN_TOTAL_ASSET_SUPPLY) dust zone: a request for the whole remaining supply drains the
-        // pool to exactly 0 (the last holder exits fully - symmetric with the deposit floor), any smaller request
-        // leaves at least the floor.
+        // Cap the gross outflow (assetsWithdrawn is still the whole amount leaving the pool) at the headroom above the
+        // floor, the same cap the loss and sweep paths take. Once seeded the pool never returns to zero: total supply
+        // is either 0 (pristine, before its first deposit) or >= MIN_TOTAL_ASSET_SUPPLY, never inside the
+        // (0, MIN_TOTAL_ASSET_SUPPLY) dust zone. That is what makes the reward divisor's floor STRUCTURAL rather than
+        // asserted: `rewardDivisorGap` is written only by `_notifyLoss`, which needs a non-empty pool, so supply == 0
+        // implies the pool was never liquidated, hence gap == 0 and the divisor reads exactly 0 - letting
+        // `_accumulateReward`'s `totalShare == 0` guard queue the reward. Draining to zero would instead carry a
+        // surviving negative gap into the empty pool, where the divisor reads `-gap`: a live sub-floor divisor that
+        // silently defeats the reward-integral cap `_depositRewardCap` sizes against `_minTotalShare()`.
         TokenBalance memory supply = $.totalAssetSupply;
-        uint256 maxOutflow = assetsWithdrawn >= supply.amount
-            ? supply.amount
-            : (supply.amount > MIN_TOTAL_ASSET_SUPPLY ? supply.amount - MIN_TOTAL_ASSET_SUPPLY : 0);
-        if (assetsWithdrawn > maxOutflow) {
-            assetsWithdrawn = maxOutflow;
-        }
+        assetsWithdrawn = _capToFloor(assetsWithdrawn);
 
         // Charge the early-withdrawal fee on the ACTUAL (capped) outflow - clamp-then-fee - so the fee is a true
         // percentage of what leaves the pool, carved out of the outflow so the total leaving stays within the cap.
@@ -587,9 +587,14 @@ contract StabilityPool_v3 is
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
-    /// @dev A non-empty pool holds supply >= MIN_TOTAL_ASSET_SUPPLY (the withdraw floor leaves either the floor or an
-    /// empty pool), and the divisor is held >= Sum(balanceOf), which at the floor is the retained MIN. So the reward
-    /// divisor never falls below MIN_TOTAL_ASSET_SUPPLY while a reward can be accumulated - it is the integral cap's floor.
+    /// @dev Supply is either 0 - pristine, before the pool's first deposit - or >= MIN_TOTAL_ASSET_SUPPLY: every asset
+    /// outflow (withdraw, sweep, loss) is capped at the headroom above the floor by `_capToFloor`, so a seeded pool
+    /// never returns to zero and supply never enters the (0, MIN_TOTAL_ASSET_SUPPLY) dust zone. That makes this floor
+    /// structural rather than merely asserted. At supply == 0 the pool has never been liquidated (only `_notifyLoss`
+    /// writes `rewardDivisorGap`, and it needs a non-empty pool), so the gap is 0 and the divisor reads exactly 0 -
+    /// `_accumulateReward`'s `totalShare == 0` guard then QUEUES the reward rather than dividing. Whenever a reward CAN
+    /// be accumulated the divisor is therefore >= MIN_TOTAL_ASSET_SUPPLY (less the few wei by which the ceil-rescaled
+    /// divisor's floor-rescaled balances trail supply) - the worst case `_depositRewardCap` sizes the integral cap for.
     function _minTotalShare() internal view virtual override returns (uint256) {
         return MIN_TOTAL_ASSET_SUPPLY;
     }
@@ -708,9 +713,11 @@ contract StabilityPool_v3 is
 
     /// @notice Cap an asset-token outflow at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY - it may take the pool
     ///         down to the floor but no further (a loss must leave every holder their share of the min). Shared by the
-    ///         rebalance `sweep` (caps the pegged handed to the liquidator) and `_notifyLoss` (caps the supply written
-    ///         down): applied to both, the pegged the pool retains and the supply it owes fall in lock-step, so a
-    ///         liquidation past the floor leaves the floored supply still fully backed. Returns 0 when supply is 0.
+    ///         rebalance `sweep` (caps the pegged handed to the liquidator), `_notifyLoss` (caps the supply written
+    ///         down) and `withdraw` (caps the gross outflow): applied to all three, the pegged the pool retains and the
+    ///         supply it owes fall in lock-step, so a liquidation past the floor leaves the floored supply still fully
+    ///         backed, and a seeded pool never returns to zero - the single rule behind the reward divisor's floor.
+    ///         Returns 0 when supply is 0.
     function _capToFloor(uint256 amount) internal view returns (uint256) {
         uint256 supply = totalSupply();
         uint256 headroom = supply > MIN_TOTAL_ASSET_SUPPLY ? supply - MIN_TOTAL_ASSET_SUPPLY : 0;

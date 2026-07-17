@@ -276,15 +276,16 @@ contract StabilityPoolInvariantHandler is Test {
 
     // ─── probes ───
 
-    /// @dev The largest withdrawal that keeps the supply floor untouched: min(balance, headroom).
+    /// @dev The largest withdrawal the pool accepts without reverting — the actor's whole balance. The POOL caps the
+    /// outflow at the headroom above the floor itself (StabilityPool_v3._capToFloor), so the handler must NOT
+    /// pre-enforce the floor: requesting up to the full balance is what drives the pool's own clamp, the path a
+    /// floor-respecting cap could never reach. The only revert to dodge is WithdrawZeroAmount, when there is no
+    /// headroom at all to clamp into; the fee cannot zero a non-zero clamped outflow (it is a fraction of it).
     function _withdrawCap(address actor) internal view returns (uint256 cap) {
-        uint256 supply = IERC20(POOL).totalSupply();
-        if (supply <= MIN_TOTAL_ASSET_SUPPLY) {
-            return 0;
+        if (IERC20(POOL).totalSupply() <= MIN_TOTAL_ASSET_SUPPLY) {
+            return 0; // no headroom: the pool would clamp the outflow to 0 and revert
         }
-        uint256 headroom = supply - MIN_TOTAL_ASSET_SUPPLY;
-        uint256 balance = IERC20(POOL).balanceOf(actor);
-        cap = balance < headroom ? balance : headroom;
+        cap = IERC20(POOL).balanceOf(actor);
     }
 
     /// @dev Runs after every state-changing action: update the call/supply ghosts and check that
@@ -404,6 +405,18 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// Sum(balanceOf) through a product-decaying aggregate; this pins that it is always pool-favoured (>=).
     function invariant_rewardDivisor_ge_sumBalance() public view {
         _assertDivisorGeSumBalance(stabilityPoolCollateral, _actorsArray());
+    }
+
+    /// @notice The reward divisor is either exactly 0 — an empty pool, where `_accumulateReward`'s `totalShare == 0`
+    /// guard queues the reward instead of dividing — or at/above the pool floor `MIN_TOTAL_ASSET_SUPPLY` (less the
+    /// slack by which Sum(balanceOf) trails supply). It never sits strictly between. This is the reward-integral cap's
+    /// soundness precondition: `_depositRewardCap` sizes the cap assuming the worst-case divisor is `_minTotalShare()`,
+    /// because a deposited reward streams and is accumulated LATER against a divisor that may by then have fallen to
+    /// the floor — while `_accumulateReward` divides by the LIVE divisor. A divisor below the floor still passes the
+    /// zero-guard and inflates `toAdd` past the bound the cap was sized for. The same `S >= MIN` denominator underpins
+    /// the tolerances in `invariant_reward_conserved` and `invariant_sp_solvent`.
+    function invariant_rewardDivisor_ge_minTotalShare() public view {
+        _assertDivisorFloor(stabilityPoolCollateral, _actorsArray(), handler.maxSupplyEver(), handler.calls());
     }
 
     /// @notice Capital deposited by a zero-balance receiver captures none of the rewards streamed

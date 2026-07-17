@@ -6,6 +6,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
+import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -27,6 +28,8 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 /// Results are written as CSVs to ./results/sp-ledger-gap-*.csv (one file per test — forge runs
 /// tests in parallel and files are never removed).
 contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPoolConservation {
+    using DecrementalFloatingPoint for uint128;
+
     uint256 internal constant ONE = 1 ether; // the 1e18 per-unit-staked precision of _notifyLoss
 
     address internal pool;
@@ -524,6 +527,37 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
         assertGe(_gap(actors), 0, "over-credit written off: Sum(balanceOf) <= supply after the exits");
     }
 
+    /// @notice The reward divisor never lands in the forbidden (0, MIN_TOTAL_ASSET_SUPPLY) dust zone, even when every
+    /// holder exits a pool carrying a NEGATIVE gap. `rewardDivisorGap` is written only by `_notifyLoss`, so any gap
+    /// outlives the withdrawals and `_getTotalPoolShare` returns `supply - gap`. Were the holders able to drain supply
+    /// to 0, the surviving negative gap would make that `-gap`: a live sub-floor divisor over an EMPTY pool, which
+    /// slips past `_accumulateReward`'s `totalShare == 0` guard and divides by a few wei instead of queueing —
+    /// `toAdd = amount * 1e18 * magnitude / |gap|` — defeating the `_minTotalShare()` floor that `_depositRewardCap`
+    /// sizes the reward-integral cap against by orders of magnitude, and crediting an exponent that has no holders.
+    /// The outflow cap forecloses it: the pool retains the floor, so the divisor stays at/above it.
+    function test_negativeGapDrain_neverStrandsSubFloorDivisor() public {
+        address[] memory actors = _reproduceNegativeGap();
+        assertLt(MockStabilityPool(pool).__rewardDivisorGap(), int256(0), "precondition: rewardDivisorGap is negative");
+
+        for (uint256 i = 0; i < actors.length; i++) {
+            uint256 bal = IERC20(pool).balanceOf(actors[i]);
+            if (bal == 0) {
+                continue;
+            }
+            vm.startPrank(actors[i]);
+            IStabilityPool(pool).withdraw(type(uint256).max, actors[i], 0);
+            vm.stopPrank();
+        }
+
+        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        assertEq(IERC20(pool).totalSupply(), floor, "the exits leave the floor, never an emptied pool");
+        assertGe(
+            MockStabilityPool(pool).__rewardDivisor(),
+            floor,
+            "divisor in the forbidden (0, MIN) zone: the reward-integral cap's floor is unsound"
+        );
+    }
+
     /// @notice A reward claim is NOT over-credited across a negative balance gap. Even with Sum(balanceOf) > supply
     /// (the reward integral credits by balanceOf), the divisor tracks Sum(balanceOf) rounded UP rather than the
     /// smaller supply, so Sum(claimable) <= the reward the pool holds — the pool-favoured direction, never over. A
@@ -649,6 +683,51 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
         _assertDivisorGeSumBalance(actors);
     }
 
+    /// @notice The floor keeps the loss-per-unit strictly below 1e18 - but only while `supply <= MIN * 1e18`. A
+    /// liquidation is capped at the headroom (`loss = supply - MIN`), and `_notifyLoss` CEIL-divides it:
+    ///     assetLossPerUnitStaked = ceil((supply - MIN) * 1e18 / supply) = 1e18 - ceil((MIN * 1e18 + 1) / supply) + 1
+    /// At `supply == MIN * 1e18` that ceil term is 2, leaving `1e18 - 1`, so `newProductFactor = 1 ether - (1e18 - 1)`
+    /// is 1 - the product survives and every holder's balance still reads. This is the exact bound the
+    /// `DecrementalFloatingPoint.mul` precondition ("Caller should make sure `factor` is always > 0", justified as
+    /// "Minimum balance prevents factor=0") silently depends on, so it is pinned rather than assumed.
+    function test_liquidationToFloor_productSurvivesAtTheLossPerUnitBound() public {
+        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        address[] memory actors = _mkActors(1);
+        _deposit(actors[0], floor * 1e18); // exactly at the bound
+
+        _loss(IERC20(pool).totalSupply() - floor); // the whole headroom: the worst case for the loss-per-unit
+
+        assertEq(IERC20(pool).totalSupply(), floor, "precondition: the liquidation took the pool to its floor");
+        assertGt(MockStabilityPool(pool).__totalSupply().product.magnitude(), 0, "the product must survive the bound");
+        assertGt(IERC20(pool).balanceOf(actors[0]), 0, "the holder's balance still reads back");
+    }
+
+    /// @notice One wei of supply past that bound, the CEIL closes the gap: `ceil((MIN * 1e18 + 1) / supply)` becomes 1,
+    /// so `assetLossPerUnitStaked` reaches exactly 1e18 and `newProductFactor = 1 ether - 1e18` is ZERO - zeroing the
+    /// pool's product. Existing holders survive (their snapshot product predates the loss, so their balance rescales to
+    /// 0 rather than dividing by zero), but every SUBSEQUENT depositor snapshots the zeroed product, and their balance
+    /// then divides by `fromMag == 0`: the deposit is accepted and their balance can never be read again - `balanceOf`
+    /// panics, so the pool is bricked for anyone joining after. `MIN > 0` is necessary but NOT sufficient: the real
+    /// constraint is relative (`supply <= MIN * 1e18`), and nothing enforces or documents it - the
+    /// `DecrementalFloatingPoint.mul` precondition ("factor is always > 0") is justified only as "Minimum balance
+    /// prevents factor=0", which holds for a production floor (MIN of 1 token needs a supply of 1e18 tokens to breach)
+    /// but not for a floor configured small enough, which no check forbids.
+    function test_liquidationToFloor_zeroesProductPastTheLossPerUnitBound() public {
+        uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
+        address[] memory actors = _mkActors(2);
+        _deposit(actors[0], floor * 1e18 + 1); // one wei past the bound
+
+        _loss(IERC20(pool).totalSupply() - floor);
+
+        assertEq(IERC20(pool).totalSupply(), floor, "precondition: the liquidation took the pool to its floor");
+        assertEq(MockStabilityPool(pool).__totalSupply().product.magnitude(), 0, "the product is zeroed past the bound");
+
+        // The deposit is ACCEPTED, snapshotting the zeroed product - then the balance is unreadable for ever.
+        _deposit(actors[1], floor);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x12)); // division by zero
+        IERC20(pool).balanceOf(actors[1]);
+    }
+
     /// @notice The documented "reward <= uint96.max" assumption is ENFORCED, not just assumed: a reward that would
     /// overflow the uint96 `queued` field (no stakers -> totalShare == 0 -> the reward is queued) reverts via
     /// SafeCast instead of silently truncating.
@@ -675,23 +754,25 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
         assertEq(held, supply, "held pegged equals supply - solvent at the floor");
     }
 
-    /// @notice From a pool floored at the minimum, the sole holder withdrawing their whole balance drains it to 0 and is
-    /// paid what the pool holds, less the early-withdrawal fee (no request window opened).
-    function test_liquidationPastFloor_lastHolderDrainsToZero() public {
+    /// @notice A pool already floored at the minimum pays its sole holder nothing further: the outflow cap leaves the
+    /// floor, so once supply IS the floor there is no headroom and the withdrawal reverts rather than draining the pool
+    /// to zero. A seeded pool never returns to zero - which is what keeps `supply == 0` implying never-liquidated,
+    /// hence gap == 0 and a zero reward divisor (see `test_negativeGapDrain_neverStrandsSubFloorDivisor`).
+    function test_liquidationPastFloor_lastHolderCannotDrainTheFloor() public {
         uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
         _deposit(actors[0], 1e20);
         _loss(IERC20(pool).totalSupply() - floor / 2);
+        assertEq(IERC20(pool).totalSupply(), floor, "precondition: supply floored at the minimum");
         assertEq(IERC20(peggedToken).balanceOf(pool), IERC20(pool).totalSupply(), "floored and solvent");
 
-        uint256 walletBefore = IERC20(peggedToken).balanceOf(actors[0]);
         vm.startPrank(actors[0]);
+        vm.expectRevert(IStabilityPool.WithdrawZeroAmount.selector);
         IStabilityPool(pool).withdraw(type(uint256).max, actors[0], 0);
         vm.stopPrank();
 
-        assertEq(IERC20(pool).totalSupply(), 0, "sole holder drains the floored pool to 0");
-        assertEq(IERC20(peggedToken).balanceOf(pool), 0, "no pegged left once drained");
-        assertGt(IERC20(peggedToken).balanceOf(actors[0]) - walletBefore, 0, "holder is paid on exit");
+        assertEq(IERC20(pool).totalSupply(), floor, "the floor is retained, not drained");
+        assertEq(IERC20(peggedToken).balanceOf(pool), floor, "the retained floor stays backed");
     }
 
     /// @dev Floor the pool via an over-sized liquidation and return the sole depositor; asserts held equals supply

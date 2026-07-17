@@ -72,6 +72,18 @@ abstract contract StabilityPoolConservation is BaoTest {
 
     // ─── derived-bound asserts ───
 
+    /// @notice The bound by which Sum(balanceOf) can sit either side of the recorded supply: the outstanding loss
+    /// over-application (up to `maxSupplyEver/1e18` asset wei, the ceiling-division error, released back when a later
+    /// loss is absorbed by the error queue) plus at most 2 stored-balance floorings per checkpoint-inducing call and 1
+    /// per actor. Shared so every bound derived from this slack references one definition.
+    function _balanceSumSlack(
+        uint256 maxSupplyEver,
+        uint256 calls,
+        uint256 actorCount
+    ) internal pure returns (uint256) {
+        return maxSupplyEver / 1 ether + 2 * calls + actorCount;
+    }
+
     /// @notice The actors' product-rebased balances sum to the recorded total supply, within the loss over-application
     /// and per-store flooring. Symmetric: the sum can sit either side as the loss-error queue fills and drains.
     function _assertPoolConserved(
@@ -80,11 +92,10 @@ abstract contract StabilityPoolConservation is BaoTest {
         uint256 maxSupplyEver,
         uint256 calls
     ) internal view {
-        uint256 tolerance = maxSupplyEver / 1 ether + 2 * calls + actors.length;
         assertApprox(
             _sumBalances(pool, actors),
             IERC20(pool).totalSupply(),
-            tolerance,
+            _balanceSumSlack(maxSupplyEver, calls, actors.length),
             "sum of actor balances vs totalSupply"
         );
     }
@@ -208,6 +219,32 @@ abstract contract MockStabilityPoolConservation is StabilityPoolConservation {
             IStabilityPoolRewardDivisor(pool).__rewardDivisor(),
             _sumBalances(pool, actors),
             "reward divisor below Sum(balanceOf): rewards would over-credit"
+        );
+    }
+
+    /// @notice The reward divisor never sits strictly inside `(0, MIN_TOTAL_ASSET_SUPPLY - slack)`: it is either
+    /// exactly zero - an empty pool, where `_accumulateReward`'s `totalShare == 0` guard QUEUES the reward instead of
+    /// dividing - or at/above the pool floor. This is the reward-integral cap's soundness precondition:
+    /// `_depositRewardCap` sizes the cap assuming the worst-case divisor is `_minTotalShare()` (a reward streams and is
+    /// accumulated LATER, against a divisor that may by then have fallen to the floor), while `_accumulateReward`
+    /// divides by the LIVE divisor - so a divisor below the floor passes the guard and inflates `toAdd` past the bound
+    /// the cap was sized for. The sub-floor slack is the same rounding by which Sum(balanceOf) trails supply: the
+    /// divisor is held >= Sum(balanceOf) (ceil-rescale) and supply >= MIN while non-empty, so the divisor can only
+    /// trail MIN by that slack.
+    function _assertDivisorFloor(
+        address pool,
+        address[] memory actors,
+        uint256 maxSupplyEver,
+        uint256 calls
+    ) internal view {
+        uint256 divisor = IStabilityPoolRewardDivisor(pool).__rewardDivisor();
+        if (divisor == 0) {
+            return; // empty pool: the reward queues, nothing divides by the divisor
+        }
+        assertGe(
+            divisor + _balanceSumSlack(maxSupplyEver, calls, actors.length),
+            IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY(),
+            "reward divisor below the pool floor: the integral cap's worst-case divisor is unsound"
         );
     }
 }
