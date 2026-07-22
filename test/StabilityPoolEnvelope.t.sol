@@ -199,8 +199,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             "owner must not hold ZERO_FEE_ROLE"
         );
 
-        // start this market's constraints file fresh; the stress-sweep probes append one row per fuzz run
-        vm.writeFile(_constraintsFile(), "market,action,w,price,rate,outcome,detail\n");
+        // start this market's constraints file fresh; the stress-sweep probes append one row per fuzz run. Opt-in
+        // (SP_CONSTRAINTS=true), so a plain run neither writes the file nor needs results/ to exist.
+        if (_constraintsEnabled()) {
+            vm.writeFile(_constraintsFile(), "market,action,w,price,rate,outcome,detail\n");
+        }
     }
 
     // ─── config integrity (layer 1: config sources must agree; no deploy, no mocks) ───
@@ -581,15 +584,26 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     }
 
     // ─── scatter-gun stress sweep: push each permissionless action PAST the envelope to LOCATE the constraint ───
-    // Each fuzz run appends one row to tmp/sp-constraints-<slug>.csv (via try/catch, so a red run still emits the
-    // grid). Within the envelope (w <= the envelope pool) the action MUST hold - a break there is a finding and the
+    // Each fuzz run appends one row to tmp/sp-constraints-<slug>.csv when SP_CONSTRAINTS=true (via try/catch, so a
+    // red run still emits the grid). Within the envelope (w <= the envelope pool) the action MUST hold - a break there is a finding and the
     // test fails. Past the envelope the located limit is only recorded - the constraints table is the deliverable.
+
+    /// @notice The constraints table is an opt-in diagnostic, off by default. It is a per-run fuzz scatter
+    ///         (non-repeatable under a random seed), so it belongs in untracked tmp/ scratch, not the tracked
+    ///         results/ deliverables - and emitting it on every run would fail wherever tmp/ is absent (e.g. a plain
+    ///         `yarn test`, which does not create it). Set SP_CONSTRAINTS=true to generate it.
+    function _constraintsEnabled() internal view returns (bool) {
+        return vm.envOr("SP_CONSTRAINTS", false);
+    }
 
     function _constraintsFile() internal pure returns (string memory) {
         return string.concat("tmp/sp-constraints-", _marketSlug(), ".csv");
     }
 
     function _record(string memory action, uint256 w, string memory outcome, string memory detail) internal {
+        if (!_constraintsEnabled()) {
+            return;
+        }
         vm.writeLine(
             _constraintsFile(),
             string.concat(
