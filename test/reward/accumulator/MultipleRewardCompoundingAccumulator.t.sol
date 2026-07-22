@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
+import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {IMockMultipleRewardCompoundingAccumulator} from "@harbor-test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
 
 import {Test} from "forge-std/Test.sol";
@@ -911,5 +912,33 @@ contract MultipleRewardCompoundingAccumulatorTest is Test, Array {
         (, , uint256 pendingAfter, uint256 claimedAfter) = accumulator.userRewardSnapshot(deployer, tokenAddresses[0]);
         assertEq(pendingAfter, 0, "pending fully drained");
         assertEq(claimedAfter, pending[0], "claimed == original pending");
+    }
+
+    /// @notice `claimable` must hold at the reward cap even when the pool-share floor is large. The temporal-pending
+    /// term forms `amount * shares` as a plain uint256 intermediate, but the two factors are bounded INDEPENDENTLY:
+    /// the reward-integral cap sizes `amount` against the FLOOR (`_minTotalShare`), while `shares` is bounded by the
+    /// pool's own field width. At a large floor a cap-sized reward times a field-sized share exceeds uint256 and the
+    /// view reverts - a holder whose claimable cannot be read is the same failure class as one whose balance cannot be.
+    function test_claimable_holdsAtTheRewardCapWithALargeFloor() public {
+        uint40 periodLength = 1 weeks;
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            periodLength
+        );
+
+        // A large floor raises the reward-integral cap; a field-sized share is the largest a pool can credit.
+        accumulator.setMinTotalPoolShare(1e24);
+        accumulator.setTotalPoolShare(1e38, uint128(1e36));
+        accumulator.setUserPoolShare(1e38, uint128(1e36));
+
+        uint256 reward = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
+        MockERC20(tokens[0]).mint(deployer, reward);
+        accumulator.depositReward(tokens[0], reward);
+
+        // mid-period: the un-distributed remainder is the temporal-pending `amount`
+        vm.warp(block.timestamp + periodLength / 2);
+
+        uint256 claimable = IMultipleRewardAccumulator(address(accumulator)).claimable(deployer, aa(tokens[0]))[0];
+        assertLe(claimable, reward, "claimable cannot exceed the reward injected");
     }
 }

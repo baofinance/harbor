@@ -40,6 +40,7 @@
 | script/src/contracts/StabilityPool.sol                                      | ✓ 100% (29/29)     | ✓ 100% (47/47)     | ✓ 100% (0/0)     | ✓ 100% (3/3)      |
 | script/src/contracts/StabilityPoolManager.sol                               | X  53% (17/32)     | X  50% (18/36)     | ✓ 100% (0/0)     | X  50% (3/6)      |
 | src/math/DecrementalFloatingPoint.sol                                       | ✓ 100% (31/31)     | ✓ 100% (33/33)     | ✓ 100% (9/9)     | ✓ 100% (6/6)      |
+| src/math/DecrementalFloatingPoint_v2.sol                                    | ✓ 100% (31/31)     | ✓ 100% (33/33)     | ✓ 100% (9/9)     | ✓ 100% (6/6)      |
 | src/minter/Genesis_v1.sol                                                   | X  99% (88/89)     | ✓ 100% (88/88)     | ✓ 100% (14/14)   | X  92% (11/12)    |
 | src/minter/Minter_v1.sol                                                    | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
 | src/minter/Minter_v2.sol                                                    | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
@@ -49,7 +50,7 @@
 | src/minter/StabilityPoolManager_v2.sol                                      | X  92% (184/200)   | X  92% (201/219)   | X  69% (22/32)   | X  93% (26/28)    |
 | src/minter/StabilityPool_v1.sol                                             | X   0% (0/203)     | X   0% (0/223)     | X   0% (0/33)    | X   0% (0/22)     |
 | src/minter/StabilityPool_v2.sol                                             | X  61% (122/199)   | X  58% (127/219)   | X  19% (6/31)    | X  73% (16/22)    |
-| src/minter/StabilityPool_v3.sol                                             | ✓ 100% (247/247)   | ✓ 100% (264/264)   | ✓ 100% (31/31)   | ✓ 100% (33/33)    |
+| src/minter/StabilityPool_v3.sol                                             | ✓ 100% (248/248)   | ✓ 100% (264/264)   | ✓ 100% (31/31)   | ✓ 100% (33/33)    |
 | src/minter/TokenDistributor_v1.sol                                          | X  96% (94/98)     | X  97% (112/116)   | X  77% (10/13)   | X  93% (14/15)    |
 | src/minter/library/ConfigIncentiveLib.sol                                   | ✓ 100% (24/24)     | ✓ 100% (17/17)     | ✓ 100% (2/2)     | ✓ 100% (9/9)      |
 | src/minter/library/Config_v1.sol                                            | X   0% (0/79)      | X   0% (0/95)      | X   0% (0/20)    | X   0% (0/6)      |
@@ -57,8 +58,8 @@
 | src/price/PriceOracle_v1.sol                                                | X  97% (31/32)     | X  97% (36/37)     | X  85% (11/13)   | ✓ 100% (3/3)      |
 | src/price/StakedETHWrappedPriceOracle_v1.sol                                | X   0% (0/29)      | X   0% (0/27)      | X   0% (0/5)     | X   0% (0/4)      |
 | src/reward/accumulator/MultipleRewardCompoundingAccumulator.sol             | X   0% (0/136)     | X   0% (0/171)     | X   0% (0/16)    | X   0% (0/21)     |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol          | X  73% (108/147)   | X  76% (139/184)   | X  61% (11/18)   | X  68% (15/22)    |
-| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol          | X  98% (110/112)   | X  99% (147/149)   | X  86% (12/14)   | ✓ 100% (16/16)    |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v2.sol          | X  75% (110/147)   | X  77% (142/184)   | X  61% (11/18)   | X  68% (15/22)    |
+| src/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol          | X  98% (124/127)   | X  99% (161/163)   | X  88% (14/16)   | ✓ 100% (17/17)    |
 | src/reward/distributor/LinearMultipleRewardDistributor.sol                  | X   0% (0/77)      | X   0% (0/86)      | X   0% (0/12)    | X   0% (0/14)     |
 | src/reward/distributor/LinearMultipleRewardDistributor_v2.sol               | X  58% (45/77)     | X  63% (54/86)     | X  25% (3/12)    | X  50% (7/14)     |
 | src/reward/distributor/LinearMultipleRewardDistributor_v3.sol               | X  99% (85/86)     | X  99% (98/99)     | X  92% (12/13)   | ✓ 100% (16/16)    |
@@ -67,4 +68,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                            | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                         | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                                      | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                                       | X  57% (4777/8385) | X  56% (5069/9039) | X  43% (404/930) | X  58% (713/1224) |
+| Total                                                                       | X  57% (4835/8425) | X  56% (5120/9079) | X  44% (415/942) | X  59% (726/1229) |

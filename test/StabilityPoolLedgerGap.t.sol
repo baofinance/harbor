@@ -6,11 +6,12 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {ITokenHolder} from "@bao/TokenHolder.sol";
 
-import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
@@ -28,7 +29,7 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 /// Results are written as CSVs to ./results/sp-ledger-gap-*.csv (one file per test — forge runs
 /// tests in parallel and files are never removed).
 contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPoolConservation {
-    using DecrementalFloatingPoint for uint128;
+    using DecrementalFloatingPoint_v2 for uint128;
 
     uint256 internal constant ONE = 1 ether; // the 1e18 per-unit-staked precision of _notifyLoss
 
@@ -688,12 +689,13 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
     ///     assetLossPerUnitStaked = ceil((supply - MIN) * 1e18 / supply) = 1e18 - ceil((MIN * 1e18 + 1) / supply) + 1
     /// At `supply == MIN * 1e18` that ceil term is 2, leaving `1e18 - 1`, so `newProductFactor = 1 ether - (1e18 - 1)`
     /// is 1 - the product survives and every holder's balance still reads. This is the exact bound the
-    /// `DecrementalFloatingPoint.mul` precondition ("Caller should make sure `factor` is always > 0", justified as
+    /// `DecrementalFloatingPoint_v2.mul` precondition ("Caller should make sure `factor` is always > 0", justified as
     /// "Minimum balance prevents factor=0") silently depends on, so it is pinned rather than assumed.
     function test_liquidationToFloor_productSurvivesAtTheLossPerUnitBound() public {
         uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
         address[] memory actors = _mkActors(1);
-        _deposit(actors[0], floor * 1e18); // exactly at the bound
+        // `MIN * FACTOR_PRECISION` is exactly MAX_TOTAL_ASSET_SUPPLY, the largest supply the deposit cap admits.
+        _deposit(actors[0], floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION);
 
         _loss(IERC20(pool).totalSupply() - floor); // the whole headroom: the worst case for the loss-per-unit
 
@@ -702,30 +704,28 @@ contract StabilityPoolLedgerGapTest is TestStabilityPoolSetUp, MockStabilityPool
         assertGt(IERC20(pool).balanceOf(actors[0]), 0, "the holder's balance still reads back");
     }
 
-    /// @notice One wei of supply past that bound, the CEIL closes the gap: `ceil((MIN * 1e18 + 1) / supply)` becomes 1,
-    /// so `assetLossPerUnitStaked` reaches exactly 1e18 and `newProductFactor = 1 ether - 1e18` is ZERO - zeroing the
-    /// pool's product. Existing holders survive (their snapshot product predates the loss, so their balance rescales to
-    /// 0 rather than dividing by zero), but every SUBSEQUENT depositor snapshots the zeroed product, and their balance
-    /// then divides by `fromMag == 0`: the deposit is accepted and their balance can never be read again - `balanceOf`
-    /// panics, so the pool is bricked for anyone joining after. `MIN > 0` is necessary but NOT sufficient: the real
-    /// constraint is relative (`supply <= MIN * 1e18`), and nothing enforces or documents it - the
-    /// `DecrementalFloatingPoint.mul` precondition ("factor is always > 0") is justified only as "Minimum balance
-    /// prevents factor=0", which holds for a production floor (MIN of 1 token needs a supply of 1e18 tokens to breach)
-    /// but not for a floor configured small enough, which no check forbids.
-    function test_liquidationToFloor_zeroesProductPastTheLossPerUnitBound() public {
+    /// @notice One wei past that bound is where a floor-capped liquidation's loss-per-unit CEILs up to a total loss
+    /// (`newProductFactor == 0`), zeroing the product so that a later depositor snapshots a zero magnitude and their
+    /// `balanceOf` divides by zero - the pool bricked for anyone joining after. The deposit cap forecloses it: a
+    /// deposit that would push supply one wei past `MAX_TOTAL_ASSET_SUPPLY == MIN * FACTOR_PRECISION` reverts, so the
+    /// factor-zero state is unreachable rather than merely survived at the edge. This makes
+    /// `DecrementalFloatingPoint_v2.mul`'s "factor is always > 0" precondition hold by construction: `MIN > 0` alone was
+    /// necessary but not sufficient (the real constraint is the relative `supply <= MIN * FACTOR_PRECISION`), and now it
+    /// is enforced.
+    function test_deposit_pastLossPerUnitBound_reverts() public {
         uint256 floor = IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY();
-        address[] memory actors = _mkActors(2);
-        _deposit(actors[0], floor * 1e18 + 1); // one wei past the bound
+        uint256 max = IStabilityPool_v3(pool).MAX_TOTAL_ASSET_SUPPLY();
+        assertEq(max, floor * DecrementalFloatingPoint_v2.FACTOR_PRECISION, "MAX == MIN * FACTOR_PRECISION");
 
-        _loss(IERC20(pool).totalSupply() - floor);
-
-        assertEq(IERC20(pool).totalSupply(), floor, "precondition: the liquidation took the pool to its floor");
-        assertEq(MockStabilityPool(pool).__totalSupply().product.magnitude(), 0, "the product is zeroed past the bound");
-
-        // The deposit is ACCEPTED, snapshotting the zeroed product - then the balance is unreadable for ever.
-        _deposit(actors[1], floor);
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x12)); // division by zero
-        IERC20(pool).balanceOf(actors[1]);
+        // Depositing exactly to the cap is admitted (its safety is proven above); one wei more is refused. deal/approve
+        // are hoisted before expectRevert so the one-shot binding attaches to `deposit`, not to a setup call.
+        address depositor = _mkActors(1)[0];
+        deal(peggedToken, depositor, max + 1);
+        vm.startPrank(depositor);
+        IERC20(peggedToken).approve(pool, max + 1);
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool_v3.DepositAmountExceedsMaximum.selector, max + 1, max));
+        IStabilityPool(pool).deposit(max + 1, depositor, 0);
+        vm.stopPrank();
     }
 
     /// @notice The documented "reward <= uint96.max" assumption is ENFORCED, not just assumed: a reward that would

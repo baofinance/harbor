@@ -7,6 +7,8 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 
 contract StabilityPoolFeatures is TestStabilityPoolSetUp {
@@ -325,6 +327,30 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     function test_constructor_zeroMinTotalAssetSupply_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidMinTotalAssetSupply.selector, 0));
         new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 0, "Test", "T");
+    }
+
+    // Below the field width, the supply ceiling is exactly MIN * FACTOR_PRECISION.
+    function test_constructor_maxTotalAssetSupply_isMinTimesFactorPrecision() public {
+        uint256 smallMin = 1 ether;
+        address sp = address(new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, smallMin, "Test", "T"));
+        assertEq(
+            IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
+            smallMin * DecrementalFloatingPoint_v2.FACTOR_PRECISION,
+            "ceiling is MIN * FACTOR_PRECISION below the field width"
+        );
+    }
+
+    // For a floor above `uint128.max / FACTOR_PRECISION`, `MIN * FACTOR_PRECISION` would exceed the uint128 supply
+    // field, so the ceiling saturates at the field width (a larger ceiling is unreachable) and the constructor multiply
+    // cannot overflow. The cap is then a permanent no-op - deposits are bounded by the field's SafeCast instead.
+    function test_constructor_maxTotalAssetSupply_saturatesAtFieldWidthForLargeFloor() public {
+        uint256 hugeMin = uint256(type(uint128).max) / DecrementalFloatingPoint_v2.FACTOR_PRECISION + 1;
+        address sp = address(new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, hugeMin, "Test", "T"));
+        assertEq(
+            IStabilityPool_v3(sp).MAX_TOTAL_ASSET_SUPPLY(),
+            type(uint128).max,
+            "ceiling saturates at the uint128 supply-field width"
+        );
     }
 
     // A partial withdrawal clamped at the floor charges the early-withdrawal fee on the ACTUAL (clamped) outflow, not on

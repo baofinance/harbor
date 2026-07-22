@@ -10,7 +10,7 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
-import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
@@ -749,15 +749,15 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         uint128 postLiquidationProduct = MockStabilityPool(stabilityPoolCollateral).__totalSupply().product;
         // With these assertions
         assertEq(postLiquidationSupply, 1 ether, "Supply should be small after complete liquidation");
-        // Using DecrementalFloatingPoint.decode to check components
+        // Using DecrementalFloatingPoint_v2.decode to check components
         assertEq(
-            DecrementalFloatingPoint.exponent(postLiquidationProduct),
+            DecrementalFloatingPoint_v2.exponent(postLiquidationProduct),
             0,
             "Product exponent should be reset after complete liquidation"
         );
         // The product magnitude should reflect the proportional reduction: 1e36 * (1e18 / 200e18) = 5e33
         assertEq(
-            DecrementalFloatingPoint.magnitude(postLiquidationProduct),
+            DecrementalFloatingPoint_v2.magnitude(postLiquidationProduct),
             5e33,
             "Product magnitude should reflect proportional reduction after complete liquidation"
         );
@@ -778,11 +778,11 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // The product should remain at the reduced level (5e33) after new deposits
         // It doesn't reset to 1e18 - it continues from the post-liquidation state
         assertEq(
-            DecrementalFloatingPoint.magnitude(newEpochProduct),
+            DecrementalFloatingPoint_v2.magnitude(newEpochProduct),
             5e33,
             "Product magnitude should continue from post-liquidation state"
         );
-        assertEq(DecrementalFloatingPoint.exponent(newEpochProduct), 0, "Product exponent should remain 0");
+        assertEq(DecrementalFloatingPoint_v2.exponent(newEpochProduct), 0, "Product exponent should remain 0");
 
         // 7. Verify balances are calculated correctly
         // After complete liquidation, users retain proportional shares of MIN_TOTAL_ASSET_SUPPLY
@@ -807,7 +807,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         // Expected product reduction: 5e33 * (201/301) = 5e33 * 0.6677 ≈ 3.338e33
         uint256 expectedProductMagnitude = uint256(5e33 * 201) / 301;
         assertApproxEqAbs(
-            DecrementalFloatingPoint.magnitude(productAfterPartialLiquidation),
+            DecrementalFloatingPoint_v2.magnitude(productAfterPartialLiquidation),
             expectedProductMagnitude,
             1e30, // Small tolerance for rounding
             "Product should decrease proportionally after partial liquidation"

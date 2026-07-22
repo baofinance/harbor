@@ -13,10 +13,13 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -200,6 +203,67 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         vm.writeFile(_constraintsFile(), "market,action,w,price,rate,outcome,detail\n");
     }
 
+    // ─── config integrity (layer 1: config sources must agree; no deploy, no mocks) ───
+
+    /// @notice The peg and market configs paired in the deploy must AGREE on minTotalSupply, the StabilityPool's floor.
+    /// The SP deploy reads it from the MARKET config, so an override placed only on the peg is silently ignored and the
+    /// deployed floor is not the intended one - which is exactly how the minDepositHuge variant deployed the base 2e14
+    /// rather than its intended 1e24 (the override was on the peg alone). Asserting the two sources cannot diverge
+    /// catches an override on the wrong config object, deploy-free and mock-free.
+    function test_configIntegrity_minTotalSupplyPegMatchesMarket() public {
+        (ConfigPeg peg, Config_MinterMarket[] memory markets) = createETHMintersConfig();
+        for (uint256 i = 0; i < markets.length; i++) {
+            assertEq(
+                IHarborConfig(address(markets[i])).minTotalSupply(),
+                peg.minTotalSupply(),
+                "market minTotalSupply diverges from the peg's - an override lands on a config the SP deploy ignores"
+            );
+        }
+    }
+
+    /// @notice Config integrity, layer 2: every config-derived value baked into the DEPLOYED pool must equal what the
+    /// config it was deployed from says. Layer 1 catches an override on the wrong config OBJECT; this catches the
+    /// deploy reading the wrong config GETTER (delay and period transposed, a fee wired from the wrong ratio) - a class
+    /// no amount of config-vs-config comparison can see. It reads the REAL deployed pool: mocked DEPENDENCIES (the
+    /// etched oracle) are irrelevant here because these values are the pool's own immutables, taken from config at
+    /// construction. (A mock SUT would be out of scope - it bypasses config by design - but this pool is the real one.)
+    function test_configIntegrity_deployedPoolMatchesItsConfig() public {
+        (, Config_MinterMarket[] memory markets) = createETHMintersConfig();
+        IHarborConfig cfg = IHarborConfig(address(markets[0]));
+
+        assertEq(
+            IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY(),
+            cfg.minTotalSupply(),
+            "deployed supply floor is not the configured one"
+        );
+        assertEq(
+            IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY(),
+            _expectedMaxTotalAssetSupply(cfg.minTotalSupply()),
+            "deployed supply ceiling is not MIN * FACTOR_PRECISION (saturated at the supply field)"
+        );
+        (uint256 startDelay, uint256 endWindow) = IStabilityPool(stabilityPool).getWithdrawalWindow();
+        assertEq(startDelay, cfg.stabilityPoolWithdrawalDelay(), "deployed withdrawal delay is not the configured one");
+        assertEq(
+            endWindow,
+            cfg.stabilityPoolWithdrawalPeriod(),
+            "deployed withdrawal window is not the configured one"
+        );
+        assertEq(
+            IStabilityPool(stabilityPool).getEarlyWithdrawalFee(),
+            cfg.stabilityPoolEarlyWithdrawalFeeRatio(),
+            "deployed early-withdrawal fee is not the configured one"
+        );
+    }
+
+    /// @dev The ceiling the constructor derives: `MIN * FACTOR_PRECISION`, saturated at the uint128 supply field above
+    /// which a larger ceiling is unreachable anyway.
+    function _expectedMaxTotalAssetSupply(uint256 minTotalSupply) internal pure returns (uint256) {
+        return
+            minTotalSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+                ? type(uint128).max
+                : minTotalSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+    }
+
     // ─── derivations: USD (director-facing) → protocol (token count + 1e18 oracle values) ───
 
     function _poolPeggedFor(uint256 poolValueUSD, uint256 pegPriceUSD) internal pure returns (uint256) {
@@ -250,6 +314,17 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         vm.startPrank(who);
         IStabilityPool(stabilityPool).deposit(amount, who, 0);
         vm.stopPrank();
+    }
+
+    /// @dev Cap a within-envelope deposit ceiling at the pool's remaining headroom under the supply cap. For a peg far
+    /// below the pool's fixed MIN, the economic $ ceiling converts to a nominal token count above
+    /// MAX_TOTAL_ASSET_SUPPLY; past that cap a deposit reverts DepositAmountExceedsMaximum - a located limit, not an
+    /// in-envelope failure. So the effective within-envelope ceiling is the smaller of the economic ceiling and the
+    /// current headroom.
+    function _capToSupplyHeadroom(uint256 economicCeiling) internal view returns (uint256) {
+        uint256 headroom = IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY() -
+            IERC20(stabilityPool).totalSupply();
+        return economicCeiling > headroom ? headroom : economicCeiling;
     }
 
     /// @dev Full exit inside the no-fee withdrawal window.
@@ -331,6 +406,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         uint256 poolPegged = _poolPeggedFor(bound(poolSeed, e.maxPoolValueUSD / 1e5, e.maxPoolValueUSD), pegPriceUSD);
         if (poolPegged < n * minDeposit) {
             poolPegged = n * minDeposit; // every equal share must clear MIN_DEPOSIT
+        }
+        // Peak supply during the walk is the pre-existing deposit (<= poolPegged) plus one equal share (<= poolPegged)
+        // on top of the baseline, so bound the pool at half the remaining headroom to keep that peak within the supply
+        // cap. For a peg far below MIN this binds (the nominal pool for the $ value exceeds MAX_TOTAL_ASSET_SUPPLY);
+        // MIN * FACTOR_PRECISION / 2 dwarfs n * minDeposit, so it never conflicts with the floor above.
+        uint256 halfHeadroom = (IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY() -
+            IERC20(stabilityPool).totalSupply()) / 2;
+        if (poolPegged > halfHeadroom) {
+            poolPegged = halfHeadroom;
         }
 
         StartState memory s = StartState({
@@ -449,7 +533,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     /// reward conserves and stays solvent summed over every holder (per-holder flooring accumulates once per account,
     /// so the crowd is what stresses it). The fuzz walk caps its actors at MAX_FUZZ_USERS for feasibility; this pins
     /// the declared cap itself. Grown at the envelope's own (min) wrap rate - the rate the corner rebalance uses.
-    function test_envelope_maxUsers_holds() public {
+    /// @notice The `_notInGasReport` suffix excludes this from the gas regression pass (bin/gas skips
+    ///         `--no-match-test _notInGasReport`). It deposits for `maxPoolUsers` (10,000) holders, and
+    ///         `--isolate` turns each deposit into its own transaction - ~220s, 99.7% of the suite's gas-mode
+    ///         cost, against ~1ms for every other test here. It stays in the plain test and coverage passes,
+    ///         where it verifies the many-holder path and contributes to line coverage; only the isolate-per-call
+    ///         gas measurement, which the shorter tests already cover for the same functions, drops it.
+    function test_envelope_maxUsers_holds_notInGasReport() public {
         Envelope memory e = buildEnvelope();
         uint256 n = e.maxPoolUsers;
         _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
@@ -566,7 +656,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             bound(rateSeed, e.minWrapRate, e.maxWrapRate),
             pegPriceUSD
         );
-        uint256 envelopePool = _poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD); // the $ cap in the swept peg's tokens
+        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD)); // $ cap in tokens
         // log-scale over the full PHYSICAL input range [MIN_DEPOSIT, uint256 max]: the fuzzer locates the field break
         // within it, rather than a range sized to the field under test. _logScale samples every order of magnitude
         // equally, so the boundary (many orders below the max) is actually reached.
@@ -607,7 +697,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             bound(rateSeed, e.minWrapRate, e.maxWrapRate),
             pegPriceUSD
         );
-        uint256 envelopePool = _poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD);
+        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, pegPriceUSD));
         // log-scale over the full physical input range - see testFuzz_deposit_sweep
         uint256 w = _logScale(wSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint256).max);
 
@@ -1294,8 +1384,6 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 
 /// @notice ETH::fxUSD market — the seed envelope. Other markets (USD/BTC inverse, made-up, the deliberately-extreme
 /// full-range one that locates the field limit) are added as sibling contracts in a later batch.
-/// forge-config: default.invariant.runs = 8
-/// forge-config: default.invariant.depth = 16
 contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
     function buildEnvelope() internal pure override returns (Envelope memory) {
         return EnvelopeLib.ethFxUSD();
@@ -1310,21 +1398,10 @@ contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
 // ENTIRE suite (every fuzz walk, sweep, and corner) against it; each writes its own tmp/sp-constraints-<slug>.csv so a
 // break is attributed to the config that produced it ───
 
-/// @notice ETH peg with the minimum-deposit floor collapsed to 1 wei - the smallest legal position. Every sweep's
-/// lower bound, the pool seed, and the supply floor all sit at the absolute small side, so divisor-style breaks
-/// (a tiny value blowing up a division) surface here rather than hiding above the ~$1 floor.
-contract ConfigPeg_ETH_minDeposit1Wei is ConfigPeg_ETH {
-    function minDeposit() public pure override returns (uint256) {
-        return 1;
-    }
-
-    function minTotalSupply() public pure override returns (uint256) {
-        return 1;
-    }
-}
-
 /// @notice ETH peg with a huge minimum-deposit floor (1e6 tokens = $1M at the nominal $1 peg): the floor interactions
-/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme.
+/// (seed, full exits down to the floor, loss headroom above it) exercised at the opposite extreme. minTotalSupply is
+/// carried on BOTH this peg and its market (below) - the SP deploy reads the MARKET, and the config-integrity test
+/// asserts the two agree so an override can never again land on a config object the deploy ignores.
 contract ConfigPeg_ETH_minDepositHuge is ConfigPeg_ETH {
     function minDeposit() public pure override returns (uint256) {
         return 1e24;
@@ -1352,6 +1429,16 @@ contract ConfigMarket_ETH_fxUSD_rebalanceThreshold105 is ConfigMarket_ETH_fxUSD_
     }
 }
 
+/// @notice Minimum-supply floor at the huge extreme (1e6 tokens = $1M), overridden on the MARKET config - the object
+/// the SP deploy actually reads (the peg-only override the prior variant used was silently ignored; the
+/// config-integrity test now forbids that). A large floor keeps the ceiling MAX = MIN * FACTOR_PRECISION saturated at
+/// the field width, so the reward-integral cap never binds here - the opposite corner from the reachable-cap markets.
+contract ConfigMarket_ETH_fxUSD_minDepositHuge is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e24;
+    }
+}
+
 /// @notice The PRODUCTION ETH::fxUSD market unmodified (1% keeper bounties, 99% harvest cut): the zeroed-fee baseline
 /// proves the pool mechanics, this proves the SHIPPED config - the same envelope must hold with the production skims
 /// in place (a harvest's direct pool share is zero here; the cut returns via the FeeReceiver split).
@@ -1371,21 +1458,10 @@ contract StabilityPoolEnvelope_ETH_fxUSD_prodFees is StabilityPoolEnvelopeBase {
     }
 }
 
-contract StabilityPoolEnvelope_ETH_fxUSD_minDeposit1Wei is StabilityPoolEnvelopeBase {
-    function buildEnvelope() internal pure override returns (Envelope memory) {
-        return EnvelopeLib.ethFxUSD();
-    }
-
-    function _marketSlug() internal pure override returns (string memory) {
-        return "ethFxUSD_minDeposit1wei";
-    }
-
-    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
-        peg = new ConfigPeg_ETH_minDeposit1Wei();
-        markets = new Config_MinterMarket[](1);
-        markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
-    }
-}
+// A minDeposit=1-wei envelope variant is intentionally ABSENT: MAX = MIN * FACTOR_PRECISION ties the supply ceiling to
+// the floor, so a 1-wei MIN caps the whole pool at ~$1 and the base suite's realistic-pool tests (rebalance, harvest,
+// max-users, the field-width corners) cannot run. A low-floor deploy variant that also runs those tests cannot exist;
+// the MIN=1 cap/floor behaviour is instead pinned by the deterministic mock tests in StabilityPoolLedgerGap.
 
 contract StabilityPoolEnvelope_ETH_fxUSD_minDepositHuge is StabilityPoolEnvelopeBase {
     function buildEnvelope() internal pure override returns (Envelope memory) {
@@ -1399,7 +1475,7 @@ contract StabilityPoolEnvelope_ETH_fxUSD_minDepositHuge is StabilityPoolEnvelope
     function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
         peg = new ConfigPeg_ETH_minDepositHuge();
         markets = new Config_MinterMarket[](1);
-        markets[0] = new ConfigMarket_ETH_fxUSD_zeroFeesAndBounties();
+        markets[0] = new ConfigMarket_ETH_fxUSD_minDepositHuge();
     }
 }
 

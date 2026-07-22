@@ -21,6 +21,10 @@ interface IMockMultipleRewardCompoundingAccumulator is
 
     function setUserPoolShare(uint256 _userPoolShare, uint128 _userProduct) external;
 
+    /// @notice The pool-share floor `_depositRewardCap` sizes the reward-integral cap against - raising it raises the
+    ///         largest reward the accumulator will accept.
+    function setMinTotalPoolShare(uint256 _minTotalPoolShare) external;
+
     function reentrantCall(bytes calldata _data) external;
 
     function tokenToExponentToIntegral(address token, uint8 exponent) external view returns (uint256);

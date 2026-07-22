@@ -11,7 +11,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 
-import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
 
 // solhint-disable not-rely-on-time
@@ -120,7 +120,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     IMultipleRewardAccumulator_v3
 {
     using SafeERC20 for IERC20;
-    using DecrementalFloatingPoint for uint128;
+    using DecrementalFloatingPoint_v2 for uint128;
     using SafeCast for uint256;
 
     /*************
@@ -290,11 +290,43 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         uint256 fromMag = fromProd.magnitude();
         uint256 toMag = toProd.magnitude();
 
-        if (baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE) {
+        if (
+            baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE
+        ) {
             adjusted = 0; // Too many scale changes
         } else {
-            adjusted = DecrementalFloatingPoint._divByScaleFactor(
+            adjusted = DecrementalFloatingPoint_v2._divByScaleFactor(
                 Math.mulDiv(baseValue, toMag, fromMag),
+                toExp - fromExp
+            );
+        }
+    }
+
+    /// @dev `_scaleAdjustedValue(amount * shares, toProd, fromProd) / totalShares` without ever forming
+    ///      `amount * shares`, whose factors are bounded independently (the reward cap sizes `amount` against the share
+    ///      FLOOR; `shares` against the balance field) so their product can exceed uint256 though the result cannot.
+    ///      Value is IDENTICAL, not approximate: floor divisions compose, so folding `totalShares` into the same divide
+    ///      only reorders divisions - no multiplication crosses a floor.
+    function _scaleAdjustedShare(
+        uint256 amount,
+        uint256 shares,
+        uint256 totalShares,
+        uint128 toProd,
+        uint128 fromProd
+    ) internal pure returns (uint256 adjusted) {
+        uint8 fromExp = fromProd.exponent();
+        uint8 toExp = toProd.exponent();
+
+        if (
+            amount == 0 ||
+            shares == 0 ||
+            toExp < fromExp ||
+            toExp - fromExp > DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE
+        ) {
+            adjusted = 0; // Too many scale changes
+        } else {
+            adjusted = DecrementalFloatingPoint_v2._divByScaleFactor(
+                Math.mulDiv(amount, shares * toProd.magnitude(), uint256(fromProd.magnitude()) * totalShares),
                 toExp - fromExp
             );
         }
@@ -315,7 +347,9 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         uint256 fromMag = fromProd.magnitude();
         uint256 toMag = toProd.magnitude();
 
-        if (baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE) {
+        if (
+            baseValue == 0 || toExp < fromExp || toExp - fromExp > DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE
+        ) {
             adjusted = 0;
         } else {
             uint256 diff = toExp - fromExp;
@@ -325,8 +359,8 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
                 scaled += 1;
             }
             // Then ceil-divide by SCALE_FACTOR^diff: pre-add (divisor - 1) before the shared floor divide.
-            uint256 divisor = uint256(DecrementalFloatingPoint.SCALE_FACTOR) ** diff;
-            adjusted = DecrementalFloatingPoint._divByScaleFactor(scaled + divisor - 1, diff);
+            uint256 divisor = uint256(DecrementalFloatingPoint_v2.SCALE_FACTOR) ** diff;
+            adjusted = DecrementalFloatingPoint_v2._divByScaleFactor(scaled + divisor - 1, diff);
         }
     }
 
@@ -358,7 +392,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             uint8 userExponent = userProd.exponent();
             (uint128 currentProd, uint256 totalShares) = _getTotalPoolShare();
             uint8 maxExponentsToCheck = uint8(
-                Math.min(DecrementalFloatingPoint._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
+                Math.min(DecrementalFloatingPoint_v2._MAX_EXPONENT_DIFFERENCE, currentProd.exponent() - userExponent)
             );
             // Get the sum 'S' from the epoch at which the stake was made. The gain may span many exponent changes.
             mapping(uint8 => uint256) storage tokenIntegrals = $.tokenToExponentToIntegral[token];
@@ -368,7 +402,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
                 uint256 integralAtScale = tokenIntegrals[userExponent + i];
                 if (integralAtScale > 0) {
                     // Skip zero integrals for gas efficiency
-                    integral += DecrementalFloatingPoint._divByScaleFactor(integralAtScale, i);
+                    integral += DecrementalFloatingPoint_v2._divByScaleFactor(integralAtScale, i);
                 }
             }
             uint256 userCheckpointIntegral = snapshot.integral;
@@ -383,7 +417,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             if (includeTemporalPending && totalShares > 0) {
                 (uint256 amount, ) = _pendingRewards(token);
                 // if exponents are the same this degenerates to (amount * shares) / totalShares
-                claimable_ += _scaleAdjustedValue(amount * shares, currentProd, userProd) / totalShares;
+                claimable_ += _scaleAdjustedShare(amount, shares, totalShares, currentProd, userProd);
             }
         }
     }
@@ -483,7 +517,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         uint256 integralCap = Math.mulDiv(
             type(uint256).max,
             _minTotalShare(),
-            _REWARD_PRECISION * uint256(DecrementalFloatingPoint.MAGNITUDE_PRECISION) * _INTEGRAL_HEADROOM
+            _REWARD_PRECISION * uint256(DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION) * _INTEGRAL_HEADROOM
         );
         return Math.min(super._depositRewardCap(), integralCap);
     }

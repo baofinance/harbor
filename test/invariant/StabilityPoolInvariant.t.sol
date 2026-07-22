@@ -11,7 +11,7 @@ import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardA
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
-import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestStabilityPoolSetUp, MockStabilityPool} from "@harbor-test/StabilityPool.t.sol";
 import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
@@ -23,7 +23,7 @@ import {MockStabilityPoolConservation} from "@harbor-test/StabilityPoolConservat
 /// records the ghost accounting the invariants check against, and runs the claimable-monotonicity
 /// probe across all actors.
 contract StabilityPoolInvariantHandler is Test {
-    using DecrementalFloatingPoint for uint128;
+    using DecrementalFloatingPoint_v2 for uint128;
 
     address public immutable POOL;
     address public immutable ASSET_TOKEN;
@@ -196,7 +196,7 @@ contract StabilityPoolInvariantHandler is Test {
 
     /// @notice Claim each reward token for an actor — the only action allowed to reduce that
     /// actor's claimable. Claims are capped at the pool's token balance: checkpointed pending can
-    /// exceed the balance by the bounded over-credit (see invariant_sp_solvent), in which case a
+    /// exceed the balance by the bounded over-credit (see _checkSpSolvent), in which case a
     /// plain claim() genuinely reverts ERC20InsufficientBalance — real behaviour the solvency
     /// invariant documents, but this handler must never revert.
     function claimRewards(uint256 actorSeed) external {
@@ -279,8 +279,10 @@ contract StabilityPoolInvariantHandler is Test {
     /// @dev The largest withdrawal the pool accepts without reverting — the actor's whole balance. The POOL caps the
     /// outflow at the headroom above the floor itself (StabilityPool_v3._capToFloor), so the handler must NOT
     /// pre-enforce the floor: requesting up to the full balance is what drives the pool's own clamp, the path a
-    /// floor-respecting cap could never reach. The only revert to dodge is WithdrawZeroAmount, when there is no
-    /// headroom at all to clamp into; the fee cannot zero a non-zero clamped outflow (it is a fraction of it).
+    /// floor-respecting cap could never reach. The revert to dodge is WithdrawZeroAmount, when there is no headroom at
+    /// all to clamp into. The fee cannot zero the clamped outflow at this fixture's fee, which is a strict fraction of
+    /// it — note `_MAX_EARLY_WITHDRAWAL_FEE` is `1 ether` INCLUSIVE, so a pool configured at a 100% fee would zero the
+    /// outflow and revert here; such a fixture would need the fee-free withdrawal window instead.
     function _withdrawCap(address actor) internal view returns (uint256 cap) {
         if (IERC20(POOL).totalSupply() <= MIN_TOTAL_ASSET_SUPPLY) {
             return 0; // no headroom: the pool would clamp the outflow to 0 and revert
@@ -366,6 +368,24 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
+    /// @notice Every StabilityPool invariant, asserted together after each handler call.
+    ///
+    /// Foundry runs a SEPARATE campaign (runs x depth calls) for each `invariant_*` function, so seven of them meant
+    /// seven full campaigns driving the same handler over the same state space - seven times the calls for one
+    /// system. Asserting all seven properties in ONE function costs one campaign, and is strictly more thorough per
+    /// call: each property previously only ever saw its own campaign's sequences, whereas now every property is
+    /// checked against every sequence. Each check keeps its own assertion message, so a failure still names the
+    /// property that broke; the properties themselves are documented on the helpers below.
+    function invariant_stabilityPoolHolds() public view {
+        _checkPoolConserved();
+        _checkRewardConserved();
+        _checkClaimableMonotone();
+        _checkDivisorGeSumBalance();
+        _checkDivisorFloor();
+        _checkNoRetroactiveReward();
+        _checkSpSolvent();
+    }
+
     /// @notice Conservation of pool shares: the actors' rebased balances must sum to the recorded
     /// total supply. Symmetric tolerance, derived: (a) the outstanding `lastAssetLossError`
     /// over-application — user products are reduced as if the loss were up to 1 wei-per-unit
@@ -373,7 +393,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// is absorbed by the error queue (so the sum can sit either side of the supply); (b) at most
     /// 1 wei of compounded-balance flooring per actor per checkpoint, at most 2 checkpoints per
     /// handler call.
-    function invariant_pool_conserved() public view {
+    function _checkPoolConserved() private view {
         _assertPoolConserved(stabilityPoolCollateral, _actorsArray(), handler.maxSupplyEver(), handler.calls());
     }
 
@@ -388,14 +408,14 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// maxSupplyEver/1e18, so each distribution of A mis-credits at most A*(maxSupplyEver/1e18)/S (S never drops
     /// below MIN_TOTAL_ASSET_SUPPLY) -- bounded by injected*(maxSupplyEver/1e18 + 1)/MIN over the run -- plus a few
     /// wei of stored-balance and temporal-pending flooring per checkpoint and per actor.
-    function invariant_reward_conserved() public view {
+    function _checkRewardConserved() private view {
         _assertRewardConserved(stabilityPoolCollateral, _actorsArray(), _ghosts());
     }
 
     /// @notice An actor's claimable never decreases (beyond the 2-wei two-floor composition)
     /// except through their own claim. The probe runs inside the handler after every action;
     /// this asserts it never fired.
-    function invariant_claimable_monotone() public view {
+    function _checkClaimableMonotone() private view {
         assertEq(handler.monotoneViolations(), 0, "claimable dropped without the actor claiming");
     }
 
@@ -403,7 +423,7 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// reward accumulate divides by it while crediting each user by `balanceOf`, so a divisor below the summed
     /// balances credits `reward * Sum(balanceOf) / divisor > reward` — an over-credit. The divisor tracks
     /// Sum(balanceOf) through a product-decaying aggregate; this pins that it is always pool-favoured (>=).
-    function invariant_rewardDivisor_ge_sumBalance() public view {
+    function _checkDivisorGeSumBalance() private view {
         _assertDivisorGeSumBalance(stabilityPoolCollateral, _actorsArray());
     }
 
@@ -414,14 +434,14 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// because a deposited reward streams and is accumulated LATER against a divisor that may by then have fallen to
     /// the floor — while `_accumulateReward` divides by the LIVE divisor. A divisor below the floor still passes the
     /// zero-guard and inflates `toAdd` past the bound the cap was sized for. The same `S >= MIN` denominator underpins
-    /// the tolerances in `invariant_reward_conserved` and `invariant_sp_solvent`.
-    function invariant_rewardDivisor_ge_minTotalShare() public view {
+    /// the tolerances in `_checkRewardConserved` and `_checkSpSolvent`.
+    function _checkDivisorFloor() private view {
         _assertDivisorFloor(stabilityPoolCollateral, _actorsArray(), handler.maxSupplyEver(), handler.calls());
     }
 
     /// @notice Capital deposited by a zero-balance receiver captures none of the rewards streamed
     /// before the deposit: claimable is exactly unchanged by the deposit itself.
-    function invariant_no_retroactive_reward() public view {
+    function _checkNoRetroactiveReward() private view {
         assertEq(handler.retroactiveViolations(), 0, "deposit changed a fresh receiver's claimable");
     }
 
@@ -431,12 +451,12 @@ contract StabilityPoolInvariantTest is TestStabilityPoolSetUp, MockStabilityPool
     /// within a derived allowance: when a loss is absorbed by the lastAssetLossError queue the
     /// supply drops with NO product change, so product-decayed user weights sum to supply + ε
     /// (ε ≤ maxSupplyEver/1e18 + 2·calls — the loss error bounded by the supply AT that loss,
-    /// plus 1 wei of stored-balance flooring per user checkpoint; see invariant_reward_conserved)
+    /// plus 1 wei of stored-balance flooring per user checkpoint; see _checkRewardConserved)
     /// and a distribution of A over-credits claimable by A·ε/S with S ≥ MIN_TOTAL_ASSET_SUPPLY —
     /// i.e. obligations may exceed the balance by at most injected·ε_max/MIN (the
-    /// mirror image of the stranded slice in invariant_reward_conserved; at this dust scale the
+    /// mirror image of the stranded slice in _checkRewardConserved; at this dust scale the
     /// LAST claimer's claim can revert for want of a few wei).
-    function invariant_sp_solvent() public view {
+    function _checkSpSolvent() private view {
         _assertSpSolvent(stabilityPoolCollateral, _actorsArray(), _ghosts());
     }
 

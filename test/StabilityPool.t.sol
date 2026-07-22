@@ -25,7 +25,7 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 
-import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
 
@@ -459,7 +459,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
 }
 
 contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
-    using DecrementalFloatingPoint for uint128;
+    using DecrementalFloatingPoint_v2 for uint128;
 
     function test_CompoundedAmount_() public view {
         // Test data structure: [initialAmount, initialExponent, initialMagnitude, currentExponent, currentMagnitude, expectedResult]
@@ -522,8 +522,8 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
             uint120 currentMagnitude = uint120(testCases[i][4]);
             uint256 expectedResult = testCases[i][5];
 
-            uint128 initialFP = DecrementalFloatingPoint.encode(initialExponent, initialMagnitude);
-            uint128 currentFP = DecrementalFloatingPoint.encode(currentExponent, currentMagnitude);
+            uint128 initialFP = DecrementalFloatingPoint_v2.encode(initialExponent, initialMagnitude);
+            uint128 currentFP = DecrementalFloatingPoint_v2.encode(currentExponent, currentMagnitude);
 
             uint256 actualResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
                 initialAmount,
@@ -537,10 +537,10 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
 
     function test_CompoundedAmountEdgeCases() public view {
         // Test the boundary at exponent difference = 8 vs 9
-        uint128 initialFP = DecrementalFloatingPoint.encode(0, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+        uint128 initialFP = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
 
         // Exactly 8 exponent difference - should work
-        uint128 maxAllowedFP = DecrementalFloatingPoint.encode(8, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+        uint128 maxAllowedFP = DecrementalFloatingPoint_v2.encode(8, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
         uint256 result8 = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
             1e72,
             initialFP,
@@ -549,19 +549,22 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         assertGt(result8, 0, "8 exponent difference should produce non-zero result");
 
         // 9 exponent difference - should return 0
-        uint128 tooMuchFP = DecrementalFloatingPoint.encode(9, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+        uint128 tooMuchFP = DecrementalFloatingPoint_v2.encode(9, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
         uint256 result9 = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(1e27, initialFP, tooMuchFP);
         assertEq(result9, 0, "9 exponent difference should return 0");
     }
     function test_CompoundedAmountScaleFactorProgression() public view {
         // Test that each exponent increment divides by SCALE_FACTOR
         uint256 initialAmount = 1e27; // Large enough to avoid precision loss
-        uint128 baseFP = DecrementalFloatingPoint.encode(0, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+        uint128 baseFP = DecrementalFloatingPoint_v2.encode(0, DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION);
 
         uint256 previousResult = initialAmount;
 
         for (uint8 exponent = 1; exponent <= 8; exponent++) {
-            uint128 currentFP = DecrementalFloatingPoint.encode(exponent, DecrementalFloatingPoint.MAGNITUDE_PRECISION);
+            uint128 currentFP = DecrementalFloatingPoint_v2.encode(
+                exponent,
+                DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION
+            );
             uint256 currentResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
                 initialAmount,
                 baseFP,
@@ -569,7 +572,7 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
             );
 
             // Each step should divide by SCALE_FACTOR (1e9)
-            uint256 expectedResult = previousResult / DecrementalFloatingPoint.SCALE_FACTOR;
+            uint256 expectedResult = previousResult / DecrementalFloatingPoint_v2.SCALE_FACTOR;
 
             // Allow for minor rounding differences due to integer division
             assertTrue(
@@ -585,7 +588,7 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
         // Verify that compoundedAmount is consistent with the mul function's behavior
 
         uint256 initialAmount = 1e18;
-        uint128 initialFP = DecrementalFloatingPoint.init();
+        uint128 initialFP = DecrementalFloatingPoint_v2.init();
 
         // Apply a factor using mul
         uint128 factor = 5e17; // 0.5
@@ -605,8 +608,8 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
     function test_CompoundedAmountOverflowSafety_() public view {
         // Test with maximum values to ensure no overflow
         uint256 maxAmount = type(uint104).max; // Maximum storable amount
-        uint128 maxMagnitudeFP = DecrementalFloatingPoint.encode(0, type(uint120).max);
-        uint128 minMagnitudeFP = DecrementalFloatingPoint.encode(0, 1);
+        uint128 maxMagnitudeFP = DecrementalFloatingPoint_v2.encode(0, type(uint120).max);
+        uint128 minMagnitudeFP = DecrementalFloatingPoint_v2.encode(0, 1);
 
         // This should not overflow or revert
         uint256 result = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
@@ -626,15 +629,15 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
             uint256 initialDeposit = testAmounts[i];
 
             // Simulate maximum precision loss scenario
-            uint128 initialFP = DecrementalFloatingPoint.init();
-            uint128 maxLossFP = DecrementalFloatingPoint.encode(1, DecrementalFloatingPoint.MIN_PRECISION);
+            uint128 initialFP = DecrementalFloatingPoint_v2.init();
+            uint128 maxLossFP = DecrementalFloatingPoint_v2.encode(1, DecrementalFloatingPoint_v2.MIN_PRECISION);
 
             uint256 rawResult = MockStabilityPool(stabilityPoolCollateral).__getCompoundedBalance(
                 initialDeposit,
                 initialFP,
                 maxLossFP
             );
-            uint256 dustThreshold = initialDeposit / DecrementalFloatingPoint.SCALE_FACTOR;
+            uint256 dustThreshold = initialDeposit / DecrementalFloatingPoint_v2.SCALE_FACTOR;
 
             // Test that dust threshold is 1 billionth of original
             assertEq(dustThreshold, initialDeposit / 1e9, "Dust threshold should be 1/1e9 of initial");
@@ -665,7 +668,7 @@ contract StabilityPoolCompoundingTest is TestStabilityPoolSetUp {
 
         // Edge case: exactly at threshold
         uint256 testAmount = 1e18;
-        uint256 exactThreshold = testAmount / DecrementalFloatingPoint.SCALE_FACTOR;
+        uint256 exactThreshold = testAmount / DecrementalFloatingPoint_v2.SCALE_FACTOR;
 
         // The current logic uses `<` so exactly at threshold is NOT dusted
         assertFalse(exactThreshold < exactThreshold, "Amount exactly at threshold should not be dusted");

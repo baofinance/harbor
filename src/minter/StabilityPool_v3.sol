@@ -12,7 +12,7 @@ import {ERC20} from "@solady/tokens/ERC20.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 
-import {DecrementalFloatingPoint} from "@harbor/math/DecrementalFloatingPoint.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -56,7 +56,7 @@ contract StabilityPool_v3 is
 {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
-    using DecrementalFloatingPoint for uint128;
+    using DecrementalFloatingPoint_v2 for uint128;
 
     /*************
      * Constants *
@@ -92,6 +92,15 @@ contract StabilityPool_v3 is
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public immutable MIN_TOTAL_ASSET_SUPPLY;
 
+    /// @dev the supply ceiling, the mirror of the floor: `MIN_TOTAL_ASSET_SUPPLY * FACTOR_PRECISION`, saturated at the
+    ///      uint128 supply-field width (a larger ceiling is unreachable, so it becomes a no-op). Above it a liquidation
+    ///      capped at the headroom (`supply - MIN`) has a loss-per-unit that the loss factor's `FACTOR_PRECISION`-scale
+    ///      rounds up to a total loss, zeroing the product factor and dividing later `balanceOf` reads by a zero
+    ///      magnitude. The deposit ceiling keeps supply at/below it, so the factor handed to `mul` is always > 0 by
+    ///      construction rather than by assumption.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 public immutable MAX_TOTAL_ASSET_SUPPLY;
+
     /// @dev immutable withdrawal window configuration
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint64 public immutable WITHDRAWAL_START_DELAY;
@@ -118,7 +127,7 @@ contract StabilityPool_v3 is
     ///      `updatedAt` sits in slot 1 under both v2 and v3 layouts,  so widening `amount` to uint128
     ///      consumes only slot-0 bytes 29-31 — the zero padding the uint104 `amount` left unused.
     ///      uint128 (max ~3.4e38, ~3.4e20 whole tokens) now covers the protocol's amount envelope with wide headroom.
-    /// @param product The encoding product data, see the comments of `DecrementalFloatingPoint`.
+    /// @param product The encoding product data, see the comments of `DecrementalFloatingPoint_v2`.
     /// @param amount The amount of token currently held.
     /// @param updatedAt The timestamp when the struct is updated.
     /// @custom:bao-retyped-from amount uint104
@@ -233,7 +242,7 @@ contract StabilityPool_v3 is
         $.feePayment = FeePayment({feeAddress: feeAddress_, earlyWithdrawalFee: uint96(earlyWithdrawalFee_)});
 
         TokenBalance memory initialSupply = TokenBalance({
-            product: DecrementalFloatingPoint.init(),
+            product: DecrementalFloatingPoint_v2.init(),
             amount: 0,
             updatedAt: uint40(block.timestamp - 1) // set to 1 second ago so this is sure to be the start of history
         });
@@ -283,6 +292,15 @@ contract StabilityPool_v3 is
 
         // the floor preventing a non-empty pool from being emptied below a dust threshold (share-price safety)
         MIN_TOTAL_ASSET_SUPPLY = minTotalAssetSupply;
+
+        // the ceiling, `MIN * FACTOR_PRECISION`, above which a floor-capped liquidation zeroes the product factor
+        // (see the field above and _notifyLoss). Supply lives in a uint128, so a ceiling at/above its field width is
+        // unreachable: saturate there, which also keeps the multiply below from overflowing for a large floor. The
+        // saturating branch is taken only when `minTotalAssetSupply > uint128.max / FACTOR_PRECISION`, and in the
+        // other branch `minTotalAssetSupply * FACTOR_PRECISION <= uint128.max` so the multiply is safe.
+        MAX_TOTAL_ASSET_SUPPLY = minTotalAssetSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+            ? type(uint128).max
+            : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
 
         // set immutable withdrawal window params
 
@@ -417,6 +435,12 @@ contract StabilityPool_v3 is
         // deposit can't reach here (Token.allOf above reverts ZeroInputBalance), so the total is always > 0.
         if (supply.amount < MIN_TOTAL_ASSET_SUPPLY) {
             revert DepositAmountLessThanMinimum(supply.amount, MIN_TOTAL_ASSET_SUPPLY);
+        }
+        // The ceiling mirrors the floor, also on the resulting total. `MAX_TOTAL_ASSET_SUPPLY == MIN * FACTOR_PRECISION`
+        // is the largest supply at which a floor-capped liquidation keeps the product factor > 0; the equal case is
+        // safe, so only a strict exceedance reverts.
+        if (supply.amount > MAX_TOTAL_ASSET_SUPPLY) {
+            revert DepositAmountExceedsMaximum(supply.amount, MAX_TOTAL_ASSET_SUPPLY);
         }
 
         _recordTotalSupply(supply);
@@ -630,7 +654,9 @@ contract StabilityPool_v3 is
         // the loss error does not affect the supply, only the user share of that and ensures that
         // when it comes to making a claim, users get a fair allocation.
 
-        uint256 lossInEther = loss * 1 ether;
+        // Scaled by the product factor's own precision — `newProductFactor` below is handed to
+        // `DecrementalFloatingPoint_v2.mul`, so the loss-per-unit must be expressed in exactly that fixed-point scale.
+        uint256 lossInEther = loss * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
 
         // calculate the new loss error (over applied)
         // Handle case where loss is less than the over-application error
@@ -658,7 +684,8 @@ contract StabilityPool_v3 is
         // Update product factor and total supply
         // The newProductFactor is the factor by which to change all deposits, due to the depletion of StabilityPool assets in the liquidation.
         // As we don't allow pool emptying it is (1 - assetLossPerUnitStaked) which is always > 0 and < 1.
-        uint128 newProductFactor = 1 ether - uint128(assetLossPerUnitStaked);
+        uint128 newProductFactor = uint128(DecrementalFloatingPoint_v2.FACTOR_PRECISION) -
+            uint128(assetLossPerUnitStaked);
         supply.product = supply.product.mul(newProductFactor);
         supply.updatedAt = uint40(block.timestamp);
 
