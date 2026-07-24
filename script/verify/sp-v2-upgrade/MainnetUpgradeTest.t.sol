@@ -120,14 +120,27 @@ contract MainnetUpgradeTest is Test {
         // Fork mainnet at the problematic block
         vm.createSelectFork(mainnet, FORK_BLOCK);
 
-        // Find the reward depositor by checking who has the REWARD_DEPOSITOR_ROLE
-        // For now, we'll use a test address and deal tokens to it
         userWithTokens = makeAddr("user");
         rewardDepositor = makeAddr("rewardDepositor");
 
         // Find a user with existing balance for withdrawal test
         // We need to find an actual depositor from mainnet state
         userWithBalance = _findUserWithBalance();
+
+        _authoriseRewardDepositor();
+    }
+
+    /// @dev Authorise the test depositor to call `depositReward`. Called after EVERY fork selection, because
+    /// selecting a fork discards state written to the previous one - so the role is a constant across all three
+    /// tests and the UPGRADE is the only thing that differs between the before and after runs. Without it,
+    /// `depositReward` reverts `Unauthorized()` and an authorisation failure stands in for the arithmetic-underflow
+    /// bug this verification is asserting.
+    function _authoriseRewardDepositor() internal {
+        uint256 depositorRole = IMultipleRewardDistributor(STABILITY_POOL).REWARD_DEPOSITOR_ROLE();
+        address proxyOwner = IBaoOwnable(STABILITY_POOL).owner();
+        vm.startPrank(proxyOwner);
+        IBaoRoles(STABILITY_POOL).grantRoles(rewardDepositor, depositorRole);
+        vm.stopPrank();
     }
 
     /// @notice Helper to find a user with existing balance in the stability pool
@@ -176,6 +189,7 @@ contract MainnetUpgradeTest is Test {
 
         // Fork to the latest block
         vm.createSelectFork(mainnet, LATER_BLOCK);
+        _authoriseRewardDepositor(); // the fork switch discarded setUp's grant
         console.log("Forked to latest block:", block.number);
         _doFailingTransactions(FAIL);
     }
@@ -187,6 +201,7 @@ contract MainnetUpgradeTest is Test {
 
         // First do the upgrade (reusing logic from test 4)
         vm.createSelectFork(mainnet, FORK_BLOCK);
+        _authoriseRewardDepositor(); // the fork switch discarded setUp's grant
 
         StabilityPool_v2 currentProxy = StabilityPool_v2(STABILITY_POOL);
 
@@ -208,10 +223,6 @@ contract MainnetUpgradeTest is Test {
         address proxyOwner = IBaoOwnable(STABILITY_POOL).owner();
         vm.startPrank(proxyOwner);
         StabilityPool_v2(STABILITY_POOL).upgradeToAndCall(address(newImplementation), "");
-
-        // Grant REWARD_DEPOSITOR_ROLE to our test depositor so depositReward can succeed
-        uint256 depositorRole = IMultipleRewardDistributor(STABILITY_POOL).REWARD_DEPOSITOR_ROLE();
-        IBaoRoles(STABILITY_POOL).grantRoles(rewardDepositor, depositorRole);
         vm.stopPrank();
 
         console.log("Upgrade completed. Testing user deposit...");
