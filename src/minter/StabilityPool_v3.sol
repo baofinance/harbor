@@ -75,6 +75,12 @@ contract StabilityPool_v3 is
 
     uint256 private constant _MAX_EARLY_WITHDRAWAL_FEE = 1 ether;
 
+    /// @dev Upper bound on the withdrawal start delay and end window. The start delay is ADDED to the current time
+    ///      before being packed into a uint64, so it must stay far below that field width; and a delay or window
+    ///      beyond a year is an absurd configuration - almost certainly a units error - that would lock depositors
+    ///      out, so it is rejected at deployment rather than shipped.
+    uint256 private constant _MAX_WITHDRAWAL_DELAY = 365 days;
+
     // these variables are set in the constructor, not the initializer, to improve contract size and gas usage
     // to change them the contract must be upgraded
 
@@ -280,7 +286,12 @@ contract StabilityPool_v3 is
         }
         LIQUIDATION_TOKEN = liquidationToken_;
 
-        if (withdrawalEndWindow_ == 0 || withdrawalStartDelay_ == 0) {
+        if (
+            withdrawalEndWindow_ == 0 ||
+            withdrawalStartDelay_ == 0 ||
+            withdrawalStartDelay_ > _MAX_WITHDRAWAL_DELAY ||
+            withdrawalEndWindow_ > _MAX_WITHDRAWAL_DELAY
+        ) {
             revert InvalidWithdrawalWindow(withdrawalStartDelay_, withdrawalEndWindow_);
         }
 

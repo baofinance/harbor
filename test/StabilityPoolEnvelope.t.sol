@@ -34,8 +34,11 @@ import {HarborTestSetup} from "@harbor-test/HarborTestSetup.sol";
 /// harness translates these to what the protocol needs (a pegged token count and the oracle's 1e18-scaled price/rate),
 /// so nothing here is mechanical. USD values are 1e18-scaled ($1 == 1e18); the wrap rate is a 1e18-scaled ratio
 /// (1e18 == 1x). The peg $ price is a swept axis, not a fixed reference: the system's goal is to cope with many pegs
-/// (micro-peg through BTC-scale), so the pool token count and the oracle price both scale with the swept peg. The
-/// nominal peg pins the deterministic corner tests; the collateral USD range and the wrap-rate range sweep likewise.
+/// (a hyperinflation-devalued unit at $1e-12 through a risen-BTC or index token at $1e12), so the pool token count and
+/// the oracle price both scale with the swept peg. The cross-asset RATIO the oracle expresses (e.g. BTC priced in yen,
+/// ~1.5e7) is the collateral $ over the peg $ and is already covered by those two ranges; the peg axis instead stresses
+/// the absolute token count and oracle-price magnitude. The nominal peg pins the deterministic corner tests; the
+/// collateral USD range and the wrap-rate range sweep likewise.
 struct Envelope {
     string name;
     uint256 maxPoolValueUSD; // pool size cap in $  (the totalSupply limit)
@@ -49,9 +52,9 @@ struct Envelope {
     uint256 maxWrapRate;
 }
 
-/// @notice The state the action under test acts against — arranged on the REAL protocol before the action fires. It
-/// grows as the harness covers more operations: this batch (deposit/withdraw) uses a populated, loss-decayed pool;
-/// later batches add collateral ratio, pegged/leveraged composition, and pending rewards.
+/// @notice The state the action under test acts against — arranged on the REAL protocol before the action fires: a
+/// populated pool (background deposits) already decayed by a prior loss (the compounding product moved off 1x). The
+/// reward-bearing operations (harvest, rebalance) are driven as actions against this state, not pre-arranged here.
 struct StartState {
     uint256 existingDeposits; // pegged already deposited by a background holder before the action
     uint256 priorLossFraction; // 1e18-scaled fraction of headroom already liquidated (decays the compounding product)
@@ -60,17 +63,19 @@ struct StartState {
 /// @notice The catalog of named markets. A derived test contract selects one in `buildEnvelope()`, optionally starting
 /// from another entry and tweaking a single field.
 library EnvelopeLib {
-    /// @dev ETH::fxUSD at realistic bounds: haETH tracks ETH (~$4000), collateral fxUSD sits near $1, wrapped fxSAVE
-    /// carries a yield premium (>= $1). A comfortably-fitting real market; the deliberately-extreme full-range market
-    /// that locates the field limit is a separate entry (later batch).
+    /// @dev ETH::fxUSD anchored on a real market - collateral fxUSD near $1, wrapped fxSAVE at a yield premium (>= $1) -
+    /// but with the peg $ price swept as a deliberately wide axis ($1e-12 hyperinflation floor to $1e12 appreciation
+    /// ceiling), far beyond haETH's real ~$4000, to exercise the many-pegs goal. The expensive-peg corner where the
+    /// collateral can no longer back a mint is pinned by `test_corner_expensivePeg_mintCannotBackPool`; the field-width
+    /// limits by the `test_widthCorner_*` tests and the config-corner sibling markets.
     function ethFxUSD() internal pure returns (Envelope memory e) {
         e = Envelope({
             name: "1B, 1e3, 1e3, 1e2",
             maxPoolValueUSD: 1e10 ether, // $01B
             maxPoolUsers: 1e4,
             pegPriceUSD: 1 ether, // $1 nominal
-            minPegPriceUSD: 1e-6 ether, // micro-peg through BTC-scale: the multi-peg goal, made a tested axis
-            maxPegPriceUSD: 1e6 ether,
+            minPegPriceUSD: 1e-12 ether, // hyperinflation floor (a devalued unit worth <$1e-6) ...
+            maxPegPriceUSD: 1e12 ether, // ... through appreciation ceiling (a token worth >$1e6, e.g. a risen BTC)
             minCollateralUSD: 1e-6 ether,
             maxCollateralUSD: 1e6 ether,
             minWrapRate: 0.001 ether,
@@ -104,8 +109,8 @@ contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_ma
 /// where-it-breaks finding, to be fixed (SafeCast / widen) or the documented envelope narrowed — never asserted as
 /// intended behaviour. Each derived contract is one named, documented market; `buildEnvelope()` is the seam.
 ///
-/// This batch covers deposit/withdraw. Harvest, rebalance, the reward-field corner, and richer arranged state land in
-/// later batches (the `StartState` and the keeper set grow with them).
+/// The suite drives deposit, withdraw, harvest, and rebalance against the arranged state — each a fuzz walk plus a
+/// deterministic corner, including the reward-field corner that the harvest and rebalance rewards reach.
 abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, StabilityPoolConservation, HarborTestSetup {
     // capped so the fork fuzz stays feasible; the declared business cap (maxPoolUsers) can be far larger and is
     // exercised by the deterministic max-users test rather than every fuzz run.
@@ -307,7 +312,10 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         return (peggedAmount * 1e18 + wrappedPrice - 1) / wrappedPrice; // ceil at the wrapped collateral price
     }
 
-    /// @dev Mint at least `target` pegged to this contract (backed by real collateral at the current price).
+    /// @dev Mint at least `target` pegged to this contract (backed by real collateral at the current price). At an
+    /// extreme peg/collateral/rate the wrapped price floors to zero and `_collateralFor` divides by it - the market
+    /// cannot back a mint. Callers reach this through an external probe and OBSERVE the revert (a located economic
+    /// limit), rather than pre-checking for it - so the boundary is discovered each run and cannot go stale.
     function _mintPeggedAtLeast(uint256 target) internal returns (uint256 minted) {
         uint256 collateral = _collateralFor(target) + 1 ether; // slack for the flooring in the mint
         (minted, ) = genesisMint(minter, collateral, 0, address(this));
@@ -424,14 +432,35 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             existingDeposits: bound(existingSeed, 0, poolPegged),
             priorLossFraction: bound(lossSeed, 0, 1e18) // up to a FULL drain of the pool's headroom to its floor
         });
-        _arrange(collateralUSD, wrapRate, pegPriceUSD, s);
-
         uint256[] memory shares = _equalSplit(poolPegged, n);
-        _mintPeggedAtLeast(poolPegged);
 
+        // Mint-backed setup (arrange + mint the pool + distribute) is the ONLY part that can revert at an economic
+        // limit: when the collateral is worth < 1 wei of pegged per unit the wrapped price floors to zero and
+        // `_collateralFor` divides by it. Observe it through an external probe - a revert is a located limit that is
+        // recorded and ends the run; a success proceeds to the read-backs. This discovers the boundary each run rather
+        // than pre-judging it, so a later widening simply lets the same walk hold at a wider corner.
+        // Set the oracle point HERE too (the probe sets it again inside `_arrange`, but that inner write rolls back on
+        // a probe revert): the recorded row below must log the point that produced the failure, not the prior one.
+        _setEnvelopePoint(collateralUSD, wrapRate, pegPriceUSD);
+
+        try this.depositWithdrawSetupProbe(collateralUSD, wrapRate, pegPriceUSD, s, poolPegged, shares, n) {
+            // setup held - exercise the behaviour below
+        } catch (bytes memory err) {
+            // Tolerate ONLY the expected economic limit: when the collateral is worth < 1 wei of pegged per unit the
+            // mint cannot back the pool and `_collateralFor` divides by zero. Any OTHER revert is an unexpected failure
+            // and must propagate UNCHANGED - a broad catch here would be a fuzz-level fail_on_revert=false, silently
+            // recording a real bug as a located limit.
+            if (keccak256(bytes(_revertReason(err))) != keccak256(bytes("divide-by-zero"))) {
+                assembly {
+                    revert(add(err, 0x20), mload(err))
+                }
+            }
+            _record("depositWithdraw", poolPegged, "broke", "grow: divide-by-zero");
+            return;
+        }
+        // Behaviour, with read-backs asserted UNCONDITIONALLY (never inside the try) so a silent ledger error fails
+        // here rather than being caught and mislabelled a limit.
         for (uint256 i = 0; i < n; i++) {
-            IERC20(pegged).transfer(users[i], shares[i]);
-
             uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
             _deposit(users[i], shares[i]);
             assertEq(IERC20(stabilityPool).balanceOf(users[i]), shares[i], "fresh deposit reads back exactly");
@@ -444,6 +473,33 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             assertEq(IERC20(stabilityPool).balanceOf(users[i]), 0, "position cleared");
             assertEq(IERC20(stabilityPool).totalSupply(), supplyMid - shares[i], "supply moved back by the exit");
         }
+    }
+
+    /// @dev The mint-backed setup for the deposit/withdraw walk, external so a revert at an economic limit (the mint
+    /// cannot back the pool) is caught and recorded by the caller rather than failing the run. Mints the pool to this
+    /// contract and distributes each user's share; the users deposit themselves in the behaviour loop above.
+    function depositWithdrawSetupProbe(
+        uint256 collateralUSD,
+        uint256 wrapRate,
+        uint256 pegPriceUSD,
+        StartState memory s,
+        uint256 poolPegged,
+        uint256[] memory shares,
+        uint256 n
+    ) external {
+        _arrange(collateralUSD, wrapRate, pegPriceUSD, s);
+        _mintPeggedAtLeast(poolPegged);
+        for (uint256 i = 0; i < n; i++) {
+            IERC20(pegged).transfer(users[i], shares[i]);
+        }
+    }
+
+    /// @notice The widened peg range makes the walk draw expensive-peg + cheap-collateral + low-rate points where the
+    /// oracle price underflows to zero (the market cannot mint). At such a point the walk records the located limit and
+    /// skips - it must NOT revert trying to mint/distribute a pool that cannot be backed. These seeds pin that corner:
+    /// collateral at min, rate at min, peg at max, with a background deposit too so both mint paths are exercised.
+    function test_depositWithdraw_atPriceUnderflow_skipsWithoutReverting() public {
+        testFuzz_depositWithdraw_holds(0, 0, type(uint256).max, 0, 0, type(uint256).max, 0);
     }
 
     // ─── deterministic corner (named must-pass) ───
@@ -475,6 +531,22 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         uint256 walletBefore = IERC20(pegged).balanceOf(users[0]);
         _withdrawAll(users[0]);
         assertEq(IERC20(pegged).balanceOf(users[0]) - walletBefore, poolPegged, "whole-pool exit returns everything");
+    }
+
+    /// @notice At an extreme-expensive peg paired with cheap collateral and a low wrap rate, the oracle price
+    /// (collateral priced in pegged) rounds toward zero, so no finite collateral can back a mint: the mint-backed pool
+    /// grow reverts (the divide in `_collateralFor`). This is the located economic limit the sweeps catch and record;
+    /// pinned deterministically here. The setEnvelopePoint call is made BEFORE expectRevert so it does not steal it.
+    function test_corner_expensivePeg_mintCannotBackPool() public {
+        _setEnvelopePoint(1e-6 ether, 0.001 ether, 1e12 ether); // collateral $1e-6, rate 0.001x, peg $1e12
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x12)); // divide by zero: collateral cannot back pegged
+        this.growProbe(1 ether);
+    }
+
+    /// @notice A divide-by-zero panic - the recorded reason when the mint cannot back a pool at a price-underflow
+    /// limit - decodes to a readable constraints-CSV label rather than raw hex.
+    function test_revertReason_decodesDivideByZeroPanic() public pure {
+        assertEq(_revertReason(abi.encodeWithSignature("Panic(uint256)", 0x12)), "divide-by-zero");
     }
 
     // ─── deterministic width-boundary corners (the balance-field regression pins, on the REAL deployForPeg pool) ───
@@ -653,7 +725,20 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             // NoHarvestable(): the yield rounded to zero at this point - nothing to harvest, not a field-width limit
             return "no-harvestable";
         }
-        return vm.toString(err); // other custom error / Panic: raw hex (selector + args)
+        if (sel == 0x4e487b71 && data.length == 32) {
+            // Panic(uint256): a Solidity runtime panic. 0x12 = divide/modulo by zero - the mint dividing by a wrapped
+            // price that floored to zero, i.e. the collateral cannot back pegged (a price-underflow economic limit);
+            // 0x11 = arithmetic over/underflow. Others reported by code.
+            uint256 code = abi.decode(data, (uint256));
+            if (code == 0x12) {
+                return "divide-by-zero";
+            }
+            if (code == 0x11) {
+                return "arithmetic-overflow";
+            }
+            return string.concat("panic-", vm.toString(code));
+        }
+        return vm.toString(err); // other custom error: raw hex (selector + args)
     }
 
     /// @notice Deposit sweep: a fresh user deposits a swept amount into the StabilityPool at a swept oracle point,
@@ -1220,6 +1305,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     function testFuzz_rebalance_sweep(uint256 poolSeed) public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
 
         // pool swept big, up to the supply field's own width; grown in its own unit so exceeding that field (the 2a
         // deposit/supply limit, cross-confirmed here) is recorded and stops this run rather than masking a reward find.
@@ -1227,7 +1313,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         try this.growProbe(poolPegged) {
             // pool grew - proceed to stress the reward path
         } catch (bytes memory err) {
-            _record("rebalance", poolPegged, "broke", string.concat("grow: ", _revertReason(err)));
+            string memory reason = _revertReason(err);
+            _record("rebalance", poolPegged, "broke", string.concat("grow: ", reason));
+            // within the declared envelope the pool MUST grow; a revert there is a real break, not a located limit
+            if (poolPegged <= envelopePool) {
+                assertTrue(
+                    false,
+                    string.concat("within-envelope grow reverted @ pool=", vm.toString(poolPegged), ": ", reason)
+                );
+            }
             return;
         }
         // drop to the envelope corner: CR below the rebalance threshold (rebalanceable at any pool size, since CR is a
@@ -1251,7 +1345,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             );
             _record("rebalance", poolPegged, "held", string.concat("injected=", vm.toString(injected)));
         } catch (bytes memory err) {
-            _record("rebalance", poolPegged, "broke", _revertReason(err));
+            string memory reason = _revertReason(err);
+            _record("rebalance", poolPegged, "broke", reason);
+            // within the declared envelope the rebalance MUST hold; a revert there is a real break, not a located limit
+            if (poolPegged <= envelopePool) {
+                assertTrue(
+                    false,
+                    string.concat("within-envelope rebalance reverted @ pool=", vm.toString(poolPegged), ": ", reason)
+                );
+            }
         }
     }
 
@@ -1282,11 +1384,20 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
 
+        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
         uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
         try this.growProbe(poolPegged) {
             // pool grew - proceed to stress the streamed reward path
         } catch (bytes memory err) {
-            _record("harvest", poolPegged, "broke", string.concat("grow: ", _revertReason(err)));
+            string memory reason = _revertReason(err);
+            _record("harvest", poolPegged, "broke", string.concat("grow: ", reason));
+            // within the declared envelope the pool MUST grow; a revert there is a real break, not a located limit
+            if (poolPegged <= envelopePool) {
+                assertTrue(
+                    false,
+                    string.concat("within-envelope grow reverted @ pool=", vm.toString(poolPegged), ": ", reason)
+                );
+            }
             return;
         }
         try this.harvestProbe() returns (uint256 injected) {
@@ -1298,7 +1409,17 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             _assertSpSolvent(stabilityPool, _allActors(), g);
             _record("harvest", poolPegged, "held", string.concat("injected=", vm.toString(injected)));
         } catch (bytes memory err) {
-            _record("harvest", poolPegged, "broke", _revertReason(err));
+            string memory reason = _revertReason(err);
+            _record("harvest", poolPegged, "broke", reason);
+            // within the declared envelope the harvest MUST hold - EXCEPT NoHarvestable, the benign no-op where the
+            // yield rounds to zero (e.g. the prod-fee market's pool share is zero), which is not a break. Any OTHER
+            // within-envelope revert is a real break.
+            if (poolPegged <= envelopePool && keccak256(bytes(reason)) != keccak256(bytes("no-harvestable"))) {
+                assertTrue(
+                    false,
+                    string.concat("within-envelope harvest reverted @ pool=", vm.toString(poolPegged), ": ", reason)
+                );
+            }
         }
     }
 
@@ -1318,11 +1439,20 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
 
+        uint256 envelopePool = _capToSupplyHeadroom(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD));
         uint256 poolPegged = _logScale(poolSeed, IStabilityPool(stabilityPool).MIN_DEPOSIT(), type(uint128).max);
         try this.growProbe(poolPegged) {
             // pool grew - proceed to inject and claim
         } catch (bytes memory err) {
-            _record("claim", poolPegged, "broke", string.concat("grow: ", _revertReason(err)));
+            string memory reason = _revertReason(err);
+            _record("claim", poolPegged, "broke", string.concat("grow: ", reason));
+            // within the declared envelope the pool MUST grow; a revert there is a real break, not a located limit
+            if (poolPegged <= envelopePool) {
+                assertTrue(
+                    false,
+                    string.concat("within-envelope grow reverted @ pool=", vm.toString(poolPegged), ": ", reason)
+                );
+            }
             return;
         }
         _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // corner: CR below threshold + max reward
@@ -1336,7 +1466,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             assertGe(claimedOut, injected / 2, "claim paid out the whole-pool reward from the whale's pending field");
             _record("claim", poolPegged, "held", string.concat("claimed=", vm.toString(claimedOut)));
         } catch (bytes memory err) {
-            _record("claim", poolPegged, "broke", _revertReason(err));
+            string memory reason = _revertReason(err);
+            _record("claim", poolPegged, "broke", reason);
+            // within the declared envelope the claim MUST hold; a revert there is a real break, not a located limit
+            if (poolPegged <= envelopePool) {
+                assertTrue(
+                    false,
+                    string.concat("within-envelope claim reverted @ pool=", vm.toString(poolPegged), ": ", reason)
+                );
+            }
         }
     }
 
@@ -1396,8 +1534,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     }
 }
 
-/// @notice ETH::fxUSD market — the seed envelope. Other markets (USD/BTC inverse, made-up, the deliberately-extreme
-/// full-range one that locates the field limit) are added as sibling contracts in a later batch.
+/// @notice ETH::fxUSD market — the seed envelope. The config-corner sibling markets below each stretch one deployment
+/// parameter (production fees, a huge minimum-deposit floor, the maximum early-withdrawal fee, the tightest rebalance
+/// threshold) off this baseline and re-run the whole suite against it.
 contract StabilityPoolEnvelope_ETH_fxUSD is StabilityPoolEnvelopeBase {
     function buildEnvelope() internal pure override returns (Envelope memory) {
         return EnvelopeLib.ethFxUSD();

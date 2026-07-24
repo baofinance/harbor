@@ -322,6 +322,19 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 0, 1 ether, "Test", "T");
     }
 
+    // A delay or window beyond a year is rejected. The start delay is ADDED to the current time before being packed
+    // into a uint64, so it must stay far below that field; and a delay over a year is an absurd configuration -
+    // almost certainly a units error - which must fail loudly at deployment rather than lock depositors out for years.
+    function test_constructor_withdrawalDelayOverAYear_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 366 days, 90000));
+        new StabilityPool_v3(minter, wrappedCollateralToken, 366 days, 90000, 1 ether, "Test", "T");
+    }
+
+    function test_constructor_withdrawalWindowOverAYear_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidWithdrawalWindow.selector, 3600, 366 days));
+        new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 366 days, 1 ether, "Test", "T");
+    }
+
     // A zero minimum total asset supply is rejected: it is the reward-integral floor, and a zero floor lets the
     // per-share reward integral grow unbounded (division by a vanishing pool share).
     function test_constructor_zeroMinTotalAssetSupply_reverts() public {

@@ -16,6 +16,12 @@ remappings = [
   # openzeppelin
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  # OZ deleted ReentrancyGuardTransientUpgradeable in 5.6.x; bao-base's TokenHolder now uses the
+  # @bao compat shim (proven byte-identical to OZ's guard). This file-specific remapping redirects
+  # the OZ import PATH to that shim, so every consumer that still imports the OZ path resolves to the
+  # SAME guard base as TokenHolder - no duplicate-guard conflict, and no deployed-source change.
+  # Longest-prefix match makes this win over the broader contracts-upgradeable/ rule above.
+  "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol=lib/bao-base/src/ReentrancyGuardTransientUpgradeable.sol",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
   # solady

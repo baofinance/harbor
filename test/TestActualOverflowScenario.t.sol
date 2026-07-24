@@ -6,7 +6,7 @@ import "forge-std/Test.sol";
 /// @title Test the actual mainnet overflow scenario
 contract TestActualOverflowScenario is Test {
     /// @notice Replicates the exact mainnet scenario
-    function test_ExactMainnetScenario() public view {
+    function test_ExactMainnetScenario() public {
         console.log("=== Exact Mainnet Overflow Scenario ===");
         console.log("");
 
@@ -24,25 +24,9 @@ contract TestActualOverflowScenario is Test {
         console.log("Executing: integral += uint192(toAdd)");
         console.log("");
 
-        try this.addWithCast(currentIntegral, toAdd) returns (uint192 result) {
-            console.log("Result:", uint256(result));
-            console.log("[UNEXPECTED] Did not revert!");
-        } catch (bytes memory error) {
-            console.log("[EXPECTED] Reverted!");
-            if (error.length >= 36) {
-                bytes4 selector = bytes4(error);
-                if (selector == 0x4e487b71) {
-                    uint256 panicCode;
-                    assembly {
-                        panicCode := mload(add(error, 36))
-                    }
-                    console.log("  Panic code:", panicCode);
-                    if (panicCode == 0x11) {
-                        console.log("  = Panic 0x11: Arithmetic underflow/overflow");
-                    }
-                }
-            }
-        }
+        // The checked `integral += uint192(toAdd)` overflows uint192 and reverts with Panic 0x11 (arithmetic overflow).
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        this.addWithCast(currentIntegral, toAdd);
         console.log("");
         console.log("=== Analysis ===");
         console.log("The overflow happens because:");

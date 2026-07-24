@@ -420,6 +420,33 @@ contract MultipleRewardCompoundingAccumulatorTest is Test, Array {
         assertApproxEqRel(integral, 1e57, 0.001e18, "delta = reward * 1e54 / poolSize");
     }
 
+    /// @notice A stream that accrues while the pool is EMPTY is re-queued in FULL. `queued` is a uint256 field, so a
+    /// large accrued reward - the cheap-collateral scale where a reward token COUNT is largest - must re-queue rather
+    /// than be rejected by an artificially narrowed addend.
+    function test_accumulateReward_emptyPoolQueuesRewardPastUint96() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            1 weeks
+        );
+
+        // stream a reward whose full-period distribution exceeds uint96, while the pool still has share
+        accumulator.setTotalPoolShare(1 ether, uint128(1e36));
+        uint256 reward = uint256(type(uint96).max) * 2;
+        MockERC20(tokens[0]).mint(deployer, reward + 1);
+        accumulator.depositReward(tokens[0], reward);
+
+        // the pool empties; the whole distributed stream is then re-queued by _accumulateReward
+        accumulator.setTotalPoolShare(0, uint128(1e36));
+        vm.warp(block.timestamp + 1 weeks);
+        accumulator.depositReward(tokens[0], 1); // checkpoint: accrues the stream into the empty-pool queue
+
+        // That checkpoint re-queues the whole accrued stream and then re-streams it, so the reward now lives in
+        // `rate * period` plus the `queued` remainder. Asserting their sum proves the accrual was taken at full width:
+        // narrowing the addend to uint96 (as v1 did) rejects this outright with a SafeCast overflow.
+        (, , uint256 rate, uint256 queued) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
+        assertGe(rate * 1 weeks + queued, reward, "whole accrued reward survived the empty-pool re-queue");
+    }
+
     /// @notice 52 weeks at 100% APY: integral ~ 1e54, safe for both v1 and v2.
     /// Demonstrates Table 1: at 100% APY, v1 safe for 6,277 years.
     function test_integralBounds_100pctAPY_52Weeks() public {

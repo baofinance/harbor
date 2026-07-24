@@ -177,11 +177,12 @@ contract TestReservePool is TestReservePoolSetUp {
     }
 
     function test_notERC20() public {
-        // requestBonus reads IERC20(token).balanceOf first; the token has no code, so Solidity's extcodesize
-        // guard reverts. The revert data is not portable across run modes: test/coverage runs see empty data,
-        // but --gas-report (yarn gas) enables the call inspector which replaces it with a synthetic
-        // "call to non-contract address 0x..." reason. No single expectRevert parameter matches both, so this
-        // must stay parameterless - it asserts only that the call reverts.
+        // requestBonus reads IERC20(token).balanceOf first; the token has no code, so Solidity's extcodesize guard
+        // reverts. The revert data is NOT portable across run modes (verified): `forge test`/coverage see EMPTY data
+        // (so `expectRevert(bytes(""))` matches), but `--gas-report` (yarn gas) enables the call inspector which
+        // rewrites it into a synthetic "call to non-contract address 0x..." reason that empty-bytes does NOT match.
+        // No single expectRevert parameter matches both, and the ONLY thing that can revert here is that extcodesize
+        // guard (codeless token, balanceOf is the first call), so this parameterless form is the justified exception.
         vm.expectRevert();
         vm.prank(minter);
         IReservePool(reservePool).requestBonus(tokenNotERC20, bonusReceiver, 1 ether);

@@ -6,6 +6,7 @@ import {console2 as console} from "forge-std/console2.sol";
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
@@ -25,9 +26,16 @@ import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol"
 ///           - `empty`     : no captured holders and totalSupply == 0 -> nothing to migrate;
 ///           - `recapture` : the captured holders do not account for the supply -> the list is stale, re-capture.
 ///
-///         PASSES iff every deployed pool is `plain` or `empty` (a plain all-pools upgrade is safe) AND the
-///         measurement is reliable. FAILS - naming the pool - if any needs a `seed`, has an incomplete/stale
-///         holder list, or the harness did not run. Per-pool results -> ./results/sp-pool-gaps.csv.
+///         It also gates - orthogonally to the gap - on the SUPPLY CEILING v3 will enforce
+///         (`MIN_TOTAL_ASSET_SUPPLY * FACTOR_PRECISION`, saturated at the supply field width). The migration does not
+///         go through the deposit path where v3 checks that ceiling, so a pool already above it would migrate into a
+///         state where a floor-capped liquidation zeroes the product factor; such a pool needs its floor re-based
+///         before it can migrate at all, whatever its gap says.
+///
+///         PASSES iff every deployed pool is `plain` or `empty` (a plain all-pools upgrade is safe), sits within the
+///         supply ceiling, AND the measurement is reliable. FAILS - naming the pool - if any needs a `seed`, exceeds
+///         the ceiling, has an incomplete/stale holder list, or the harness did not run.
+///         Per-pool results -> ./results/sp-pool-gaps.csv.
 ///
 ///         RUN AT MIGRATION TIME:
 ///           1. Pause the pools (freeze state) and re-capture the holder .txt files up to the migration block.
@@ -61,6 +69,19 @@ contract StabilityPoolMigrationPreflight is
     uint256 internal negativeGapCount; // pools that need a seed (Sum(balanceOf) > supply)
     uint256 internal emptyNonZeroCount; // no-holder pools with supply > 0 (holder list missed depositors)
     uint256 internal looseGapCount; // holder pools whose gap exceeds rounding level (holder list stale)
+    uint256 internal overCeilingCount; // pools whose supply exceeds the ceiling v3 will enforce (need a MIN re-base)
+
+    /// @dev The supply ceiling StabilityPool_v3 derives from a pool's floor, mirroring the v3 constructor: the mirror
+    ///      of the floor, saturated at the supply field width above which a larger ceiling is unreachable. Migration
+    ///      does not go through the deposit path where v3 enforces this, so it is gated here instead: above the
+    ///      ceiling a floor-capped liquidation rounds its loss-per-unit up to a total loss and zeroes the product
+    ///      factor. A pool over it needs its floor re-based (a new implementation) before it can migrate.
+    function _ceiling(uint256 minTotalAssetSupply) internal pure returns (uint256) {
+        return
+            minTotalAssetSupply > type(uint128).max / DecrementalFloatingPoint_v2.FACTOR_PRECISION
+                ? type(uint128).max
+                : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
+    }
 
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), CAPTURE_BLOCK);
@@ -90,6 +111,11 @@ contract StabilityPoolMigrationPreflight is
         assertEq(emptyNonZeroCount, 0, "a no-holder pool has totalSupply > 0 - holder list incomplete, re-capture");
         assertEq(looseGapCount, 0, "a pool's gap exceeds rounding level - holder list stale, re-capture");
         assertEq(negativeGapCount, 0, "a pool has a negative gap - seed it via the SeedUpgrader before plain upgrade");
+        assertEq(
+            overCeilingCount,
+            0,
+            "a pool's supply exceeds the v3 supply ceiling - re-base its floor before migrating"
+        );
     }
 
     function _scan(Config_MinterMarket[] memory markets) internal {
@@ -108,6 +134,27 @@ contract StabilityPoolMigrationPreflight is
         deployedCount++;
 
         uint256 totalSupply = IStabilityPool(pool).totalAssetSupply();
+
+        // Gate on the v3 supply ceiling. Orthogonal to the gap classification below: a pool over the ceiling cannot
+        // migrate at all, whatever its gap says. Scoped so the ceiling does not stay live across the rest of the
+        // measurement, which is already at the stack limit.
+        {
+            uint256 ceiling = _ceiling(IStabilityPool(pool).MIN_TOTAL_ASSET_SUPPLY());
+            if (totalSupply > ceiling) {
+                overCeilingCount++;
+                console.log(
+                    string.concat(
+                        "REBASE REQUIRED: ",
+                        saltKey,
+                        " supply ",
+                        vm.toString(totalSupply),
+                        " exceeds the v3 supply ceiling ",
+                        vm.toString(ceiling)
+                    )
+                );
+            }
+        }
+
         address[] memory holders = _readHolders(saltKey);
         uint256 sumBalance = 0;
         for (uint256 h = 0; h < holders.length; h++) {
@@ -223,7 +270,7 @@ contract StabilityPoolMigrationPreflight is
 
     /// @dev The holder address is the trailing `0x`+40-hex (42 chars): a bare line IS it, a `# no-work: ` line
     ///      suffixes it. Taking the last 42 chars is robust to the comment prefix length.
-    function _holderAddress(string memory line) internal returns (address) {
+    function _holderAddress(string memory line) internal pure returns (address) {
         bytes memory b = bytes(line);
         bytes memory a = new bytes(42);
         uint256 start = b.length - 42;

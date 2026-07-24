@@ -2,7 +2,6 @@
 .env
 
 # put your personal stuff in your personal vscode settings file
-.vscode/settings.json
 
 # libraries
 node_modules

@@ -490,8 +490,10 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         (uint128 currentProd, uint256 totalShare) = _getTotalPoolShare();
         // slither-disable-next-line incorrect-equality
         if (totalShare == 0) {
-            // no deposits, queue rewards
-            _getRewardData(token).queued += amount.toUint96();
+            // no deposits, queue rewards. `queued` is a full uint256 in RewardData_v2 (widened from v1's uint96), so
+            // the accrued amount is added at full width - narrowing it here would reject a large accrued reward (the
+            // cheap-collateral scale, where the reward token COUNT is largest) that the field can hold.
+            _getRewardData(token).queued += amount;
             return;
         }
 

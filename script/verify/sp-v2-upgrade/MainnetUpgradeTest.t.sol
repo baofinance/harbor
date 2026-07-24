@@ -34,25 +34,18 @@ contract MainnetUpgradeTest is Test {
     address rewardDepositor;
     address userWithBalance; // Existing user with balance for withdrawal test
 
+    /// @dev Assert the caught revert is the EXPECTED arithmetic-underflow panic (0x11). A wrong-reason revert must FAIL
+    /// the test rather than pass as a generic "it reverted" - otherwise an unrelated failure masquerades as the
+    /// underflow bug this verification is asserting.
     function parseError(bytes memory lowLevelData) internal pure {
-        // Check if it's an arithmetic underflow (panic code 0x11)
-        if (lowLevelData.length >= 36) {
-            bytes4 selector = bytes4(lowLevelData);
-            if (selector == 0x4e487b71) {
-                // Panic selector
-                uint256 panicCode;
-                assembly {
-                    panicCode := mload(add(lowLevelData, 36))
-                }
-                if (panicCode == 0x11) {
-                    console.log("*** User deposit fails with Panic 0x11 (Arithmetic Underflow) ***");
-                } else {
-                    console.log("Unexpected panic code:", panicCode);
-                }
-            } else {
-                console.log("Unexpected error type");
-            }
+        require(lowLevelData.length >= 36, "revert carried no panic data - not the expected arithmetic underflow");
+        bytes4 selector = bytes4(lowLevelData);
+        require(selector == 0x4e487b71, "expected a Panic revert (arithmetic underflow), got a different error");
+        uint256 panicCode;
+        assembly {
+            panicCode := mload(add(lowLevelData, 36))
         }
+        require(panicCode == 0x11, "expected Panic 0x11 (arithmetic underflow), got a different panic code");
     }
 
     function _doFailingTransactions(uint expect) internal {
