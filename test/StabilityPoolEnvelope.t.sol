@@ -82,6 +82,19 @@ library EnvelopeLib {
             maxWrapRate: 1000 ether
         });
     }
+
+    /// @dev A per-peg-MIN market (D2): the ethFxUSD envelope re-centred on `nominalPeg` with a modest ~3x band (the
+    /// pegged token's realistic volatility), for a market CORRECTLY DEPLOYED at that scale - its MIN sized ~$1 at
+    /// `nominalPeg` by the config (MIN = 1e18 / pegDollars). Distinct from ethFxUSD's frozen-MIN wide-peg DRIFT: here
+    /// MIN tracks the peg, so the supply cap MAX = MIN * FACTOR_PRECISION stays ~$1e18 at every scale, and the market
+    /// is proved to hold a full $-range pool where it is actually deployed.
+    function atPegScale(uint256 nominalPeg, string memory name_) internal pure returns (Envelope memory e) {
+        e = ethFxUSD();
+        e.name = name_;
+        e.pegPriceUSD = nominalPeg;
+        e.minPegPriceUSD = nominalPeg / 3;
+        e.maxPegPriceUSD = nominalPeg * 3;
+    }
 }
 
 /// @notice ETH::fxUSD market with the StabilityPoolManager's harvest cut and harvest/rebalance bounties zeroed, so all
@@ -559,9 +572,16 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     /// part. The widened field must credit it in full.
     function test_widthCorner_depositPastUint104RecordedExactly() public {
         uint256 amount = 2 ** 104 + 1 ether;
+        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
+        // At a small-MIN market MAX = MIN * FACTOR_PRECISION sits below 2^104, so the supply cap binds before the
+        // balance field width: this field-width regression is unreachable here (the cap reverts first), and is pinned
+        // on the larger-MIN markets where the field IS reachable.
+        if (supplyBefore + amount > IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY()) {
+            vm.skip(true);
+            return;
+        }
         address user = users[0];
         deal(pegged, user, amount);
-        uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
         vm.startPrank(user);
         IStabilityPool(stabilityPool).deposit(amount, user, 0);
         vm.stopPrank();
@@ -575,6 +595,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
     function test_widthCorner_supplyAccumulationCrossesUint104() public {
         uint256 half = 15e30; // 1.5e31: fits uint104 alone, crosses 2^104 (~2.03e31) combined
         uint256 supplyBefore = IERC20(stabilityPool).totalSupply();
+        // unreachable where MAX = MIN * FACTOR_PRECISION is below 2^104 (small-MIN market): the cap binds first - the
+        // regression is pinned on the larger-MIN markets. See test_widthCorner_depositPastUint104RecordedExactly.
+        if (supplyBefore + 2 * half > IStabilityPool_v3(stabilityPool).MAX_TOTAL_ASSET_SUPPLY()) {
+            vm.skip(true);
+            return;
+        }
         for (uint256 i = 0; i < 2; i++) {
             address user = users[i];
             deal(pegged, user, half);
@@ -1661,5 +1687,159 @@ contract StabilityPoolEnvelope_ETH_fxUSD_rebalance105 is StabilityPoolEnvelopeBa
         peg = new ConfigPeg_ETH();
         markets = new Config_MinterMarket[](1);
         markets[0] = new ConfigMarket_ETH_fxUSD_rebalanceThreshold105();
+    }
+}
+
+// ─── D2: per-peg-MIN markets - the ETH::fxUSD deploy config priced at a range of peg SCALES, each with MIN sized ~$1
+// at its nominal peg (MIN = 1e18 / pegDollars), so a CORRECTLY-DEPLOYED market at that scale is proved to hold a full
+// $-range pool. This is the "diverse markets, each deployed for its peg" axis (A.6), distinct from ethFxUSD's
+// frozen-MIN wide-peg drift. Real deployed scales mirror their A.6 MINs; extreme scales are invented for
+// future/hypothetical markets ───
+
+contract ConfigPeg_ETH_min1e13 is ConfigPeg_ETH {
+    function minDeposit() public pure override returns (uint256) {
+        return 1e13;
+    }
+
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e13;
+    }
+}
+
+contract ConfigMarket_ETH_fxUSD_min1e13 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e13;
+    }
+}
+
+/// @notice BTC-scale market: the deployed BTC peg's MIN (1e13, per A.6) priced at ~$1e5 (BTC). A correctly-deployed
+/// high-value-peg market must hold the same $-range pool as a $1 market.
+contract StabilityPoolEnvelope_btcScale is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.atPegScale(1e5 ether, "btcScale");
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "btcScale";
+    }
+
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
+        peg = new ConfigPeg_ETH_min1e13();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_min1e13();
+    }
+}
+
+contract ConfigPeg_ETH_min1e27 is ConfigPeg_ETH {
+    function minDeposit() public pure override returns (uint256) {
+        return 1e27;
+    }
+
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e27;
+    }
+}
+
+contract ConfigMarket_ETH_fxUSD_min1e27 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e27;
+    }
+}
+
+/// @notice Hyperinflation-scale market (invented): a peg devalued to ~$1e-9, deployed with a MIN of 1e27 (= ~$1 at
+/// that peg). The token count for any real value is enormous, so MAX = MIN * FACTOR_PRECISION saturates at the uint128
+/// supply field - the pool holds up to the field, and a correctly-deployed hyperinflated market still round-trips.
+contract StabilityPoolEnvelope_hyperScale is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.atPegScale(1e-9 ether, "hyperScale");
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "hyperScale";
+    }
+
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
+        peg = new ConfigPeg_ETH_min1e27();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_min1e27();
+    }
+}
+
+contract ConfigPeg_ETH_min1e18 is ConfigPeg_ETH {
+    function minDeposit() public pure override returns (uint256) {
+        return 1e18;
+    }
+
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e18;
+    }
+}
+
+contract ConfigMarket_ETH_fxUSD_min1e18 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e18;
+    }
+}
+
+/// @notice EUR-scale market: the deployed EUR peg's MIN (1e18, per A.6) priced at ~$1 (a fiat-parity peg).
+contract StabilityPoolEnvelope_eurScale is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.atPegScale(1 ether, "eurScale");
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "eurScale";
+    }
+
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
+        peg = new ConfigPeg_ETH_min1e18();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_min1e18();
+    }
+}
+
+/// @notice ETH-scale market: the DEFAULT config MIN (2e14) priced at its real ~$5000 peg - the correctly-deployed
+/// haETH market itself (the config's MIN is sized for exactly this peg), so it inherits the base's default config.
+contract StabilityPoolEnvelope_ethScale is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.atPegScale(5000 ether, "ethScale");
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "ethScale";
+    }
+}
+
+contract ConfigPeg_ETH_min1e9 is ConfigPeg_ETH {
+    function minDeposit() public pure override returns (uint256) {
+        return 1e9;
+    }
+
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e9;
+    }
+}
+
+contract ConfigMarket_ETH_fxUSD_min1e9 is ConfigMarket_ETH_fxUSD_zeroFeesAndBounties {
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1e9;
+    }
+}
+
+/// @notice Rich-scale market (invented): an appreciated / high-unit-value peg at ~$1e9, deployed with MIN 1e9 (= ~$1
+/// there) - which sits at the dust-share precision floor, so this market also probes the low-MIN edge.
+contract StabilityPoolEnvelope_richScale is StabilityPoolEnvelopeBase {
+    function buildEnvelope() internal pure override returns (Envelope memory) {
+        return EnvelopeLib.atPegScale(1e9 ether, "richScale");
+    }
+
+    function _marketSlug() internal pure override returns (string memory) {
+        return "richScale";
+    }
+
+    function createETHMintersConfig() internal override returns (ConfigPeg peg, Config_MinterMarket[] memory markets) {
+        peg = new ConfigPeg_ETH_min1e9();
+        markets = new Config_MinterMarket[](1);
+        markets[0] = new ConfigMarket_ETH_fxUSD_min1e9();
     }
 }
