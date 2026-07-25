@@ -86,7 +86,8 @@ abstract contract TestMinterFeeRangeSetUp is TestMinterSetUp {
 abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     uint256 minCollateral;
     uint256 maxCollateral;
-    uint256 minToken;
+    uint256 minToken; // the LEVERAGED floor: the ml/rl fee-ratio check uses a fixed tolerance that needs headroom
+    uint256 minTokenPegged; // the PEGGED floor: mint/redeem stay accurate to the wei (redeem floors cleanly at dust)
     uint256 maxToken;
     uint256 measurePrice;
     uint256 measureRate;
@@ -105,7 +106,8 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
         super.setUp();
         minCollateral = 1e9;
         maxCollateral = 1e30;
-        minToken = 1e16; // TODO: this is too high
+        minToken = 1e16; // leveraged floor: the ml/rl fixed-tolerance fee-ratio assertion needs headroom above dust
+        minTokenPegged = 1; // pegged floor: mint/redeem are accurate to the wei (redeem floors cleanly, see below)
         maxToken = 1e30;
         measurePrice = price;
         measureRate = rate;
@@ -124,7 +126,7 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     function test_mintPeggedRange_(uint256 p, uint256 l, uint256 w) public virtual {
         p = bound(p, minCollateral, maxCollateral);
         l = bound(l, minCollateral, maxCollateral);
-        w = bound(w, minToken, maxToken);
+        w = bound(w, minTokenPegged, maxToken);
         setUp_collateral(p, l, user);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
         _mintPegged(w);
@@ -133,9 +135,27 @@ abstract contract TestMinterFeeRange is TestMinterFeeRangeSetUp {
     function test_redeemPeggedRange_(uint256 p, uint256 l, uint256 w) public virtual {
         p = bound(p, minCollateral, maxCollateral);
         l = bound(l, minCollateral, maxCollateral);
-        w = bound(w, minToken, maxToken);
+        w = bound(w, minTokenPegged, maxToken);
         setUp_collateral(p, l, user);
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(measurePrice, measureRate);
+        // At dust `w` the redeem floors cleanly: the input rounds to zero (`ZeroInputBalance`) or the returned
+        // collateral rounds to zero (`ReturnZeroAmount`) - a clean revert, not a silent error, so tolerate ONLY those
+        // two. Every other revert, and every accuracy assertion inside `_redeemPegged`, still surfaces (re-raised).
+        try this.redeemPeggedProbe(w) {
+            // redeemed and asserted accurately
+        } catch (bytes memory err) {
+            bytes4 sel = bytes4(err);
+            if (sel != IMinter.ZeroInputBalance.selector && sel != IMinter.ReturnZeroAmount.selector) {
+                assembly {
+                    revert(add(err, 0x20), mload(err))
+                }
+            }
+        }
+    }
+
+    /// @dev External so `test_redeemPeggedRange_` can tolerate the clean dust floor (ZeroInputBalance) while still
+    /// surfacing every other revert and the accuracy assertions inside `_redeemPegged`.
+    function redeemPeggedProbe(uint256 w) external {
         _redeemPegged(w);
     }
 
@@ -898,6 +918,9 @@ contract TestMinterFixedFeeRangeDepegShallow_ is TestMinterFixedFeeRange_ {
         super.setUp();
         measurePrice = price / 2;
         redeemPeggedBands = 1;
+        // depeg's discount / pegged-price metrics lose precision at dust, so use the leveraged floor here; the 1-wei
+        // pegged floor holds only outside depeg.
+        minTokenPegged = minToken;
     }
 }
 
@@ -906,6 +929,7 @@ contract TestMinterFixedFeeRangeDepegMid_ is TestMinterFixedFeeRange_ {
         super.setUp();
         measurePrice = price / 3;
         redeemPeggedBands = 1;
+        minTokenPegged = minToken; // depeg dust precision needs the leveraged floor (see Shallow)
     }
 }
 
@@ -914,6 +938,7 @@ contract TestMinterFixedFeeRangeDepegDeep_ is TestMinterFixedFeeRange_ {
         super.setUp();
         measurePrice = price / 4;
         redeemPeggedBands = 1;
+        minTokenPegged = minToken; // depeg dust precision needs the leveraged floor (see Shallow)
     }
 }
 
