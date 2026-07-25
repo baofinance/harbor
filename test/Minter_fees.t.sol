@@ -167,7 +167,17 @@ contract TestMinterFees is TestMinterFeeSetUp {
             uint256 beforeMint = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
             (, uint256 fee, , , , ) = IMinter(minter).mintPeggedTokenDryRun(1 ether);
             vm.prank(user);
-            try IMinter(minter).mintPeggedToken(1 ether, user, 0) returns (uint256) {} catch {}
+            // A 1-ether mint fully inside the disallow band produces zero pegged and reverts MintZeroAmount - the
+            // ONLY expected revert here (minPeggedOut is 0, so no slippage revert), and the dry-run fee is ~0 there so
+            // the integral assertion below still holds. Any OTHER revert is unexpected and must surface, not be
+            // swallowed as if the fee integral held.
+            try IMinter(minter).mintPeggedToken(1 ether, user, 0) returns (uint256) {} catch (bytes memory reason) {
+                if (bytes4(reason) != IMinter.MintZeroAmount.selector) {
+                    assembly {
+                        revert(add(reason, 0x20), mload(reason))
+                    }
+                }
+            }
             assertApproxEqAbs(
                 IERC20(Deployed.wstETH).balanceOf(feeReceiver) - beforeMint,
                 uint256(fee),

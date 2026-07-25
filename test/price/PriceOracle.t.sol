@@ -138,26 +138,6 @@ contract PriceOracleTest is Test {
         PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
     }
 
-    function test_TrendReversalDetection() public {
-        vm.skip(true); // TODO: functionality commented out for now until we decide we need this
-        uint8 decimals = 8;
-        MockAggregator mockFeed = new MockAggregator(decimals);
-        mockFeed.setRoundData(1, 1, 2000 * 1 ether, block.timestamp - 7200, block.timestamp - 7200);
-        mockFeed.setRoundData(1, 2, 2200 * 1 ether, block.timestamp - 3600, block.timestamp - 3600);
-        mockFeed.setRoundData(1, 3, 1980 * 1 ether, block.timestamp, block.timestamp);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IPriceOracleErrors.UnderlyingPriceDeviation.selector,
-                address(mockFeed),
-                1980 * 1 ether,
-                2200 * 1 ether,
-                MAX_RELATIVE_DEVIATION
-            )
-        );
-        PriceOracle_v1.latestAnswer(PriceOracle_v1.Feed({priceFeed: mockFeed, decimals: decimals}), _constraints());
-    }
-
     function test_AcceptableDeviation() public {
         uint8 decimals = 8;
         MockAggregator mockFeed = new MockAggregator(decimals);
