@@ -1,23 +1,21 @@
 # The numerical envelope: what the stack can hold, and how
 
-Harbor is a stack. The **Minter** sits at the bottom — it mints and redeems the pegged and
-leveraged tokens. The **StabilityPools** sit on top, holding pegged tokens and absorbing
-liquidations. Higher layers — the HarborYield token and its autocompounders — will sit on top of
-the StabilityPools (and this document will grow upward to cover them). This report describes,
-bottom-up, **what each layer can now hold and do**, the code variables that carry those values,
-**what was changed to get there**, and the limits the tests located.
+Harbor is a stack: the **Minter** at the bottom mints and redeems the pegged and leveraged tokens;
+the **StabilityPools** on top hold pegged tokens and absorb liquidations; higher layers — the
+HarborYield token and its autocompounders — will sit on the StabilityPools (and this document will
+grow to cover them). Bottom-up, it describes **what each layer can now hold and do**, the code
+variables that carry those values, **what changed to get there**, and the limits the tests located.
 
 The headline guarantee is **no known silent failures**. Every operation is checked for the *exact
-result*, not merely for survival — the Minter by recomputing each mint/redeem independently and
-comparing, the StabilityPool by asserting the exact read-back on every deposit, withdraw and
-reward. A value that cannot be handled is refused with a *clean revert*, never
-accepted-then-mis-recorded. The silent-truncation defect class that motivated this work — funds
-accepted, then truncated in storage — is gone; none was found at any size.
+result*, not just survival — the Minter recomputes each mint/redeem independently, the
+StabilityPool asserts the exact read-back. A value it can't handle is refused with a *clean revert*,
+never mis-recorded. The silent-truncation defect that motivated this work — funds accepted, then
+truncated in storage — is gone, found nowhere at any size.
 
-Produced by `test/Minter_feeRange.t.sol` (the Minter) and `test/StabilityPoolEnvelope.t.sol` (the
-StabilityPool; per-run grid in `tmp/sp-constraints-<market>.csv`). Figures are token counts unless
-prefixed `\$`; dollar figures depend on the swept peg / collateral price. All ranges are written
-`low → high` in e-notation (`1e-9`, `1e12`).
+Produced by `test/Minter_feeRange.t.sol` (Minter) and `test/StabilityPoolEnvelope.t.sol`
+(StabilityPool; per-run grid in `tmp/sp-constraints-<market>.csv`). Figures are token counts unless
+given in dollars; dollar figures depend on the swept peg / collateral price. Ranges are written
+`low → high` in e-notation.
 
 ---
 
@@ -26,7 +24,7 @@ prefixed `\$`; dollar figures depend on the swept peg / collateral price. All ra
 ### 1.1 What it can do now
 
 Four operations — **mint pegged, redeem pegged, mint leveraged, redeem leveraged** — each driven
-across the full market envelope:
+across the full envelope:
 
 | Driven across | Range |
 |---|---|
@@ -37,29 +35,26 @@ across the full market envelope:
 | wrap rate | 1e-6 → 1e6 |
 | collateral ratio | every fee / discount / disallow band, **and depegged (CR < 1)** — collateral repriced to 1/2, 1/3, 1/4 of nominal |
 
-† The token floor is **split by operation**. Pegged sweeps from **1 wei** (`1e-18` tokens): mint
-stays accurate to the wei at every price, and redeem too — tolerating the dust floors where the
-input or returned collateral rounds to zero (`ZeroInputBalance` / `ReturnZeroAmount`). The higher
-`1e-2` floor is kept only where a *ratio* metric loses
-precision at dust: the **leveraged** fee-ratio and the **depeg** discount / pegged-price checks (a
-test-tolerance limit, not a minter error). The **collateral** amount already reaches dust (`1e-9`).
+† The token floor is **split by operation**. Pegged sweeps from **1 wei**: mint stays accurate to
+the wei at every price, and redeem too — tolerating the dust floors where the input or returned
+collateral rounds to zero (`ZeroInputBalance` / `ReturnZeroAmount`). The higher `1e-2` floor is
+kept only where a *ratio* metric loses precision at dust — the **leveraged** fee-ratio and the
+**depeg** discount / pegged-price checks (a test-tolerance limit, not a minter error). Collateral
+already reaches dust (1e-9).
 
-The Minter prices a mint **per collateral-ratio band** (each band a floored `Math.mulDiv` on
-balances updated as the mint proceeds), so a large mint traverses several bands; the test confirms
-the contract's per-band result matches the independent formula within a rounding bound derived per
-run from the division's granularity (not a blanket tolerance), and always in
-the protocol's favour (the contract mints ≤ the static-price formula). Wrapped-collateral
-**conservation is exact**: `Δuser + Δminter + Δfee + Δreserve == 0` to the wei, holding through
-depeg (CR < 1), where converting pegged back to wrapped accrues a bounded, analytically-derived
-rounding loss.
+The Minter prices a mint **per collateral-ratio band** (each a floored `Math.mulDiv` on balances
+updated as the mint proceeds), so a large mint traverses several bands; the test confirms each
+per-band result matches the independent formula within a per-run rounding bound (not a blanket
+one), always in the protocol's favour (mints ≤ the formula). Wrapped-collateral **conservation is
+exact**: `Δuser + Δminter + Δfee + Δreserve == 0` to the wei, holding through depeg (CR < 1), where
+converting pegged back to wrapped accrues a bounded, analytically-derived rounding loss.
 
 ### 1.2 How — and why it has no width limit of its own
 
-The Minter carries every value in **`uint256`** and does its arithmetic with full-precision
-`Math.mulDiv` (see §3, *make it work*), so it has **no field-width limit of its own**. Its role in
-the stack is to be the *source* of the token amounts the StabilityPool must then store — a cheap
-peg or cheap collateral makes it emit very large token counts. So the Minter is the reference
-context for the pool's storage widths, not a limit itself.
+Carrying every value in **`uint256`** with full-precision `Math.mulDiv` (§3, *make it work*), the
+Minter has **no field-width limit of its own** — it is the *source* of the amounts the StabilityPool
+must store (a cheap peg or collateral makes it emit huge counts), setting the context for the pool's
+widths, not a limit itself.
 
 ---
 
@@ -67,24 +62,23 @@ context for the pool's storage widths, not a limit itself.
 
 ### 2.1 What it can hold now, and the code that holds it
 
-The pool's five operations — **deposit, withdraw, harvest, rebalance, claim** — are each driven
-from a dust amount to past the supply cap. What they read and write is the **ledger**: the
-`TokenBalance` struct — `{ uint128 product, uint128 amount, uint40 updatedAt }` — used both for the
-pool total `totalAssetSupply` and for each depositor's `assetBalances[user]`:
+Its five operations — **deposit, withdraw, harvest, rebalance, claim** — are each driven from dust
+to past the supply cap. What they read and write is the **ledger**: the `TokenBalance` struct —
+`{ uint128 product, uint128 amount, uint40 updatedAt }` — used for the pool total `totalAssetSupply`
+and each depositor's `assetBalances[user]`:
 
 | Term | Code variable | Capacity (tokens) |
 |---|---|--:|
 | a deposit / balance | `assetBalances[user].amount` (uint128) | ~3e20 |
 | total supply | `totalAssetSupply.amount` (uint128) | ~3e20 |
-| the compounding loss factor | `TokenBalance.product` (uint128, a DecrementalFloatingPoint of exponent + magnitude) | dynamic range far beyond a plain uint128 |
+| the compounding loss factor | `TokenBalance.product` (uint128 DecrementalFloatingPoint: exponent + magnitude) | dynamic range far beyond a plain uint128 |
 | accrued reward per share | `tokenToExponentToIntegral[token][exponent]` (uint256, bucketed per exponent) | effectively unbounded |
 | a holder's claimable / claimed | `pending` / `claimed` (uint128) | ~3e20 |
-| the harvest stream | `RewardData_v2 { uint256 queued, uint128 rate, uint40 … }` | `rate`: ~6e11 collateral tokens / stream |
+| the harvest reward (over the reward period) | `RewardData_v2 { uint256 queued, uint128 rate, uint40 … }` | `rate`: ~6e11 collateral tokens per period |
 
-The uint128 ledger clears every tested peg, pool size and depositor count with ≥ `1e4`× headroom.
-The field is never the binding limit: the pool never grows past its **supply cap**
-`MAX_TOTAL_ASSET_SUPPLY = MIN_TOTAL_ASSET_SUPPLY × FACTOR_PRECISION` (a token count), which is
-smaller than the field and binds first.
+The uint128 ledger clears every tested peg, size and crowd with ≥ 1e4× headroom. The field never
+binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN_TOTAL_ASSET_SUPPLY
+× FACTOR_PRECISION` (a token count), which is smaller and binds first.
 
 ### 2.2 What was changed to get there (from → to)
 
@@ -99,32 +93,30 @@ smaller than the field and binds first.
 
 ### 2.3 The limits the tests located
 
-- **The harvest stream is the one limit near real life.** Its capacity is the `rate` field — a
-  token *count* (~`6e11` collateral tokens per stream), so its dollar capacity collapses when the
-  collateral is micro-priced: a `\$1e10` pool whose collateral trades below ~`\$2e-5` can accrue
-  more yield in one step than a single stream carries — no funds are at risk; the open follow-up is
-  whether a keeper recovers by harvesting smaller / more often. `rate`, `queued`
-  and two timestamps pack into one storage slot per reward token, so a widen is a contained
-  per-token migration (a few records per pool, never per-holder) if the corner turns out to matter.
-- **The mint floor** — at an expensive peg × cheap collateral the oracle price of
-  collateral-in-pegged rounds to zero (one collateral token is worth less than a wei of pegged):
-  the market cannot back a mint — a market-listing constraint, not a code defect.
-- **The supply cap erodes under devaluation (a dollar value, not a behaviour).** The cap is a
-  fixed token count; its dollar value is that count times the peg price. A market correctly
-  deployed with MIN worth ~`\$1` has a cap worth ~`\$1e18` — unreachable. But that ceiling erodes
-  if the peg later collapses: a devaluation factor `D` (hyperinflation of the tracked asset)
-  divides it down — Weimar-scale (`D = 1e12`) leaves ~`\$1e6`, Zimbabwe-scale (`D = 1e13`)
-  ~`\$1e5`. The cap's *behaviour* never changes (it binds at MAX tokens — `DepositAmountExceedsMaximum`);
-  only its dollar interpretation erodes. The StabilityPool never
-  reads the oracle, so this is peg-invariant in the ledger. The response is to **re-base MIN by
-  upgrade** (MIN is an implementation immutable — no storage migration); the deeper lever, if a
-  target hyperinflation makes the eroded cap bind unacceptably, is `FACTOR_PRECISION` itself, a
-  change that migrates only the per-token `lastAssetLossError`, not any holder entry.
-- **Per-peg-MIN markets all hold.** Five markets each deployed *correctly* at its scale — EUR
-  (`\$1`, MIN `1e18`), ETH (`\$5e3`, `2e14`), BTC (`\$1e5`, `1e13`), plus invented extremes at
-  `\$1e9` (MIN `1e9`, the dust-precision floor) and `\$1e-9` (MIN `1e27`, hyperinflation-deployed)
-  — each re-run the whole suite and hold. The field-width corner tests skip where a small MIN puts
-  the supply cap below the field width (the cap binds first).
+- **The harvest is the one limit near real life.** A harvest is paid out over a fixed reward period
+  at a constant `rate`, so the `rate` field caps what one period can carry — a token *count* (~6e11
+  collateral tokens), whose dollar capacity collapses at micro-priced collateral: a \$1e10 pool with
+  collateral below ~\$2e-5 can accrue more yield in one step than a period can pay out — no funds at
+  risk; the open follow-up is whether a keeper recovers by harvesting smaller / more often. `rate`,
+  `queued` and two timestamps share one storage slot per reward token, so a widen is a contained
+  per-token migration (a few records per pool, never per-holder) if it matters.
+- **The mint floor** — at an expensive peg × cheap collateral, the price of collateral-in-pegged
+  rounds to zero (a collateral token worth < a wei of pegged): the market can't back a mint — a
+  listing constraint, not a defect.
+- **The supply cap erodes under devaluation (a dollar value, not a behaviour).** The cap is a fixed
+  token count; its dollar value is that count × the peg price. Deployed with MIN worth ~\$1, the cap
+  is worth ~\$1e18 — unreachable — but that ceiling erodes if the peg later collapses: a devaluation
+  factor `D` divides it down (Weimar `D = 1e12` → ~\$1e6, Zimbabwe `D = 1e13` → ~\$1e5). The cap's
+  *behaviour* never changes (it binds at MAX tokens — `DepositAmountExceedsMaximum`); only its dollar
+  meaning erodes. The StabilityPool never reads the oracle, so this is peg-invariant in the ledger —
+  a doc note, not a test. The response is to **re-base MIN by upgrade** (MIN is an implementation
+  immutable — no storage migration); the deeper lever, if that eroded cap binds unacceptably, is
+  `FACTOR_PRECISION`, which migrates only the per-token `lastAssetLossError`.
+- **Per-peg-MIN markets all hold.** Five markets, each deployed *correctly* at its scale — EUR (\$1,
+  MIN `1e18`), ETH (\$5e3, `2e14`), BTC (\$1e5, `1e13`), plus invented extremes at \$1e9 (MIN `1e9`,
+  the dust-precision floor) and \$1e-9 (MIN `1e27`) — re-run the whole suite and hold. The
+  field-width corners skip where a small MIN puts the cap below the field width (the cap binds
+  first).
 
 ---
 
@@ -138,11 +130,11 @@ Two families, under the one guarantee — **no known silent failures**.
   `rate` uint80→uint128, `queued` uint96→uint256.
 - **Algebra — full-precision intermediates / re-ordering** (`Math.mulDiv`, divide-before-multiply):
   the value never needs a wide field. The Minter's per-band pricing is built on this.
-- **Range-extending representation (floating point)** — encode more dynamic range in the *same*
-  bits than a plain integer allows: `product` is a DecrementalFloatingPoint (exponent + magnitude
-  in one uint128); the reward integral is bucketed per exponent so each bucket stays bounded.
-- **Deferral / partial processing** — don't require the whole value to fit at once: the harvest
-  leaves the excess beyond the stream's capacity harvestable for the next call.
+- **Range-extending representation (floating point)** — more dynamic range in the *same* bits than a
+  plain integer: `product` is a DecrementalFloatingPoint (exponent + magnitude in one uint128); the
+  reward integral is bucketed per exponent, so each bucket stays bounded.
+- **Deferral / partial processing** — don't require the whole value at once: the harvest leaves the
+  excess beyond what one period can pay out harvestable for the next call.
 - **Structural invariants** — a floor / cap so the dangerous value never arises:
   `MIN_TOTAL_ASSET_SUPPLY` (the reward-divisor floor) and `MAX = MIN × FACTOR_PRECISION` (keeps the
   loss factor > 0).
@@ -150,11 +142,11 @@ Two families, under the one guarantee — **no known silent failures**.
 ### Fail safely — refuse loudly, never corrupt
 
 - **Internal — `SafeCast`.** A checked narrowing cast reverts on overflow instead of truncating —
-  the mechanism that closed the old silent-truncation class.
+  what closed the old silent-truncation class.
 - **On input — bounds at the entry point.** Reject out-of-range input early with a named error:
-  `MIN > 0`, the `DepositAmountExceedsMaximum` supply cap, the ≤ 1-year withdrawal bound.
-- **At deployment / governance — constrain the envelope** where the limit is economic: don't list
-  a market pairing an ultra-valuable peg with ultra-cheap collateral; re-base MIN by upgrade under
+  `MIN > 0`, the `DepositAmountExceedsMaximum` cap, the ≤ 1-year withdrawal bound.
+- **At deployment / governance — constrain the envelope** where the limit is economic: don't list a
+  market pairing an ultra-valuable peg with ultra-cheap collateral; re-base MIN by upgrade under
   hyperinflation.
 
 The first family extends what the code *can* handle; the second guarantees that where it still
@@ -164,15 +156,13 @@ can't, it fails loudly.
 
 ## 4. Limits worth enforcing at the user-facing edge (documented, not implemented)
 
-Each located limit today fails *deep* in the code with a low-level revert. A friendlier system
-would reject the out-of-range input at the user-facing function — or, better, in the front-end,
-given contract bytecode limits. **None of these is implemented**; the contracts already fail safe,
-and the value here is turning a deep, low-level revert into an early, legible rejection. This
-is the list a front-end (or a future guard) should cover:
+Each limit fails *deep*, with a low-level revert. A friendlier system would reject the input at the
+user-facing function — or the front-end, given bytecode limits. **None is implemented**; the
+contracts already fail safe — the value is turning a deep revert into an early, legible one:
 
 | Function | Limit | Today's failure | Where to guard |
 |---|---|---|---|
-| `deposit` | amount past `MAX_TOTAL_ASSET_SUPPLY` | `DepositAmountExceedsMaximum` (already a named error) | front-end: warn as the pool nears the cap |
+| `deposit` | amount past `MAX_TOTAL_ASSET_SUPPLY` | `DepositAmountExceedsMaximum` (already named) | front-end: warn as the pool nears the cap |
 | mint (Minter) | expensive-peg × cheap-collateral — price underflows to zero | divide-by-zero / mint reverts | market-listing: don't pair an ultra-valuable peg with ultra-cheap collateral |
-| `harvest` (keeper) | reward past the stream `rate` field at micro-priced collateral | reverts; no funds at risk | keeper: harvest smaller / more often; or a listing bound on collateral price |
+| `harvest` (keeper) | reward past the `rate` field (one period's payout) at micro-priced collateral | reverts; no funds at risk | keeper: harvest smaller / more often; or a listing bound on collateral price |
 | (governance) | a market whose peg has hyperinflated — eroded supply-cap dollar value | deposits wall early in dollar terms | re-base MIN by upgrade (not a user action) |
