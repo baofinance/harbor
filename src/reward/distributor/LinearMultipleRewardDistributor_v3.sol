@@ -161,10 +161,14 @@ abstract contract LinearMultipleRewardDistributor_v3 is
             return type(uint256).max; // immediate distribution: there is no linear stream to overflow
         }
         LinearReward_v2.RewardData_v2 storage data = _getRewardData(token);
-        // committed = the reward already parked in `queued` plus the current stream re-folded on a restream; the
-        // `rate * period` term upper-bounds that re-fold (an active period's window is at most one period), so the bound
-        // stays safe without reconstructing `increase`'s branches.
-        uint256 committed = data.queued + uint256(data.rate) * REWARD_PERIOD_LENGTH;
+        // committed = the reward not yet distributed: whatever is parked in `queued`, plus - only while the period is
+        // still active - the current stream, upper-bounded by `rate * period` (the window is at most one period, which
+        // also bounds an in-period restream's re-fold without reconstructing `increase`'s branches). Once the period has
+        // ended (`block.timestamp >= finishAt`) the stream is fully distributed and `increase` restreams from a clean
+        // slate, so only `queued` stays committed and the capacity frees. That per-period freeing is what drains a
+        // deferred reward: the harvest caps its deposit at this value, so each period's fresh capacity moves another chunk.
+        uint256 committed = data.queued +
+            (block.timestamp >= data.finishAt ? 0 : uint256(data.rate) * REWARD_PERIOD_LENGTH);
         uint256 cap = _depositRewardCap();
         return committed >= cap ? 0 : cap - committed;
     }

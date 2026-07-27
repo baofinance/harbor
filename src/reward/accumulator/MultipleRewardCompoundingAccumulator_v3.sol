@@ -6,7 +6,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {IClaimReward} from "@harbor/interfaces/IClaimReward.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
@@ -121,7 +120,6 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
 {
     using SafeERC20 for IERC20;
     using DecrementalFloatingPoint_v2 for uint128;
-    using SafeCast for uint256;
 
     /*************
      * Constants *
@@ -162,13 +160,36 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         RewardSnapshotNOTUSED checkpoint;
     }
 
-    /// @dev V2: widened integral from uint192 to uint256. Occupies 3 slots.
+    /// @dev V2: widened integral from uint192 to uint256. Occupies 3 slots. Now the SOURCE the V3 upgrade copies from -
+    ///      no new writes go here (renamed to `userRewardSnapshotV2NOTUSED` in storage).
     struct UserRewardSnapshotV2 {
         // The claim data for the user.
         ClaimData rewards;
         // The timestamp when the snapshot is updated. Non-zero indicates V2 data is populated.
         uint64 timestamp;
         // The reward integral until now (widened from uint192).
+        uint256 integral;
+    }
+
+    /// @dev A holder's accrued reward has no cap: the whole-pool reward can concentrate on one holder as a count
+    ///      `poolValueUSD / wrappedUSD`, which at micro-priced collateral exceeds uint128 - hence uint256.
+    /// @custom:bao-retyped-from pending uint128
+    /// @custom:bao-retyped-from claimed uint128
+    struct ClaimDataV3 {
+        // The number of pending rewards.
+        uint256 pending;
+        // The number of claimed rewards.
+        uint256 claimed;
+    }
+
+    /// @dev V3: widens the claim data to uint256 (`ClaimDataV3`). Occupies 4 slots. All new writes go here; production
+    ///      V2 data is copied in on upgrade (from `userRewardSnapshotV2NOTUSED`).
+    struct UserRewardSnapshotV3 {
+        // The claim data for the user (uint256 pending/claimed).
+        ClaimDataV3 rewards;
+        // The timestamp when the snapshot is updated. Non-zero indicates V3 data is populated.
+        uint64 timestamp;
+        // The reward integral until now.
         uint256 integral;
     }
 
@@ -179,7 +200,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /// @custom:storage-location erc7201:bao.storage.MultipleRewardCompoundingAccumulator
     /// @custom:bao-renamed-from rewardReceiverNOTUSED rewardReceiver
     /// @custom:bao-renamed-from userRewardSnapshotNOTUSED userRewardSnapshot
-    /// @custom:bao-renamed-from userRewardSnapshot userRewardSnapshotV2
+    /// @custom:bao-renamed-from userRewardSnapshotV2NOTUSED userRewardSnapshot
     struct MultipleRewardCompoundingAccumulatorStorage {
         /// @inheritdoc IMultipleRewardAccumulator_v3
         mapping(address => address) rewardReceiverNOTUSED;
@@ -193,9 +214,13 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         /// @notice Mapping from user address to reward token address to user reward snapshot.
         /// @dev Not used (and renamed); kept to retain the storage space layout.
         mapping(address => mapping(address => UserRewardSnapshotNOTUSED)) userRewardSnapshotNOTUSED;
-        /// @notice V2: Mapping from user address to reward token address to user reward snapshot.
-        /// @dev Uses widened uint256 integral. All new writes go here.
-        mapping(address => mapping(address => UserRewardSnapshotV2)) userRewardSnapshot;
+        /// @notice V2: Mapping from user address to reward token address to user reward snapshot (uint128 ClaimData).
+        /// @dev Renamed and kept as the SOURCE the V3 upgrade copies from; NO new writes go here.
+        mapping(address => mapping(address => UserRewardSnapshotV2)) userRewardSnapshotV2NOTUSED;
+        /// @notice V3: Mapping from user address to reward token address to user reward snapshot (uint256 ClaimData).
+        /// @dev Widened claim data so an uncapped reward count cannot overflow the field. All new writes go here;
+        ///      production V2 data is copied in on upgrade (deployment scripting).
+        mapping(address => mapping(address => UserRewardSnapshotV3)) userRewardSnapshot;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.MultipleRewardCompoundingAccumulator")) - 1)) & ~bytes32(uint256(0xff))'
@@ -383,9 +408,9 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         bool includeTemporalPending
     ) internal view virtual returns (uint256 claimable_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        UserRewardSnapshotV2 storage snapshot = $.userRewardSnapshot[account][token];
+        UserRewardSnapshotV3 storage snapshot = $.userRewardSnapshot[account][token];
 
-        claimable_ = uint256(snapshot.rewards.pending);
+        claimable_ = snapshot.rewards.pending;
         (uint128 userProd, uint256 shares) = _getUserPoolShare(account);
 
         if (shares > 0) {
@@ -447,8 +472,9 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
 
             for (uint256 i = 0; i < totalLength; i++) {
                 address token = (i < activeLength) ? activeTokens[i] : historicalTokens[i - activeLength];
-                UserRewardSnapshotV2 storage snapshot = $.userRewardSnapshot[account][token];
-                snapshot.rewards.pending = _claimable(account, token, false).toUint128();
+                UserRewardSnapshotV3 storage snapshot = $.userRewardSnapshot[account][token];
+                // uint128 is an unlikely reachable economic bound (≈3.4e20 reward tokens, ~10^7 years to reach)
+                snapshot.rewards.pending = _claimable(account, token, false);
                 snapshot.integral = $.tokenToExponentToIntegral[token][exponent];
                 snapshot.timestamp = uint64(block.timestamp);
             }
@@ -465,7 +491,7 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     }
 
     function _claimOneToken(address account, address token, uint256 cap) private returns (uint256 amount) {
-        ClaimData storage rewards = _getMultipleRewardCompoundingAccumulatorStorage()
+        ClaimDataV3 storage rewards = _getMultipleRewardCompoundingAccumulatorStorage()
             .userRewardSnapshot[account][token]
             .rewards;
         uint256 pending = rewards.pending;
@@ -474,10 +500,8 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
             emit Claim(account, token, account, amount);
             IERC20(token).safeTransfer(account, amount);
         }
-        rewards.claimed += amount.toUint128();
-        // pending - amount <= pending <= uint128 max (pending is the uint128 field read above, amount <= pending),
-        // so this never truncates.
-        rewards.pending = uint128(pending - amount);
+        rewards.claimed += amount;
+        rewards.pending = pending - amount;
     }
 
     /// @inheritdoc LinearMultipleRewardDistributor_v3

@@ -73,8 +73,8 @@ and each depositor's `assetBalances[user]`:
 | total supply | `totalAssetSupply.amount` (uint128) | ~3e20 |
 | the compounding loss factor | `TokenBalance.product` (uint128 DecrementalFloatingPoint: exponent + magnitude) | dynamic range far beyond a plain uint128 |
 | accrued reward per share | `tokenToExponentToIntegral[token][exponent]` (uint256, bucketed per exponent) | effectively unbounded |
-| a holder's claimable / claimed | `pending` / `claimed` (uint128) | ~3e20 |
-| the harvest reward (over the reward period) | `RewardData_v2 { uint256 queued, uint128 rate, uint40 … }` | `rate`: ~6e11 collateral tokens per period |
+| a holder's claimable / claimed | `pending` / `claimed` (uint256) | effectively unbounded (uncapped accrual) |
+| a harvest deposit (paid out over the reward period) | `RewardData_v2 { uint256 queued, uint128 rate, uint40 … }` | `maxDepositReward` per period ≈ 1.16e17 × MIN (integral headroom) |
 
 The uint128 ledger clears every tested peg, size and crowd with ≥ 1e4× headroom. The field never
 binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN_TOTAL_ASSET_SUPPLY
@@ -88,18 +88,25 @@ binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN
 | reward `integral` | uint192, raw cast (~`6e57`) | uint256 | widening |
 | harvest `rate` | uint80 | uint128 | widening |
 | harvest `queued` | uint96 — capped the empty-pool re-queue | uint256 — full width | widening |
+| reward `pending` / `claimed` (a holder's accrual) | uint128 — reverted a claim past ~`3e20` | uint256 | widening |
 | the loss factor `product` | (already) uint128 DecrementalFloatingPoint | unchanged | representation |
 | deploy config | no floor / cap / delay bounds | `MIN > 0`; `MAX = MIN × F` cap; withdrawal delay & window ≤ 1 year | fail-safe on input |
 
 ### 2.3 The limits the tests located
 
-- **The harvest is the one limit near real life.** A harvest is paid out over a fixed reward period
-  at a constant `rate`, so the `rate` field caps what one period can carry — a token *count* (~6e11
-  collateral tokens), whose dollar capacity collapses at micro-priced collateral: a \$1e10 pool with
-  collateral below ~\$2e-5 can accrue more yield in one step than a period can pay out — no funds at
-  risk; the open follow-up is whether a keeper recovers by harvesting smaller / more often. `rate`,
-  `queued` and two timestamps share one storage slot per reward token, so a widen is a contained
-  per-token migration (a few records per pool, never per-holder) if it matters.
+- **The harvest defers past a per-period cap, then recovers across periods.** A deposit is capped at
+  `maxDepositReward` — the reward integral's headroom ≈ 1.16e17 × MIN (the `rate` field is wider and no longer
+  binds). Yield past the cap is left **harvestable**; once the period distributes, capacity frees and the next
+  harvest drains another chunk — recovery is by **waiting**, not by harvesting more often. Nothing is at risk
+  (harvestable falls by exactly what each harvest sweeps). Reaching the cap needs an extreme corner (a \$1e10
+  pool taking a min→max wrap-rate jump at collateral below ~\$2e-5), far from normal operation; raising it is a
+  contained per-token migration, never per-holder.
+- **A holder's reward accrual is uncapped — held in uint256.** Unlike the ledger `amount` (capped at `MAX`), a
+  holder's `pending` / `claimed` has no cap: the whole-pool reward can concentrate on one holder as a count
+  `poolValueUSD / wrappedUSD`. The declared envelope stops the collateral axis at \$1e-6 (overflow threshold
+  ~\$340B — unreachable), but a hyperinflated *collateral* (< \$1e-6) brings it into reach — ~\$15M of reward at
+  ~\$1e-9 collateral overflows a uint128 field — so `pending` / `claimed` are uint256; the collateral floor
+  stays the listing lever.
 - **The mint floor** — at an expensive peg × cheap collateral, the price of collateral-in-pegged
   rounds to zero (a collateral token worth < a wei of pegged): the market can't back a mint — a
   listing constraint, not a defect.
@@ -127,14 +134,14 @@ Two families, under the one guarantee — **no known silent failures**.
 ### Make it work — produce and store the correct value
 
 - **Storage widening** — a bigger field: `amount` uint104→uint128, `integral` uint192→uint256,
-  `rate` uint80→uint128, `queued` uint96→uint256.
+  `rate` uint80→uint128, `queued` uint96→uint256, reward `pending`/`claimed` uint128→uint256.
 - **Algebra — full-precision intermediates / re-ordering** (`Math.mulDiv`, divide-before-multiply):
   the value never needs a wide field. The Minter's per-band pricing is built on this.
 - **Range-extending representation (floating point)** — more dynamic range in the *same* bits than a
   plain integer: `product` is a DecrementalFloatingPoint (exponent + magnitude in one uint128); the
   reward integral is bucketed per exponent, so each bucket stays bounded.
-- **Deferral / partial processing** — don't require the whole value at once: the harvest leaves the
-  excess beyond what one period can pay out harvestable for the next call.
+- **Deferral / partial processing** — don't require the whole value at once: a harvest deposits up to
+  one period's `maxDepositReward` and leaves the excess harvestable, drained across subsequent periods.
 - **Structural invariants** — a floor / cap so the dangerous value never arises:
   `MIN_TOTAL_ASSET_SUPPLY` (the reward-divisor floor) and `MAX = MIN × FACTOR_PRECISION` (keeps the
   loss factor > 0).
@@ -164,5 +171,7 @@ contracts already fail safe — the value is turning a deep revert into an early
 |---|---|---|---|
 | `deposit` | amount past `MAX_TOTAL_ASSET_SUPPLY` | `DepositAmountExceedsMaximum` (already named) | front-end: warn as the pool nears the cap |
 | mint (Minter) | expensive-peg × cheap-collateral — price underflows to zero | divide-by-zero / mint reverts | market-listing: don't pair an ultra-valuable peg with ultra-cheap collateral |
-| `harvest` (keeper) | reward past the `rate` field (one period's payout) at micro-priced collateral | reverts; no funds at risk | keeper: harvest smaller / more often; or a listing bound on collateral price |
 | (governance) | a market whose peg has hyperinflated — eroded supply-cap dollar value | deposits wall early in dollar terms | re-base MIN by upgrade (not a user action) |
+
+(The harvest is no longer here: past its per-period `maxDepositReward` it defers the excess and drains it
+across subsequent periods — §2.3 — so there is no deep failure to lift to the edge.)

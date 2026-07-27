@@ -73,9 +73,9 @@ contract MockMultipleRewardCompoundingAccumulator_v3 is Initializable, MultipleR
     function userRewardSnapshot(
         address account,
         address token
-    ) public view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_) {
+    ) public view returns (uint64 timestamp, uint256 integral, uint256 pending, uint256 claimed_) {
         MultipleRewardCompoundingAccumulatorStorage storage $ = _getMultipleRewardCompoundingAccumulatorStorage();
-        UserRewardSnapshotV2 storage snapshot = $.userRewardSnapshot[account][token];
+        UserRewardSnapshotV3 storage snapshot = $.userRewardSnapshot[account][token];
         timestamp = snapshot.timestamp;
         integral = snapshot.integral;
         pending = snapshot.rewards.pending;

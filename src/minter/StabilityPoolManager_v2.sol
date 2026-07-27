@@ -458,6 +458,7 @@ contract StabilityPoolManager_v2 is
     /// only sit in `queued` - so it is skipped (left unharvested in the minter to accumulate) rather than transferred as
     /// dust. A share above the stream's remaining capacity is capped so `depositReward` cannot overflow the rate field,
     /// the excess likewise left unharvested. Returns the amount to actually deposit into `pool`.
+    // TODO: remove this function
     function _cappedPoolShare(uint256 share, address pool) private view returns (uint256) {
         if (share < IMultipleRewardDistributor_v3(pool).REWARD_PERIOD_LENGTH()) {
             return 0; // dust: below one period the stream rate floors to zero, so avoid the pointless transfer
@@ -476,43 +477,58 @@ contract StabilityPoolManager_v2 is
             revert NoHarvestable();
         }
 
-        // Split the harvest into its parts up front, each floored from its ratio. The pools' shares are then capped at
-        // each stream's remaining capacity, so the reward-stream write can never overflow - the uncapped excess is left
-        // unharvested in the minter, still counted as harvestable, for the next call (the keeper drains it in chunks).
-        // Sweeping only the SUM of the parts - never the whole harvestable - means the flooring/deferred remainder is
-        // never moved, so there are no dust transfers to the pools.
+        // The pools take their FLOORED residual share (residual = harvestable - bounty - cut on the full harvestable),
+        // each capped at its reward stream's remaining capacity; the uncapped excess is left unharvested in the minter,
+        // still counted as harvestable, for the next call (the keeper drains it in chunks across periods). Only when a
+        // pool DEFERS - its capped share falls below its full entitlement - do the keeper bounty and protocol cut scale
+        // down to what was actually distributed, so a keeper/treasury can never skim a fee on funds the pools never
+        // receive; otherwise they stay the exact ratio slices of the full harvestable. Sweeping only the SUM of the
+        // parts means the deferred/flooring remainder never moves, so there are no dust transfers to the pools.
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 bountyAmount = (harvestableAmount * $.harvestBountyRatio) / 1 ether;
-        if (bountyAmount < minBounty) {
-            revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
-        }
-        uint256 cutAmount = (harvestableAmount * $.harvestCutRatio) / 1 ether;
-        uint256 residual = harvestableAmount - bountyAmount - cutAmount; // the pools' share (bounty + cut <= 1 ether)
-
-        (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
 
         uint256 toCollateral;
         uint256 toLeveraged;
         uint256 toTreasury;
-        if (totalPoolHolding > 0) {
-            // both pools take their FLOORED share (neither absorbs the split remainder), each capped at its stream's
-            // remaining capacity
-            toCollateral = _cappedPoolShare(
-                Math.mulDiv(residual, poolHoldingCollateral, totalPoolHolding),
-                _STABILITY_POOL_COLLATERAL
-            );
-            toLeveraged = _cappedPoolShare(
-                Math.mulDiv(residual, poolHoldingLeveraged, totalPoolHolding),
-                _STABILITY_POOL_LEVERAGED
-            );
-        } else {
-            // no pools have a balance: the residual goes to the treasury (no reward stream, so nothing to cap)
-            toTreasury = residual;
+        bool deferred; // a pool capped its share below its full residual entitlement - the skim must cap in lockstep
+        {
+            uint256 residual = harvestableAmount -
+                (harvestableAmount * $.harvestBountyRatio) / 1 ether -
+                (harvestableAmount * $.harvestCutRatio) / 1 ether;
+            (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
+            if (totalPoolHolding > 0) {
+                // TODO: does this share the value across the pools fairly. I.e. one pool being capped means the other pool gets more
+                //
+                uint256 uncapped = Math.mulDiv(residual, poolHoldingCollateral, totalPoolHolding);
+                toCollateral = _cappedPoolShare(uncapped, _STABILITY_POOL_COLLATERAL);
+                deferred = toCollateral < uncapped;
+                uncapped = Math.mulDiv(residual, poolHoldingLeveraged, totalPoolHolding);
+                toLeveraged = _cappedPoolShare(uncapped, _STABILITY_POOL_LEVERAGED);
+                deferred = deferred || toLeveraged < uncapped;
+            } else {
+                // no pools have a balance: the residual goes to the treasury (no reward stream, so nothing to cap)
+                toTreasury = residual;
+            }
         }
+
+        // bounty and cut are the exact ratio slices of the full harvestable, except when a pool deferred: then they scale
+        // to what was actually distributed (`processed = distributed / residualRatio`) so the skim caps in lockstep
+        uint256 residualRatio = 1 ether - $.harvestBountyRatio - $.harvestCutRatio;
+        uint256 distributed = toCollateral + toLeveraged + toTreasury;
+        // residualRatio == 0 (full cut) sends nothing to the pools, so there is no deferral to scale for and the divide
+        // would be by zero - the skim is then the full harvestable
+        // TODO: ensure that the maxReward cap on one pool is equally applied to the other
+        uint256 processed = (deferred && residualRatio > 0)
+            ? Math.mulDiv(distributed, 1 ether, residualRatio)
+            : harvestableAmount;
+        uint256 bountyAmount = (processed * $.harvestBountyRatio) / 1 ether;
+        if (bountyAmount < minBounty) {
+            revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
+        }
+        uint256 cutAmount = (processed * $.harvestCutRatio) / 1 ether;
 
         // sweep exactly what is distributed; anything not swept (deferred pool excess + the split flooring) stays in the
         // minter as harvestable
-        harvested = bountyAmount + cutAmount + toCollateral + toLeveraged + toTreasury;
+        harvested = bountyAmount + cutAmount + distributed;
         ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvested, address(this));
 
         if (bountyAmount > 0) {

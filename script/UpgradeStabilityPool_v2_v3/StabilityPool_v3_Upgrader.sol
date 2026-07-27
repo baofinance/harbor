@@ -9,6 +9,7 @@ import {HarborFixedOwnable} from "@bao/HarborFixedOwnable.sol";
 import {LinearReward} from "@harbor/reward/distributor/LinearReward.sol";
 import {LinearReward_v2} from "@harbor/reward/distributor/LinearReward_v2.sol";
 import {LinearMultipleRewardDistributor_v3} from "@harbor/reward/distributor/LinearMultipleRewardDistributor_v3.sol";
+import {MultipleRewardCompoundingAccumulator_v3} from "@harbor/reward/accumulator/MultipleRewardCompoundingAccumulator_v3.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 
 /// @title StabilityPool_v3_Upgrader
@@ -55,6 +56,11 @@ contract StabilityPool_v3_Upgrader is UUPSUpgradeable, HarborFixedOwnable {
     bytes32 private constant _STABILITYPOOL_STORAGE =
         0xcb62d703974340239a82baeadff6ad7af3673eb85d9779bde2587fc9e0e3e400;
 
+    /// @dev The accumulator's ERC-7201 slot, reached through the canonical `MultipleRewardCompoundingAccumulatorStorage`
+    ///      type below (same auto-verified-slot guarantee as above). Holds the per-holder reward snapshots.
+    bytes32 private constant _MULTIPLEREWARDCOMPOUNDINGACCUMULATOR_STORAGE =
+        0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
+
     /// @param owner_ The account authorised to run the migration - the same account that owns the proxy (the Harbor
     ///        multisig in production).
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -62,12 +68,21 @@ contract StabilityPool_v3_Upgrader is UUPSUpgradeable, HarborFixedOwnable {
         _disableInitializers();
     }
 
-    /// @notice Widen-copy the reward streams, write the reward-divisor gap, then upgrade the proxy to StabilityPool_v3.
+    /// @notice Widen-copy the reward streams and per-holder reward snapshots, write the reward-divisor gap, then upgrade
+    ///         the proxy to StabilityPool_v3.
     /// @param rewardDivisorGap The gap to seed: `supply - Sum(balanceOf)`, computed off-chain from the complete frozen
     ///        holder list under realistic bounds so the v3 divisor (`supply - gap`) tracks Sum(balanceOf) from the
     ///        first block. `0` when supply already equals the summed balances.
+    /// @param holders The complete frozen holder list (the same one the gap is computed from) whose per-token reward
+    ///        snapshots must be widen-copied into the v3 mapping. MUST be complete: a holder omitted here reads an empty
+    ///        v3 snapshot after the upgrade - losing their pending/claimed and over-crediting future accrual from
+    ///        integral 0. Runs in one transaction, so the list must fit the block gas limit.
     /// @param stabilityPoolV3 The real StabilityPool_v3 implementation to reinstate once migrated.
-    function migrateAndUpgrade(int256 rewardDivisorGap, address stabilityPoolV3) external onlyOwner {
+    function migrateAndUpgrade(
+        int256 rewardDivisorGap,
+        address[] calldata holders,
+        address stabilityPoolV3
+    ) external onlyOwner {
         LinearMultipleRewardDistributor_v3.LinearMultipleRewardDistributorStorage storage $reward = _rewardStorage();
         address[] memory tokens = $reward.activeRewardTokens.values();
         for (uint256 i = 0; i < tokens.length; ++i) {
@@ -78,6 +93,29 @@ contract StabilityPool_v3_Upgrader is UUPSUpgradeable, HarborFixedOwnable {
                 lastUpdate: legacy.lastUpdate,
                 finishAt: legacy.finishAt
             });
+        }
+
+        // widen-copy each holder's per-token reward snapshot from the v2 (uint128 ClaimData) mapping into the v3
+        // (uint256 ClaimData) mapping. The v3 claim-field widen relocated the snapshot to a fresh slot, so a plain
+        // upgrade would read the empty v3 mapping and drop every holder's pending/claimed AND their checkpoint integral
+        // (over-crediting future accrual from integral 0). `activeRewardTokens` is the COMPLETE token set here - the pool
+        // has never unregistered a reward token - so no holder's pending is on a token this loop skips.
+        MultipleRewardCompoundingAccumulator_v3.MultipleRewardCompoundingAccumulatorStorage
+            storage $acc = _accumulatorStorage();
+        for (uint256 h = 0; h < holders.length; ++h) {
+            for (uint256 i = 0; i < tokens.length; ++i) {
+                MultipleRewardCompoundingAccumulator_v3.UserRewardSnapshotV2 storage source = $acc
+                    .userRewardSnapshotV2NOTUSED[holders[h]][tokens[i]];
+                $acc.userRewardSnapshot[holders[h]][tokens[i]] = MultipleRewardCompoundingAccumulator_v3
+                    .UserRewardSnapshotV3({
+                        rewards: MultipleRewardCompoundingAccumulator_v3.ClaimDataV3({
+                            pending: source.rewards.pending,
+                            claimed: source.rewards.claimed
+                        }),
+                        timestamp: source.timestamp,
+                        integral: source.integral
+                    });
+            }
         }
 
         _stabilityPoolStorage().rewardDivisorGap = rewardDivisorGap;
@@ -97,6 +135,18 @@ contract StabilityPool_v3_Upgrader is UUPSUpgradeable, HarborFixedOwnable {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := _LINEARMULTIPLEREWARDDISTRIBUTOR_STORAGE
+        }
+    }
+
+    /// @dev The accumulator's namespaced storage, referenced through its canonical struct type at its fixed slot.
+    function _accumulatorStorage()
+        private
+        pure
+        returns (MultipleRewardCompoundingAccumulator_v3.MultipleRewardCompoundingAccumulatorStorage storage $)
+    {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            $.slot := _MULTIPLEREWARDCOMPOUNDINGACCUMULATOR_STORAGE
         }
     }
 

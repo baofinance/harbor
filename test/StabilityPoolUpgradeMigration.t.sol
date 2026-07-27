@@ -119,8 +119,11 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             )
         );
         int256 gap = _ledgerGap();
+        address[] memory holders = new address[](2);
+        holders[0] = user1;
+        holders[1] = user2;
         address upgraderImpl = address(new StabilityPool_v3_Upgrader(owner));
-        bytes memory initData = abi.encodeCall(StabilityPool_v3_Upgrader.migrateAndUpgrade, (gap, v3Impl));
+        bytes memory initData = abi.encodeCall(StabilityPool_v3_Upgrader.migrateAndUpgrade, (gap, holders, v3Impl));
 
         vm.startPrank(owner);
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(upgraderImpl, initData);
