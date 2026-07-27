@@ -32,11 +32,10 @@ abstract contract StabilityPoolManager is HarborDeployer {
         DeploymentTypes.State memory stateData,
         string memory spmKey,
         address minter,
-        address treasury,
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
     ) internal virtual returns (address impl) {
-        impl = address(new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged));
+        impl = address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged));
         console.log("        Impl:  %s", impl);
 
         _recordImplementation(
@@ -53,7 +52,6 @@ abstract contract StabilityPoolManager is HarborDeployer {
         DeploymentTypes.State memory stateData,
         string memory marketKey,
         address minter,
-        address treasury,
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
     ) internal virtual returns (address proxy) {
@@ -64,14 +62,13 @@ abstract contract StabilityPoolManager is HarborDeployer {
             stateData,
             spmKey,
             minter,
-            treasury,
             stabilityPoolCollateral,
             stabilityPoolLeveraged
         );
 
-        bytes memory initData = abi.encodeCall(StabilityPoolManager_v2.initialize, (owner()));
+        bytes memory initData = abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()));
 
-        proxy = _deployProxyViaStubAndRecord(stateData, spmKey, impl, initData);
+        proxy = _deployProxyAndRecord(stateData, spmKey, impl, initData);
     }
 
     /// @notice Configure a deployed StabilityPoolManager with its operational parameters.

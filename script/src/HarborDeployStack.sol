@@ -219,7 +219,7 @@ abstract contract HarborDeployStack is
         address spCollateral = _predictAddress(SaltString.key(marketKey, "stabilityPoolCollateral"));
         address spLeveraged = _predictAddress(SaltString.key(marketKey, "stabilityPoolLeveraged"));
 
-        deployStabilityPoolManager(stateData, marketKey, minter, treasury(), spCollateral, spLeveraged);
+        deployStabilityPoolManager(stateData, marketKey, minter, spCollateral, spLeveraged);
     }
 
     function _deployGenesis(

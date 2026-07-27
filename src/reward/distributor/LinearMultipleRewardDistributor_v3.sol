@@ -167,8 +167,11 @@ abstract contract LinearMultipleRewardDistributor_v3 is
         // ended (`block.timestamp >= finishAt`) the stream is fully distributed and `increase` restreams from a clean
         // slate, so only `queued` stays committed and the capacity frees. That per-period freeing is what drains a
         // deferred reward: the harvest caps its deposit at this value, so each period's fresh capacity moves another chunk.
-        uint256 committed = data.queued +
-            (block.timestamp >= data.finishAt ? 0 : uint256(data.rate) * REWARD_PERIOD_LENGTH);
+        uint256 committed = data.queued;
+        // slither-disable-next-line timestamp
+        if (block.timestamp < data.finishAt) {
+            committed += uint256(data.rate) * REWARD_PERIOD_LENGTH;
+        }
         uint256 cap = _depositRewardCap();
         return committed >= cap ? 0 : cap - committed;
     }

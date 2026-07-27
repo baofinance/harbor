@@ -1,4 +1,4 @@
-# The numerical envelope: what the stack can hold, and how
+# The numerical envelope: what the Harbor stack can hold, and how
 
 Harbor is a stack: the **Minter** at the bottom mints and redeems the pegged and leveraged tokens;
 the **StabilityPools** on top hold pegged tokens and absorb liquidations; higher layers — the
@@ -12,8 +12,7 @@ StabilityPool asserts the exact read-back. A value it can't handle is refused wi
 never mis-recorded. The silent-truncation defect that motivated this work — funds accepted, then
 truncated in storage — is gone, found nowhere at any size.
 
-Produced by `test/Minter_feeRange.t.sol` (Minter) and `test/StabilityPoolEnvelope.t.sol`
-(StabilityPool; per-run grid in `tmp/sp-constraints-<market>.csv`). Figures are token counts unless
+Produced by `test/Minter_feeRange.t.sol` (Minter) and `test/StabilityPoolEnvelope.t.sol`. Figures are token counts unless
 given in dollars; dollar figures depend on the swept peg / collateral price. Ranges are written
 `low → high` in e-notation.
 
@@ -101,6 +100,16 @@ binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN
   (harvestable falls by exactly what each harvest sweeps). Reaching the cap needs an extreme corner (a \$1e10
   pool taking a min→max wrap-rate jump at collateral below ~\$2e-5), far from normal operation; raising it is a
   contained per-token migration, never per-holder.
+- **The rebalance recovers differently — immediately, and self-correcting.** Its liquidation reward is accrued in
+  one step (`_accumulateReward`), not streamed, so there is **no `maxDepositReward` cap**: an oversized reward
+  overflows the integral and *reverts* rather than deferring. At the cheapest-collateral corner it executes and
+  stays inside the integral — but by only ~7.7× at the tightest (small-MIN) market, where it delivers ~1e5× the
+  streamed cap, within the integral's 1e6-deposit headroom — a bounded corner, not unlimited. When a liquidation
+  would take a pool below `MIN` the sweep caps there and the pool under-delivers; because the pegged it retains *is*
+  the deficit, the next rebalance's holdings-split hands the co-pool the shortfall and the collateral ratio
+  converges to the threshold across a few calls (3-7 in the tests). This is where it differs from the harvest, whose
+  deferred backlog is instead re-split by *current* holdings — leaking to pools that did not hold when it accrued (a
+  known allocation flaw: a backlog should stay with the pool that earned it).
 - **A holder's reward accrual is uncapped — held in uint256.** Unlike the ledger `amount` (capped at `MAX`), a
   holder's `pending` / `claimed` has no cap: the whole-pool reward can concentrate on one holder as a count
   `poolValueUSD / wrappedUSD`. The declared envelope stops the collateral axis at \$1e-6 (overflow threshold
@@ -142,6 +151,8 @@ Two families, under the one guarantee — **no known silent failures**.
   reward integral is bucketed per exponent, so each bucket stays bounded.
 - **Deferral / partial processing** — don't require the whole value at once: a harvest deposits up to
   one period's `maxDepositReward` and leaves the excess harvestable, drained across subsequent periods.
+  (The rebalance does *not* defer — it accrues its reward in one step, so past the integral it reverts; the
+  tests show it stays within by ~7.7× at the tightest corner — §2.3.)
 - **Structural invariants** — a floor / cap so the dangerous value never arises:
   `MIN_TOTAL_ASSET_SUPPLY` (the reward-divisor floor) and `MAX = MIN × FACTOR_PRECISION` (keeps the
   loss factor > 0).
@@ -174,4 +185,6 @@ contracts already fail safe — the value is turning a deep revert into an early
 | (governance) | a market whose peg has hyperinflated — eroded supply-cap dollar value | deposits wall early in dollar terms | re-base MIN by upgrade (not a user action) |
 
 (The harvest is no longer here: past its per-period `maxDepositReward` it defers the excess and drains it
-across subsequent periods — §2.3 — so there is no deep failure to lift to the edge.)
+across subsequent periods — §2.3 — so there is no deep failure to lift to the edge. The rebalance, by contrast,
+does not defer — past the integral it would revert — but the tests show it stays within by ~7.7× at the tightest
+corner, so it is a bounded corner to monitor, not a current failure — §2.3.)

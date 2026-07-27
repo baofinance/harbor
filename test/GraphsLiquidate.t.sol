@@ -49,10 +49,8 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
 
         // set up the stability pool managers
         stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)
-            ),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, owner)
+            address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)),
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
         vm.startPrank(owner);
@@ -62,10 +60,8 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         vm.stopPrank();
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
-            address(
-                new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)
-            ),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, owner)
+            address(new StabilityPoolManager_v2(minter, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)),
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
         vm.startPrank(owner);
@@ -75,8 +71,8 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         vm.stopPrank();
 
         stabilityPoolManagerBoth = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, owner)
+            address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)),
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
         );
         IStabilityPoolManager(stabilityPoolManagerBoth).updateRebalanceThreshold(1.3 ether);
         vm.startPrank(owner);
@@ -223,8 +219,8 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
 
         // set up the stability pool managers
         stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, owner)
+            address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)),
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
         );
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1.3 ether);
         vm.startPrank(owner);

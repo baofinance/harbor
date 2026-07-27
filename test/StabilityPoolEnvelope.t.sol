@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
+import {console2} from "forge-std/console2.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {ITokenHolder} from "@bao/TokenHolder.sol";
@@ -1162,25 +1163,28 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         _growPool(base, MAX_FUZZ_USERS); // collateral pool (plus the setUp seed)
         _depositPeggedTo(stabilityPoolLeveraged, background, 2 * base); // leveraged pool holds ~twice as much
 
-        // accrue yield until the split across the (uneven) holdings leaves a remainder (a 2-way floor loses 0 or 1 wei)
-        uint256 residual;
-        uint256 expectedCol;
-        uint256 expectedLev;
+        // accrue yield until the GROSS split across the (uneven) holdings leaves an un-owed remainder (a 2-way floor
+        // loses 0 or 1 wei). The manager splits the new yield by holdings gross, flooring BOTH shares, then streams
+        // each pool net = gross * residualRatio; the remainder stays un-owed harvestable, handed to neither pool.
+        uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
+        uint256 grossCol;
+        uint256 grossLev;
+        uint256 harvestableAmount;
         for (uint256 i = 0; i < 8; i++) {
             currentRate = (currentRate * 1001) / 1000;
             mockOracle.setLatestAnswer(currentPrice, currentRate);
-            uint256 harvestable = IMinter(minter).harvestable();
-            // the pools' share, computed exactly as the manager does: two floors, `h - floor(h*bounty) - floor(h*cut)`
-            residual = harvestable - (harvestable * bountyRatio) / 1e18 - (harvestable * cutRatio) / 1e18;
+            harvestableAmount = IMinter(minter).harvestable();
             uint256 totalHold = IERC20(pegged).balanceOf(stabilityPool) +
                 IERC20(pegged).balanceOf(stabilityPoolLeveraged);
-            expectedCol = (residual * IERC20(pegged).balanceOf(stabilityPool)) / totalHold;
-            expectedLev = (residual * IERC20(pegged).balanceOf(stabilityPoolLeveraged)) / totalHold;
-            if (expectedCol + expectedLev < residual) {
-                break; // the split leaves a remainder - the discriminating case
+            grossCol = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPool), totalHold);
+            grossLev = Math.mulDiv(harvestableAmount, IERC20(pegged).balanceOf(stabilityPoolLeveraged), totalHold);
+            if (grossCol + grossLev < harvestableAmount) {
+                break; // the gross split leaves an un-owed remainder - the discriminating case
             }
         }
-        require(expectedCol + expectedLev < residual, "fixture must produce a split remainder");
+        require(grossCol + grossLev < harvestableAmount, "fixture must produce a split remainder");
+        uint256 expectedCol = Math.mulDiv(grossCol, residualRatio, 1e18);
+        uint256 expectedLev = Math.mulDiv(grossLev, residualRatio, 1e18);
 
         uint256 colBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
         uint256 levBefore = IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged);
@@ -1192,14 +1196,214 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPool) - colBefore,
             expectedCol,
-            "collateral pool got exactly its floored share"
+            "collateral pool got exactly the net of its floored gross share"
         );
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged) - levBefore,
             expectedLev,
-            "leveraged pool got exactly its floored share, not the split remainder"
+            "leveraged pool got exactly the net of its floored gross share, not the split remainder"
         );
         assertGt(IMinter(minter).harvestable(), 0, "the split remainder stays in the minter as harvestable");
+    }
+
+    /// @notice A harvest backlog deferred while a pool held nothing is NOT re-split to that pool when it later
+    /// deposits. At the reward-field corner the collateral pool's residual share exceeds one period's stream capacity,
+    /// so the first harvest deposits a period's capacity and defers the rest as a backlog left in the minter. That
+    /// backlog accrued entirely while the leveraged pool was empty, so it is owed to the collateral pool alone. When
+    /// the leveraged pool then enters and a keeper harvests the PURE backlog (no fresh yield), the backlog must still
+    /// go to the collateral pool - a pool that held nothing when it accrued earns none of it.
+    function test_harvest_deferredBacklogNotReSplitToLaterEntrant() public {
+        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        if (1e18 - bountyRatio - cutRatio == 0) {
+            return; // a full-cut config sends nothing to the pools, so no backlog forms to leak
+        }
+        // Corner: cheapest collateral + the max single-step wrap-rate jump -> the collateral pool's residual share
+        // far exceeds one period's stream capacity, so the harvest defers a backlog rather than depositing it all.
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS); // collateral pool only
+
+        // Mint the late entrant's pegged NOW (its collateral folds into the corner yield) but hold it in-wallet, so the
+        // leveraged pool is still empty at harvest #1 and takes no share of the backlog it will later skim.
+        address lateEntrant = makeAddr("lateEntrant");
+        uint256 levHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+            IERC20(stabilityPoolLeveraged).totalSupply();
+        uint256 levHold = _min(IERC20(pegged).balanceOf(stabilityPool), levHeadroom); // ~ the collateral pool's holding
+        _mintPeggedAtLeast(levHold);
+        IERC20(pegged).transfer(lateEntrant, levHold);
+
+        currentRate = e.maxWrapRate; // one un-harvested min->max step: the largest yield the envelope declares
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+
+        address token = wrappedCollateral;
+        uint256 capacityFresh = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
+        uint256 harvestable0 = IMinter(minter).harvestable();
+        if (capacityFresh == 0 || harvestable0 <= capacityFresh) {
+            return; // this market's corner yield fits one period -> no backlog forms, nothing to prove
+        }
+
+        // Harvest #1: only the collateral pool holds, so it takes the whole residual (capped); the excess defers.
+        address keeper = makeAddr("harvestKeeper");
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+        uint256 backlog = IMinter(minter).harvestable();
+        assertGt(backlog, 0, "harvest #1 deferred a backlog owed to the collateral pool");
+
+        // The leveraged pool enters AFTER the backlog accrued.
+        vm.startPrank(lateEntrant);
+        IERC20(pegged).approve(stabilityPoolLeveraged, levHold);
+        IStabilityPool(stabilityPoolLeveraged).deposit(levHold, lateEntrant, 0);
+        vm.stopPrank();
+
+        // Free the stream capacity, accrue NO fresh yield: the next harvest works the PURE backlog.
+        vm.warp(block.timestamp + IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH() + 1);
+        assertEq(IMinter(minter).harvestable(), backlog, "no fresh yield: harvestable is exactly the deferred backlog");
+
+        // The leveraged pool's re-split share of the backlog clears the sub-period dust floor, so a zero receipt is the
+        // fairness property under test, not the dust rule zeroing a tiny share.
+        uint256 residualBacklog = backlog - (backlog * bountyRatio) / 1e18 - (backlog * cutRatio) / 1e18;
+        uint256 total = IERC20(pegged).balanceOf(stabilityPool) + IERC20(pegged).balanceOf(stabilityPoolLeveraged);
+        uint256 levUncapped = (residualBacklog * IERC20(pegged).balanceOf(stabilityPoolLeveraged)) / total;
+        assertGt(
+            levUncapped,
+            IMultipleRewardDistributor_v3(stabilityPoolLeveraged).REWARD_PERIOD_LENGTH(),
+            "the leveraged pool's re-split share clears the dust floor (so a zero receipt is fairness, not dust)"
+        );
+
+        // Harvest #2 on the pure backlog: measure what the late-entrant leveraged pool receives.
+        uint256 levBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+        uint256 levGot = IERC20(token).balanceOf(stabilityPoolLeveraged) - levBefore;
+
+        assertEq(levGot, 0, "the deferred backlog is not re-split to a pool that held nothing when it accrued");
+    }
+
+    /// @notice A pool's deferred harvest backlog drains to THAT pool across periods, never to the co-pool. At the
+    /// corner the collateral pool's residual share exceeds one period's capacity, so a backlog defers while only the
+    /// collateral pool holds. The leveraged pool then enters and, over several draining harvests of the PURE backlog
+    /// (no fresh yield), receives none of it - the whole backlog is owed to the collateral pool and streams only there.
+    function test_harvest_owedDrainsToOwningPoolAcrossPeriods() public {
+        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        if (1e18 - bountyRatio - cutRatio == 0) {
+            return; // full cut: nothing streams to the pools, so no backlog forms
+        }
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS); // collateral pool only
+
+        address lateEntrant = makeAddr("lateEntrantDrain");
+        uint256 levHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+            IERC20(stabilityPoolLeveraged).totalSupply();
+        uint256 levHold = _min(IERC20(pegged).balanceOf(stabilityPool), levHeadroom);
+        _mintPeggedAtLeast(levHold);
+        IERC20(pegged).transfer(lateEntrant, levHold);
+
+        currentRate = e.maxWrapRate;
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+
+        address token = wrappedCollateral;
+        uint256 capacityFresh = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(token);
+        uint256 harvestable0 = IMinter(minter).harvestable();
+        if (capacityFresh == 0 || harvestable0 <= capacityFresh) {
+            return; // no backlog forms at this market's corner
+        }
+
+        address keeper = makeAddr("harvestKeeper");
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+        assertGt(IMinter(minter).harvestable(), 0, "harvest #1 deferred a backlog owed to the collateral pool");
+
+        // the leveraged pool enters AFTER the backlog accrued
+        vm.startPrank(lateEntrant);
+        IERC20(pegged).approve(stabilityPoolLeveraged, levHold);
+        IStabilityPool(stabilityPoolLeveraged).deposit(levHold, lateEntrant, 0);
+        vm.stopPrank();
+
+        // drain the PURE backlog (no fresh yield) over several periods: it is owed to the collateral pool, so it
+        // streams only there and the late-entrant leveraged pool receives none of it on ANY of these harvests.
+        uint256 period = IMultipleRewardDistributor_v3(stabilityPool).REWARD_PERIOD_LENGTH();
+        for (uint256 i = 0; i < 3; i++) {
+            vm.warp(block.timestamp + period + 1);
+            uint256 colBefore = IERC20(token).balanceOf(stabilityPool);
+            uint256 levBefore = IERC20(token).balanceOf(stabilityPoolLeveraged);
+            vm.startPrank(keeper);
+            IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+            vm.stopPrank();
+            assertEq(
+                IERC20(token).balanceOf(stabilityPoolLeveraged) - levBefore,
+                0,
+                "the leveraged pool receives none of the collateral pool's backlog on any draining harvest"
+            );
+            assertGt(
+                IERC20(token).balanceOf(stabilityPool) - colBefore,
+                0,
+                "the collateral pool's backlog drains to the collateral pool"
+            );
+        }
+    }
+
+    /// @notice Each harvest, the keeper bounty and the pools' net share are exactly their ratios of what left the
+    /// minter: `bounty == bountyRatio × (harvestable decrease)` and `netToPools == residualRatio × (harvestable
+    /// decrease)`. So a bounty receiver is never short-changed or over-paid relative to the harvestable consumed, and
+    /// the cut (the remainder) is proportional too. Checked at a normal harvest AND at the deferred corner.
+    function test_harvest_bountyMatchesHarvestableDecrease() public {
+        uint256 bountyRatio = IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio();
+        uint256 cutRatio = IStabilityPoolManager(stabilityPoolManager).harvestCutRatio();
+        uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
+
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
+        _growPool(_poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD), MAX_FUZZ_USERS);
+        _depositPeggedTo(stabilityPoolLeveraged, background, _poolPeggedFor(e.maxPoolValueUSD / 2, e.pegPriceUSD));
+
+        address keeper = makeAddr("skimKeeper");
+
+        // (a) a normal harvest: accrue a little yield, then check the skim matches the harvestable decrease
+        currentRate = (currentRate * 1001) / 1000;
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+        _assertSkimMatchesHarvestableDrop(keeper, bountyRatio, residualRatio);
+
+        // (b) a deferred corner harvest: the same invariant must hold when the pools cap and the excess defers
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD);
+        currentRate = e.maxWrapRate;
+        mockOracle.setLatestAnswer(currentPrice, currentRate);
+        _assertSkimMatchesHarvestableDrop(keeper, bountyRatio, residualRatio);
+    }
+
+    /// @dev Harvest once (as `keeper`) and assert the keeper bounty and the pools' net receipt are the bounty/residual
+    /// ratio slices of the harvestable decrease. Tolerance ~8 wei: the swept total is the sum of up to five floored
+    /// parts (bounty, cut, two pool nets, treasury), so it trails the exact gross by ≤ 5 wei, and the ratio check by
+    /// ≤ that × the ratio + 1. Single external call under the prank (the harvest); balances read outside it.
+    function _assertSkimMatchesHarvestableDrop(address keeper, uint256 bountyRatio, uint256 residualRatio) internal {
+        address token = wrappedCollateral;
+        uint256 harvestableBefore = IMinter(minter).harvestable();
+        uint256 keeperBefore = IERC20(token).balanceOf(keeper);
+        uint256 poolsBefore = IERC20(token).balanceOf(stabilityPool) + IERC20(token).balanceOf(stabilityPoolLeveraged);
+        vm.startPrank(keeper);
+        IStabilityPoolManager(stabilityPoolManager).harvest(keeper, 0);
+        vm.stopPrank();
+        uint256 drop = harvestableBefore - IMinter(minter).harvestable();
+        uint256 bounty = IERC20(token).balanceOf(keeper) - keeperBefore;
+        uint256 netToPools = (IERC20(token).balanceOf(stabilityPool) +
+            IERC20(token).balanceOf(stabilityPoolLeveraged)) - poolsBefore;
+        assertApproxEqAbs(
+            bounty,
+            Math.mulDiv(drop, bountyRatio, 1e18),
+            8,
+            "bounty == bountyRatio x harvestable decrease"
+        );
+        assertApproxEqAbs(
+            netToPools,
+            Math.mulDiv(drop, residualRatio, 1e18),
+            8,
+            "net to pools == residualRatio x harvestable decrease"
+        );
     }
 
     /// @notice maxDepositReward is the conservative deposit capacity `cap - committed`, where `cap` is the smaller of
@@ -1319,6 +1523,94 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         SpConservationGhosts memory g = _rewardGhosts(injected, poolPegged, MAX_FUZZ_USERS + 2);
         _assertRewardConserved(stabilityPool, _allActors(), g);
         _assertSpSolvent(stabilityPool, _allActors(), g);
+    }
+
+    /// @notice A pool sweep-capped at its MIN floor makes a single rebalance under-restore the collateral ratio, and
+    /// the shortfall is recovered by the co-pool on a later rebalance. The pegged balance is the deficit ledger: a
+    /// floored pool retains its pegged and drops to MIN, so the holdings-weighted split hands the co-pool a larger share
+    /// on the next call until the CR is restored. The sequence converges to the threshold - the same end state a single
+    /// uncapped liquidation targets. This characterises the CURRENT recovery-across-calls (unlike harvest, which leaks);
+    /// the batch-3 in-call pickup makes a single rebalance suffice.
+    function test_rebalance_flooredPoolShortfallRecoversAcrossCalls() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
+
+        // A small collateral pool (floors early) beside a large leveraged pool with ample headroom to absorb the
+        // shortfall.
+        uint256 minSupply = IStabilityPool(stabilityPool).MIN_TOTAL_ASSET_SUPPLY();
+        _growPool(minSupply * 10, 1); // small collateral pool
+        uint256 levHeadroom = IStabilityPool_v3(stabilityPoolLeveraged).MAX_TOTAL_ASSET_SUPPLY() -
+            IERC20(stabilityPoolLeveraged).totalSupply();
+        uint256 levHold = _min(minSupply * 1_000_000, levHeadroom / 2);
+        _depositPeggedTo(stabilityPoolLeveraged, background, levHold);
+        _mintLeveragedBuffer(levHold); // start the CR healthy so it can be dropped
+
+        // Drop deep below the threshold so the required liquidation exceeds the small collateral pool's headroom and it
+        // floors on the first rebalance.
+        _dropPriceBelowRebalanceThreshold();
+        for (uint256 i = 0; i < 6; i++) {
+            currentPrice = (currentPrice * 6) / 10;
+            mockOracle.setLatestAnswer(currentPrice, currentRate);
+        }
+        if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
+            return; // the drop over/under-shot for this market's config; the scenario is not set up
+        }
+
+        address keeper = makeAddr("rebalanceKeeper");
+        uint256 calls;
+        bool flooredAndUnderRestoredFirst;
+        for (uint256 i = 0; i < 20 && IStabilityPoolManager(stabilityPoolManager).rebalanceable(); i++) {
+            vm.startPrank(keeper);
+            IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
+            vm.stopPrank();
+            calls++;
+            if (calls == 1) {
+                flooredAndUnderRestoredFirst =
+                    IERC20(stabilityPool).totalSupply() == minSupply &&
+                    IStabilityPoolManager(stabilityPoolManager).rebalanceable();
+            }
+        }
+
+        console2.log("R1 rebalance calls to converge =", calls);
+        assertFalse(
+            IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
+            "the rebalance sequence restores the collateral ratio to the threshold (deficit self-corrects)"
+        );
+        assertTrue(
+            flooredAndUnderRestoredFirst,
+            "the small pool floored and the first rebalance under-restored the collateral ratio"
+        );
+        assertGt(
+            calls,
+            1,
+            "recovery takes more than one rebalance (the co-pool picks up the shortfall on a later call)"
+        );
+    }
+
+    /// @notice A corner rebalance does not overflow the reward integral. The rebalance liquidation reward is
+    /// distributed immediately through `_accumulateReward`, which - unlike the streamed harvest path's
+    /// `maxDepositReward` - has NO upper cap, so it either executes or overflow-reverts. A rebalance is time-critical
+    /// and must execute. At the cheapest wrapped collateral (which maximises the collateral `returned`, the worst case
+    /// for the integral) the rebalance delivers its reward without reverting, and the margin to overflow (a single
+    /// immediate accrual overflows only ~1e6x above the streamed integral-safe cap) is the room the batch-3 in-call
+    /// shortfall-pickup must stay within.
+    function test_rebalance_cornerLiquidationDoesNotOverflowIntegral() public {
+        Envelope memory e = buildEnvelope();
+        _setEnvelopePoint(_nominalCollateralUSD(), e.minWrapRate, e.pegPriceUSD);
+        uint256 poolPegged = _poolPeggedFor(e.maxPoolValueUSD, e.pegPriceUSD);
+        _growPool(poolPegged, MAX_FUZZ_USERS);
+        _mintLeveragedBuffer(poolPegged);
+        _setEnvelopePoint(e.minCollateralUSD, e.minWrapRate, e.pegPriceUSD); // cheapest wrapped: CR below threshold + max returned
+        if (!IStabilityPoolManager(stabilityPoolManager).rebalanceable()) {
+            return; // this market's corner does not drop the CR below the threshold
+        }
+
+        uint256 capIntegral = IMultipleRewardDistributor_v3(stabilityPool).maxDepositReward(wrappedCollateral);
+        uint256 injected = _rebalance();
+
+        assertGt(injected, 0, "the corner rebalance executes and delivers a reward - no reward-integral overflow");
+        console2.log("R2 corner injected         =", injected);
+        console2.log("R2 corner maxDepositReward =", capIntegral);
     }
 
     // ─── deterministic reward-field corner (the fuzz reaches this < 1/256 runs; never leave it to the fuzzer) ───

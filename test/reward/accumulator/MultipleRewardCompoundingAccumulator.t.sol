@@ -447,6 +447,39 @@ contract MultipleRewardCompoundingAccumulatorTest is Test, Array {
         assertGe(rate * 1 weeks + queued, reward, "whole accrued reward survived the empty-pool re-queue");
     }
 
+    /// @notice `maxDepositReward` frees the finished stream's capacity at EXACTLY `finishAt`, not one block later. While
+    /// the period is active `committed` holds `rate * period`; once `block.timestamp >= finishAt` the stream is fully
+    /// distributed and `increase` restreams from a clean slate, so that term drops and the capacity frees. The freeing
+    /// must land on the boundary block (`>= finishAt`) to match `increase`: a deposit arriving exactly at `finishAt`
+    /// restreams fresh, so its full capacity must be reported. A `<= finishAt` guard would hold the stream one block too
+    /// long, stalling recovery on the boundary block.
+    function test_maxDepositReward_freesCapacityAtExactlyFinishAt() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, address[] memory tokens) = _setupAccumulator(
+            1,
+            1 weeks
+        );
+        accumulator.setTotalPoolShare(1 ether, uint128(1e36)); // share present, so the reward streams (sets finishAt)
+        accumulator.setMinTotalPoolShare(1 ether); // sizes the deposit cap (integral headroom) so the reward is not capped to 0
+        accumulator.depositReward(tokens[0], 1000 ether); // commits `rate * period` for one period, well below that cap
+
+        (, uint256 finishAt, , ) = IMultipleRewardDistributor_v3(address(accumulator)).rewardData(tokens[0]);
+
+        // one block BEFORE the period ends: the stream is active, so `committed` still holds `rate * period`
+        vm.warp(finishAt - 1);
+        uint256 beforeEnd = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
+
+        // AT exactly `finishAt`: the stream is fully distributed, so `committed` drops `rate * period` and frees capacity
+        vm.warp(finishAt);
+        uint256 atEnd = IMultipleRewardDistributor_v3(address(accumulator)).maxDepositReward(tokens[0]);
+
+        // the freeing lands on the boundary block: `< finishAt` frees here; a mutated `<= finishAt` would still hold it
+        assertGt(
+            atEnd,
+            beforeEnd,
+            "capacity frees at exactly finishAt (>= finishAt), matching increase's fresh restream"
+        );
+    }
+
     /// @notice 52 weeks at 100% APY: integral ~ 1e54, safe for both v1 and v2.
     /// Demonstrates Table 1: at 100% APY, v1 safe for 6,277 years.
     function test_integralBounds_100pctAPY_52Weeks() public {

@@ -48,10 +48,14 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
         // IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
 
         stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, owner)
+            address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)),
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
         );
         IBaoOwnable(stabilityPoolManager).transferOwnership(owner);
+        // Mirror the production deploy, which points the fee (cut) receiver at the treasury; the initialize seed is
+        // the owner, and it is never zero.
+        vm.prank(owner);
+        IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(treasury);
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
@@ -75,14 +79,14 @@ contract TestStabilityPoolManagerInit is TestStabilityPoolManagerSetUp {
 
     function setUp_impl() internal virtual {
         stabilityPoolManagerImpl = address(
-            new StabilityPoolManager_v2(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)
+            new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)
         );
     }
 
     function setUp_proxy() internal virtual {
         stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
             stabilityPoolManagerImpl,
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
         );
     }
 
@@ -543,10 +547,9 @@ contract MockStabilityPoolManagerUpgraded is StabilityPoolManager_v2 {
     // Keep the same constructor signature
     constructor(
         address minter_,
-        address treasury_,
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
-    ) StabilityPoolManager_v2(minter_, treasury_, stabilityPoolCollateral, stabilityPoolLeveraged) {}
+    ) StabilityPoolManager_v2(minter_, stabilityPoolCollateral, stabilityPoolLeveraged) {}
 
     // Add a new function that would only be available in the upgraded version
     function newFunctionOnlyInUpgrade() external pure returns (bool) {
@@ -737,14 +740,21 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).updateHarvestBountyRatio(0.05 ether);
 
         // Execute harvest
+        uint256 harvestableBefore = IMinter(minter).harvestable();
         vm.prank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
 
         // Calculate expected bounty (5% of 10 ether)
         uint256 expectedBounty = (10 ether * 5) / 100;
 
-        // Verify results
-        assertApproxEqAbs(harvested, 10 ether, 10, "Incorrect harvest amount");
+        // Verify results: harvested == what left the minter; the split-gross-then-skim path floors <= 5 wei below the
+        // harvestable (a holdings-split remainder <= 1 wei plus four ratio floors), which stays harvestable.
+        assertApproxEqAbs(
+            harvested,
+            harvestableBefore,
+            6,
+            "harvest takes ~all the harvestable, less the flooring remainder"
+        );
         assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(harvester) - harvesterBefore,
             expectedBounty,
@@ -923,6 +933,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 pool2Before = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged);
 
         // Execute harvest
+        uint256 harvestableBefore = IMinter(minter).harvestable();
         vm.prank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
 
@@ -931,8 +942,13 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 expectedCut = 2 ether; // 20% of 10 ether
         uint256 remainingForPools = 7 ether; // 10 - 1 - 2 = 7 ether
 
-        // Verify harvested amount
-        assertApproxEqAbs(harvested, 10 ether, 10, "Incorrect harvest amount");
+        // Verify harvested amount: it equals what left the minter, less the split-gross-then-skim flooring (<= 5 wei)
+        assertApproxEqAbs(
+            harvested,
+            harvestableBefore,
+            6,
+            "harvest takes ~all the harvestable, less the flooring remainder"
+        );
         assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(harvester) - harvesterBefore,
             expectedBounty,
@@ -1009,18 +1025,10 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         );
     }
 
-    // Test harvest with cut but no fee receiver set
-    function test_harvestWithCutButNoFeeReceiver_() public {
-        // Set up cut ratio but keep fee receiver as address(0)
+    // Harvest with a cut sends the cut to the fee receiver (the treasury, per setUp); the pools get the residual.
+    function test_harvestWithCutToFeeReceiver_() public {
         vm.prank(owner);
         IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(0.2 ether); // 20% cut
-
-        // Verify fee receiver is zero address
-        assertEq(
-            IStabilityPoolManager(stabilityPoolManager).feeReceiver(),
-            address(0),
-            "Fee receiver should be zero address"
-        );
 
         // Set up pools with balances
         deal(peggedToken, stabilityPoolCollateral, 7 ether);
@@ -1031,20 +1039,26 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 pool2Before = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged);
 
         // Execute harvest
+        uint256 harvestableBefore = IMinter(minter).harvestable();
         vm.prank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
 
-        // When fee receiver is address(0), the cut should not be transferred
-        // So all 10 ether (minus any bounty) should go to the pools
+        // The cut goes to the fee receiver (the treasury); the pools get the residual (harvestable - cut).
         uint256 pool1Increase = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - pool1Before;
         uint256 pool2Increase = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged) - pool2Before;
 
-        assertApproxEqAbs(harvested, 10 ether, 10, "Should return total harvested amount");
+        // harvested == what left the minter, less the split-gross-then-skim flooring (<= 5 wei), which stays harvestable
+        assertApproxEqAbs(
+            harvested,
+            harvestableBefore,
+            6,
+            "harvest takes ~all the harvestable, less the flooring remainder"
+        );
         assertApproxEqAbs(
             pool1Increase + pool2Increase,
-            8 ether, // Full amount should go to pools (no bounty since default is 0)
+            8 ether, // residual after the 20% cut (no bounty)
             10,
-            "Full harvest amount should go to pools when no fee receiver is set"
+            "the pools receive the residual after the cut"
         );
         assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(treasury),
@@ -1136,17 +1150,17 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
     }
 
     function test_updateFeeReceiver_() public {
-        // Initially fee receiver should be address(0)
+        // The fee receiver is never zero: setUp points it at the treasury (the initialize seed is the owner).
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).feeReceiver(),
-            address(0),
-            "Initial fee receiver should be address(0)"
+            treasury,
+            "fee receiver starts at the setUp value (the treasury), never zero"
         );
 
         // Set fee receiver
         vm.prank(owner);
         vm.expectEmit(true, true, false, false);
-        emit IStabilityPoolManager.UpdateFeeReceiver(address(0), feeReceiver);
+        emit IStabilityPoolManager.UpdateFeeReceiver(treasury, feeReceiver);
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(feeReceiver);
 
         // Verify it was set correctly
@@ -1190,18 +1204,22 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         uint256 harvestableAmount = IMinter(minter).harvestable();
         assertApproxEqAbs(harvestableAmount, 100 ether, 100, "harvestable should be 100 ether");
 
-        // the harvest emits (and returns) what it actually harvests: bounty + cut + each pool's FLOORED share of the
-        // residual. The split remainder is left in the minter, not swept, so the event amount is that sum - not the full
-        // harvestable, as it was when the harvest swept everything.
-        uint256 bountyAmount = (harvestableAmount * bounty) / 1 ether;
-        uint256 cutAmount = (harvestableAmount * cut) / 1 ether;
-        uint256 residualAmount = harvestableAmount - bountyAmount - cutAmount;
+        // The manager splits the new yield by holdings GROSS (flooring both), then skims: the bounty and cut are ratio
+        // slices of the total gross distributed, and each pool gets net = its gross share * residualRatio. The split
+        // remainder stays in the minter, not swept, so the emitted/returned amount is that sum, not the full harvestable.
+        uint256 residualRatio = 1 ether - bounty - cut;
         uint256 totalHolding = IERC20(peggedToken).balanceOf(stabilityPoolCollateral) +
             IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
-        uint256 swept = bountyAmount +
-            cutAmount +
-            (residualAmount * IERC20(peggedToken).balanceOf(stabilityPoolCollateral)) / totalHolding +
-            (residualAmount * IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)) / totalHolding;
+        uint256 grossCollateral = (harvestableAmount * IERC20(peggedToken).balanceOf(stabilityPoolCollateral)) /
+            totalHolding;
+        uint256 grossLeveraged = (harvestableAmount * IERC20(peggedToken).balanceOf(stabilityPoolLeveraged)) /
+            totalHolding;
+        uint256 totalGross = grossCollateral + grossLeveraged;
+        uint256 bountyAmount = (totalGross * bounty) / 1 ether;
+        uint256 cutAmount = (totalGross * cut) / 1 ether;
+        uint256 netCollateral = (grossCollateral * residualRatio) / 1 ether;
+        uint256 netLeveraged = (grossLeveraged * residualRatio) / 1 ether;
+        uint256 swept = bountyAmount + cutAmount + netCollateral + netLeveraged;
 
         address harvester = makeAddr("harvester");
         vm.expectEmit();
@@ -1214,31 +1232,26 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         );
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(feeReceiver),
-            (harvestableAmount * cut) / 1 ether,
-            "Fee receiver should receive fee"
+            cutAmount,
+            "Fee receiver should receive the cut on the distributed gross"
         );
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(harvester),
-            (harvestableAmount * bounty) / 1 ether,
-            "harvester should get bounty"
+            bountyAmount,
+            "harvester should get the bounty on the distributed gross"
         );
-        uint256 remaining = harvestableAmount -
-            (harvestableAmount * cut) / 1 ether -
-            (harvestableAmount * bounty) / 1 ether;
-        assertApproxEqAbs(
+        assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
-            (remaining * 3) / 5,
-            1, // 11123023142057636471 != 11123023142057636470
-            "stabilityPoolCollateral should get some"
+            netCollateral,
+            "collateral pool gets the net of its floored gross share"
         );
-        assertApproxEqAbs(
+        assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged),
-            (remaining * 2) / 5,
-            1,
-            "stabilityPoolLeveraged should get some"
+            netLeveraged,
+            "leveraged pool gets the net of its floored gross share"
         );
 
-        // the harvest returns exactly what it swept (bounty + cut + each pool's floored share)
+        // the harvest returns exactly what it swept (bounty + cut + each pool's streamed net)
         assertEq(harvested, swept, "returns the amount actually harvested");
     }
 
@@ -1301,7 +1314,7 @@ contract TestStabilityPoolManagerUpgradeable is TestStabilityPoolManagerSetUp {
         super.setUp();
         // Deploy the new implementation contract
         newImplementation = address(
-            new MockStabilityPoolManagerUpgraded(minter, treasury, stabilityPoolCollateral, stabilityPoolLeveraged)
+            new MockStabilityPoolManagerUpgraded(minter, stabilityPoolCollateral, stabilityPoolLeveraged)
         );
     }
 

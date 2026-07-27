@@ -8,8 +8,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {TokenHolder_v2, ITokenHolder} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
@@ -18,25 +19,28 @@ import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IAutoCompounder} from "@harbor/interfaces/IAutoCompounder.sol";
+import {IYieldVaultManager} from "@harbor/interfaces/IYieldVaultManager.sol";
+import {IYieldVault} from "@harbor/interfaces/IYieldVault.sol";
 
 /// @title StabilityPoolManager_v2
 /// @author Based on original Liquidator and Harvester contracts
 /// @notice Manages stability pools for rebalancing and harvesting operations.
-///         Extends v1 with auto-compounder integration: after each harvest() or rebalance(),
-///         compound() is triggered on any registered AutoCompounder for each stability pool.
+///         Extends v1 with yield-vault integration: after each harvest() or rebalance(), compound() is triggered
+///         on every registered yield vault (see IYieldVaultManager).
 /// @dev Uses UUPS proxy, erc7201 storage (same slot as v1 — struct extended safely).
 /// @custom:oz-upgrades-from src/minter/StabilityPoolManager_v1.sol:StabilityPoolManager_v1
 // solhint-disable-next-line contract-name-capwords
 contract StabilityPoolManager_v2 is
     Initializable,
     UUPSUpgradeable,
-    BaoOwnableRoles,
+    HarborOwnableRoles,
     ERC165Upgradeable,
     TokenHolder_v2,
-    IStabilityPoolManager_v2
+    IStabilityPoolManager_v2,
+    IYieldVaultManager
 {
     using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     /*************
      * Variables *
@@ -56,9 +60,6 @@ contract StabilityPoolManager_v2 is
     address public immutable LEVERAGED_TOKEN;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable TREASURY;
-
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address private immutable _STABILITY_POOL_COLLATERAL;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -76,11 +77,18 @@ contract StabilityPoolManager_v2 is
         uint256 harvestBountyRatio;
         /// @notice Percentage-based cut for harvesting (as a ratio of the harvested amount)
         uint256 harvestCutRatio;
-        /// @notice The fee receiver that receives the harvest cut
+        /// @notice The receiver of the harvest cut and the no-pool catch-all. Seeded to the owner at initialize,
+        /// retargetable via updateFeeReceiver, and never zero.
         // @custom:security non-reentrant
         address feeReceiver;
-        /// @notice Auto-compounder registered for each stability pool (0 = none).
-        mapping(address sp => address ac) autoCompounder;
+        /// @notice Gross harvest yield owed to the collateral pool but not yet streamed - deferred past its per-period
+        /// reward capacity. Tracked per pool so a deferred backlog is never re-split to the other pool; pre-skim, so
+        /// the bounty and cut are taken when the value is actually streamed to the pool, not when it is owed.
+        uint256 owedCollateral;
+        /// @notice Gross harvest yield owed to the leveraged pool but not yet streamed (see `owedCollateral`).
+        uint256 owedLeveraged;
+        /// @notice The set of registered yield vaults, each compounded after every harvest and rebalance.
+        EnumerableSet.AddressSet yieldVaults;
     }
 
     // chisel eval 'keccak256(abi.encode(uint256(keccak256("bao.storage.StabilityPoolManager")) - 1)) & ~bytes32(uint256(0xff))'
@@ -96,7 +104,7 @@ contract StabilityPoolManager_v2 is
 
     /// @notice In UUPS proxies the constructor sets immutables
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address minter_, address treasury_, address stabilityPoolCollateral, address stabilityPoolLeveraged) {
+    constructor(address minter_, address stabilityPoolCollateral, address stabilityPoolLeveraged) {
         _disableInitializers();
 
         Token.ensureContract(minter_);
@@ -115,10 +123,6 @@ contract StabilityPoolManager_v2 is
         LEVERAGED_TOKEN = IMinter(minter_).LEVERAGED_TOKEN();
         Token.sanityCheckERC20Token(LEVERAGED_TOKEN);
 
-        Token.ensureNonZeroAddress(treasury_);
-        // slither-disable-next-line missing-zero-check
-        TREASURY = treasury_;
-
         // Validate and store the stability pools
         Token.ensureContract(stabilityPoolCollateral);
         // slither-disable-next-line missing-zero-check
@@ -129,11 +133,17 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @notice Initialize the contract with starting configuration
-    /// @param owner_ The owner address
-    function initialize(address owner_) external initializer {
-        _initializeOwner(owner_);
+    /// @param deployerOwner_ The initial owner used for setup (the deployer); it must complete the transfer to
+    ///        `pendingOwner_` within the hour (HarborOwnable two-step).
+    /// @param pendingOwner_ The address eligible to complete the ownership transfer - the final owner.
+    function initialize(address deployerOwner_, address pendingOwner_) external initializer {
+        _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         __ERC165_init();
+        // Seed the cut receiver with the final owner - pendingOwner_ (or deployerOwner_ if there is no pending
+        // transfer), never owner() which is the temporary deployer during initialize. updateFeeReceiver retargets it
+        // later; both paths keep it non-zero.
+        _getStabilityPoolManagerStorage().feeReceiver = pendingOwner_ != address(0) ? pendingOwner_ : deployerOwner_;
     }
 
     /// @notice The check that allows this contract to be upgraded
@@ -145,7 +155,7 @@ contract StabilityPoolManager_v2 is
      */
     function supportsInterface(
         bytes4 interfaceId
-    ) public view virtual override(BaoOwnableRoles, ERC165Upgradeable) returns (bool) {
+    ) public view virtual override(HarborOwnableRoles, ERC165Upgradeable) returns (bool) {
         return
             interfaceId == type(IStabilityPoolManager).interfaceId ||
             interfaceId == type(ITokenHolder).interfaceId ||
@@ -216,15 +226,38 @@ contract StabilityPoolManager_v2 is
         return $.feeReceiver;
     }
 
-    /// @inheritdoc IStabilityPoolManager_v2
-    function autoCompounder(address sp) external view override returns (address) {
+    /// @inheritdoc IYieldVaultManager
+    function yieldVault(uint256 index) external view override returns (address) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        return $.autoCompounder[sp];
+        return $.yieldVaults.at(index);
     }
 
-    /*************************
-     * Admin Functions *
-     *************************/
+    /// @inheritdoc IYieldVaultManager
+    function yieldVaultCount() external view override returns (uint256) {
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        return $.yieldVaults.length();
+    }
+
+    /// @inheritdoc IYieldVaultManager
+    function addYieldVault(address yieldVault_) external override onlyOwner {
+        if (yieldVault_ == address(0)) {
+            revert InvalidYieldVault(yieldVault_);
+        }
+        // add() returns false if already present, so a duplicate is rejected rather than double-compounded
+        if (!_getStabilityPoolManagerStorage().yieldVaults.add(yieldVault_)) {
+            revert InvalidYieldVault(yieldVault_);
+        }
+        emit YieldVaultAdded(yieldVault_);
+    }
+
+    /// @inheritdoc IYieldVaultManager
+    function removeYieldVault(address yieldVault_) external override onlyOwner {
+        // remove() returns false if not present
+        if (!_getStabilityPoolManagerStorage().yieldVaults.remove(yieldVault_)) {
+            revert YieldVaultNotFound(yieldVault_);
+        }
+        emit YieldVaultRemoved(yieldVault_);
+    }
 
     /// @notice Updates the rebalance threshold collateral ratio
     /// @param newRatio The new rebalance threshold
@@ -278,20 +311,11 @@ contract StabilityPoolManager_v2 is
     }
 
     function updateFeeReceiver(address feeReceiver_) external override onlyOwner {
+        Token.ensureNonZeroAddress(feeReceiver_);
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         address old = $.feeReceiver;
         $.feeReceiver = feeReceiver_;
         emit UpdateFeeReceiver(old, feeReceiver_);
-    }
-
-    /// @inheritdoc IStabilityPoolManager_v2
-    function setAutoCompounder(address stabilityPool, address autoCompounder_) external override onlyOwner {
-        if (stabilityPool != _STABILITY_POOL_COLLATERAL && stabilityPool != _STABILITY_POOL_LEVERAGED) {
-            revert InvalidStabilityPool(stabilityPool);
-        }
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        $.autoCompounder[stabilityPool] = autoCompounder_;
-        emit AutoCompounderSet(stabilityPool, autoCompounder_);
     }
 
     /*************************
@@ -308,24 +332,16 @@ contract StabilityPoolManager_v2 is
         totalPoolHolding = poolHoldingCollateral + poolHoldingLeveraged;
     }
 
-    /// @dev Trigger compound() on any registered auto-compounder for each stability pool.
-    ///      Failures (including NothingToCompound) are non-fatal — harvest/rebalance still
-    ///      completes. A CompoundFailed event is emitted so off-chain monitoring can detect
-    ///      and investigate failures.
+    /// @dev Trigger compound() on every registered yield vault. Failures (including NothingToCompound) are
+    ///      non-fatal - the harvest/rebalance still completes - and a CompoundFailed event is emitted so off-chain
+    ///      monitoring can detect and investigate them.
     function _compoundRegistered() private {
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        address collateralAutoCompounder = $.autoCompounder[_STABILITY_POOL_COLLATERAL];
-        address leveragedAutoCompounder = $.autoCompounder[_STABILITY_POOL_LEVERAGED];
-        if (collateralAutoCompounder != address(0)) {
+        address[] memory vaults = _getStabilityPoolManagerStorage().yieldVaults.values();
+        for (uint256 i = 0; i < vaults.length; ++i) {
+            address vault = vaults[i];
             // solhint-disable-next-line no-empty-blocks
-            try IAutoCompounder(collateralAutoCompounder).compound() {} catch (bytes memory reason) {
-                emit CompoundFailed(collateralAutoCompounder, reason);
-            }
-        }
-        if (leveragedAutoCompounder != address(0)) {
-            // solhint-disable-next-line no-empty-blocks
-            try IAutoCompounder(leveragedAutoCompounder).compound() {} catch (bytes memory reason) {
-                emit CompoundFailed(leveragedAutoCompounder, reason);
+            try IYieldVault(vault).compound() {} catch (bytes memory reason) {
+                emit CompoundFailed(vault, reason);
             }
         }
     }
@@ -453,17 +469,32 @@ contract StabilityPoolManager_v2 is
         }
     }
 
-    /// @dev A pool's share of the harvest residual, clamped to what its reward stream can meaningfully take. A share
-    /// below one period's length streams nothing - its rate `share / REWARD_PERIOD_LENGTH` floors to zero, so it would
-    /// only sit in `queued` - so it is skipped (left unharvested in the minter to accumulate) rather than transferred as
-    /// dust. A share above the stream's remaining capacity is capped so `depositReward` cannot overflow the rate field,
-    /// the excess likewise left unharvested. Returns the amount to actually deposit into `pool`.
-    // TODO: remove this function
-    function _cappedPoolShare(uint256 share, address pool) private view returns (uint256) {
-        if (share < IMultipleRewardDistributor_v3(pool).REWARD_PERIOD_LENGTH()) {
-            return 0; // dust: below one period the stream rate floors to zero, so avoid the pointless transfer
+    /// @dev Split a pool's `owed` into the NET to deposit this harvest and the GROSS it consumes (net + its skim). The
+    /// net is the owed's residual share `owed × residualRatio`, capped at the pool's remaining per-period reward
+    /// capacity `maxDepositReward` (so `depositReward` cannot overflow the rate field); when capped, the net is that
+    /// capacity EXACTLY and the gross is grossed back up from it. A net below one reward period - where its rate
+    /// `net / REWARD_PERIOD_LENGTH` floors to zero and would only sit in `queued` - streams nothing, leaving the whole
+    /// owed to accumulate rather than transferring dust. A full cut (`residualRatio == 0`) streams nothing to the pool,
+    /// so the net is zero and the whole owed is consumed (swept and skimmed).
+    function _streamAmounts(
+        uint256 owed,
+        address pool,
+        uint256 residualRatio
+    ) private view returns (uint256 gross, uint256 net) {
+        if (residualRatio == 0) {
+            return (owed, 0);
         }
-        return Math.min(share, IMultipleRewardDistributor_v3(pool).maxDepositReward(WRAPPED_COLLATERAL_TOKEN));
+        uint256 cap = IMultipleRewardDistributor_v3(pool).maxDepositReward(WRAPPED_COLLATERAL_TOKEN);
+        net = Math.mulDiv(owed, residualRatio, 1 ether);
+        if (net <= cap) {
+            gross = owed; // the whole owed fits within one period's capacity
+        } else {
+            net = cap; // capped: deposit exactly one period's capacity, gross it back up for the skim
+            gross = Math.mulDiv(cap, 1 ether, residualRatio);
+        }
+        if (net < IMultipleRewardDistributor_v3(pool).REWARD_PERIOD_LENGTH()) {
+            return (0, 0); // sub-period net: the stream rate floors to zero, so defer the whole owed
+        }
     }
 
     /// @inheritdoc IStabilityPoolManager
@@ -472,77 +503,86 @@ contract StabilityPoolManager_v2 is
         if (bountyReceiver == address(0)) {
             revert IERC20Errors.ERC20InvalidReceiver(bountyReceiver);
         }
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         uint256 harvestableAmount = IMinter(MINTER).harvestable();
         if (harvestableAmount == 0) {
             revert NoHarvestable();
         }
+        uint256 residualRatio = 1 ether - $.harvestBountyRatio - $.harvestCutRatio;
 
-        // The pools take their FLOORED residual share (residual = harvestable - bounty - cut on the full harvestable),
-        // each capped at its reward stream's remaining capacity; the uncapped excess is left unharvested in the minter,
-        // still counted as harvestable, for the next call (the keeper drains it in chunks across periods). Only when a
-        // pool DEFERS - its capped share falls below its full entitlement - do the keeper bounty and protocol cut scale
-        // down to what was actually distributed, so a keeper/treasury can never skim a fee on funds the pools never
-        // receive; otherwise they stay the exact ratio slices of the full harvestable. Sweeping only the SUM of the
-        // parts means the deferred/flooring remainder never moves, so there are no dust transfers to the pools.
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-
-        uint256 toCollateral;
-        uint256 toLeveraged;
-        uint256 toTreasury;
-        bool deferred; // a pool capped its share below its full residual entitlement - the skim must cap in lockstep
+        // Allocate the NEW yield - harvestable beyond what is already owed to the pools and still sitting in the minter
+        // - to the pools by CURRENT holdings, GROSS (pre-skim), added to each pool's own `owed`. A pool's owed is its
+        // own: a share deferred past one period's reward capacity is never re-split to the other pool, so a pool that
+        // did not hold when it accrued never receives it. If the minter's excess has shrunk below what is owed (a
+        // wrap-rate drop eroding it), write the owed down proportionally so it never claims more than the minter holds.
+        uint256 toTreasuryGross;
         {
-            uint256 residual = harvestableAmount -
-                (harvestableAmount * $.harvestBountyRatio) / 1 ether -
-                (harvestableAmount * $.harvestCutRatio) / 1 ether;
-            (uint256 totalPoolHolding, uint256 poolHoldingCollateral, uint256 poolHoldingLeveraged) = _poolHoldings();
-            if (totalPoolHolding > 0) {
-                // TODO: does this share the value across the pools fairly. I.e. one pool being capped means the other pool gets more
-                //
-                uint256 uncapped = Math.mulDiv(residual, poolHoldingCollateral, totalPoolHolding);
-                toCollateral = _cappedPoolShare(uncapped, _STABILITY_POOL_COLLATERAL);
-                deferred = toCollateral < uncapped;
-                uncapped = Math.mulDiv(residual, poolHoldingLeveraged, totalPoolHolding);
-                toLeveraged = _cappedPoolShare(uncapped, _STABILITY_POOL_LEVERAGED);
-                deferred = deferred || toLeveraged < uncapped;
+            uint256 owedBefore = $.owedCollateral + $.owedLeveraged;
+            if (harvestableAmount < owedBefore) {
+                $.owedCollateral = Math.mulDiv($.owedCollateral, harvestableAmount, owedBefore);
+                $.owedLeveraged = harvestableAmount - $.owedCollateral;
             } else {
-                // no pools have a balance: the residual goes to the treasury (no reward stream, so nothing to cap)
-                toTreasury = residual;
+                uint256 newYield = harvestableAmount - owedBefore;
+                (
+                    uint256 totalPoolHolding,
+                    uint256 poolHoldingCollateral,
+                    uint256 poolHoldingLeveraged
+                ) = _poolHoldings();
+                if (totalPoolHolding > 0) {
+                    // Floor BOTH shares; the split remainder (<= 1 wei) stays un-owed harvestable and is re-allocated
+                    // next call by then-current holdings - fair, since it is new yield never attributed to a pool, and
+                    // so neither pool is handed the remainder as a systematic advantage.
+                    $.owedCollateral += Math.mulDiv(newYield, poolHoldingCollateral, totalPoolHolding);
+                    $.owedLeveraged += Math.mulDiv(newYield, poolHoldingLeveraged, totalPoolHolding);
+                } else {
+                    toTreasuryGross = newYield; // no pools hold: the new yield goes to the treasury (no reward stream)
+                }
             }
         }
 
-        // bounty and cut are the exact ratio slices of the full harvestable, except when a pool deferred: then they scale
-        // to what was actually distributed (`processed = distributed / residualRatio`) so the skim caps in lockstep
-        uint256 residualRatio = 1 ether - $.harvestBountyRatio - $.harvestCutRatio;
-        uint256 distributed = toCollateral + toLeveraged + toTreasury;
-        // residualRatio == 0 (full cut) sends nothing to the pools, so there is no deferral to scale for and the divide
-        // would be by zero - the skim is then the full harvestable
-        // TODO: ensure that the maxReward cap on one pool is equally applied to the other
-        uint256 processed = (deferred && residualRatio > 0)
-            ? Math.mulDiv(distributed, 1 ether, residualRatio)
-            : harvestableAmount;
-        uint256 bountyAmount = (processed * $.harvestBountyRatio) / 1 ether;
+        // Stream each pool's owed up to its remaining per-period capacity; the treasury takes its gross in full. The
+        // bounty and cut are the exact ratio slices of the GROSS distributed this call - which equals what is swept
+        // from the minter - so they are taken when the value reaches the pool, never on the deferred backlog, and a
+        // bounty receiver's reward always matches the harvestable it consumed. The unprocessed owed and the sub-part
+        // flooring remainder stay harvestable in the minter for a later call.
+        (uint256 grossCollateral, uint256 netCollateral) = _streamAmounts(
+            $.owedCollateral,
+            _STABILITY_POOL_COLLATERAL,
+            residualRatio
+        );
+        (uint256 grossLeveraged, uint256 netLeveraged) = _streamAmounts(
+            $.owedLeveraged,
+            _STABILITY_POOL_LEVERAGED,
+            residualRatio
+        );
+        $.owedCollateral -= grossCollateral;
+        $.owedLeveraged -= grossLeveraged;
+
+        uint256 totalGross = grossCollateral + grossLeveraged + toTreasuryGross;
+        uint256 bountyAmount = Math.mulDiv(totalGross, $.harvestBountyRatio, 1 ether);
         if (bountyAmount < minBounty) {
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
-        uint256 cutAmount = (processed * $.harvestCutRatio) / 1 ether;
+        uint256 cutAmount = Math.mulDiv(totalGross, $.harvestCutRatio, 1 ether);
+        // The treasury (used only when no pool holds, so it is the whole gross) is uncapped: it takes exactly the
+        // remainder after the skim, leaving no dust - unlike a pool, whose sub-part flooring stays harvestable.
+        uint256 netTreasury = toTreasuryGross == 0 ? 0 : toTreasuryGross - bountyAmount - cutAmount;
 
-        // sweep exactly what is distributed; anything not swept (deferred pool excess + the split flooring) stays in the
-        // minter as harvestable
-        harvested = bountyAmount + cutAmount + distributed;
-        ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvested, address(this));
-
-        if (bountyAmount > 0) {
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
+        harvested = bountyAmount + cutAmount + netCollateral + netLeveraged + netTreasury;
+        if (harvested > 0) {
+            ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvested, address(this));
+            if (bountyAmount > 0) {
+                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
+            }
+            if (cutAmount > 0) {
+                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, cutAmount);
+            }
+            if (netTreasury > 0) {
+                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, netTreasury);
+            }
+            _harvestToPool(netCollateral, _STABILITY_POOL_COLLATERAL);
+            _harvestToPool(netLeveraged, _STABILITY_POOL_LEVERAGED);
         }
-        if (cutAmount > 0) {
-            address cutReceiver = $.feeReceiver == address(0) ? TREASURY : $.feeReceiver;
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(cutReceiver, cutAmount);
-        }
-        if (toTreasury > 0) {
-            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(TREASURY, toTreasury);
-        }
-        _harvestToPool(toCollateral, _STABILITY_POOL_COLLATERAL);
-        _harvestToPool(toLeveraged, _STABILITY_POOL_LEVERAGED);
 
         emit Harvested(harvested);
         _compoundRegistered();
