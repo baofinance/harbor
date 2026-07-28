@@ -749,16 +749,21 @@ contract StabilityPool_v3 is
         _checkOwnerOrRoles(REBALANCER_ROLE);
     }
 
-    /// @notice Cap an asset-token outflow at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY - it may take the pool
-    ///         down to the floor but no further (a loss must leave every holder their share of the min). Shared by the
-    ///         rebalance `sweep` (caps the pegged handed to the liquidator), `_notifyLoss` (caps the supply written
-    ///         down) and `withdraw` (caps the gross outflow): applied to all three, the pegged the pool retains and the
-    ///         supply it owes fall in lock-step, so a liquidation past the floor leaves the floored supply still fully
-    ///         backed, and a seeded pool never returns to zero - the single rule behind the reward divisor's floor.
-    ///         Returns 0 when supply is 0.
-    function _capToFloor(uint256 amount) internal view returns (uint256) {
+    /// @inheritdoc IStabilityPool_v3
+    function maxAssetLoss() public view returns (uint256) {
         uint256 supply = totalSupply();
-        uint256 headroom = supply > MIN_TOTAL_ASSET_SUPPLY ? supply - MIN_TOTAL_ASSET_SUPPLY : 0;
+        return supply > MIN_TOTAL_ASSET_SUPPLY ? supply - MIN_TOTAL_ASSET_SUPPLY : 0;
+    }
+
+    /// @notice Cap an asset-token outflow at the pool's headroom above MIN_TOTAL_ASSET_SUPPLY (`maxAssetLoss`) - it may
+    ///         take the pool down to the floor but no further (a loss must leave every holder their share of the min).
+    ///         Shared by the rebalance `sweep` (caps the pegged handed to the liquidator), `_notifyLoss` (caps the
+    ///         supply written down) and `withdraw` (caps the gross outflow): applied to all three, the pegged the pool
+    ///         retains and the supply it owes fall in lock-step, so a liquidation past the floor leaves the floored
+    ///         supply still fully backed, and a seeded pool never returns to zero - the single rule behind the reward
+    ///         divisor's floor. Returns 0 when supply is 0.
+    function _capToFloor(uint256 amount) internal view returns (uint256) {
+        uint256 headroom = maxAssetLoss();
         return amount > headroom ? headroom : amount;
     }
 

@@ -25,4 +25,11 @@ interface IStabilityPool_v3 is IStabilityPool {
     ///         fixed-point precision, saturated at the supply field width.
     // solhint-disable-next-line func-name-mixedcase
     function MAX_TOTAL_ASSET_SUPPLY() external view returns (uint256 token);
+
+    /// @notice The most asset supply a single liquidation loss may write down: the pool's headroom above
+    ///         MIN_TOTAL_ASSET_SUPPLY. A loss may take the pool down to the floor but no further, so every holder keeps
+    ///         their share of the minimum. The rebalancer queries this before a liquidation so it never asks the pool
+    ///         to absorb more than this; the pool also enforces the same bound internally as a backstop. Zero when
+    ///         supply is at or below the floor.
+    function maxAssetLoss() external view returns (uint256 amount);
 }

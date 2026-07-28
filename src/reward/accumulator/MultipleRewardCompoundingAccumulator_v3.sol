@@ -531,21 +531,42 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
         $.tokenToExponentToIntegral[token][exponent] = integral;
     }
 
+    /// @dev The reward-integral capacity for a single accrual made against `share`. `_accumulateReward` stores
+    ///      `toAdd = reward * _REWARD_PRECISION * magnitude / share` (magnitude bounded by `MAGNITUDE_PRECISION`) into a
+    ///      uint256 per-exponent integral and accumulates it, so an unbounded reward on a small pool overflows the
+    ///      store. This bound holds each `toAdd` to at most `type(uint256).max / _INTEGRAL_HEADROOM`, leaving room for
+    ///      `_INTEGRAL_HEADROOM` accruals at one exponent. Because `toAdd` at the cap is `type(uint256).max /
+    ///      _INTEGRAL_HEADROOM` regardless of `share`, harvest deposits and liquidations share that one budget however
+    ///      each is sized.
+    function _integralCap(uint256 share) private pure returns (uint256) {
+        return
+            Math.mulDiv(
+                type(uint256).max,
+                share,
+                _REWARD_PRECISION * uint256(DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION) * _INTEGRAL_HEADROOM
+            );
+    }
+
     /// @inheritdoc LinearMultipleRewardDistributor_v3
-    /// @dev Intersects the rate-field capacity with the reward-integral capacity. `_accumulateReward` stores
-    ///      `toAdd = amount * _REWARD_PRECISION * magnitude / totalShare` into a uint256 per-exponent integral and
-    ///      accumulates it, so an unbounded `amount` on a small pool overflows the store. Capping `committed` at
-    ///      `integralCap` holds each `toAdd` to at most `type(uint256).max / _INTEGRAL_HEADROOM` in the worst case
-    ///      (`totalShare` at the pool floor `_minTotalShare()`, `magnitude` at `MAGNITUDE_PRECISION`), leaving room for
-    ///      `_INTEGRAL_HEADROOM` deposits to accumulate at one exponent. A deposit streams and is accumulated later
-    ///      against a `totalShare` that may have fallen to the floor, so the floor - not the live share - is the bound.
+    /// @dev Intersects the rate-field capacity with the reward-integral capacity (`_integralCap`). A streamed deposit
+    ///      accumulates LATER against a `totalShare` that may have fallen to the pool floor `_minTotalShare()`, so the
+    ///      floor - not the live share - is the bound.
     function _depositRewardCap() internal view virtual override returns (uint256) {
-        uint256 integralCap = Math.mulDiv(
-            type(uint256).max,
-            _minTotalShare(),
-            _REWARD_PRECISION * uint256(DecrementalFloatingPoint_v2.MAGNITUDE_PRECISION) * _INTEGRAL_HEADROOM
-        );
-        return Math.min(super._depositRewardCap(), integralCap);
+        return Math.min(super._depositRewardCap(), _integralCap(_minTotalShare()));
+    }
+
+    /// @notice The largest reward a single immediate liquidation accrual (`notifyLiquidation` -> `_accumulateReward`)
+    ///         may distribute without overflowing the reward integral. Unlike a streamed harvest deposit it accrues
+    ///         NOW - before the loss is applied - against the LIVE total share, so it is bounded against that, sharing
+    ///         the `_INTEGRAL_HEADROOM` budget with harvest deposits at the same exponent. Zero when the pool is empty
+    ///         (a reward would queue, not accrue).
+    function maxLiquidationReward() external view override returns (uint256) {
+        (, uint256 totalShare) = _getTotalPoolShare();
+        // slither-disable-next-line incorrect-equality
+        if (totalShare == 0) {
+            return 0;
+        }
+        return _integralCap(totalShare);
     }
 
     /// @dev Internal function to get the total pool shares.
