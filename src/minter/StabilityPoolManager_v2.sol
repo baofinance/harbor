@@ -20,7 +20,6 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IYieldVaultManager} from "@harbor/interfaces/IYieldVaultManager.sol";
 import {IYieldVault} from "@harbor/interfaces/IYieldVault.sol";
@@ -115,15 +114,15 @@ contract StabilityPoolManager_v2 is
         MINTER = minter_;
 
         // slither-disable-next-line missing-zero-check
-        PEGGED_TOKEN = IMinter(minter_).PEGGED_TOKEN();
+        PEGGED_TOKEN = IMinter_v3(minter_).PEGGED_TOKEN();
         Token.sanityCheckERC20Token(PEGGED_TOKEN);
 
         // slither-disable-next-line missing-zero-check
-        WRAPPED_COLLATERAL_TOKEN = IMinter(minter_).WRAPPED_COLLATERAL_TOKEN();
+        WRAPPED_COLLATERAL_TOKEN = IMinter_v3(minter_).WRAPPED_COLLATERAL_TOKEN();
         Token.sanityCheckERC20Token(WRAPPED_COLLATERAL_TOKEN);
 
         // slither-disable-next-line missing-zero-check
-        LEVERAGED_TOKEN = IMinter(minter_).LEVERAGED_TOKEN();
+        LEVERAGED_TOKEN = IMinter_v3(minter_).LEVERAGED_TOKEN();
         Token.sanityCheckERC20Token(LEVERAGED_TOKEN);
 
         // Validate and store the stability pools
@@ -184,7 +183,7 @@ contract StabilityPoolManager_v2 is
 
     /// @inheritdoc IStabilityPoolManager
     function harvestable() external view returns (uint256) {
-        return IMinter(MINTER).harvestable();
+        return IMinter_v3(MINTER).harvestable();
     }
 
     function _rebalanceable(
@@ -198,7 +197,7 @@ contract StabilityPoolManager_v2 is
     /// @inheritdoc IStabilityPoolManager
     function rebalanceable() external view returns (bool rebalanceable_) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        rebalanceable_ = _rebalanceable(IMinter(MINTER).collateralRatio(), $.rebalanceThreshold);
+        rebalanceable_ = _rebalanceable(IMinter_v3(MINTER).collateralRatio(), $.rebalanceThreshold);
     }
 
     /// @inheritdoc IStabilityPoolManager
@@ -363,9 +362,9 @@ contract StabilityPoolManager_v2 is
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         uint256 rebalanceThreshold_ = $.rebalanceThreshold;
-        if (!_rebalanceable(IMinter(MINTER).collateralRatio(), rebalanceThreshold_)) {
+        if (!_rebalanceable(IMinter_v3(MINTER).collateralRatio(), rebalanceThreshold_)) {
             // it's an lower bound for non-rebalance mode
-            revert CollateralRatioNotBelowRebalanceThreshold(IMinter(MINTER).collateralRatio(), rebalanceThreshold_);
+            revert CollateralRatioNotBelowRebalanceThreshold(IMinter_v3(MINTER).collateralRatio(), rebalanceThreshold_);
         }
 
         // sum up the relative sizes of the stability pools - this is the pegged token holdings
@@ -376,36 +375,19 @@ contract StabilityPoolManager_v2 is
             revert NoTokensToLiquidate(PEGGED_TOKEN);
         }
 
-        // Get the amount of pegged tokens needed to be liquidated to reach target collateral ratio
-        (uint256 peggedForCollateral, uint256 peggedForLeveraged) = IMinter(MINTER).redeemPeggedForCollateralRatio(
-            rebalanceThreshold_
+        // Ask the minter for the pegged to liquidate on each leg to reach the target collateral ratio, with the split
+        // already FITTED to each pool's solvency headroom (maxAssetLoss - a loss may take a pool only to its MIN floor):
+        // a pool whose proportional share exceeds its headroom is capped there and the shortfall slides along the
+        // target-ratio line into the co-pool's leg, each leg still redeemed for its own token. So one rebalance reaches
+        // the threshold (or, if both headrooms are exhausted, liquidates the pools' combined headroom - a partial that a
+        // later rebalance continues). The split is proportional to the pegged holdings passed in.
+        (uint256 peggedForCollateral, uint256 peggedForLeveraged) = IMinter_v3(MINTER).redeemPeggedForCollateralRatio(
+            rebalanceThreshold_,
+            IStabilityPool_v3(_STABILITY_POOL_COLLATERAL).maxAssetLoss(),
+            IStabilityPool_v3(_STABILITY_POOL_LEVERAGED).maxAssetLoss(),
+            poolHoldingCollateral,
+            poolHoldingLeveraged
         );
-
-        // Distribute between pools based on weighted holdings if both have tokens
-        if (poolHoldingCollateral > 0 && poolHoldingLeveraged > 0) {
-            // Weight each pool by its holdings, adjusting the leveraged pool by effectiveness
-            uint256 weightedLeveraged = Math.mulDiv(poolHoldingLeveraged, peggedForCollateral, peggedForLeveraged);
-            uint256 totalWeight = poolHoldingCollateral + weightedLeveraged;
-
-            // Calculate the proportional contribution of each pool
-            uint256 collateralLiquidationFraction = Math.mulDiv(poolHoldingCollateral, 1 ether, totalWeight);
-            uint256 leveragedLiquidationFraction = 1 ether - collateralLiquidationFraction;
-
-            // Apply the fractions to determine how much each pool should liquidate
-            peggedForCollateral = Math.mulDiv(
-                peggedForCollateral,
-                collateralLiquidationFraction,
-                1 ether,
-                Math.Rounding.Ceil
-            );
-
-            peggedForLeveraged = Math.mulDiv(
-                peggedForLeveraged,
-                leveragedLiquidationFraction,
-                1 ether,
-                Math.Rounding.Ceil
-            );
-        }
 
         // Clamp each leg before sweeping so the swept, redeemed and notified pegged all agree. Bound the redeemed
         // proceeds to what each pool's reward integral can absorb (maxLiquidationReward) and the pegged loss to the
@@ -449,7 +431,7 @@ contract StabilityPoolManager_v2 is
         // * extract the bounty and transfer to the bounty receiver
         // * transfer the remainder to the stability pool, notifying it of that "reward"
         IERC20(PEGGED_TOKEN).safeIncreaseAllowance(MINTER, peggedLiquidated);
-        (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter(MINTER).freeRedeemPeggedToken(
+        (uint256 wrappedCollateralReturned, uint256 leveragedReturned) = IMinter_v3(MINTER).freeRedeemPeggedToken(
             peggedForCollateral,
             peggedForLeveraged,
             address(this)
@@ -548,10 +530,7 @@ contract StabilityPoolManager_v2 is
             revert IERC20Errors.ERC20InvalidReceiver(bountyReceiver);
         }
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        uint256 harvestableAmount = IMinter(MINTER).harvestable();
-        if (harvestableAmount == 0) {
-            revert NoHarvestable();
-        }
+        uint256 harvestableAmount = IMinter_v3(MINTER).harvestable();
         uint256 residualRatio = 1 ether - $.harvestBountyRatio - $.harvestCutRatio;
 
         // Allocate the NEW yield - harvestable beyond what is already owed to the pools and still sitting in the minter
@@ -563,8 +542,10 @@ contract StabilityPoolManager_v2 is
         {
             uint256 owedBefore = $.owedCollateral + $.owedLeveraged;
             if (harvestableAmount < owedBefore) {
+                // the minter's excess shrank below the total owed - write EACH pool's owed down by its OWN floored
+                // share (symmetric with the new-yield split), so neither pool is handed the rounding remainder
                 $.owedCollateral = Math.mulDiv($.owedCollateral, harvestableAmount, owedBefore);
-                $.owedLeveraged = harvestableAmount - $.owedCollateral;
+                $.owedLeveraged = Math.mulDiv($.owedLeveraged, harvestableAmount, owedBefore);
             } else {
                 uint256 newYield = harvestableAmount - owedBefore;
                 (
@@ -608,37 +589,34 @@ contract StabilityPoolManager_v2 is
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
         uint256 cutAmount = Math.mulDiv(totalGross, $.harvestCutRatio, 1 ether);
-        // The treasury (used only when no pool holds, so it is the whole gross) takes exactly its gross less the fees.
-        uint256 netTreasury = toTreasuryGross == 0 ? 0 : toTreasuryGross - bountyAmount - cutAmount;
+        // The treasury (used only when no pool holds, so its gross is the whole gross) takes its OWN floored residual
+        // share - like every other party, on its own base - so a flooring remainder is left unharvested rather than
+        // handed to the treasury as a complement. mulDiv of a zero gross is zero, so no special case is needed.
+        uint256 netTreasury = Math.mulDiv(toTreasuryGross, residualRatio, 1 ether);
 
-        // Strict conservation: the distributed parts must sum to totalGross so no wei of a pool's consumed owed is
-        // stranded. bounty and cut are exact ratio floors and each pool net is floored independently, so the parts can
-        // floor-sum to a few wei below totalGross. A pool that streamed its whole owed below the reward cap (its owed
-        // now fully consumed, net > 0) has ample headroom under that cap, so it takes that shortfall as extra net - set
-        // to the conserving complement - keeping bounty and cut at their exact ratios while stranding nothing. (Only
-        // when both pools are capped or deferred - a single harvest above the per-period reward capacity, orders beyond
-        // real yield - is there no uncapped home, and the shortfall then stays harvestable for the next call.)
-        if ($.owedCollateral == 0 && netCollateral > 0) {
-            netCollateral = totalGross - bountyAmount - cutAmount - netLeveraged - netTreasury;
-        } else if ($.owedLeveraged == 0 && netLeveraged > 0) {
-            netLeveraged = totalGross - bountyAmount - cutAmount - netCollateral - netTreasury;
-        }
-
+        // Every party takes exactly its own floored share (the two exact fee floors, each pool's floored net, the
+        // treasury's floored residual); the flooring remainder is left un-owed and unharvested, re-considered next call
+        // by then-current holdings - no party is ever handed another's shortfall.
         harvested = bountyAmount + cutAmount + netCollateral + netLeveraged + netTreasury;
-        if (harvested > 0) {
-            ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvested, address(this));
-            if (bountyAmount > 0) {
-                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
-            }
-            if (cutAmount > 0) {
-                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, cutAmount);
-            }
-            if (netTreasury > 0) {
-                IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, netTreasury);
-            }
-            _harvestToPool(netCollateral, _STABILITY_POOL_COLLATERAL);
-            _harvestToPool(netLeveraged, _STABILITY_POOL_LEVERAGED);
+        // Nothing fairly harvestable this call (every share floored or deferred to zero) - revert so the owed write-down
+        // or increment above is rolled back rather than emitting Harvested(0) and sweeping nothing. Ordered after the
+        // minBounty check, so a non-zero minBounty surfaces the more specific InsufficientBounty first.
+        // slither-disable-next-line incorrect-equality
+        if (harvested == 0) {
+            revert NoHarvestable();
         }
+        ITokenHolder(MINTER).sweep(WRAPPED_COLLATERAL_TOKEN, harvested, address(this));
+        if (bountyAmount > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(bountyReceiver, bountyAmount);
+        }
+        if (cutAmount > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, cutAmount);
+        }
+        if (netTreasury > 0) {
+            IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer($.feeReceiver, netTreasury);
+        }
+        _harvestToPool(netCollateral, _STABILITY_POOL_COLLATERAL);
+        _harvestToPool(netLeveraged, _STABILITY_POOL_LEVERAGED);
 
         emit Harvested(harvested);
         // slither-disable-next-line unused-return

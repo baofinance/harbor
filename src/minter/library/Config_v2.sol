@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {ConfigIncentiveLib} from "@harbor/minter/library/ConfigIncentiveLib.sol";
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 /// @title Config_v2 Library
 /// @notice Handles validation and storage-efficient formatting for infrequently called config operations
@@ -28,15 +28,15 @@ library Config_v2 {
     // slither-disable-next-line cyclomatic-complexity as this code is simple in what it tries to do, it's just that there are a few checks
     function checkAndCopyBands(
         string memory name,
-        IMinter.IncentiveConfig calldata config_,
+        IMinter_v3.IncentiveConfig calldata config_,
         bool disallowNotDiscount
     ) internal pure returns (ConfigIncentiveLib.ActionIncentive memory out) {
         // check the array sizes match
         if (config_.incentiveRatios.length < 1) {
-            revert IMinter.TooFewIncentiveRatios(name, config_.incentiveRatios.length, 1);
+            revert IMinter_v3.TooFewIncentiveRatios(name, config_.incentiveRatios.length, 1);
         }
         if (config_.incentiveRatios.length != config_.collateralRatioBandUpperBounds.length + 1) {
-            revert IMinter.CollateralRatioBoundsIncentivesLengthsMismatch(
+            revert IMinter_v3.CollateralRatioBoundsIncentivesLengthsMismatch(
                 name,
                 config_.collateralRatioBandUpperBounds.length,
                 config_.incentiveRatios.length
@@ -51,7 +51,7 @@ library Config_v2 {
 
             // incentive ratios cannot be too precise for the storage schema
             if (incentiveRatio != config_.incentiveRatios[i]) {
-                revert IMinter.IncentiveRatioTooPrecise(name, config_.incentiveRatios[i]);
+                revert IMinter_v3.IncentiveRatioTooPrecise(name, config_.incentiveRatios[i]);
             }
 
             // check the incentive array values given
@@ -59,11 +59,16 @@ library Config_v2 {
                 // it's mint pegged or redeem leveraged
                 // check against interval [0, 1] i.e. zero fees to some fees to disallow (100% fees)
                 if (incentiveRatio < 0 ether || incentiveRatio > 1 ether) {
-                    revert IMinter.InvalidIncentiveRatioValue(name, i, config_.incentiveRatios[i], "must be in [0, 1]");
+                    revert IMinter_v3.InvalidIncentiveRatioValue(
+                        name,
+                        i,
+                        config_.incentiveRatios[i],
+                        "must be in [0, 1]"
+                    );
                 }
                 // disallows, if they exist, must be at index 0
                 if (incentiveRatio == 1 ether && i != 0) {
-                    revert IMinter.InvalidIncentiveRatioValue(
+                    revert IMinter_v3.InvalidIncentiveRatioValue(
                         name,
                         i,
                         config_.incentiveRatios[i],
@@ -74,7 +79,7 @@ library Config_v2 {
                 // it's a redeem pegged or mint leveraged
                 // check against interval (-1, 1) i.e. some discount; to zero; to some fees
                 if (incentiveRatio <= -1 ether || incentiveRatio >= 1 ether) {
-                    revert IMinter.InvalidIncentiveRatioValue(
+                    revert IMinter_v3.InvalidIncentiveRatioValue(
                         name,
                         i,
                         config_.incentiveRatios[i],
@@ -89,10 +94,10 @@ library Config_v2 {
                     config_.collateralRatioBandUpperBounds[i]
                 );
                 if (currentUpperBound != config_.collateralRatioBandUpperBounds[i]) {
-                    revert IMinter.CollateralRatioBoundTooPrecise(name, config_.collateralRatioBandUpperBounds[i]);
+                    revert IMinter_v3.CollateralRatioBoundTooPrecise(name, config_.collateralRatioBandUpperBounds[i]);
                 }
                 if (i == 0 && currentUpperBound < 1 ether) {
-                    revert IMinter.InvalidCollateralRatioBoundValue(
+                    revert IMinter_v3.InvalidCollateralRatioBoundValue(
                         name,
                         currentUpperBound,
                         i,
@@ -100,7 +105,12 @@ library Config_v2 {
                     );
                 }
                 if (i > 0 && currentUpperBound <= 1 ether) {
-                    revert IMinter.InvalidCollateralRatioBoundValue(name, currentUpperBound, i, "boundary must be > 1");
+                    revert IMinter_v3.InvalidCollateralRatioBoundValue(
+                        name,
+                        currentUpperBound,
+                        i,
+                        "boundary must be > 1"
+                    );
                 }
             } else {
                 currentUpperBound = type(uint256).max;
@@ -114,12 +124,12 @@ library Config_v2 {
                 // it makes the math simpler: i.e. how, otherwise, do we manage multiple incentive ratios for the depegged situation?
                 // especially as the actual collateral ratio (not the one we calculate as _collateralRatio()) never goes below 1 ether
                 if (currentUpperBound != 1 ether && incentiveRatio != 1 ether) {
-                    revert IMinter.NoDepegBoundaryOrDisallow(name);
+                    revert IMinter_v3.NoDepegBoundaryOrDisallow(name);
                 }
             } else {
                 // each subsequent must be strictly increasing at the storage precision
                 if (currentUpperBound <= prevUpperBound) {
-                    revert IMinter.CollateralRatioBoundValueNotIncreasing(
+                    revert IMinter_v3.CollateralRatioBoundValueNotIncreasing(
                         name,
                         config_.collateralRatioBandUpperBounds[i],
                         i,
@@ -128,7 +138,7 @@ library Config_v2 {
                 }
             }
             if (iOut >= ConfigIncentiveLib.MAX_BANDS) {
-                revert IMinter.TooManyIncentiveRatios(
+                revert IMinter_v3.TooManyIncentiveRatios(
                     name,
                     config_.incentiveRatios.length,
                     config_.incentiveRatios.length - 1
@@ -148,7 +158,7 @@ library Config_v2 {
     }
 
     function checkAndCopyIncentives(
-        IMinter.Config calldata config_,
+        IMinter_v3.Config calldata config_,
         ConfigIncentiveLib.ActionIncentive[4] storage out
     ) external {
         out[MINT_PEGGED] = checkAndCopyBands("mint pegged", config_.mintPeggedIncentiveConfig, true);
@@ -162,7 +172,7 @@ library Config_v2 {
     /// @return out The user-friendly config structure
     function copyBandsBack(
         ConfigIncentiveLib.ActionIncentive memory config_
-    ) internal pure returns (IMinter.IncentiveConfig memory out) {
+    ) internal pure returns (IMinter_v3.IncentiveConfig memory out) {
         uint iOut = 0; // solhint-disable-line explicit-types
         uint outBands = ConfigIncentiveLib._collateralRatioBandCount(config_); // solhint-disable-line explicit-types
         uint outBounds = outBands - 1; // solhint-disable-line explicit-types
@@ -184,7 +194,7 @@ library Config_v2 {
 
     function copyIncentivesBack(
         ConfigIncentiveLib.ActionIncentive[4] memory config_
-    ) internal pure returns (IMinter.Config memory out) {
+    ) internal pure returns (IMinter_v3.Config memory out) {
         out.mintPeggedIncentiveConfig = copyBandsBack(config_[MINT_PEGGED]);
         out.redeemPeggedIncentiveConfig = copyBandsBack(config_[REDEEM_PEGGED]);
         out.mintLeveragedIncentiveConfig = copyBandsBack(config_[MINT_LEVERAGED]);

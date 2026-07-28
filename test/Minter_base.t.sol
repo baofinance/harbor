@@ -18,6 +18,7 @@ import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Token} from "@bao/Token.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
@@ -558,8 +559,11 @@ contract TestMinterBasics is TestMinterSetUp {
     }
 
     function test_introspection() public view {
-        assertTrue(Minter_v3(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
-        assertTrue(Minter_v3(minter).supportsInterface(type(IMinter).interfaceId), "should support IMinter");
+        assertTrue(
+            Minter_v3(minter).supportsInterface(type(IMinter).interfaceId) ||
+                Minter_v3(minter).supportsInterface(type(IMinter_v3).interfaceId),
+            "should support IMinter"
+        );
         assertFalse(Minter_v3(minter).supportsInterface(bytes4(0)), "doesn't support 0");
     }
 

@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
@@ -438,12 +439,13 @@ contract TestGraphsLiquidateParameters is TestGraphs, TestCollateralRatioRangeSe
     }
 
     function doOneCollateralRatio() internal override {
-        (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter(minter)
-            .redeemPeggedForCollateralRatio(1.01 ether);
-        (uint256 peggedForCollateral125, uint256 peggedForLeveraged125) = IMinter(minter)
-            .redeemPeggedForCollateralRatio(1.25 ether);
-        (uint256 peggedForCollateral150, uint256 peggedForLeveraged150) = IMinter(minter)
-            .redeemPeggedForCollateralRatio(1.50 ether);
+        // the unconstrained intercepts (no headroom caps, no holdings split) - the removed 1-arg's behaviour
+        (uint256 peggedForCollateral101, uint256 peggedForLeveraged101) = IMinter_v3(minter)
+            .redeemPeggedForCollateralRatio(1.01 ether, type(uint256).max, type(uint256).max, 0, 0);
+        (uint256 peggedForCollateral125, uint256 peggedForLeveraged125) = IMinter_v3(minter)
+            .redeemPeggedForCollateralRatio(1.25 ether, type(uint256).max, type(uint256).max, 0, 0);
+        (uint256 peggedForCollateral150, uint256 peggedForLeveraged150) = IMinter_v3(minter)
+            .redeemPeggedForCollateralRatio(1.50 ether, type(uint256).max, type(uint256).max, 0, 0);
         writeLine(
             file,
             ua(

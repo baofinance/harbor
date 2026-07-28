@@ -100,16 +100,18 @@ binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN
   (harvestable falls by exactly what each harvest sweeps). Reaching the cap needs an extreme corner (a \$1e10
   pool taking a min→max wrap-rate jump at collateral below ~\$2e-5), far from normal operation; raising it is a
   contained per-token migration, never per-holder.
-- **The rebalance recovers differently — immediately, and self-correcting.** Its liquidation reward is accrued in
-  one step (`_accumulateReward`), not streamed, so there is **no `maxDepositReward` cap**: an oversized reward
-  overflows the integral and *reverts* rather than deferring. At the cheapest-collateral corner it executes and
-  stays inside the integral — but by only ~7.7× at the tightest (small-MIN) market, where it delivers ~1e5× the
-  streamed cap, within the integral's 1e6-deposit headroom — a bounded corner, not unlimited. When a liquidation
-  would take a pool below `MIN` the sweep caps there and the pool under-delivers; because the pegged it retains *is*
-  the deficit, the next rebalance's holdings-split hands the co-pool the shortfall and the collateral ratio
-  converges to the threshold across a few calls (3-7 in the tests). This is where it differs from the harvest, whose
-  deferred backlog is instead re-split by *current* holdings — leaking to pools that did not hold when it accrued (a
-  known allocation flaw: a backlog should stay with the pool that earned it).
+- **The rebalance recovers differently — immediately, capped, and self-correcting in one call.** Its liquidation
+  reward is accrued in one step (`_accumulateReward`), not streamed, and is bounded by `maxLiquidationReward`: the
+  reward-integral capacity sized against the *live* share (the reward accrues at once, before the loss, so it is
+  ≥ the streamed `maxDepositReward`). The rebalance clamps each leg's redeemed proceeds to it, deferring any excess to
+  a later call rather than overflowing. The cap does not bind in the declared envelope — even the cheapest-collateral
+  corner's `returned` sits orders of magnitude below it (~1e18× at the max-supply corner) — so the corner executes in
+  full; the cap is the guarantee beyond the envelope. When a pool's proportional share would take it below `MIN`, the
+  **minter's constrained redeem** caps that leg at the pool's headroom and slides the shortfall along the target-ratio
+  line into the co-pool's leg — each leg still redeemed for its own token — so a single rebalance reaches the threshold,
+  or, if both headrooms are exhausted, liquidates the pools' combined headroom (a partial a later rebalance continues).
+  This is where it differs from the harvest, whose deferred backlog is instead re-split by *current* holdings — leaking
+  to pools that did not hold when it accrued (a known allocation flaw: a backlog should stay with the pool that earned it).
 - **A holder's reward accrual is uncapped — held in uint256.** Unlike the ledger `amount` (capped at `MAX`), a
   holder's `pending` / `claimed` has no cap: the whole-pool reward can concentrate on one holder as a count
   `poolValueUSD / wrappedUSD`. The declared envelope stops the collateral axis at \$1e-6 (overflow threshold

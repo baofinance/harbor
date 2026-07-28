@@ -1165,8 +1165,8 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 
         // accrue yield until the GROSS split across the (uneven) holdings leaves an un-owed remainder (a 2-way floor
         // loses 0 or 1 wei). The manager splits the new yield by holdings gross, flooring BOTH shares; that holdings-
-        // split remainder stays un-owed harvestable, handed to neither pool. (Within the streamed gross, the collateral
-        // pool separately absorbs the per-part flooring residual - see the expected amounts below.)
+        // split remainder stays un-owed harvestable, handed to neither pool. (Within the streamed gross, each pool then
+        // takes its OWN floored net, so its per-part net-flooring remainder also stays unharvested - see below.)
         uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
         uint256 grossCol;
         uint256 grossLev;
@@ -1184,15 +1184,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             }
         }
         require(grossCol + grossLev < harvestableAmount, "fixture must produce a split remainder");
-        // The leveraged pool gets its floored net; the collateral pool (its whole owed streamed uncapped) absorbs the
-        // per-part flooring residual, taking the conserving complement. The holdings-split remainder is separate: it was
-        // never owed, so it stays in the minter (asserted below).
+        // Each pool gets its OWN floored net floor(grossShare * residualRatio) - neither absorbs the per-part flooring
+        // residual. The holdings-split remainder is separate: it was never owed, so it stays in the minter (asserted
+        // below), alongside each pool's own net-flooring remainder.
         uint256 expectedLev = Math.mulDiv(grossLev, residualRatio, 1e18);
-        uint256 totalGross = grossCol + grossLev;
-        uint256 expectedCol = totalGross -
-            Math.mulDiv(totalGross, bountyRatio, 1e18) -
-            Math.mulDiv(totalGross, cutRatio, 1e18) -
-            expectedLev;
+        uint256 expectedCol = Math.mulDiv(grossCol, residualRatio, 1e18);
 
         uint256 colBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
         uint256 levBefore = IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged);
@@ -1204,7 +1200,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPool) - colBefore,
             expectedCol,
-            "collateral pool got its floored net plus the absorbed flooring residual (conserving complement)"
+            "collateral pool got exactly the net of its floored gross share, not a conserving complement"
         );
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged) - levBefore,
@@ -1533,13 +1529,11 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         _assertSpSolvent(stabilityPool, _allActors(), g);
     }
 
-    /// @notice A pool sweep-capped at its MIN floor makes a single rebalance under-restore the collateral ratio, and
-    /// the shortfall is recovered by the co-pool on a later rebalance. The pegged balance is the deficit ledger: a
-    /// floored pool retains its pegged and drops to MIN, so the holdings-weighted split hands the co-pool a larger share
-    /// on the next call until the CR is restored. The sequence converges to the threshold - the same end state a single
-    /// uncapped liquidation targets. This characterises the CURRENT recovery-across-calls (unlike harvest, which leaks);
-    /// the batch-3 in-call pickup makes a single rebalance suffice.
-    function test_rebalance_flooredPoolShortfallRecoversAcrossCalls() public {
+    /// @notice A pool whose proportional liquidation share exceeds its solvency headroom is capped there by the minter's
+    /// constrained redeem, and the shortfall slides along the target-ratio line into the co-pool's leg WITHIN the same
+    /// rebalance - so a single rebalance restores the collateral ratio to the threshold instead of the co-pool
+    /// recovering it across several later calls. The co-pool must have the headroom to absorb the shortfall.
+    function test_rebalance_flooredPoolShortfallPickedUpInCall() public {
         Envelope memory e = buildEnvelope();
         _setEnvelopePoint(_nominalCollateralUSD(), _nominalWrapRate(), e.pegPriceUSD);
 
@@ -1566,32 +1560,30 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
 
         address keeper = makeAddr("rebalanceKeeper");
         uint256 calls;
-        bool flooredAndUnderRestoredFirst;
+        bool collateralFlooredFirst;
         for (uint256 i = 0; i < 20 && IStabilityPoolManager(stabilityPoolManager).rebalanceable(); i++) {
             vm.startPrank(keeper);
             IStabilityPoolManager(stabilityPoolManager).rebalance(keeper, 0);
             vm.stopPrank();
             calls++;
             if (calls == 1) {
-                flooredAndUnderRestoredFirst =
-                    IERC20(stabilityPool).totalSupply() == minSupply &&
-                    IStabilityPoolManager(stabilityPoolManager).rebalanceable();
+                collateralFlooredFirst = IERC20(stabilityPool).totalSupply() == minSupply;
             }
         }
 
         console2.log("R1 rebalance calls to converge =", calls);
         assertFalse(
             IStabilityPoolManager(stabilityPoolManager).rebalanceable(),
-            "the rebalance sequence restores the collateral ratio to the threshold (deficit self-corrects)"
+            "the rebalance restores the collateral ratio to the threshold"
         );
         assertTrue(
-            flooredAndUnderRestoredFirst,
-            "the small pool floored and the first rebalance under-restored the collateral ratio"
+            collateralFlooredFirst,
+            "the small collateral pool floored on the first rebalance (its share exceeded its headroom)"
         );
-        assertGt(
+        assertEq(
             calls,
             1,
-            "recovery takes more than one rebalance (the co-pool picks up the shortfall on a later call)"
+            "the minter's constrained split re-allocates the floored pool's shortfall to the co-pool, in one call"
         );
     }
 

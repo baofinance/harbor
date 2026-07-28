@@ -14,14 +14,11 @@ import {Token} from "@bao/Token.sol";
 import {TokenHolder_v2, ITokenHolder} from "@bao/TokenHolder_v2.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 // different ERC20 mint/burn interfaces
 import {IMintable} from "@bao/interfaces/IMintable.sol";
-import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
-import {IBurnable2Arg} from "@bao/interfaces/IBurnable2Arg.sol";
 
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
@@ -99,15 +96,7 @@ import {Config_v2} from "@harbor/minter/library/Config_v2.sol";
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
 /// @custom:oz-upgrades-from src/minter/Minter_v2.sol:Minter_v2
 // solhint-disable-next-line contract-name-capwords
-contract Minter_v3 is
-    Initializable,
-    UUPSUpgradeable,
-    ContextUpgradeable,
-    BaoOwnableRoles,
-    TokenHolder_v2,
-    IMinter,
-    IMinter_v3
-{
+contract Minter_v3 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOwnableRoles, TokenHolder_v2, IMinter_v3 {
     using SafeERC20 for IERC20;
 
     ///////////////
@@ -222,7 +211,7 @@ contract Minter_v3 is
     /// @dev See {IERC165-supportsInterface}.
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
-            interfaceId == type(IMinter).interfaceId ||
+            interfaceId == type(IMinter_v3).interfaceId ||
             interfaceId == type(ITokenHolder).interfaceId ||
             super.supportsInterface(interfaceId);
     }
@@ -231,55 +220,55 @@ contract Minter_v3 is
     // Public View Functions //
     ///////////////////////////
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function priceOracle() external view override returns (address) {
         MinterStorage storage $ = _getMinterStorage();
         return $.priceOracle;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function feeReceiver() external view override returns (address) {
         MinterStorage storage $ = _getMinterStorage();
         return $.feeReceiver;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function reservePool() external view returns (address) {
         MinterStorage storage $ = _getMinterStorage();
         return $.reservePool;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function peggedTokenBalance() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
         return $.peggedTokenBalance;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function leveragedTokenBalance() external view override returns (uint256) {
         return _leveragedTokenBalance();
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function collateralTokenBalance() external view override returns (uint256) {
         MinterStorage storage $ = _getMinterStorage();
         return $.underlyingCollateral;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function config() external view returns (Config memory config_) {
         MinterStorage storage $ = _getMinterStorage();
         config_ = Config_v2.copyIncentivesBack($.incentiveConfig);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function collateralRatio() external view override returns (uint256 collateralRatio_) {
         MinterStorage storage $ = _getMinterStorage();
         (uint256 price, ) = _fetchMid($.priceOracle);
         collateralRatio_ = _collateralRatio($.underlyingCollateral, price, $.peggedTokenBalance);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function leverageRatio() external view override returns (uint256 ratio) {
         MinterStorage storage $ = _getMinterStorage();
 
@@ -287,7 +276,7 @@ contract Minter_v3 is
         ratio = _leverageRatio($.peggedTokenBalance, $.underlyingCollateral, price);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function leveragedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
         (uint256 price, ) = _fetchMid($.priceOracle);
@@ -312,7 +301,7 @@ contract Minter_v3 is
         }
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function peggedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
@@ -325,39 +314,102 @@ contract Minter_v3 is
         }
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function redeemPeggedForCollateralRatio(
+        uint256 targetCollateralRatio,
+        uint256 maxCollateralPegged,
+        uint256 maxLeveragedPegged,
+        uint256 holdingCollateral,
+        uint256 holdingLeveraged
+    ) public view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
+        // The two intercepts of the target-collateral-ratio line (computed in a helper to keep its stack frame separate
+        // from this function's five arguments): `fullCollateral` reaches the target via the collateral leg alone,
+        // `fullLeveraged` via the leveraged leg alone. Redeeming x for collateral AND y for leveraged reaches the target
+        // for any (x, y) on `x / fullCollateral + y / fullLeveraged == 1`.
+        (uint256 fullCollateral, uint256 fullLeveraged) = _collateralRatioLineIntercepts(targetCollateralRatio);
+        // slither-disable-next-line incorrect-equality
+        if (fullCollateral == 0 || fullLeveraged == 0) {
+            return (0, 0); // nothing to redeem, or the collateral ratio already meets the target
+        }
+
+        // The desired point on the line: split by pegged holdings when both pools hold (each pool bears loss - and
+        // earns the matching reward - in proportion to its size), else the intercepts themselves.
+        peggedForCollateral = fullCollateral;
+        peggedForLeveraged = fullLeveraged;
+        if (holdingCollateral > 0 && holdingLeveraged > 0) {
+            uint256 weightedLeveraged = Math.mulDiv(holdingLeveraged, fullCollateral, fullLeveraged);
+            uint256 collateralFraction = Math.mulDiv(holdingCollateral, 1 ether, holdingCollateral + weightedLeveraged);
+            peggedForCollateral = Math.mulDiv(fullCollateral, collateralFraction, 1 ether, Math.Rounding.Ceil);
+            peggedForLeveraged = Math.mulDiv(fullLeveraged, 1 ether - collateralFraction, 1 ether, Math.Rounding.Ceil);
+        }
+
+        // Fit the point into the [0, maxCollateralPegged] x [0, maxLeveragedPegged] headroom box: a leg above its
+        // pool's headroom is capped there and its shortfall slides along the line into the co-pool's leg - still
+        // reaching the target, with each leg redeemed for its own token. If both legs exceed their headroom the pools
+        // are exhausted, so liquidate both to their max (a partial rebalance - the most the stability pools can absorb).
+        if (peggedForCollateral > maxCollateralPegged && peggedForLeveraged > maxLeveragedPegged) {
+            peggedForCollateral = maxCollateralPegged;
+            peggedForLeveraged = maxLeveragedPegged;
+        } else if (peggedForCollateral > maxCollateralPegged) {
+            peggedForCollateral = maxCollateralPegged;
+            peggedForLeveraged = Math.mulDiv(
+                fullLeveraged,
+                fullCollateral - maxCollateralPegged,
+                fullCollateral,
+                Math.Rounding.Ceil
+            );
+            if (peggedForLeveraged > maxLeveragedPegged) {
+                peggedForLeveraged = maxLeveragedPegged;
+            }
+        } else if (peggedForLeveraged > maxLeveragedPegged) {
+            peggedForLeveraged = maxLeveragedPegged;
+            peggedForCollateral = Math.mulDiv(
+                fullCollateral,
+                fullLeveraged - maxLeveragedPegged,
+                fullLeveraged,
+                Math.Rounding.Ceil
+            );
+            if (peggedForCollateral > maxCollateralPegged) {
+                peggedForCollateral = maxCollateralPegged;
+            }
+        }
+    }
+
+    /// @dev The two intercepts of the target-collateral-ratio line for the current state: `fullCollateral` is the pegged
+    ///      that reaches the target by redeeming for collateral alone, `fullLeveraged` by redeeming for leveraged alone.
+    ///      Returns (0, 0) when there is nothing to redeem or the collateral ratio already meets the target. Redeeming x
+    ///      for collateral AND y for leveraged reaches the target for any (x, y) on
+    ///      `x / fullCollateral + y / fullLeveraged == 1`. Its own function so its locals do not share a stack frame
+    ///      with the five-argument constrained redeem.
+    function _collateralRatioLineIntercepts(
         uint256 targetCollateralRatio
-    ) external view returns (uint256 peggedForCollateral, uint256 peggedForLeveraged) {
+    ) private view returns (uint256 fullCollateral, uint256 fullLeveraged) {
         MinterStorage storage $ = _getMinterStorage();
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-        if (peggedTokenBalance_ > 0) {
-            (uint256 price, ) = _fetchMax($.priceOracle);
-            uint256 collateralTokenBalance_ = $.underlyingCollateral;
-            uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
-            if (targetCollateralRatio > currentCollateralRatio) {
-                // calculate pegged
-                if (currentCollateralRatio < 1 ether) {
-                    // we're depegged, so all we can do is redeem them all
-                    peggedForCollateral = peggedTokenBalance_;
-                } else {
-                    // targetCR > currentCR >= 1 ether so:
-                    //   targetCR * peggedBalance >= collateral * price  (numerator subtraction safe)
-                    //   targetCR - 1 ether > 0                          (denominator subtraction safe)
-                    unchecked {
-                        peggedForCollateral =
-                            (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
-                            (targetCollateralRatio - 1 ether);
-                    }
-                }
-                // targetCR > currentCR so:
-                //   targetCR > collateral * price / peggedBalance
-                //   peggedBallance > collateral * price / targetCR
-                unchecked {
-                    peggedForLeveraged =
-                        peggedTokenBalance_ - Math.mulDiv(collateralTokenBalance_, price, targetCollateralRatio);
-                }
+        // slither-disable-next-line incorrect-equality
+        if (peggedTokenBalance_ == 0) {
+            return (0, 0);
+        }
+        (uint256 price, ) = _fetchMax($.priceOracle);
+        uint256 collateralTokenBalance_ = $.underlyingCollateral;
+        uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
+        if (targetCollateralRatio <= currentCollateralRatio) {
+            return (0, 0);
+        }
+        if (currentCollateralRatio < 1 ether) {
+            // we're depegged, so all we can do is redeem them all
+            fullCollateral = peggedTokenBalance_;
+        } else {
+            // targetCR > currentCR >= 1 ether so the numerator and denominator subtractions are both safe
+            unchecked {
+                fullCollateral =
+                    (targetCollateralRatio * peggedTokenBalance_ - collateralTokenBalance_ * price) /
+                    (targetCollateralRatio - 1 ether);
             }
+        }
+        // targetCR > currentCR so peggedBalance > collateral * price / targetCR (subtraction safe)
+        unchecked {
+            fullLeveraged = peggedTokenBalance_ - Math.mulDiv(collateralTokenBalance_, price, targetCollateralRatio);
         }
     }
 
@@ -377,22 +429,22 @@ contract Minter_v3 is
         incentiveRatio = ConfigIncentiveLib._incentiveRatio(config_, band);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function mintPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         incentiveRatio = _lookupIncentiveRatio(Config_v2.MINT_PEGGED);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function redeemPeggedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         incentiveRatio = _lookupIncentiveRatio(Config_v2.REDEEM_PEGGED);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function mintLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         incentiveRatio = _lookupIncentiveRatio(Config_v2.MINT_LEVERAGED);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function redeemLeveragedTokenIncentiveRatio() external view override returns (int256 incentiveRatio) {
         incentiveRatio = _lookupIncentiveRatio(Config_v2.REDEEM_LEVERAGED);
     }
@@ -405,7 +457,7 @@ contract Minter_v3 is
     // in other words we don't require all conditions to be met for the dry run to succeed if those conditions
     // require gas to be spent on a transaction.
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function mintPeggedTokenDryRun(
         uint256 wrappedCollateralIn
     )
@@ -460,7 +512,7 @@ contract Minter_v3 is
             : int256(Math.mulDiv(wrappedFee, 1 ether, wrappedCollateralUsed));
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function redeemPeggedTokenDryRun(
         uint256 peggedIn
     )
@@ -508,66 +560,6 @@ contract Minter_v3 is
     }
 
     /// @inheritdoc IMinter_v3
-    function peggedIncentivesByPegged(
-        uint256 peggedIn
-    )
-        external
-        view
-        returns (uint256 mintFee, uint256 peggedNotMinted, uint256 mintMaxFeeRatio, uint256 redeemPeggedUncappedBonus)
-    {
-        MinterStorage storage $ = _getMinterStorage();
-        (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
-        uint256 peggedTokenPriceE36;
-
-        // do the redeem part first to do get the pegged price
-        {
-            uint256 peggedTokenBalance_ = $.peggedTokenBalance;
-            uint256 wrappedDiscount;
-            (, wrappedDiscount, , , peggedTokenPriceE36) = _redeemPeggedAdjustments(
-                $.incentiveConfig[Config_v2.REDEEM_PEGGED],
-                _redeemableQuiet(peggedIn, peggedTokenBalance_),
-                CollateralRatioData($.underlyingCollateral, price, rate, peggedTokenBalance_),
-                type(uint256).max // uncapped: theoretical maximum discount (reserve pool not limiting)
-            );
-            redeemPeggedUncappedBonus = Math.mulDiv(wrappedDiscount * rate, price, peggedTokenPriceE36);
-        }
-        // do the mint part
-        ConfigIncentiveLib.ActionIncentive memory config_ = $.incentiveConfig[Config_v2.MINT_PEGGED];
-
-        // Convert peggedIn to approximate wrapped collateral using oracle mid price.
-        // 1 wrapped collateral ≈ price × rate / 1e18 pegged, so:
-        //   wrappedCollateralIn ≈ peggedIn × 1e18 / (price × rate / 1e18)
-        uint256 priceRateE36 = price * rate;
-        uint256 wrappedCollateralIn = Math.mulDiv(peggedIn, 1e36, priceRateE36);
-
-        uint256 wrappedFee;
-        uint256 wrappedCollateralUsed;
-        (wrappedFee, , wrappedCollateralUsed, ) = _mintPeggedAdjustments(
-            config_,
-            wrappedCollateralIn,
-            CollateralRatioData($.underlyingCollateral, price, rate, $.peggedTokenBalance),
-            type(uint256).max
-        );
-
-        mintFee = Math.mulDiv(wrappedFee, priceRateE36, peggedTokenPriceE36);
-        peggedNotMinted = peggedIn - Math.mulDiv(wrappedCollateralUsed, priceRateE36, peggedTokenPriceE36);
-
-        // Scan all configured bands for mintMaxFeeRatio (highest non-disallow fee).
-        // All mint-pegged rates are in [0, 1) enforced by config validation.
-        // solhint-disable-next-line explicit-types
-        uint bandCount = ConfigIncentiveLib._collateralRatioBandCount(config_);
-        // mintMaxFeeRatio = 0; not needed due to default value being 0
-        // solhint-disable-next-line explicit-types
-        for (uint i = 0; i < bandCount; i++) {
-            int256 bandRatio = ConfigIncentiveLib._incentiveRatio(config_, i);
-            if (bandRatio == 1 ether) {
-                continue; // disallow band — skip
-            }
-            mintMaxFeeRatio = Math.max(uint256(bandRatio), mintMaxFeeRatio); // safe: mint-pegged enforces [0, 1)
-        }
-    }
-
-    /// @inheritdoc IMinter
     function mintLeveragedTokenDryRun(
         uint256 wrappedCollateralIn
     )
@@ -610,7 +602,7 @@ contract Minter_v3 is
         }
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function redeemLeveragedTokenDryRun(
         uint256 leveragedIn
     )
@@ -643,7 +635,7 @@ contract Minter_v3 is
             : int256(Math.mulDiv(wrappedFee, 1 ether, wrappedCollateralReturned + wrappedFee));
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function harvestable() external view returns (uint256 wrappedAmount) {
         MinterStorage storage $ = _getMinterStorage();
         (, uint256 rate) = _fetchMid($.priceOracle);
@@ -659,7 +651,7 @@ contract Minter_v3 is
     // Public Mutator Functions //
     //////////////////////////////
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function reset() external onlyOwner {
         MinterStorage storage $ = _getMinterStorage();
         uint256 underlying = $.underlyingCollateral;
@@ -670,7 +662,7 @@ contract Minter_v3 is
         $.underlyingCollateral = wrapped;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function updateConfig(Config calldata config_) external override onlyOwner {
         // or is this handled by the fact that the CR for discount is much lower than the rebalance CR
         emit UpdateConfig(config_); // the code below may alter the config so emit it soon
@@ -682,17 +674,17 @@ contract Minter_v3 is
         Config_v2.checkAndCopyIncentives(config_, $.incentiveConfig);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function updatePriceOracle(address priceOracle_) external onlyOwner {
         _updatePriceOracle(priceOracle_);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function updateFeeReceiver(address feeReceiver_) external override onlyOwner {
         _updateFeeReceiver(feeReceiver_);
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function updateReservePool(address reservePool_) external override onlyOwner {
         _updateReservePool(reservePool_);
     }
@@ -700,7 +692,7 @@ contract Minter_v3 is
     // minting/redeeming pegged/leveraged tokens
     // -----------------------------------------
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function mintPeggedToken(
         uint256 wrappedCollateralIn,
         address receiver,
@@ -783,7 +775,7 @@ contract Minter_v3 is
         $.peggedTokenBalance = peggedTokenBalance_ + peggedOut;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
 
     function redeemPeggedToken(
         uint256 peggedIn,
@@ -852,7 +844,7 @@ contract Minter_v3 is
         $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralRemoved;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function mintLeveragedToken(
         uint256 wrappedCollateralIn,
         address receiver,
@@ -910,7 +902,7 @@ contract Minter_v3 is
         $.underlyingCollateral = crData.underlyingCollateral + underlyingCollateralAdded;
     }
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function redeemLeveragedToken(
         uint256 leveragedIn,
         address receiver,
@@ -959,7 +951,7 @@ contract Minter_v3 is
     // fee-free minting/redeeming pegged/leveraged tokens
     // --------------------------------------------------
 
-    /// @inheritdoc IMinter
+    /// @inheritdoc IMinter_v3
     function freeMintPeggedToken(
         uint256 wrappedCollateralIn,
         address receiver
