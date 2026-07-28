@@ -26,7 +26,7 @@ import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "@harbor-test/IBaoUSD.sol";
-import {MockERC20, MockERC20Burn2Arg, MockERC20Burn1Arg, MockERC20BurnFrom} from "@bao-test/mocks/MockERC20.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import "@harbor-test/Useful.sol";
 import {Array} from "@harbor-test/Array.sol";
 
