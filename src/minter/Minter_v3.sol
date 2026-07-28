@@ -110,9 +110,6 @@ contract Minter_v3 is
 {
     using SafeERC20 for IERC20;
 
-    /// @notice raised when the signature for the pegged token's burn function is not known
-    error UnrecognisedBurnSignature(string signature);
-
     ///////////////
     // Constants //
     ///////////////
@@ -138,15 +135,6 @@ contract Minter_v3 is
     address public immutable PEGGED_TOKEN;
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
-    // the type of burn signature for burning pegged tokens
-    enum BurnSignature {
-        Burn1Arg,
-        Burn2Arg,
-        BurnFrom
-    }
-    /// @notice The burn signature for the pegged token.
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    BurnSignature private immutable _BURN_SIGNATURE;
 
     /////////////
     // Storage //
@@ -211,12 +199,7 @@ contract Minter_v3 is
     /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     // slither-disable-next-line missing-zero-check // sanityCheckERC20Token is called
-    constructor(
-        address collateralToken_,
-        address peggedToken_,
-        address leveragedToken_,
-        string memory peggedBurnSignature
-    ) {
+    constructor(address collateralToken_, address peggedToken_, address leveragedToken_) {
         _disableInitializers();
 
         Token.sanityCheckERC20Token(collateralToken_);
@@ -228,18 +211,6 @@ contract Minter_v3 is
         Token.sanityCheckERC20Token(peggedToken_);
         // slither-disable-next-line missing-zero-check
         PEGGED_TOKEN = peggedToken_;
-
-        // get the type of burn model used by the pegged token
-        bytes4 burnSelector = bytes4(keccak256(bytes(peggedBurnSignature)));
-        if (burnSelector == bytes4(keccak256("burn(address,uint256)"))) {
-            _BURN_SIGNATURE = BurnSignature.Burn2Arg;
-        } else if (burnSelector == bytes4(keccak256("burn(uint256)"))) {
-            _BURN_SIGNATURE = BurnSignature.Burn1Arg;
-        } else if (burnSelector == bytes4(keccak256("burnFrom(address,uint256)"))) {
-            _BURN_SIGNATURE = BurnSignature.BurnFrom;
-        } else {
-            revert UnrecognisedBurnSignature(peggedBurnSignature);
-        }
     }
 
     /// @notice The check that allow this contract to be upgraded:
@@ -873,7 +844,7 @@ contract Minter_v3 is
 
         // redeem pegged tokens and send the remainder of the collateral
         emit RedeemPeggedToken(_msgSender(), receiver, peggedIn, wrappedCollateralOut, 0);
-        _burnPeggedToken(peggedIn);
+        IBurnableFrom(PEGGED_TOKEN).burnFrom(_msgSender(), peggedIn);
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
 
         // update our records
@@ -1042,36 +1013,23 @@ contract Minter_v3 is
             // consistent with how redeemPeggedForCollateralRatio computed the amounts.
             uint256 underlyingCollateral_ = $.underlyingCollateral;
 
+            uint256 underlyingCollateralOutE36;
+            (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = _freeRedeemPeggedTokenAmounts(
+                peggedForCollateral,
+                peggedForLeveraged,
+                peggedTokenBalance_,
+                underlyingCollateral_,
+                price,
+                rate
+            );
+
             if (peggedForCollateral > 0) {
-                uint256 underlyingCollateralOutE36 = Math.mulDiv(
-                    peggedForCollateral,
-                    _peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price),
-                    price
-                );
-                wrappedCollateralOut = underlyingCollateralOutE36 / rate;
                 // return the collateral
                 IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransfer(receiver, wrappedCollateralOut);
                 $.underlyingCollateral = underlyingCollateral_ - underlyingCollateralOutE36 / 1 ether;
             }
 
             if (peggedForLeveraged > 0) {
-                // we use leverage ratio for this calculation as it is capped
-                uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
-                if (leveragedTokenBalance_ > 0) {
-                    uint256 leverageRatio_ = _leverageRatio(peggedTokenBalance_, underlyingCollateral_, price);
-                    // slither-disable-next-line incorrect-equality
-                    if (leverageRatio_ == _LEVERAGE_RATIO_CAP) {
-                        leveragedOut = Math.mulDiv(peggedForLeveraged, _LEVERAGE_RATIO_CAP, 1 ether);
-                    } else {
-                        leveragedOut = Math.mulDiv(
-                            peggedForLeveraged * leveragedTokenBalance_,
-                            leverageRatio_,
-                            underlyingCollateral_ * price
-                        );
-                    }
-                } else {
-                    leveragedOut = peggedForLeveraged; // initial price of leverage = 1 ether
-                }
                 // mint the tokens to the receiver
                 // wake-disable-next-line reentrancy
                 IMintable(LEVERAGED_TOKEN).mint(receiver, leveragedOut);
@@ -1085,10 +1043,71 @@ contract Minter_v3 is
                 leveragedOut
             );
 
-            // burn the tokens from the sender - deal with the different burn signatures for ERC20 contracts
-            _burnPeggedToken(peggedForCollateral + peggedForLeveraged);
+            // burn the tokens from the sender
+            IBurnableFrom(PEGGED_TOKEN).burnFrom(_msgSender(), peggedForCollateral + peggedForLeveraged);
             // update our records
             $.peggedTokenBalance = peggedTokenBalance_ - (peggedForCollateral + peggedForLeveraged);
+        }
+    }
+
+    /// @inheritdoc IMinter_v3
+    function freeRedeemDryRun(
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged
+    ) external view override returns (uint256 wrappedCollateralOut, uint256 leveragedOut) {
+        MinterStorage storage $ = _getMinterStorage();
+        (uint256 price, uint256 rate) = _fetchMax($.priceOracle);
+        (wrappedCollateralOut, leveragedOut, ) = _freeRedeemPeggedTokenAmounts(
+            peggedForCollateral,
+            peggedForLeveraged,
+            $.peggedTokenBalance,
+            $.underlyingCollateral,
+            price,
+            rate
+        );
+    }
+
+    /// @dev The wrapped collateral and leveraged a free (zero-fee) pegged redeem yields, priced against the given
+    ///      pre-burn state. Shared by `freeRedeemPeggedToken` (which then moves the tokens and writes state) and
+    ///      `freeRedeemDryRun` (which only previews), so both value a redeem identically. Also returns the E36
+    ///      underlying collateral drawn down, which the mutating path needs to decrease `underlyingCollateral` by
+    ///      exactly (its floor differs from `wrappedCollateralOut * rate`). Both pegged legs price against the same
+    ///      snapshot, matching how `redeemPeggedForCollateralRatio` sized them.
+    function _freeRedeemPeggedTokenAmounts(
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged,
+        uint256 peggedTokenBalance_,
+        uint256 underlyingCollateral_,
+        uint256 price,
+        uint256 rate
+    ) private view returns (uint256 wrappedCollateralOut, uint256 leveragedOut, uint256 underlyingCollateralOutE36) {
+        if (peggedForCollateral > 0) {
+            underlyingCollateralOutE36 = Math.mulDiv(
+                peggedForCollateral,
+                _peggedTokenPriceE36(peggedTokenBalance_, underlyingCollateral_, price),
+                price
+            );
+            wrappedCollateralOut = underlyingCollateralOutE36 / rate;
+        }
+
+        if (peggedForLeveraged > 0) {
+            // we use leverage ratio for this calculation as it is capped
+            uint256 leveragedTokenBalance_ = _leveragedTokenBalance();
+            if (leveragedTokenBalance_ > 0) {
+                uint256 leverageRatio_ = _leverageRatio(peggedTokenBalance_, underlyingCollateral_, price);
+                // slither-disable-next-line incorrect-equality
+                if (leverageRatio_ == _LEVERAGE_RATIO_CAP) {
+                    leveragedOut = Math.mulDiv(peggedForLeveraged, _LEVERAGE_RATIO_CAP, 1 ether);
+                } else {
+                    leveragedOut = Math.mulDiv(
+                        peggedForLeveraged * leveragedTokenBalance_,
+                        leverageRatio_,
+                        underlyingCollateral_ * price
+                    );
+                }
+            } else {
+                leveragedOut = peggedForLeveraged; // initial price of leverage = 1 ether
+            }
         }
     }
 
@@ -1233,19 +1252,6 @@ contract Minter_v3 is
 
         // take the collateral
         IERC20(WRAPPED_COLLATERAL_TOKEN).safeTransferFrom(_msgSender(), address(this), wrappedCollateralIn);
-    }
-
-    /// @notice burn pegged tokens in the way the like to burn
-    function _burnPeggedToken(uint256 amount) private {
-        if (_BURN_SIGNATURE == BurnSignature.Burn2Arg) {
-            IBurnable2Arg(PEGGED_TOKEN).burn(_msgSender(), amount);
-        } else if (_BURN_SIGNATURE == BurnSignature.BurnFrom) {
-            IBurnableFrom(PEGGED_TOKEN).burnFrom(_msgSender(), amount);
-        } else if (_BURN_SIGNATURE == BurnSignature.Burn1Arg) {
-            // get the tokens here first
-            IERC20(PEGGED_TOKEN).safeTransferFrom(_msgSender(), address(this), amount);
-            IBurnable(PEGGED_TOKEN).burn(amount);
-        } // no need to check for others because the constructor does this
     }
 
     /// @notice Perform the transfers and event emissions for minting leveraged tokens

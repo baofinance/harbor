@@ -35,7 +35,7 @@ abstract contract Minter is HarborDeployer {
         minterKey = SaltString.key(marketKey, "minter");
         console.log("    > %s", minterKey);
 
-        impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken, "burn(uint256)"));
+        impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken));
         console.log("        Impl:  %s", impl);
 
         _recordImplementation(stateData, minterKey, "@harbor/minter/Minter_v3.sol", "Minter_v3", impl);

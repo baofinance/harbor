@@ -308,6 +308,46 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         balances.poolLeveragedLeveraged = IERC20(leveragedToken).balanceOf(stabilityPoolLeveraged);
     }
 
+    /// @notice When a pool's reward-integral capacity (maxLiquidationReward) is below what a full liquidation would
+    /// distribute, the rebalance clamps that leg's pegged so the redeemed proceeds notified to the pool stay within the
+    /// capacity - they can never overflow the reward integral. The capacity is mocked small here to make the clamp bind
+    /// (in production it dwarfs any real liquidation, so the clamp is a safety bound that drains a huge loss over calls).
+    function test_rebalanceClampsLiquidationToRewardCapacity() public {
+        vm.startPrank(owner);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1.5 ether);
+        IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0.02 ether);
+        vm.stopPrank();
+
+        setUp_collateral(100 ether, 20 ether, user); // CR = 120%, below the 150% threshold -> rebalanceable
+        vm.startPrank(user);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+        uint256 userPegged = IERC20(peggedToken).balanceOf(user);
+        IStabilityPool(stabilityPoolCollateral).deposit(userPegged / 3, user, 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(userPegged - (userPegged / 2), user, 0);
+        vm.stopPrank();
+
+        // force the collateral pool's reward-integral capacity far below the full-liquidation proceeds, so the clamp binds
+        uint256 smallReward = 1e12;
+        vm.mockCall(
+            stabilityPoolCollateral,
+            abi.encodeWithSelector(IMultipleRewardAccumulator.maxLiquidationReward.selector),
+            abi.encode(smallReward)
+        );
+
+        uint256 poolBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
+        uint256 bountyBefore = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver);
+
+        IStabilityPoolManager(stabilityPoolManager).rebalance(bountyReceiver, 0);
+
+        // the collateral liquidation's proceeds (the reward to the pool + the bounty carved from it) are the redeemed
+        // `returned`, which the clamp held within the capacity - so nothing the reward integral can't absorb is notified
+        uint256 rewardToPool = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - poolBefore;
+        uint256 bounty = IERC20(wrappedCollateralToken).balanceOf(bountyReceiver) - bountyBefore;
+        assertLe(rewardToPool + bounty, smallReward, "collateral liquidation proceeds clamped to the reward capacity");
+        assertGt(rewardToPool, 0, "a partial liquidation still happened (the clamp reduces, not cancels)");
+    }
+
     function test_rebalanceTransfers(uint256 threshold, uint256 bountyRatio) public {
         threshold = bound(threshold, 1.2 ether + 1, 2 ether); // Ensure threshold is between 100% and 200%
         bountyRatio = bound(bountyRatio, 0, 0.9 ether); // Ensure bounty ratio is between 0% and 100%

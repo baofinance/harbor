@@ -38,7 +38,6 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile {
     int constant disallow = 10000;
 
     address peggedToken;
-    string peggedTokenBurnSig;
     address wrappedCollateralToken;
     address collateralToken;
 
@@ -317,7 +316,7 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile {
 
     function setUp_minter() internal virtual {
         minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
+            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken)),
             abi.encodeCall(Minter_v3.initialize, (owner))
         );
         vm.label(minter, "minter");
@@ -343,7 +342,6 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile {
         setUp_leveragedToken();
         peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
         vm.label(peggedToken, "pegged");
-        peggedTokenBurnSig = "burnFrom(address,uint256)";
         wrappedCollateralToken = Deployed.wstETH;
         collateralToken = Deployed.stETH;
 
@@ -423,46 +421,53 @@ contract TestMinterInit is TestMinterSetUp {
 
     function setUp() public override {
         super.setUp();
-        impl = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig));
+        impl = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken));
     }
 
     // TODO: do this test for all contracts
     // TODO: do test for initialize calls
     function test_notERC20() public {
-        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig);
+        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken);
 
         // zero address
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
-        new Minter_v3(address(0), peggedToken, leveragedToken, peggedTokenBurnSig);
+        new Minter_v3(address(0), peggedToken, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
-        new Minter_v3(Deployed.wstETH, address(0), leveragedToken, peggedTokenBurnSig);
+        new Minter_v3(Deployed.wstETH, address(0), leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
-        new Minter_v3(Deployed.wstETH, peggedToken, address(0), peggedTokenBurnSig);
+        new Minter_v3(Deployed.wstETH, peggedToken, address(0));
 
         // not a contract
         vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
-        new Minter_v3(owner, peggedToken, leveragedToken, peggedTokenBurnSig);
+        new Minter_v3(owner, peggedToken, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
-        new Minter_v3(Deployed.wstETH, owner, leveragedToken, peggedTokenBurnSig);
+        new Minter_v3(Deployed.wstETH, owner, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner));
-        new Minter_v3(Deployed.wstETH, peggedToken, owner, peggedTokenBurnSig);
+        new Minter_v3(Deployed.wstETH, peggedToken, owner);
 
         // contract but not ERC20
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(priceOracle, peggedToken, leveragedToken, peggedTokenBurnSig);
+        new Minter_v3(priceOracle, peggedToken, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(Deployed.wstETH, priceOracle, leveragedToken, peggedTokenBurnSig);
+        new Minter_v3(Deployed.wstETH, priceOracle, leveragedToken);
 
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));
-        new Minter_v3(Deployed.wstETH, peggedToken, priceOracle, peggedTokenBurnSig);
+        new Minter_v3(Deployed.wstETH, peggedToken, priceOracle);
     }
 
-    function _burnSig() internal {
+    function test_burnSig() public {
+        deal(wrappedCollateralToken, address(this), 100 ether);
+
+        minter = UnsafeUpgrades.deployUUPSProxy(
+            // mock, no need to permission minting
+            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken)),
+            abi.encodeCall(Minter_v3.initialize, (owner))
+        );
         // let this contract mint and burn pegged
         IBaoRoles(minter).grantRoles(zeroFee, IMinter(minter).ZERO_FEE_ROLE());
         IMinter(minter).updatePriceOracle(priceOracle);
@@ -503,63 +508,10 @@ contract TestMinterInit is TestMinterSetUp {
         );
     }
 
-    function test_burnSig() public {
-        deal(wrappedCollateralToken, address(this), 100 ether);
-
-        minter = UnsafeUpgrades.deployUUPSProxy(
-            // mock, no need to permission minting
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
-            abi.encodeCall(Minter_v3.initialize, (owner))
-        );
-        _burnSig();
-
-        peggedToken = Deployed.BaoUSD;
-        peggedTokenBurnSig = "burn(uint256)";
-        minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
-            abi.encodeCall(Minter_v3.initialize, (owner))
-        );
-        vm.prank(IBaoUSD(peggedToken).operator());
-        IBaoUSD(peggedToken).addMinter(minter);
-        _burnSig();
-
-        peggedToken = address(new MockERC20Burn2Arg("burn", "2arg", 18));
-        peggedTokenBurnSig = MockERC20Burn2Arg(peggedToken).burnSignature();
-        minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
-            abi.encodeCall(Minter_v3.initialize, (owner))
-        );
-        _burnSig();
-
-        peggedToken = address(new MockERC20Burn1Arg("burn", "1arg", 18));
-        peggedTokenBurnSig = MockERC20Burn1Arg(peggedToken).burnSignature();
-        minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
-            abi.encodeCall(Minter_v3.initialize, (owner))
-        );
-        _burnSig();
-
-        peggedToken = address(new MockERC20BurnFrom("burn", "from", 18));
-        peggedTokenBurnSig = MockERC20BurnFrom(peggedToken).burnSignature();
-        minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
-            abi.encodeCall(Minter_v3.initialize, (owner))
-        );
-        _burnSig();
-
-        // burn sig is not a valid ERC20 burn sig
-        vm.expectRevert(abi.encodeWithSelector(Minter_v3.UnrecognisedBurnSignature.selector, "burn(address,address)"));
-        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, "burn(address,address)");
-
-        // missing bracket - parse error
-        vm.expectRevert(abi.encodeWithSelector(Minter_v3.UnrecognisedBurnSignature.selector, "burn(address"));
-        new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken, "burn(address");
-    }
-
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
-        address(new Minter_v3(Deployed.wstETH, peggedToken, address(leveragedToken), peggedTokenBurnSig));
+        address(new Minter_v3(Deployed.wstETH, peggedToken, address(leveragedToken)));
     }
 
     function test_initEvents() public {

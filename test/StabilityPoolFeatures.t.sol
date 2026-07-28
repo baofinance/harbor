@@ -366,6 +366,30 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         );
     }
 
+    // maxAssetLoss is the pool's headroom above its MIN floor - the most supply a liquidation may write down, and what
+    // the rebalancer queries before liquidating. Both branches of the headroom are exercised: zero while empty (at or
+    // below the floor), then supply - MIN once funded above it.
+    function test_maxAssetLoss_headroomAboveFloor() public {
+        // empty pool: supply is at or below the floor, so there is no loss headroom
+        assertEq(IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(), 0, "empty pool: no loss headroom");
+
+        uint256 floor = IStabilityPool(stabilityPoolCollateral).MIN_TOTAL_ASSET_SUPPLY();
+        uint256 depositAmount = 5 * floor;
+        deal(peggedToken, user1, depositAmount);
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, depositAmount);
+        IStabilityPool(stabilityPoolCollateral).deposit(depositAmount, user1, 0);
+        vm.stopPrank();
+
+        uint256 supply = IERC20(stabilityPoolCollateral).totalSupply(); // exactly what maxAssetLoss reads
+        assertGt(supply, floor, "supply above the floor after the deposit");
+        assertEq(
+            IStabilityPool_v3(stabilityPoolCollateral).maxAssetLoss(),
+            supply - floor,
+            "maxAssetLoss is the supply headroom above MIN"
+        );
+    }
+
     // A partial withdrawal clamped at the floor charges the early-withdrawal fee on the ACTUAL (clamped) outflow, not on
     // the requested amount - the fee is a true percentage of what leaves the pool.
     function test_withdraw_partialClampChargesFeeOnClampedOutflow() public {

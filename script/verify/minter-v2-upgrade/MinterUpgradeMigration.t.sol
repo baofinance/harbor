@@ -20,7 +20,7 @@ contract TestMinterUpgradeMigration is TestMinterSetUp {
     /// @dev Override to deploy with Minter_v1 implementation instead of Minter_v3
     function setUp_minter() internal override {
         minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)),
+            address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, "burn(uint256)")),
             abi.encodeCall(Minter_v1.initialize, (owner))
         );
         vm.label(minter, "minter");
@@ -32,9 +32,7 @@ contract TestMinterUpgradeMigration is TestMinterSetUp {
         IBaoOwnable(minter).transferOwnership(owner);
     }
     function _upgradeToV2() internal {
-        address v2Impl = address(
-            new Minter_v2(wrappedCollateralToken, peggedToken, leveragedToken, peggedTokenBurnSig)
-        );
+        address v2Impl = address(new Minter_v2(wrappedCollateralToken, peggedToken, leveragedToken, "burn(uint256)"));
         vm.prank(owner);
         UUPSUpgradeable(minter).upgradeToAndCall(v2Impl, "");
     }

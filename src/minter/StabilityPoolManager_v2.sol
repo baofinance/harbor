@@ -17,8 +17,11 @@ import {Token} from "@bao/Token.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
+import {IMultipleRewardAccumulator_v3} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IYieldVaultManager} from "@harbor/interfaces/IYieldVaultManager.sol";
 import {IYieldVault} from "@harbor/interfaces/IYieldVault.sol";
 
@@ -404,6 +407,20 @@ contract StabilityPoolManager_v2 is
             );
         }
 
+        // Clamp each leg before sweeping so the swept, redeemed and notified pegged all agree. Bound the redeemed
+        // proceeds to what each pool's reward integral can absorb (maxLiquidationReward) and the pegged loss to the
+        // pool's solvency headroom (maxAssetLoss); pegged is burned in the redeem, so this must precede it. Preview the
+        // redeem to turn the proceeds bound into a pegged bound. (The sweep still measures the actual taken, only ever
+        // <= the clamp, so both bounds hold even when a pool hands back less.)
+        {
+            (uint256 previewCollateral, uint256 previewLeveraged) = IMinter_v3(MINTER).freeRedeemDryRun(
+                peggedForCollateral,
+                peggedForLeveraged
+            );
+            peggedForCollateral = _capLiquidation(peggedForCollateral, previewCollateral, _STABILITY_POOL_COLLATERAL);
+            peggedForLeveraged = _capLiquidation(peggedForLeveraged, previewLeveraged, _STABILITY_POOL_LEVERAGED);
+        }
+
         // Sweep the pegged backing from each pool into this manager. Each pool caps the sweep at its own solvency
         // headroom above MIN_TOTAL_ASSET_SUPPLY (StabilityPool.sweep), matching the write-down cap in its _notifyLoss,
         // so a pool may hand back less pegged than requested. Measure the balance delta around each sweep to learn
@@ -463,6 +480,29 @@ contract StabilityPoolManager_v2 is
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
         // slither-disable-next-line unused-return
         _compoundRegistered();
+    }
+
+    /// @dev Clamp a liquidation leg's pegged amount to what `pool` will honour, given the redeem's previewed `returned`
+    ///      proceeds for that leg. Two bounds: the reward integral (`maxLiquidationReward` - the proceeds are
+    ///      distributed immediately as the pool's reward and must not overflow it; scale the pegged down so the linear
+    ///      proceeds land at the cap) and the solvency headroom (`maxAssetLoss` - a loss may take the pool only to its
+    ///      MIN floor). Both were silently applied downstream before (the reward path could revert on overflow, the
+    ///      loss path capped inside `_capToFloor`); surfacing them here lets the rebalance size the sweep to what the
+    ///      pool accepts up front. Called for each leg.
+    function _capLiquidation(uint256 pegged, uint256 returned, address pool) private view returns (uint256) {
+        // slither-disable-next-line incorrect-equality avoids divide by 0
+        if (pegged == 0) {
+            return 0;
+        }
+        uint256 maxReward = IMultipleRewardAccumulator_v3(pool).maxLiquidationReward();
+        if (returned > maxReward) {
+            pegged = Math.mulDiv(pegged, maxReward, returned);
+        }
+        uint256 maxLoss = IStabilityPool_v3(pool).maxAssetLoss();
+        if (pegged > maxLoss) {
+            pegged = maxLoss;
+        }
+        return pegged;
     }
 
     function _harvestToPool(uint256 amount, address pool) private {

@@ -63,4 +63,18 @@ interface IMinter_v3 {
         external
         view
         returns (uint256 mintFee, uint256 peggedNotMinted, uint256 mintMaxFeeRatio, uint256 redeemPeggedUncappedBonus);
+
+    /// @notice Dry run of `freeRedeemPeggedToken`: the wrapped collateral and leveraged tokens a zero-fee pegged
+    ///         redeem would yield for the given pegged split, priced against current oracle state - without moving
+    ///         tokens or writing state. Intended for contract-to-contract callers (the StabilityPoolManager's
+    ///         rebalance) that must know the redeemed proceeds before acting, e.g. to bound a pool's liquidation
+    ///         reward to what its reward accounting can absorb.
+    /// @param peggedForCollateral The pegged amount redeemed for wrapped collateral.
+    /// @param peggedForLeveraged The pegged amount redeemed for leveraged tokens.
+    /// @return wrappedCollateralOut The wrapped collateral that `peggedForCollateral` would return.
+    /// @return leveragedOut The leveraged tokens that `peggedForLeveraged` would return.
+    function freeRedeemDryRun(
+        uint256 peggedForCollateral,
+        uint256 peggedForLeveraged
+    ) external view returns (uint256 wrappedCollateralOut, uint256 leveragedOut);
 }

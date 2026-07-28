@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 
 import "@harbor-test/Useful.sol";
@@ -32,6 +33,34 @@ contract TestMinterLiquidate is TestMinterFeeSetUp {
         vm.prank(zeroFee);
         IMinter(minter).freeRedeemPeggedToken(peggedTokens, 0, zeroFee);
         assertEq(IMinter(minter).peggedTokenBalance(), 0, "should have liquidated all");
+    }
+
+    /// @notice freeRedeemDryRun previews EXACTLY what freeRedeemPeggedToken returns for the same pegged split against
+    /// the same state - both legs. The StabilityPoolManager's rebalance relies on this to bound each pool's liquidation
+    /// reward before the redeem burns the pegged; a wiring slip (wrong price fetch or stale snapshot) would show here.
+    function test_freeRedeemDryRun_matchesActualBothLegs() public {
+        setUp_collateral(10 ether, 2 ether); // both collateral and leveraged present, so both redeem legs are exercised
+
+        uint256 balance = IMinter(minter).peggedTokenBalance();
+        uint256 peggedForCollateral = balance / 3;
+        uint256 peggedForLeveraged = balance / 4;
+
+        (uint256 previewCollateral, uint256 previewLeveraged) = IMinter_v3(minter).freeRedeemDryRun(
+            peggedForCollateral,
+            peggedForLeveraged
+        );
+        vm.prank(zeroFee);
+        (uint256 actualCollateral, uint256 actualLeveraged) = IMinter(minter).freeRedeemPeggedToken(
+            peggedForCollateral,
+            peggedForLeveraged,
+            zeroFee
+        );
+
+        assertEq(previewCollateral, actualCollateral, "dry-run wrapped-collateral out matches the actual redeem");
+        assertEq(previewLeveraged, actualLeveraged, "dry-run leveraged out matches the actual redeem");
+        // both legs were non-trivially exercised
+        assertGt(actualCollateral, 0, "collateral leg produced output");
+        assertGt(actualLeveraged, 0, "leveraged leg produced output");
     }
 
     function _liquidateRedeemToCR(uint256 targetCR) private {

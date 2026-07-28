@@ -1164,8 +1164,9 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         _depositPeggedTo(stabilityPoolLeveraged, background, 2 * base); // leveraged pool holds ~twice as much
 
         // accrue yield until the GROSS split across the (uneven) holdings leaves an un-owed remainder (a 2-way floor
-        // loses 0 or 1 wei). The manager splits the new yield by holdings gross, flooring BOTH shares, then streams
-        // each pool net = gross * residualRatio; the remainder stays un-owed harvestable, handed to neither pool.
+        // loses 0 or 1 wei). The manager splits the new yield by holdings gross, flooring BOTH shares; that holdings-
+        // split remainder stays un-owed harvestable, handed to neither pool. (Within the streamed gross, the collateral
+        // pool separately absorbs the per-part flooring residual - see the expected amounts below.)
         uint256 residualRatio = 1e18 - bountyRatio - cutRatio;
         uint256 grossCol;
         uint256 grossLev;
@@ -1183,8 +1184,15 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
             }
         }
         require(grossCol + grossLev < harvestableAmount, "fixture must produce a split remainder");
-        uint256 expectedCol = Math.mulDiv(grossCol, residualRatio, 1e18);
+        // The leveraged pool gets its floored net; the collateral pool (its whole owed streamed uncapped) absorbs the
+        // per-part flooring residual, taking the conserving complement. The holdings-split remainder is separate: it was
+        // never owed, so it stays in the minter (asserted below).
         uint256 expectedLev = Math.mulDiv(grossLev, residualRatio, 1e18);
+        uint256 totalGross = grossCol + grossLev;
+        uint256 expectedCol = totalGross -
+            Math.mulDiv(totalGross, bountyRatio, 1e18) -
+            Math.mulDiv(totalGross, cutRatio, 1e18) -
+            expectedLev;
 
         uint256 colBefore = IERC20(wrappedCollateral).balanceOf(stabilityPool);
         uint256 levBefore = IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged);
@@ -1196,7 +1204,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPool) - colBefore,
             expectedCol,
-            "collateral pool got exactly the net of its floored gross share"
+            "collateral pool got its floored net plus the absorbed flooring residual (conserving complement)"
         );
         assertEq(
             IERC20(wrappedCollateral).balanceOf(stabilityPoolLeveraged) - levBefore,

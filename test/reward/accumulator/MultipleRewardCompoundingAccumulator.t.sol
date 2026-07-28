@@ -2,18 +2,19 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor_v3} from "@harbor/interfaces/IMultipleRewardDistributor_v3.sol";
 import {IMockMultipleRewardCompoundingAccumulator} from "@harbor-test/mocks/IMockMultipleRewardCompoundingAccumulator.sol";
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {MockMultipleRewardCompoundingAccumulator_v3} from "@harbor-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol";
 import {Array} from "@harbor-test/Array.sol";
 
-contract MultipleRewardCompoundingAccumulatorTest is Test, Array {
+contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
     // Addresses
     address deployer;
     address manager;
@@ -477,6 +478,45 @@ contract MultipleRewardCompoundingAccumulatorTest is Test, Array {
             atEnd,
             beforeEnd,
             "capacity frees at exactly finishAt (>= finishAt), matching increase's fresh restream"
+        );
+    }
+
+    /// @notice `maxLiquidationReward` is the immediate-accrual integral cap sized against the LIVE total share - a
+    /// liquidation reward accrues at once (before any loss), so it is bounded against the live share, not the pool
+    /// floor the streamed-deposit cap must assume. It is therefore strictly larger while the pool sits above its floor.
+    /// `assertDiscriminates` pins it to the live-share value and rejects the floor-share value (the plausible bug:
+    /// sizing the immediate cap against the floor, as the streamed cap does).
+    function test_maxLiquidationReward_sizedAgainstLiveShare() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(1, 1 weeks);
+
+        uint256 liveShare = 1000 ether;
+        uint256 floorShare = 1 ether;
+        accumulator.setTotalPoolShare(liveShare, uint128(1e36)); // the immediate liquidation accrues against this
+        accumulator.setMinTotalPoolShare(floorShare); // the streamed-deposit cap uses this floor
+
+        // uint256.max * share / (_REWARD_PRECISION * MAGNITUDE_PRECISION * _INTEGRAL_HEADROOM) = uint256.max * share / 1e60
+        uint256 denominator = uint256(1e18) * 1e36 * 1e6;
+        uint256 expectedLive = Math.mulDiv(type(uint256).max, liveShare, denominator);
+        uint256 wrongFloor = Math.mulDiv(type(uint256).max, floorShare, denominator);
+
+        assertDiscriminates(
+            IMultipleRewardAccumulator(address(accumulator)).maxLiquidationReward(),
+            expectedLive,
+            0,
+            wrongFloor,
+            "maxLiquidationReward is the live-share integral cap, not the floor-share one"
+        );
+    }
+
+    /// @notice An empty pool (no depositors) has no immediate-liquidation reward capacity: a reward would queue rather
+    /// than accrue, so the cap is zero.
+    function test_maxLiquidationReward_zeroWhenPoolEmpty() public {
+        (IMockMultipleRewardCompoundingAccumulator accumulator, ) = _setupAccumulator(1, 1 weeks);
+        accumulator.setTotalPoolShare(0, uint128(1e36));
+        assertEq(
+            IMultipleRewardAccumulator(address(accumulator)).maxLiquidationReward(),
+            0,
+            "empty pool: zero liquidation reward capacity"
         );
     }
 
