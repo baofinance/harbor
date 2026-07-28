@@ -112,6 +112,7 @@ suite CPU (milliseconds)
 | test/StabilityPoolManager.t.sol:TestStabilityPoolManagerInit                                                |              4 | 0.00s  |
 | test/StabilityPoolManager.t.sol:TestStabilityPoolManagerRebalance                                           |            379 | 0.38s  |
 | test/StabilityPoolManager.t.sol:TestStabilityPoolManagerUpgradeable                                         |              1 | 0.00s  |
+| test/StabilityPoolManager.t.sol:TestStabilityPoolManagerYieldVaults                                         |             31 | 0.03s  |
 | test/StabilityPoolRebalance.t.sol:TestStabilityPoolRebalance                                                |            286 | 0.29s  |
 | test/StabilityPoolSpec.t.sol:TestStabilityPoolSpec                                                          |             14 | 0.01s  |
 | test/StabilityPoolStorageLayout.t.sol:StabilityPoolStorageLayoutTest                                        |              0 | 0.00s  |

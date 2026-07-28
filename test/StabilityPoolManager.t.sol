@@ -749,13 +749,14 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         // Calculate expected bounty (5% of 10 ether)
         uint256 expectedBounty = (10 ether * 5) / 100;
 
-        // Verify results: harvested == what left the minter; the split-gross-then-skim path floors <= 5 wei below the
-        // harvestable (a holdings-split remainder <= 1 wei plus four ratio floors), which stays harvestable.
+        // Verify results: harvested == what left the minter. The ratio floors are now absorbed by a pool (strict
+        // conservation), so only the holdings-split remainder (<= 1 wei, splitting the new yield between the two pools
+        // by holdings) stays harvestable.
         assertApproxEqAbs(
             harvested,
             harvestableBefore,
-            6,
-            "harvest takes ~all the harvestable, less the flooring remainder"
+            1,
+            "harvest takes all the harvestable, less the <= 1 wei holdings-split remainder"
         );
         assertApproxEqAbs(
             IERC20(wrappedCollateralToken).balanceOf(harvester) - harvesterBefore,
@@ -781,6 +782,54 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             0.01 ether,
             "Pool 2 should receive 2/5 of remaining harvest"
         );
+    }
+
+    /// The bounty and cut receivers each receive EXACTLY their ratio slice of the gross harvested - pinned to the wei,
+    /// not within a tolerance - and the distribution conserves: the holding pool absorbs the independent-flooring
+    /// residual, so it receives exactly the gross less the two exact fees and nothing is left stranded in the minter. A
+    /// single holding pool makes the whole harvestable that pool's owed with no holdings-split floor, so
+    /// `totalGross == harvestable` and every expected amount is exact.
+    function test_harvestBountyCutExact_() public {
+        // one pool holds all the pegged: the entire harvestable becomes its owed, uncapped, so gross == harvestable
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IStabilityPool(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
+
+        uint256 bountyRatio = 0.05 ether;
+        uint256 cutRatio = 0.03 ether;
+        vm.startPrank(owner);
+        IStabilityPoolManager(stabilityPoolManager).updateHarvestBountyRatio(bountyRatio);
+        IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(cutRatio);
+        vm.stopPrank();
+
+        uint256 gross = IMinter(minter).harvestable(); // == totalGross for a single holding pool
+        uint256 expectedBounty = (gross * bountyRatio) / 1 ether;
+        uint256 expectedCut = (gross * cutRatio) / 1 ether;
+
+        uint256 bountyBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
+        uint256 cutBefore = IERC20(wrappedCollateralToken).balanceOf(treasury); // feeReceiver == treasury (setUp)
+        uint256 poolBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
+
+        vm.prank(harvester);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(harvester) - bountyBefore,
+            expectedBounty,
+            "bounty receiver gets exactly bountyRatio * gross"
+        );
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(treasury) - cutBefore,
+            expectedCut,
+            "cut receiver gets exactly cutRatio * gross"
+        );
+        // strict conservation: the holding pool absorbs the flooring residual, so it receives exactly the gross less the
+        // two exact fees, and the minter is left with nothing stranded.
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral) - poolBefore,
+            gross - expectedBounty - expectedCut,
+            "pool receives gross less the exact fees (absorbs the residual)"
+        );
+        assertEq(IMinter(minter).harvestable(), 0, "no wei stranded in the minter");
     }
 
     function test_harvestToTreasury() public {
@@ -1206,9 +1255,10 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         uint256 harvestableAmount = IMinter(minter).harvestable();
         assertApproxEqAbs(harvestableAmount, 100 ether, 100, "harvestable should be 100 ether");
 
-        // The manager splits the new yield by holdings GROSS (flooring both), then skims: the bounty and cut are ratio
-        // slices of the total gross distributed, and each pool gets net = its gross share * residualRatio. The split
-        // remainder stays in the minter, not swept, so the emitted/returned amount is that sum, not the full harvestable.
+        // The manager splits the new yield by holdings GROSS (flooring both), then skims: the bounty and cut are exact
+        // ratio slices of the total gross distributed. The <= 1 wei holdings-split remainder stays in the minter, but
+        // the per-part flooring residual does not - the collateral pool (its whole owed consumed uncapped) absorbs it,
+        // taking the conserving complement, so the emitted/returned amount is the full totalGross.
         uint256 residualRatio = 1 ether - bounty - cut;
         uint256 totalHolding = IERC20(peggedToken).balanceOf(stabilityPoolCollateral) +
             IERC20(peggedToken).balanceOf(stabilityPoolLeveraged);
@@ -1219,13 +1269,13 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         uint256 totalGross = grossCollateral + grossLeveraged;
         uint256 bountyAmount = (totalGross * bounty) / 1 ether;
         uint256 cutAmount = (totalGross * cut) / 1 ether;
-        uint256 netCollateral = (grossCollateral * residualRatio) / 1 ether;
         uint256 netLeveraged = (grossLeveraged * residualRatio) / 1 ether;
-        uint256 swept = bountyAmount + cutAmount + netCollateral + netLeveraged;
+        // collateral absorbs the flooring residual: it takes totalGross less the two exact fees and the leveraged net
+        uint256 netCollateral = totalGross - bountyAmount - cutAmount - netLeveraged;
 
         address harvester = makeAddr("harvester");
         vm.expectEmit();
-        emit IStabilityPoolManager.Harvested(swept);
+        emit IStabilityPoolManager.Harvested(totalGross);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         assertEq(
             IERC20(peggedToken).balanceOf(stabilityPoolManager),
@@ -1245,7 +1295,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral),
             netCollateral,
-            "collateral pool gets the net of its floored gross share"
+            "collateral pool gets its gross-share net plus the absorbed flooring residual"
         );
         assertEq(
             IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged),
@@ -1253,8 +1303,8 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
             "leveraged pool gets the net of its floored gross share"
         );
 
-        // the harvest returns exactly what it swept (bounty + cut + each pool's streamed net)
-        assertEq(harvested, swept, "returns the amount actually harvested");
+        // strict conservation: the harvest returns exactly the total gross distributed (bounty + cut + both pool nets)
+        assertEq(harvested, totalGross, "returns the amount actually harvested");
     }
 
     function test_harvestWithoutSufficientTokens_() public {

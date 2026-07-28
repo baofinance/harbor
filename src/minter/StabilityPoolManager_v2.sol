@@ -568,9 +568,21 @@ contract StabilityPoolManager_v2 is
             revert InsufficientBounty(WRAPPED_COLLATERAL_TOKEN, bountyAmount, minBounty);
         }
         uint256 cutAmount = Math.mulDiv(totalGross, $.harvestCutRatio, 1 ether);
-        // The treasury (used only when no pool holds, so it is the whole gross) is uncapped: it takes exactly the
-        // remainder after the skim, leaving no dust - unlike a pool, whose sub-part flooring stays harvestable.
+        // The treasury (used only when no pool holds, so it is the whole gross) takes exactly its gross less the fees.
         uint256 netTreasury = toTreasuryGross == 0 ? 0 : toTreasuryGross - bountyAmount - cutAmount;
+
+        // Strict conservation: the distributed parts must sum to totalGross so no wei of a pool's consumed owed is
+        // stranded. bounty and cut are exact ratio floors and each pool net is floored independently, so the parts can
+        // floor-sum to a few wei below totalGross. A pool that streamed its whole owed below the reward cap (its owed
+        // now fully consumed, net > 0) has ample headroom under that cap, so it takes that shortfall as extra net - set
+        // to the conserving complement - keeping bounty and cut at their exact ratios while stranding nothing. (Only
+        // when both pools are capped or deferred - a single harvest above the per-period reward capacity, orders beyond
+        // real yield - is there no uncapped home, and the shortfall then stays harvestable for the next call.)
+        if ($.owedCollateral == 0 && netCollateral > 0) {
+            netCollateral = totalGross - bountyAmount - cutAmount - netLeveraged - netTreasury;
+        } else if ($.owedLeveraged == 0 && netLeveraged > 0) {
+            netLeveraged = totalGross - bountyAmount - cutAmount - netCollateral - netTreasury;
+        }
 
         harvested = bountyAmount + cutAmount + netCollateral + netLeveraged + netTreasury;
         if (harvested > 0) {
