@@ -20,6 +20,8 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
+import {IYieldVaultManager} from "@harbor/interfaces/IYieldVaultManager.sol";
+import {IYieldVault} from "@harbor/interfaces/IYieldVault.sol";
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
 
@@ -1507,5 +1509,161 @@ contract Gist_2 is TestStabilityPoolManagerSetUp {
         //                                          ---------
         // we hit the rebalance collateral ratio exactly
         assertEq(IMinter(minter).collateralRatio(), threshold, "collateral ratio is reset after rebalance");
+    }
+}
+
+/// @dev Minimal yield vault for the YieldVaultManager tests: counts successful compound() calls, and can be built to
+/// revert so the non-fatal CompoundFailed path is exercised.
+contract MockYieldVault is IYieldVault {
+    uint256 public compoundCount;
+    bool public immutable reverts;
+
+    constructor(bool reverts_) {
+        reverts = reverts_;
+    }
+
+    function compound() external override returns (uint256 peggedCompounded) {
+        if (reverts) {
+            revert("MockYieldVault: compound reverted");
+        }
+        compoundCount++;
+        peggedCompounded = 1 ether; // dummy non-zero; the tests assert on compoundCount, not the return
+    }
+}
+
+/// @notice Tests the StabilityPoolManager's IYieldVaultManager surface: registering/unregistering yield vaults, the
+/// enumeration views, the access + validation guards, and that every registered vault's compound() is triggered
+/// (non-fatally) after a harvest.
+contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
+    address vaultA;
+    address vaultB;
+    address failingVault;
+    address harvester;
+
+    function setUp() public virtual override {
+        super.setUp();
+        harvester = makeAddr("harvester"); // harvest is permissionless; any caller works
+        vaultA = address(new MockYieldVault(false));
+        vaultB = address(new MockYieldVault(false));
+        failingVault = address(new MockYieldVault(true));
+    }
+
+    // addYieldVault registers a vault - reflected in the count and the indexed getter - and emits YieldVaultAdded.
+    function test_addYieldVault_registers() public {
+        vm.expectEmit(true, false, false, false);
+        emit IYieldVaultManager.YieldVaultAdded(vaultA);
+        vm.startPrank(owner);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        vm.stopPrank();
+
+        assertEq(IYieldVaultManager(stabilityPoolManager).yieldVaultCount(), 1, "one vault registered");
+        assertEq(IYieldVaultManager(stabilityPoolManager).yieldVault(0), vaultA, "vault readable at index 0");
+    }
+
+    // The zero address is rejected.
+    function test_addYieldVault_rejectsZero() public {
+        vm.startPrank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IYieldVaultManager.InvalidYieldVault.selector, address(0)));
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(address(0));
+        vm.stopPrank();
+    }
+
+    // A duplicate is rejected - the set never double-registers (and would never double-compound).
+    function test_addYieldVault_rejectsDuplicate() public {
+        vm.startPrank(owner);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        vm.expectRevert(abi.encodeWithSelector(IYieldVaultManager.InvalidYieldVault.selector, vaultA));
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        vm.stopPrank();
+        assertEq(IYieldVaultManager(stabilityPoolManager).yieldVaultCount(), 1, "still only one registered");
+    }
+
+    // Only the owner may add.
+    function test_addYieldVault_onlyOwner() public {
+        vm.startPrank(address(0xBEEF));
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        vm.stopPrank();
+    }
+
+    // removeYieldVault unregisters a vault (swap-and-pop leaves the other) and emits YieldVaultRemoved.
+    function test_removeYieldVault_unregisters() public {
+        vm.startPrank(owner);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultB);
+        vm.expectEmit(true, false, false, false);
+        emit IYieldVaultManager.YieldVaultRemoved(vaultA);
+        IYieldVaultManager(stabilityPoolManager).removeYieldVault(vaultA);
+        vm.stopPrank();
+
+        assertEq(IYieldVaultManager(stabilityPoolManager).yieldVaultCount(), 1, "one vault left");
+        assertEq(IYieldVaultManager(stabilityPoolManager).yieldVault(0), vaultB, "the remaining vault is vaultB");
+    }
+
+    // Removing an unregistered vault reverts.
+    function test_removeYieldVault_notFound() public {
+        vm.startPrank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IYieldVaultManager.YieldVaultNotFound.selector, vaultA));
+        IYieldVaultManager(stabilityPoolManager).removeYieldVault(vaultA);
+        vm.stopPrank();
+    }
+
+    // Only the owner may remove.
+    function test_removeYieldVault_onlyOwner() public {
+        vm.startPrank(owner);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        vm.stopPrank();
+        vm.startPrank(address(0xBEEF));
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IYieldVaultManager(stabilityPoolManager).removeYieldVault(vaultA);
+        vm.stopPrank();
+    }
+
+    // 0 vaults: a harvest completes - the empty compound loop is a no-op, not a revert.
+    function test_compoundOnHarvest_zeroVaults() public {
+        _createHarvestable();
+        vm.startPrank(harvester);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        vm.stopPrank();
+    }
+
+    // 1 vault: the harvest compounds it.
+    function test_compoundOnHarvest_oneVault() public {
+        vm.startPrank(owner);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        vm.stopPrank();
+
+        _createHarvestable();
+        vm.startPrank(harvester);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        vm.stopPrank();
+
+        assertEq(MockYieldVault(vaultA).compoundCount(), 1, "the single vault was compounded");
+    }
+
+    // N vaults incl. a failing one: every vault is visited, the failure is caught (non-fatal), and the rest still run.
+    function test_compoundOnHarvest_manyVaults_failureIsNonFatal() public {
+        vm.startPrank(owner);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(failingVault);
+        IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultB);
+        vm.stopPrank();
+
+        _createHarvestable();
+        vm.startPrank(harvester);
+        vm.expectEmit(true, false, false, false);
+        emit IYieldVaultManager.CompoundFailed(failingVault, "");
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        vm.stopPrank();
+
+        assertEq(MockYieldVault(vaultA).compoundCount(), 1, "vaultA compounded despite the failing vault");
+        assertEq(MockYieldVault(vaultB).compoundCount(), 1, "vaultB compounded despite the failing vault");
+        assertEq(MockYieldVault(failingVault).compoundCount(), 0, "the failing vault counted no success");
+    }
+
+    /// @dev Give the minter excess wrapped collateral above its backing, so it has something to harvest - a harvest
+    /// with zero harvestable reverts (NoHarvestable) before it reaches the vault-compound step.
+    function _createHarvestable() internal {
+        deal(wrappedCollateralToken, minter, IERC20(wrappedCollateralToken).balanceOf(minter) + 10 ether);
     }
 }

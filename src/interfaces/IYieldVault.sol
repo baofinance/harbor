@@ -6,5 +6,5 @@ pragma solidity >=0.8.28 <0.9.0;
 interface IYieldVault {
     /// @notice Compound pending rewards: claim wrapped collateral, mint pegged tokens, redeposit to SP.
     /// Permissionless - anyone can trigger.
-    function compound() external;
+    function compound() external returns (uint256 peggedCompounded);
 }

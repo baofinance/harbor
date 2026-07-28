@@ -158,6 +158,7 @@ contract StabilityPoolManager_v2 is
     ) public view virtual override(HarborOwnableRoles, ERC165Upgradeable) returns (bool) {
         return
             interfaceId == type(IStabilityPoolManager).interfaceId ||
+            interfaceId == type(IYieldVaultManager).interfaceId ||
             interfaceId == type(ITokenHolder).interfaceId ||
             super.supportsInterface(interfaceId);
     }
@@ -335,12 +336,14 @@ contract StabilityPoolManager_v2 is
     /// @dev Trigger compound() on every registered yield vault. Failures (including NothingToCompound) are
     ///      non-fatal - the harvest/rebalance still completes - and a CompoundFailed event is emitted so off-chain
     ///      monitoring can detect and investigate them.
-    function _compoundRegistered() private {
+    function _compoundRegistered() private returns (uint256 totalCompounded) {
         address[] memory vaults = _getStabilityPoolManagerStorage().yieldVaults.values();
         for (uint256 i = 0; i < vaults.length; ++i) {
             address vault = vaults[i];
-            // solhint-disable-next-line no-empty-blocks
-            try IYieldVault(vault).compound() {} catch (bytes memory reason) {
+            // slither-disable-next-line calls-loop
+            try IYieldVault(vault).compound() returns (uint256 compounded) {
+                totalCompounded += compounded;
+            } catch (bytes memory reason) {
                 emit CompoundFailed(vault, reason);
             }
         }
@@ -458,6 +461,7 @@ contract StabilityPoolManager_v2 is
         }
 
         emit Rebalanced(peggedLiquidated, wrappedCollateralReturned, leveragedReturned);
+        // slither-disable-next-line unused-return
         _compoundRegistered();
     }
 
@@ -585,6 +589,7 @@ contract StabilityPoolManager_v2 is
         }
 
         emit Harvested(harvested);
+        // slither-disable-next-line unused-return
         _compoundRegistered();
     }
 }
