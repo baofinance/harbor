@@ -173,8 +173,6 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
 
     /// @dev A holder's accrued reward has no cap: the whole-pool reward can concentrate on one holder as a count
     ///      `poolValueUSD / wrappedUSD`, which at micro-priced collateral exceeds uint128 - hence uint256.
-    /// @custom:bao-retyped-from pending uint128
-    /// @custom:bao-retyped-from claimed uint128
     struct ClaimDataV3 {
         // The number of pending rewards.
         uint256 pending;
@@ -200,7 +198,8 @@ abstract contract MultipleRewardCompoundingAccumulator_v3 is
     /// @custom:storage-location erc7201:bao.storage.MultipleRewardCompoundingAccumulator
     /// @custom:bao-renamed-from rewardReceiverNOTUSED rewardReceiver
     /// @custom:bao-renamed-from userRewardSnapshotNOTUSED userRewardSnapshot
-    /// @custom:bao-renamed-from userRewardSnapshotV2NOTUSED userRewardSnapshot
+    /// @custom:bao-renamed-from userRewardSnapshotV2NOTUSED userRewardSnapshotV2
+    /// @custom:bao-added userRewardSnapshot
     struct MultipleRewardCompoundingAccumulatorStorage {
         /// @inheritdoc IMultipleRewardAccumulator_v3
         mapping(address => address) rewardReceiverNOTUSED;
