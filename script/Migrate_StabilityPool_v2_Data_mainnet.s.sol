@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
@@ -49,8 +48,6 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
 {
     using LibString for address;
     using LibString for string;
-
-    // StabilityPoolCollateral / StabilityPoolLeveraged inherited from the StabilityPool deployment helper.
 
     /// @dev ERC1967 implementation slot.
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;

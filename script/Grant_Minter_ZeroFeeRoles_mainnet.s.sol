@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 
@@ -17,7 +16,6 @@ import {Deploy_MCAP_Minter} from "@harbor-script/src/Deploy_MCAP_Minter.sol";
 import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol";
 
 import {Script} from "forge-std/Script.sol";
-import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 
 /// @notice Grant ZERO_FEE_ROLE to all StabilityPoolManagers on their minters.
 /// @dev This role was missing from the initial deployment. Queue as a separate Safe batch.

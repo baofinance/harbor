@@ -8,7 +8,7 @@ import {MintableBurnableERC20_v2} from "@bao/MintableBurnableERC20_v2.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Harbor pegged token deployment logic.

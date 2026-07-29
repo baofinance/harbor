@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
@@ -10,12 +9,10 @@ import {Minter} from "@harbor-script/src/contracts/Minter.sol";
 import {StabilityPool} from "@harbor-script/src/contracts/StabilityPool.sol";
 import {StabilityPoolManager} from "@harbor-script/src/contracts/StabilityPoolManager.sol";
 import {Genesis} from "@harbor-script/src/contracts/Genesis.sol";
-import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
-import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
@@ -139,8 +136,8 @@ abstract contract HarborDeployStack is
         // Deploy ReservePool
         deployReservePool(state, marketKey);
 
-        // Deploy Minter
-        _deployMinter(state, cfg, marketKey);
+        // Deploy Minter — fully wired and configured by deployMinter itself
+        deployMinter(state, market);
 
         // Deploy Stability Pools
         _deployStabilityPools(state, cfg, marketKey);
@@ -148,28 +145,16 @@ abstract contract HarborDeployStack is
         // Register reward tokens on SPs
         _registerRewardTokens(cfg, marketKey);
 
-        // Deploy StabilityPoolManager
-        _deployStabilityPoolManager(state, cfg, marketKey);
+        // Deploy StabilityPoolManager — configured by deployStabilityPoolManager itself
+        deployStabilityPoolManager(state, market);
 
         // Deploy Genesis
-        _deployGenesis(state, cfg, marketKey);
+        deployGenesis(state, marketKey, minterAddress(marketKey));
 
-        // Configure Minter and grant roles
-        _configureMinter(market, marketKey);
+        // Grant roles
+        _grantMarketRoles(marketKey);
 
         console.log("    [complete]");
-    }
-
-    function _deployMinter(
-        DeploymentTypes.State memory stateData,
-        IHarborConfig cfg,
-        string memory marketKey
-    ) internal {
-        address wrappedCollateral = cfg.wrappedCollateralToken();
-        address peggedToken = peggedTokenAddress(cfg.peg());
-        address leveragedToken = leveragedTokenAddress(marketKey);
-
-        deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);
     }
 
     function _deployStabilityPools(
@@ -210,54 +195,13 @@ abstract contract HarborDeployStack is
         IMultipleRewardDistributor(spLeveraged).registerRewardToken(leveragedToken);
     }
 
-    function _deployStabilityPoolManager(
-        DeploymentTypes.State memory stateData,
-        IHarborConfig,
-        string memory marketKey
-    ) internal {
-        address minter = minterAddress(marketKey);
-        address spCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        address spLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-
-        deployStabilityPoolManager(stateData, marketKey, minter, spCollateral, spLeveraged);
-    }
-
-    function _deployGenesis(
-        DeploymentTypes.State memory stateData,
-        IHarborConfig cfg,
-        string memory marketKey
-    ) internal {
-        cfg;
-        deployGenesis(stateData, marketKey, minterAddress(marketKey));
-    }
-
-    function _configureMinter(Config_MinterMarket market, string memory marketKey) internal {
-        IHarborConfig cfg = IHarborConfig(address(market));
-        address minter = minterAddress(marketKey);
-        address priceOracle = wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(market));
-
-        // Update minter configuration (incentive ratios)
-        IMinter(minter).updateConfig(cfg.minterConfig());
-        IMinter(minter).updateReservePool(reservePoolAddress(marketKey));
-        IMinter(minter).updateFeeReceiver(treasury());
-        IMinter(minter).updatePriceOracle(priceOracle);
-
-        // Grant roles — each helper predicts its own addresses from marketKey
+    /// @notice Grant every cross-contract role for a market, once all of its contracts exist.
+    /// @dev Roles are the only wiring left to the stack: each grant names two contracts, so it belongs
+    ///      to neither one's deploy function. Each helper resolves its own addresses from marketKey.
+    function _grantMarketRoles(string memory marketKey) internal {
         grantReservePoolRoles(marketKey);
         grantMinterRoles(marketKey);
         grantStabilityPoolRoles(marketKey, StabilityPoolType.Collateral);
         grantStabilityPoolRoles(marketKey, StabilityPoolType.Leveraged);
-
-        // Configure StabilityPoolManager
-        configureStabilityPoolManager(
-            marketKey,
-            SPMConfig({
-                rebalanceThreshold: cfg.rebalanceThreshold(),
-                rebalanceBountyRatio: cfg.rebalanceBountyRatio(),
-                harvestBountyRatio: cfg.harvestBountyRatio(),
-                harvestCutRatio: cfg.harvestCutRatio(),
-                feeReceiver: treasury()
-            })
-        );
     }
 }

@@ -4,8 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
@@ -39,25 +39,35 @@ abstract contract Minter is HarborDeployer {
         _recordImplementation(stateData, key, "@harbor/minter/Minter_v3.sol", "Minter_v3", impl);
     }
 
-    /// @notice Deploy Minter impl+proxy, record both in state, register for ownership transfer.
+    /// @notice Deploy a fully wired Minter: impl+proxy, recorded in state and registered for ownership
+    ///         transfer, with every dependency and its incentive config already set.
+    /// @dev Takes the market config, not the Minter's constructor arguments. This function is the ONLY
+    ///      place that decides how each value reaches the contract — constructor argument, `initialize`
+    ///      calldata, or post-deploy setter. Moving a value between those three changes this body and
+    ///      nothing else; callers pass the same config either way.
     function deployMinter(
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        address wrappedCollateral,
-        address peggedToken,
-        address leveragedToken
+        Config_MinterMarket marketConfig
     ) internal returns (address proxy) {
+        IHarborConfig cfg = IHarborConfig(address(marketConfig));
+        string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
+
         (address impl, string memory key) = deployMinterImplementation(
             stateData,
             marketKey,
-            wrappedCollateral,
-            peggedToken,
-            leveragedToken
+            cfg.wrappedCollateralToken(),
+            peggedTokenAddress(cfg.peg()),
+            leveragedTokenAddress(marketKey)
         );
 
         bytes memory initData = abi.encodeCall(Minter_v3.initialize, (address(this), owner()));
 
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
+
+        IMinter(proxy).updateConfig(cfg.minterConfig());
+        IMinter(proxy).updateReservePool(reservePoolAddress(marketKey));
+        IMinter(proxy).updateFeeReceiver(treasury());
+        IMinter(proxy).updatePriceOracle(wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(marketConfig)));
     }
 
     /// @notice Grant Minter roles to downstream contracts.

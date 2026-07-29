@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";

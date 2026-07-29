@@ -2,8 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
-import {console2 as console} from "forge-std/console2.sol";
-
 import {Script} from "forge-std/Script.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
