@@ -8,7 +8,6 @@ import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
-import {TokenDistributor_v1} from "@harbor/minter/TokenDistributor_v1.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 
 /// @notice Harbor StabilityPoolManager deployment logic (including SPMFeeReceiver).
@@ -81,56 +80,5 @@ abstract contract StabilityPoolManager is HarborDeployer {
         IStabilityPoolManager(spm).updateHarvestBountyRatio(config.harvestBountyRatio);
         IStabilityPoolManager(spm).updateHarvestCutRatio(config.harvestCutRatio);
         IStabilityPoolManager(spm).updateFeeReceiver(config.feeReceiver);
-    }
-
-    // ========== SPM FEE RECEIVER (TOKEN DISTRIBUTOR) DEPLOYMENT ==========
-
-    /// @notice Deploy TokenDistributor_v1 (SPMFeeReceiver) impl only, record in state.
-    function deploySPMFeeReceiverImplementation(
-        DeploymentTypes.State memory stateData,
-        string memory feeReceiverKey
-    ) internal virtual returns (address impl) {
-        impl = address(new TokenDistributor_v1());
-        console.log("        Impl:  %s", impl);
-
-        _recordImplementation(
-            stateData,
-            feeReceiverKey,
-            "@harbor/minter/TokenDistributor_v1.sol",
-            "TokenDistributor_v1",
-            impl
-        );
-    }
-
-    /// @notice Deploy TokenDistributor_v1 as SPMFeeReceiver impl+proxy, record in state.
-    function deploySPMFeeReceiver(
-        DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        string memory name
-    ) internal returns (address proxy) {
-        string memory feeReceiverKey = SaltString.key(marketKey, "spmFeeReceiver");
-        console.log("    > %s", feeReceiverKey);
-
-        address impl = deploySPMFeeReceiverImplementation(stateData, feeReceiverKey);
-
-        bytes memory initData = abi.encodeCall(TokenDistributor_v1.initialize, (owner(), name));
-
-        proxy = _deployProxyViaStubAndRecord(stateData, feeReceiverKey, impl, initData);
-    }
-
-    /// @notice Configure TokenDistributor with tokens and distribution.
-    function configureSPMFeeReceiver(
-        address feeReceiverProxy,
-        address[] memory tokens,
-        address[] memory recipients,
-        uint256[] memory shares
-    ) internal {
-        TokenDistributor_v1 distributor = TokenDistributor_v1(feeReceiverProxy);
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            distributor.addToken(tokens[i]);
-        }
-
-        distributor.setDistribution(recipients, shares);
     }
 }

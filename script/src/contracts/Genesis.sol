@@ -8,9 +8,9 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
-import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
+import {Genesis_v2} from "@harbor/minter/Genesis_v2.sol";
 
-/// @notice Harbor Genesis_v1 deployment logic.
+/// @notice Harbor Genesis_v2 deployment logic.
 /// @dev File Organization Pattern (see deployment2-design.md Section 3.3.2):
 /// @dev - This file: contract-specific deployment for Genesis
 /// @dev - Uses DeploymentOwnership pattern: register deployed contracts, transfer at end
@@ -21,16 +21,16 @@ import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
 abstract contract Genesis is HarborDeployer {
     // ========== GENESIS DEPLOYMENT ==========
 
-    /// @notice Deploy Genesis_v1 impl only, record in state.
+    /// @notice Deploy Genesis_v2 impl only, record in state.
     function deployGenesisImplementation(
         DeploymentTypes.State memory stateData,
         string memory genesisKey,
         address minter
     ) internal virtual returns (address impl) {
-        impl = address(new Genesis_v1(minter));
+        impl = address(new Genesis_v2(minter));
         console.log("        Impl:  %s", impl);
 
-        _recordImplementation(stateData, genesisKey, "@harbor/minter/Genesis_v1.sol", "Genesis_v1", impl);
+        _recordImplementation(stateData, genesisKey, "@harbor/minter/Genesis_v2.sol", "Genesis_v2", impl);
     }
 
     /// @notice Deploy Genesis impl+proxy, record both in state, register for ownership transfer.
@@ -44,9 +44,9 @@ abstract contract Genesis is HarborDeployer {
 
         address impl = deployGenesisImplementation(stateData, genesisKey, minter);
 
-        bytes memory initData = abi.encodeCall(Genesis_v1.initialize, (owner()));
+        bytes memory initData = abi.encodeCall(Genesis_v2.initialize, (address(this), owner()));
 
-        proxy = _deployProxyViaStubAndRecord(stateData, genesisKey, impl, initData);
+        proxy = _deployProxyAndRecord(stateData, genesisKey, impl, initData);
     }
 
     // ========== ADDRESS PREDICTION ==========

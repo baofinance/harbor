@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
@@ -130,7 +130,7 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
 
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
         vm.startPrank(owner);
-        IBaoRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
+        IHarborRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
         vm.stopPrank();
 
         currentPoolDeposit = initialPoolDeposit;

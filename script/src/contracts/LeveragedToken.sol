@@ -5,7 +5,7 @@ import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {MintableBurnableERC20_v2} from "@bao/MintableBurnableERC20_v2.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {Config_MinterMarket, IMarketConfig, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
@@ -15,19 +15,19 @@ import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
 abstract contract LeveragedToken is HarborDeployer {
     // ========== LEVERAGED TOKEN DEPLOYMENT ==========
 
-    /// @notice Deploy MintableBurnableERC20_v1 impl only (for leveraged token), record in state.
+    /// @notice Deploy MintableBurnableERC20_v2 impl only (for leveraged token), record in state.
     function deployLeveragedTokenImplementation(
         DeploymentTypes.State memory stateData,
         string memory leveragedKey
     ) internal virtual returns (address impl) {
-        impl = address(new MintableBurnableERC20_v1());
+        impl = address(new MintableBurnableERC20_v2());
         console.log("        Impl:   %s", impl);
 
         _recordImplementation(
             stateData,
             leveragedKey,
-            "@bao/MintableBurnableERC20_v1.sol",
-            "MintableBurnableERC20_v1",
+            "@bao/MintableBurnableERC20_v2.sol",
+            "MintableBurnableERC20_v2",
             impl
         );
     }
@@ -49,9 +49,12 @@ abstract contract LeveragedToken is HarborDeployer {
 
         address impl = deployLeveragedTokenImplementation(stateData, leveragedKey);
 
-        bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), tokenName, tokenSymbol));
+        bytes memory initData = abi.encodeCall(
+            MintableBurnableERC20_v2.initialize,
+            (address(this), owner(), tokenName, tokenSymbol)
+        );
 
-        leveragedToken = _deployProxyViaStubAndRecord(stateData, leveragedKey, impl, initData);
+        leveragedToken = _deployProxyAndRecord(stateData, leveragedKey, impl, initData);
 
         // Grant minter roles
         address minter = _predictAddress(SaltString.key(marketKey, "minter"));

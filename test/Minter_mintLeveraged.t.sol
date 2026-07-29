@@ -7,8 +7,8 @@ import {console2 as console} from "forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
@@ -124,8 +124,8 @@ contract TestMinterMintLeveraged is TestMinterMint {
 
     function test_freeMintLeveraged() public {
         // mint noaccess
-        assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeMintLeveragedToken(1 ether, receiver);
         // 1 ----------------------------------------------------
@@ -169,7 +169,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             1 ether,
             "collateral ratio = 1 for the first mint: 0/0, a special case = 1"
         ); /*  */
-        assertEq(IBaoOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner);
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         // 5 ---------------------------
@@ -190,7 +190,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.prank(zeroFee);
         IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
         assertGt(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio > 1");
-        assertEq(IBaoOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner);
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         // 7 ---------------------------

@@ -430,7 +430,11 @@ contract TestMinterInit is TestMinterSetUp {
     /// address named as pending owner is the one the deployer can hand ownership to.
     function test_initExplicitDeployerOwner() public {
         address deployerOwner = makeAddr("deployerOwner");
-        assertNotEq(deployerOwner, address(this), "deployer owner must differ from the caller for this to discriminate");
+        assertNotEq(
+            deployerOwner,
+            address(this),
+            "deployer owner must differ from the caller for this to discriminate"
+        );
 
         address proxy = UnsafeUpgrades.deployUUPSProxy(
             impl,

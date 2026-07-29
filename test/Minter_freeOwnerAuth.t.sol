@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
@@ -20,7 +20,7 @@ contract TestMinterFreeOwnerAuth is TestMinterSetUp {
         super.setUp();
         setUp_collateral(3 ether, 1 ether); // populated pool, minted as the ZERO_FEE_ROLE holder
         assertFalse(
-            IBaoRoles(minter).hasAnyRole(owner, IMinter(minter).ZERO_FEE_ROLE()),
+            IHarborRoles(minter).hasAnyRole(owner, IMinter(minter).ZERO_FEE_ROLE()),
             "owner must not hold ZERO_FEE_ROLE, else these tests would not exercise the owner path"
         );
     }

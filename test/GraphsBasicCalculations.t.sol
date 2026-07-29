@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -35,7 +35,7 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
         vm.prank(owner);
-        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
+        IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
         assertEq(0, IERC20(wrappedCollateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }
 

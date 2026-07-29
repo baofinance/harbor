@@ -10,7 +10,7 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
@@ -37,7 +37,7 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         harvester = makeAddr("harvester");
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
         vm.prank(owner);
-        IBaoRoles(minter).grantRoles(harvester, harvesterRole);
+        IHarborRoles(minter).grantRoles(harvester, harvesterRole);
         deal(address(Deployed.wstETH), harvester, 100 ether);
         vm.prank(harvester);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);

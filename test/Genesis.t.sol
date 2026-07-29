@@ -9,7 +9,8 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IGenesis} from "@harbor/interfaces/IGenesis.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
@@ -230,17 +231,17 @@ contract Test_GenesisBase is TestMinterSetUp {
         IGenesis(genesis).endGenesis();
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
-        // only minter zero fee access can complete it
-        assertFalse(IBaoRoles(minter).hasAnyRole(genesis, zeroFeeRole));
+        // only minter zero fee access can complete it - the revert comes from the Minter, not from Genesis
+        assertFalse(IHarborRoles(minter).hasAnyRole(genesis, zeroFeeRole));
         vm.prank(owner);
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         IGenesis(genesis).endGenesis();
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
         // grant zero fee access
         vm.prank(owner);
-        IBaoRoles(minter).grantRoles(genesis, zeroFeeRole);
-        assertTrue(IBaoRoles(minter).hasAllRoles(genesis, zeroFeeRole));
+        IHarborRoles(minter).grantRoles(genesis, zeroFeeRole);
+        assertTrue(IHarborRoles(minter).hasAllRoles(genesis, zeroFeeRole));
 
         // actually end it
         // ------------------------------------------------------------------------------------

@@ -4,8 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
@@ -80,8 +80,8 @@ contract TestMinterMintPegged is TestMinterMint {
 
     function test_freeMintPegged() public {
         // mint noaccess
-        assertFalse(IBaoRoles(minter).hasAllRoles(receiver, zeroFeeRole));
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        assertFalse(IHarborRoles(minter).hasAllRoles(receiver, zeroFeeRole));
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         vm.prank(receiver);
         IMinter(minter).freeMintPeggedToken(1 ether, receiver);
         //-------------------------------------------------------------
@@ -124,7 +124,7 @@ contract TestMinterMintPegged is TestMinterMint {
             1 ether,
             "collateral ratio = 0/0, which we define as 1, in this case"
         );
-        assertEq(IBaoOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner);
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintPeggedToken(1 ether);
         //---------------------------

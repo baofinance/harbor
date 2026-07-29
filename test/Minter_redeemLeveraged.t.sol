@@ -5,8 +5,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
@@ -106,8 +106,8 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         assertEq(IMinter(minter).leveragedTokenBalance(), 0, "should have no minted leveraged tokens");
 
         // mint noaccess
-        assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeRedeemLeveragedToken(price, receiver);
         // 1 ----------------------------------------------------
@@ -134,7 +134,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // 4 ----------------------------------------------------
 
         // some input, when none, but minter has some
-        assertEq(IBaoOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner);
         deal(address(Deployed.wstETH), zeroFee, 20 ether);
         vm.prank(zeroFee);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);

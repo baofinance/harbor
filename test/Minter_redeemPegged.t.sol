@@ -4,8 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
@@ -84,8 +84,8 @@ contract TestMinterRedeemPegged is TestMinterMint {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         // mint noaccess
-        assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeRedeemPeggedToken(price, 0, receiver);
         // 1 ----------------------------------------------------------------
@@ -126,7 +126,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).freeRedeemPeggedToken(0, 0, receiver);
         // 4 -----------------------------------------------------------
 
-        assertEq(IBaoOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner);
 
         // check that we can't redeem more than minter has minted, i.e 0
         vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));
@@ -230,8 +230,8 @@ contract TestMinterRedeemPegged is TestMinterMint {
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
 
         // mint noaccess
-        assertFalse(IBaoRoles(minter).hasAllRoles(sender, zeroFeeRole));
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        assertFalse(IHarborRoles(minter).hasAllRoles(sender, zeroFeeRole));
+        vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         vm.prank(sender);
         IMinter(minter).freeRedeemPeggedToken(0, price, receiver);
         // 1 ----------------------------------------------------------------
@@ -277,7 +277,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).freeRedeemPeggedToken(0, 0, receiver);
         // 4 -----------------------------------------------------------
 
-        assertEq(IBaoOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner);
 
         // check that we can't swap more than minter has minted, i.e 0
         vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));

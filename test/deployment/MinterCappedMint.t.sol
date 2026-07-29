@@ -11,7 +11,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 /// @title MinterCappedMintTest
@@ -49,7 +49,7 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         vm.startPrank(HARBOR_MULTISIG);
         IMinter(minter).updatePriceOracle(address(mockOracle));
-        IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
+        IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
         vm.stopPrank();
     }
 

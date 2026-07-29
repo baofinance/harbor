@@ -5,7 +5,7 @@ import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {MintableBurnableERC20_v2} from "@bao/MintableBurnableERC20_v2.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -20,19 +20,19 @@ abstract contract PeggedToken is HarborDeployer {
 
     // ========== PEGGED TOKEN DEPLOYMENT ==========
 
-    /// @notice Deploy MintableBurnableERC20_v1 impl only, record in state.
+    /// @notice Deploy MintableBurnableERC20_v2 impl only, record in state.
     function deployPeggedTokenImplementation(
         DeploymentTypes.State memory stateData,
         string memory tokenKey
     ) internal virtual returns (address impl) {
-        impl = address(new MintableBurnableERC20_v1());
+        impl = address(new MintableBurnableERC20_v2());
         console.log("        Impl:   %s", impl);
 
         _recordImplementation(
             stateData,
             tokenKey,
-            "@bao/MintableBurnableERC20_v1.sol",
-            "MintableBurnableERC20_v1",
+            "@bao/MintableBurnableERC20_v2.sol",
+            "MintableBurnableERC20_v2",
             impl
         );
     }
@@ -62,11 +62,11 @@ abstract contract PeggedToken is HarborDeployer {
             address impl = deployPeggedTokenImplementation(stateData, tokenKey);
 
             bytes memory initData = abi.encodeCall(
-                MintableBurnableERC20_v1.initialize,
-                (owner(), pegConfig.name(), pegConfig.symbol())
+                MintableBurnableERC20_v2.initialize,
+                (address(this), owner(), pegConfig.name(), pegConfig.symbol())
             );
 
-            peggedToken = _deployProxyViaStubAndRecord(stateData, tokenKey, impl, initData);
+            peggedToken = _deployProxyAndRecord(stateData, tokenKey, impl, initData);
         }
 
         // Grant minter roles for each market
