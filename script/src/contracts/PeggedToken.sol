@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -45,12 +44,12 @@ abstract contract PeggedToken is HarborDeployer {
         Config_MinterMarket[] memory marketConfigs
     ) internal returns (address peggedToken) {
         string memory pegKey = pegConfig.key();
-        string memory tokenKey = SaltString.key(pegKey, "pegged");
+        string memory tokenKey = peggedTokenKey(pegKey);
 
         console.log("    > %s", tokenKey);
 
         // Check if pegged token already exists at predicted address
-        peggedToken = _predictAddress(tokenKey);
+        peggedToken = peggedTokenAddress(pegKey);
         bool alreadyDeployed = peggedToken.code.length > 0;
 
         if (alreadyDeployed) {
@@ -79,7 +78,7 @@ abstract contract PeggedToken is HarborDeployer {
             );
 
             string memory marketKey = MinterMarketConfigLib.salt(marketConfigs[i]);
-            address minter = _predictAddress(SaltString.key(marketKey, "minter"));
+            address minter = minterAddress(marketKey);
             uint256 roles = IMintableRole(peggedToken).MINTER_ROLE() | IBurnableRole(peggedToken).BURNER_ROLE();
 
             if (alreadyDeployed) {

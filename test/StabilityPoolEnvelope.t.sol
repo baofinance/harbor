@@ -182,12 +182,13 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         toDeploy[0] = mktConfigs[0]; // the fxUSD market
         deployHarborForPeg("envelope_test", peg, mktConfigs, "mainnet", true, toDeploy);
 
-        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
-        stabilityPool = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        stabilityPoolLeveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        stabilityPoolManager = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
-        pegged = _predictAddress(SaltString.key("ETH", "pegged"));
-        leveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
+        string memory marketKey = SaltString.key("ETH", "fxUSD");
+        minter = minterAddress(marketKey);
+        stabilityPool = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
+        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
+        pegged = peggedTokenAddress("ETH");
+        leveraged = leveragedTokenAddress(marketKey);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // The price oracle is a separately-deployed dependency (harbor-price-aggregators): the deploy wires the minter
@@ -195,7 +196,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         // settable mock AFTER the deploy - at the same _wrappedPriceOracleAddress the deploy used - which exercises the
         // deploy's codeless reference and puts the mock in place before the first read (the seed mint). etch copies code
         // not storage, so the answer is set per envelope point via mockOracle.setLatestAnswer.
-        address priceOracle = _wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(mktConfigs[0]));
+        address priceOracle = wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(mktConfigs[0]));
         vm.etch(priceOracle, address(new MockWrappedPriceOracle()).code);
         mockOracle = MockWrappedPriceOracle(priceOracle);
 

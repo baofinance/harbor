@@ -39,8 +39,8 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
         marketsToDeploy[0] = allMarkets[0];
         deployHarborForPeg("capped_test", peg, allMarkets, "mainnet", true, marketsToDeploy);
 
-        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
-        pegged = _predictAddress(SaltString.key("ETH", "pegged"));
+        minter = minterAddress(SaltString.key("ETH", "fxUSD"));
+        pegged = peggedTokenAddress("ETH");
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Install mock oracle (price=1, rate=1) + grant zero-fee role for bootstrap minting.

@@ -121,8 +121,8 @@ contract StabilityPoolMigrationPreflight is
     function _scan(Config_MinterMarket[] memory markets) internal {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            _measure(SaltString.key(marketKey, "stabilityPoolCollateral"));
-            _measure(SaltString.key(marketKey, "stabilityPoolLeveraged"));
+            _measure(stabilityPoolKey(marketKey, StabilityPoolType.Collateral));
+            _measure(stabilityPoolKey(marketKey, StabilityPoolType.Leveraged));
         }
     }
 

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -39,26 +38,26 @@ abstract contract LeveragedToken is HarborDeployer {
     ) internal returns (address leveragedToken) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
 
-        string memory leveragedKey = SaltString.key(marketKey, "leveraged");
+        string memory key = leveragedTokenKey(marketKey);
         string memory tokenName = ConfigTokenNames(address(marketConfig)).leveragedName();
         string memory tokenSymbol = ConfigTokenNames(address(marketConfig)).leveragedSymbol();
 
-        console.log("    > %s", leveragedKey);
+        console.log("    > %s", key);
         console.log("        Name:   %s", tokenName);
         console.log("        Symbol: %s", tokenSymbol);
 
-        address impl = deployLeveragedTokenImplementation(stateData, leveragedKey);
+        address impl = deployLeveragedTokenImplementation(stateData, key);
 
         bytes memory initData = abi.encodeCall(
             MintableBurnableERC20_v2.initialize,
             (address(this), owner(), tokenName, tokenSymbol)
         );
 
-        leveragedToken = _deployProxyAndRecord(stateData, leveragedKey, impl, initData);
+        leveragedToken = _deployProxyAndRecord(stateData, key, impl, initData);
 
         // Grant minter roles
-        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
+        address minter = minterAddress(marketKey);
         uint256 roles = IMintableRole(leveragedToken).MINTER_ROLE() | IBurnableRole(leveragedToken).BURNER_ROLE();
-        _grantRoles(leveragedKey, leveragedToken, minter, marketKey, roles, "MINTER | BURNER");
+        _grantRoles(key, leveragedToken, minter, marketKey, roles, "MINTER | BURNER");
     }
 }

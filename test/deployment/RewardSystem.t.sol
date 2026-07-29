@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -43,12 +42,12 @@ contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array {
         deployHarborForPeg("reward_cov", peg, mktConfigs, "mainnet", true, toDeploy);
 
         string memory marketKey = MinterMarketConfigLib.salt(mktConfigs[0]); // "ETH::fxUSD"
-        minter = _predictAddress(SaltString.key(marketKey, "minter"));
-        stabilityPoolCollateral = _predictAddress(SaltString.key(marketKey, "stabilityPoolCollateral"));
-        stabilityPoolLeveraged = _predictAddress(SaltString.key(marketKey, "stabilityPoolLeveraged"));
-        stabilityPoolManager = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
-        pegged = _predictAddress(SaltString.key(peg.key(), "pegged"));
-        leveraged = _predictAddress(SaltString.key(marketKey, "leveraged"));
+        minter = minterAddress(marketKey);
+        stabilityPoolCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
+        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
+        pegged = peggedTokenAddress(peg.key());
+        leveraged = leveragedTokenAddress(marketKey);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         mockOracle = new MockWrappedPriceOracle();

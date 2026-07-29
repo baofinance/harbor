@@ -248,12 +248,13 @@ contract V2ReplaySimulation is BaoTest, HarborDeployer {
         vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         _setSaltPrefix("harbor_v1");
 
-        spm = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
-        minterAddr = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
-        spl = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        spc = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        lev = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
-        peg = _predictAddress(SaltString.key("ETH", "pegged"));
+        string memory marketKey = SaltString.key("ETH", "fxUSD");
+        spm = stabilityPoolManagerAddress(marketKey);
+        minterAddr = minterAddress(marketKey);
+        spl = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
+        spc = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        lev = leveragedTokenAddress(marketKey);
+        peg = peggedTokenAddress("ETH");
         proxyOwner = IBaoOwnable(minterAddr).owner();
         realOracle = IMinter(minterAddr).priceOracle();
 

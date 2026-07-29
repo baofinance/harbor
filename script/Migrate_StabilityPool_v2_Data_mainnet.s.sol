@@ -64,12 +64,12 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
     function _doOneMinter(Config_MinterMarket[] memory markets) internal {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            _migratePool(marketKey, StabilityPoolCollateral);
-            _migratePool(marketKey, StabilityPoolLeveraged);
+            _migratePool(marketKey, StabilityPoolType.Collateral);
+            _migratePool(marketKey, StabilityPoolType.Leveraged);
         }
     }
 
-    function _migratePool(string memory marketKey, string memory spType) internal {
+    function _migratePool(string memory marketKey, StabilityPoolType poolType) internal {
         // POOL_INCLUDE: optional env-var filter on market key segment.
         // ::VALUE:: wrapping ensures "ETH" matches "::ETH::" but not "::stETH::".
         string memory include = vm.envOr("POOL_INCLUDE", string(""));
@@ -79,8 +79,8 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
             }
         }
 
-        string memory key = SaltString.key(marketKey, spType);
-        address pool = _predictAddress(key);
+        string memory key = stabilityPoolKey(marketKey, poolType);
+        address pool = stabilityPoolAddress(marketKey, poolType);
 
         // Read current implementation (restored after remediation).
         address currentImpl = address(uint160(uint256(vm.load(pool, IMPL_SLOT))));
@@ -97,7 +97,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
         );
 
         // Holders for this pool, from the generated file.
-        address[] memory holders = _readHolders(marketKey, spType);
+        address[] memory holders = _readHolders(marketKey, poolType);
 
         if (holders.length == 0) {
             console.log("    > %s: no holders, skipping", _saltString(key));
@@ -133,11 +133,14 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
         // );
     }
 
-    /// @dev Read a pool's holder list from HOLDERS_DIR/<marketKey>::<spType>.txt.
+    /// @dev Read a pool's holder list from HOLDERS_DIR/<the pool's salt key>.txt.
     /// Lines starting with '#' are comments; every other non-empty line is an address.
     /// Returns an empty array when the file is absent (pool skipped by the caller).
-    function _readHolders(string memory marketKey, string memory spType) internal returns (address[] memory holders) {
-        string memory path = string.concat(HOLDERS_DIR, SaltString.key(marketKey, spType), ".txt");
+    function _readHolders(
+        string memory marketKey,
+        StabilityPoolType poolType
+    ) internal returns (address[] memory holders) {
+        string memory path = string.concat(HOLDERS_DIR, stabilityPoolKey(marketKey, poolType), ".txt");
         if (!vm.isFile(path)) {
             return new address[](0);
         }

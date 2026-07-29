@@ -65,7 +65,7 @@ contract DeployMintersTest is
 
         // Pegged token
         specs[idx++] = ContractSpec({
-            salt: SaltString.key(pegName, "pegged"),
+            salt: peggedTokenKey(pegName),
             artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
             marketKey: ""
         });
@@ -74,7 +74,7 @@ contract DeployMintersTest is
         for (uint256 i = 0; i < mktConfigs.length; i++) {
             string memory marketKey = mktConfigs[i].salt();
             specs[idx++] = ContractSpec({
-                salt: SaltString.key(marketKey, "leveraged"),
+                salt: leveragedTokenKey(marketKey),
                 artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
                 marketKey: marketKey
             });
@@ -85,32 +85,32 @@ contract DeployMintersTest is
             string memory marketKey = mktConfigs[i].salt();
             // Order matches ownership transfer list
             specs[idx++] = ContractSpec({
-                salt: SaltString.key(marketKey, "reservePool"),
+                salt: reservePoolKey(marketKey),
                 artifact: "out/ReservePool_v1.sol/ReservePool_v1.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: SaltString.key(marketKey, "minter"),
+                salt: minterKey(marketKey),
                 artifact: "out/Minter_v2.sol/Minter_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: SaltString.key(marketKey, "stabilityPoolCollateral"),
+                salt: stabilityPoolKey(marketKey, StabilityPoolType.Collateral),
                 artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: SaltString.key(marketKey, "stabilityPoolLeveraged"),
+                salt: stabilityPoolKey(marketKey, StabilityPoolType.Leveraged),
                 artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: SaltString.key(marketKey, "stabilityPoolManager"),
+                salt: stabilityPoolManagerKey(marketKey),
                 artifact: "out/StabilityPoolManager_v1.sol/StabilityPoolManager_v1.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
-                salt: SaltString.key(marketKey, "genesis"),
+                salt: genesisKey(marketKey),
                 artifact: "out/Genesis_v1.sol/Genesis_v1.json",
                 marketKey: marketKey
             });

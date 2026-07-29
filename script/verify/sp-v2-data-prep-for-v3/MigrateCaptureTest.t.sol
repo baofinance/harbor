@@ -86,15 +86,15 @@ contract MigrateCaptureTest is
     function _registerMarkets(Config_MinterMarket[] memory markets) internal {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            _registerPool(marketKey, "stabilityPoolCollateral");
-            _registerPool(marketKey, "stabilityPoolLeveraged");
+            _registerPool(marketKey, StabilityPoolType.Collateral);
+            _registerPool(marketKey, StabilityPoolType.Leveraged);
         }
     }
 
-    function _registerPool(string memory marketKey, string memory spType) internal {
-        string memory saltKey = SaltString.key(marketKey, spType);
-        address proxy = _predictAddress(SaltString.key(marketKey, spType));
-        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
+    function _registerPool(string memory marketKey, StabilityPoolType poolType) internal {
+        string memory saltKey = stabilityPoolKey(marketKey, poolType);
+        address proxy = stabilityPoolAddress(marketKey, poolType);
+        address minter = minterAddress(marketKey);
         pools.push(PoolConfig(proxy, minter, saltKey));
 
         address[] memory holders = _readHolders(saltKey);

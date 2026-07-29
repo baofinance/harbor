@@ -72,12 +72,13 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
         deployHarborForPeg("fairness_test", peg, mktConfigs, "mainnet", true, toDeploy);
 
         // Resolve deployed addresses
-        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
-        stabilityPoolCollateral = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        stabilityPoolLeveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        stabilityPoolManager = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
-        pegged = _predictAddress(SaltString.key("ETH", "pegged"));
-        leveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
+        string memory marketKey = SaltString.key("ETH", "fxUSD");
+        minter = minterAddress(marketKey);
+        stabilityPoolCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
+        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
+        pegged = peggedTokenAddress("ETH");
+        leveraged = leveragedTokenAddress(marketKey);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // Install mock oracle so we can control price/rate

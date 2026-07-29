@@ -53,12 +53,12 @@ contract Deploy_StabilityPool_v3_mainnet is
                     continue;
                 }
             }
-            address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-            address leveragedToken = _predictAddress(SaltString.key(marketKey, "leveraged"));
+            address minter = minterAddress(marketKey);
+            address leveragedToken = leveragedTokenAddress(marketKey);
             address collateralToken = IHarborConfig(address(markets[i])).wrappedCollateralToken();
 
             address implLeveraged = deployStabilityPoolImplementation(
-                StabilityPoolLeveraged,
+                StabilityPoolType.Leveraged,
                 state,
                 markets[i],
                 minter,
@@ -66,7 +66,7 @@ contract Deploy_StabilityPool_v3_mainnet is
             );
 
             address implCollateral = deployStabilityPoolImplementation(
-                StabilityPoolCollateral,
+                StabilityPoolType.Collateral,
                 state,
                 markets[i],
                 minter,
@@ -75,12 +75,12 @@ contract Deploy_StabilityPool_v3_mainnet is
 
             // Queue Safe upgrade transactions
             queue(
-                SaltString.key(marketKey, StabilityPoolLeveraged),
+                stabilityPoolKey(marketKey, StabilityPoolType.Leveraged),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implLeveraged, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implLeveraged.toHexString())
             );
             queue(
-                SaltString.key(marketKey, StabilityPoolCollateral),
+                stabilityPoolKey(marketKey, StabilityPoolType.Collateral),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implCollateral, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implCollateral.toHexString())
             );

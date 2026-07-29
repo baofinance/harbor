@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -24,25 +23,22 @@ interface IStabilityPoolMarketConfig {
 /// @dev Each market has TWO stability pools: Collateral (wrapped collateral) and Leveraged (leveraged token).
 /// @dev Both pools grant: REBALANCER_ROLE, REWARD_DEPOSITOR_ROLE to StabilityPoolManager.
 abstract contract StabilityPool is HarborDeployer {
-    string StabilityPoolCollateral = "stabilityPoolCollateral";
-    string StabilityPoolLeveraged = "stabilityPoolLeveraged";
-
     // ========== STABILITY POOL DEPLOYMENT ==========
 
     /// @notice Deploy StabilityPool impl only, record in state.
     function deployStabilityPoolImplementation(
-        string memory spType,
+        StabilityPoolType poolType,
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig,
         address minter,
         address liquidationToken
     ) internal virtual returns (address impl) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory spKey = SaltString.key(marketKey, spType);
+        string memory spKey = stabilityPoolKey(marketKey, poolType);
         console.log("    > %s", spKey);
 
         ConfigTokenNames names = ConfigTokenNames(address(marketConfig));
-        bool isCollateral = keccak256(bytes(spType)) == keccak256("stabilityPoolCollateral");
+        bool isCollateral = poolType == StabilityPoolType.Collateral;
         string memory tokenName = isCollateral
             ? names.stabilityPoolCollateralName()
             : names.stabilityPoolLeveragedName();
@@ -72,17 +68,17 @@ abstract contract StabilityPool is HarborDeployer {
 
     /// @notice Deploy StabilityPool impl+proxy, record in state.
     function deployStabilityPool(
-        string memory spType,
+        StabilityPoolType poolType,
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig,
         address minter,
         address liquidationToken
     ) internal returns (address proxy) {
         string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory spKey = SaltString.key(marketKey, spType);
+        string memory spKey = stabilityPoolKey(marketKey, poolType);
         console.log("    > %s", spKey);
 
-        address impl = deployStabilityPoolImplementation(spType, stateData, marketConfig, minter, liquidationToken);
+        address impl = deployStabilityPoolImplementation(poolType, stateData, marketConfig, minter, liquidationToken);
 
         IStabilityPoolMarketConfig cfg = IStabilityPoolMarketConfig(address(marketConfig));
         bytes memory initData = abi.encodeCall(
@@ -95,13 +91,13 @@ abstract contract StabilityPool is HarborDeployer {
 
     /// @notice Grant StabilityPool roles to StabilityPoolManager.
     /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
-    /// @param spType "stabilityPoolCollateral" or "stabilityPoolLeveraged".
-    function grantStabilityPoolRoles(string memory marketKey, string memory spType) internal {
-        string memory spKey = SaltString.key(marketKey, spType);
-        address sp = _predictAddress(spKey);
+    /// @param poolType Which of the market's two stability pools.
+    function grantStabilityPoolRoles(string memory marketKey, StabilityPoolType poolType) internal {
+        string memory spKey = stabilityPoolKey(marketKey, poolType);
+        address sp = stabilityPoolAddress(marketKey, poolType);
 
         // SPM gets REBALANCER + REWARD_DEPOSITOR
-        address spm = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
+        address spm = stabilityPoolManagerAddress(marketKey);
         StabilityPool_v3 pool = StabilityPool_v3(sp);
         uint256 roles = pool.REBALANCER_ROLE() | pool.REWARD_DEPOSITOR_ROLE();
         _grantRoles(spKey, sp, spm, "stabilityPoolManager", roles, "REBALANCER | REWARD_DEPOSITOR");

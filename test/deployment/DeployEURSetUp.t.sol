@@ -57,26 +57,26 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
 
         // EUR::fxUSD
         string memory mkFx = MinterMarketConfigLib.salt(mktConfigs[0]); // "EUR::fxUSD"
-        minterFxUSD = _predictAddress(SaltString.key(mkFx, "minter"));
-        spCollFxUSD = _predictAddress(SaltString.key(mkFx, "stabilityPoolCollateral"));
-        spLevFxUSD = _predictAddress(SaltString.key(mkFx, "stabilityPoolLeveraged"));
-        spmFxUSD = _predictAddress(SaltString.key(mkFx, "stabilityPoolManager"));
+        minterFxUSD = minterAddress(mkFx);
+        spCollFxUSD = stabilityPoolAddress(mkFx, StabilityPoolType.Collateral);
+        spLevFxUSD = stabilityPoolAddress(mkFx, StabilityPoolType.Leveraged);
+        spmFxUSD = stabilityPoolManagerAddress(mkFx);
         acCollFxUSD = _predictAddress(SaltString.key(mkFx, "autoCompounderCollateral"));
         acLevFxUSD = _predictAddress(SaltString.key(mkFx, "autoCompounderLeveraged"));
         wrappedCollateralFxUSD = IMinter(minterFxUSD).WRAPPED_COLLATERAL_TOKEN();
 
         // EUR::stETH
         string memory mkSt = MinterMarketConfigLib.salt(mktConfigs[1]); // "EUR::stETH"
-        minterStETH = _predictAddress(SaltString.key(mkSt, "minter"));
-        spCollStETH = _predictAddress(SaltString.key(mkSt, "stabilityPoolCollateral"));
-        spLevStETH = _predictAddress(SaltString.key(mkSt, "stabilityPoolLeveraged"));
-        spmStETH = _predictAddress(SaltString.key(mkSt, "stabilityPoolManager"));
+        minterStETH = minterAddress(mkSt);
+        spCollStETH = stabilityPoolAddress(mkSt, StabilityPoolType.Collateral);
+        spLevStETH = stabilityPoolAddress(mkSt, StabilityPoolType.Leveraged);
+        spmStETH = stabilityPoolManagerAddress(mkSt);
         acCollStETH = _predictAddress(SaltString.key(mkSt, "autoCompounderCollateral"));
         acLevStETH = _predictAddress(SaltString.key(mkSt, "autoCompounderLeveraged"));
         wrappedCollateralStETH = IMinter(minterStETH).WRAPPED_COLLATERAL_TOKEN();
 
         // Shared pegged token
-        pegged = _predictAddress(SaltString.key(peg_.key(), "pegged"));
+        pegged = peggedTokenAddress(peg_.key());
 
         // Mock oracles (price=1, rate=1 for simple accounting)
         mockOracleFxUSD = new MockWrappedPriceOracle();

@@ -16,19 +16,19 @@ import {ConfigPriceVolatility_130} from "@harbor-script/config/volatility/Config
 contract UpdateVolatility_test3_SILVER is Script, HarborDeployer {
     function build() internal override {
         queue(
-            SaltString.key("SILVER", "fxUSD", "minter"),
+            minterKey(SaltString.key("SILVER", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_125().minterConfig())),
             "updateConfig(125_month1)"
         );
 
         queue(
-            SaltString.key("SILVER", "fxUSD", "stabilityPoolManager"),
+            stabilityPoolManagerKey(SaltString.key("SILVER", "fxUSD")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (125e16)),
             "updateRebalanceThreshold(125)"
         );
 
         queue(
-            SaltString.key("SILVER", "stETH", "minter"),
+            minterKey(SaltString.key("SILVER", "stETH")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_130().minterConfig())),
             "updateConfig(130_month1)"
         );

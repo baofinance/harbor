@@ -49,12 +49,13 @@ abstract contract SPLTestBase is BaoTest, HarborDeployer {
 
     function _initAddresses() internal {
         _setSaltPrefix("harbor_v1");
-        spl = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        spc = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
-        lev = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
-        peg = _predictAddress(SaltString.key("ETH", "pegged"));
-        spm = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
+        string memory marketKey = SaltString.key("ETH", "fxUSD");
+        spl = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
+        spc = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        minter = minterAddress(marketKey);
+        lev = leveragedTokenAddress(marketKey);
+        peg = peggedTokenAddress("ETH");
+        spm = stabilityPoolManagerAddress(marketKey);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
         proxyOwner = IBaoOwnable(spl).owner();
     }

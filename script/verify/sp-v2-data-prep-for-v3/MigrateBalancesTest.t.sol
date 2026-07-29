@@ -77,10 +77,10 @@ contract MigrateBalancesTest is
     function _checkMarkets(Config_MinterMarket[] memory markets) internal returns (uint256 checked) {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            if (_checkPool(marketKey, "stabilityPoolCollateral")) {
+            if (_checkPool(marketKey, StabilityPoolType.Collateral)) {
                 checked++;
             }
-            if (_checkPool(marketKey, "stabilityPoolLeveraged")) {
+            if (_checkPool(marketKey, StabilityPoolType.Leveraged)) {
                 checked++;
             }
         }
@@ -100,9 +100,9 @@ contract MigrateBalancesTest is
         console.log("        v2.claimed: %s", v2.rewards.claimed);
     }
 
-    function _checkPool(string memory marketKey, string memory spType) internal returns (bool) {
-        string memory saltKey = SaltString.key(marketKey, spType);
-        address pool = _predictAddress(SaltString.key(marketKey, spType));
+    function _checkPool(string memory marketKey, StabilityPoolType poolType) internal returns (bool) {
+        string memory saltKey = stabilityPoolKey(marketKey, poolType);
+        address pool = stabilityPoolAddress(marketKey, poolType);
         address[] memory holders = _readHolders(saltKey);
         if (holders.length == 0) {
             return false;

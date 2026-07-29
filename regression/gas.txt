@@ -66,6 +66,7 @@ src/minter/ReservePool_v1.sol:ReservePool_v1
 src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | function name              |    max |   display |
 |----------------------------|--------|-----------|
+| MINTER                     |    325 | 3.250e+02 |
 | addYieldVault              |  70511 | 7.051e+04 |
 | feeReceiver                |   2441 | 2.441e+03 |
 | harvest                    | 554165 | 5.542e+05 |

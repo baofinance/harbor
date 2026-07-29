@@ -39,14 +39,14 @@ abstract contract Genesis is HarborDeployer {
         string memory marketKey,
         address minter
     ) internal returns (address proxy) {
-        string memory genesisKey = SaltString.key(marketKey, "genesis");
-        console.log("    > %s", genesisKey);
+        string memory key = genesisKey(marketKey);
+        console.log("    > %s", key);
 
-        address impl = deployGenesisImplementation(stateData, genesisKey, minter);
+        address impl = deployGenesisImplementation(stateData, key, minter);
 
         bytes memory initData = abi.encodeCall(Genesis_v2.initialize, (address(this), owner()));
 
-        proxy = _deployProxyAndRecord(stateData, genesisKey, impl, initData);
+        proxy = _deployProxyAndRecord(stateData, key, impl, initData);
     }
 
     // ========== ADDRESS PREDICTION ==========
@@ -57,7 +57,7 @@ abstract contract Genesis is HarborDeployer {
         string memory saltPrefix,
         string memory marketKey
     ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(SaltString.key(saltPrefix, marketKey, "genesis")));
+        bytes32 salt = keccak256(abi.encodePacked(SaltString.key(saltPrefix, genesisKey(marketKey))));
         return IBaoFactory(baoFactoryAddr).predictAddress(salt);
     }
 }

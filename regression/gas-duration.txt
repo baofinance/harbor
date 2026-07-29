@@ -131,6 +131,7 @@ suite CPU (milliseconds)
 | test/Useful.t.sol:TestUsefulSimples                                                                         |              2 | 0.00s  |
 | test/depeg.t.sol:DepeggedTest                                                                               |              1 | 0.00s  |
 | test/depeg.t.sol:NotDepeggedTest                                                                            |              1 | 0.00s  |
+| test/deployment/AddressResolvers.t.sol:AddressResolversTest                                                 |              2 | 0.00s  |
 | test/deployment/ConfigTest.t.sol:ConfigTest                                                                 |              1 | 0.00s  |
 | test/deployment/MinterCappedMint.t.sol:MinterCappedMintTest                                                 |            427 | 0.43s  |
 | test/deployment/MinterFeeBandBoundaries.t.sol:MinterFeeBandBoundariesTest                                   |             86 | 0.09s  |

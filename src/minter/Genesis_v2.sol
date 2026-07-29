@@ -50,12 +50,6 @@ contract Genesis_v2 is Initializable, UUPSUpgradeable, ContextUpgradeable, Harbo
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable LEVERAGED_TOKEN;
 
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable STABILITY_POOL_COLLATERAL;
-
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    address public immutable STABILITY_POOL_LEVERAGED;
-
     // Share-with-proxy Storage
     // ------------------------
     /// @custom:storage-location erc7201:bao.storage.Genesis

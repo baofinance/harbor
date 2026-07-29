@@ -23,49 +23,49 @@ contract UpdateVolatility_OGPlus is Script, HarborDeployer {
     function build() internal override {
         // BTC-fxUSD
         queue(
-            SaltString.key("BTC", "fxUSD", "minter"),
+            minterKey(SaltString.key("BTC", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_130_stable().minterConfig())),
             "updateConfig(130)"
         );
         // BTC-stETH
         queue(
-            SaltString.key("BTC", "stETH", "minter"),
+            minterKey(SaltString.key("BTC", "stETH")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_125_stable().minterConfig())),
             "updateConfig(125)"
         );
         queue(
-            SaltString.key("BTC", "stETH", "stabilityPoolManager"),
+            stabilityPoolManagerKey(SaltString.key("BTC", "stETH")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (125e16)),
             "updateRebalanceThreshold(125)"
         );
 
         // ETH-fxUSD
         queue(
-            SaltString.key("ETH", "fxUSD", "minter"),
+            minterKey(SaltString.key("ETH", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_130_stable().minterConfig())),
             "updateConfig(130)"
         );
 
         // EUR-fxUSD
         queue(
-            SaltString.key("EUR", "fxUSD", "minter"),
+            minterKey(SaltString.key("EUR", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_105().minterConfig())),
             "updateConfig(105 month1)"
         );
         queue(
-            SaltString.key("EUR", "fxUSD", "stabilityPoolManager"),
+            stabilityPoolManagerKey(SaltString.key("EUR", "fxUSD")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (105e16)),
             "updateRebalanceThreshold(105)"
         );
 
         // GOLD-fxUSD
         queue(
-            SaltString.key("GOLD", "fxUSD", "minter"),
+            minterKey(SaltString.key("GOLD", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_115().minterConfig())),
             "updateConfig(105 month1)"
         );
         queue(
-            SaltString.key("GOLD", "fxUSD", "stabilityPoolManager"),
+            stabilityPoolManagerKey(SaltString.key("GOLD", "fxUSD")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (115e16)),
             "updateRebalanceThreshold(115)"
         );

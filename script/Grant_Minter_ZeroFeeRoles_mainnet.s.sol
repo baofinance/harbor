@@ -36,18 +36,18 @@ contract Grant_Minter_ZeroFeeRoles_mainnet is
     function _grantForMarkets(Config_MinterMarket[] memory markets) internal {
         for (uint i = 0; i < markets.length; i++) {
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-            address spm = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
+            address minter = minterAddress(marketKey);
+            address spm = stabilityPoolManagerAddress(marketKey);
 
             uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
             console.log("  %s: grant ZERO_FEE_ROLE to SPM %s", marketKey, spm.toHexString());
 
-            string memory minterKey = SaltString.key(marketKey, "minter");
+            string memory key = minterKey(marketKey);
             queue(
-                minterKey,
+                key,
                 abi.encodeCall(IBaoRoles.grantRoles, (spm, zeroFeeRole)),
-                string.concat("grant ZERO_FEE_ROLE to SPM on ", minterKey)
+                string.concat("grant ZERO_FEE_ROLE to SPM on ", key)
             );
         }
     }

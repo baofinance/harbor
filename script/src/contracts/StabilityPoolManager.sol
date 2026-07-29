@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -53,13 +52,13 @@ abstract contract StabilityPoolManager is HarborDeployer {
         address minter,
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
-    ) internal virtual returns (address proxy) {
-        string memory spmKey = SaltString.key(marketKey, "stabilityPoolManager");
-        console.log("    > %s", spmKey);
+    ) internal returns (address proxy) {
+        string memory key = stabilityPoolManagerKey(marketKey);
+        console.log("    > %s", key);
 
         address impl = deployStabilityPoolManagerImplementation(
             stateData,
-            spmKey,
+            key,
             minter,
             stabilityPoolCollateral,
             stabilityPoolLeveraged
@@ -67,14 +66,14 @@ abstract contract StabilityPoolManager is HarborDeployer {
 
         bytes memory initData = abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()));
 
-        proxy = _deployProxyAndRecord(stateData, spmKey, impl, initData);
+        proxy = _deployProxyAndRecord(stateData, key, impl, initData);
     }
 
     /// @notice Configure a deployed StabilityPoolManager with its operational parameters.
     /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
     /// @param config The SPM configuration parameters.
     function configureStabilityPoolManager(string memory marketKey, SPMConfig memory config) internal {
-        address spm = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
+        address spm = stabilityPoolManagerAddress(marketKey);
         IStabilityPoolManager(spm).updateRebalanceThreshold(config.rebalanceThreshold);
         IStabilityPoolManager(spm).updateRebalanceBountyRatio(config.rebalanceBountyRatio);
         IStabilityPoolManager(spm).updateHarvestBountyRatio(config.harvestBountyRatio);

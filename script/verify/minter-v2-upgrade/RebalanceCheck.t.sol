@@ -32,12 +32,13 @@ abstract contract RebalanceCheckBase is BaoTest, HarborDeployer {
         vm.createSelectFork(mainnet, FORK_BLOCK);
 
         _setSaltPrefix("harbor_v1");
-        stabilityPoolManager = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolManager"));
-        stabilityPoolCollateral = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolCollateral"));
-        stabilityPoolLeveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "stabilityPoolLeveraged"));
-        minter = _predictAddress(SaltString.key("ETH", "fxUSD", "minter"));
-        pegged = _predictAddress(SaltString.key("ETH", "pegged"));
-        leveraged = _predictAddress(SaltString.key("ETH", "fxUSD", "leveraged"));
+        string memory marketKey = SaltString.key("ETH", "fxUSD");
+        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
+        stabilityPoolCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
+        minter = minterAddress(marketKey);
+        pegged = peggedTokenAddress("ETH");
+        leveraged = leveragedTokenAddress(marketKey);
     }
 
     function _upgradeSpm() internal {

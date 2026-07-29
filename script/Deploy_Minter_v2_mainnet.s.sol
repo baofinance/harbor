@@ -42,8 +42,8 @@ contract Deploy_Minter_v2_mainnet is
             string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
             IHarborConfig cfg = IHarborConfig(address(markets[i]));
             address wrappedCollateral = cfg.wrappedCollateralToken();
-            address peggedToken = _predictAddress(SaltString.key(cfg.peg(), "pegged"));
-            address leveragedToken = _predictAddress(SaltString.key(marketKey, "leveraged"));
+            address peggedToken = peggedTokenAddress(cfg.peg());
+            address leveragedToken = leveragedTokenAddress(marketKey);
 
             (address impl, string memory key) = deployMinterImplementation(
                 state,

@@ -166,8 +166,8 @@ abstract contract HarborDeployStack is
         string memory marketKey
     ) internal {
         address wrappedCollateral = cfg.wrappedCollateralToken();
-        address peggedToken = _predictAddress(SaltString.key(cfg.peg(), "pegged"));
-        address leveragedToken = _predictAddress(SaltString.key(marketKey, "leveraged"));
+        address peggedToken = peggedTokenAddress(cfg.peg());
+        address leveragedToken = leveragedTokenAddress(marketKey);
 
         deployMinter(stateData, marketKey, wrappedCollateral, peggedToken, leveragedToken);
     }
@@ -177,10 +177,10 @@ abstract contract HarborDeployStack is
         IHarborConfig cfg,
         string memory marketKey
     ) internal {
-        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
+        address minter = minterAddress(marketKey);
 
         deployStabilityPool(
-            StabilityPoolCollateral,
+            StabilityPoolType.Collateral,
             stateData,
             Config_MinterMarket(address(cfg)),
             minter,
@@ -188,19 +188,19 @@ abstract contract HarborDeployStack is
         );
 
         deployStabilityPool(
-            StabilityPoolLeveraged,
+            StabilityPoolType.Leveraged,
             stateData,
             Config_MinterMarket(address(cfg)),
             minter,
-            _predictAddress(SaltString.key(marketKey, "leveraged"))
+            leveragedTokenAddress(marketKey)
         );
     }
 
     function _registerRewardTokens(IHarborConfig cfg, string memory marketKey) internal {
-        address spCollateral = _predictAddress(SaltString.key(marketKey, StabilityPoolCollateral));
-        address spLeveraged = _predictAddress(SaltString.key(marketKey, StabilityPoolLeveraged));
+        address spCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        address spLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
         address wrappedCollateral = cfg.wrappedCollateralToken();
-        address leveragedToken = _predictAddress(SaltString.key(marketKey, "leveraged"));
+        address leveragedToken = leveragedTokenAddress(marketKey);
 
         // Collateral SP: wrappedCollateral (receives both harvest + rebalance rewards)
         IMultipleRewardDistributor(spCollateral).registerRewardToken(wrappedCollateral);
@@ -215,9 +215,9 @@ abstract contract HarborDeployStack is
         IHarborConfig,
         string memory marketKey
     ) internal {
-        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-        address spCollateral = _predictAddress(SaltString.key(marketKey, "stabilityPoolCollateral"));
-        address spLeveraged = _predictAddress(SaltString.key(marketKey, "stabilityPoolLeveraged"));
+        address minter = minterAddress(marketKey);
+        address spCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
+        address spLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
 
         deployStabilityPoolManager(stateData, marketKey, minter, spCollateral, spLeveraged);
     }
@@ -228,33 +228,25 @@ abstract contract HarborDeployStack is
         string memory marketKey
     ) internal {
         cfg;
-        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-        deployGenesis(stateData, marketKey, minter);
-    }
-
-    /// @notice Resolve the wrapped price oracle address for a market.
-    /// @dev Default: predicts the CREATE3 address of the pre-deployed oracle from harbor-price-aggregators.
-    ///      Override in test setups to deploy a mock oracle instead.
-    function _wrappedPriceOracleAddress(string memory key) internal virtual returns (address) {
-        return _predictAddress(key);
+        deployGenesis(stateData, marketKey, minterAddress(marketKey));
     }
 
     function _configureMinter(Config_MinterMarket market, string memory marketKey) internal {
         IHarborConfig cfg = IHarborConfig(address(market));
-        address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-        address priceOracle = _wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(market));
+        address minter = minterAddress(marketKey);
+        address priceOracle = wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(market));
 
         // Update minter configuration (incentive ratios)
         IMinter(minter).updateConfig(cfg.minterConfig());
-        IMinter(minter).updateReservePool(_predictAddress(SaltString.key(marketKey, "reservePool")));
+        IMinter(minter).updateReservePool(reservePoolAddress(marketKey));
         IMinter(minter).updateFeeReceiver(treasury());
         IMinter(minter).updatePriceOracle(priceOracle);
 
         // Grant roles — each helper predicts its own addresses from marketKey
         grantReservePoolRoles(marketKey);
         grantMinterRoles(marketKey);
-        grantStabilityPoolRoles(marketKey, StabilityPoolCollateral);
-        grantStabilityPoolRoles(marketKey, StabilityPoolLeveraged);
+        grantStabilityPoolRoles(marketKey, StabilityPoolType.Collateral);
+        grantStabilityPoolRoles(marketKey, StabilityPoolType.Leveraged);
 
         // Configure StabilityPoolManager
         configureStabilityPoolManager(

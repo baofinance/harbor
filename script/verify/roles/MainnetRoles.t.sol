@@ -45,8 +45,8 @@ contract MainnetRoles is Test, HarborDeployer {
     function test_allSPMs_haveZeroFeeRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = SaltString.key(markets[i].peg, markets[i].collateral);
-            address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-            address spm = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
+            address minter = minterAddress(marketKey);
+            address spm = stabilityPoolManagerAddress(marketKey);
 
             uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
             assertTrue(
@@ -59,8 +59,8 @@ contract MainnetRoles is Test, HarborDeployer {
     function test_allSPMs_haveHarvesterRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = SaltString.key(markets[i].peg, markets[i].collateral);
-            address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-            address spm = _predictAddress(SaltString.key(marketKey, "stabilityPoolManager"));
+            address minter = minterAddress(marketKey);
+            address spm = stabilityPoolManagerAddress(marketKey);
 
             uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
             assertTrue(
@@ -73,8 +73,8 @@ contract MainnetRoles is Test, HarborDeployer {
     function test_allGenesis_haveZeroFeeRole() public {
         for (uint256 i = 0; i < markets.length; i++) {
             string memory marketKey = SaltString.key(markets[i].peg, markets[i].collateral);
-            address minter = _predictAddress(SaltString.key(marketKey, "minter"));
-            address genesis = _predictAddress(SaltString.key(marketKey, "genesis"));
+            address minter = minterAddress(marketKey);
+            address genesis = genesisAddress(marketKey);
 
             uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
             assertTrue(
