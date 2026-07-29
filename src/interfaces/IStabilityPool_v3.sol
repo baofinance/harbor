@@ -32,4 +32,15 @@ interface IStabilityPool_v3 is IStabilityPool {
     ///         to absorb more than this; the pool also enforces the same bound internally as a backstop. Zero when
     ///         supply is at or below the floor.
     function maxAssetLoss() external view returns (uint256 amount);
+
+    /// @notice The assets a deposit of `assetAmount` would credit — the forecast counterpart of
+    ///         `deposit`, returning the same quantity `deposit` returns. `type(uint256).max` means the
+    ///         caller's whole balance, read exactly as `deposit` reads it.
+    /// @dev The single place a deposit charge is priced, so a caller costing a deposit never assumes the
+    ///      credit equals the input. It prices the deposit; it does not admit it — the supply floor and
+    ///      ceiling are enforced by `deposit` itself, so a forecast here does not promise the deposit
+    ///      will succeed.
+    /// @param assetAmount The assets to be deposited, or `type(uint256).max` for the caller's balance.
+    /// @return assetsDeposited The assets that would be credited to the receiver.
+    function previewDeposit(uint256 assetAmount) external view returns (uint256 assetsDeposited);
 }

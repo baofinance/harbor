@@ -463,6 +463,16 @@ contract StabilityPool_v3 is
         emit UserDepositChange(receiver, balance.amount, 0);
     }
 
+    /// @inheritdoc IStabilityPool_v3
+    /// @dev Mirrors `deposit`'s crediting: assets are credited one-for-one, so this returns the amount
+    ///      itself. It exists so the crediting rule lives in ONE place — a deposit charge added later is
+    ///      applied here and every caller that prices a deposit picks it up, rather than each assuming
+    ///      the credit equals the input. `allOfQuiet` reads the deposit-all sentinel exactly as `deposit`
+    ///      does but without its zero-balance revert, matching how the Minter's dry run reads it.
+    function previewDeposit(uint256 assetAmount) external view returns (uint256 assetsDeposited) {
+        assetsDeposited = Token.allOfQuiet(_msgSender(), ASSET_TOKEN, assetAmount);
+    }
+
     /// @inheritdoc IStabilityPool
     // slither-disable-next-line reentrancy-no-eth,reentrancy-eth,reentrancy-unlimited-gas,reentrancy-benign
     // slither-disable-next-line cyclomatic-complexity
