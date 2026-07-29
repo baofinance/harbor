@@ -57,9 +57,9 @@ abstract contract Minter is HarborDeployer {
             leveragedToken
         );
 
-        bytes memory initData = abi.encodeCall(Minter_v3.initialize, (owner()));
+        bytes memory initData = abi.encodeCall(Minter_v3.initialize, (address(this), owner()));
 
-        proxy = _deployProxyViaStubAndRecord(stateData, minterKey, impl, initData);
+        proxy = _deployProxyAndRecord(stateData, minterKey, impl, initData);
     }
 
     /// @notice Configure a deployed Minter with its operational parameters.

@@ -12,6 +12,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
@@ -318,7 +319,7 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile {
     function setUp_minter() internal virtual {
         minter = UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken)),
-            abi.encodeCall(Minter_v3.initialize, (owner))
+            abi.encodeCall(Minter_v3.initialize, (address(this), owner))
         );
         vm.label(minter, "minter");
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
@@ -425,6 +426,27 @@ contract TestMinterInit is TestMinterSetUp {
         impl = address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken));
     }
 
+    /// Ownership initialisation names the deployer explicitly rather than taking it from msg.sender, and the
+    /// address named as pending owner is the one the deployer can hand ownership to.
+    function test_initExplicitDeployerOwner() public {
+        address deployerOwner = makeAddr("deployerOwner");
+        assertNotEq(deployerOwner, address(this), "deployer owner must differ from the caller for this to discriminate");
+
+        address proxy = UnsafeUpgrades.deployUUPSProxy(
+            impl,
+            abi.encodeCall(Minter_v3.initialize, (deployerOwner, owner))
+        );
+
+        // the owner is the address passed in, not whoever made the initializing call
+        assertEq(IHarborOwnable(proxy).owner(), deployerOwner, "deployer owner is set from the argument");
+
+        // the pending owner named at initialisation is the one the deployer can complete the transfer to
+        vm.startPrank(deployerOwner);
+        IHarborOwnable(proxy).transferOwnership(owner);
+        vm.stopPrank();
+        assertEq(IHarborOwnable(proxy).owner(), owner, "pending owner receives ownership");
+    }
+
     // TODO: do this test for all contracts
     // TODO: do test for initialize calls
     function test_notERC20() public {
@@ -467,7 +489,7 @@ contract TestMinterInit is TestMinterSetUp {
         minter = UnsafeUpgrades.deployUUPSProxy(
             // mock, no need to permission minting
             address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken)),
-            abi.encodeCall(Minter_v3.initialize, (owner))
+            abi.encodeCall(Minter_v3.initialize, (address(this), owner))
         );
         // let this contract mint and burn pegged
         IBaoRoles(minter).grantRoles(zeroFee, IMinter(minter).ZERO_FEE_ROLE());
@@ -525,14 +547,14 @@ contract TestMinterInit is TestMinterSetUp {
 
         UnsafeUpgrades.deployUUPSProxy(
             impl, // "Minter_v3.sol",
-            abi.encodeCall(Minter_v3.initialize, (owner))
+            abi.encodeCall(Minter_v3.initialize, (address(this), owner))
         );
     }
 
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        Minter_v3(minter).initialize(address(this));
+        Minter_v3(minter).initialize(address(this), owner);
 
         setUp_config_free();
         _assertEqConfig(IMinter(minter).config(), config);

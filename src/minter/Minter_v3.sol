@@ -13,7 +13,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder_v2, ITokenHolder} from "@bao/TokenHolder_v2.sol";
 
-import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 
 // different ERC20 mint/burn interfaces
@@ -96,7 +96,14 @@ import {Config_v2} from "@harbor/minter/library/Config_v2.sol";
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
 /// @custom:oz-upgrades-from src/minter/Minter_v2.sol:Minter_v2
 // solhint-disable-next-line contract-name-capwords
-contract Minter_v3 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOwnableRoles, TokenHolder_v2, IMinter_v3 {
+contract Minter_v3 is
+    Initializable,
+    UUPSUpgradeable,
+    ContextUpgradeable,
+    HarborOwnableRoles,
+    TokenHolder_v2,
+    IMinter_v3
+{
     using SafeERC20 for IERC20;
 
     ///////////////
@@ -172,9 +179,11 @@ contract Minter_v3 is Initializable, UUPSUpgradeable, ContextUpgradeable, BaoOwn
     // UUPSUpgradeable functions
     // -------------------------
 
-    function initialize(address owner_) external initializer {
+    /// @param deployerOwner_ The initial owner, used by the deploy script to configure the contract.
+    /// @param pendingOwner_ The address the deployer hands ownership to, within an hour of initialisation.
+    function initialize(address deployerOwner_, address pendingOwner_) external initializer {
         // initialise all the state variables
-        _initializeOwner(owner_);
+        _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         __Context_init();
         MinterStorage storage $ = _getMinterStorage();
