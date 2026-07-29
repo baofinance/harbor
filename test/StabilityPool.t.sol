@@ -21,6 +21,7 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
 
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
@@ -422,6 +423,27 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
 
     function test_depositWithdraw1() public {
         _depositWithdraw(user1);
+    }
+
+    /// @notice previewDeposit forecasts exactly what deposit credits — for an explicit amount and for
+    ///         the deposit-all sentinel — so a caller pricing a deposit never has to assume it is 1:1.
+    ///         This is the guard that keeps the two in step if a deposit charge is ever introduced.
+    function test_previewDeposit_matchesWhatDepositCredits() public {
+        (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        setUp_collateral(20 ether, 0 ether);
+        deal(peggedToken, user1, 10 * price);
+
+        vm.startPrank(user1);
+        uint256 previewedExplicit = IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(4 * price);
+        uint256 creditedExplicit = IStabilityPool(stabilityPoolCollateral).deposit(4 * price, user1, 0);
+        assertEq(previewedExplicit, creditedExplicit, "explicit amount: forecast matches the credit");
+
+        // The sentinel resolves against the caller's remaining balance, exactly as deposit reads it.
+        uint256 previewedAll = IStabilityPool_v3(stabilityPoolCollateral).previewDeposit(type(uint256).max);
+        assertEq(previewedAll, 6 * price, "deposit-all previews the caller's whole remaining balance");
+        uint256 creditedAll = IStabilityPool(stabilityPoolCollateral).deposit(type(uint256).max, user1, 0);
+        vm.stopPrank();
+        assertEq(previewedAll, creditedAll, "deposit-all: forecast matches the credit");
     }
 
     function test_depositWithdraw2() private {
