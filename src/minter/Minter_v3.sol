@@ -484,9 +484,12 @@ contract Minter_v3 is
         return mintPeggedTokenDryRun(wrappedCollateralIn, type(uint256).max);
     }
 
-    /// @notice Dry run of a capped mint: computes outcome if total fee is capped at maxFeeRatio of collateral used.
+    /// @notice Dry run of a capped mint: the outcome when the fee, as a ratio of the collateral USED,
+    /// is held within maxFeeRatio. With an offer larger than the market can absorb at that price this
+    /// reports the capacity to mint at it — the collateral taken is bounded by the price, not by the
+    /// size of the offer.
     /// @param wrappedCollateralIn The proposed amount of wrapped collateral.
-    /// @param maxFeeRatio The maximum overall fee ratio (18 decimals). e.g. 0.05 ether = 5%.
+    /// @param maxFeeRatio The maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
     function mintPeggedTokenDryRun(
         uint256 wrappedCollateralIn,
         uint256 maxFeeRatio
@@ -505,15 +508,12 @@ contract Minter_v3 is
         wrappedCollateralIn = Token.allOfQuiet(_msgSender(), WRAPPED_COLLATERAL_TOKEN, wrappedCollateralIn);
         MinterStorage storage $ = _getMinterStorage();
         (price, rate) = _fetchMid($.priceOracle);
-        uint256 maxFeeE36 = maxFeeRatio == type(uint256).max
-            ? type(uint256).max
-            : Math.mulDiv(wrappedCollateralIn, maxFeeRatio, 1 ether) * rate;
         uint256 underlyingCollateralAdded;
         (wrappedFee, peggedMinted, wrappedCollateralUsed, underlyingCollateralAdded) = _mintPeggedAdjustments(
             $.incentiveConfig[Config_v2.MINT_PEGGED],
             wrappedCollateralIn,
             CollateralRatioData($.underlyingCollateral, price, rate, $.peggedTokenBalance),
-            maxFeeE36
+            maxFeeRatio
         );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralUsed == 0
@@ -710,12 +710,14 @@ contract Minter_v3 is
         (peggedOut, ) = _mintPeggedTokenCapped(wrappedCollateralIn, receiver, minPeggedOut, type(uint256).max);
     }
 
-    /// @notice Mint pegged tokens with a fee cap. Stops minting when cumulative fee would exceed maxFeeRatio.
-    /// Returns (0, 0) gracefully if the fee exceeds the cap from the start (does not revert).
+    /// @notice Mint pegged tokens whose fee, taken as a ratio of the collateral actually USED, stays
+    /// within maxFeeRatio. Takes only as much of the offer as that allows: the amount offered does not
+    /// buy a proportional fee budget to spend on a smaller amount at a steeper rate. Returns (0, 0)
+    /// gracefully when even the cheapest band on offer costs more than the cap (does not revert).
     /// @param wrappedCollateralIn The amount of wrapped collateral to post. Use type(uint256).max for all.
     /// @param receiver The address to receive minted pegged tokens.
     /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.
-    /// @param maxFeeRatio Maximum overall fee ratio (18 decimals). e.g. 0.05 ether = 5%.
+    /// @param maxFeeRatio Maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
     /// @return peggedOut The amount of pegged tokens minted.
     /// @return wrappedCollateralUsed The amount of wrapped collateral actually consumed (collateral added + fee).
     function mintPeggedToken(
@@ -746,17 +748,13 @@ contract Minter_v3 is
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
         uint256 underlyingCollateral_ = $.underlyingCollateral;
 
-        uint256 maxFeeE36 = maxFeeRatio == type(uint256).max
-            ? type(uint256).max
-            : Math.mulDiv(wrappedCollateralIn, maxFeeRatio, 1 ether) * rate;
-
         uint256 wrappedFee;
         uint256 underlyingCollateralAdded;
         (wrappedFee, peggedOut, wrappedCollateralUsed, underlyingCollateralAdded) = _mintPeggedAdjustments(
             $.incentiveConfig[Config_v2.MINT_PEGGED],
             wrappedCollateralIn,
             CollateralRatioData(underlyingCollateral_, price, rate, peggedTokenBalance_),
-            maxFeeE36
+            maxFeeRatio
         );
 
         // slither-disable-next-line incorrect-equality
@@ -1369,7 +1367,7 @@ contract Minter_v3 is
         ConfigIncentiveLib.ActionIncentive memory config_,
         uint256 wrappedCollateralIn,
         CollateralRatioData memory cr,
-        uint256 maxFeeE36
+        uint256 maxFeeRatio
     )
         private
         pure
@@ -1429,11 +1427,21 @@ contract Minter_v3 is
                 );
                 collateralInBandE36 = Math.min(w.underlyingCollateralInLeftE36, collateralInBandE36);
             }
-            // Cap collateral to stay within fee budget (skip when uncapped or zero-fee band)
-            // bandFeeRatio == 0 means no fee, so no budget constraint can apply.
-            if (maxFeeE36 != type(uint256).max && bandFeeRatio > 0) {
-                uint256 remainingFeeE36 = maxFeeE36 - w.underlyingFeeE36;
-                uint256 maxCollateralForFeeE36 = Math.mulDiv(remainingFeeE36, 1 ether, bandFeeRatio);
+            // Cap collateral so the fee RATIO over the collateral used stays within maxFeeRatio.
+            // Taking dC more at this band's ratio f, on top of U used and F charged so far, must keep
+            //   F + dC*f <= (U + dC)*maxFeeRatio
+            // Rearranged, dC*(f - maxFeeRatio) <= U*maxFeeRatio - F. A band at or below the cap can
+            // never breach it however much is taken there, so only a dearer band constrains — and it
+            // is affordable only to the extent the cheaper bands already taken have left headroom.
+            // The cap is therefore a ceiling on the average price paid, independent of how much was
+            // offered: an offer buys no budget to spend on a smaller amount at a steeper rate.
+            if (bandFeeRatio > maxFeeRatio) {
+                uint256 usedSoFarE36 = w.underlyingCollateralAddedE36 + w.underlyingFeeE36;
+                uint256 headroom = usedSoFarE36 * maxFeeRatio;
+                uint256 charged = w.underlyingFeeE36 * 1 ether;
+                uint256 maxCollateralForFeeE36 = headroom > charged
+                    ? (headroom - charged) / (bandFeeRatio - maxFeeRatio)
+                    : 0;
                 if (collateralInBandE36 > maxCollateralForFeeE36) {
                     collateralInBandE36 = maxCollateralForFeeE36;
                     w.feeCapped = true;

@@ -413,12 +413,14 @@ interface IMinter_v3 {
         uint256 minPeggedOut
     ) external returns (uint256 peggedOut);
 
-    /// @notice Mint pegged tokens with a fee cap. Stops minting when cumulative fee would exceed maxFeeRatio.
-    /// Returns (0, 0) gracefully if the fee exceeds the cap from the start (does not revert).
+    /// @notice Mint pegged tokens whose fee, taken as a ratio of the collateral actually USED, stays
+    /// within maxFeeRatio. Takes only as much of the offer as that allows: the amount offered does not
+    /// buy a proportional fee budget to spend on a smaller amount at a steeper rate. Returns (0, 0)
+    /// gracefully when even the cheapest band on offer costs more than the cap (does not revert).
     /// @param collateralIn The amount of wrapped collateral to post. Use type(uint256).max for all.
     /// @param receiver The address to receive minted pegged tokens.
     /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.
-    /// @param maxFeeRatio Maximum overall fee ratio (18 decimals). e.g. 0.05 ether = 5%.
+    /// @param maxFeeRatio Maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
     /// @return peggedOut The amount of pegged tokens minted.
     /// @return collateralUsed The amount of wrapped collateral actually consumed (collateral added + fee).
     function mintPeggedToken(
@@ -520,9 +522,12 @@ interface IMinter_v3 {
     /// @return collateralOut The amount of collateral tokens received.
     function freeRedeemLeveragedToken(uint256 leveragedIn, address receiver) external returns (uint256 collateralOut);
 
-    /// @notice Dry run of a capped mint: computes outcome if total fee is capped at maxFeeRatio.
+    /// @notice Dry run of a capped mint: the outcome when the fee, as a ratio of the collateral USED,
+    /// is held within maxFeeRatio. With an offer larger than the market can absorb at that price this
+    /// reports the capacity to mint at it — the collateral taken is bounded by the price, not by the
+    /// size of the offer.
     /// @param collateralIn The proposed amount of wrapped collateral.
-    /// @param maxFeeRatio The maximum overall fee ratio (18 decimals). e.g. 0.05 ether = 5%.
+    /// @param maxFeeRatio The maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
     function mintPeggedTokenDryRun(
         uint256 collateralIn,
         uint256 maxFeeRatio

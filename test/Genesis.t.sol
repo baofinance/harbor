@@ -14,7 +14,7 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IGenesis} from "@harbor/interfaces/IGenesis.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 
-import {Genesis_v1} from "@harbor/minter/Genesis_v1.sol";
+import {Genesis_v2} from "@harbor/minter/Genesis_v2.sol";
 
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
 import {Token} from "@bao/Token.sol";
@@ -60,9 +60,9 @@ contract Test_GenesisBase is TestMinterSetUp {
     }
 
     function setUp_genesisImplementation() internal {
-        genesisImpl = address(new Genesis_v1(minter));
+        genesisImpl = address(new Genesis_v2(minter));
     }
-
+    /*  */
     function setUp_genesisProxy() internal {
         // vm.expectEmit();
         // emit IERC1967.Upgraded(genesisImpl);
@@ -73,8 +73,8 @@ contract Test_GenesisBase is TestMinterSetUp {
         // vm.expectEmit();
         // emit Initializable.Initialized(1);
         genesis = UnsafeUpgrades.deployUUPSProxy(
-            genesisImpl, //"Genesis_v1.sol",
-            abi.encodeCall(Genesis_v1.initialize, owner)
+            genesisImpl, //"Genesis_v2.sol",
+            abi.encodeCall(Genesis_v2.initialize, (address(this), owner))
         );
         // vm.expectEmit();
         // emit IBaoOwnable.OwnershipTransferred(address(this), owner);
@@ -103,7 +103,7 @@ contract Test_GenesisBase is TestMinterSetUp {
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        Genesis_v1(genesis).initialize(address(this));
+        Genesis_v2(genesis).initialize(address(this), address(this));
 
         // check the data has been set up correctly
         assertEq(IBaoOwnable(genesis).owner(), owner, "wrong owner");

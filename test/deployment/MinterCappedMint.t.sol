@@ -159,21 +159,26 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
     // Capped mint — partial mint when fee exceeds cap mid-band
     // ═══════════════════════════════════════════════════════════════
 
+    /// @dev A partial fill exists only for a cap strictly between the cheapest band's rate and the
+    ///      average rate over the whole offer: below the cheapest rate nothing is affordable at all,
+    ///      at or above the average the whole offer is. In between, the cheap bands are taken in full
+    ///      and only as much of the dearer band as keeps the average within the cap.
     function test_cappedMint_partialMint() public {
         _bootstrapCollateralRatio();
 
         address alice = makeAddr("alice");
-        uint256 collateralIn = 100 ether;
+        // Large enough to drive the collateral ratio down out of its starting band: the bootstrap
+        // leaves 1000 collateral against 500 pegged, and minting adds to both, so ~125 crosses the
+        // first boundary below 2.0.
+        uint256 collateralIn = 400 ether;
         deal(wrappedCollateral, alice, collateralIn);
 
-        // Get uncapped result
-        (, , uint256 uncappedCollUsed, uint256 uncappedPegged, , ) = IMinter(minter).mintPeggedTokenDryRun(
-            collateralIn
-        );
-
-        // Set cap to half the uncapped fee ratio — should produce a partial mint
-        (int256 incentiveRatio, , , , , ) = IMinter(minter).mintPeggedTokenDryRun(collateralIn);
-        uint256 maxFeeRatio = uint256(incentiveRatio) / 2;
+        // Uncapped: the whole offer, and the average rate it pays.
+        (int256 uncappedRatio, , uint256 uncappedCollUsed, uint256 uncappedPegged, , ) = IMinter(minter)
+            .mintPeggedTokenDryRun(collateralIn);
+        uint256 cheapestBandRate = uint256(IMinter_v3(minter).mintPeggedTokenIncentiveRatio());
+        assertGt(uint256(uncappedRatio), cheapestBandRate, "the offer crosses into a dearer band");
+        uint256 maxFeeRatio = (cheapestBandRate + uint256(uncappedRatio)) / 2;
 
         // Capped dry run
         (, , uint256 dryCollUsed, uint256 dryPegged, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
@@ -191,12 +196,10 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
         assertEq(collUsed, dryCollUsed, "collateral used matches capped dry run");
 
         // Partial: used less collateral, minted less pegged
-        if (maxFeeRatio > 0) {
-            assertGt(collUsed, 0, "some collateral used");
-            assertLt(collUsed, uncappedCollUsed, "less than uncapped");
-            assertGt(peggedOut, 0, "some pegged minted");
-            assertLt(peggedOut, uncappedPegged, "less than uncapped pegged");
-        }
+        assertGt(collUsed, 0, "some collateral used");
+        assertLt(collUsed, uncappedCollUsed, "less than uncapped");
+        assertGt(peggedOut, 0, "some pegged minted");
+        assertLt(peggedOut, uncappedPegged, "less than uncapped pegged");
 
         // Alice keeps the unused portion
         assertEq(IERC20(wrappedCollateral).balanceOf(alice), collateralIn - collUsed, "remaining collateral");
@@ -258,21 +261,57 @@ contract MinterCappedMintTest is MinterCappedMintSetUp {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Fuzz: fee never exceeds the cap
+    // Capped mint — the cap is a ratio over the collateral USED
     // ═══════════════════════════════════════════════════════════════
 
+    /// @notice A cap below the rate of the cheapest band on offer mints NOTHING: every unit of
+    ///         collateral would cost more than the cap, so no amount has an average fee that fits.
+    ///         The amount offered does not buy a proportional fee budget to spend on a smaller amount.
+    function test_cappedMint_capBelowCurrentBandRate_mintsNothing() public {
+        _bootstrapCollateralRatio();
+
+        // The band the current collateral ratio sits in is the cheapest rate available: minting only
+        // ever moves the ratio down into dearer bands.
+        uint256 currentBandRate = uint256(IMinter_v3(minter).mintPeggedTokenIncentiveRatio());
+        uint256 maxFeeRatio = currentBandRate / 2;
+
+        (, uint256 dryFee, uint256 dryCollateralUsed, uint256 dryPegged, , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            100 ether,
+            maxFeeRatio
+        );
+
+        assertEq(dryCollateralUsed, 0, "no collateral used: every unit costs more than the cap");
+        assertEq(dryPegged, 0, "no pegged minted");
+        assertEq(dryFee, 0, "no fee charged");
+    }
+
+    /// @notice The cap bounds the fee ratio over the collateral actually USED. A partial fill takes
+    ///         only as much as keeps its own average fee within the cap — it does not spend a budget
+    ///         sized by the whole offer on the smaller amount it takes. (The weaker bound, fee within
+    ///         `maxFeeRatio × collateralIn`, follows from this since used never exceeds offered.)
     function test_fuzz_feeNeverExceedsCap(uint256 collateralIn, uint256 maxFeeRatio) public {
         _bootstrapCollateralRatio();
 
         collateralIn = bound(collateralIn, 0.01 ether, 100 ether);
         maxFeeRatio = bound(maxFeeRatio, 0.001 ether, 0.5 ether); // 0.1% to 50%
 
-        // Capped dry run
-        (, uint256 dryFee, , , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(collateralIn, maxFeeRatio);
+        // Capped dry run. `incentiveRatio` IS the realised fee over collateral used.
+        (int256 incentiveRatio, , uint256 dryCollateralUsed, , , ) = IMinter_v3(minter).mintPeggedTokenDryRun(
+            collateralIn,
+            maxFeeRatio
+        );
+        // With nothing taken there is no realised ratio to bound (the getter reports the band's rate).
+        vm.assume(dryCollateralUsed > 0);
 
-        // Absolute fee must not exceed the budget (maxFeeRatio * collateralIn)
-        uint256 maxFee = (collateralIn * maxFeeRatio) / 1 ether;
-        assertLe(dryFee, maxFee, "fee <= maxFeeRatio * collateralIn");
+        // Fee and collateral used are each floored independently out of the 1e36-scaled internals, so
+        // the reported ratio can exceed the exact one by at most one wei of fee spread over the amount
+        // used — `1e18 / used` in ratio terms.
+        uint256 roundingDust = 1 ether / dryCollateralUsed + 1;
+        assertLe(
+            uint256(incentiveRatio),
+            maxFeeRatio + roundingDust,
+            "realised fee ratio over collateral used <= maxFeeRatio"
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════

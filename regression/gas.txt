@@ -1,35 +1,17 @@
 # regression: better=lower abs=500 rel=0.001 display={:.3e} ratchet=on
 
-src/minter/Genesis_v1.sol:Genesis_v1
-| function name            |    max |   display |
-|--------------------------|--------|-----------|
-| LEVERAGED_TOKEN          |    282 | 2.820e+02 |
-| MINTER                   |    303 | 3.030e+02 |
-| PEGGED_TOKEN             |    283 | 2.830e+02 |
-| WRAPPED_COLLATERAL_TOKEN |    282 | 2.820e+02 |
-| balanceOf                |   2591 | 2.591e+03 |
-| claim                    |  87507 | 8.751e+04 |
-| claimable                |  11608 | 1.161e+04 |
-| deposit                  |  67470 | 6.747e+04 |
-| endGenesis               | 351122 | 3.511e+05 |
-| genesisIsEnded           |   2349 | 2.349e+03 |
-| initialize               |  71460 | 7.146e+04 |
-| owner                    |   2401 | 2.401e+03 |
-| transferOwnership        |  12020 | 1.202e+04 |
-| withdraw                 |  43350 | 4.335e+04 |
-
 src/minter/Minter_v3.sol:Minter_v3
 | function name                                    |    max |   display |
 |--------------------------------------------------|--------|-----------|
-| HARVESTER_ROLE                                   |    283 | 2.830e+02 |
-| LEVERAGED_TOKEN                                  |    349 | 3.490e+02 |
-| PEGGED_TOKEN                                     |    305 | 3.050e+02 |
-| WRAPPED_COLLATERAL_TOKEN                         |    283 | 2.830e+02 |
-| ZERO_FEE_ROLE                                    |    285 | 2.850e+02 |
-| collateralRatio                                  |  19100 | 1.910e+04 |
+| HARVESTER_ROLE                                   |    305 | 3.050e+02 |
+| LEVERAGED_TOKEN                                  |    283 | 2.830e+02 |
+| PEGGED_TOKEN                                     |    327 | 3.270e+02 |
+| WRAPPED_COLLATERAL_TOKEN                         |    305 | 3.050e+02 |
+| ZERO_FEE_ROLE                                    |    307 | 3.070e+02 |
+| collateralRatio                                  |  19122 | 1.912e+04 |
 | collateralTokenBalance                           |   2358 | 2.358e+03 |
 | config                                           |  71870 | 7.187e+04 |
-| feeReceiver                                      |   2442 | 2.442e+03 |
+| feeReceiver                                      |   2397 | 2.397e+03 |
 | freeMintLeveragedToken                           | 145861 | 1.459e+05 |
 | freeMintPeggedToken                              | 169496 | 1.695e+05 |
 | freeRedeemDryRun                                 |  30569 | 3.057e+04 |
@@ -38,27 +20,27 @@ src/minter/Minter_v3.sol:Minter_v3
 | grantRoles                                       |  26400 | 2.640e+04 |
 | harvestable                                      |  29760 | 2.976e+04 |
 | hasAllRoles                                      |   2615 | 2.615e+03 |
-| hasAnyRole                                       |   2614 | 2.614e+03 |
+| hasAnyRole                                       |   2636 | 2.636e+03 |
 | initialize                                       | 184219 | 1.842e+05 |
 | leverageRatio                                    |  19530 | 1.953e+04 |
-| leveragedTokenBalance                            |  10418 | 1.042e+04 |
-| leveragedTokenPrice                              |  29930 | 2.993e+04 |
+| leveragedTokenBalance                            |  10354 | 1.035e+04 |
+| leveragedTokenPrice                              |  29888 | 2.989e+04 |
 | mintLeveragedToken                               | 149500 | 1.495e+05 |
 | mintLeveragedTokenDryRun                         |  73318 | 7.332e+04 |
 | mintLeveragedTokenIncentiveRatio                 |  31040 | 3.104e+04 |
-| mintPeggedToken(uint256,address,uint256)         | 191071 | 1.911e+05 |
-| mintPeggedToken(uint256,address,uint256,uint256) | 125085 | 1.251e+05 |
-| mintPeggedTokenDryRun(uint256)                   |  64170 | 6.417e+04 |
-| mintPeggedTokenDryRun(uint256,uint256)           |  45447 | 4.545e+04 |
+| mintPeggedToken(uint256,address,uint256)         | 191050 | 1.910e+05 |
+| mintPeggedToken(uint256,address,uint256,uint256) | 133739 | 1.337e+05 |
+| mintPeggedTokenDryRun(uint256)                   |  63957 | 6.396e+04 |
+| mintPeggedTokenDryRun(uint256,uint256)           |  45177 | 4.518e+04 |
 | mintPeggedTokenIncentiveRatio                    |  30080 | 3.008e+04 |
-| owner                                            |   2402 | 2.402e+03 |
-| peggedTokenBalance                               |   2409 | 2.409e+03 |
+| owner                                            |   2424 | 2.424e+03 |
+| peggedTokenBalance                               |   2431 | 2.431e+03 |
 | peggedTokenPrice                                 |  19190 | 1.919e+04 |
 | priceOracle                                      |   2472 | 2.472e+03 |
-| redeemLeveragedToken                             | 128091 | 1.281e+05 |
+| redeemLeveragedToken                             | 128046 | 1.280e+05 |
 | redeemLeveragedTokenDryRun                       |  63090 | 6.309e+04 |
 | redeemLeveragedTokenIncentiveRatio               |  29170 | 2.917e+04 |
-| redeemPeggedForCollateralRatio                   |  20118 | 2.012e+04 |
+| redeemPeggedForCollateralRatio                   |  20073 | 2.007e+04 |
 | redeemPeggedToken                                | 132017 | 1.320e+05 |
 | redeemPeggedTokenDryRun                          |  49602 | 4.960e+04 |
 | redeemPeggedTokenIncentiveRatio                  |  30066 | 3.007e+04 |
@@ -77,12 +59,8 @@ src/minter/ReservePool_v1.sol:ReservePool_v1
 |-------------------|-------|-----------|
 | REQUESTER_ROLE    |   239 | 2.390e+02 |
 | grantRoles        | 26330 | 2.633e+04 |
-| hasAnyRole        |  2569 | 2.569e+03 |
 | initialize        | 70307 | 7.031e+04 |
-| owner             |  2389 | 2.389e+03 |
-| requestBonus      | 39337 | 3.934e+04 |
-| supportsInterface |   842 | 8.420e+02 |
-| sweep             |  2642 | 2.642e+03 |
+| requestBonus      | 17737 | 1.774e+04 |
 | transferOwnership | 12040 | 1.204e+04 |
 
 src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
@@ -97,7 +75,7 @@ src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | hasStabilityPool           |    559 | 5.590e+02 |
 | initialize                 |  92852 | 9.285e+04 |
 | owner                      |   2401 | 2.401e+03 |
-| rebalance                  | 610219 | 6.102e+05 |
+| rebalance                  | 609911 | 6.099e+05 |
 | rebalanceBountyRatio       |   2399 | 2.399e+03 |
 | rebalanceThreshold         |   2348 | 2.348e+03 |
 | rebalanceable              |  29310 | 2.931e+04 |

@@ -13,7 +13,7 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
+import {ReservePool_v2} from "@harbor/minter/ReservePool_v2.sol";
 import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
@@ -39,13 +39,13 @@ contract TestReservePoolSetUp is Test {
     }
 
     function setUp_impl() internal {
-        reservePoolImpl = address(new ReservePool_v1());
+        reservePoolImpl = address(new ReservePool_v2());
     }
 
     function setUp_proxy() internal {
         reservePool = UnsafeUpgrades.deployUUPSProxy(
-            reservePoolImpl, // "ReservePool_v1.sol",
-            abi.encodeCall(ReservePool_v1.initialize, (owner))
+            reservePoolImpl, // "ReservePool_v2.sol",
+            abi.encodeCall(ReservePool_v2.initialize, (address(this), owner))
         );
     }
 
@@ -106,7 +106,7 @@ contract TestReservePool is TestReservePoolSetUp {
 
     function test_init() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        ReservePool_v1(reservePool).initialize(owner);
+        ReservePool_v2(reservePool).initialize(address(this), owner);
 
         // admin role
         assertEq(IBaoOwnable(reservePool).owner(), owner, "owner should be admin");
@@ -124,7 +124,7 @@ contract TestReservePool is TestReservePoolSetUp {
         IReservePool(reservePool).requestBonus(token1, bonusReceiver, 1 ether);
         // not anyone can withdraw funds
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        ReservePool_v1(reservePool).sweep(token1, 1 ether, bonusReceiver);
+        ReservePool_v2(reservePool).sweep(token1, 1 ether, bonusReceiver);
         // not anyone can grant roles
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IBaoRoles(reservePool).grantRoles(minter, 23);
@@ -190,9 +190,9 @@ contract TestReservePool is TestReservePoolSetUp {
 
     function test_introspection() public view {
         assertTrue(
-            ReservePool_v1(reservePool).supportsInterface(type(IReservePool).interfaceId),
+            ReservePool_v2(reservePool).supportsInterface(type(IReservePool).interfaceId),
             "should support IReservePool"
         );
-        assertFalse(ReservePool_v1(reservePool).supportsInterface(bytes4(0)), "doesn't support 0");
+        assertFalse(ReservePool_v2(reservePool).supportsInterface(bytes4(0)), "doesn't support 0");
     }
 }
