@@ -757,13 +757,22 @@ contract Minter_v3 is
             maxFeeRatio
         );
 
+        // The pegged tokens minted are floored, so a mint too small to buy a whole one yields nothing.
+        // Taking its collateral and fee anyway would charge the caller for nothing, so both the "nothing
+        // can be taken" and the "nothing would be produced" cases stop here — as they do for redeeming
+        // pegged, minting leveraged and redeeming leveraged.
         // slither-disable-next-line incorrect-equality
-        if (wrappedCollateralUsed == 0) {
+        if (wrappedCollateralUsed == 0 || peggedOut == 0) {
             if (maxFeeRatio == type(uint256).max) {
-                // Uncapped: zero means minting is disallowed by config
-                revert MintZeroAmount(PEGGED_TOKEN);
+                // Two distinct facts, so two distinct errors: the config forbids minting at this
+                // collateral ratio, or it allows it but the offer is too small to yield a whole token.
+                // slither-disable-next-line incorrect-equality
+                if (wrappedCollateralUsed == 0) {
+                    revert MintZeroAmount(PEGGED_TOKEN);
+                }
+                revert ReturnZeroAmount(PEGGED_TOKEN);
             }
-            // Capped: fee exceeds cap from the start — return (0, 0) gracefully
+            // Capped: nothing is consumed on this path, so (0, 0) is the honest report
             return (0, 0);
         }
 

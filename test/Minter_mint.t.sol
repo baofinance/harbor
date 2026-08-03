@@ -7,6 +7,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
+import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 
 import "@harbor-test/Useful.sol";
 import {TestMinterSetUp} from "@harbor-test/Minter_base.t.sol";
@@ -209,5 +211,113 @@ contract TestMinterOverflow is TestMinterMint {
         assertEq(returned100T, collateralFor100T, "returned 100T");
         uint256 returned1 = IMinter(minter).redeemLeveragedToken(minted1, address(this), 0);
         assertEq(returned1, 1 ether, "returned 1");
+    }
+}
+
+/// @notice A mint must never take collateral and hand back nothing.
+/// @dev The minter floors the pegged tokens it mints, so a mint small enough to buy less than one whole
+///      pegged token yields zero — while the collateral and the fee for it are still consumed. At a
+///      collateral price of 1e-9 pegged per token that is any mint under about a billion wei, which is
+///      what these tests use. Redeeming pegged, minting leveraged and redeeming leveraged all already
+///      refuse this with ReturnZeroAmount; minting pegged is held to the same rule.
+contract TestMinterMintZeroOutput is TestMinterMint {
+    uint256 constant COLLATERAL_PRICE = 1e9; // 1e-9 pegged tokens per collateral token
+    uint256 constant DUST = 1e9; // buys 0.995 pegged after the 0.5% fee, so floors to zero
+
+    function setUpConfig() internal virtual override {
+        // flat 0.5% on every action: no bands to cross and no disallow, so the only thing that can
+        // stop this mint is the zero-output rule under test
+        setUp_config(
+            ic(ua(100), ia(50, 50)),
+            ic(ua(100), ia(50, 50)),
+            ic(ua(100), ia(50, 50)),
+            ic(ua(100), ia(50, 50))
+        );
+    }
+
+    function setUp() public virtual override {
+        super.setUp();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(COLLATERAL_PRICE, 1 ether);
+        setUp_collateral(100 ether, 100 ether); // collateral ratio 2, far above the peg
+        deal(wrappedCollateralToken, sender, 10 ether);
+        vm.startPrank(sender);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function test_mintPegged_revertsWhenOutputRoundsToZero() public {
+        (, , uint256 collateralUsed, uint256 peggedOut, , ) = IMinter(minter).mintPeggedTokenDryRun(DUST);
+        assertGt(collateralUsed, 0, "precondition: this mint would consume collateral");
+        assertEq(peggedOut, 0, "precondition: this mint would yield no pegged tokens");
+
+        uint256 senderWrapped = IERC20(wrappedCollateralToken).balanceOf(sender);
+        uint256 minterWrapped = IERC20(wrappedCollateralToken).balanceOf(minter);
+        uint256 feeWrapped = IERC20(wrappedCollateralToken).balanceOf(feeReceiver);
+
+        vm.startPrank(sender);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.ReturnZeroAmount.selector, peggedToken));
+        IMinter(minter).mintPeggedToken(DUST, sender, 0);
+        vm.stopPrank();
+
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(sender), senderWrapped, "sender keeps their collateral");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(minter), minterWrapped, "minter takes nothing");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(feeReceiver), feeWrapped, "no fee is charged");
+    }
+
+    /// @dev The guard rejects only what rounds away: the smallest mint that does buy a whole pegged
+    ///      token still succeeds.
+    function test_mintPegged_succeedsAtExactlyOnePeggedToken() public {
+        uint256 wrapped = DUST + DUST / 100; // 1.005 pegged before flooring
+        (, , , uint256 peggedOut, , ) = IMinter(minter).mintPeggedTokenDryRun(wrapped);
+        assertEq(peggedOut, 1, "precondition: this mint buys exactly one pegged token");
+
+        vm.startPrank(sender);
+        uint256 minted = IMinter(minter).mintPeggedToken(wrapped, sender, 0);
+        vm.stopPrank();
+
+        assertEq(minted, 1, "one whole pegged token is minted");
+        assertEq(IERC20(peggedToken).balanceOf(sender), 1, "and delivered to the caller");
+    }
+
+    /// @dev The capped variant reports "cannot do this" by returning zero rather than reverting, which
+    ///      is what its callers rely on. Nothing is consumed either way.
+    function test_mintPegged_cappedReturnsZeroWhenOutputRoundsToZero() public {
+        uint256 senderWrapped = IERC20(wrappedCollateralToken).balanceOf(sender);
+        uint256 minterWrapped = IERC20(wrappedCollateralToken).balanceOf(minter);
+
+        vm.startPrank(sender);
+        // a 100% fee cap cannot bind, so only the zero-output rule can stop this
+        (uint256 peggedOut, uint256 collateralUsed) = IMinter_v3(minter).mintPeggedToken(DUST, sender, 0, 1 ether);
+        vm.stopPrank();
+
+        assertEq(peggedOut, 0, "no pegged tokens minted");
+        assertEq(collateralUsed, 0, "and no collateral reported as used");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(sender), senderWrapped, "sender keeps their collateral");
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(minter), minterWrapped, "minter takes nothing");
+    }
+}
+
+/// @notice The input-side and output-side zero cases stay distinguishable.
+/// @dev MintZeroAmount means the config forbids minting at this collateral ratio, so nothing can be
+///      taken at all; ReturnZeroAmount means collateral could be taken but would buy no whole token.
+///      Reporting both as one error would lose which of the two actually happened.
+contract TestMinterMintZeroOutputDisallowed is TestMinterMint {
+    function setUp() public virtual override {
+        super.setUp();
+        // basicWithDisallow forbids minting pegged below a collateral ratio of 1.31
+        setUp_collateral(100 ether, 20 ether); // collateral ratio 1.2
+        deal(wrappedCollateralToken, sender, 10 ether);
+        vm.startPrank(sender);
+        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function test_mintPegged_revertsMintZeroAmountWhenDisallowed() public {
+        assertLt(IMinter(minter).collateralRatio(), 1.31 ether, "precondition: minting pegged is disallowed here");
+
+        vm.startPrank(sender);
+        vm.expectRevert(abi.encodeWithSelector(IMinter.MintZeroAmount.selector, peggedToken));
+        IMinter(minter).mintPeggedToken(1 ether, sender, 0);
+        vm.stopPrank();
     }
 }
