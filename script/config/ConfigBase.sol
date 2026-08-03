@@ -31,9 +31,24 @@ abstract contract Config_MinterMarket {
 /// @dev Provides type safety for price market config parameters.
 abstract contract Config_PriceMarket {}
 
+/// @notice A market's identity: the pair of names every key and address for that market derives from.
+/// @dev The deploy layer keys everything off this pair. It exists as a named type because the identity has
+///      two sources — a `Config_MinterMarket` where this repo configured the market, and the bare names
+///      where it did not (fork verification against a live market, hand-written Safe batches). Both produce
+///      the same `Market`, so the resolvers need only one primitive form.
+struct Market {
+    string peg;
+    string collateral;
+}
+
 /// @notice Library for computing minter market identifiers from configuration.
 /// @dev Used by deployment scripts for salt, token names/symbols, and oracle keys.
 library MinterMarketConfigLib {
+    /// @notice The market identity a config describes.
+    function market(Config_MinterMarket config) internal view returns (Market memory) {
+        return Market({peg: peg(config), collateral: collateral(config)});
+    }
+
     /// @notice Get the peg identifier from a market config.
     /// @param config The minter market config contract.
     /// @return The peg identifier (e.g., "BTC", "ETH").

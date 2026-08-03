@@ -6,7 +6,7 @@ import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
@@ -35,18 +35,14 @@ contract Deploy_Minter_v2_mainnet is
 
     function _doOneMinter(DeploymentTypes.State memory state, Config_MinterMarket[] memory markets) internal {
         for (uint i = 0; i < markets.length; i++) {
-            string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            IHarborConfig cfg = IHarborConfig(address(markets[i]));
-            address wrappedCollateral = cfg.wrappedCollateralToken();
-            address peggedToken = peggedTokenAddress(cfg.peg());
-            address leveragedToken = leveragedTokenAddress(marketKey);
+            string memory key = minterKey(markets[i]);
 
-            (address impl, string memory key) = deployMinterImplementation(
+            address impl = deployMinterImplementation(
                 state,
-                marketKey,
-                wrappedCollateral,
-                peggedToken,
-                leveragedToken
+                key,
+                IHarborConfig(address(markets[i])).wrappedCollateralToken(),
+                peggedTokenAddress(markets[i]),
+                leveragedTokenAddress(markets[i])
             );
 
             // Queue Safe upgrade transactions

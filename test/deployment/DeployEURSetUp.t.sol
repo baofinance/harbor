@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -14,27 +13,24 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 /// @title Common deployment setup for EUR market tests.
 /// @dev Deploys EUR peg with two collaterals (fxUSD, stETH), each with collateral + leveraged SPs and ACs.
 ///      Forks mainnet at a pinned block, deploys all market infrastructure via production scripts,
 ///      grants test contract free-mint and reward-depositor roles, sets mock oracles to price=rate=1.
-abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
+abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter, HarborTestActions {
     // ── EUR::fxUSD market ──────────────────────────────────────────────
     address minterFxUSD;
     address spCollFxUSD;
     address spLevFxUSD;
     address spmFxUSD;
-    address acCollFxUSD;
-    address acLevFxUSD;
 
     // ── EUR::stETH market ──────────────────────────────────────────────
     address minterStETH;
     address spCollStETH;
     address spLevStETH;
     address spmStETH;
-    address acCollStETH;
-    address acLevStETH;
 
     // ── Shared ─────────────────────────────────────────────────────────
     address pegged; // haEUR - shared across markets
@@ -57,36 +53,30 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter {
 
         // EUR::fxUSD
         string memory mkFx = MinterMarketConfigLib.salt(mktConfigs[0]); // "EUR::fxUSD"
-        minterFxUSD = minterAddress(mkFx);
-        spCollFxUSD = stabilityPoolAddress(mkFx, StabilityPoolType.Collateral);
-        spLevFxUSD = stabilityPoolAddress(mkFx, StabilityPoolType.Leveraged);
-        spmFxUSD = stabilityPoolManagerAddress(mkFx);
-        acCollFxUSD = _predictAddress(SaltString.key(mkFx, "autoCompounderCollateral"));
-        acLevFxUSD = _predictAddress(SaltString.key(mkFx, "autoCompounderLeveraged"));
+        minterFxUSD = minterAddress(mktConfigs[0]);
+        spCollFxUSD = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Collateral);
+        spLevFxUSD = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Leveraged);
+        spmFxUSD = stabilityPoolManagerAddress(mktConfigs[0]);
         wrappedCollateralFxUSD = IMinter(minterFxUSD).WRAPPED_COLLATERAL_TOKEN();
 
         // EUR::stETH
         string memory mkSt = MinterMarketConfigLib.salt(mktConfigs[1]); // "EUR::stETH"
-        minterStETH = minterAddress(mkSt);
-        spCollStETH = stabilityPoolAddress(mkSt, StabilityPoolType.Collateral);
-        spLevStETH = stabilityPoolAddress(mkSt, StabilityPoolType.Leveraged);
-        spmStETH = stabilityPoolManagerAddress(mkSt);
-        acCollStETH = _predictAddress(SaltString.key(mkSt, "autoCompounderCollateral"));
-        acLevStETH = _predictAddress(SaltString.key(mkSt, "autoCompounderLeveraged"));
+        minterStETH = minterAddress(mktConfigs[1]);
+        spCollStETH = stabilityPoolAddress(mktConfigs[1], StabilityPoolType.Collateral);
+        spLevStETH = stabilityPoolAddress(mktConfigs[1], StabilityPoolType.Leveraged);
+        spmStETH = stabilityPoolManagerAddress(mktConfigs[1]);
         wrappedCollateralStETH = IMinter(minterStETH).WRAPPED_COLLATERAL_TOKEN();
 
         // Shared pegged token
-        pegged = peggedTokenAddress(peg_.key());
+        pegged = peggedTokenAddress(mktConfigs[0]);
 
-        // Mock oracles (price=1, rate=1 for simple accounting)
-        mockOracleFxUSD = new MockWrappedPriceOracle();
+        // Mock oracles (price=1, rate=1 for simple accounting), installed where the deploy wired each minter
+        mockOracleFxUSD = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(mktConfigs[0])));
         mockOracleFxUSD.setLatestAnswer(1 ether, 1 ether);
-        mockOracleStETH = new MockWrappedPriceOracle();
+        mockOracleStETH = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(mktConfigs[1])));
         mockOracleStETH.setLatestAnswer(1 ether, 1 ether);
 
         vm.startPrank(HARBOR_MULTISIG);
-        IMinter(minterFxUSD).updatePriceOracle(address(mockOracleFxUSD));
-        IMinter(minterStETH).updatePriceOracle(address(mockOracleStETH));
         // Grant free mint role for test helpers
         IBaoRoles(minterFxUSD).grantRoles(address(this), IMinter(minterFxUSD).ZERO_FEE_ROLE());
         IBaoRoles(minterStETH).grantRoles(address(this), IMinter(minterStETH).ZERO_FEE_ROLE());

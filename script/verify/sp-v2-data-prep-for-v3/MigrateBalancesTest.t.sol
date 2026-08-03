@@ -8,7 +8,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {ForceMigrateAccumulator_v1} from "@harbor-script/Migrate_StabilityPool_v2_Data_mainnet/ForceMigrateAccumulator_v1.sol";
 
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
@@ -75,11 +75,10 @@ contract MigrateBalancesTest is
 
     function _checkMarkets(Config_MinterMarket[] memory markets) internal returns (uint256 checked) {
         for (uint256 i = 0; i < markets.length; i++) {
-            string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            if (_checkPool(marketKey, StabilityPoolType.Collateral)) {
+            if (_checkPool(markets[i], StabilityPoolType.Collateral)) {
                 checked++;
             }
-            if (_checkPool(marketKey, StabilityPoolType.Leveraged)) {
+            if (_checkPool(markets[i], StabilityPoolType.Leveraged)) {
                 checked++;
             }
         }
@@ -99,9 +98,9 @@ contract MigrateBalancesTest is
         console.log("        v2.claimed: %s", v2.rewards.claimed);
     }
 
-    function _checkPool(string memory marketKey, StabilityPoolType poolType) internal returns (bool) {
-        string memory saltKey = stabilityPoolKey(marketKey, poolType);
-        address pool = stabilityPoolAddress(marketKey, poolType);
+    function _checkPool(Config_MinterMarket market, StabilityPoolType poolType) internal returns (bool) {
+        string memory saltKey = stabilityPoolKey(market, poolType);
+        address pool = stabilityPoolAddress(market, poolType);
         address[] memory holders = _readHolders(saltKey);
         if (holders.length == 0) {
             return false;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
+import {Market} from "@harbor-script/config/ConfigBase.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -49,13 +49,13 @@ abstract contract SPLTestBase is BaoTest, HarborDeployer {
 
     function _initAddresses() internal {
         _setSaltPrefix("harbor_v1");
-        string memory marketKey = SaltString.key("ETH", "fxUSD");
-        spl = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-        spc = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        minter = minterAddress(marketKey);
-        lev = leveragedTokenAddress(marketKey);
-        peg = peggedTokenAddress("ETH");
-        spm = stabilityPoolManagerAddress(marketKey);
+        Market memory market = Market("ETH", "fxUSD");
+        spl = stabilityPoolAddress(market, StabilityPoolType.Leveraged);
+        spc = stabilityPoolAddress(market, StabilityPoolType.Collateral);
+        minter = minterAddress(market);
+        lev = leveragedTokenAddress(market);
+        peg = peggedTokenAddress(market.peg);
+        spm = stabilityPoolManagerAddress(market);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
         proxyOwner = IBaoOwnable(spl).owner();
     }

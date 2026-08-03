@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {MintableBurnableERC20_v2} from "@bao/MintableBurnableERC20_v2.sol";
@@ -17,18 +16,12 @@ abstract contract LeveragedToken is HarborDeployer {
     /// @notice Deploy MintableBurnableERC20_v2 impl only (for leveraged token), record in state.
     function deployLeveragedTokenImplementation(
         DeploymentTypes.State memory stateData,
-        string memory leveragedKey
+        string memory key
     ) internal virtual returns (address impl) {
         impl = address(new MintableBurnableERC20_v2());
-        console.log("        Impl:   %s", impl);
+        _reportImplementation(impl);
 
-        _recordImplementation(
-            stateData,
-            leveragedKey,
-            "@bao/MintableBurnableERC20_v2.sol",
-            "MintableBurnableERC20_v2",
-            impl
-        );
+        _recordImplementation(stateData, key, "@bao/MintableBurnableERC20_v2.sol", "MintableBurnableERC20_v2", impl);
     }
 
     /// @notice Deploy a leveraged token and grant minter roles.
@@ -36,15 +29,12 @@ abstract contract LeveragedToken is HarborDeployer {
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig
     ) internal returns (address leveragedToken) {
-        string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-
-        string memory key = leveragedTokenKey(marketKey);
+        string memory key = leveragedTokenKey(marketConfig);
         string memory tokenName = ConfigTokenNames(address(marketConfig)).leveragedName();
         string memory tokenSymbol = ConfigTokenNames(address(marketConfig)).leveragedSymbol();
 
-        console.log("    > %s", key);
-        console.log("        Name:   %s", tokenName);
-        console.log("        Symbol: %s", tokenSymbol);
+        _reportContract(key);
+        _reportToken(tokenName, tokenSymbol);
 
         address impl = deployLeveragedTokenImplementation(stateData, key);
 
@@ -56,8 +46,8 @@ abstract contract LeveragedToken is HarborDeployer {
         leveragedToken = _deployProxyAndRecord(stateData, key, impl, initData);
 
         // Grant minter roles
-        address minter = minterAddress(marketKey);
+        address minter = minterAddress(marketConfig);
         uint256 roles = IMintableRole(leveragedToken).MINTER_ROLE() | IBurnableRole(leveragedToken).BURNER_ROLE();
-        _grantRoles(key, leveragedToken, minter, marketKey, roles, "MINTER | BURNER");
+        _grantRoles(key, leveragedToken, minter, MinterMarketConfigLib.salt(marketConfig), roles, "MINTER | BURNER");
     }
 }

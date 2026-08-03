@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
@@ -23,18 +22,19 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 abstract contract Minter is HarborDeployer {
     // ========== MINTER DEPLOYMENT ==========
 
+    /// @dev Receives the resolved key and fully-resolved addresses only — never a config object — so a test
+    ///      override can substitute an implementation without reproducing any address resolution.
     function deployMinterImplementation(
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
+        string memory key,
         address wrappedCollateral,
         address peggedToken,
         address leveragedToken
-    ) internal virtual returns (address impl, string memory key) {
-        key = minterKey(marketKey);
-        console.log("    > %s", key);
+    ) internal virtual returns (address impl) {
+        _reportContract(key);
 
         impl = address(new Minter_v3(wrappedCollateral, peggedToken, leveragedToken));
-        console.log("        Impl:  %s", impl);
+        _reportImplementation(impl);
 
         _recordImplementation(stateData, key, "@harbor/minter/Minter_v3.sol", "Minter_v3", impl);
     }
@@ -50,14 +50,14 @@ abstract contract Minter is HarborDeployer {
         Config_MinterMarket marketConfig
     ) internal returns (address proxy) {
         IHarborConfig cfg = IHarborConfig(address(marketConfig));
-        string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
+        string memory key = minterKey(marketConfig);
 
-        (address impl, string memory key) = deployMinterImplementation(
+        address impl = deployMinterImplementation(
             stateData,
-            marketKey,
+            key,
             cfg.wrappedCollateralToken(),
-            peggedTokenAddress(cfg.peg()),
-            leveragedTokenAddress(marketKey)
+            peggedTokenAddress(marketConfig),
+            leveragedTokenAddress(marketConfig)
         );
 
         bytes memory initData = abi.encodeCall(Minter_v3.initialize, (address(this), owner()));
@@ -65,18 +65,17 @@ abstract contract Minter is HarborDeployer {
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
 
         IMinter(proxy).updateConfig(cfg.minterConfig());
-        IMinter(proxy).updateReservePool(reservePoolAddress(marketKey));
+        IMinter(proxy).updateReservePool(reservePoolAddress(marketConfig));
         IMinter(proxy).updateFeeReceiver(treasury());
-        IMinter(proxy).updatePriceOracle(wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(marketConfig)));
+        IMinter(proxy).updatePriceOracle(wrappedPriceOracleAddress(marketConfig));
     }
 
     /// @notice Grant Minter roles to downstream contracts.
-    /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
-    function grantMinterRoles(string memory marketKey) internal {
-        string memory key = minterKey(marketKey);
-        address minterProxy = minterAddress(marketKey);
-        address spm = stabilityPoolManagerAddress(marketKey);
-        address genesis = genesisAddress(marketKey);
+    function grantMinterRoles(Config_MinterMarket marketConfig) internal {
+        string memory key = minterKey(marketConfig);
+        address minterProxy = minterAddress(marketConfig);
+        address spm = stabilityPoolManagerAddress(marketConfig);
+        address genesis = genesisAddress(marketConfig);
         _grantRoles(
             key,
             minterProxy,
@@ -93,21 +92,21 @@ abstract contract Minter is HarborDeployer {
     /// @notice Deploy ReservePool_v2 impl only, record in state.
     function deployReservePoolImplementation(
         DeploymentTypes.State memory stateData,
-        string memory reservePoolKey
+        string memory key
     ) internal virtual returns (address impl) {
         impl = address(new ReservePool_v2());
-        console.log("        Impl:  %s", impl);
+        _reportImplementation(impl);
 
-        _recordImplementation(stateData, reservePoolKey, "@harbor/minter/ReservePool_v2.sol", "ReservePool_v2", impl);
+        _recordImplementation(stateData, key, "@harbor/minter/ReservePool_v2.sol", "ReservePool_v2", impl);
     }
 
     /// @notice Deploy ReservePool impl+proxy, record both in state, register for ownership transfer.
     function deployReservePool(
         DeploymentTypes.State memory stateData,
-        string memory marketKey
+        Config_MinterMarket marketConfig
     ) internal returns (address proxy) {
-        string memory key = reservePoolKey(marketKey);
-        console.log("    > %s", key);
+        string memory key = reservePoolKey(marketConfig);
+        _reportContract(key);
 
         address impl = deployReservePoolImplementation(stateData, key);
 
@@ -117,11 +116,10 @@ abstract contract Minter is HarborDeployer {
     }
 
     /// @notice Grant ReservePool REQUESTER_ROLE to Minter.
-    /// @param marketKey The market salt key (e.g., "ETH::fxUSD").
-    function grantReservePoolRoles(string memory marketKey) internal {
-        string memory key = reservePoolKey(marketKey);
-        address rp = reservePoolAddress(marketKey);
-        address minter = minterAddress(marketKey);
+    function grantReservePoolRoles(Config_MinterMarket marketConfig) internal {
+        string memory key = reservePoolKey(marketConfig);
+        address rp = reservePoolAddress(marketConfig);
+        address minter = minterAddress(marketConfig);
         _grantRoles(key, rp, minter, "minter", ReservePool_v2(rp).REQUESTER_ROLE(), "REQUESTER");
     }
 }

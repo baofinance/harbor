@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {Script} from "forge-std/Script.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {Market} from "@harbor-script/config/ConfigBase.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {ConfigPriceVolatility_130_stable} from "@harbor-script/config/volatility/ConfigPriceVolatility_130_stable.sol";
@@ -17,49 +17,49 @@ contract UpdateVolatility_OGPlus is Script, HarborDeployer {
     function build() internal override {
         // BTC-fxUSD
         queue(
-            minterKey(SaltString.key("BTC", "fxUSD")),
+            minterKey(Market("BTC", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_130_stable().minterConfig())),
             "updateConfig(130)"
         );
         // BTC-stETH
         queue(
-            minterKey(SaltString.key("BTC", "stETH")),
+            minterKey(Market("BTC", "stETH")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_125_stable().minterConfig())),
             "updateConfig(125)"
         );
         queue(
-            stabilityPoolManagerKey(SaltString.key("BTC", "stETH")),
+            stabilityPoolManagerKey(Market("BTC", "stETH")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (125e16)),
             "updateRebalanceThreshold(125)"
         );
 
         // ETH-fxUSD
         queue(
-            minterKey(SaltString.key("ETH", "fxUSD")),
+            minterKey(Market("ETH", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_130_stable().minterConfig())),
             "updateConfig(130)"
         );
 
         // EUR-fxUSD
         queue(
-            minterKey(SaltString.key("EUR", "fxUSD")),
+            minterKey(Market("EUR", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_105().minterConfig())),
             "updateConfig(105 month1)"
         );
         queue(
-            stabilityPoolManagerKey(SaltString.key("EUR", "fxUSD")),
+            stabilityPoolManagerKey(Market("EUR", "fxUSD")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (105e16)),
             "updateRebalanceThreshold(105)"
         );
 
         // GOLD-fxUSD
         queue(
-            minterKey(SaltString.key("GOLD", "fxUSD")),
+            minterKey(Market("GOLD", "fxUSD")),
             abi.encodeCall(IMinter.updateConfig, (new ConfigPriceVolatility_115().minterConfig())),
             "updateConfig(105 month1)"
         );
         queue(
-            stabilityPoolManagerKey(SaltString.key("GOLD", "fxUSD")),
+            stabilityPoolManagerKey(Market("GOLD", "fxUSD")),
             abi.encodeCall(IStabilityPoolManager.updateRebalanceThreshold, (115e16)),
             "updateRebalanceThreshold(115)"
         );

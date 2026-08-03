@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
-import {Deployer} from "@bao-script/deployment/Deployer.sol";
+import {HarborReporting} from "@harbor-script/src/HarborReporting.sol";
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
+import {Config_MinterMarket, Market, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
 import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
@@ -12,7 +12,7 @@ import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 ///      Provides owner()/treasury(), well-known address labels, Safe batch machinery,
 ///      and centralized role granting. Add `is Script` at the concrete script level
 ///      for forge broadcast context.
-abstract contract HarborDeployer is Deployer {
+abstract contract HarborDeployer is HarborReporting {
     address private constant TREASURY_OWNER = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
     /// @notice Which of a market's two stability pools is meant.
@@ -55,95 +55,190 @@ abstract contract HarborDeployer is Deployer {
     // harnesses, not only from inheritors.
     //
     // The address functions are not `view`: `_predictAddress` labels the address for readable
-    // traces. The key functions are `pure`.
+    // traces. The `(peg, collateral)` key functions are `pure`; the config forms are `view`
+    // because they read the market config.
+    //
+    // Every per-market getter comes in two forms: a `Market` primitive, and a `Config_MinterMarket`
+    // overload delegating to it. Both populations are real — deploy code and config-driven tests
+    // hold a config, while fork verifications against live markets and hand-written Safe batches
+    // have only the names (there is no config for a market this repo did not configure). Naming
+    // the identity rather than encoding it as an arity difference is also what lets the price
+    // oracle share the shape: its key is REVERSED (collateral::peg::wrappedPriceAggregator), so it
+    // cannot be derived from a composed market key without splitting the string, which configs
+    // exist to avoid.
 
-    /// @notice The salt key of a peg's pegged token, shared by every market on that peg.
-    /// @param pegKey The peg key (e.g. "ETH").
-    function peggedTokenKey(string memory pegKey) public pure returns (string memory) {
-        return SaltString.key(pegKey, "pegged");
+    /// @notice The salt key of a peg's pegged token.
+    /// @param peg The peg name (e.g. "ETH").
+    /// @dev The one getter here that takes a peg rather than a Market: a single pegged token is shared by
+    ///      every market on that peg, so it genuinely does not depend on the collateral. A caller holding a
+    ///      Market passes `market.peg`.
+    function peggedTokenKey(string memory peg) public pure returns (string memory) {
+        return SaltString.key(peg, "pegged");
+    }
+
+    function peggedTokenKey(Config_MinterMarket config) public view returns (string memory) {
+        return peggedTokenKey(MinterMarketConfigLib.peg(config));
     }
 
     /// @notice The predicted address of a peg's pegged token.
-    function peggedTokenAddress(string memory pegKey) public returns (address) {
-        return _predictAddress(peggedTokenKey(pegKey));
+    function peggedTokenAddress(string memory peg) public returns (address) {
+        return _predictAddress(peggedTokenKey(peg));
+    }
+
+    function peggedTokenAddress(Config_MinterMarket config) public returns (address) {
+        return peggedTokenAddress(MinterMarketConfigLib.peg(config));
     }
 
     /// @notice The salt key of a market's leveraged token.
-    /// @param marketKey The market key (e.g. "ETH::fxUSD").
-    function leveragedTokenKey(string memory marketKey) public pure returns (string memory) {
-        return SaltString.key(marketKey, "leveraged");
+    function leveragedTokenKey(Market memory market) public pure returns (string memory) {
+        return SaltString.key(_marketKey(market), "leveraged");
+    }
+
+    function leveragedTokenKey(Config_MinterMarket config) public view returns (string memory) {
+        return leveragedTokenKey(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The predicted address of a market's leveraged token.
-    function leveragedTokenAddress(string memory marketKey) public returns (address) {
-        return _predictAddress(leveragedTokenKey(marketKey));
+    function leveragedTokenAddress(Market memory market) public returns (address) {
+        return _predictAddress(leveragedTokenKey(market));
+    }
+
+    function leveragedTokenAddress(Config_MinterMarket config) public returns (address) {
+        return leveragedTokenAddress(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The salt key of a market's minter.
-    function minterKey(string memory marketKey) public pure returns (string memory) {
-        return SaltString.key(marketKey, "minter");
+    function minterKey(Market memory market) public pure returns (string memory) {
+        return SaltString.key(_marketKey(market), "minter");
+    }
+
+    function minterKey(Config_MinterMarket config) public view returns (string memory) {
+        return minterKey(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The predicted address of a market's minter.
-    function minterAddress(string memory marketKey) public returns (address) {
-        return _predictAddress(minterKey(marketKey));
+    function minterAddress(Market memory market) public returns (address) {
+        return _predictAddress(minterKey(market));
+    }
+
+    function minterAddress(Config_MinterMarket config) public returns (address) {
+        return minterAddress(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The salt key of a market's reserve pool.
-    function reservePoolKey(string memory marketKey) public pure returns (string memory) {
-        return SaltString.key(marketKey, "reservePool");
+    function reservePoolKey(Market memory market) public pure returns (string memory) {
+        return SaltString.key(_marketKey(market), "reservePool");
+    }
+
+    function reservePoolKey(Config_MinterMarket config) public view returns (string memory) {
+        return reservePoolKey(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The predicted address of a market's reserve pool.
-    function reservePoolAddress(string memory marketKey) public returns (address) {
-        return _predictAddress(reservePoolKey(marketKey));
+    function reservePoolAddress(Market memory market) public returns (address) {
+        return _predictAddress(reservePoolKey(market));
+    }
+
+    function reservePoolAddress(Config_MinterMarket config) public returns (address) {
+        return reservePoolAddress(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The salt key of one of a market's two stability pools.
-    function stabilityPoolKey(string memory marketKey, StabilityPoolType poolType) public pure returns (string memory) {
+    function stabilityPoolKey(Market memory market, StabilityPoolType poolType) public pure returns (string memory) {
         return
             SaltString.key(
-                marketKey,
+                _marketKey(market),
                 poolType == StabilityPoolType.Collateral ? "stabilityPoolCollateral" : "stabilityPoolLeveraged"
             );
     }
 
+    function stabilityPoolKey(
+        Config_MinterMarket config,
+        StabilityPoolType poolType
+    ) public view returns (string memory) {
+        return stabilityPoolKey(MinterMarketConfigLib.market(config), poolType);
+    }
+
     /// @notice The predicted address of one of a market's two stability pools.
-    function stabilityPoolAddress(string memory marketKey, StabilityPoolType poolType) public returns (address) {
-        return _predictAddress(stabilityPoolKey(marketKey, poolType));
+    function stabilityPoolAddress(Market memory market, StabilityPoolType poolType) public returns (address) {
+        return _predictAddress(stabilityPoolKey(market, poolType));
+    }
+
+    function stabilityPoolAddress(Config_MinterMarket config, StabilityPoolType poolType) public returns (address) {
+        return stabilityPoolAddress(MinterMarketConfigLib.market(config), poolType);
     }
 
     /// @notice The salt key of a market's stability pool manager.
-    function stabilityPoolManagerKey(string memory marketKey) public pure returns (string memory) {
-        return SaltString.key(marketKey, "stabilityPoolManager");
+    function stabilityPoolManagerKey(Market memory market) public pure returns (string memory) {
+        return SaltString.key(_marketKey(market), "stabilityPoolManager");
+    }
+
+    function stabilityPoolManagerKey(Config_MinterMarket config) public view returns (string memory) {
+        return stabilityPoolManagerKey(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The predicted address of a market's stability pool manager.
-    function stabilityPoolManagerAddress(string memory marketKey) public returns (address) {
-        return _predictAddress(stabilityPoolManagerKey(marketKey));
+    function stabilityPoolManagerAddress(Market memory market) public returns (address) {
+        return _predictAddress(stabilityPoolManagerKey(market));
+    }
+
+    function stabilityPoolManagerAddress(Config_MinterMarket config) public returns (address) {
+        return stabilityPoolManagerAddress(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The salt key of a market's genesis contract.
-    function genesisKey(string memory marketKey) public pure returns (string memory) {
-        return SaltString.key(marketKey, "genesis");
+    function genesisKey(Market memory market) public pure returns (string memory) {
+        return SaltString.key(_marketKey(market), "genesis");
+    }
+
+    function genesisKey(Config_MinterMarket config) public view returns (string memory) {
+        return genesisKey(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The predicted address of a market's genesis contract.
-    function genesisAddress(string memory marketKey) public returns (address) {
-        return _predictAddress(genesisKey(marketKey));
+    function genesisAddress(Market memory market) public returns (address) {
+        return _predictAddress(genesisKey(market));
+    }
+
+    function genesisAddress(Config_MinterMarket config) public returns (address) {
+        return genesisAddress(MinterMarketConfigLib.market(config));
+    }
+
+    /// @notice The salt key of a market's wrapped price oracle.
+    /// @dev Reversed relative to every other key here — collateral first — matching the naming used by
+    ///      harbor-price-aggregators, which deploys this contract. Composed here rather than read off the
+    ///      config so that callers without a config resolve the same address.
+    function wrappedPriceOracleKey(Market memory market) public pure returns (string memory) {
+        return SaltString.key(market.collateral, market.peg, "wrappedPriceAggregator");
+    }
+
+    function wrappedPriceOracleKey(Config_MinterMarket config) public view returns (string memory) {
+        return wrappedPriceOracleKey(MinterMarketConfigLib.market(config));
     }
 
     /// @notice The predicted address of a market's wrapped price oracle.
-    /// @param oracleKey The oracle's key, supplied by the market config — this contract is deployed by
-    ///        harbor-price-aggregators, not by this stack, so the key is not composed here.
-    /// @dev Referenced by the deploy while the address is still codeless, exactly as production does when
-    ///      the oracle is deployed separately. To substitute a mock, `vm.etch` it at this address AFTER the
-    ///      deploy has run — do not override this function, or the deploy stops exercising that path.
-    function wrappedPriceOracleAddress(string memory oracleKey) public returns (address) {
-        return _predictAddress(oracleKey);
+    /// @dev A separate deployment (harbor-price-aggregators), referenced by the deploy while the address is
+    ///      still codeless — exactly as production does. To substitute a mock, `vm.etch` it here AFTER the
+    ///      deploy has run; do not override this function, or the deploy stops exercising that path.
+    function wrappedPriceOracleAddress(Market memory market) public returns (address) {
+        return _predictAddress(wrappedPriceOracleKey(market));
+    }
+
+    function wrappedPriceOracleAddress(Config_MinterMarket config) public returns (address) {
+        return wrappedPriceOracleAddress(MinterMarketConfigLib.market(config));
+    }
+
+    /// @dev The "peg::collateral" market key every per-market key above is built on. Private: callers name a
+    ///      contract, not a market — the composed market key is an implementation detail of these getters.
+    function _marketKey(Market memory market) private pure returns (string memory) {
+        return SaltString.key(market.peg, market.collateral);
     }
 
     // ─── Role granting ─────────────────────────────────────────────────────────
+
+    // Harbor's share of the deploy's running commentary lives in `HarborReporting`, inherited above,
+    // in its own file so that its permanently-uncovered message bodies do not mask the coverage of the
+    // deployment code in this one.
 
     function _grantRoles(
         string memory granterLabel,
@@ -153,20 +248,7 @@ abstract contract HarborDeployer is Deployer {
         uint256 roles,
         string memory roleDescription
     ) internal {
-        console.log("      %s: %s role -> %s", granterLabel, roleDescription, granteeLabel);
+        _reportRoleGrant(granterLabel, granteeLabel, roleDescription);
         IHarborRoles(target).grantRoles(grantee, roles);
-    }
-
-    function _logManualRoleGrant(
-        string memory granterLabel,
-        address target,
-        address grantee,
-        string memory granteeLabel,
-        uint256 roles,
-        string memory roleDescription
-    ) internal pure {
-        console.log("      %s: %s role -> %s (MANUAL TX REQUIRED)", granterLabel, roleDescription, granteeLabel);
-        console.log("          To:    %s", target);
-        console.log("          Call:  grantRoles(%s, %s)", grantee, roles);
     }
 }

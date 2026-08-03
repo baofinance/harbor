@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
-import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 import {Genesis_v2} from "@harbor/minter/Genesis_v2.sol";
 
@@ -23,40 +21,27 @@ abstract contract Genesis is HarborDeployer {
     /// @notice Deploy Genesis_v2 impl only, record in state.
     function deployGenesisImplementation(
         DeploymentTypes.State memory stateData,
-        string memory genesisKey,
+        string memory key,
         address minter
     ) internal virtual returns (address impl) {
         impl = address(new Genesis_v2(minter));
-        console.log("        Impl:  %s", impl);
+        _reportImplementation(impl);
 
-        _recordImplementation(stateData, genesisKey, "@harbor/minter/Genesis_v2.sol", "Genesis_v2", impl);
+        _recordImplementation(stateData, key, "@harbor/minter/Genesis_v2.sol", "Genesis_v2", impl);
     }
 
     /// @notice Deploy Genesis impl+proxy, record both in state, register for ownership transfer.
     function deployGenesis(
         DeploymentTypes.State memory stateData,
-        string memory marketKey,
-        address minter
+        Config_MinterMarket marketConfig
     ) internal returns (address proxy) {
-        string memory key = genesisKey(marketKey);
-        console.log("    > %s", key);
+        string memory key = genesisKey(marketConfig);
+        _reportContract(key);
 
-        address impl = deployGenesisImplementation(stateData, key, minter);
+        address impl = deployGenesisImplementation(stateData, key, minterAddress(marketConfig));
 
         bytes memory initData = abi.encodeCall(Genesis_v2.initialize, (address(this), owner()));
 
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
-    }
-
-    // ========== ADDRESS PREDICTION ==========
-
-    /// @notice Predict genesis contract address from salt.
-    function predictGenesisAddress(
-        address baoFactoryAddr,
-        string memory saltPrefix,
-        string memory marketKey
-    ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(SaltString.key(saltPrefix, genesisKey(marketKey))));
-        return IBaoFactory(baoFactoryAddr).predictAddress(salt);
     }
 }

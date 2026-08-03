@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {console2} from "forge-std/console2.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -13,7 +12,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
@@ -29,7 +28,7 @@ import {ConfigCollateral_fxUSD_mainnet} from "@harbor-script/config/collaterals/
 import {ConfigMarket_ETH_fxUSD_mainnet} from "@harbor-script/config/markets/ConfigMarket_ETH_fxUSD_mainnet.sol";
 import {ConfigPeg_ETH} from "@harbor-script/config/pegs/ConfigPeg_ETH.sol";
 import {StabilityPoolConservation} from "@harbor-test/StabilityPoolConservation.sol";
-import {HarborTestSetup} from "@harbor-test/HarborTestSetup.sol";
+import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 /// @notice A named market's supported operating envelope, in the units a director thinks in: dollars and counts. The
 /// harness translates these to what the protocol needs (a pegged token count and the oracle's 1e18-scaled price/rate),
@@ -125,7 +124,12 @@ contract ConfigMarket_ETH_fxUSD_zeroFeesAndBounties is ConfigMarket_ETH_fxUSD_ma
 ///
 /// The suite drives deposit, withdraw, harvest, and rebalance against the arranged state — each a fuzz walk plus a
 /// deterministic corner, including the reward-field corner that the harvest and rebalance rewards reach.
-abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, StabilityPoolConservation, HarborTestSetup {
+abstract contract StabilityPoolEnvelopeBase is
+    BaoTest,
+    Deploy_ETH_Minter,
+    StabilityPoolConservation,
+    HarborTestActions
+{
     // capped so the fork fuzz stays feasible; the declared business cap (maxPoolUsers) can be far larger and is
     // exercised by the deterministic max-users test rather than every fuzz run.
     uint256 internal constant MAX_FUZZ_USERS = 8;
@@ -182,13 +186,12 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         toDeploy[0] = mktConfigs[0]; // the fxUSD market
         deployHarborForPeg("envelope_test", peg, mktConfigs, "mainnet", true, toDeploy);
 
-        string memory marketKey = SaltString.key("ETH", "fxUSD");
-        minter = minterAddress(marketKey);
-        stabilityPool = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
-        pegged = peggedTokenAddress("ETH");
-        leveraged = leveragedTokenAddress(marketKey);
+        minter = minterAddress(mktConfigs[0]);
+        stabilityPool = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Leveraged);
+        stabilityPoolManager = stabilityPoolManagerAddress(mktConfigs[0]);
+        pegged = peggedTokenAddress(mktConfigs[0]);
+        leveraged = leveragedTokenAddress(mktConfigs[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         // The price oracle is a separately-deployed dependency (harbor-price-aggregators): the deploy wires the minter
@@ -196,7 +199,7 @@ abstract contract StabilityPoolEnvelopeBase is BaoTest, Deploy_ETH_Minter, Stabi
         // settable mock AFTER the deploy - at the same _wrappedPriceOracleAddress the deploy used - which exercises the
         // deploy's codeless reference and puts the mock in place before the first read (the seed mint). etch copies code
         // not storage, so the answer is set per envelope point via mockOracle.setLatestAnswer.
-        address priceOracle = wrappedPriceOracleAddress(MinterMarketConfigLib.priceOracleKey(mktConfigs[0]));
+        address priceOracle = wrappedPriceOracleAddress(mktConfigs[0]);
         vm.etch(priceOracle, address(new MockWrappedPriceOracle()).code);
         mockOracle = MockWrappedPriceOracle(priceOracle);
 

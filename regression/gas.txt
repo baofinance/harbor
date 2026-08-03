@@ -10,7 +10,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | ZERO_FEE_ROLE                                    |    307 | 3.070e+02 |
 | collateralRatio                                  |  19122 | 1.912e+04 |
 | collateralTokenBalance                           |   2358 | 2.358e+03 |
-| config                                           |  71870 | 7.187e+04 |
+| config                                           |  79541 | 7.954e+04 |
 | feeReceiver                                      |   2397 | 2.397e+03 |
 | freeMintLeveragedToken                           | 145861 | 1.459e+05 |
 | freeMintPeggedToken                              | 169496 | 1.695e+05 |

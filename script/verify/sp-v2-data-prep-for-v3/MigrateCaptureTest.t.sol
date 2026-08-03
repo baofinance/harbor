@@ -9,7 +9,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
@@ -84,16 +84,15 @@ contract MigrateCaptureTest is
 
     function _registerMarkets(Config_MinterMarket[] memory markets) internal {
         for (uint256 i = 0; i < markets.length; i++) {
-            string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            _registerPool(marketKey, StabilityPoolType.Collateral);
-            _registerPool(marketKey, StabilityPoolType.Leveraged);
+            _registerPool(markets[i], StabilityPoolType.Collateral);
+            _registerPool(markets[i], StabilityPoolType.Leveraged);
         }
     }
 
-    function _registerPool(string memory marketKey, StabilityPoolType poolType) internal {
-        string memory saltKey = stabilityPoolKey(marketKey, poolType);
-        address proxy = stabilityPoolAddress(marketKey, poolType);
-        address minter = minterAddress(marketKey);
+    function _registerPool(Config_MinterMarket market, StabilityPoolType poolType) internal {
+        string memory saltKey = stabilityPoolKey(market, poolType);
+        address proxy = stabilityPoolAddress(market, poolType);
+        address minter = minterAddress(market);
         pools.push(PoolConfig(proxy, minter, saltKey));
 
         address[] memory holders = _readHolders(saltKey);

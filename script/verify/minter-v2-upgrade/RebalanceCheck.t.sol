@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
+import {Market} from "@harbor-script/config/ConfigBase.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -32,13 +32,13 @@ abstract contract RebalanceCheckBase is BaoTest, HarborDeployer {
         vm.createSelectFork(mainnet, FORK_BLOCK);
 
         _setSaltPrefix("harbor_v1");
-        string memory marketKey = SaltString.key("ETH", "fxUSD");
-        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
-        stabilityPoolCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-        minter = minterAddress(marketKey);
-        pegged = peggedTokenAddress("ETH");
-        leveraged = leveragedTokenAddress(marketKey);
+        Market memory market = Market("ETH", "fxUSD");
+        stabilityPoolManager = stabilityPoolManagerAddress(market);
+        stabilityPoolCollateral = stabilityPoolAddress(market, StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(market, StabilityPoolType.Leveraged);
+        minter = minterAddress(market);
+        pegged = peggedTokenAddress(market.peg);
+        leveraged = leveragedTokenAddress(market);
     }
 
     function _upgradeSpm() internal {

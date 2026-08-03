@@ -5,7 +5,7 @@ import {DeployETHfxUSDSetUp} from "@harbor-test/deployment/DeployETHfxUSD.t.sol"
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 /// @notice Verifies that a market's contracts come out of the deploy already configured, with the values
@@ -16,14 +16,14 @@ import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 ///      assert — which is the point of putting the split inside one function.
 contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
     IHarborConfig internal cfg;
-    string internal marketKey;
+    Config_MinterMarket internal market;
 
     function setUp() public override {
         super.setUp();
         // Same config source the deploy used, so the expected values are not a second copy.
         (, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
-        cfg = IHarborConfig(address(mktConfigs[0]));
-        marketKey = MinterMarketConfigLib.salt(mktConfigs[0]);
+        market = mktConfigs[0];
+        cfg = IHarborConfig(address(market));
     }
 
     /// The StabilityPoolManager's four operating ratios and fee receiver are set by the deploy, from the
@@ -37,15 +37,16 @@ contract DeployedConfigurationTest is DeployETHfxUSDSetUp {
         assertEq(deployedManager.feeReceiver(), treasury(), "feeReceiver");
     }
 
-    /// The Minter's reserve pool and fee receiver are set by the deploy — no configuration step is
-    /// outstanding once deployMinter returns.
-    /// @dev The price oracle is deliberately not asserted here: this setup replaces it with a mock after
-    ///      the deploy. Batch 3 moves that mock to an etch at the resolved address before the deploy, at
-    ///      which point the deploy's own wiring becomes observable.
-    function test_deployedMinterIsWiredToItsReservePool() public {
+    /// Every Minter dependency is set by the deploy — no configuration step is outstanding once
+    /// deployMinter returns. The price oracle is the address the deploy resolved, which is where the
+    /// setup's mock is installed; asserting it here is what proves the mock reached the minter through
+    /// the deploy rather than through a post-deploy setter.
+    function test_deployedMinterIsWiredToAllItsDependencies() public {
         // Not `view`: the resolvers label the address they return, so they are state-changing.
-        assertEq(IMinter_v3(minter).reservePool(), reservePoolAddress(marketKey), "reservePool");
+        assertEq(IMinter_v3(minter).reservePool(), reservePoolAddress(market), "reservePool");
         assertEq(IMinter(minter).feeReceiver(), treasury(), "feeReceiver");
+        assertEq(IMinter_v3(minter).priceOracle(), wrappedPriceOracleAddress(market), "priceOracle");
+        assertEq(IMinter_v3(minter).priceOracle(), address(mockOracle), "the installed mock is that oracle");
     }
 
     /// The Minter's incentive config is the market config's, not the permissive default that

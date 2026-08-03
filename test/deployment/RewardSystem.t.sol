@@ -6,7 +6,7 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
@@ -14,10 +14,11 @@ import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 import {Array} from "@harbor-test/Array.sol";
 
 /// @title Reward system tests — accumulator, distributor — using deployment framework
-contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array {
+contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array, HarborTestActions {
     address minter;
     address stabilityPoolCollateral;
     address stabilityPoolLeveraged;
@@ -41,20 +42,19 @@ contract RewardSystemSetUp is BaoTest, Deploy_ETH_Minter, Array {
         toDeploy[0] = mktConfigs[0];
         deployHarborForPeg("reward_cov", peg, mktConfigs, "mainnet", true, toDeploy);
 
-        string memory marketKey = MinterMarketConfigLib.salt(mktConfigs[0]); // "ETH::fxUSD"
-        minter = minterAddress(marketKey);
-        stabilityPoolCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
-        pegged = peggedTokenAddress(peg.key());
-        leveraged = leveragedTokenAddress(marketKey);
+        minter = minterAddress(mktConfigs[0]);
+        stabilityPoolCollateral = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Leveraged);
+        stabilityPoolManager = stabilityPoolManagerAddress(mktConfigs[0]);
+        pegged = peggedTokenAddress(mktConfigs[0]);
+        leveraged = leveragedTokenAddress(mktConfigs[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        mockOracle = new MockWrappedPriceOracle();
+        // Installed where the deploy wired the minter, not pushed in afterwards
+        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(mktConfigs[0])));
         mockOracle.setLatestAnswer(1 ether, 1 ether);
 
         vm.startPrank(HARBOR_MULTISIG);
-        IMinter(minter).updatePriceOracle(address(mockOracle));
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         IBaoRoles(minter).grantRoles(address(this), zeroFeeRole);
         uint256 depositorRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
@@ -20,17 +19,17 @@ abstract contract StabilityPoolManager is HarborDeployer {
     /// @notice Deploy StabilityPoolManager_v2 impl only, record in state.
     function deployStabilityPoolManagerImplementation(
         DeploymentTypes.State memory stateData,
-        string memory spmKey,
+        string memory key,
         address minter,
         address stabilityPoolCollateral,
         address stabilityPoolLeveraged
     ) internal virtual returns (address impl) {
         impl = address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged));
-        console.log("        Impl:  %s", impl);
+        _reportImplementation(impl);
 
         _recordImplementation(
             stateData,
-            spmKey,
+            key,
             "@harbor/minter/StabilityPoolManager_v2.sol",
             "StabilityPoolManager_v2",
             impl
@@ -49,16 +48,15 @@ abstract contract StabilityPoolManager is HarborDeployer {
         Config_MinterMarket marketConfig
     ) internal returns (address proxy) {
         IHarborConfig cfg = IHarborConfig(address(marketConfig));
-        string memory marketKey = MinterMarketConfigLib.salt(marketConfig);
-        string memory key = stabilityPoolManagerKey(marketKey);
-        console.log("    > %s", key);
+        string memory key = stabilityPoolManagerKey(marketConfig);
+        _reportContract(key);
 
         address impl = deployStabilityPoolManagerImplementation(
             stateData,
             key,
-            minterAddress(marketKey),
-            stabilityPoolAddress(marketKey, StabilityPoolType.Collateral),
-            stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged)
+            minterAddress(marketConfig),
+            stabilityPoolAddress(marketConfig, StabilityPoolType.Collateral),
+            stabilityPoolAddress(marketConfig, StabilityPoolType.Leveraged)
         );
 
         bytes memory initData = abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()));

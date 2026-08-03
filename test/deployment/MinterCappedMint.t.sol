@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -13,10 +12,11 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 /// @title MinterCappedMintTest
 /// @notice Tests for Minter_v3 fee-capped minting, deployed via production deployment scripts.
-contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
+contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter, HarborTestActions {
     address minter;
     address pegged;
     address wrappedCollateral;
@@ -39,16 +39,16 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter {
         marketsToDeploy[0] = allMarkets[0];
         deployHarborForPeg("capped_test", peg, allMarkets, "mainnet", true, marketsToDeploy);
 
-        minter = minterAddress(SaltString.key("ETH", "fxUSD"));
-        pegged = peggedTokenAddress("ETH");
+        minter = minterAddress(allMarkets[0]);
+        pegged = peggedTokenAddress(allMarkets[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        // Install mock oracle (price=1, rate=1) + grant zero-fee role for bootstrap minting.
-        mockOracle = new MockWrappedPriceOracle();
+        // Install the mock oracle (price=1, rate=1) where the deploy wired the minter, then grant the
+        // zero-fee role for bootstrap minting.
+        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(allMarkets[0])));
         mockOracle.setLatestAnswer(1 ether, 1 ether);
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
         vm.startPrank(HARBOR_MULTISIG);
-        IMinter(minter).updatePriceOracle(address(mockOracle));
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
         vm.stopPrank();
     }

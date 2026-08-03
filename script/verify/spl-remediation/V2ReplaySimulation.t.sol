@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
+import {Market} from "@harbor-script/config/ConfigBase.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
@@ -248,13 +248,13 @@ contract V2ReplaySimulation is BaoTest, HarborDeployer {
         vm.createSelectFork(vm.rpcUrl("mainnet"), FORK_BLOCK);
         _setSaltPrefix("harbor_v1");
 
-        string memory marketKey = SaltString.key("ETH", "fxUSD");
-        spm = stabilityPoolManagerAddress(marketKey);
-        minterAddr = minterAddress(marketKey);
-        spl = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-        spc = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        lev = leveragedTokenAddress(marketKey);
-        peg = peggedTokenAddress("ETH");
+        Market memory market = Market("ETH", "fxUSD");
+        spm = stabilityPoolManagerAddress(market);
+        minterAddr = minterAddress(market);
+        spl = stabilityPoolAddress(market, StabilityPoolType.Leveraged);
+        spc = stabilityPoolAddress(market, StabilityPoolType.Collateral);
+        lev = leveragedTokenAddress(market);
+        peg = peggedTokenAddress(market.peg);
         proxyOwner = IBaoOwnable(minterAddr).owner();
         realOracle = IMinter(minterAddr).priceOracle();
 

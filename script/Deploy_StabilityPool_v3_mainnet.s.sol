@@ -48,21 +48,23 @@ contract Deploy_StabilityPool_v3_mainnet is
                     continue;
                 }
             }
-            address minter = minterAddress(marketKey);
-            address leveragedToken = leveragedTokenAddress(marketKey);
+            address minter = minterAddress(markets[i]);
+            address leveragedToken = leveragedTokenAddress(markets[i]);
             address collateralToken = IHarborConfig(address(markets[i])).wrappedCollateralToken();
 
             address implLeveraged = deployStabilityPoolImplementation(
-                StabilityPoolType.Leveraged,
                 state,
+                stabilityPoolKey(markets[i], StabilityPoolType.Leveraged),
+                StabilityPoolType.Leveraged,
                 markets[i],
                 minter,
                 leveragedToken
             );
 
             address implCollateral = deployStabilityPoolImplementation(
-                StabilityPoolType.Collateral,
                 state,
+                stabilityPoolKey(markets[i], StabilityPoolType.Collateral),
+                StabilityPoolType.Collateral,
                 markets[i],
                 minter,
                 collateralToken
@@ -70,12 +72,12 @@ contract Deploy_StabilityPool_v3_mainnet is
 
             // Queue Safe upgrade transactions
             queue(
-                stabilityPoolKey(marketKey, StabilityPoolType.Leveraged),
+                stabilityPoolKey(markets[i], StabilityPoolType.Leveraged),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implLeveraged, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implLeveraged.toHexString())
             );
             queue(
-                stabilityPoolKey(marketKey, StabilityPoolType.Collateral),
+                stabilityPoolKey(markets[i], StabilityPoolType.Collateral),
                 abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (implCollateral, "")),
                 string.concat("upgrade to StabilityPool_v3 ", implCollateral.toHexString())
             );

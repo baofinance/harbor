@@ -60,24 +60,24 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
 
     function _doOneMinter(Config_MinterMarket[] memory markets) internal {
         for (uint256 i = 0; i < markets.length; i++) {
-            string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            _migratePool(marketKey, StabilityPoolType.Collateral);
-            _migratePool(marketKey, StabilityPoolType.Leveraged);
+            _migratePool(markets[i], StabilityPoolType.Collateral);
+            _migratePool(markets[i], StabilityPoolType.Leveraged);
         }
     }
 
-    function _migratePool(string memory marketKey, StabilityPoolType poolType) internal {
+    function _migratePool(Config_MinterMarket market, StabilityPoolType poolType) internal {
         // POOL_INCLUDE: optional env-var filter on market key segment.
         // ::VALUE:: wrapping ensures "ETH" matches "::ETH::" but not "::stETH::".
         string memory include = vm.envOr("POOL_INCLUDE", string(""));
         if (bytes(include).length > 0) {
+            string memory marketKey = MinterMarketConfigLib.salt(market);
             if (!string.concat("::", marketKey, "::").contains(string.concat("::", include, "::"))) {
                 return;
             }
         }
 
-        string memory key = stabilityPoolKey(marketKey, poolType);
-        address pool = stabilityPoolAddress(marketKey, poolType);
+        string memory key = stabilityPoolKey(market, poolType);
+        address pool = stabilityPoolAddress(market, poolType);
 
         // Read current implementation (restored after remediation).
         address currentImpl = address(uint160(uint256(vm.load(pool, IMPL_SLOT))));
@@ -94,7 +94,7 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
         );
 
         // Holders for this pool, from the generated file.
-        address[] memory holders = _readHolders(marketKey, poolType);
+        address[] memory holders = _readHolders(market, poolType);
 
         if (holders.length == 0) {
             console.log("    > %s: no holders, skipping", _saltString(key));
@@ -134,10 +134,10 @@ contract Migrate_StabilityPool_v2_Data_mainnet is
     /// Lines starting with '#' are comments; every other non-empty line is an address.
     /// Returns an empty array when the file is absent (pool skipped by the caller).
     function _readHolders(
-        string memory marketKey,
+        Config_MinterMarket market,
         StabilityPoolType poolType
     ) internal returns (address[] memory holders) {
-        string memory path = string.concat(HOLDERS_DIR, stabilityPoolKey(marketKey, poolType), ".txt");
+        string memory path = string.concat(HOLDERS_DIR, stabilityPoolKey(market, poolType), ".txt");
         if (!vm.isFile(path)) {
             return new address[](0);
         }

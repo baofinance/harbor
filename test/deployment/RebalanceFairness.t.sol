@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -16,6 +15,7 @@ import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harb
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
+import {HarborTestActions} from "@harbor-test/HarborTestActions.sol";
 
 import {console2} from "forge-std/console2.sol";
 import {FmtLib} from "@harbor/util/FmtLib.sol";
@@ -25,7 +25,7 @@ import {Array} from "@harbor-test/Array.sol";
 /// @notice Worked example from doc/ideas/rebalance-fairness.md using real contract code
 /// deployed via the production deployment scripts. Simulates all actors through
 /// rebalance scenarios to measure the exact income redistribution.
-contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
+contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array, HarborTestActions {
     using MinterMarketConfigLib for Config_MinterMarket;
 
     // Deployed contract addresses
@@ -72,27 +72,22 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array {
         deployHarborForPeg("fairness_test", peg, mktConfigs, "mainnet", true, toDeploy);
 
         // Resolve deployed addresses
-        string memory marketKey = SaltString.key("ETH", "fxUSD");
-        minter = minterAddress(marketKey);
-        stabilityPoolCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        stabilityPoolLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-        stabilityPoolManager = stabilityPoolManagerAddress(marketKey);
-        pegged = peggedTokenAddress("ETH");
-        leveraged = leveragedTokenAddress(marketKey);
+        minter = minterAddress(mktConfigs[0]);
+        stabilityPoolCollateral = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Collateral);
+        stabilityPoolLeveraged = stabilityPoolAddress(mktConfigs[0], StabilityPoolType.Leveraged);
+        stabilityPoolManager = stabilityPoolManagerAddress(mktConfigs[0]);
+        pegged = peggedTokenAddress(mktConfigs[0]);
+        leveraged = leveragedTokenAddress(mktConfigs[0]);
         wrappedCollateral = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
-        // Install mock oracle so we can control price/rate
-        // The deployment script sets the oracle to a predicted address that doesn't exist yet
-        // (oracles are deployed separately). Override it with our mock.
-        mockOracle = new MockWrappedPriceOracle();
+        // Install the mock oracle at the predicted address the deploy already wired the minter to, so we
+        // control price/rate without a second source of truth for where the oracle lives.
+        mockOracle = MockWrappedPriceOracle(installMockPriceOracle(wrappedPriceOracleAddress(mktConfigs[0])));
         // Price = 1/4000 ETH per fxUSD (i.e. 4000 fxUSD per ETH, ETH ≈ $4000).
         // Rate = 1 means 1 fxSAVE = 1 fxUSD (no yield accrued yet).
         oraclePrice = 1 ether / 4000;
         oracleRate = 1 ether;
         mockOracle.setLatestAnswer(oraclePrice, oracleRate);
-
-        vm.prank(IBaoOwnable(minter).owner());
-        IMinter(minter).updatePriceOracle(address(mockOracle));
 
         // Override harvest config: set cut to 0 so harvest goes to pools, not treasury
         vm.startPrank(IBaoOwnable(stabilityPoolManager).owner());

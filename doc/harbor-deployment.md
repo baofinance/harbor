@@ -240,16 +240,113 @@ Failing any pre-flight check reverts the entire deploy before any on-chain trans
 | Free-mint role | Granted and revoked by script | Granted via `vm.prank(HARBOR_MULTISIG)` in setup |
 | Ownership transfer | Deployer → multisig, standard handoff | Left with `address(this)` for test assertions |
 | Pre-existing detection | Auto-detect + explicit flag both checked | Explicit flag only (tests don't simulate prior deployments in-place) |
-| Manual TX logging | Written to a console log the multisig executes | Captured as a list and asserted in tests |
+| Manual TX logging | Written to a console log the multisig executes | Emitted, not captured — a test using the deploy as a fixture has no operator to instruct. A test that is *about* the deploy turns logging on and asserts on it |
+| Deploy narration | Printed | Silent, via `_shouldLog()`. Set `DEPLOY_LOG=true` or override to get it back |
 
-## 10. Open questions
+## 10. Deploy-code conventions
+
+### 10.0 Narration goes through the reporting layer, and is a script-run artefact
+
+No `console.log` outside a `_report*` method. The layout convention — which indent means which
+nesting level — lives in those methods rather than being hand-spelled at each site, and the decision
+to speak at all is taken in one place, `_shouldLog()`.
+
+**The predicate and the generic vocabulary live in bao-base, on `FactoryDeployer`.** That is not
+tidiness: bao-base narrates on its own account (proxy addresses, ownership transfers, Safe batch
+lines), and a consuming repo cannot reach inside it. Putting the predicate only in `HarborDeployer`
+left a deploy half-narrated under test — harbor's lines silent, bao-base's sixteen still printing.
+
+`_shouldLog()` is the third member of a family: `FactoryDeployer._shouldPersistState` (state files),
+`Deployer._shouldWriteBatchFiles` (Safe batch JSON), and narration. All three are script-run
+artefacts — useful to an operator watching a deploy, noise in a test that is only using the deploy to
+arrange a fixture. All three are `internal view virtual` with the same escape hatch: override to
+force a non-default choice. `_shouldLog()` additionally honours `DEPLOY_LOG=true`.
+
+The split follows the nouns. bao-base owns what bao-base names — salt keys, implementations, proxies,
+ownership transfers, salt prefix and network: `_reportRun`, `_reportSection`, `_reportContract`,
+`_reportImplementation`, `_reportProxy`, `_reportDetail`, `_reportOwnershipTransfer`. Harbor owns
+its own domain vocabulary on top: `_reportHarborRun`, `_reportMarket`, `_reportToken`,
+`_reportMarketComplete`, `_reportRunComplete`. Any other repo with a deploy stack adds its own the
+same way and inherits the rest.
+
+It cannot key off `-v` levels: forge exposes no verbosity accessor (`Vm.ForgeContext` enumerates
+execution contexts only). forge already hides console output below `-vv`; the problem this solves is
+that *at* `-vv`, which is what you use to read your own test's logs, deploy setup narration drowns
+them.
+
+`_reportManualRoleGrant` is deliberately named apart from the `_report*` commentary. It is not
+narration — it is the operator's deliverable, the transactions the multisig must execute when the
+deployer cannot grant a role itself. Losing it in a script run would be a defect rather than a
+tidier console.
+
+Two rules the deployment code follows. Both exist so that one change is one edit, and both are
+enforced only by convention — nothing will stop you breaking them, so they are written down here.
+
+### 10.1 Every deployed contract has one named address resolver
+
+`HarborDeployer` holds a key/address pair per contract this stack deploys — `minterKey` /
+`minterAddress`, `genesisKey` / `genesisAddress`, and so on. The key function is the **only**
+place that contract's salt sub-key string is written down, and the address function is the
+**only** way to reach its CREATE3 address. No deploy script, stack function or test composes a
+sub-key or calls `_predictAddress` with a hand-built key.
+
+The point is that the deploy and the tests that observe it move together. When a test writes its
+own `_predictAddress(SaltString.key(marketKey, "minter"))`, it holds a second copy of the key;
+change the deploy's key and the test silently resolves to a codeless address, failing much later
+as a call to a non-contract, far from the cause.
+
+Each resolver comes in two forms of the same shape — a `(peg, collateral)` primitive and a
+`Config_MinterMarket` overload — because both populations are real: deploy code and
+config-driven tests hold a config, while fork verifications against live markets have only the
+names. Taking the components rather than a composed `"peg::collateral"` string is what lets the
+price oracle share the shape, since its key is reversed
+(`collateral::peg::wrappedPriceAggregator`) and so cannot be derived from a market key without
+splitting a string.
+
+Resolvers are **not** `virtual`. The deploy CREATE3-deploys each contract *to* the address its
+resolver returns, so an override would not relocate anything — it would only break the lookup.
+To stand a mock in for a dependency this repo does not deploy (the price oracle, from
+harbor-price-aggregators), install it at the resolved address with `installContractAt`
+(`test/HarborTestActions.sol`), **after** the deploy: the deploy references that address while
+it is still codeless, exactly as production does, and it only ever stores the address rather
+than calling it.
+
+### 10.2 `deployX` takes the config and owns the constructor/initData/setter split
+
+Reference implementation: `StabilityPool.deployStabilityPool`.
+
+A `deployX` function takes the market or peg config plus any address only the caller can
+resolve, and decides internally how each value reaches the contract — constructor argument,
+`initialize` calldata, or post-deploy setter. **The deploy stack never performs a setter.**
+
+Whether a value is an immutable, an init argument or a setter is the contract's implementation
+detail. When `deployX`'s signature mirrors the constructor argument list *and* the stack
+separately performs the setters, that choice is visible in two files at once, and moving one
+value between mechanisms means editing both. With the split inside `deployX`, moving a value
+changes exactly one function body and callers pass the same config either way.
+
+The three-layer pattern is unchanged: `deployXImplementation` stays `virtual`, and the invariant
+it keeps is that **no address resolution happens at that layer** — every address it needs arrives
+already resolved, so a test override substituting an implementation never has to reproduce
+address prediction. That is the whole of the rule. It does not forbid reading non-address values
+from the config: `deployStabilityPoolImplementation` takes the market config for its withdrawal
+delay, period, `minTotalSupply` and token name/symbol, and is conforming, because its two
+addresses (`minter`, `liquidationToken`) are passed in. The orchestrator `deployX` is never
+`virtual`; tests call it directly.
+
+Whether a value becomes an immutable or stays a setter is a separate judgement, made per value:
+a dependency wired to a predicted CREATE3 address can be an immutable, whereas a tunable
+operating parameter cannot. The StabilityPoolManager's four ratios are the worked example —
+they stay setters because live markets are retuned by multisig batch (`script/UpdateVolatility_*.s.sol`).
+
+## 11. Open questions
 
 - **Seed size is per-market**, but different collaterals have wildly different decimals (wBTC is 8, wstETH is 18). Should `wCOL_seed` be `1e12` universally or `10^(decimals / 2)` per collateral? Preference: universal `1e12` and document the min-decimal handling if any underflow issues appear.
 - **Weight choice for `HY.addVault`** when adding a new market to an existing HY: use the market's config value (if set) or fall back to a default (e.g., equal weight). Currently undefined — resolve during Campaign B.4.1e implementation.
 - **Leveraged AC weight for HY**: N/A — AC_lev is not registered with HY by design. Document this explicitly in the first-market-for-peg deploy log.
 - **Seed during upgrade**: not applicable here — an upgrade preserves existing storage so the seed from the original deploy is still there. No action needed on upgrades.
 
-## 11. References
+## 12. References
 
 - Plan: [`quirky-booping-valley.md`](../../.claude/plans/quirky-booping-valley.md) §H.4.1 for seed mechanics
 - Design: [`autocompounding-vault-design.md`](autocompounding-vault-design.md) for contract architecture

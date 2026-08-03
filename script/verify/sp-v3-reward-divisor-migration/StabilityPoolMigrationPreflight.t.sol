@@ -6,7 +6,7 @@ import {console2 as console} from "forge-std/console2.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
-import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
@@ -119,9 +119,8 @@ contract StabilityPoolMigrationPreflight is
 
     function _scan(Config_MinterMarket[] memory markets) internal {
         for (uint256 i = 0; i < markets.length; i++) {
-            string memory marketKey = MinterMarketConfigLib.salt(markets[i]);
-            _measure(stabilityPoolKey(marketKey, StabilityPoolType.Collateral));
-            _measure(stabilityPoolKey(marketKey, StabilityPoolType.Leveraged));
+            _measure(stabilityPoolKey(markets[i], StabilityPoolType.Collateral));
+            _measure(stabilityPoolKey(markets[i], StabilityPoolType.Leveraged));
         }
     }
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {PeggedToken} from "@harbor-script/src/contracts/PeggedToken.sol";
 import {LeveragedToken} from "@harbor-script/src/contracts/LeveragedToken.sol";
@@ -31,6 +30,9 @@ abstract contract HarborDeployStack is
     Genesis
 {
     using LibString for string;
+
+    /// @dev What this stack deploys, named once so the run's opening and closing lines cannot drift apart.
+    string private constant HARBOR_DEPLOYMENT_NAME = "Minter Contracts";
 
     // ========== MARKET LOOKUP ==========
 
@@ -96,13 +98,10 @@ abstract contract HarborDeployStack is
             : DeploymentState.fresh(saltPrefix, network);
         state.baoFactory = baoFactory();
 
-        console.log("=== Deploying Minter Contracts ===");
-        console.log("  Salt:    %s", saltPrefix);
-        console.log("  Network: %s", network);
+        _reportRun(HARBOR_DEPLOYMENT_NAME, saltPrefix, network);
 
         if (deployPeg) {
-            console.log("");
-            console.log("--- Deploying %s Pegged Token ---", peg.key());
+            _reportSection(string.concat("Deploying ", peg.key(), " Pegged Token"));
             deployPeggedTokenWithRoles(state, peg, allMarkets);
         }
 
@@ -111,11 +110,10 @@ abstract contract HarborDeployStack is
         }
 
         // Finalize: transfer ownerships and save state
-        console.log("");
-        console.log("--- Transferring Ownerships ---");
+        _reportSection("Transferring Ownerships");
         _transferAllOwnerships();
         _saveState(state);
-        console.log("=== Minter Deployment Done ===");
+        _reportRunComplete(HARBOR_DEPLOYMENT_NAME);
     }
 
     // ========== MINTER INFRASTRUCTURE DEPLOYMENT ==========
@@ -124,68 +122,55 @@ abstract contract HarborDeployStack is
     /// @param state Deployment state (modified in place).
     /// @param market Market configuration.
     function _deployMinterInfrastructure(DeploymentTypes.State memory state, Config_MinterMarket market) private {
-        IHarborConfig cfg = IHarborConfig(address(market));
         string memory marketKey = MinterMarketConfigLib.salt(market);
-
-        console.log("");
-        console.log("  > Market: %s", marketKey);
+        _reportMarket(marketKey);
 
         // Deploy LeveragedToken
         _deployLeveragedTokenWithRoles(state, market);
 
         // Deploy ReservePool
-        deployReservePool(state, marketKey);
+        deployReservePool(state, market);
 
         // Deploy Minter — fully wired and configured by deployMinter itself
         deployMinter(state, market);
 
         // Deploy Stability Pools
-        _deployStabilityPools(state, cfg, marketKey);
+        _deployStabilityPools(state, market);
 
         // Register reward tokens on SPs
-        _registerRewardTokens(cfg, marketKey);
+        _registerRewardTokens(market);
 
         // Deploy StabilityPoolManager — configured by deployStabilityPoolManager itself
         deployStabilityPoolManager(state, market);
 
         // Deploy Genesis
-        deployGenesis(state, marketKey, minterAddress(marketKey));
+        deployGenesis(state, market);
 
         // Grant roles
-        _grantMarketRoles(marketKey);
+        _grantMarketRoles(market);
 
-        console.log("    [complete]");
+        _reportMarketComplete(marketKey);
     }
 
-    function _deployStabilityPools(
-        DeploymentTypes.State memory stateData,
-        IHarborConfig cfg,
-        string memory marketKey
-    ) internal {
-        address minter = minterAddress(marketKey);
+    function _deployStabilityPools(DeploymentTypes.State memory stateData, Config_MinterMarket market) internal {
+        address minter = minterAddress(market);
 
         deployStabilityPool(
             StabilityPoolType.Collateral,
             stateData,
-            Config_MinterMarket(address(cfg)),
+            market,
             minter,
-            cfg.wrappedCollateralToken()
+            IHarborConfig(address(market)).wrappedCollateralToken()
         );
 
-        deployStabilityPool(
-            StabilityPoolType.Leveraged,
-            stateData,
-            Config_MinterMarket(address(cfg)),
-            minter,
-            leveragedTokenAddress(marketKey)
-        );
+        deployStabilityPool(StabilityPoolType.Leveraged, stateData, market, minter, leveragedTokenAddress(market));
     }
 
-    function _registerRewardTokens(IHarborConfig cfg, string memory marketKey) internal {
-        address spCollateral = stabilityPoolAddress(marketKey, StabilityPoolType.Collateral);
-        address spLeveraged = stabilityPoolAddress(marketKey, StabilityPoolType.Leveraged);
-        address wrappedCollateral = cfg.wrappedCollateralToken();
-        address leveragedToken = leveragedTokenAddress(marketKey);
+    function _registerRewardTokens(Config_MinterMarket market) internal {
+        address spCollateral = stabilityPoolAddress(market, StabilityPoolType.Collateral);
+        address spLeveraged = stabilityPoolAddress(market, StabilityPoolType.Leveraged);
+        address wrappedCollateral = IHarborConfig(address(market)).wrappedCollateralToken();
+        address leveragedToken = leveragedTokenAddress(market);
 
         // Collateral SP: wrappedCollateral (receives both harvest + rebalance rewards)
         IMultipleRewardDistributor(spCollateral).registerRewardToken(wrappedCollateral);
@@ -197,11 +182,11 @@ abstract contract HarborDeployStack is
 
     /// @notice Grant every cross-contract role for a market, once all of its contracts exist.
     /// @dev Roles are the only wiring left to the stack: each grant names two contracts, so it belongs
-    ///      to neither one's deploy function. Each helper resolves its own addresses from marketKey.
-    function _grantMarketRoles(string memory marketKey) internal {
-        grantReservePoolRoles(marketKey);
-        grantMinterRoles(marketKey);
-        grantStabilityPoolRoles(marketKey, StabilityPoolType.Collateral);
-        grantStabilityPoolRoles(marketKey, StabilityPoolType.Leveraged);
+    ///      to neither one's deploy function. Each helper resolves its own addresses from the config.
+    function _grantMarketRoles(Config_MinterMarket market) internal {
+        grantReservePoolRoles(market);
+        grantMinterRoles(market);
+        grantStabilityPoolRoles(market, StabilityPoolType.Collateral);
+        grantStabilityPoolRoles(market, StabilityPoolType.Leveraged);
     }
 }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Script} from "forge-std/Script.sol";
 import {HarborDeployer} from "@harbor-script/src/HarborDeployer.sol";
+import {Market} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice Queue a Safe transaction to pause the ETH::fxUSD stabilityPoolLeveraged
 /// by upgrading its proxy to BaoPauser_v1.
@@ -14,7 +14,7 @@ contract Pause_SPL_ETH_fxUSD is Script, HarborDeployer {
 
     function build() internal override {
         queue(
-            stabilityPoolKey(SaltString.key("ETH", "fxUSD"), StabilityPoolType.Leveraged),
+            stabilityPoolKey(Market("ETH", "fxUSD"), StabilityPoolType.Leveraged),
             abi.encodeCall(UUPSUpgradeable.upgradeToAndCall, (BAO_PAUSER, "")),
             "pause: upgrade to BaoPauser_v1"
         );

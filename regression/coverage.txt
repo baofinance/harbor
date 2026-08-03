@@ -2,7 +2,7 @@
 |-----------------------------------------------------------------------------|--------------------|--------------------|------------------|-------------------|
 | script/Migrate_StabilityPool_v2_Data_mainnet/ForceMigrateAccumulator_v1.sol | X   0% (0/36)      | X   0% (0/47)      | X   0% (0/2)     | X   0% (0/4)      |
 | script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol             | ✓ 100% (23/23)     | ✓ 100% (25/25)     | ✓ 100% (0/0)     | ✓ 100% (6/6)      |
-| script/config/ConfigBase.sol                                                | ✓ 100% (8/8)       | ✓ 100% (8/8)       | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
+| script/config/ConfigBase.sol                                                | X  80% (8/10)      | X  78% (7/9)       | ✓ 100% (0/0)     | X  80% (4/5)      |
 | script/config/ConfigTokenNames.sol                                          | X  85% (22/26)     | X  91% (20/22)     | ✓ 100% (0/0)     | X  75% (9/12)     |
 | script/config/chains/ConfigChain_mainnet.sol                                | X  14% (3/21)      | X  23% (3/13)      | ✓ 100% (0/0)     | X   0% (0/8)      |
 | script/config/collaterals/ConfigCollateral_fxUSD_mainnet.sol                | ✓ 100% (6/6)       | ✓ 100% (5/5)       | ✓ 100% (0/0)     | ✓ 100% (3/3)      |
@@ -31,21 +31,22 @@
 | script/src/Deploy_GOLD_Minter.sol                                           | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
 | script/src/Deploy_MCAP_Minter.sol                                           | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
 | script/src/Deploy_SILVER_Minter.sol                                         | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
-| script/src/HarborDeployStack.sol                                            | X  83% (69/83)     | X  81% (79/97)     | X  25% (1/4)     | X  80% (8/10)     |
-| script/src/HarborDeployer.sol                                               | X  53% (25/47)     | X  93% (38/41)     | ✓ 100% (0/0)     | X   5% (1/20)     |
-| script/src/contracts/Genesis.sol                                            | X  77% (10/13)     | X  73% (11/15)     | ✓ 100% (0/0)     | X  67% (2/3)      |
-| script/src/contracts/LeveragedToken.sol                                     | ✓ 100% (18/18)     | ✓ 100% (26/26)     | ✓ 100% (0/0)     | ✓ 100% (2/2)      |
-| script/src/contracts/Minter.sol                                             | ✓ 100% (32/32)     | ✓ 100% (38/38)     | ✓ 100% (0/0)     | ✓ 100% (6/6)      |
-| script/src/contracts/PeggedToken.sol                                        | X  85% (23/27)     | X  94% (34/36)     | X  50% (3/6)     | ✓ 100% (2/2)      |
-| script/src/contracts/StabilityPool.sol                                      | ✓ 100% (29/29)     | ✓ 100% (45/45)     | ✓ 100% (0/0)     | ✓ 100% (3/3)      |
-| script/src/contracts/StabilityPoolManager.sol                               | ✓ 100% (17/17)     | ✓ 100% (18/18)     | ✓ 100% (0/0)     | ✓ 100% (3/3)      |
+| script/src/HarborDeployStack.sol                                            | X  75% (42/56)     | X  71% (44/62)     | X  25% (1/4)     | X  71% (5/7)      |
+| script/src/HarborDeployer.sol                                               | X  53% (42/79)     | X  95% (70/74)     | ✓ 100% (0/0)     | X   5% (2/37)     |
+| script/src/HarborReporting.sol                                              | X  82% (27/33)     | X  81% (21/26)     | X  86% (6/7)     | X  86% (6/7)      |
+| script/src/contracts/Genesis.sol                                            | ✓ 100% (10/10)     | ✓ 100% (11/11)     | ✓ 100% (0/0)     | ✓ 100% (2/2)      |
+| script/src/contracts/LeveragedToken.sol                                     | ✓ 100% (16/16)     | ✓ 100% (23/23)     | ✓ 100% (0/0)     | ✓ 100% (2/2)      |
+| script/src/contracts/Minter.sol                                             | ✓ 100% (37/37)     | ✓ 100% (45/45)     | ✓ 100% (0/0)     | ✓ 100% (6/6)      |
+| script/src/contracts/PeggedToken.sol                                        | X  85% (22/26)     | X  94% (33/35)     | X  50% (3/6)     | ✓ 100% (2/2)      |
+| script/src/contracts/StabilityPool.sol                                      | ✓ 100% (24/24)     | ✓ 100% (37/37)     | ✓ 100% (0/0)     | ✓ 100% (3/3)      |
+| script/src/contracts/StabilityPoolManager.sol                               | ✓ 100% (16/16)     | ✓ 100% (18/18)     | ✓ 100% (0/0)     | ✓ 100% (2/2)      |
 | src/math/DecrementalFloatingPoint.sol                                       | ✓ 100% (31/31)     | ✓ 100% (33/33)     | ✓ 100% (9/9)     | ✓ 100% (6/6)      |
 | src/math/DecrementalFloatingPoint_v2.sol                                    | ✓ 100% (31/31)     | ✓ 100% (33/33)     | ✓ 100% (9/9)     | ✓ 100% (6/6)      |
 | src/minter/Genesis_v1.sol                                                   | X   0% (0/89)      | X   0% (0/88)      | X   0% (0/14)    | X   0% (0/12)     |
 | src/minter/Genesis_v2.sol                                                   | X  94% (87/93)     | X  94% (87/93)     | ✓ 100% (14/14)   | X  85% (11/13)    |
 | src/minter/Minter_v1.sol                                                    | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
 | src/minter/Minter_v2.sol                                                    | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
-| src/minter/Minter_v3.sol                                                    | X  98% (613/623)   | X  99% (671/680)   | X  91% (96/105)  | X  99% (70/71)    |
+| src/minter/Minter_v3.sol                                                    | X  98% (615/625)   | X  99% (675/684)   | X  92% (97/106)  | X  99% (70/71)    |
 | src/minter/ReservePool_v1.sol                                               | X  75% (12/16)     | X  67% (10/15)     | X  67% (2/3)     | X  60% (3/5)      |
 | src/minter/ReservePool_v2.sol                                               | X  95% (18/19)     | ✓ 100% (17/17)     | ✓ 100% (3/3)     | X  80% (4/5)      |
 | src/minter/StabilityPoolManager_v1.sol                                      | X   0% (0/166)     | X   0% (0/177)     | X   0% (0/21)    | X   0% (0/24)     |
@@ -68,4 +69,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                            | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                         | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                                      | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                                       | X  58% (4961/8628) | X  57% (5241/9235) | X  43% (408/948) | X  58% (754/1296) |
+| Total                                                                       | X  58% (5009/8693) | X  57% (5314/9303) | X  44% (418/958) | X  58% (762/1322) |
