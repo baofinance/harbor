@@ -31,9 +31,9 @@
 | script/src/Deploy_GOLD_Minter.sol                                           | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
 | script/src/Deploy_MCAP_Minter.sol                                           | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
 | script/src/Deploy_SILVER_Minter.sol                                         | X   0% (0/5)       | X   0% (0/4)       | ✓ 100% (0/0)     | X   0% (0/1)      |
-| script/src/HarborDeployStack.sol                                            | X  75% (42/56)     | X  71% (44/62)     | X  25% (1/4)     | X  71% (5/7)      |
+| script/src/HarborDeployStack.sol                                            | X  75% (43/57)     | X  72% (46/64)     | X  25% (1/4)     | X  71% (5/7)      |
 | script/src/HarborDeployer.sol                                               | X  53% (42/79)     | X  95% (70/74)     | ✓ 100% (0/0)     | X   5% (2/37)     |
-| script/src/HarborReporting.sol                                              | X  82% (27/33)     | X  81% (21/26)     | X  86% (6/7)     | X  86% (6/7)      |
+| script/src/HarborReporting.sol                                              | X  75% (18/24)     | X  74% (14/19)     | X  80% (4/5)     | X  80% (4/5)      |
 | script/src/contracts/Genesis.sol                                            | ✓ 100% (10/10)     | ✓ 100% (11/11)     | ✓ 100% (0/0)     | ✓ 100% (2/2)      |
 | script/src/contracts/LeveragedToken.sol                                     | ✓ 100% (16/16)     | ✓ 100% (23/23)     | ✓ 100% (0/0)     | ✓ 100% (2/2)      |
 | script/src/contracts/Minter.sol                                             | ✓ 100% (37/37)     | ✓ 100% (45/45)     | ✓ 100% (0/0)     | ✓ 100% (6/6)      |
@@ -69,4 +69,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                            | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                         | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                                      | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                                       | X  58% (5009/8693) | X  57% (5314/9303) | X  44% (418/958) | X  58% (762/1322) |
+| Total                                                                       | X  58% (5001/8685) | X  57% (5309/9298) | X  44% (416/956) | X  58% (760/1320) |
