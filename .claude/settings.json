@@ -3,7 +3,6 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(git log:*)",
-      "Bash(2)",
       "Read(//home/tfras/github/baofinance/harbor/**)",
       "Bash(find /home/tfras/github/baofinance/harbor/doc -type f \\\\\\(-name *.md -o -name *.txt \\\\\\) ! -path */.venv/* ! -path */node_modules/* ! -path */lib/*)",
       "Read(//home/tfras/github/baofinance/harbor-yield.wip-hytoken/**)",
@@ -18,7 +17,8 @@
       "Read(//home/tfras/github/AladdinDAO/fx-protocol-contracts/**)",
       "Bash(ls script/src/*.sol)",
       "Bash(ls script/src/Deploy_*)",
-      "Read(//home/tfras/.claude/**)",
+      "Read(//home/tfras/.claude/plans/**)",
+      "Read(//home/tfras/.claude/projects/-home-tfras-github-baofinance-harbor/**)",
       "Bash(git -C ~/.claude/plans commit -am \"fixed broken links at top of plan\")",
       "Bash(ls -la /home/tfras/github/baofinance/harbor/script/*.s.sol)",
       "Bash(ls -lt /home/tfras/github/baofinance/harbor/script/*.s.sol)",
@@ -32,7 +32,6 @@
       "Bash(ls /home/tfras/github/baofinance/harbor/src/minter/StabilityPoolManager*.sol)",
       "Bash(ls /home/tfras/github/baofinance/harbor/script/src/v3/Deploy_*_Minter.sol)",
       "Bash(ls /home/tfras/github/baofinance/harbor/results/liquidate*.csv)",
-      "Read(//home/tfras/github/baofinance/**)",
       "Bash(gnuplot ./results/rebalance_fairness_scan.gp)",
       "Bash(gnuplot ./results/rebalance_fairness_timeline.gp)"
     ]
