@@ -627,8 +627,9 @@ contract StabilityPool_v3 is
         StabilityPoolStorage storage $ = _getStabilityPoolStorage();
         TokenBalance memory supply = $.totalAssetSupply;
         currentProd = supply.product;
-        // supply - gap; the invariant above keeps this >= Sum(balanceOf) >= 0, so the cast is safe.
-        totalShare = uint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
+        // supply - gap; the invariant above keeps this >= Sum(balanceOf) >= 0. SafeCast enforces that rather than
+        // assuming it: a negative divisor would otherwise wrap to ~2^256 and silently floor every reward to zero.
+        totalShare = SafeCast.toUint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
     }
 
     /// @inheritdoc MultipleRewardCompoundingAccumulator_v3
@@ -697,7 +698,7 @@ contract StabilityPool_v3 is
         }
         // Snapshot the divisor (supply - gap) at the current product before supply and product change.
         uint128 previousProduct = supply.product;
-        uint256 divisorBefore = uint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
+        uint256 divisorBefore = SafeCast.toUint256(int256(uint256(supply.amount)) - $.rewardDivisorGap);
 
         // Reduce supply by loss amount
         supply.amount = (uint256(supply.amount) - loss).toUint128();
@@ -714,7 +715,7 @@ contract StabilityPool_v3 is
         // supply - divisor. A give-back holds the product and drops supply, so the gap goes negative; either way
         // the divisor stays >= Sum(balanceOf).
         uint256 divisorAfter = _scaleAdjustedValueCeil(divisorBefore, supply.product, previousProduct);
-        $.rewardDivisorGap = int256(uint256(supply.amount)) - int256(divisorAfter);
+        $.rewardDivisorGap = int256(uint256(supply.amount)) - SafeCast.toInt256(divisorAfter);
 
         _recordTotalSupply(supply);
     }
