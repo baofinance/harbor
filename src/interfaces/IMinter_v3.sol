@@ -128,6 +128,9 @@ interface IMinter_v3 {
     error InvalidOraclePrice();
     /// @dev Thrown when the oracle price is zero.
     error ZeroOraclePrice();
+    /// @dev Thrown when the oracle wrapped-to-underlying rate is zero. A rate of zero is a units conversion, not an
+    /// economic state, so it can only mean the oracle is faulty.
+    error ZeroOracleRate();
 
     // @inderitdoc Token
     /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero

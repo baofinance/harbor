@@ -273,7 +273,7 @@ contract Minter_v3 is
     /// @inheritdoc IMinter_v3
     function collateralRatio() external view override returns (uint256 collateralRatio_) {
         MinterStorage storage $ = _getMinterStorage();
-        (uint256 price, ) = _fetchMid($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         collateralRatio_ = _collateralRatio($.underlyingCollateral, price, $.peggedTokenBalance);
     }
 
@@ -281,14 +281,14 @@ contract Minter_v3 is
     function leverageRatio() external view override returns (uint256 ratio) {
         MinterStorage storage $ = _getMinterStorage();
 
-        (uint256 price, ) = _fetchMid($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         ratio = _leverageRatio($.peggedTokenBalance, $.underlyingCollateral, price);
     }
 
     /// @inheritdoc IMinter_v3
     function leveragedTokenPrice() external view override returns (uint256 nav) {
         MinterStorage storage $ = _getMinterStorage();
-        (uint256 price, ) = _fetchMid($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         (uint256 collateralValueE36, uint256 peggedValueE36) = _tokenValuesE36(
             $.peggedTokenBalance,
             $.underlyingCollateral,
@@ -317,7 +317,7 @@ contract Minter_v3 is
         if (peggedTokenBalance_ == 0) {
             nav = 1 ether;
         } else {
-            (uint256 price, ) = _fetchMid($.priceOracle);
+            uint256 price = _fetchMidPrice($.priceOracle);
             (, uint256 peggedValueE36) = _tokenValuesE36(peggedTokenBalance_, $.underlyingCollateral, price);
             nav = peggedValueE36 / peggedTokenBalance_;
         }
@@ -399,7 +399,7 @@ contract Minter_v3 is
         if (peggedTokenBalance_ == 0) {
             return (0, 0);
         }
-        (uint256 price, ) = _fetchMax($.priceOracle);
+        uint256 price = _fetchMaxPrice($.priceOracle);
         uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 currentCollateralRatio = _collateralRatio(collateralTokenBalance_, price, peggedTokenBalance_);
         if (targetCollateralRatio <= currentCollateralRatio) {
@@ -428,7 +428,7 @@ contract Minter_v3 is
     // solhint-disable-next-line explicit-types
     function _lookupIncentiveRatio(uint action) internal view returns (int256 incentiveRatio) {
         MinterStorage storage $ = _getMinterStorage();
-        (uint256 price, ) = _fetchMid($.priceOracle);
+        uint256 price = _fetchMidPrice($.priceOracle);
         uint256 collateralTokenBalance_ = $.underlyingCollateral;
         uint256 peggedTokenBalance_ = $.peggedTokenBalance;
 
@@ -647,13 +647,10 @@ contract Minter_v3 is
     /// @inheritdoc IMinter_v3
     function harvestable() external view returns (uint256 wrappedAmount) {
         MinterStorage storage $ = _getMinterStorage();
-        (, uint256 rate) = _fetchMid($.priceOracle);
-        // wrappedAmount = 0;  not needed due to 0 default value
-        if (rate > 0) {
-            uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
-            uint256 value = Math.mulDiv($.underlyingCollateral, 1 ether, rate);
-            wrappedAmount = (balance > value) ? balance - value : 0;
-        }
+        uint256 rate = _fetchMinRate($.priceOracle);
+        uint256 balance = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
+        uint256 value = Math.mulDiv($.underlyingCollateral, 1 ether, rate);
+        wrappedAmount = (balance > value) ? balance - value : 0;
     }
 
     //////////////////////////////
@@ -665,7 +662,7 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         uint256 underlying = $.underlyingCollateral;
         uint256 wrapped = IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this));
-        (, uint256 rate) = _fetchMid($.priceOracle);
+        uint256 rate = _fetchMinRate($.priceOracle);
         wrapped = Math.mulDiv(wrapped, rate, 1 ether);
         emit Reset(underlying, wrapped);
         $.underlyingCollateral = wrapped;
@@ -2021,11 +2018,12 @@ contract Minter_v3 is
     /// @notice Calculates the raw collateral ratio without any flooring.
     /// @dev This returns the actual mathematical ratio (collateralValue / peggedValue) which may be < 1 in depegged scenarios.
     /// Semantics:
-    /// - Hot path (pegged > 0): single branch then mulDiv; zero collateral/price naturally yields 0.
+    /// - Hot path (pegged > 0): single branch then mulDiv; zero collateral naturally yields 0.
     /// - If pegged == 0:
-    ///     - If price == 0 => 0  (collateral has zero value; limit as Z→0+ is 0)
-    ///     - Else if collateral == 0 => 1e18 (define 0/0 as 1.0)
+    ///     - If collateral == 0 => 1e18 (define 0/0 as 1.0)
     ///     - Else => +infinity encoded as 1e36
+    /// The price is never zero: every caller sources it from a fetch helper that rejects a faulty oracle, so there
+    /// is no zero-price case to define.
     /// @param collateralTokenBalance_ The amount of collateral tokens
     /// @param collateralPrice The price of collateral in terms of the pegged token
     /// @param peggedTokenBalance_ The amount of pegged tokens
@@ -2035,17 +2033,13 @@ contract Minter_v3 is
         uint256 collateralPrice,
         uint256 peggedTokenBalance_
     ) private pure returns (uint256 collateralRatio_) {
-        // Hot path: pegged > 0 → just compute the ratio (covers collateral==0 or price==0 as 0).
+        // Hot path: pegged > 0 → just compute the ratio (covers collateral==0 as 0).
         // slither-disable-next-line incorrect-equality
         if (peggedTokenBalance_ != 0) {
             return Math.mulDiv(collateralTokenBalance_, collateralPrice, peggedTokenBalance_);
         }
 
         // Cold path: pegged == 0 → handle edge semantics without doing mulDiv.
-        // slither-disable-next-line incorrect-equality
-        if (collateralPrice == 0) {
-            return 0; // zero value collateral implies CR→0 in the Z→0+ limit
-        }
         // slither-disable-next-line incorrect-equality
         if (collateralTokenBalance_ == 0) {
             return 1 ether; // define 0/0 as 1.0
@@ -2061,29 +2055,92 @@ contract Minter_v3 is
     // fetching collateral price in terms of the pegged tokens
     // -------------------------------------------------------
 
-    /// @notice Returns the safe price for the collateral token.
-    /// @dev Checks safe price non-zero.
+    /// @notice Reads the oracle, rejecting a zero reading that the caller would go on to consume.
+    /// @dev Neither zero is an economic state: a collateral asset worth nothing and a wrapped-to-underlying
+    /// conversion of zero can only mean the oracle is faulty. Left through, they are indistinguishable from real
+    /// extremes that drive automated action - a zero price reports the collateral ratio as 0, i.e. wholly
+    /// undercollateralised. The oracle cannot supply this guarantee itself: its underlying feed check rejects only
+    /// prices strictly below zero, and the wrapped rate is passed through unvalidated.
+    ///
+    /// The RAW readings are checked, not each caller's result. `_fetchMid` averages min and max, so an oracle
+    /// reporting a zero min against a doubled max rounds to a healthy-looking mid and would slip past a check
+    /// applied afterwards, while `_fetchMin` hands back a hard zero from that same reading.
+    ///
+    /// Each reading is checked only when the caller consumes it, which the flags declare. A view that reads the
+    /// price and never the rate must not be stopped by a faulty rate, nor the reverse: refusing to answer a question
+    /// whose inputs are all sound would be a fault of its own.
+    function _latestAnswer(
+        address priceOracle_,
+        bool checkPrice,
+        bool checkRate
+    ) private view returns (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) {
+        (minPrice, maxPrice, minRate, maxRate) = IWrappedPriceOracle(priceOracle_).latestAnswer();
+        if (checkPrice && (minPrice == 0 || maxPrice == 0)) {
+            revert ZeroOraclePrice();
+        }
+        if (checkRate && (minRate == 0 || maxRate == 0)) {
+            revert ZeroOracleRate();
+        }
+    }
+
+    /// @notice Returns the mid collateral price and the mid wrapped-to-underlying rate.
+    /// @dev The oracle reports each value as a band; the mid is the rounded average of the band's two edges. Both
+    /// readings are validated, since every caller of this variant consumes both.
     function _fetchMid(address priceOracle_) private view returns (uint256 price, uint256 rate) {
-        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = IWrappedPriceOracle(priceOracle_)
-            .latestAnswer();
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = _latestAnswer(
+            priceOracle_,
+            true,
+            true
+        );
         price = _round(minPrice + maxPrice, 2);
         rate = _round(minRate + maxRate, 2);
     }
 
-    /// @notice Returns the min price for the collateral token.
-    /// If the safe price is valid it is returned, else the min price.
-    /// @dev Checks the returned price is non-zero.
+    /// @notice Returns the low edge of the collateral price band and of the rate band.
+    /// @dev Paired with `_fetchMax`: each flow reads whichever edge is the conservative one for its own direction,
+    /// so the band's width is never spent in the user's favour. Both readings are validated, since every caller of
+    /// this variant consumes both.
     function _fetchMin(address priceOracle_) private view returns (uint256 price, uint256 rate) {
         // slither-disable-next-line unused-return
-        (price, , rate, ) = IWrappedPriceOracle(priceOracle_).latestAnswer();
+        (price, , rate, ) = _latestAnswer(priceOracle_, true, true);
     }
 
-    /// @notice Returns the max price for the collateral token.
-    /// If the safe price is valid it is returned, else the max price.
-    /// @dev Checks the returned price is non-zero.
+    /// @notice Returns the high edge of the collateral price band and of the rate band.
+    /// @dev The counterpart to `_fetchMin`, chosen by the same rule. Both readings are validated, since every caller
+    /// of this variant consumes both.
     function _fetchMax(address priceOracle_) private view returns (uint256 price, uint256 rate) {
         // slither-disable-next-line unused-return
-        (, price, , rate) = IWrappedPriceOracle(priceOracle_).latestAnswer();
+        (, price, , rate) = _latestAnswer(priceOracle_, true, true);
+    }
+
+    /// @notice Returns the min wrapped-to-underlying rate, for callers that do not consume the price.
+    /// @dev The min is the conservative side: `harvestable` divides the recorded collateral by it and `reset`
+    /// multiplies the held collateral by it, so the low reading under-reports what may be swept and writes the
+    /// recorded collateral down hardest. This follows the per-direction choice made elsewhere - `_fetchMax` for
+    /// pegged redeems, `_fetchMin` for leveraged ones.
+    ///
+    /// Only the rate is checked. A caller that never looks at the price must not be stopped by a faulty one; the
+    /// rate is a units conversion and stands on its own. Both rate readings are checked even though one is returned,
+    /// as for `_fetchMin` and `_fetchMax`: a zero on either side is a faulty oracle whichever side is used.
+    function _fetchMinRate(address priceOracle_) private view returns (uint256 rate) {
+        // slither-disable-next-line unused-return
+        (, , rate, ) = _latestAnswer(priceOracle_, false, true);
+    }
+
+    /// @notice Returns the mid price for the collateral token, for callers that do not consume the rate.
+    /// @dev Checks the price readings only - the mirror of `_fetchMinRate`. A reading the caller never looks at
+    /// cannot invalidate its answer, so a faulty rate must not stop a purely price-based view from reporting.
+    function _fetchMidPrice(address priceOracle_) private view returns (uint256 price) {
+        // slither-disable-next-line unused-return
+        (uint256 minPrice, uint256 maxPrice, , ) = _latestAnswer(priceOracle_, true, false);
+        price = _round(minPrice + maxPrice, 2);
+    }
+
+    /// @notice Returns the high edge of the collateral price band, for callers that do not consume the rate.
+    /// @dev Checks the price readings only, as `_fetchMidPrice` does.
+    function _fetchMaxPrice(address priceOracle_) private view returns (uint256 price) {
+        // slither-disable-next-line unused-return
+        (, price, , ) = _latestAnswer(priceOracle_, true, false);
     }
 
     // Harvesting support

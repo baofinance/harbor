@@ -104,7 +104,8 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         );
 
         // Then rate change
-        for (uint256 r = 0; r < startRate * 2; r += 1e16) {
+        // the sweep starts at the smallest non-zero rate: a zero rate is an oracle fault, which the Minter rejects
+        for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
             uint256 expectedHarvestable = 0;
             if (r > startRate) {
@@ -134,7 +135,8 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         address wrappedCollateralToken = IMinter(minter).WRAPPED_COLLATERAL_TOKEN();
 
         uint256 lastRate = startRate;
-        for (uint256 r = 0; r < startRate * 2; r += 1e16) {
+        // the sweep starts at the smallest non-zero rate: a zero rate is an oracle fault, which the Minter rejects
+        for (uint256 r = 1; r < startRate * 2; r += 1e16) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(startPrice, r);
             uint256 wrappedCollateral = IERC20(wrappedCollateralToken).balanceOf(minter);
 

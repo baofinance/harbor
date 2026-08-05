@@ -187,7 +187,8 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
 
         string memory file = openFile("priceChange");
 
-        for (uint256 price = 0; price <= midway * 2; price += 10) {
+        // don't start at a zero price as it reverts
+        for (uint256 price = 10; price <= midway * 2; price += 10) {
             MockWrappedPriceOracle(priceOracle).setLatestAnswer(price * 1 ether);
             writeOneLine(file);
         }
