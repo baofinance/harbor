@@ -8,13 +8,13 @@ comparing against reference deployments on a mainnet fork.
 
 ```bash
 # List all tests
-script/test/test-deploy --list
+script/verify/minter-v2-upgrade/test-deploy --list
 
 # Run BTC deploy test
-script/test/test-deploy BTC
+script/verify/minter-v2-upgrade/test-deploy BTC
 
 # List tests matching SILVER
-script/test/test-deploy --list SILVER
+script/verify/minter-v2-upgrade/test-deploy --list SILVER
 ```
 
 ## How it works

@@ -21,7 +21,9 @@ When `endGenesis()` is called:
 ```bash
 MINTER="0x8A791620dd6260079BF849Dc5567aDC3F2FdC318"
 GENESIS="0xAD523115cd35a8d4E60B3C0953E0E0ac10418309"
-ZERO_FEE_ROLE=$(cast keccak "ZERO_FEE_ROLE()")
+# Read the role bit from the Minter itself - it is a role BITMASK (_ROLE_0 = 1),
+# not a hashed signature. Hashing grants ~half the role bits, not just this one.
+ZERO_FEE_ROLE=$(cast call $MINTER "ZERO_FEE_ROLE()(uint256)" --rpc-url http://localhost:8545)
 OWNER_PK="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 cast send $MINTER "grantRoles(address,uint256)" $GENESIS $ZERO_FEE_ROLE \

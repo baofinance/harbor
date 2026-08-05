@@ -60,22 +60,22 @@ contract FilterSpHolders is Script {
     }
 
     function _filterFile(string memory path) internal {
-        // Pass 1: scan header lines for "# proxy: 0x..." and extract the pool address.
+        // Read the file whole and split it into lines. vm.readLine returns "" both for a blank line and at
+        // end-of-file, so a line-at-a-time read cannot tell them apart: it would stop at the first blank line and
+        // silently drop every holder below it from the filtered output - i.e. leave their V1 data unmigrated.
+        string[] memory lines = vm.readFile(path).split("\n");
+
+        // Pass 1: scan for the "# proxy: 0x..." header and extract the pool address.
         address pool;
-        while (true) {
-            string memory line = vm.readLine(path);
-            if (bytes(line).length == 0) {
-                break;
-            }
-            if (line.startsWith("# proxy:")) {
-                uint256 idx = line.indexOf("0x");
+        for (uint256 i = 0; i < lines.length; i++) {
+            if (lines[i].startsWith("# proxy:")) {
+                uint256 idx = lines[i].indexOf("0x");
                 if (idx != NOT_FOUND) {
-                    pool = vm.parseAddress(line.slice(idx, idx + 42));
+                    pool = vm.parseAddress(lines[i].slice(idx, idx + 42));
                 }
                 break;
             }
         }
-        vm.closeFile(path);
 
         if (pool == address(0)) {
             console.log("WARNING: no proxy address in %s - skipping", path);
@@ -92,10 +92,10 @@ contract FilterSpHolders is Script {
         uint256 commented = 0;
         string memory output = "";
 
-        while (true) {
-            string memory line = vm.readLine(path);
+        for (uint256 i = 0; i < lines.length; i++) {
+            string memory line = lines[i];
             if (bytes(line).length == 0) {
-                break;
+                continue; // blank line - carries no holder, and is not the end of the input
             }
             if (bytes(line)[0] == 0x23) {
                 output = string.concat(output, line, "\n");
@@ -110,7 +110,6 @@ contract FilterSpHolders is Script {
                 }
             }
         }
-        vm.closeFile(path);
 
         // Write filtered output to FILTERED_DIR using the same filename.
         uint256 slashIdx = path.lastIndexOf("/");

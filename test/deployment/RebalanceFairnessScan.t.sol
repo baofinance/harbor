@@ -282,8 +282,32 @@ contract RebalanceFairnessScan is RebalanceFairnessSetUp {
         daveWeekly = (_totalDollars(dave) - daveBefore) / 2;
     }
 
+    /// @dev Percentage by which `higher` exceeds `lower`, as a fraction of `higher` (18 decimals).
+    ///      Reports zero when there is nothing to measure against (`higher` is zero) or when
+    ///      `lower` is not actually lower.
     function _gapPct(uint256 higher, uint256 lower) internal pure returns (uint256) {
-        return higher > 0 ? ((higher - lower) * 100 ether) / higher : 0;
+        if (higher == 0 || lower >= higher) {
+            return 0;
+        }
+        return ((higher - lower) * 100 ether) / higher;
+    }
+
+    // ── Gap percentage helper ──────────────────────────────────────────
+
+    // _gapPct reports how far `lower` falls short of `higher`, as a percentage of `higher`.
+    function test_gapPctMeasuresShortfallAgainstHigher() public pure {
+        assertEq(_gapPct(200, 100), 50 ether, "half of higher");
+        assertEq(_gapPct(100, 75), 25 ether, "quarter of higher");
+        assertEq(_gapPct(100, 0), 100 ether, "all of higher");
+    }
+
+    // _gapPct reports no gap whenever there is no shortfall to measure: nothing to compare
+    // against (higher is zero), the two are equal, or the nominally-lower party is in fact ahead.
+    function test_gapPctIsZeroWhenThereIsNoShortfall() public pure {
+        assertEq(_gapPct(0, 0), 0, "both zero");
+        assertEq(_gapPct(0, 100), 0, "higher is zero");
+        assertEq(_gapPct(100, 100), 0, "equal");
+        assertEq(_gapPct(100, 101), 0, "lower exceeds higher");
     }
 
     // ── Test 1: Existing gap scan (no fee) ─────────────────────────────

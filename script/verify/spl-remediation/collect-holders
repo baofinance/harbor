@@ -25,7 +25,10 @@ PEGGED=0x7A53EBc85453DD006824084c4f4bE758FcF8a5B5     # haETH
 # First harbor deployment on mainnet (from deployment logs)
 START_BLOCK=24049000
 
-# Block used by RebalanceCheck fork tests
+# End block: defaults to latest, so reruns are NOT reproducible - the set grows as
+# new transfers land. Pass the block explicitly to reproduce a recorded holder set,
+# e.g. 24687073 (RebalanceCheck.t.sol's FORK_BLOCK) for the 42 addresses listed in
+# V2ReplaySimulation._initHolders.
 END_BLOCK=${1:-latest}
 
 fetch_holders() {

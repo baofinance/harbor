@@ -59,27 +59,24 @@ contract Deploy_Minter_v2_mainnet is
         console.log("Loaded state: %d implementations", state.implementations.length);
         state.baoFactory = baoFactory();
 
-        Config_MinterMarket[] memory markets;
+        // The config objects are script-side inputs: they are created so this script can read
+        // market parameters from them, and nothing on-chain refers to them. Create them outside
+        // the broadcast so they are not deployed as real transactions.
+        (, Config_MinterMarket[] memory btcMarkets) = createBTCMintersConfig();
+        (, Config_MinterMarket[] memory ethMarkets) = createETHMintersConfig();
+        (, Config_MinterMarket[] memory eurMarkets) = createEURMintersConfig();
+        (, Config_MinterMarket[] memory goldMarkets) = createGOLDMintersConfig();
+        (, Config_MinterMarket[] memory mcapMarkets) = createMCAPMintersConfig();
+        (, Config_MinterMarket[] memory silverMarkets) = createSILVERMintersConfig();
 
         vm.startBroadcast();
 
-        (, markets) = createBTCMintersConfig();
-        _doOneMinter(state, markets);
-
-        (, markets) = createETHMintersConfig();
-        _doOneMinter(state, markets);
-
-        (, markets) = createEURMintersConfig();
-        _doOneMinter(state, markets);
-
-        (, markets) = createGOLDMintersConfig();
-        _doOneMinter(state, markets);
-
-        (, markets) = createMCAPMintersConfig();
-        _doOneMinter(state, markets);
-
-        (, markets) = createSILVERMintersConfig();
-        _doOneMinter(state, markets);
+        _doOneMinter(state, btcMarkets);
+        _doOneMinter(state, ethMarkets);
+        _doOneMinter(state, eurMarkets);
+        _doOneMinter(state, goldMarkets);
+        _doOneMinter(state, mcapMarkets);
+        _doOneMinter(state, silverMarkets);
 
         vm.stopBroadcast();
 

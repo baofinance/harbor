@@ -203,7 +203,19 @@ for salt in "${SALTS[@]}"; do
   out_file="${OUT_DIR}/${salt}.txt"
   echo "  scanning ${salt} (${proxy})..." >&2
 
-  mapfile -t owners < <(fetch_owners "$proxy" | sort -uf)
+  # fetch_owners exits non-zero on an API/curl failure, but in a process substitution that exit
+  # cannot stop this script - mapfile would just record an empty list and the header-only file
+  # below would look like a pool with no holders. Capture the output and check the status first
+  # (pipefail makes the pipeline carry fetch_owners' failure past the successful sort), so a
+  # failed scan aborts before anything is written.
+  if ! owners_found=$(fetch_owners "$proxy" | sort -uf); then
+    echo "ERROR: holder discovery failed for ${salt} (${proxy}) - ${out_file} not written" >&2
+    exit 1
+  fi
+  owners=()
+  if [[ -n "$owners_found" ]]; then
+    mapfile -t owners <<<"$owners_found"
+  fi
 
   {
     echo "# Stability pool holders: ${salt}"

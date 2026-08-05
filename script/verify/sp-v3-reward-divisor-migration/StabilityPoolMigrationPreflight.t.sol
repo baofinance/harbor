@@ -181,16 +181,18 @@ contract StabilityPoolMigrationPreflight is
                 emptyNonZeroCount++;
                 console.log(string.concat("INCOMPLETE: ", saltKey, " has no captured holders but totalSupply > 0"));
             }
+        } else if (gap < 0) {
+            // Sum(balanceOf) > supply: a plain upgrade (divisor = supply) would over-credit. Seed this pool.
+            // Classified ahead of the stale-list check at any magnitude: a missing holder only shrinks the sum, so
+            // it can never drive the gap negative - a negative gap is always a seed case, never a stale list.
+            action = "seed";
+            negativeGapCount++;
+            console.log(string.concat("SEED REQUIRED: ", saltKey, " has a negative gap"));
         } else if (relGapPpb >= MAX_REL_GAP_PPB) {
             // The captured holders do not account for the supply: the list is stale, re-capture before migrating.
             action = "recapture";
             looseGapCount++;
             console.log(string.concat("INCOMPLETE: ", saltKey, " gap exceeds rounding level - holder list stale"));
-        } else if (gap < 0) {
-            // Sum(balanceOf) > supply: a plain upgrade (divisor = supply) would over-credit. Seed this pool.
-            action = "seed";
-            negativeGapCount++;
-            console.log(string.concat("SEED REQUIRED: ", saltKey, " has a negative gap"));
         } else {
             action = "plain";
         }

@@ -1,15 +1,15 @@
 #!/bin/bash
 # Wrapper script for running DeployMinters tests
 # Usage:
-#   script/test/test-deploy --list              # List all tests
-#   script/test/test-deploy BTC                 # Run test_BTC_mainnetFork_
-#   script/test/test-deploy test_BTC            # Run test_BTC_mainnetFork_
-#   script/test/test-deploy --list BTC          # List tests matching BTC
-#   script/test/test-deploy --list test_SILVER  # List tests matching test_SILVER
+#   script/verify/minter-v2-upgrade/test-deploy --list              # List all tests
+#   script/verify/minter-v2-upgrade/test-deploy BTC                 # Run test_BTC_mainnetFork_
+#   script/verify/minter-v2-upgrade/test-deploy test_BTC            # Run test_BTC_mainnetFork_
+#   script/verify/minter-v2-upgrade/test-deploy --list BTC          # List tests matching BTC
+#   script/verify/minter-v2-upgrade/test-deploy --list test_SILVER  # List tests matching test_SILVER
 
 set -e
 
-TEST_PATH="script/test/DeployMinters.t.sol"
+TEST_PATH="script/verify/minter-v2-upgrade/DeployMinters.t.sol"
 
 show_usage() {
   echo "Usage: $0 [--list] [test_name]"
