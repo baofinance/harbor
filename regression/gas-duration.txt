@@ -77,6 +77,7 @@ suite CPU (milliseconds)
 | test/Minter_mint.t.sol:TestMinterOverflow                                                                       |              4 | 0.00s  |
 | test/Minter_mintLeveraged.t.sol:TestMinterMintLeveraged                                                         |             88 | 0.09s  |
 | test/Minter_mintPegged.t.sol:TestMinterMintPegged                                                               |             82 | 0.08s  |
+| test/Minter_oracleZero.t.sol:MinterOracleZeroTest                                                               |            146 | 0.15s  |
 | test/Minter_redeemLeveraged.t.sol:TestMinterRedeemLeveraged                                                     |             50 | 0.05s  |
 | test/Minter_redeemPegged.t.sol:TestMinterRedeemPegged                                                           |             81 | 0.08s  |
 | test/Minter_slash.t.sol:MinterSlashTest                                                                         |              8 | 0.01s  |

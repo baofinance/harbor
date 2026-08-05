@@ -7,7 +7,7 @@ import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.sol";
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 
 /// @notice Harbor StabilityPoolManager deployment logic (including SPMFeeReceiver).
 /// @dev SPM coordinates the two stability pools per market.
@@ -40,9 +40,10 @@ abstract contract StabilityPoolManager is HarborDeployer {
     ///         operating parameters already set.
     /// @dev Takes the market config, not the contract's constructor arguments — this function is the only
     ///      place that splits those values across constructor, `initialize` calldata and setters.
-    ///      The four ratios stay setters on the contract deliberately: they are tuned on live markets by
+    ///      The ratios stay setters on the contract deliberately: they are tuned on live markets by
     ///      multisig batch (see `script/UpdateVolatility_*.s.sol`). What changes here is only that the
-    ///      deploy stack no longer performs the configuration.
+    ///      deploy stack no longer performs the configuration. The harvest bounty and cut are set as one
+    ///      pair, which is the only way to set either - see `updateHarvestRatios`.
     function deployStabilityPoolManager(
         DeploymentTypes.State memory stateData,
         Config_MinterMarket marketConfig
@@ -63,10 +64,9 @@ abstract contract StabilityPoolManager is HarborDeployer {
 
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
 
-        IStabilityPoolManager(proxy).updateRebalanceThreshold(cfg.rebalanceThreshold());
-        IStabilityPoolManager(proxy).updateRebalanceBountyRatio(cfg.rebalanceBountyRatio());
-        IStabilityPoolManager(proxy).updateHarvestBountyRatio(cfg.harvestBountyRatio());
-        IStabilityPoolManager(proxy).updateHarvestCutRatio(cfg.harvestCutRatio());
-        IStabilityPoolManager(proxy).updateFeeReceiver(treasury());
+        IStabilityPoolManager_v2(proxy).updateRebalanceThreshold(cfg.rebalanceThreshold());
+        IStabilityPoolManager_v2(proxy).updateRebalanceBountyRatio(cfg.rebalanceBountyRatio());
+        IStabilityPoolManager_v2(proxy).updateHarvestRatios(cfg.harvestBountyRatio(), cfg.harvestCutRatio());
+        IStabilityPoolManager_v2(proxy).updateFeeReceiver(treasury());
     }
 }

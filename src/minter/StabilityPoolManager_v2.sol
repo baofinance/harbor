@@ -14,7 +14,6 @@ import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 import {TokenHolder_v2, ITokenHolder} from "@bao/TokenHolder_v2.sol";
 import {Token} from "@bao/Token.sol";
 
-import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
 import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPool_v3} from "@harbor/interfaces/IStabilityPool_v3.sol";
@@ -159,7 +158,7 @@ contract StabilityPoolManager_v2 is
         bytes4 interfaceId
     ) public view virtual override(HarborOwnableRoles, ERC165Upgradeable) returns (bool) {
         return
-            interfaceId == type(IStabilityPoolManager).interfaceId ||
+            interfaceId == type(IStabilityPoolManager_v2).interfaceId ||
             interfaceId == type(IYieldVaultManager).interfaceId ||
             interfaceId == type(ITokenHolder).interfaceId ||
             super.supportsInterface(interfaceId);
@@ -169,19 +168,19 @@ contract StabilityPoolManager_v2 is
      * Public View Functions *
      *************************/
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function stabilityPools() external view returns (address[] memory pools) {
         pools = new address[](2);
         pools[0] = _STABILITY_POOL_COLLATERAL;
         pools[1] = _STABILITY_POOL_LEVERAGED;
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function hasStabilityPool(address stabilityPool) external view returns (bool) {
         return (_STABILITY_POOL_COLLATERAL == stabilityPool) || _STABILITY_POOL_LEVERAGED == stabilityPool;
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function harvestable() external view returns (uint256) {
         return IMinter_v3(MINTER).harvestable();
     }
@@ -194,36 +193,36 @@ contract StabilityPoolManager_v2 is
         rebalanceable_ = collateralRatio < rebalanceThreshold_;
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function rebalanceable() external view returns (bool rebalanceable_) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         rebalanceable_ = _rebalanceable(IMinter_v3(MINTER).collateralRatio(), $.rebalanceThreshold);
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function harvestBountyRatio() external view returns (uint256 harvestBountyRatio_) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         harvestBountyRatio_ = $.harvestBountyRatio;
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function harvestCutRatio() external view returns (uint256 harvestCutRatio_) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         harvestCutRatio_ = $.harvestCutRatio;
     }
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function rebalanceBountyRatio() external view returns (uint256 rebalanceBountyRatio_) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         rebalanceBountyRatio_ = $.rebalanceBountyRatio;
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function rebalanceThreshold() external view returns (uint256) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         return $.rebalanceThreshold;
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function feeReceiver() external view override returns (address) {
         StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
         return $.feeReceiver;
@@ -274,7 +273,7 @@ contract StabilityPoolManager_v2 is
         emit RebalanceThresholdUpdated(newRatio);
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     function updateRebalanceBountyRatio(uint256 rebalanceRatio_) external onlyOwner {
         if (rebalanceRatio_ > 1 ether) {
             revert InvalidRebalanceBountyRatio(rebalanceRatio_);
@@ -285,32 +284,31 @@ contract StabilityPoolManager_v2 is
         emit RebalanceBountyUpdated(rebalanceRatio_);
     }
 
-    /// @inheritdoc IStabilityPoolManager
-    function updateHarvestBountyRatio(uint256 harvestRatio_) external onlyOwner {
-        if (harvestRatio_ > 1 ether) {
-            revert InvalidHarvestBountyRatio(harvestRatio_);
+    /// @inheritdoc IStabilityPoolManager_v2
+    function updateHarvestRatios(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) public onlyOwner {
+        // Each ratio is bounded on its own first, so the one that is out of range is the one reported and the sum
+        // below cannot wrap. The pair is written whole, so there is no moment at which the stored pair is a split
+        // harvest cannot make.
+        if (harvestBountyRatio_ > 1 ether) {
+            revert InvalidHarvestBountyRatio(harvestBountyRatio_);
         }
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        if (harvestRatio_ + $.harvestCutRatio > 1 ether) {
-            revert InvalidHarvestRatioSum(harvestRatio_, $.harvestCutRatio);
-        }
-        $.harvestBountyRatio = harvestRatio_;
-
-        emit HarvestBountyUpdated(harvestRatio_);
-    }
-
-    /// @inheritdoc IStabilityPoolManager
-    function updateHarvestCutRatio(uint256 harvestCutRatio_) external onlyOwner {
         if (harvestCutRatio_ > 1 ether) {
             revert InvalidHarvestBountyRatio(harvestCutRatio_);
         }
-        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
-        if ($.harvestBountyRatio + harvestCutRatio_ > 1 ether) {
-            revert InvalidHarvestRatioSum($.harvestBountyRatio, harvestCutRatio_);
+        if (harvestBountyRatio_ + harvestCutRatio_ > 1 ether) {
+            revert InvalidHarvestRatioSum(harvestBountyRatio_, harvestCutRatio_);
         }
+        StabilityPoolManagerStorage storage $ = _getStabilityPoolManagerStorage();
+        $.harvestBountyRatio = harvestBountyRatio_;
         $.harvestCutRatio = harvestCutRatio_;
 
+        emit HarvestBountyUpdated(harvestBountyRatio_);
         emit HarvestCutUpdated(harvestCutRatio_);
+    }
+
+    /// @inheritdoc IStabilityPoolManager_v2
+    function initializeV2(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) external reinitializer(2) {
+        updateHarvestRatios(harvestBountyRatio_, harvestCutRatio_);
     }
 
     function updateFeeReceiver(address feeReceiver_) external override onlyOwner {
@@ -351,7 +349,7 @@ contract StabilityPoolManager_v2 is
         }
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     // slither-disable-next-line reentrancy-no-eth
     function rebalance(
         address bountyReceiver,
@@ -523,7 +521,7 @@ contract StabilityPoolManager_v2 is
         }
     }
 
-    /// @inheritdoc IStabilityPoolManager
+    /// @inheritdoc IStabilityPoolManager_v2
     // slither-disable-next-line reentrancy-no-eth
     function harvest(address bountyReceiver, uint256 minBounty) external nonReentrant returns (uint256 harvested) {
         if (bountyReceiver == address(0)) {

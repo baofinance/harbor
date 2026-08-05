@@ -11,6 +11,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IStabilityPoolManager} from "@harbor/interfaces/IStabilityPoolManager.sol";
+import {IStabilityPoolManager_v2} from "@harbor/interfaces/IStabilityPoolManager_v2.sol";
 import {IMultipleRewardAccumulator_v3 as IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator_v3.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
@@ -91,8 +92,7 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array, HarborTest
 
         // Override harvest config: set cut to 0 so harvest goes to pools, not treasury
         vm.startPrank(IBaoOwnable(stabilityPoolManager).owner());
-        IStabilityPoolManager(stabilityPoolManager).updateHarvestCutRatio(0);
-        IStabilityPoolManager(stabilityPoolManager).updateHarvestBountyRatio(0);
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0, 0);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0);
         vm.stopPrank();
 

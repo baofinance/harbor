@@ -46,14 +46,14 @@
 | src/minter/Genesis_v2.sol                                                   | X  94% (87/93)     | X  94% (87/93)     | ✓ 100% (14/14)   | X  85% (11/13)    |
 | src/minter/Minter_v1.sol                                                    | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
 | src/minter/Minter_v2.sol                                                    | X   0% (0/601)     | X   0% (0/649)     | X   0% (0/102)   | X   0% (0/68)     |
-| src/minter/Minter_v3.sol                                                    | X  98% (615/625)   | X  99% (675/684)   | X  92% (97/106)  | X  99% (70/71)    |
+| src/minter/Minter_v3.sol                                                    | X  99% (626/635)   | X  99% (683/691)   | X  92% (98/106)  | X  99% (74/75)    |
 | src/minter/ReservePool_v1.sol                                               | X  75% (12/16)     | X  67% (10/15)     | X  67% (2/3)     | X  60% (3/5)      |
 | src/minter/ReservePool_v2.sol                                               | X  95% (18/19)     | ✓ 100% (17/17)     | ✓ 100% (3/3)     | X  80% (4/5)      |
 | src/minter/StabilityPoolManager_v1.sol                                      | X   0% (0/166)     | X   0% (0/177)     | X   0% (0/21)    | X   0% (0/24)     |
 | src/minter/StabilityPoolManager_v2.sol                                      | X  98% (224/228)   | X  98% (244/248)   | X  89% (33/37)   | ✓ 100% (31/31)    |
 | src/minter/StabilityPool_v1.sol                                             | X   0% (0/203)     | X   0% (0/223)     | X   0% (0/33)    | X   0% (0/22)     |
 | src/minter/StabilityPool_v2.sol                                             | X  61% (122/199)   | X  58% (127/219)   | X  19% (6/31)    | X  73% (16/22)    |
-| src/minter/StabilityPool_v3.sol                                             | ✓ 100% (256/256)   | ✓ 100% (271/271)   | ✓ 100% (31/31)   | ✓ 100% (35/35)    |
+| src/minter/StabilityPool_v3.sol                                             | ✓ 100% (256/256)   | ✓ 100% (272/272)   | ✓ 100% (31/31)   | ✓ 100% (35/35)    |
 | src/minter/TokenDistributor_v1.sol                                          | X  96% (94/98)     | X  97% (112/116)   | X  77% (10/13)   | X  93% (14/15)    |
 | src/minter/library/ConfigIncentiveLib.sol                                   | ✓ 100% (24/24)     | ✓ 100% (17/17)     | ✓ 100% (2/2)     | ✓ 100% (9/9)      |
 | src/minter/library/Config_v1.sol                                            | X   0% (0/79)      | X   0% (0/95)      | X   0% (0/20)    | X   0% (0/6)      |
@@ -69,4 +69,4 @@
 | src/util/ERC20MetadataLib_v1.sol                                            | ✓ 100% (24/24)     | ✓ 100% (22/22)     | ✓ 100% (4/4)     | ✓ 100% (4/4)      |
 | src/util/FmtLib.sol                                                         | X  89% (17/19)     | X  92% (24/26)     | X  75% (3/4)     | ✓ 100% (1/1)      |
 | src/util/WordCodec.sol                                                      | ✓ 100% (15/15)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (4/4)      |
-| Total                                                                       | X  58% (5001/8685) | X  57% (5309/9298) | X  44% (416/956) | X  58% (760/1320) |
+| Total                                                                       | X  58% (5014/8695) | X  57% (5319/9306) | X  44% (417/956) | X  58% (765/1324) |
