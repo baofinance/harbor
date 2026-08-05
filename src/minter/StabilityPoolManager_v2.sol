@@ -285,7 +285,7 @@ contract StabilityPoolManager_v2 is
     }
 
     /// @inheritdoc IStabilityPoolManager_v2
-    function updateHarvestRatios(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) public onlyOwner {
+    function updateHarvestRatios(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) external onlyOwner {
         // Each ratio is bounded on its own first, so the one that is out of range is the one reported and the sum
         // below cannot wrap. The pair is written whole, so there is no moment at which the stored pair is a split
         // harvest cannot make.
@@ -304,11 +304,6 @@ contract StabilityPoolManager_v2 is
 
         emit HarvestBountyUpdated(harvestBountyRatio_);
         emit HarvestCutUpdated(harvestCutRatio_);
-    }
-
-    /// @inheritdoc IStabilityPoolManager_v2
-    function initializeV2(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) external reinitializer(2) {
-        updateHarvestRatios(harvestBountyRatio_, harvestCutRatio_);
     }
 
     function updateFeeReceiver(address feeReceiver_) external override onlyOwner {

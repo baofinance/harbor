@@ -104,12 +104,4 @@ interface IStabilityPoolManager_v2 {
     /// @param harvestCutRatio_ The share of the harvest gross paid to the cut receiver. The two must sum within 100%;
     ///        what is left of the gross is what is streamed to the stability pools.
     function updateHarvestRatios(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) external;
-
-    /// @notice Set the harvest ratio pair while upgrading a proxy that was configured before the two were validated
-    ///         as a pair, so that the ratios the market is upgraded onto are its configured ones.
-    /// @dev Runs as the `upgradeToAndCall` data, so the migration and the upgrade are one transaction: a proxy whose
-    ///      stored pair sums above 100% has no harvest until the pair is valid. Runs once per proxy, owner only.
-    /// @param harvestBountyRatio_ The configured harvest bounty ratio (see `updateHarvestRatios`).
-    /// @param harvestCutRatio_ The configured harvest cut ratio (see `updateHarvestRatios`).
-    function initializeV2(uint256 harvestBountyRatio_, uint256 harvestCutRatio_) external;
 }

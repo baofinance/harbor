@@ -343,28 +343,6 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "migrated bounty ratio");
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(), 0.99 ether, "migrated cut ratio");
     }
-
-    // The upgrade-time entry to the pair setter: owner only, the same pair validation, and once per proxy.
-    function test_initializeV2() public {
-        _storeHarvestRatios(0.01 ether, 1 ether);
-
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IStabilityPoolManager_v2(stabilityPoolManager).initializeV2(0.01 ether, 0.99 ether);
-
-        vm.startPrank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(IStabilityPoolManager_v2.InvalidHarvestRatioSum.selector, 0.02 ether, 0.99 ether)
-        );
-        IStabilityPoolManager_v2(stabilityPoolManager).initializeV2(0.02 ether, 0.99 ether);
-
-        IStabilityPoolManager_v2(stabilityPoolManager).initializeV2(0.01 ether, 0.99 ether);
-        assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "migrated bounty ratio");
-        assertEq(IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(), 0.99 ether, "migrated cut ratio");
-
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
-        IStabilityPoolManager_v2(stabilityPoolManager).initializeV2(0.02 ether, 0.9 ether);
-        vm.stopPrank();
-    }
 }
 
 struct Balances {
@@ -1368,10 +1346,10 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         );
     }
 
-    // A stored ratio pair summing above 100% leaves no gross for harvest to split, so the market has no harvest until
-    // the pair is migrated; upgrading with initializeV2 writes the configured pair and harvest splits by it. The pools
-    // hold nothing here, so the whole gross is the treasury's, taken as the bounty and cut floors.
-    function test_harvestAfterRatioPairMigration_() public {
+    // A stored ratio pair summing above 100% describes a split that does not exist, so the market has no harvest
+    // until the pair is repaired - which the pair setter does from any stored pair, whereupon harvest splits the
+    // gross by it. The pools hold nothing here, so the whole gross is the treasury's, taken as the two fee floors.
+    function test_harvestAfterRatioPairRepair_() public {
         _storeHarvestRatios(0.01 ether, 1 ether);
 
         vm.startPrank(harvester);
@@ -1379,17 +1357,11 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
 
-        address newImplementation = address(
-            new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)
-        );
         vm.startPrank(owner);
-        UUPSUpgradeable(stabilityPoolManager).upgradeToAndCall(
-            newImplementation,
-            abi.encodeCall(IStabilityPoolManager_v2.initializeV2, (0.01 ether, 0.99 ether))
-        );
+        IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
         vm.stopPrank();
-        assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "migrated bounty ratio");
-        assertEq(IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(), 0.99 ether, "migrated cut ratio");
+        assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "repaired bounty ratio");
+        assertEq(IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(), 0.99 ether, "repaired cut ratio");
 
         uint256 harvestableBefore = IMinter(minter).harvestable();
         vm.startPrank(harvester);
@@ -1398,7 +1370,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         assertEq(
             harvested,
             (harvestableBefore * 0.01 ether) / 1 ether + (harvestableBefore * 0.99 ether) / 1 ether,
-            "harvest splits the gross by the migrated pair"
+            "harvest splits the gross by the repaired pair"
         );
     }
 

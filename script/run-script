@@ -164,11 +164,15 @@ FORGE_ARGS=(--rpc-url "$RPC_URL")
 
 # ── Account / signer ─────────────────────────────────────────────────────
 
-if [[ "$USE_LOCAL" == true && -n "$ACCOUNT" ]]; then
-  FORGE_ARGS+=(--account "$ACCOUNT" --unlocked)
-elif [[ "$USE_LOCAL" == true ]]; then
-  FORGE_ARGS+=(--unlocked --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
-elif [[ -n "$ACCOUNT" ]]; then
+if [[ "$USE_LOCAL" == true ]]; then
+  FORGE_ARGS+=(--unlocked)
+  if [[ -z "$ACCOUNT" ]]; then
+    FORGE_ARGS+=(--sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+  fi
+  cast rpc anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0xDE0B6B3A7640000 --rpc-url local
+  cast balance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 --rpc-url local
+fi
+if [[ -n "$ACCOUNT" ]]; then
   FORGE_ARGS+=(--account "$ACCOUNT")
 fi
 

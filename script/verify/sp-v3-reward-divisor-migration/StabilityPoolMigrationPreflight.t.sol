@@ -69,6 +69,17 @@ contract StabilityPoolMigrationPreflight is
     uint256 internal emptyNonZeroCount; // no-holder pools with supply > 0 (holder list missed depositors)
     uint256 internal looseGapCount; // holder pools whose gap exceeds rounding level (holder list stale)
     uint256 internal overCeilingCount; // pools whose supply exceeds the ceiling v3 will enforce (need a MIN re-base)
+    uint256 internal historicalTokenCount; // reward tokens ever unregistered, across all pools (expected: 0)
+    uint256 internal claimDataPairsToCopy; // (holder, token) pairs whose V2 ClaimData must be copied to V3
+    uint256 internal claimDataPairsAlreadyV3; // pairs already carrying V3 data (a re-run would skip them)
+
+    /// @dev The accumulator's ERC-7201 namespace, and the member offsets of the two per-user snapshot mappings within
+    ///      it. V2 and V3 agree on the first four members, so `userRewardSnapshotV2` sits at offset 3 under both; V3
+    ///      adds its widened mapping at offset 4. Read directly because the live V2 pool exposes no getter for the
+    ///      checkpoint `integral` - and the integral is the field that MUST be copied (see `_censusClaimData`).
+    bytes32 internal constant _ACCUMULATOR_STORAGE = 0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
+    uint256 internal constant _SNAPSHOT_V2_OFFSET = 3;
+    uint256 internal constant _SNAPSHOT_V3_OFFSET = 4;
 
     /// @dev The supply ceiling StabilityPool_v3 derives from a pool's floor, mirroring the v3 constructor: the mirror
     ///      of the floor, saturated at the supply field width above which a larger ceiling is unreachable. Migration
