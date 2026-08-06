@@ -9,7 +9,6 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {StabilityPool_v3} from "@harbor/minter/StabilityPool_v3.sol";
-import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";

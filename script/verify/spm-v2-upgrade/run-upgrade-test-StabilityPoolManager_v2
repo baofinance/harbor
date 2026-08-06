@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Verify the StabilityPoolManager v1 -> v2 upgrade against live mainnet state.
+#
+# Unlike the StabilityPool and Minter upgrade verifications, this one needs no anvil instance and no prior
+# deploy run: the test forks mainnet at a pinned block and performs the upgrade itself, because there is no
+# StabilityPoolManager v2 upgrade script yet. It needs MAINNET_RPC_URL, nothing else.
+#
+# Usage:
+#   run-upgrade-test-StabilityPoolManager_v2              # run every check
+#   run-upgrade-test-StabilityPoolManager_v2 --list       # list the checks
+#   run-upgrade-test-StabilityPoolManager_v2 Harvest      # run the checks matching a name
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/../../.."
+
+TEST_PATH="script/verify/spm-v2-upgrade/StabilityPoolManagerUpgradeTest.t.sol"
+FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
+
+if [[ "${1:-}" == "--list" || "${1:-}" == "-l" ]]; then
+  forge test --mp "$TEST_PATH" --list
+elif [[ -n "${1:-}" ]]; then
+  forge test --mp "$TEST_PATH" --mt "$1" $FORGE_VERBOSITY
+else
+  forge test --mp "$TEST_PATH" $FORGE_VERBOSITY
+fi

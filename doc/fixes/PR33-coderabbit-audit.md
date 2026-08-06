@@ -43,17 +43,18 @@ deliberately declined. A ❌ marks one that is still outstanding.
 | Area | Total | ✅ done | ❌ open | ❌ decide | ✅ false-positive | ✅ duplicate | ✅ won't-fix |
 |---|---|---|---|---|---|---|---|
 | src | 4 | 3 | – | – | – | – | 1 |
-| test | 6 | 1 | 2 | 1 | 2 | – | – |
-| config | 10 | 1 | 4 | 2 | – | 1 | 2 |
-| script (live) | 5 | 3 | 1 | – | – | 1 | – |
+| test | 6 | 3 | – | 1 | 2 | – | – |
+| config | 10 | 2 | 2 | 2 | 1 | 1 | 2 |
+| script (live) | 5 | 4 | – | – | – | 1 | – |
 | script (archive) | 20 | 4 | – | – | – | 3 | 13 |
 | doc | 25 | 1 | – | 5 | – | 5 | 14 |
-| **Total** | **70** | **13** | **7** | **8** | **2** | **10** | **30** |
+| **Total** | **70** | **17** | **2** | **8** | **3** | **10** | **30** |
 
-**15 findings are outstanding** — the 7 open and the 8 needing a decision. The other 55 need
-no further work. **No contract code remains outstanding**: all four `src/` findings are
-resolved. Each outstanding finding has CodeRabbit's own fix prompt reproduced in the appendix,
-so any one of them can be handed to a fresh session on its own.
+**10 findings are outstanding** — the 2 open and the 8 needing a decision. The other 60 need
+no further work. **No contract, test, or script findings remain outstanding**: the only open
+items are two CI/environment ones, and the rest are decisions. Each outstanding finding has
+CodeRabbit's own fix prompt reproduced in the appendix, so any one of them can be handed to a
+fresh session on its own.
 
 ---
 
@@ -63,7 +64,7 @@ so any one of them can be handed to a fresh session on its own.
 |---|---|---|---|
 | `41193653` | `Minter_v3.sol:2038-2061` | Oracle fetch helpers declare `ZeroOraclePrice`/`InvalidOracle` but never perform the check | ✅ **done** — `2e06a58`; `_fetchOracle` now reverts `ZeroOraclePrice`/`ZeroOracleRate`, callers routed through `_fetchMidPrice`/`_fetchMinRate` |
 | `ecc6d23f` | `StabilityPool_v3.sol:616-622` | Unchecked signed↔unsigned casts around `rewardDivisorGap`, three sites | ✅ **done** — `17ec549`; all three now use `SafeCast` |
-| `39f62036` | `StabilityPoolManager_v2.sol:534` | No sum check or migration for legacy ratios before `residualRatio` is computed | ✅ **won't-fix** — `def46d7` fixed the setter half (`updateHarvestRatios` enforces `bounty + cut <= 1e18` atomically, replacing two independently-validated setters that could drift). A runtime guard in `harvest()` is not needed: every existing deployment has been verified compliant with those bounds, so the underflow state is unreachable. The residual risk is that a ratio changes between that verification and the deploy script running — which is a **deployment-time check, not a contract change**. Tracked separately as a deployment-checker requirement; see A.8 in the plan |
+| `39f62036` | `StabilityPoolManager_v2.sol:534` | No sum check or migration for legacy ratios before `residualRatio` is computed | ✅ **won't-fix** — `def46d7` fixed the setter half (`updateHarvestRatios` enforces `bounty + cut <= 1e18` atomically, replacing two independently-validated setters that could drift). A runtime guard in `harvest()` is not needed: every existing deployment has been verified compliant with those bounds, so the underflow state is unreachable. The residual risk is that a ratio changes between that verification and the deploy script running — which is a **deployment-time check, not a contract change**. Tracked separately as a deployment-checker requirement, owned by another conversation |
 | `43738187` | `Minter_v3.sol:753-765` | Capped mint returns `(0, 0)` without honouring `minPeggedOut` | ✅ **done** — the capped path now returns `(0, 0)` only when `minPeggedOut` is zero; otherwise it falls through to the existing `MintInsufficientAmount` check, which a zero output can only fail. Reusing that one revert site rather than adding a second kept the cost to **7 bytes** (margin 134 → 127). The contradicting docstring on `IMinter_v3.mintPeggedToken` was corrected, and the implementation's duplicate copy of it replaced with `@inheritdoc`. Covered by `test_mintPegged_feeCappedStillHonoursMinPeggedOut` (confirmed failing before the fix) and `test_mintPegged_feeCappedReturnsZeroWhenNoMinimumDemanded`, which pins the graceful zero for `minPeggedOut == 0` — the capped overload previously had no tests at all |
 
 ## test (6)
@@ -73,8 +74,8 @@ so any one of them can be handed to a fresh session on its own.
 | `9cc381b9` | `RebalanceFairnessScan.t.sol:285-287` | `_gapPct` underflows when `lower > higher` | ✅ **done** — `ad70356`; helper now clamps `lower >= higher` to 0, so every call site is safe |
 | `4d347ef0` | `Genesis.t.sol:234-244` | `test_nullGenesis` calls `endGenesis` without granting `zeroFeeRole`, so it will revert | ✅ **false-positive** — `test_nullGenesis` passes. A null genesis has nothing to mint, so the Minter's zero-fee path is never reached |
 | `cd76dc8c` | `StabilityPoolEnvelope.t.sol:619-630` | `test_widthCorner_depositBeyondUint128Reverts` lacks the supply-cap guard its siblings have; the cap should bind first on `ethScale`/`eurScale` | ✅ **false-positive** — the test passes on all 13 market configurations, including the two named |
-| `2154e67c` | `IMockMultipleRewardCompoundingAccumulator.sol:18-27` | `userRewardSnapshot` widening not propagated to the mock interface | ❌ **open** — confirmed real. Interface line 35 still declares `uint128 pending, uint128 claimed_`; `MockMultipleRewardCompoundingAccumulator_v3.sol:76` returns `uint256`. Decoding v3 values through the shared interface truncates |
-| `4eefe8f5` | `Rebalance.t.sol:10-12` | Duplicate `IStabilityPool` import | ❌ **open** — the duplicate is real (lines 10 and 12). CodeRabbit's stated consequence is wrong: Solidity accepts a repeated identical import, and the repo compiles. Cosmetic cleanup, not a build break |
+| `2154e67c` | `IMockMultipleRewardCompoundingAccumulator.sol:18-27` | `userRewardSnapshot` widening not propagated to the mock interface | ✅ **done** — `pending`/`claimed_` widened to `uint256` to match the v3 accumulator. Widening made the compiler name the two places the truncation was actually reached, `MultipleRewardCompoundingAccumulator.t.sol:883` and `:927`, both of which declared `uint128` receivers; both now read `uint256`. The reverse direction is lossless (a v2 mock's `uint128` return is ABI-padded to 32 bytes), so the v2 mock needs no change. 31 accumulator tests pass |
+| `4eefe8f5` | `Rebalance.t.sol:10-12` | Duplicate `IStabilityPool` import | ✅ **done** — duplicate removed. CodeRabbit's stated consequence was wrong (Solidity accepts a repeated identical import and the repo compiled), so this was cosmetic, not a build break |
 | `7560604f` | `LinearMultipleRewardDistributor.t.sol:31-40` | Suite only instantiates the v3 mock, so `LinearMultipleRewardDistributor_v2` is unexercised | ❌ **decide** — confirmed: the factory returns only `MockLinearMultipleRewardDistributor_v3`. Whether this matters depends on whether v2 is still a supported deployment target |
 
 ## config (10)
@@ -84,9 +85,9 @@ so any one of them can be handed to a fresh session on its own.
 | `2ec5976e` | `.claude/settings.json:7-9` | Allowlist exposes other local repos and `~/.claude/**` | ✅ **done** — `2b3bdeb`; `Read(//home/tfras/github/baofinance/**)` removed, `Read(//home/tfras/.claude/**)` narrowed to `plans/**` and this project's directory |
 | `5b4d32ae` | `.claude/settings.json:7` | CWE-732: constrain permissions to minimum scope | ✅ **duplicate** of `2ec5976e` |
 | `87c9d0d1` | `.claude/settings.json:22` | Remove the `~/.claude/plans` git allow rules | ✅ **won't-fix** — `lib/bao-base/CLAUDE.md` *requires* committing to the plan repo after every plan update ("you own its git, and committing there is required"). Removing the rule would break the documented working mode. The remaining rule is already an exact command with a fixed argument, which is what the sibling finding asked for |
-| `ea436f80` | `.claude/settings.local.json:6` | `Bash(chmod:*)` grants chmod on any path | ❌ **open** — still present. Note this file is git-tracked, so a machine-local allowlist is being shipped and reviewed; worth deciding whether it should be tracked at all |
+| `ea436f80` | `.claude/settings.local.json:6` | `Bash(chmod:*)` grants chmod on any path | ✅ **done** — rule removed, so chmod now requires approval. Removing rather than narrowing avoids guessing a scope: a rule can be re-added against a real path if one proves necessary. Whether this machine-local file should be git-tracked at all remains an open question, carried in the plan |
 | `0a5116c7` | `CI-test-foundry-stable.yml:40-41` | Audited-source verification step removed before invoking the submodule action | ❌ **open** — still absent; the workflow calls `./lib/bao-base/.github/actions/test-foundry` with no preceding integrity check |
-| `077b539f` | `foundry.toml:70` | `read-write` granted on the git-tracked holder-input directory | ❌ **open** — still `read-write` on `./script/Migrate_StabilityPool_v2_Data_mainnet` |
+| `077b539f` | `foundry.toml:70` | `read-write` granted on the git-tracked holder-input directory | ✅ **false-positive** — the premise is wrong. That directory holds the *filtered output* of `FilterSpHolders.s.sol`, not its input: inputs are read from the untracked `tmp/sp-holders` ([FilterSpHolders.s.sol:48](../../script/Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol#L48)) and the results written back to the tracked directory, which is git-tracked *deliberately* — "the filtered files are git-tracked: they form the auditable record of which holders were included in the migration batch and which were skipped" (lines 19-21). Write access is required by design; both prescribed remedies would break it — read-only stops `run()` writing at all, and relocating the output to `./tmp` destroys the audit record that tracking exists to preserve |
 | `23d31d75` | `pyproject.toml:7` | Wake used but not declared | ❌ **open** — dependencies are still `mamushi` + `vyper` only. Separately, `requires-python = "==3.10.*"` conflicts with the pinned 3.13 that bao-base tooling expects |
 | `04f01408` | `scripts/deploy.py:3-6` | Literal `ENTER_NODE_URL_HERE` placeholder committed | ❌ **decide** — still present. `scripts/` contains only this file and `__init__.py`, and nothing in the repo references either. Deleting the directory resolves the finding and matches the "fix or remove" rule; confirm it is genuinely dead first |
 | `56e24c6a` | `regression/coverage.txt:3` | `ForceMigrateAccumulator_v1.sol` 0%, `HarborDeployStack.sol` 75%, `HarborDeployer.sol` 53% | ❌ **decide** — unchanged. Whether deploy-script coverage is worth the test cost is a judgement call |
@@ -100,7 +101,7 @@ so any one of them can be handed to a fresh session on its own.
 | `174b8161` | `FilterSpHolders.s.sol:95-112` | `vm.readLine` returns `""` for both a blank line and EOF, silently truncating the holder list | ✅ **done** — now reads whole-file and splits on `\n` |
 | `c1b76166` | `capture-sp-holders:206` | `mapfile` ignores process-substitution exit status, so a partial holder file can be written | ✅ **done** — `fetch_owners` output is now captured and its status checked (`if ! owners_found=$(...)`) before `mapfile` |
 | `25e7819e` | `capture-sp-holders:206` | Same, phrased as owner discovery | ✅ **duplicate** of `c1b76166` |
-| `bd238ceb` | `capture-sp-holders:206` | Same, and asks for the checked-producer pattern on `mapfile -t SALTS < <(pool_salts)` too | ❌ **open (partial)** — the `fetch_owners` half is done; line 170 is still an unchecked `mapfile -t SALTS < <(pool_salts)` |
+| `bd238ceb` | `capture-sp-holders:206` | Same, and asks for the checked-producer pattern on `mapfile -t SALTS < <(pool_salts)` too | ✅ **done** — the `fetch_owners` half was already fixed; `SALTS` now uses the same capture-check-load pattern, so a failed state-file read aborts instead of reporting "0 stability pools". Doing so exposed a second defect: under `set -euo pipefail` the trailing `grep` in `pool_salts` returns 1 when nothing matches, which the new check could not distinguish from a real failure — the grep now admits no-match as the empty result it is while still propagating grep's error status 2. Verified against four cases: normal, no matching pools, malformed state file, missing state file |
 
 ## script — spent one-off migration artefacts (20)
 
@@ -185,7 +186,7 @@ about the system wearing a documentation disguise.
 
 ---
 
-## Appendix — fix prompts for the 15 outstanding findings
+## Appendix — fix prompts for the 10 outstanding findings
 
 CodeRabbit generated a "Prompt for AI Agents" alongside each finding. They are reproduced
 verbatim below so that any one finding can be handed to a fresh session without re-reading the
@@ -200,35 +201,6 @@ finding against current code first; that instruction is the useful part, and it 
 
 ### ❌ open
 
-#### `2154e67c` — `IMockMultipleRewardCompoundingAccumulator.sol:18-27`, snapshot width
-
-```
-In `@test/mocks/IMockMultipleRewardCompoundingAccumulator.sol` around lines 18 -
-27, Update userRewardSnapshot in
-test/mocks/IMockMultipleRewardCompoundingAccumulator.sol (lines 18-27) to
-declare pending and claimed_ as uint256, matching the v3 implementation. Do not
-change userRewardSnapshot in
-test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol
-(lines 73-83); it already has the correct uint256 returns.
-```
-
-#### `4eefe8f5` — `Rebalance.t.sol:10-12`, duplicate import
-
-```
-In `@test/Rebalance.t.sol` around lines 10 - 12, Remove the duplicate
-IStabilityPool import in Rebalance.t.sol, keeping a single import from
-`@harbor/interfaces/IStabilityPool.sol` alongside the StabilityPool_v3 import.
-```
-
-#### `ea436f80` — `.claude/settings.local.json:6`, unscoped `chmod`
-
-```
-In @.claude/settings.local.json at line 6, Update the permissions configuration
-containing the Bash allow rules to remove Bash(chmod:*) or replace it with a
-narrowly scoped exact path/pattern; require approval for other chmod operations
-and preserve only the minimum necessary permission.
-```
-
 #### `0a5116c7` — `CI-test-foundry-stable.yml:40-41`, missing integrity check
 
 ```
@@ -238,16 +210,6 @@ CI actions" step in the workflow. Ensure it validates both audited source
 contents and the expected lib/bao-base submodule revision, failing the job
 before invoking ./lib/bao-base/.github/actions/test-foundry when either differs
 unexpectedly.
-```
-
-#### `077b539f` — `foundry.toml:70`, writable migration inputs
-
-```
-In `@foundry.toml` at line 70, Update the Foundry filesystem permission entry for
-./script/Migrate_StabilityPool_v2_Data_mainnet to read-only so tracked migration
-inputs cannot be modified; if generated outputs require write access, relocate
-them to an ignored directory such as ./tmp or grant access only to specific
-output files.
 ```
 
 #### `23d31d75` — `pyproject.toml:7`, Wake undeclared
@@ -261,19 +223,6 @@ resolve in the project environment.
 
 The prompt covers only half the problem: `requires-python = "==3.10.*"` also conflicts with
 the pinned 3.13 the bao-base tooling expects. Resolve both together.
-
-#### `bd238ceb` — `capture-sp-holders:206`, unchecked `mapfile` producer
-
-```
-In `@script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders` at line 206,
-Update the owner-loading flow around fetch_owners to write its sorted output to
-a temporary file, verify fetch_owners and the pipeline succeed before reading it
-with mapfile, and abort on failure to prevent partial migration input. Apply the
-same checked-producer temporary-file pattern to pool_salts before populating
-SALTS.
-```
-
-Only the `pool_salts`/`SALTS` half remains; the `fetch_owners` half is already done.
 
 ### ❌ decide
 

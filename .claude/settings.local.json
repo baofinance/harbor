@@ -3,7 +3,6 @@
     "allow": [
       "Bash(cat:*)",
       "WebFetch(domain:dashboard.tenderly.co)",
-      "Bash(chmod:*)",
       "Bash(forge inspect:*)",
       "Bash(cast call:*)",
       "Bash(./script/check_pool_overflow_risk.py:*)",

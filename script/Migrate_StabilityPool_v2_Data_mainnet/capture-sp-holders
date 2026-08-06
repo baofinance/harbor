@@ -94,7 +94,10 @@ pool_salts() {
     echo "ERROR: failed reading $STATE_FILE" >&2
     exit 1
   fi
-  printf '%s\n' "$salts" | grep -E 'stabilityPool(Collateral|Leveraged)$' | sort -u
+  # Under pipefail a no-match grep (status 1) would fail the whole function and be indistinguishable
+  # from a real failure, so admit it as the empty result it is while still propagating grep's error
+  # status 2. The caller decides what an empty set means; this function only reports it faithfully.
+  printf '%s\n' "$salts" | { grep -E 'stabilityPool(Collateral|Leveraged)$' || [[ $? -eq 1 ]]; } | sort -u
 }
 
 # Parse one Etherscan getLogs response on stdin.
@@ -167,7 +170,17 @@ fetch_owners() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-mapfile -t SALTS < <(pool_salts)
+# Same checked-producer pattern as the holder scan below: pool_salts' exit status cannot escape a
+# process substitution, so a failed state-file read would leave SALTS empty and the run would report
+# "0 stability pools" as though that were the answer. Capture, check, then load.
+if ! salts_found=$(pool_salts); then
+  echo "ERROR: could not determine stability pool salts from $STATE_FILE" >&2
+  exit 1
+fi
+SALTS=()
+if [[ -n "$salts_found" ]]; then
+  mapfile -t SALTS <<<"$salts_found"
+fi
 echo "# ${#SALTS[@]} stability pools from $STATE_FILE" >&2
 
 if [[ "$DRY_RUN" == true ]]; then

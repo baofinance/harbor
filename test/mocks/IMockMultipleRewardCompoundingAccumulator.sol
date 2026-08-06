@@ -29,10 +29,12 @@ interface IMockMultipleRewardCompoundingAccumulator is
 
     function tokenToExponentToIntegral(address token, uint8 exponent) external view returns (uint256);
 
+    /// @dev `pending` and `claimed_` are uint256 to match the v3 accumulator, which widened them from the v2
+    /// uint128. Declaring them narrower here would silently truncate any v3 value read through this interface.
     function userRewardSnapshot(
         address account,
         address token
-    ) external view returns (uint64 timestamp, uint256 integral, uint128 pending, uint128 claimed_);
+    ) external view returns (uint64 timestamp, uint256 integral, uint256 pending, uint256 claimed_);
 
     function totalPoolShare() external view returns (uint256);
 

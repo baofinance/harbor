@@ -880,8 +880,10 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
 
         // Checkpoint deployer: locks accrued rewards into snapshot.pending.
         IMultipleRewardAccumulator(acc).checkpoint(deployer);
-        (, , uint128 p, ) = IMockMultipleRewardCompoundingAccumulator(acc).userRewardSnapshot(deployer, token);
-        pendingAtCheckpoint = uint256(p);
+        (, , pendingAtCheckpoint, ) = IMockMultipleRewardCompoundingAccumulator(acc).userRewardSnapshot(
+            deployer,
+            token
+        );
         require(pendingAtCheckpoint > 0, "_earnCheckpointDeregister: no pending");
 
         // Move token to historical set.
@@ -924,10 +926,10 @@ contract MultipleRewardCompoundingAccumulatorTest is BaoTest, Array {
         toks[0] = token;
         IMultipleRewardAccumulator(acc).claim(toks);
 
-        (, , uint128 pendingAfter, uint128 claimedAfter) = IMockMultipleRewardCompoundingAccumulator(acc)
+        (, , uint256 pendingAfter, uint256 claimedAfter) = IMockMultipleRewardCompoundingAccumulator(acc)
             .userRewardSnapshot(deployer, token);
-        assertEq(uint256(claimedAfter), pendingAtCheckpoint, "claimed == original pending");
-        assertEq(uint256(pendingAfter), 0, "pending zeroed after full claim");
+        assertEq(claimedAfter, pendingAtCheckpoint, "claimed == original pending");
+        assertEq(pendingAfter, 0, "pending zeroed after full claim");
         assertEq(
             IMultipleRewardAccumulator(acc).claimable(deployer, aa(token))[0],
             0,
