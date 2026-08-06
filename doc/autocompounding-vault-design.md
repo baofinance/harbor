@@ -223,7 +223,7 @@ Users deposit the *vault's asset* (e.g., hpXXX.stETH, hpXXX.fxUSD, or the wXXXn 
 - **One vault per asset** (enforced by an internal asset→vault index). Deposit routing is deterministic from the asset address.
 - **Every managed vault is ERC-4626.** Non-ERC4626 yield sources are wrapped in thin 4626 adapters before being added.
 - **No internal balance tracking.** HY reads `IERC20(vault).balanceOf(HY)` and `IERC4626(vault).convertToAssets(...)` each time; the vault is the source of truth.
-- **No oracle.** All managed assets are assumed 1:1 pegged. The `ISwapper` and `IMinter_v3.mintPeggedTokenDryRun` serve as the only valuation primitives where needed.
+- **Valuation is per vault, never a blanket 1:1 assumption.** `ValuationLib._fairRateInPegUnits` branches on the vault kind: an AutoCompounder is valued at its Minter's `peggedTokenPrice()`, so it stays fair under a haXXX depeg; an equivalent vault is valued at the `IWrappedPriceOracle` registered for it by `addEquivalentVault`, whose mid-rate is drift-checked against `1e18` at registration. HY therefore takes no *global* oracle dependency — there is no single price feed the whole vault trusts — but it is not oracle-free either. `ISwapper` and `IMinter_v3.mintPeggedTokenDryRun` remain the valuation primitives on the swap and mint paths.
 - **Proportional redemption.** hyXXX redeem pays out a pro-rata slice of *every* managed vault — no single-asset redeem path. This is the central fairness invariant; it's why HY is not ERC-7575 (7575 per-asset redeem would let a user drain the best-performing component).
 - **Upgradeable via UUPS**, HarborOwnableRoles, share-token name/symbol stored as constructor immutables via `StringPacking_v1`.
 
@@ -332,7 +332,7 @@ totalAssets() =
     SUM over managed vaults of IERC4626(vault).convertToAssets(IERC20(vault).balanceOf(HY))
 ```
 
-No oracle. All components are assumed 1:1 pegged — see §6.13 (Peg Verification) for how that assumption is defended.
+No global oracle: each vault is valued on its own terms — an AutoCompounder at its Minter's `peggedTokenPrice()`, an equivalent at the oracle registered for it — so a component that drifts is priced at its drift rather than assumed to be at par. See §6.13 (Peg Verification) for the registration-time drift check that bounds what may be registered in the first place.
 
 ### Fairness
 
@@ -373,7 +373,7 @@ Leveraged SPs rebalance into hsXXX.COLn which is not liquid. Leveraged AC only c
 
 ### 6.7 Oracle Coupling
 
-AC reads price and rate from `IMinter_v3(minter).mintPeggedTokenDryRun()` — always in sync with the Minter, no direct oracle dependency. HY has no oracle dependency at all (see §5 share accounting and §6.13 peg verification).
+AC reads price and rate from `IMinter_v3(minter).mintPeggedTokenDryRun()` — always in sync with the Minter, no direct oracle dependency. HY takes no *global* oracle dependency — no single feed prices the whole vault — but it does read a per-vault oracle for each registered equivalent, via `ValuationLib.oracleRatePegUnits`, when computing `totalAssets`. AC-backed vaults need none, since the AC's own Minter price serves (see §5 share accounting and §6.13 peg verification).
 
 ### 6.8 Equivalent Token Management
 

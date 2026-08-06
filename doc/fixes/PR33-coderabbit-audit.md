@@ -43,18 +43,21 @@ deliberately declined. A ❌ marks one that is still outstanding.
 | Area | Total | ✅ done | ❌ open | ❌ decide | ✅ false-positive | ✅ duplicate | ✅ won't-fix |
 |---|---|---|---|---|---|---|---|
 | src | 4 | 3 | – | – | – | – | 1 |
-| test | 6 | 3 | – | 1 | 2 | – | – |
-| config | 10 | 2 | 2 | 2 | 1 | 1 | 2 |
+| test | 6 | 3 | – | – | 3 | – | – |
+| config | 10 | 2 | 1 | – | 2 | 1 | 4 |
 | script (live) | 5 | 4 | – | – | – | 1 | – |
 | script (archive) | 20 | 4 | – | – | – | 3 | 13 |
-| doc | 25 | 1 | – | 5 | – | 5 | 14 |
-| **Total** | **70** | **17** | **2** | **8** | **3** | **10** | **30** |
+| doc | 25 | 6 | – | – | – | 5 | 14 |
+| **Total** | **70** | **22** | **1** | **–** | **5** | **10** | **32** |
 
-**10 findings are outstanding** — the 2 open and the 8 needing a decision. The other 60 need
-no further work. **No contract, test, or script findings remain outstanding**: the only open
-items are two CI/environment ones, and the rest are decisions. Each outstanding finding has
-CodeRabbit's own fix prompt reproduced in the appendix, so any one of them can be handed to a
-fresh session on its own.
+**1 finding is outstanding**: `56e24c6a`, deploy-script test coverage. The other 69 need no
+further work. Its fix prompt is reproduced in the appendix.
+
+Five findings turned out to be false positives, and the pattern is worth recording: CodeRabbit
+reads a single file without the surrounding system, so it reported a CI check as deleted when
+it had moved into the composite action being called, a test suite as not covering v3 when its
+mock inherits v3, and a directory as an input when it is generated output. A sixth
+(`077b539f`) would have broken a working script had its fix been applied as written.
 
 ---
 
@@ -76,7 +79,7 @@ fresh session on its own.
 | `cd76dc8c` | `StabilityPoolEnvelope.t.sol:619-630` | `test_widthCorner_depositBeyondUint128Reverts` lacks the supply-cap guard its siblings have; the cap should bind first on `ethScale`/`eurScale` | ✅ **false-positive** — the test passes on all 13 market configurations, including the two named |
 | `2154e67c` | `IMockMultipleRewardCompoundingAccumulator.sol:18-27` | `userRewardSnapshot` widening not propagated to the mock interface | ✅ **done** — `pending`/`claimed_` widened to `uint256` to match the v3 accumulator. Widening made the compiler name the two places the truncation was actually reached, `MultipleRewardCompoundingAccumulator.t.sol:883` and `:927`, both of which declared `uint128` receivers; both now read `uint256`. The reverse direction is lossless (a v2 mock's `uint128` return is ABI-padded to 32 bytes), so the v2 mock needs no change. 31 accumulator tests pass |
 | `4eefe8f5` | `Rebalance.t.sol:10-12` | Duplicate `IStabilityPool` import | ✅ **done** — duplicate removed. CodeRabbit's stated consequence was wrong (Solidity accepts a repeated identical import and the repo compiled), so this was cosmetic, not a build break |
-| `7560604f` | `LinearMultipleRewardDistributor.t.sol:31-40` | Suite only instantiates the v3 mock, so `LinearMultipleRewardDistributor_v2` is unexercised | ❌ **decide** — confirmed: the factory returns only `MockLinearMultipleRewardDistributor_v3`. Whether this matters depends on whether v2 is still a supported deployment target |
+| `7560604f` | `LinearMultipleRewardDistributor.t.sol:31-40` | Suite only instantiates the v3 mock, so `LinearMultipleRewardDistributor_v2` is unexercised | ✅ **false-positive** — both halves are wrong. The suite does exercise the real v3: `MockLinearMultipleRewardDistributor_v3 is LinearMultipleRewardDistributor_v3` and overrides exactly one member, `_accumulateReward`, replaced with an event so the test can observe it fired — rate, period bounds, queueing and role checks all run production code. And v2 is still exercised, just elsewhere: `LinearMultipleRewardDistributor_v2` has one consumer, `MultipleRewardCompoundingAccumulator_v2.sol:13`, reached in tests via `AccumulatorClaimableEquivalence.t.sol:48` |
 
 ## config (10)
 
@@ -86,11 +89,11 @@ fresh session on its own.
 | `5b4d32ae` | `.claude/settings.json:7` | CWE-732: constrain permissions to minimum scope | ✅ **duplicate** of `2ec5976e` |
 | `87c9d0d1` | `.claude/settings.json:22` | Remove the `~/.claude/plans` git allow rules | ✅ **won't-fix** — `lib/bao-base/CLAUDE.md` *requires* committing to the plan repo after every plan update ("you own its git, and committing there is required"). Removing the rule would break the documented working mode. The remaining rule is already an exact command with a fixed argument, which is what the sibling finding asked for |
 | `ea436f80` | `.claude/settings.local.json:6` | `Bash(chmod:*)` grants chmod on any path | ✅ **done** — rule removed, so chmod now requires approval. Removing rather than narrowing avoids guessing a scope: a rule can be re-added against a real path if one proves necessary. Whether this machine-local file should be git-tracked at all remains an open question, carried in the plan |
-| `0a5116c7` | `CI-test-foundry-stable.yml:40-41` | Audited-source verification step removed before invoking the submodule action | ❌ **open** — still absent; the workflow calls `./lib/bao-base/.github/actions/test-foundry` with no preceding integrity check |
+| `0a5116c7` | `CI-test-foundry-stable.yml:40-41` | Audited-source verification step removed before invoking the submodule action | ✅ **false-positive** — the check was not removed, it moved *into* the action being invoked: [`test-foundry/action.yml:94-101`](../../lib/bao-base/.github/actions/test-foundry/action.yml) runs a "Check audit and deployed code" step calling `yarn verify-audit`. CodeRabbit read only the workflow file and could not see inside the composite action it calls |
 | `077b539f` | `foundry.toml:70` | `read-write` granted on the git-tracked holder-input directory | ✅ **false-positive** — the premise is wrong. That directory holds the *filtered output* of `FilterSpHolders.s.sol`, not its input: inputs are read from the untracked `tmp/sp-holders` ([FilterSpHolders.s.sol:48](../../script/Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol#L48)) and the results written back to the tracked directory, which is git-tracked *deliberately* — "the filtered files are git-tracked: they form the auditable record of which holders were included in the migration batch and which were skipped" (lines 19-21). Write access is required by design; both prescribed remedies would break it — read-only stops `run()` writing at all, and relocating the output to `./tmp` destroys the audit record that tracking exists to preserve |
-| `23d31d75` | `pyproject.toml:7` | Wake used but not declared | ❌ **open** — dependencies are still `mamushi` + `vyper` only. Separately, `requires-python = "==3.10.*"` conflicts with the pinned 3.13 that bao-base tooling expects |
-| `04f01408` | `scripts/deploy.py:3-6` | Literal `ENTER_NODE_URL_HERE` placeholder committed | ❌ **decide** — still present. `scripts/` contains only this file and `__init__.py`, and nothing in the repo references either. Deleting the directory resolves the finding and matches the "fix or remove" rule; confirm it is genuinely dead first |
-| `56e24c6a` | `regression/coverage.txt:3` | `ForceMigrateAccumulator_v1.sol` 0%, `HarborDeployStack.sol` 75%, `HarborDeployer.sol` 53% | ❌ **decide** — unchanged. Whether deploy-script coverage is worth the test cost is a judgement call |
+| `23d31d75` | `pyproject.toml:7` | Wake used but not declared | ✅ **won't-fix** — Wake is not part of the CI tooling yet; the Python testing of Solidity it supports is work in progress and not on any official path. Declaring it now would pin a dependency the build does not use. Revisit when Wake joins CI, at which point the `requires-python = "==3.10.*"` pin will need resolving against the 3.13 the bao-base tooling expects |
+| `04f01408` | `scripts/deploy.py:3-6` | Literal `ENTER_NODE_URL_HERE` placeholder committed | ✅ **won't-fix** — same reason as `23d31d75`: Python testing of Solidity via Wake is work in progress and not part of any official process. The placeholder marks an entry point that is not yet wired up, not a broken deployment path |
+| `56e24c6a` | `regression/coverage.txt:3` | `ForceMigrateAccumulator_v1.sol` 0%, `HarborDeployStack.sol` 75%, `HarborDeployer.sol` 53% | ❌ **open** — accepted: deployment is part of the production process, so the deploy scripts should be tested alongside the contracts. `ForceMigrateAccumulator_v1` is spent migration code and may reasonably be excluded; `HarborDeployStack` and `HarborDeployer` are live and are the real targets |
 | `9b58cc3b` | `regression/sizes.txt:48` | `Minter_v3` near the EIP-170 limit | ✅ **won't-fix** — no action needed: contract size is tracked by CI against `regression/sizes.txt`, so an overrun fails the build rather than surprising a deployment. Recorded for context: the margin was 182 B at review, 143 B at `HEAD~6`, and is **134 B** now — the oracle guards took a third of the remaining headroom, and `StabilityPool_v3` fell 775 B → 646 B. Changes to `Minter_v3` are size-budgeted from here on |
 
 ## script — live tooling (5)
@@ -169,88 +172,39 @@ these are not fixed here; they move with the documentation.
 | `bb6d5dcf` | `oracle-price-feeds.md:41-48` | Document the protocol oracle's actual wstETH source | ✅ won't-fix |
 | `f760e919` | `risk-parameters.md:107-110` | Alert before the configured rebalance threshold | ✅ won't-fix |
 
-### doc — design documents (6) — ❌ decision needed
+### doc — design documents (6) — ✅ resolved by reconciling each document with the code
 
-These are not integration guides. Each describes system behaviour, and two of them assert
-something about the protocol's design rather than its documentation — so they may be findings
-about the system wearing a documentation disguise.
+These are not integration guides; each describes system behaviour. Every one turned out to be
+a *stale document* rather than a system defect: in all four cases where the finding alleged a
+flaw, the code already did the right thing and the prose had not kept up. Two of them
+(`fea3d21a`, `ceeb58b9`) asked for the implementation to change — neither needed to.
 
 | id | location | finding | status |
 |---|---|---|---|
-| `fea3d21a` | `DataEnvelope.md:103-114` | "Do not ship the known harvest-allocation flaw as an accepted behavior" — challenges a documented-as-accepted behaviour | ❌ **decide** |
-| `53af2580` | `DataEnvelope.md:103-107` | Reconcile the documented rebalance overflow behaviour | ❌ **decide** |
-| `ceeb58b9` | `autocompounding-vault-design.md:223-227` | Reconcile the HarborYield valuation model | ❌ **decide** |
-| `182c6c4d` | `harbor-deployment.md:217-219` | Do not treat `1e12` base units as universally dust | ❌ **decide** |
-| `b4e6f1f1` | `ideas/rebalance-fairness.md:443-459` | Use the combined fee in the attack example | ❌ **decide** |
+| `fea3d21a` | `DataEnvelope.md:103-114` | "Do not ship the known harvest-allocation flaw as an accepted behavior" | ✅ **done** — the flaw no longer exists, and the document was describing a version of the harvest that predates the fairness work. `StabilityPoolManager_v2` keeps a per-pool `owed` ledger ([lines 529-559](../../src/minter/StabilityPoolManager_v2.sol#L529)): a share deferred past one period's capacity stays with the pool that earned it and is never re-split; only genuinely *new* yield is allocated by current holdings. Prose corrected to match — no code change needed |
+| `53af2580` | `DataEnvelope.md:103-107` | Reconcile the documented rebalance overflow behaviour | ✅ **done** — the document contradicted *itself*: line 106 said the rebalance clamps and defers, while lines 156 and 191 said it reverts past the integral. The code clamps up front (`_capLiquidation`, [lines 460-481](../../src/minter/StabilityPoolManager_v2.sol#L460)), whose own comment records that the reward path "could revert on overflow" *before* — so 156/191 were the stale side, not 106. Both corrected |
+| `ceeb58b9` | `autocompounding-vault-design.md:223-227` | Reconcile the HarborYield valuation model | ✅ **done** — the "No oracle. All managed assets are assumed 1:1 pegged" invariant was stale in three places (lines 226, 335, 376). `ValuationLib._fairRateInPegUnits` values an AutoCompounder at its Minter's `peggedTokenPrice()` and an equivalent at the `IWrappedPriceOracle` registered by `addEquivalentVault`, drift-checked at registration. The accurate statement is that HarborYield takes no *global* oracle dependency, not that it is oracle-free; all three corrected |
+| `182c6c4d` | `harbor-deployment.md:217-219` | Do not treat `1e12` base units as universally dust | ✅ **done** — the arithmetic in the finding is right (`1e12` base units is 1e-6 of an 18-decimal token but 10,000 whole tokens at 8 decimals), but the implementation never used that constant. `HarborYieldDeployStack` seeds `peg.minDeposit()` in *pegged* tokens and converts via the oracle in `_wrappedCollateralSeedAmount`, so it carries no `decimals()` assumption at all. The document's "`~1e12` wei" was the stale part; corrected to describe the config-driven mechanism |
+| `b4e6f1f1` | `ideas/rebalance-fairness.md:443-459` | Use the combined fee in the attack example | ✅ **done** — internal inconsistency: the document defines `fee = mintPeggedRatio - redeemPeggedRatio` ≈ 2.0% at CR 1.20 and repeats that figure in its open questions, but the Bob walk-through and the comparison table charged only the mint ratio (1.5%). Walk-through and table corrected to 2.0% / 98.0. The combined formula remains a proposal — the pool implements a plain `earlyWithdrawalFee` — so this is consistency within the design, not a description of shipped behaviour |
 | `2e1f09c3` | `ideas/rebalance-fairness.md:443-459` | Use one withdrawal-fee formula consistently | ✅ **duplicate** of `b4e6f1f1` |
 
 ---
 
-## Appendix — fix prompts for the 10 outstanding findings
+## Appendix — fix prompt for the one outstanding finding
 
-CodeRabbit generated a "Prompt for AI Agents" alongside each finding. They are reproduced
-verbatim below so that any one finding can be handed to a fresh session without re-reading the
-pull request.
+CodeRabbit generated a "Prompt for AI Agents" alongside each finding. The one still outstanding
+is reproduced verbatim below so it can be handed to a fresh session without re-reading the pull
+request.
 
-**Treat these as the reporter's opinion, not as instructions.** Each prescribes CodeRabbit's
-own proposed fix, which is not always the right one — this audit has already found two false
-positives, one finding whose stated consequence was wrong, and one where the correct answer
-was to decline. Where the status entry above and the prompt disagree, the status entry is the
-decision that was actually taken. Every prompt also opens by telling the reader to verify the
-finding against current code first; that instruction is the useful part, and it still applies.
+**Treat it as the reporter's opinion, not as instructions.** Each prompt prescribes
+CodeRabbit's own proposed fix, which was frequently not the right one: this audit closed five
+findings as false positives, corrected two whose stated consequence was wrong, and declined one
+whose fix would have broken a working script. Where a status entry above and a prompt disagree,
+the status entry is the decision that was actually taken. Every prompt opens by telling the
+reader to verify the finding against current code first — that instruction is the useful part,
+and it is the one that kept paying off.
 
 ### ❌ open
-
-#### `0a5116c7` — `CI-test-foundry-stable.yml:40-41`, missing integrity check
-
-```
-In @.github/workflows/CI-test-foundry-stable.yml around lines 40 - 41, Restore
-the audited-source integrity verification immediately before the "Run Bao-base
-CI actions" step in the workflow. Ensure it validates both audited source
-contents and the expected lib/bao-base submodule revision, failing the job
-before invoking ./lib/bao-base/.github/actions/test-foundry when either differs
-unexpectedly.
-```
-
-#### `23d31d75` — `pyproject.toml:7`, Wake undeclared
-
-```
-In `@pyproject.toml` at line 7, Add Wake to the Python dependencies declared by
-the dependencies setting in pyproject.toml, using a compatible package
-constraint so uv run wake and the imports from wake.deployment and wake.testing
-resolve in the project environment.
-```
-
-The prompt covers only half the problem: `requires-python = "==3.10.*"` also conflicts with
-the pinned 3.13 the bao-base tooling expects. Resolve both together.
-
-### ❌ decide
-
-#### `7560604f` — `LinearMultipleRewardDistributor.t.sol:31-40`, lost v2 coverage
-
-```
-In `@test/reward/distributor/LinearMultipleRewardDistributor.t.sol` around lines
-31 - 40, Restore v2 coverage in the LinearMultipleRewardDistributor test suite
-by adding a derived harness that overrides createLinearMultipleRewardDistributor
-and instantiates LinearMultipleRewardDistributor_v2 instead of
-MockLinearMultipleRewardDistributor_v3. Preserve the existing v3 harness and
-ensure the v2 path uses the same role and period parameters.
-```
-
-Only act on this if v2 is still a supported deployment target. If it is not, the finding is
-won't-fix and the v2 source becomes a deletion candidate.
-
-#### `04f01408` — `scripts/deploy.py:3-6`, committed URL placeholder
-
-```
-In `@scripts/deploy.py` around lines 3 - 6, Replace the literal NODE_URL
-placeholder with a value loaded from the deployment environment or
-configuration, and validate it before the `@chain.connect`(NODE_URL) call. Fail
-clearly when no URL is provided, while preserving the existing connection flow
-for valid deployments.
-```
-
-Nothing references `scripts/`; deleting the directory may be the better answer.
 
 #### `56e24c6a` — `regression/coverage.txt:3`, uncovered deploy entrypoints
 
@@ -262,67 +216,6 @@ coverage entries in regression/coverage.txt lines 3-3 and 34-35 no longer remain
 at 0% or low coverage; do not modify coverage.txt directly if it is generated.
 ```
 
-`ForceMigrateAccumulator_v1` is migration code that has already run, so it is arguably archive
-and not worth covering.
-
-#### `fea3d21a` — `DataEnvelope.md:103-114`, harvest-allocation behaviour
-
-```
-In `@doc/DataEnvelope.md` around lines 103 - 114, The documentation must not
-present the harvest backlog allocation flaw as an accepted behavior or headline
-guarantee. Fix the harvest attribution logic so deferred rewards remain assigned
-to the pool that earned them, or explicitly mark the issue as a release blocker
-with a tracked migration/remediation plan and qualify the related guarantee
-accordingly.
-```
-
-This one asks for a **code** change, not a documentation change — read it before deciding.
-
-#### `53af2580` — `DataEnvelope.md:103-107`, rebalance overflow behaviour
-
-```
-In `@doc/DataEnvelope.md` around lines 103 - 107, Reconcile the rebalance behavior
-described in the sections around the liquidation-reward explanation and the
-later integral-capacity discussion. Update both passages to match the
-implementation: remove the claim that excess is deferred if rebalance instead
-reverts when redemption exceeds integral capacity, and explicitly document the
-caller-visible revert/failure outcome.
-```
-
-#### `ceeb58b9` — `autocompounding-vault-design.md:223-227`, valuation model
-
-```
-In `@doc/autocompounding-vault-design.md` around lines 223 - 227, The document's
-valuation model is inconsistent between the "No oracle" invariant and later
-oracle-based vault and swap calculations. Reconcile the design around the
-relevant valuation and frontend guidance sections, explicitly distinguishing
-1:1-pegged asset paths from paths that require oracle-valued fair rates,
-equivalent-vault comparisons, or swaps; ensure the implementation guidance and
-user-facing displays follow that same shipped invariant.
-```
-
-Also potentially a design finding rather than a documentation one.
-
-#### `182c6c4d` — `harbor-deployment.md:217-219`, dust threshold
-
-```
-In `@doc/harbor-deployment.md` around lines 217 - 219, Update the seed-size
-guidance in the deployment documentation to avoid treating 1e12 base units as
-universally negligible. Define a token-decimal-normalized seed or an explicit
-per-collateral seed policy, and ensure the deployment script uses that policy so
-assets such as 8-decimal wBTC do not lock a material amount at address(0xdead).
-```
-
-The concrete claim — that an 8-decimal collateral such as wBTC would lock a material amount at
-`address(0xdead)` — is checkable against the deploy script, and would make this a real finding
-rather than a documentation nit.
-
-#### `b4e6f1f1` — `ideas/rebalance-fairness.md:443-459`, fee formula
-
-```
-In `@doc/ideas/rebalance-fairness.md` around lines 443 - 459, The attack example
-must use the combined fee formula `mintPeggedTokenIncentiveRatio -
-redeemPeggedTokenIncentiveRatio`, charging approximately 2.0% at CR 1.20 instead
-of only the mint ratio; if the implementation intentionally applies one
-component, explicitly document that rationale in the example.
-```
+`ForceMigrateAccumulator_v1` is migration code that has already run, so it is arguably archive;
+`HarborDeployStack` and `HarborDeployer` are the live targets. Note the prompt's closing
+caution: `regression/coverage.txt` is generated, so it is the tests that change, not the file.

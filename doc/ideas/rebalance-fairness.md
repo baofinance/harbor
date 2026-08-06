@@ -567,12 +567,12 @@ If needed, the effective share mechanism can be added later without breaking the
 Fees deter the withdrawal; auto-compounding restores the stayer.
 
 **Bob's attack:**
-1. Withdrawal fee at CR=1.20: Minter's `mintPeggedTokenIncentiveRatio` is ~1.5% (below disallow threshold). Bob pays ~1.5% of 100 haETH = 1.5 haETH. Receives 98.5.
-2. After rebalance (CR back to 1.30): Bob deposits 98.5 haETH. No deposit fee (withdrawal-only).
+1. Withdrawal fee at CR=1.20: the combined fee is `mintPeggedTokenIncentiveRatio - redeemPeggedTokenIncentiveRatio` ≈ 1.5% - (-0.5%) = ~2.0%. Bob pays ~2.0% of 100 haETH = 2.0 haETH. Receives 98.0.
+2. After rebalance (CR back to 1.30): Bob deposits 98.0 haETH. No deposit fee (withdrawal-only).
 3. Alice: 62.5 pegged + 166,667 fxSAVE claimable. AC compounds: claims fxSAVE, mints ~37.5 pegged (minus mint fee), redeposits. Alice ≈ 100 pegged.
-4. Result: Alice and Bob are roughly equal in pegged balance. Bob lost 1.5 haETH to the withdrawal fee. Attack is mildly unprofitable.
+4. Result: Alice and Bob are roughly equal in pegged balance. Bob lost 2.0 haETH to the withdrawal fee. Attack is mildly unprofitable.
 
-**Note:** The deterrent effect depends on the Minter's fee curve magnitude. The current config has modest fees (1-1.5% near the rebalance threshold). If stronger deterrence is needed, the SP could multiply the Minter fee by a configurable factor, or use a steeper curve.
+**Note:** The deterrent effect depends on the Minter's fee curve magnitude. The current config gives a combined fee of ~2.0% near the rebalance threshold (~1.5% mint plus a ~0.5% redeem discount). If stronger deterrence is needed, the SP could multiply the Minter fee by a configurable factor, or use a steeper curve.
 
 **Fred (legitimate new entrant):**
 1. No withdrawal fee (wasn't in pool).
@@ -592,8 +592,8 @@ The AC changes the dynamics fundamentally. Without the AC, stayers must manually
 | Mechanism | Alice after compound | Bob | Unfairness window | Notes |
 |-----------|---------------------|-----|-------------------|-------|
 | **No protection** | AC compounds immediately. Alice ≈ 100 pegged. | Bob 100 pegged (re-entered free). | Minimal — compound closes gap in one tx. | AC removes the ongoing harvest unfairness. But Bob had zero cost to dodge. |
-| **Withdrawal fee only** | AC compounds immediately. Alice ≈ 100 pegged. | Bob ≈ 98.5 pegged (paid 1.5% fee). | Minimal. | Bob pays a small fee. Alice is made whole by AC. |
-| **Withdrawal fee + AC** | Alice ≈ 100 pegged (restored). | Bob ≈ 98.5 pegged. | Near zero. | **Recommended.** Bob's attack is mildly unprofitable. Alice is restored. Simple to implement. |
+| **Withdrawal fee only** | AC compounds immediately. Alice ≈ 100 pegged. | Bob ≈ 98.0 pegged (paid the ~2.0% combined fee). | Minimal. | Bob pays a small fee. Alice is made whole by AC. |
+| **Withdrawal fee + AC** | Alice ≈ 100 pegged (restored). | Bob ≈ 98.0 pegged. | Near zero. | **Recommended.** Bob's attack is mildly unprofitable. Alice is restored. Simple to implement. |
 
 **Leveraged SP (Charlie vs Dave):**
 

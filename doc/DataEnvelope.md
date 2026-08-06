@@ -110,8 +110,9 @@ binds: the pool can't grow past its **supply cap** `MAX_TOTAL_ASSET_SUPPLY = MIN
   **minter's constrained redeem** caps that leg at the pool's headroom and slides the shortfall along the target-ratio
   line into the co-pool's leg — each leg still redeemed for its own token — so a single rebalance reaches the threshold,
   or, if both headrooms are exhausted, liquidates the pools' combined headroom (a partial a later rebalance continues).
-  This is where it differs from the harvest, whose deferred backlog is instead re-split by *current* holdings — leaking
-  to pools that did not hold when it accrued (a known allocation flaw: a backlog should stay with the pool that earned it).
+  The harvest defers on the same principle: each pool carries its own `owed` ledger, so a share deferred past one
+  period's capacity stays with the pool that earned it and is never re-split to the other. Only genuinely *new* yield
+  is allocated by current holdings, so a pool that did not hold when a backlog accrued never receives any of it.
 - **A holder's reward accrual is uncapped — held in uint256.** Unlike the ledger `amount` (capped at `MAX`), a
   holder's `pending` / `claimed` has no cap: the whole-pool reward can concentrate on one holder as a count
   `poolValueUSD / wrappedUSD`. The declared envelope stops the collateral axis at \$1e-6 (overflow threshold
@@ -153,8 +154,10 @@ Two families, under the one guarantee — **no known silent failures**.
   reward integral is bucketed per exponent, so each bucket stays bounded.
 - **Deferral / partial processing** — don't require the whole value at once: a harvest deposits up to
   one period's `maxDepositReward` and leaves the excess harvestable, drained across subsequent periods.
-  (The rebalance does *not* defer — it accrues its reward in one step, so past the integral it reverts; the
-  tests show it stays within by ~7.7× at the tightest corner — §2.3.)
+  (The rebalance defers differently — it accrues its reward in one step rather than streaming, so instead of
+  leaving a remainder harvestable it clamps each leg up front to what the pool will absorb (`_capLiquidation`)
+  and leaves the excess to a later call. The tests show the cap stays unbound by ~7.7× at the tightest
+  corner — §2.3.)
 - **Structural invariants** — a floor / cap so the dangerous value never arises:
   `MIN_TOTAL_ASSET_SUPPLY` (the reward-divisor floor) and `MAX = MIN × FACTOR_PRECISION` (keeps the
   loss factor > 0).
@@ -186,7 +189,7 @@ contracts already fail safe — the value is turning a deep revert into an early
 | mint (Minter) | expensive-peg × cheap-collateral — price underflows to zero | divide-by-zero / mint reverts | market-listing: don't pair an ultra-valuable peg with ultra-cheap collateral |
 | (governance) | a market whose peg has hyperinflated — eroded supply-cap dollar value | deposits wall early in dollar terms | re-base MIN by upgrade (not a user action) |
 
-(The harvest is no longer here: past its per-period `maxDepositReward` it defers the excess and drains it
-across subsequent periods — §2.3 — so there is no deep failure to lift to the edge. The rebalance, by contrast,
-does not defer — past the integral it would revert — but the tests show it stays within by ~7.7× at the tightest
-corner, so it is a bounded corner to monitor, not a current failure — §2.3.)
+(Neither the harvest nor the rebalance is here. Past its per-period `maxDepositReward` the harvest defers the
+excess and drains it across subsequent periods; past the reward integral the rebalance clamps the leg up front
+and leaves the remainder to a later call — §2.3. Both absorb the corner rather than failing at it, so there is no
+deep failure to lift to the edge. The rebalance cap stays unbound by ~7.7× at the tightest corner in any case.)

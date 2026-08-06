@@ -214,7 +214,12 @@ total_required[collateral] = required_per_market × markets_using_that_collatera
 
 Covered in detail in the plan at Campaign H.4.1. Summary:
 
-- **Seed size**: `~1e12` wei of wCOLn per seed. Dust at mainnet prices.
+- **Seed size**: the peg's configured `minDeposit()`, denominated in *pegged* tokens — not a fixed base-unit
+  constant. `HarborYieldDeployStack._wrappedCollateralSeedAmount` converts it to a wrapped-collateral amount at
+  the oracle's min price and rate, rounding up and doubling for headroom. Being peg-denominated and
+  oracle-converted, this carries no assumption about any token's `decimals()`: a raw constant such as `1e12`
+  base units would be 1e-6 of an 18-decimal token but 10,000 whole tokens of an 8-decimal one, and would strand
+  a material amount at `address(0xdead)` on the first non-18-decimal collateral.
 - **Recipient**: `address(0xdead)` for all seeds (not `address(0)` — solidity semantics differ for some tokens).
 - **Rationale**: closes the first-depositor griefing window (solady's virtual shares defaults already prevent the profit-stealing flavor of the inflation attack). The seed also sanity-checks the full deposit path at deploy time, catching any wiring error before a real user transacts.
 - **Ordering**: AC_col must seed before HY, so AC_col has its own independent dead-share floor rather than inheriting protection from HY's pass-through.
