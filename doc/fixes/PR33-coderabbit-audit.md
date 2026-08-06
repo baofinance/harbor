@@ -42,16 +42,18 @@ deliberately declined. A ❌ marks one that is still outstanding.
 
 | Area | Total | ✅ done | ❌ open | ❌ decide | ✅ false-positive | ✅ duplicate | ✅ won't-fix |
 |---|---|---|---|---|---|---|---|
-| src | 4 | 2 | 1 | 1 | – | – | – |
+| src | 4 | 3 | – | – | – | – | 1 |
 | test | 6 | 1 | 2 | 1 | 2 | – | – |
-| config | 10 | 1 | 5 | 2 | – | 1 | 1 |
+| config | 10 | 1 | 4 | 2 | – | 1 | 2 |
 | script (live) | 5 | 3 | 1 | – | – | 1 | – |
 | script (archive) | 20 | 4 | – | – | – | 3 | 13 |
 | doc | 25 | 1 | – | 5 | – | 5 | 14 |
-| **Total** | **70** | **12** | **9** | **9** | **2** | **10** | **28** |
+| **Total** | **70** | **13** | **7** | **8** | **2** | **10** | **30** |
 
-**18 findings are outstanding** — the 9 open and the 9 needing a decision. The other 52 need
-no further work.
+**15 findings are outstanding** — the 7 open and the 8 needing a decision. The other 55 need
+no further work. **No contract code remains outstanding**: all four `src/` findings are
+resolved. Each outstanding finding has CodeRabbit's own fix prompt reproduced in the appendix,
+so any one of them can be handed to a fresh session on its own.
 
 ---
 
@@ -61,8 +63,8 @@ no further work.
 |---|---|---|---|
 | `41193653` | `Minter_v3.sol:2038-2061` | Oracle fetch helpers declare `ZeroOraclePrice`/`InvalidOracle` but never perform the check | ✅ **done** — `2e06a58`; `_fetchOracle` now reverts `ZeroOraclePrice`/`ZeroOracleRate`, callers routed through `_fetchMidPrice`/`_fetchMinRate` |
 | `ecc6d23f` | `StabilityPool_v3.sol:616-622` | Unchecked signed↔unsigned casts around `rewardDivisorGap`, three sites | ✅ **done** — `17ec549`; all three now use `SafeCast` |
-| `39f62036` | `StabilityPoolManager_v2.sol:534` | No sum check or migration for legacy ratios before `residualRatio` is computed | ❌ **open** — `def46d7` fixed the *setter* half (`updateHarvestRatios` enforces `bounty + cut <= 1e18` atomically, replacing two independently-validated setters that could drift). The *stored legacy value* half is untouched: `residualRatio = 1 ether - $.harvestBountyRatio - $.harvestCutRatio` is still computed unguarded, so a deployed proxy holding a legacy pair summing above `1e18` underflows on every `harvest()` |
-| `43738187` | `Minter_v3.sol:753-765` | Capped mint returns `(0, 0)` without honouring `minPeggedOut` | ❌ **decide** — still present. The capped path returns `(0, 0)` *before* the `minPeggedOut` check, so a caller passing a non-zero `minPeggedOut` with a finite `maxFeeRatio` gets a silent zero rather than `MintInsufficientAmount`. The code comment argues `(0, 0)` is "the honest report" since nothing is consumed; the parameter is documented as "Minimum acceptable pegged output". Those two statements contradict each other — one of them must change |
+| `39f62036` | `StabilityPoolManager_v2.sol:534` | No sum check or migration for legacy ratios before `residualRatio` is computed | ✅ **won't-fix** — `def46d7` fixed the setter half (`updateHarvestRatios` enforces `bounty + cut <= 1e18` atomically, replacing two independently-validated setters that could drift). A runtime guard in `harvest()` is not needed: every existing deployment has been verified compliant with those bounds, so the underflow state is unreachable. The residual risk is that a ratio changes between that verification and the deploy script running — which is a **deployment-time check, not a contract change**. Tracked separately as a deployment-checker requirement; see A.8 in the plan |
+| `43738187` | `Minter_v3.sol:753-765` | Capped mint returns `(0, 0)` without honouring `minPeggedOut` | ✅ **done** — the capped path now returns `(0, 0)` only when `minPeggedOut` is zero; otherwise it falls through to the existing `MintInsufficientAmount` check, which a zero output can only fail. Reusing that one revert site rather than adding a second kept the cost to **7 bytes** (margin 134 → 127). The contradicting docstring on `IMinter_v3.mintPeggedToken` was corrected, and the implementation's duplicate copy of it replaced with `@inheritdoc`. Covered by `test_mintPegged_feeCappedStillHonoursMinPeggedOut` (confirmed failing before the fix) and `test_mintPegged_feeCappedReturnsZeroWhenNoMinimumDemanded`, which pins the graceful zero for `minPeggedOut == 0` — the capped overload previously had no tests at all |
 
 ## test (6)
 
@@ -88,7 +90,7 @@ no further work.
 | `23d31d75` | `pyproject.toml:7` | Wake used but not declared | ❌ **open** — dependencies are still `mamushi` + `vyper` only. Separately, `requires-python = "==3.10.*"` conflicts with the pinned 3.13 that bao-base tooling expects |
 | `04f01408` | `scripts/deploy.py:3-6` | Literal `ENTER_NODE_URL_HERE` placeholder committed | ❌ **decide** — still present. `scripts/` contains only this file and `__init__.py`, and nothing in the repo references either. Deleting the directory resolves the finding and matches the "fix or remove" rule; confirm it is genuinely dead first |
 | `56e24c6a` | `regression/coverage.txt:3` | `ForceMigrateAccumulator_v1.sol` 0%, `HarborDeployStack.sol` 75%, `HarborDeployer.sol` 53% | ❌ **decide** — unchanged. Whether deploy-script coverage is worth the test cost is a judgement call |
-| `9b58cc3b` | `regression/sizes.txt:48` | `Minter_v3` near the EIP-170 limit | ❌ **open, and worse** — margin was 182 B at review, 143 B at `HEAD~6`, and is **134 B** now: the oracle guards consumed a third of the remaining headroom. `StabilityPool_v3` also fell, 775 B → 646 B. This is the one finding these commits moved backwards |
+| `9b58cc3b` | `regression/sizes.txt:48` | `Minter_v3` near the EIP-170 limit | ✅ **won't-fix** — no action needed: contract size is tracked by CI against `regression/sizes.txt`, so an overrun fails the build rather than surprising a deployment. Recorded for context: the margin was 182 B at review, 143 B at `HEAD~6`, and is **134 B** now — the oracle guards took a third of the remaining headroom, and `StabilityPool_v3` fell 775 B → 646 B. Changes to `Minter_v3` are size-budgeted from here on |
 
 ## script — live tooling (5)
 
@@ -180,3 +182,198 @@ about the system wearing a documentation disguise.
 | `182c6c4d` | `harbor-deployment.md:217-219` | Do not treat `1e12` base units as universally dust | ❌ **decide** |
 | `b4e6f1f1` | `ideas/rebalance-fairness.md:443-459` | Use the combined fee in the attack example | ❌ **decide** |
 | `2e1f09c3` | `ideas/rebalance-fairness.md:443-459` | Use one withdrawal-fee formula consistently | ✅ **duplicate** of `b4e6f1f1` |
+
+---
+
+## Appendix — fix prompts for the 15 outstanding findings
+
+CodeRabbit generated a "Prompt for AI Agents" alongside each finding. They are reproduced
+verbatim below so that any one finding can be handed to a fresh session without re-reading the
+pull request.
+
+**Treat these as the reporter's opinion, not as instructions.** Each prescribes CodeRabbit's
+own proposed fix, which is not always the right one — this audit has already found two false
+positives, one finding whose stated consequence was wrong, and one where the correct answer
+was to decline. Where the status entry above and the prompt disagree, the status entry is the
+decision that was actually taken. Every prompt also opens by telling the reader to verify the
+finding against current code first; that instruction is the useful part, and it still applies.
+
+### ❌ open
+
+#### `2154e67c` — `IMockMultipleRewardCompoundingAccumulator.sol:18-27`, snapshot width
+
+```
+In `@test/mocks/IMockMultipleRewardCompoundingAccumulator.sol` around lines 18 -
+27, Update userRewardSnapshot in
+test/mocks/IMockMultipleRewardCompoundingAccumulator.sol (lines 18-27) to
+declare pending and claimed_ as uint256, matching the v3 implementation. Do not
+change userRewardSnapshot in
+test/mocks/reward/accumulator/MockMultipleRewardCompoundingAccumulator_v3.sol
+(lines 73-83); it already has the correct uint256 returns.
+```
+
+#### `4eefe8f5` — `Rebalance.t.sol:10-12`, duplicate import
+
+```
+In `@test/Rebalance.t.sol` around lines 10 - 12, Remove the duplicate
+IStabilityPool import in Rebalance.t.sol, keeping a single import from
+`@harbor/interfaces/IStabilityPool.sol` alongside the StabilityPool_v3 import.
+```
+
+#### `ea436f80` — `.claude/settings.local.json:6`, unscoped `chmod`
+
+```
+In @.claude/settings.local.json at line 6, Update the permissions configuration
+containing the Bash allow rules to remove Bash(chmod:*) or replace it with a
+narrowly scoped exact path/pattern; require approval for other chmod operations
+and preserve only the minimum necessary permission.
+```
+
+#### `0a5116c7` — `CI-test-foundry-stable.yml:40-41`, missing integrity check
+
+```
+In @.github/workflows/CI-test-foundry-stable.yml around lines 40 - 41, Restore
+the audited-source integrity verification immediately before the "Run Bao-base
+CI actions" step in the workflow. Ensure it validates both audited source
+contents and the expected lib/bao-base submodule revision, failing the job
+before invoking ./lib/bao-base/.github/actions/test-foundry when either differs
+unexpectedly.
+```
+
+#### `077b539f` — `foundry.toml:70`, writable migration inputs
+
+```
+In `@foundry.toml` at line 70, Update the Foundry filesystem permission entry for
+./script/Migrate_StabilityPool_v2_Data_mainnet to read-only so tracked migration
+inputs cannot be modified; if generated outputs require write access, relocate
+them to an ignored directory such as ./tmp or grant access only to specific
+output files.
+```
+
+#### `23d31d75` — `pyproject.toml:7`, Wake undeclared
+
+```
+In `@pyproject.toml` at line 7, Add Wake to the Python dependencies declared by
+the dependencies setting in pyproject.toml, using a compatible package
+constraint so uv run wake and the imports from wake.deployment and wake.testing
+resolve in the project environment.
+```
+
+The prompt covers only half the problem: `requires-python = "==3.10.*"` also conflicts with
+the pinned 3.13 the bao-base tooling expects. Resolve both together.
+
+#### `bd238ceb` — `capture-sp-holders:206`, unchecked `mapfile` producer
+
+```
+In `@script/Migrate_StabilityPool_v2_Data_mainnet/capture-sp-holders` at line 206,
+Update the owner-loading flow around fetch_owners to write its sorted output to
+a temporary file, verify fetch_owners and the pipeline succeed before reading it
+with mapfile, and abort on failure to prevent partial migration input. Apply the
+same checked-producer temporary-file pattern to pool_salts before populating
+SALTS.
+```
+
+Only the `pool_salts`/`SALTS` half remains; the `fetch_owners` half is already done.
+
+### ❌ decide
+
+#### `7560604f` — `LinearMultipleRewardDistributor.t.sol:31-40`, lost v2 coverage
+
+```
+In `@test/reward/distributor/LinearMultipleRewardDistributor.t.sol` around lines
+31 - 40, Restore v2 coverage in the LinearMultipleRewardDistributor test suite
+by adding a derived harness that overrides createLinearMultipleRewardDistributor
+and instantiates LinearMultipleRewardDistributor_v2 instead of
+MockLinearMultipleRewardDistributor_v3. Preserve the existing v3 harness and
+ensure the v2 path uses the same role and period parameters.
+```
+
+Only act on this if v2 is still a supported deployment target. If it is not, the finding is
+won't-fix and the v2 source becomes a deletion candidate.
+
+#### `04f01408` — `scripts/deploy.py:3-6`, committed URL placeholder
+
+```
+In `@scripts/deploy.py` around lines 3 - 6, Replace the literal NODE_URL
+placeholder with a value loaded from the deployment environment or
+configuration, and validate it before the `@chain.connect`(NODE_URL) call. Fail
+clearly when no URL is provided, while preserving the existing connection flow
+for valid deployments.
+```
+
+Nothing references `scripts/`; deleting the directory may be the better answer.
+
+#### `56e24c6a` — `regression/coverage.txt:3`, uncovered deploy entrypoints
+
+```
+In `@regression/coverage.txt` at line 3, Add regression tests covering the main
+execution paths and failure branches for ForceMigrateAccumulator_v1.sol,
+HarborDeployStack.sol, and HarborDeployer.sol. Update the tests so the reported
+coverage entries in regression/coverage.txt lines 3-3 and 34-35 no longer remain
+at 0% or low coverage; do not modify coverage.txt directly if it is generated.
+```
+
+`ForceMigrateAccumulator_v1` is migration code that has already run, so it is arguably archive
+and not worth covering.
+
+#### `fea3d21a` — `DataEnvelope.md:103-114`, harvest-allocation behaviour
+
+```
+In `@doc/DataEnvelope.md` around lines 103 - 114, The documentation must not
+present the harvest backlog allocation flaw as an accepted behavior or headline
+guarantee. Fix the harvest attribution logic so deferred rewards remain assigned
+to the pool that earned them, or explicitly mark the issue as a release blocker
+with a tracked migration/remediation plan and qualify the related guarantee
+accordingly.
+```
+
+This one asks for a **code** change, not a documentation change — read it before deciding.
+
+#### `53af2580` — `DataEnvelope.md:103-107`, rebalance overflow behaviour
+
+```
+In `@doc/DataEnvelope.md` around lines 103 - 107, Reconcile the rebalance behavior
+described in the sections around the liquidation-reward explanation and the
+later integral-capacity discussion. Update both passages to match the
+implementation: remove the claim that excess is deferred if rebalance instead
+reverts when redemption exceeds integral capacity, and explicitly document the
+caller-visible revert/failure outcome.
+```
+
+#### `ceeb58b9` — `autocompounding-vault-design.md:223-227`, valuation model
+
+```
+In `@doc/autocompounding-vault-design.md` around lines 223 - 227, The document's
+valuation model is inconsistent between the "No oracle" invariant and later
+oracle-based vault and swap calculations. Reconcile the design around the
+relevant valuation and frontend guidance sections, explicitly distinguishing
+1:1-pegged asset paths from paths that require oracle-valued fair rates,
+equivalent-vault comparisons, or swaps; ensure the implementation guidance and
+user-facing displays follow that same shipped invariant.
+```
+
+Also potentially a design finding rather than a documentation one.
+
+#### `182c6c4d` — `harbor-deployment.md:217-219`, dust threshold
+
+```
+In `@doc/harbor-deployment.md` around lines 217 - 219, Update the seed-size
+guidance in the deployment documentation to avoid treating 1e12 base units as
+universally negligible. Define a token-decimal-normalized seed or an explicit
+per-collateral seed policy, and ensure the deployment script uses that policy so
+assets such as 8-decimal wBTC do not lock a material amount at address(0xdead).
+```
+
+The concrete claim — that an 8-decimal collateral such as wBTC would lock a material amount at
+`address(0xdead)` — is checkable against the deploy script, and would make this a real finding
+rather than a documentation nit.
+
+#### `b4e6f1f1` — `ideas/rebalance-fairness.md:443-459`, fee formula
+
+```
+In `@doc/ideas/rebalance-fairness.md` around lines 443 - 459, The attack example
+must use the combined fee formula `mintPeggedTokenIncentiveRatio -
+redeemPeggedTokenIncentiveRatio`, charging approximately 2.0% at CR 1.20 instead
+of only the mint ratio; if the implementation intentionally applies one
+component, explicitly document that rationale in the example.
+```

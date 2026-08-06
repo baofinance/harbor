@@ -7,6 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
+import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
@@ -619,5 +620,68 @@ contract TestMinterMintPegged is TestMinterMint {
         // 5 ------------------------------
         assertEq(IERC20(peggedToken).balanceOf(receiver), receiverPeggedBefore + expectedPeggedTokenOut);
         assertEq(IERC20(Deployed.wstETH).balanceOf(sender), 0, "transferred it all");
+    }
+
+    //---------------------------------------------------------------------------------------------
+    // Fee-capped mint
+    //---------------------------------------------------------------------------------------------
+
+    /// @dev Puts the minter at a collateral ratio where minting pegged tokens is allowed but charges a fee, and
+    /// funds the sender. Returns a fee cap one wei below that fee, which no band on offer can satisfy - so the
+    /// cap binds before any collateral is taken. Performs external calls, so callers must invoke it BEFORE any
+    /// one-shot cheatcode.
+    function _setUpUnaffordableFeeCap() private returns (uint256 maxFeeRatio) {
+        setUp_collateral(1 ether, 0);
+        setUp_collateral(0, 1 ether); // collateral ratio ~2, where minting pegged is allowed for a fee
+
+        uint256 incentiveRatio = uint256(IMinter(minter).mintPeggedTokenIncentiveRatio());
+        assertGt(incentiveRatio, 0, "the band must charge a fee for a cap to be able to bind");
+        maxFeeRatio = incentiveRatio - 1;
+
+        deal(wrappedCollateralToken, sender, 1 ether);
+        vm.startPrank(sender);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice The fee cap and `minPeggedOut` are independent promises and the capped path keeps both: when the
+    /// cap binds so hard that no band is affordable, a caller that demanded a minimum is told the minimum was
+    /// not met, rather than handed a silent zero it must remember to test for.
+    function test_mintPegged_feeCappedStillHonoursMinPeggedOut() public {
+        uint256 maxFeeRatio = _setUpUnaffordableFeeCap();
+        uint256 minPeggedOut = 1;
+
+        vm.startPrank(sender);
+        vm.expectRevert(
+            abi.encodeWithSelector(IMinter_v3.MintInsufficientAmount.selector, peggedToken, 0, minPeggedOut)
+        );
+        IMinter_v3(minter).mintPeggedToken(1 ether, receiver, minPeggedOut, maxFeeRatio);
+        vm.stopPrank();
+    }
+
+    /// @notice With no minimum demanded, the capped path reports (0, 0) and consumes nothing instead of
+    /// reverting - the graceful outcome the fee cap exists to provide.
+    function test_mintPegged_feeCappedReturnsZeroWhenNoMinimumDemanded() public {
+        uint256 maxFeeRatio = _setUpUnaffordableFeeCap();
+        uint256 senderCollateralBefore = IERC20(wrappedCollateralToken).balanceOf(sender);
+        uint256 receiverPeggedBefore = IERC20(peggedToken).balanceOf(receiver);
+
+        vm.startPrank(sender);
+        (uint256 peggedOut, uint256 collateralUsed) = IMinter_v3(minter).mintPeggedToken(
+            1 ether,
+            receiver,
+            0,
+            maxFeeRatio
+        );
+        vm.stopPrank();
+
+        assertEq(peggedOut, 0, "nothing minted when no band is affordable");
+        assertEq(collateralUsed, 0, "nothing consumed when no band is affordable");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(sender),
+            senderCollateralBefore,
+            "sender keeps all its collateral"
+        );
+        assertEq(IERC20(peggedToken).balanceOf(receiver), receiverPeggedBefore, "receiver gets nothing");
     }
 }

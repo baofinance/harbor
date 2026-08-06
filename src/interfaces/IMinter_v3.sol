@@ -419,7 +419,8 @@ interface IMinter_v3 {
     /// @notice Mint pegged tokens whose fee, taken as a ratio of the collateral actually USED, stays
     /// within maxFeeRatio. Takes only as much of the offer as that allows: the amount offered does not
     /// buy a proportional fee budget to spend on a smaller amount at a steeper rate. Returns (0, 0)
-    /// gracefully when even the cheapest band on offer costs more than the cap (does not revert).
+    /// gracefully when even the cheapest band on offer costs more than the cap - unless minPeggedOut
+    /// was given, which that zero cannot meet, so it reverts MintInsufficientAmount like any other path.
     /// @param collateralIn The amount of wrapped collateral to post. Use type(uint256).max for all.
     /// @param receiver The address to receive minted pegged tokens.
     /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.

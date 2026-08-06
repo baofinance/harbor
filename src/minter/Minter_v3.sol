@@ -707,16 +707,7 @@ contract Minter_v3 is
         (peggedOut, ) = _mintPeggedTokenCapped(wrappedCollateralIn, receiver, minPeggedOut, type(uint256).max);
     }
 
-    /// @notice Mint pegged tokens whose fee, taken as a ratio of the collateral actually USED, stays
-    /// within maxFeeRatio. Takes only as much of the offer as that allows: the amount offered does not
-    /// buy a proportional fee budget to spend on a smaller amount at a steeper rate. Returns (0, 0)
-    /// gracefully when even the cheapest band on offer costs more than the cap (does not revert).
-    /// @param wrappedCollateralIn The amount of wrapped collateral to post. Use type(uint256).max for all.
-    /// @param receiver The address to receive minted pegged tokens.
-    /// @param minPeggedOut Minimum acceptable pegged output. 0 means no check.
-    /// @param maxFeeRatio Maximum fee as a ratio of the collateral used (18 decimals). e.g. 0.05 ether = 5%.
-    /// @return peggedOut The amount of pegged tokens minted.
-    /// @return wrappedCollateralUsed The amount of wrapped collateral actually consumed (collateral added + fee).
+    /// @inheritdoc IMinter_v3
     function mintPeggedToken(
         uint256 wrappedCollateralIn,
         address receiver,
@@ -769,8 +760,12 @@ contract Minter_v3 is
                 }
                 revert ReturnZeroAmount(PEGGED_TOKEN);
             }
-            // Capped: nothing is consumed on this path, so (0, 0) is the honest report
-            return (0, 0);
+            // Capped: nothing is consumed on this path, so (0, 0) is the honest report - but only to a caller
+            // that asked for no minimum. One that named a minimum is owed the same answer here as on every
+            // other path, so fall through to the check below, which a zero output can only fail.
+            if (minPeggedOut == 0) {
+                return (0, 0);
+            }
         }
 
         if (peggedOut < minPeggedOut) {
