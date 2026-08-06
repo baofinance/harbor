@@ -106,7 +106,7 @@ abstract contract HarborDeployStack is
         }
 
         for (uint256 i = 0; i < marketsToDeploy.length; i++) {
-            _deployMinterInfrastructure(state, marketsToDeploy[i]);
+            deployMinterInfrastructure(state, marketsToDeploy[i]);
         }
 
         // Finalize: transfer ownerships and save state
@@ -117,42 +117,56 @@ abstract contract HarborDeployStack is
     }
 
     // ========== MINTER INFRASTRUCTURE DEPLOYMENT ==========
+    //
+    // A market's infrastructure is three layers, each deployable on its own and each granting the roles it
+    // owns. `deployMinterInfrastructure` is their composition, and is what production deploys.
+    //
+    //   deployMinterMarket           leveraged token, reserve pool, minter
+    //   deployStabilityPoolsForMarket    the two pools, their reward tokens
+    //   deployStabilityPoolManagerForMarket   the manager, genesis
+    //
+    // The layers are separable because each grants only roles it can: `grantMinterRoles` names the manager
+    // and genesis as GRANTEES, and granting to a predicted CREATE3 address is valid whether or not anything
+    // has been deployed there yet. `grantStabilityPoolRoles` is the exception — it reads `REBALANCER_ROLE()`
+    // OFF the pool, so it needs the pool to exist, which is why it belongs to the pool layer rather than to
+    // a shared role-granting step at the end.
+    //
+    // A test that needs only a minter calls only the first layer, instead of paying for pools and a manager
+    // it never touches.
 
-    /// @notice Deploy infrastructure for a single market.
+    /// @notice Deploy a market's full infrastructure: every layer, in order.
     /// @param state Deployment state (modified in place).
     /// @param market Market configuration.
-    function _deployMinterInfrastructure(DeploymentTypes.State memory state, Config_MinterMarket market) private {
+    function deployMinterInfrastructure(DeploymentTypes.State memory state, Config_MinterMarket market) internal {
         string memory marketKey = MinterMarketConfigLib.salt(market);
         _reportMarket(marketKey);
 
-        // Deploy LeveragedToken
-        _deployLeveragedTokenWithRoles(state, market);
-
-        // Deploy ReservePool
-        deployReservePool(state, market);
-
-        // Deploy Minter — fully wired and configured by deployMinter itself
-        deployMinter(state, market);
-
-        // Deploy Stability Pools
-        _deployStabilityPools(state, market);
-
-        // Register reward tokens on SPs
-        _registerRewardTokens(market);
-
-        // Deploy StabilityPoolManager — configured by deployStabilityPoolManager itself
-        deployStabilityPoolManager(state, market);
-
-        // Deploy Genesis
-        deployGenesis(state, market);
-
-        // Grant roles
-        _grantMarketRoles(market);
+        deployMinterMarket(state, market);
+        deployStabilityPoolsForMarket(state, market);
+        deployStabilityPoolManagerForMarket(state, market);
 
         _reportMarketComplete(marketKey);
     }
 
-    function _deployStabilityPools(DeploymentTypes.State memory stateData, Config_MinterMarket market) internal {
+    /// @notice The minter and the two contracts it cannot exist without: its leveraged token and reserve pool.
+    /// @dev Self-contained — it needs only the peg's pegged token, which is deployed once per peg above this.
+    ///      Sufficient on its own for anything testing the minter in isolation.
+    function deployMinterMarket(DeploymentTypes.State memory stateData, Config_MinterMarket market) internal {
+        _deployLeveragedTokenWithRoles(stateData, market);
+        deployReservePool(stateData, market);
+        deployMinter(stateData, market);
+
+        grantReservePoolRoles(market);
+        grantMinterRoles(market);
+    }
+
+    /// @notice A market's two stability pools, their reward tokens, and the roles read off them.
+    /// @dev Requires `deployMinterMarket` first: the pools take the minter and the leveraged token as
+    ///      constructor arguments.
+    function deployStabilityPoolsForMarket(
+        DeploymentTypes.State memory stateData,
+        Config_MinterMarket market
+    ) internal {
         address minter = minterAddress(market);
 
         deployStabilityPool(
@@ -164,6 +178,21 @@ abstract contract HarborDeployStack is
         );
 
         deployStabilityPool(StabilityPoolType.Leveraged, stateData, market, minter, leveragedTokenAddress(market));
+
+        _registerRewardTokens(market);
+
+        grantStabilityPoolRoles(market, StabilityPoolType.Collateral);
+        grantStabilityPoolRoles(market, StabilityPoolType.Leveraged);
+    }
+
+    /// @notice The manager that coordinates a market's two pools, and its genesis contract.
+    /// @dev Requires both layers above: the manager takes the minter and both pools as constructor arguments.
+    function deployStabilityPoolManagerForMarket(
+        DeploymentTypes.State memory stateData,
+        Config_MinterMarket market
+    ) internal {
+        deployStabilityPoolManager(stateData, market);
+        deployGenesis(stateData, market);
     }
 
     function _registerRewardTokens(Config_MinterMarket market) internal {
@@ -180,13 +209,4 @@ abstract contract HarborDeployStack is
         IMultipleRewardDistributor(spLeveraged).registerRewardToken(leveragedToken);
     }
 
-    /// @notice Grant every cross-contract role for a market, once all of its contracts exist.
-    /// @dev Roles are the only wiring left to the stack: each grant names two contracts, so it belongs
-    ///      to neither one's deploy function. Each helper resolves its own addresses from the config.
-    function _grantMarketRoles(Config_MinterMarket market) internal {
-        grantReservePoolRoles(market);
-        grantMinterRoles(market);
-        grantStabilityPoolRoles(market, StabilityPoolType.Collateral);
-        grantStabilityPoolRoles(market, StabilityPoolType.Leveraged);
-    }
 }
