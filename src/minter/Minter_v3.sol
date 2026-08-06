@@ -672,27 +672,46 @@ contract Minter_v3 is
     function updateConfig(Config calldata config_) external override onlyOwner {
         // or is this handled by the fact that the CR for discount is much lower than the rebalance CR
         emit UpdateConfig(config_); // the code below may alter the config so emit it soon
-
         MinterStorage storage $ = _getMinterStorage();
-
         // incentive config
-
         Config_v2.checkAndCopyIncentives(config_, $.incentiveConfig);
     }
 
+    // Price/Rate Oracle
+    // -----------------
     /// @inheritdoc IMinter_v3
+    /// @dev Refuses the zero address. Every price read calls this address, so a zero here disables minting and
+    ///      redeeming — but only as a side effect of a call into a codeless address failing to decode, which is an
+    ///      accident of the ABI rather than a decision. Rejecting it at the setter puts the failure where the
+    ///      mistake is made instead of inside a later mint.
     function updatePriceOracle(address priceOracle_) external onlyOwner {
-        _updatePriceOracle(priceOracle_);
+        Token.ensureNonZeroAddress(priceOracle_);
+        MinterStorage storage $ = _getMinterStorage();
+        address old = $.priceOracle;
+        $.priceOracle = priceOracle_;
+        emit UpdatePriceOracle(old, priceOracle_);
     }
 
+    // Fee Receiver
+    // ------------
     /// @inheritdoc IMinter_v3
     function updateFeeReceiver(address feeReceiver_) external override onlyOwner {
-        _updateFeeReceiver(feeReceiver_);
+        Token.ensureNonZeroAddress(feeReceiver_);
+        MinterStorage storage $ = _getMinterStorage();
+        address old = $.feeReceiver;
+        $.feeReceiver = feeReceiver_;
+        emit UpdateFeeReceiver(old, feeReceiver_);
     }
 
+    // ReservePool
+    // -----------
     /// @inheritdoc IMinter_v3
     function updateReservePool(address reservePool_) external override onlyOwner {
-        _updateReservePool(reservePool_);
+        Token.ensureNonZeroAddress(reservePool_);
+        MinterStorage storage $ = _getMinterStorage();
+        address old = $.reservePool;
+        $.reservePool = reservePool_;
+        emit UpdateReservePool(old, reservePool_);
     }
 
     // minting/redeeming pegged/leveraged tokens
@@ -1198,39 +1217,6 @@ contract Minter_v3 is
         assembly {
             $.slot := _MINTER_STORAGE
         }
-    }
-
-    // Price/Rate Oracle
-    // -----------------
-
-    /// @notice Updates the price oracle address.
-    function _updatePriceOracle(address priceOracle_) private {
-        MinterStorage storage $ = _getMinterStorage();
-        address old = $.priceOracle;
-        $.priceOracle = priceOracle_;
-        emit UpdatePriceOracle(old, priceOracle_);
-    }
-
-    // Fee Receiver
-    // ------------
-
-    /// @notice Updates the fee receiver address.
-    function _updateFeeReceiver(address feeReceiver_) private {
-        MinterStorage storage $ = _getMinterStorage();
-        address old = $.feeReceiver;
-        $.feeReceiver = feeReceiver_;
-        emit UpdateFeeReceiver(old, feeReceiver_);
-    }
-
-    // ReservePool
-    // -----------
-
-    /// @notice Updates the reserve pool address.
-    function _updateReservePool(address reservePool_) private {
-        MinterStorage storage $ = _getMinterStorage();
-        address old = $.reservePool;
-        $.reservePool = reservePool_;
-        emit UpdateReservePool(old, reservePool_);
     }
 
     // Mint/Redeem Pegged/Leveraged

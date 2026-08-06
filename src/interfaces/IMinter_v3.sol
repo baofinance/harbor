@@ -492,7 +492,7 @@ interface IMinter_v3 {
     function updateReservePool(address reservePool_) external;
 
     /// @notice Updates the price oracle to the given address
-    /// @param priceOracle_ The new price oracle
+    /// @param priceOracle_ The new price oracle. Refuses the zero address.
     function updatePriceOracle(address priceOracle_) external;
 
     /// @notice Mint some pegged tokens in exchange for collateral tokens.

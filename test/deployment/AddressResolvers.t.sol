@@ -78,8 +78,8 @@ contract AddressResolversTest is DeployETHfxUSDSetUp {
     }
 
     /// Genesis's baked-in minter and token addresses are the ones the corresponding resolvers name.
-    /// @dev Genesis_v2 also declares STABILITY_POOL_COLLATERAL and STABILITY_POOL_LEVERAGED, but its
-    ///      constructor never assigns them, so they are not assertable here.
+    /// @dev Its fourth immutable, WRAPPED_COLLATERAL_TOKEN, is not asserted here: that address comes from
+    ///      the market config rather than from a CREATE3 salt, so no resolver names it.
     function test_genesisNamesTheMinterAndTokenResolvers() public {
         Genesis_v2 deployedGenesis = Genesis_v2(genesisAddress(market));
         assertEq(deployedGenesis.MINTER(), minterAddress(market), "MINTER");

@@ -32,6 +32,7 @@ suite CPU (milliseconds)
 | test/GraphsLiquidate.t.sol:TestGraphsLiquidatePartialLeveraged                                                  |           7620 | 7.62s  |
 | test/Minter_base.t.sol:TestMinterBasics                                                                         |             94 | 0.09s  |
 | test/Minter_base.t.sol:TestMinterInit                                                                           |             48 | 0.05s  |
+| test/Minter_dependencyAddresses.t.sol:MinterDependencyAddressesTest                                             |             18 | 0.02s  |
 | test/Minter_feeRange.t.sol:TestMinterFixedFeeRangeDepegDeep_                                                    |           1020 | 1.02s  |
 | test/Minter_feeRange.t.sol:TestMinterFixedFeeRangeDepegMid_                                                     |           2020 | 2.02s  |
 | test/Minter_feeRange.t.sol:TestMinterFixedFeeRangeDepegShallow_                                                 |           3060 | 3.06s  |

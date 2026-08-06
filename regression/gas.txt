@@ -50,9 +50,9 @@ src/minter/Minter_v3.sol:Minter_v3
 | sweep                                            |  40307 | 4.031e+04 |
 | transferOwnership                                |  12067 | 1.207e+04 |
 | updateConfig                                     | 294930 | 2.949e+05 |
-| updateFeeReceiver                                |  26350 | 2.635e+04 |
-| updatePriceOracle                                |  26339 | 2.634e+04 |
-| updateReservePool                                |  26310 | 2.631e+04 |
+| updateFeeReceiver                                |  26388 | 2.639e+04 |
+| updatePriceOracle                                |  26374 | 2.637e+04 |
+| updateReservePool                                |  26346 | 2.635e+04 |
 
 src/minter/ReservePool_v1.sol:ReservePool_v1
 | function name     |   max |   display |
