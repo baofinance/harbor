@@ -19,6 +19,11 @@ import {IMinter} from "@harbor/interfaces/IMinter.sol";
 /// @dev - Minter needs: wrappedCollateral, peggedToken, leveragedToken, priceOracle, reservePool, feeReceiver
 /// @dev - Minter grants: HARVESTER_ROLE to StabilityPoolManager, ZERO_FEE_ROLE to Genesis
 /// @dev - ReservePool grants: REQUESTER_ROLE to Minter
+///
+/// @dev Each deploy function here deploys AND configures its contract — the roles it grants and the
+///      values it sets are part of standing that contract up, not a later step a caller must remember.
+///      Every grantee is a PREDICTED CREATE3 address, and granting to an address with no code is valid,
+///      so neither function needs anything above it to exist yet.
 abstract contract Minter is HarborDeployer {
     // ========== MINTER DEPLOYMENT ==========
 
@@ -68,23 +73,18 @@ abstract contract Minter is HarborDeployer {
         IMinter(proxy).updateReservePool(reservePoolAddress(marketConfig));
         IMinter(proxy).updateFeeReceiver(treasury());
         IMinter(proxy).updatePriceOracle(wrappedPriceOracleAddress(marketConfig));
-    }
 
-    /// @notice Grant Minter roles to downstream contracts.
-    function grantMinterRoles(Config_MinterMarket marketConfig) internal {
-        string memory key = minterKey(marketConfig);
-        address minterProxy = minterAddress(marketConfig);
-        address spm = stabilityPoolManagerAddress(marketConfig);
-        address genesis = genesisAddress(marketConfig);
+        // The manager harvests and mints fee-free; genesis only mints fee-free. Neither is deployed at
+        // this point — both are predicted addresses, which is what lets a minter deploy on its own.
         _grantRoles(
             key,
-            minterProxy,
-            spm,
+            proxy,
+            stabilityPoolManagerAddress(marketConfig),
             "stabilityPoolManager",
-            IMinter(minterProxy).HARVESTER_ROLE() | IMinter(minterProxy).ZERO_FEE_ROLE(),
+            IMinter(proxy).HARVESTER_ROLE() | IMinter(proxy).ZERO_FEE_ROLE(),
             "HARVESTER | ZERO_FEE"
         );
-        _grantRoles(key, minterProxy, genesis, "genesis", IMinter(minterProxy).ZERO_FEE_ROLE(), "ZERO_FEE");
+        _grantRoles(key, proxy, genesisAddress(marketConfig), "genesis", IMinter(proxy).ZERO_FEE_ROLE(), "ZERO_FEE");
     }
 
     // ========== RESERVE POOL DEPLOYMENT ==========
@@ -113,13 +113,16 @@ abstract contract Minter is HarborDeployer {
         bytes memory initData = abi.encodeCall(ReservePool_v2.initialize, (address(this), owner()));
 
         proxy = _deployProxyAndRecord(stateData, key, impl, initData);
-    }
 
-    /// @notice Grant ReservePool REQUESTER_ROLE to Minter.
-    function grantReservePoolRoles(Config_MinterMarket marketConfig) internal {
-        string memory key = reservePoolKey(marketConfig);
-        address rp = reservePoolAddress(marketConfig);
-        address minter = minterAddress(marketConfig);
-        _grantRoles(key, rp, minter, "minter", ReservePool_v2(rp).REQUESTER_ROLE(), "REQUESTER");
+        // REQUESTER lets the minter draw on the pool. The minter need not exist yet — this is its
+        // predicted address, so a reserve pool can be deployed before, or without, the minter it serves.
+        _grantRoles(
+            key,
+            proxy,
+            minterAddress(marketConfig),
+            "minter",
+            ReservePool_v2(proxy).REQUESTER_ROLE(),
+            "REQUESTER"
+        );
     }
 }
