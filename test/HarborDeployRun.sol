@@ -3,6 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoFactoryTestLib} from "@bao-test/BaoFactoryTestLib.sol";
 import {HarborDeployStack} from "@harbor-script/src/HarborDeployStack.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 /// @notice One Harbor deployment run: who owns it, where its fees go, its salt namespace and its network.
 /// @dev An INSTANCE is a run. That is the whole idea, and it is what makes both use sites work without a
@@ -65,6 +67,23 @@ contract HarborDeployRun is HarborDeployStack {
     ///      override yet because `network` is still a deploy-call parameter there.
     function network() public view returns (string memory) {
         return _network;
+    }
+
+    /// @notice Run this deployment: the peg's pegged token if asked for, then each market named.
+    /// @dev The public face of `deployHarborForPeg`, which is `internal`. A COMPOSED run is driven from
+    ///      OUTSIDE — construct it, then tell it to deploy — and an internal function cannot be reached that
+    ///      way, so without this a composed instance could be built but never used. Under inheritance the
+    ///      internal function is reachable directly and this is simply the same call by another name.
+    ///
+    ///      Identity is not a parameter here: the salt prefix and network came from the constructor, so the
+    ///      only inputs are what this particular run deploys.
+    function deploy(
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        bool deployPeg,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) public {
+        deployHarborForPeg(saltPrefix(), peg, allMarkets, network(), deployPeg, marketsToDeploy);
     }
 
     /// @notice Deploy the singleton BaoFactory if needed and register THIS contract as a factory operator.

@@ -105,6 +105,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | REWARD_DEPOSITOR_ROLE  |    262 | 2.620e+02 |
 | REWARD_MANAGER_ROLE    |    283 | 2.830e+02 |
 | REWARD_PERIOD_LENGTH   |    316 | 3.160e+02 |
+| activeRewardTokens     |   7438 | 7.438e+03 |
 | allowance              |   2699 | 2.699e+03 |
 | approve                |  24420 | 2.442e+04 |
 | assetBalanceOf         |   8049 | 8.049e+03 |
@@ -120,6 +121,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | getWithdrawalRequest   |   2812 | 2.812e+03 |
 | getWithdrawalWindow    |    309 | 3.090e+02 |
 | grantRoles             |  26378 | 2.638e+04 |
+| hasAllRoles            |   2637 | 2.637e+03 |
 | historicalRewardTokens |   5180 | 5.180e+03 |
 | initialize             | 203922 | 2.039e+05 |
 | maxAssetLoss           |   2615 | 2.615e+03 |
