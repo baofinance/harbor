@@ -34,14 +34,14 @@ import "@harbor-test/Useful.sol";
 
 contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
     address stabilityPoolManager;
-    address treasury;
+    address stabilityPoolManagerFeeReceiver;
     address bountyReceiver;
     address user;
 
     function setUp() public virtual override(TestStabilityPool2SetUp) {
         super.setUp();
 
-        treasury = makeAddr("treasury");
+        stabilityPoolManagerFeeReceiver = makeAddr("treasury");
         bountyReceiver = makeAddr("bountyReceiver");
         user = makeAddr("user");
         // deal(peggedToken, user, 10000 ether);
@@ -52,13 +52,13 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
 
         stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
-        IBaoOwnable(stabilityPoolManager).transferOwnership(owner);
+        IBaoOwnable(stabilityPoolManager).transferOwnership(owner());
         // Mirror the production deploy, which points the fee (cut) receiver at the treasury; the initialize seed is
         // the owner, and it is never zero.
-        vm.prank(owner);
-        IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(treasury);
+        vm.prank(owner());
+        IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(stabilityPoolManagerFeeReceiver);
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
@@ -66,7 +66,7 @@ contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
         uint256 rewardDepositorRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
 
         // Grant roles
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManager, rebalancerRole);
         IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManager, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManager, zeroFeeRole);
@@ -105,7 +105,7 @@ contract TestStabilityPoolManagerInit is TestStabilityPoolManagerSetUp {
     function setUp_proxy() internal virtual {
         stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
             stabilityPoolManagerImpl,
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
     }
 
@@ -192,7 +192,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         // Test setting bounty
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0.02 ether);
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0.02 ether);
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).rebalanceBountyRatio(),
@@ -202,7 +202,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0);
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0);
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(),
@@ -215,7 +215,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         // Test setting rebalance collateral ratio
         uint256 newRatio = 140 ether / 100; // 140%
 
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(newRatio);
 
         assertEq(
@@ -234,17 +234,17 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         uint256 currentCR = IMinter(minter).collateralRatio();
 
         // Test rebalanceable condition using manager's rebalanceCollateralRatio
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR + 1);
         assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable");
 
         // When CR >= manager's rebalance threshold, should not be rebalanceable
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
         assertFalse(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should not be rebalanceable");
 
         // Update rebalance ratio and test again
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR + 2);
         assertTrue(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should be rebalanceable again");
     }
@@ -272,7 +272,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
     }
 
     function test_invalidRebalanceThreshold() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         uint256 invalidThreshold = 0.9 ether; // Less than 1 ether
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPoolManager.InvalidRebalanceThreshold.selector, invalidThreshold)
@@ -282,7 +282,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
     }
 
     function test_invalidRebalanceBountyRatio() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         uint256 invalidRatio = 1.1 ether; // Greater than 1 ether
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPoolManager.InvalidRebalanceBountyRatio.selector, invalidRatio)
@@ -294,13 +294,13 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
     // The bounty and the cut are set together, as the pair they are validated as; a pair summing to exactly 100% is
     // valid and leaves the pools nothing, all of the harvest gross being fees.
     function test_updateHarvestRatios() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0.9 ether);
         vm.stopPrank();
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.05 ether, "bounty ratio of pair");
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestCutRatio(), 0.9 ether, "cut ratio of pair");
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
         vm.stopPrank();
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "bounty ratio of 100%");
@@ -313,7 +313,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(
             abi.encodeWithSelector(IStabilityPoolManager_v2.InvalidHarvestRatioSum.selector, 0.02 ether, 0.99 ether)
         );
@@ -337,7 +337,7 @@ contract TestStabilityPoolManagerBasic is TestStabilityPoolManagerSetUp {
     function test_updateHarvestRatiosFromPairAboveOneHundredPercent() public {
         _storeHarvestRatios(0.01 ether, 1 ether);
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
         vm.stopPrank();
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "migrated bounty ratio");
@@ -375,7 +375,7 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
     /// capacity - they can never overflow the reward integral. The capacity is mocked small here to make the clamp bind
     /// (in production it dwarfs any real liquidation, so the clamp is a safety bound that drains a huge loss over calls).
     function test_rebalanceClampsLiquidationToRewardCapacity() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1.5 ether);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(0.02 ether);
         vm.stopPrank();
@@ -414,7 +414,7 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         threshold = bound(threshold, 1.2 ether + 1, 2 ether); // Ensure threshold is between 100% and 200%
         bountyRatio = bound(bountyRatio, 0, 0.9 ether); // Ensure bounty ratio is between 0% and 100%
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
         vm.stopPrank();
@@ -529,7 +529,7 @@ contract TestStabilityPoolManagerRebalance is TestStabilityPoolManagerSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(currentCR);
 
         assertFalse(IStabilityPoolManager(stabilityPoolManager).rebalanceable(), "Should not be rebalanceable");
@@ -677,7 +677,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         liquidator = makeAddr("liquidator");
 
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
-        vm.prank(owner);
+        vm.prank(owner());
         IBaoRoles(minter).grantRoles(harvester, harvesterRole);
 
         setUp_collateral(500 ether, 500 ether, address(this));
@@ -811,7 +811,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         );
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 1);
 
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.10 ether, 0);
 
         vm.expectRevert(
@@ -842,7 +842,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 pool1Before = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
         uint256 pool2Before = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged);
 
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0);
 
         // Execute harvest
@@ -901,7 +901,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         uint256 bountyRatio = 0.05 ether;
         uint256 cutRatio = 0.03 ether;
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bountyRatio, cutRatio);
         vm.stopPrank();
 
@@ -911,7 +911,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 expectedNet = (gross * (1 ether - bountyRatio - cutRatio)) / 1 ether; // the pool's OWN floored net
 
         uint256 bountyBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
-        uint256 cutBefore = IERC20(wrappedCollateralToken).balanceOf(treasury); // feeReceiver == treasury (setUp)
+        uint256 cutBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver); // feeReceiver == treasury (setUp)
         uint256 poolBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
 
         vm.prank(harvester);
@@ -923,7 +923,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             "bounty receiver gets exactly bountyRatio * gross"
         );
         assertEq(
-            IERC20(wrappedCollateralToken).balanceOf(treasury) - cutBefore,
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver) - cutBefore,
             expectedCut,
             "cut receiver gets exactly cutRatio * gross"
         );
@@ -947,7 +947,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "Harvester should not receive bounty");
         assertApproxEqAbs(
-            IERC20(wrappedCollateralToken).balanceOf(treasury),
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver),
             10 ether,
             10,
             "Treasury should receive bounty"
@@ -968,7 +968,11 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             "all goes to one pool, not treasury"
         );
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "no bounty");
-        assertEq(IERC20(wrappedCollateralToken).balanceOf(treasury), 0, "Treasury should not receive bounty");
+        assertEq(
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver),
+            0,
+            "Treasury should not receive bounty"
+        );
         assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged), 0 ether, "none in this pool");
     }
 
@@ -977,7 +981,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     /// gross - bounty - cut. The bounty, the cut and the treasury's residual are three independent floors, so they sum
     /// below the gross and that remainder is left unharvested.
     function test_harvestTreasuryTakesFlooredShare_() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0.03 ether);
         vm.stopPrank();
 
@@ -990,13 +994,13 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         // the fixture must distinguish the two, or the assertions below hold for either rule
         assertTrue(complementTreasury != flooredTreasury, "fixture produces a discriminating flooring remainder");
 
-        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(treasury); // feeReceiver == treasury (setUp)
+        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver); // feeReceiver == treasury (setUp)
         vm.startPrank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
 
         assertEq(
-            IERC20(wrappedCollateralToken).balanceOf(treasury) - treasuryBefore,
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver) - treasuryBefore,
             flooredTreasury,
             "treasury takes floor(cut) + floor(residual), not the complement"
         );
@@ -1026,7 +1030,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     /// bounty is a floor-share of zero, so a keeper that demanded a bounty is told its bounty was insufficient - the
     /// more specific of the two failures.
     function test_harvestMinBountyPrecedesShortCircuit_() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0);
         vm.stopPrank();
         vm.mockCall(minter, abi.encodeWithSelector(IMinter.harvestable.selector), abi.encode(uint256(0)));
@@ -1121,7 +1125,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IStabilityPool(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
         uint256 bountyRatio = 0.05 ether;
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bountyRatio, 0);
         vm.stopPrank();
 
@@ -1137,7 +1141,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     }
 
     function test_harvestFailures() public {
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.05 ether, 0);
 
         // Test with minimum bounty too high
@@ -1154,7 +1158,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         // Test when nothing to harvest
         vm.startPrank(harvester);
-        ITokenHolder(minter).sweep(wrappedCollateralToken, IMinter(minter).harvestable(), owner);
+        ITokenHolder(minter).sweep(wrappedCollateralToken, IMinter(minter).harvestable(), owner());
         vm.stopPrank();
 
         vm.expectRevert(IStabilityPoolManager.NoHarvestable.selector);
@@ -1237,10 +1241,10 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
     // Test for the harvestCutRatio and feeReceiver functionality
     function test_harvestWithCutRatioAndFeeReceiver_() public {
         // Set up the ratio pair - 10% bounty, 20% cut - and the fee receiver
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.1 ether, 0.2 ether);
 
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(feeReceiver);
 
         // Set up pools with balances
@@ -1311,12 +1315,12 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         assertEq(IERC20(peggedToken).balanceOf(stabilityPoolLeveraged), 0, "Pool 2 should be empty");
 
         // Set up bounty ratio
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.1 ether, 0); // 10% bounty
 
         // Record initial balances
         uint256 harvesterBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
-        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(treasury);
+        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver);
 
         // Execute harvest
         vm.prank(harvester);
@@ -1339,7 +1343,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         // Check remainder went to treasury
         assertApproxEqAbs(
-            IERC20(wrappedCollateralToken).balanceOf(treasury) - treasuryBefore,
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver) - treasuryBefore,
             expectedToTreasury,
             10,
             "Treasury should receive remainder when pools are empty"
@@ -1357,7 +1361,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.01 ether, 0.99 ether);
         vm.stopPrank();
         assertEq(IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(), 0.01 ether, "repaired bounty ratio");
@@ -1376,7 +1380,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
     // Harvest with a cut sends the cut to the fee receiver (the treasury, per setUp); the pools get the residual.
     function test_harvestWithCutToFeeReceiver_() public {
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0, 0.2 ether); // 20% cut
 
         // Set up pools with balances
@@ -1410,7 +1414,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             "the pools receive the residual after the cut"
         );
         assertApproxEqAbs(
-            IERC20(wrappedCollateralToken).balanceOf(treasury),
+            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver),
             2 ether,
             10,
             "Treasury gets the fee receiver cut"
@@ -1478,14 +1482,14 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         // The fee receiver is never zero: setUp points it at the treasury (the initialize seed is the owner).
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).feeReceiver(),
-            treasury,
+            stabilityPoolManagerFeeReceiver,
             "fee receiver starts at the setUp value (the treasury), never zero"
         );
 
         // Set fee receiver
-        vm.prank(owner);
+        vm.prank(owner());
         vm.expectEmit(true, true, false, false);
-        emit IStabilityPoolManager.UpdateFeeReceiver(treasury, feeReceiver);
+        emit IStabilityPoolManager.UpdateFeeReceiver(stabilityPoolManagerFeeReceiver, feeReceiver);
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(feeReceiver);
 
         // Verify it was set correctly
@@ -1497,7 +1501,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
 
         // Update to a new address and verify event is emitted with correct old address
         address newFeeReceiver = makeAddr("newFeeReceiver");
-        vm.prank(owner);
+        vm.prank(owner());
         vm.expectEmit(true, true, false, false);
         emit IStabilityPoolManager.UpdateFeeReceiver(feeReceiver, newFeeReceiver);
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(newFeeReceiver);
@@ -1514,7 +1518,7 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         // covered by the envelope no-dust tests, not re-derived here.
         bounty = bound(bounty, 0, 0.99 ether);
         cut = bound(cut, 0, 0.99 ether - bounty);
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(feeReceiver);
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(bounty, cut);
         vm.stopPrank();
@@ -1581,16 +1585,16 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
 
     function test_harvestWithoutSufficientTokens_() public {
         // Set up fee receiver and harvest cut ratio
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(feeReceiver);
 
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0, 0.1 ether); // 10% cut
 
         // Set up harvester role
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
         address harvester = makeAddr("harvester");
-        vm.prank(owner);
+        vm.prank(owner());
         IBaoRoles(minter).grantRoles(harvester, harvesterRole);
 
         // Mock some harvestable amount in the minter
@@ -1651,7 +1655,7 @@ contract TestStabilityPoolManagerUpgradeable is TestStabilityPoolManagerSetUp {
         // Create the V2 implementation (already done in setUp)
 
         // Perform the upgrade as the owner
-        vm.prank(owner);
+        vm.prank(owner());
         UUPSUpgradeable(stabilityPoolManager).upgradeToAndCall(address(newImplementation), "");
 
         // Verify the upgrade was successful by calling the new version function
@@ -1676,7 +1680,7 @@ contract TestStabilityPoolManagerUpgradeable is TestStabilityPoolManagerSetUp {
         );
 
         // Check that the storage values are preserved
-        vm.prank(owner);
+        vm.prank(owner());
         IStabilityPoolManager_v2(stabilityPoolManager).updateHarvestRatios(0.1 ether, 0);
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).harvestBountyRatio(),
@@ -1692,7 +1696,7 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
         uint256 threshold = 1.3 ether;
         uint256 bountyRatio = 0.2 ether;
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
         vm.stopPrank();
@@ -1740,7 +1744,7 @@ contract Gist_1 is TestStabilityPoolManagerSetUp {
         uint256 threshold = 1.3 ether;
         uint256 bountyRatio = 0.2 ether;
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
         vm.stopPrank();
@@ -1790,7 +1794,7 @@ contract Gist_2 is TestStabilityPoolManagerSetUp {
         uint256 threshold = 1.4 ether; // Ensure threshold is between 100% and 200%
         uint256 bountyRatio = 0.2 ether; // Ensure bounty ratio is between 0% and 100%
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(threshold);
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceBountyRatio(bountyRatio);
         vm.stopPrank();
@@ -1874,7 +1878,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
     function test_addYieldVault_registers() public {
         vm.expectEmit(true, false, false, false);
         emit IYieldVaultManager.YieldVaultAdded(vaultA);
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
         vm.stopPrank();
 
@@ -1884,7 +1888,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
 
     // The zero address is rejected.
     function test_addYieldVault_rejectsZero() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(abi.encodeWithSelector(IYieldVaultManager.InvalidYieldVault.selector, address(0)));
         IYieldVaultManager(stabilityPoolManager).addYieldVault(address(0));
         vm.stopPrank();
@@ -1892,7 +1896,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
 
     // A duplicate is rejected - the set never double-registers (and would never double-compound).
     function test_addYieldVault_rejectsDuplicate() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
         vm.expectRevert(abi.encodeWithSelector(IYieldVaultManager.InvalidYieldVault.selector, vaultA));
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
@@ -1910,7 +1914,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
 
     // removeYieldVault unregisters a vault (swap-and-pop leaves the other) and emits YieldVaultRemoved.
     function test_removeYieldVault_unregisters() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultB);
         vm.expectEmit(true, false, false, false);
@@ -1924,7 +1928,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
 
     // Removing an unregistered vault reverts.
     function test_removeYieldVault_notFound() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(abi.encodeWithSelector(IYieldVaultManager.YieldVaultNotFound.selector, vaultA));
         IYieldVaultManager(stabilityPoolManager).removeYieldVault(vaultA);
         vm.stopPrank();
@@ -1932,7 +1936,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
 
     // Only the owner may remove.
     function test_removeYieldVault_onlyOwner() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
         vm.stopPrank();
         vm.startPrank(address(0xBEEF));
@@ -1951,7 +1955,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
 
     // 1 vault: the harvest compounds it.
     function test_compoundOnHarvest_oneVault() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
         vm.stopPrank();
 
@@ -1965,7 +1969,7 @@ contract TestStabilityPoolManagerYieldVaults is TestStabilityPoolManagerSetUp {
 
     // N vaults incl. a failing one: every vault is visited, the failure is caught (non-fatal), and the rest still run.
     function test_compoundOnHarvest_manyVaults_failureIsNonFatal() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultA);
         IYieldVaultManager(stabilityPoolManager).addYieldVault(failingVault);
         IYieldVaultManager(stabilityPoolManager).addYieldVault(vaultB);

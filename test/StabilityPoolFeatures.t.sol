@@ -110,7 +110,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
 
         // Grant exemption role to user1 (owner-only)
         uint256 exemptRole = StabilityPool_v3(stabilityPoolCollateral).EXEMPT_WITHDRAWAL_FEE_ROLE();
-        vm.prank(owner);
+        vm.prank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(user1, exemptRole);
 
         // Create a withdrawal request and withdraw before the window start (fee would normally apply)

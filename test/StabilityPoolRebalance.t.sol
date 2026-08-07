@@ -818,7 +818,7 @@ contract TestStabilityPoolRebalance is TestStabilityPoolRebalanceSetUp {
         IStabilityPool(stabilityPoolCollateral).requestWithdrawal();
         vm.warp(block.timestamp + 2 hours);
         vm.prank(user3);
-        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, owner, 0);
+        IStabilityPool(stabilityPoolCollateral).withdraw(DEPOSIT_AMOUNT / 2, owner(), 0);
         assertEq(
             IERC20(stabilityPoolCollateral).totalSupply(),
             DEPOSIT_AMOUNT * 2 + minSupply - DEPOSIT_AMOUNT / 2, // Account for MIN_TOTAL_ASSET_SUPPLY

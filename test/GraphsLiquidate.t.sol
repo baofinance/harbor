@@ -27,7 +27,6 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
     address stabilityPoolManagerLeveraged;
     address stabilityPoolManagerBoth;
     address bountyReceiver;
-    address treasury;
 
     function setUpConfig() internal virtual override {
         setUp_config_likely();
@@ -40,7 +39,6 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         IStabilityPool(stabilityPoolLeveraged).deposit(4 * startPrice, address(this), 0);
 
         bountyReceiver = makeAddr("bountyReceiver");
-        treasury = makeAddr("treasury");
 
         address stabilityPoolCollateralEmpty = _setupStabilityPool(wrappedCollateralToken);
         address stabilityPoolLeveragedEmpty = _setupStabilityPool(leveragedToken);
@@ -51,10 +49,10 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
         // set up the stability pool managers
         stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
         IBaoRoles(stabilityPoolLeveragedEmpty).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);
@@ -62,10 +60,10 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPoolManager_v2(minter, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateralEmpty).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
         IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerLeveraged, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManagerLeveraged, zeroFeeRole);
@@ -73,10 +71,10 @@ contract TestGraphsLiquidatePartial is TestGraphs, TestCollateralRatioRangeSetUp
 
         stabilityPoolManagerBoth = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
         IStabilityPoolManager(stabilityPoolManagerBoth).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManagerBoth, rebalancerRole);
         IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerBoth, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManagerBoth, zeroFeeRole);
@@ -185,7 +183,6 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
     string toFile;
     address stabilityPoolManager;
     address bountyReceiver;
-    address treasury;
     uint256 peggedForSPCRatio;
     uint256 peggedForSPLRatio;
     address user;
@@ -213,7 +210,6 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         }
         user = address(this);
         bountyReceiver = makeAddr("bountyReceiver");
-        treasury = makeAddr("treasury");
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
@@ -221,10 +217,10 @@ contract TestGraphsLiquidate is TestGraphs, TestCollateralRatioRangeSetUp {
         // set up the stability pool managers
         stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
         IStabilityPoolManager(stabilityPoolManager).updateRebalanceThreshold(1.3 ether);
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManager, rebalancerRole);
         IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManager, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManager, zeroFeeRole);

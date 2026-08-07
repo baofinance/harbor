@@ -55,7 +55,7 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100), ia(35, 70)),
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
 
         deal(wrappedCollateralToken, zeroFee, 10 ether);
@@ -111,7 +111,7 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100), ia(35, 70)),
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
 
         _mintLeveraged(1 ether);
@@ -125,7 +125,7 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100), ia(35, 70)),
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
 
         // this should do the same as the 2BandSameLevel (the number below was taken from its logs)
@@ -145,7 +145,7 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100, 140), ia(35, 70, 100)), // <--
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
 
         // mint 1 ether, we get CR = 5/3 = 1.66, so crosses the 140 boundary
@@ -162,7 +162,7 @@ contract TestMinterMintMechanics is TestMinterMint {
             ic(ua(100, 140), ia(35, 70, 70)), // <--
             ic(ua(100), ia(240, 120))
         );
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
 
         // mint 1 ether, we get CR = 5/3 = 1.66, so crosses the 140 boundary

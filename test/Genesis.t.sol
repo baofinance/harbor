@@ -45,7 +45,7 @@ contract Test_GenesisBase is TestMinterSetUp {
         );
         config = IMinter.Config(percent1, percent1, percent1, percent1);
 
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
 
         user1 = makeAddr("user1");
@@ -74,11 +74,11 @@ contract Test_GenesisBase is TestMinterSetUp {
         // emit Initializable.Initialized(1);
         genesis = UnsafeUpgrades.deployUUPSProxy(
             genesisImpl, //"Genesis_v2.sol",
-            abi.encodeCall(Genesis_v2.initialize, (address(this), owner))
+            abi.encodeCall(Genesis_v2.initialize, (address(this), owner()))
         );
         // vm.expectEmit();
         // emit IBaoOwnable.OwnershipTransferred(address(this), owner);
-        IBaoOwnable(genesis).transferOwnership(owner);
+        IBaoOwnable(genesis).transferOwnership(owner());
 
         // approve genesis to use my collateral
         IERC20(wrappedCollateralToken).approve(genesis, type(uint256).max);
@@ -106,7 +106,7 @@ contract Test_GenesisBase is TestMinterSetUp {
         Genesis_v2(genesis).initialize(address(this), address(this));
 
         // check the data has been set up correctly
-        assertEq(IBaoOwnable(genesis).owner(), owner, "wrong owner");
+        assertEq(IBaoOwnable(genesis).owner(), owner(), "wrong owner");
         assertEq(IGenesis(genesis).MINTER(), minter, "wrong minter");
         assertEq(IGenesis(genesis).WRAPPED_COLLATERAL_TOKEN(), wrappedCollateralToken, "wrong collateral");
         assertEq(IGenesis(genesis).PEGGED_TOKEN(), peggedToken, "wrong pegged");
@@ -233,13 +233,13 @@ contract Test_GenesisBase is TestMinterSetUp {
 
         // only minter zero fee access can complete it - the revert comes from the Minter, not from Genesis
         assertFalse(IHarborRoles(minter).hasAnyRole(genesis, zeroFeeRole));
-        vm.prank(owner);
+        vm.prank(owner());
         vm.expectRevert(IHarborOwnable.Unauthorized.selector);
         IGenesis(genesis).endGenesis();
         assertFalse(IGenesis(genesis).genesisIsEnded());
 
         // grant zero fee access
-        vm.prank(owner);
+        vm.prank(owner());
         IHarborRoles(minter).grantRoles(genesis, zeroFeeRole);
         assertTrue(IHarborRoles(minter).hasAllRoles(genesis, zeroFeeRole));
 
@@ -255,7 +255,7 @@ contract Test_GenesisBase is TestMinterSetUp {
         assertEq(IERC20(peggedToken).balanceOf(genesis), 0 ether, "genesis now has 0 ether pegged tokens");
         assertEq(IERC20(leveragedToken).balanceOf(genesis), 0 ether, "genesis now has 0 ether leveraged tokens");
         assertFalse(IGenesis(genesis).genesisIsEnded());
-        vm.prank(owner);
+        vm.prank(owner());
         vm.expectEmit();
         emit IGenesis.GenesisEnds();
         IGenesis(genesis).endGenesis();
@@ -283,7 +283,7 @@ contract Test_GenesisBase is TestMinterSetUp {
 
         // cannot end it again
         vm.expectRevert(IGenesis.GenesisIsEnded.selector);
-        vm.prank(owner);
+        vm.prank(owner());
         IGenesis(genesis).endGenesis();
 
         // cannot deposit once ended
@@ -320,7 +320,7 @@ contract Test_GenesisBase is TestMinterSetUp {
     }
 
     function test_nullGenesis() public {
-        vm.prank(owner);
+        vm.prank(owner());
         IGenesis(genesis).endGenesis();
         uint256 p;
         uint256 l;

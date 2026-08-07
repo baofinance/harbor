@@ -20,49 +20,49 @@ contract TestMinterFreeOwnerAuth is TestMinterSetUp {
         super.setUp();
         setUp_collateral(3 ether, 1 ether); // populated pool, minted as the ZERO_FEE_ROLE holder
         assertFalse(
-            IHarborRoles(minter).hasAnyRole(owner, IMinter(minter).ZERO_FEE_ROLE()),
+            IHarborRoles(minter).hasAnyRole(owner(), IMinter(minter).ZERO_FEE_ROLE()),
             "owner must not hold ZERO_FEE_ROLE, else these tests would not exercise the owner path"
         );
     }
 
     function test_freeMintPeggedToken_ownerAuthorisedWithoutRole() public {
-        deal(wrappedCollateralToken, owner, 1 ether);
-        vm.startPrank(owner);
+        deal(wrappedCollateralToken, owner(), 1 ether);
+        vm.startPrank(owner());
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, owner);
+        uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, owner());
         vm.stopPrank();
         assertGt(minted, 0, "owner free-minted pegged");
-        assertEq(IERC20(peggedToken).balanceOf(owner), minted, "owner received the pegged");
+        assertEq(IERC20(peggedToken).balanceOf(owner()), minted, "owner received the pegged");
     }
 
     function test_freeMintLeveragedToken_ownerAuthorisedWithoutRole() public {
-        deal(wrappedCollateralToken, owner, 1 ether);
-        vm.startPrank(owner);
+        deal(wrappedCollateralToken, owner(), 1 ether);
+        vm.startPrank(owner());
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        uint256 minted = IMinter(minter).freeMintLeveragedToken(1 ether, owner);
+        uint256 minted = IMinter(minter).freeMintLeveragedToken(1 ether, owner());
         vm.stopPrank();
         assertGt(minted, 0, "owner free-minted leveraged");
-        assertEq(IERC20(leveragedToken).balanceOf(owner), minted, "owner received the leveraged");
+        assertEq(IERC20(leveragedToken).balanceOf(owner()), minted, "owner received the leveraged");
     }
 
     function test_freeRedeemPeggedToken_ownerAuthorisedWithoutRole() public {
-        deal(wrappedCollateralToken, owner, 1 ether);
-        vm.startPrank(owner);
+        deal(wrappedCollateralToken, owner(), 1 ether);
+        vm.startPrank(owner());
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, owner);
+        uint256 minted = IMinter(minter).freeMintPeggedToken(1 ether, owner());
         IERC20(peggedToken).approve(minter, minted);
-        (uint256 collateralOut, ) = IMinter(minter).freeRedeemPeggedToken(minted, 0, owner);
+        (uint256 collateralOut, ) = IMinter(minter).freeRedeemPeggedToken(minted, 0, owner());
         vm.stopPrank();
         assertGt(collateralOut, 0, "owner free-redeemed pegged for collateral");
     }
 
     function test_freeRedeemLeveragedToken_ownerAuthorisedWithoutRole() public {
-        deal(wrappedCollateralToken, owner, 1 ether);
-        vm.startPrank(owner);
+        deal(wrappedCollateralToken, owner(), 1 ether);
+        vm.startPrank(owner());
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        uint256 minted = IMinter(minter).freeMintLeveragedToken(1 ether, owner);
+        uint256 minted = IMinter(minter).freeMintLeveragedToken(1 ether, owner());
         IERC20(leveragedToken).approve(minter, minted);
-        uint256 collateralOut = IMinter(minter).freeRedeemLeveragedToken(minted, owner);
+        uint256 collateralOut = IMinter(minter).freeRedeemLeveragedToken(minted, owner());
         vm.stopPrank();
         assertGt(collateralOut, 0, "owner free-redeemed leveraged");
     }

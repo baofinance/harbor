@@ -34,7 +34,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             address(
                 new StabilityPool_v2(minter, liquidationToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
             ),
-            abi.encodeCall(StabilityPool_v2.initialize, (owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v2.initialize, (owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
 
         IBaoRoles(stabilityPool).grantRoles(
@@ -53,7 +53,7 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             IMultipleRewardDistributor(stabilityPool).registerRewardToken(wrappedCollateralToken);
         }
 
-        IBaoOwnable(stabilityPool).transferOwnership(owner);
+        IBaoOwnable(stabilityPool).transferOwnership(owner());
     }
 
     function setUp() public override {
@@ -122,10 +122,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
         address[] memory holders = new address[](2);
         holders[0] = user1;
         holders[1] = user2;
-        address upgraderImpl = address(new StabilityPool_v3_Upgrader(owner));
+        address upgraderImpl = address(new StabilityPool_v3_Upgrader(owner()));
         bytes memory initData = abi.encodeCall(StabilityPool_v3_Upgrader.migrateAndUpgrade, (gap, holders, v3Impl));
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(upgraderImpl, initData);
         vm.stopPrank();
     }

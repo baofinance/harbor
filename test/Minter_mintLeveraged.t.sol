@@ -169,7 +169,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
             1 ether,
             "collateral ratio = 1 for the first mint: 0/0, a special case = 1"
         ); /*  */
-        assertEq(IHarborOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner());
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         // 5 ---------------------------
@@ -190,7 +190,7 @@ contract TestMinterMintLeveraged is TestMinterMint {
         vm.prank(zeroFee);
         IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
         assertGt(IMinter(minter).collateralRatio(), 1 ether, "collateral ratio > 1");
-        assertEq(IHarborOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner());
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintLeveragedToken(1 ether);
         // 7 ---------------------------

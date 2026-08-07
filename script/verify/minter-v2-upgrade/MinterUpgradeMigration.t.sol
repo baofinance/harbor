@@ -21,7 +21,7 @@ contract TestMinterUpgradeMigration is TestMinterSetUp {
     function setUp_minter() internal override {
         minter = UnsafeUpgrades.deployUUPSProxy(
             address(new Minter_v1(wrappedCollateralToken, peggedToken, leveragedToken, "burn(uint256)")),
-            abi.encodeCall(Minter_v1.initialize, (owner))
+            abi.encodeCall(Minter_v1.initialize, (owner()))
         );
         vm.label(minter, "minter");
         zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
@@ -29,11 +29,11 @@ contract TestMinterUpgradeMigration is TestMinterSetUp {
         IMinter(minter).updateFeeReceiver(feeReceiver);
         IMinter(minter).updateReservePool(reservePool);
         if (isConfigSet) IMinter(minter).updateConfig(config);
-        IBaoOwnable(minter).transferOwnership(owner);
+        IBaoOwnable(minter).transferOwnership(owner());
     }
     function _upgradeToV2() internal {
         address v2Impl = address(new Minter_v2(wrappedCollateralToken, peggedToken, leveragedToken, "burn(uint256)"));
-        vm.prank(owner);
+        vm.prank(owner());
         UUPSUpgradeable(minter).upgradeToAndCall(v2Impl, "");
     }
 
@@ -141,7 +141,7 @@ contract TestMinterUpgradeMigration is TestMinterSetUp {
     function test_upgradeFromV1_ConfigChange() public {
         // Change config on v1
         setUp_config_free();
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
 
         IMinter.Config memory v1_config = IMinter(minter).config();
@@ -153,7 +153,7 @@ contract TestMinterUpgradeMigration is TestMinterSetUp {
 
         // Post-upgrade: config update works
         setUp_config_flat();
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).updateConfig(config);
         IMinter.Config memory updated = IMinter(minter).config();
         _assertEqConfig(updated, config);

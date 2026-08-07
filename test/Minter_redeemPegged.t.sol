@@ -126,7 +126,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).freeRedeemPeggedToken(0, 0, receiver);
         // 4 -----------------------------------------------------------
 
-        assertEq(IHarborOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner());
 
         // check that we can't redeem more than minter has minted, i.e 0
         vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));
@@ -277,7 +277,7 @@ contract TestMinterRedeemPegged is TestMinterMint {
         IMinter(minter).freeRedeemPeggedToken(0, 0, receiver);
         // 4 -----------------------------------------------------------
 
-        assertEq(IHarborOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner());
 
         // check that we can't swap more than minter has minted, i.e 0
         vm.expectRevert(abi.encodeWithSelector(IMinter.InsufficientRedeemableTokens.selector, peggedToken, 0, price));

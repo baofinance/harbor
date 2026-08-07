@@ -36,7 +36,7 @@ contract TestMinterHarvest is TestMinterHarvestSetUp {
         harvestReceiver = makeAddr("harvestReceiver");
         harvester = makeAddr("harvester");
         uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
-        vm.prank(owner);
+        vm.prank(owner());
         IHarborRoles(minter).grantRoles(harvester, harvesterRole);
         deal(address(Deployed.wstETH), harvester, 100 ether);
         vm.prank(harvester);

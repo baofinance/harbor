@@ -125,7 +125,7 @@ contract TestMinterMintPegged is TestMinterMint {
             1 ether,
             "collateral ratio = 0/0, which we define as 1, in this case"
         );
-        assertEq(IHarborOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner());
         assertEq(IERC20(peggedToken).balanceOf(receiver), 0);
         _freeMintPeggedToken(1 ether);
         //---------------------------

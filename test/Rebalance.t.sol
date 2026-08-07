@@ -22,7 +22,6 @@ import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.so
 contract TestLiquidate is TestStabilityPool2SetUp {
     address stabilityPoolManagerCollateral;
     address stabilityPoolManagerLeveraged;
-    address treasury;
     address bountyReceiver;
     address user;
 
@@ -32,7 +31,6 @@ contract TestLiquidate is TestStabilityPool2SetUp {
     function setUp() public override {
         super.setUp();
 
-        treasury = makeAddr("treasury");
         bountyReceiver = makeAddr("bountyReceiver");
         user = makeAddr("user");
         vm.deal(user, 100 ether);
@@ -43,39 +41,39 @@ contract TestLiquidate is TestStabilityPool2SetUp {
             address(new StabilityPool_v3(minter, wrappedCollateralToken, 3600, 90000, 1 ether, "SP Col", "spC")),
             abi.encodeCall(
                 StabilityPool_v3.initialize,
-                (address(this), owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+                (address(this), owner(), 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
             )
         );
-        IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner);
+        IBaoOwnable(stabilityPoolCollateralEmpty).transferOwnership(owner());
 
         stabilityPoolLeveragedEmpty = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPool_v3(minter, leveragedToken, 3600, 90000, 1 ether, "SP Lev", "spL")),
             abi.encodeCall(
                 StabilityPool_v3.initialize,
-                (address(this), owner, 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
+                (address(this), owner(), 0.025 ether, 0x3dFc49e5112005179Da613BdE5973229082dAc35)
             )
         );
-        IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner);
+        IBaoOwnable(stabilityPoolLeveragedEmpty).transferOwnership(owner());
 
         stabilityPoolManagerCollateral = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveragedEmpty)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
         IStabilityPoolManager(stabilityPoolManagerCollateral).updateRebalanceThreshold(1.3 ether);
-        IBaoOwnable(stabilityPoolManagerCollateral).transferOwnership(owner);
+        IBaoOwnable(stabilityPoolManagerCollateral).transferOwnership(owner());
 
         stabilityPoolManagerLeveraged = UnsafeUpgrades.deployUUPSProxy(
             address(new StabilityPoolManager_v2(minter, stabilityPoolCollateralEmpty, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner))
+            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
         );
         IStabilityPoolManager(stabilityPoolManagerLeveraged).updateRebalanceThreshold(1.3 ether);
-        IBaoOwnable(stabilityPoolManagerLeveraged).transferOwnership(owner);
+        IBaoOwnable(stabilityPoolManagerLeveraged).transferOwnership(owner());
 
         uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
         uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
 
         // Grant roles
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
         IBaoRoles(stabilityPoolLeveragedEmpty).grantRoles(stabilityPoolManagerCollateral, rebalancerRole);
         IBaoRoles(minter).grantRoles(stabilityPoolManagerCollateral, zeroFeeRole);

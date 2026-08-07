@@ -134,7 +134,7 @@ contract TestMinterRedeemLeveraged is TestMinterMint {
         // 4 ----------------------------------------------------
 
         // some input, when none, but minter has some
-        assertEq(IHarborOwnable(minter).owner(), owner);
+        assertEq(IHarborOwnable(minter).owner(), owner());
         deal(address(Deployed.wstETH), zeroFee, 20 ether);
         vm.prank(zeroFee);
         IERC20(Deployed.wstETH).approve(minter, type(uint256).max);

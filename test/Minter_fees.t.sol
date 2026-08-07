@@ -561,13 +561,13 @@ contract TestMinterFees is TestMinterFeeSetUp {
         uint256 pegged = (collateral * price) / 1 ether;
         uint256 expectedFees = (uint256(redeemPeggedFeeRatio) * collateral) / 1 ether;
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
-        assertGe(IERC20(peggedToken).balanceOf(owner), pegged);
-        vm.prank(owner);
+        assertGe(IERC20(peggedToken).balanceOf(owner()), pegged);
+        vm.prank(owner());
         IERC20(peggedToken).approve(minter, type(uint256).max);
 
         vm.expectEmit(true, true, true, true, minter);
-        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees, 0);
-        vm.prank(owner); // the owner has all the tokens
+        emit IMinter.RedeemPeggedToken(owner(), user, pegged, collateral - expectedFees, 0);
+        vm.prank(owner()); // the owner has all the tokens
         IMinter(minter).redeemPeggedToken(pegged, user, 0);
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + expectedFees);
     }
@@ -582,7 +582,7 @@ contract TestMinterFees is TestMinterFeeSetUp {
         // TODO: start in critical 115, then go to danger 150, then normal
         // TODO: add bonus band in. Also in mintLeveraged
         (uint256 price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        setUp_collateral(3 ether, 1 ether, owner); // CR = 4/3 = 1.33
+        setUp_collateral(3 ether, 1 ether, owner()); // CR = 4/3 = 1.33
         assertLt(
             IMinter(minter).collateralRatio(),
             ultimate(config.mintPeggedIncentiveConfig.collateralRatioBandUpperBounds),
@@ -614,13 +614,13 @@ contract TestMinterFees is TestMinterFeeSetUp {
         // check that the fees match the reported value, both emit and that transferred
         uint256 expectedFees = (uint256(redeemPeggedFeeRatio) * collateral) / 1 ether;
         uint256 feeReceiverCollateralBalanceBefore = IERC20(Deployed.wstETH).balanceOf(feeReceiver);
-        assertGe(IERC20(peggedToken).balanceOf(owner), pegged);
-        vm.prank(owner);
+        assertGe(IERC20(peggedToken).balanceOf(owner()), pegged);
+        vm.prank(owner());
         IERC20(peggedToken).approve(minter, type(uint256).max);
 
         vm.expectEmit(minter);
-        emit IMinter.RedeemPeggedToken(owner, user, pegged, collateral - expectedFees, 0); // 1
-        vm.prank(owner); // the owner has all the tokens
+        emit IMinter.RedeemPeggedToken(owner(), user, pegged, collateral - expectedFees, 0); // 1
+        vm.prank(owner()); // the owner has all the tokens
         IMinter(minter).redeemPeggedToken(pegged, user, 0); // 2
         assertEq(IERC20(Deployed.wstETH).balanceOf(feeReceiver), feeReceiverCollateralBalanceBefore + expectedFees);
 

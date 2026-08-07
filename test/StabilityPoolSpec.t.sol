@@ -509,7 +509,7 @@ contract TestStabilityPoolSpec is TestStabilityPoolRebalanceSetUp {
 
         address[] memory activeTokensBefore = IMultipleRewardDistributor(stabilityPoolCollateral).activeRewardTokens();
         assertTrue(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
-        vm.prank(owner);
+        vm.prank(owner());
         IMultipleRewardDistributor(stabilityPoolCollateral).unregisterRewardToken(address(rewardToken));
         assertFalse(IMultipleRewardDistributor(stabilityPoolCollateral).isActiveRewardToken(address(rewardToken)));
 

@@ -161,7 +161,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         (uint256 price, ) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).reset();
         vm.stopPrank();
@@ -174,7 +174,7 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         uint256 collateralRatioBefore = IMinter_v3(minter).collateralRatio();
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
         IMinter_v3(minter).reset();
         vm.stopPrank();

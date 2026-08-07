@@ -40,7 +40,7 @@ contract MinterSlashTest is TestMinterSetUp {
         assertEq(IMinter(minter).leverageRatio(), 3.5 ether, "after rate drop leverage ratio");
         assertEq(IMinter(minter).harvestable(), 0, "after rate drop harvestable");
 
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).reset();
 
         assertEq(IMinter(minter).collateralRatio(), 1.26 ether, "after reset CR"); // 10% down
@@ -52,7 +52,7 @@ contract MinterSlashTest is TestMinterSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IMinter(minter).reset();
 
-        vm.prank(owner);
+        vm.prank(owner());
         IMinter(minter).reset();
     }
 }

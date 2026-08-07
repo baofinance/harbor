@@ -26,14 +26,14 @@ contract MinterDependencyAddressesTest is TestMinterSetUp {
     // Price oracle -----------------------------------------------------------
 
     function test_updatePriceOracle_zeroAddress_reverts() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(Token.ZeroAddress.selector);
         IMinter_v3(minter).updatePriceOracle(address(0));
         vm.stopPrank();
     }
 
     function test_updatePriceOracle_zeroAddress_leavesOracleUnchanged() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(Token.ZeroAddress.selector);
         IMinter_v3(minter).updatePriceOracle(address(0));
         vm.stopPrank();
@@ -44,14 +44,14 @@ contract MinterDependencyAddressesTest is TestMinterSetUp {
     // Reserve pool -----------------------------------------------------------
 
     function test_updateReservePool_zeroAddress_reverts() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(Token.ZeroAddress.selector);
         IMinter_v3(minter).updateReservePool(address(0));
         vm.stopPrank();
     }
 
     function test_updateReservePool_zeroAddress_leavesReservePoolUnchanged() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(Token.ZeroAddress.selector);
         IMinter_v3(minter).updateReservePool(address(0));
         vm.stopPrank();
@@ -62,14 +62,14 @@ contract MinterDependencyAddressesTest is TestMinterSetUp {
     // Fee receiver -----------------------------------------------------------
 
     function test_updateFeeReceiver_zeroAddress_reverts() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(Token.ZeroAddress.selector);
         IMinter_v3(minter).updateFeeReceiver(address(0));
         vm.stopPrank();
     }
 
     function test_updateFeeReceiver_zeroAddress_leavesFeeReceiverUnchanged() public {
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         vm.expectRevert(Token.ZeroAddress.selector);
         IMinter_v3(minter).updateFeeReceiver(address(0));
         vm.stopPrank();
@@ -84,7 +84,7 @@ contract MinterDependencyAddressesTest is TestMinterSetUp {
     function test_eachSetterStillAcceptsANonZeroAddress() public {
         address replacement = makeAddr("replacement");
 
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IMinter_v3(minter).updatePriceOracle(replacement);
         IMinter_v3(minter).updateReservePool(replacement);
         IMinter_v3(minter).updateFeeReceiver(replacement);

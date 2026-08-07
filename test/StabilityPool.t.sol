@@ -122,7 +122,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
                 address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
                 abi.encodeCall(
                     MintableBurnableERC20_v1.initialize,
-                    (owner, "StabilityPool Token", string.concat("lp", SPName))
+                    (owner(), "StabilityPool Token", string.concat("lp", SPName))
                 )
             )
         );
@@ -131,7 +131,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v3
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v3.sol",
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
         vm.label(stabilityPool, SPName);
 
@@ -154,8 +154,8 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
             IMultipleRewardDistributor(stabilityPool).registerRewardToken(wrappedCollateralToken);
         }
 
-        IBaoOwnable(stabilityPoolToken).transferOwnership(owner);
-        IBaoOwnable(stabilityPool).transferOwnership(owner);
+        IBaoOwnable(stabilityPoolToken).transferOwnership(owner());
+        IBaoOwnable(stabilityPool).transferOwnership(owner());
     }
 
     function setUp() public virtual override {
@@ -187,7 +187,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     }
 
     function test_initOnly(address sp, address liquidateTo) internal view {
-        assertEq(StabilityPool_v3(sp).owner(), owner);
+        assertEq(StabilityPool_v3(sp).owner(), owner());
         assertEq(IStabilityPool(sp).ASSET_TOKEN(), peggedToken);
         assertEq(IStabilityPool(sp).LIQUIDATION_TOKEN(), liquidateTo);
         assertEq(IERC20(sp).totalSupply(), 0);
@@ -212,7 +212,7 @@ contract TestStabilityPoolInit is TestStabilityPoolSetUp {
         StabilityPool_vN implementationV2 = new StabilityPool_vN(minter, wrappedCollateralToken);
 
         // Perform the upgrade as the owner
-        vm.prank(owner);
+        vm.prank(owner());
         UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(address(implementationV2), "");
 
         // Verify the upgrade was successful by calling the new version function
@@ -232,7 +232,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         stabilityPoolToken = address(
             UnsafeUpgrades.deployUUPSProxy(
                 address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, "StabilityPool Token name", "lpToken"))
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), "StabilityPool Token name", "lpToken"))
             )
         );
     }
@@ -274,9 +274,9 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v3.sol",
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
-        IBaoOwnable(spProxy).transferOwnership(owner);
+        IBaoOwnable(spProxy).transferOwnership(owner());
 
         test_initOnly(spProxy, liquidateTo);
     }
@@ -304,7 +304,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, 1 ether + 1, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether + 1, FEE_ADDRESS))
         );
     }
 
@@ -323,7 +323,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, address(0)))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, address(0)))
         );
     }
 }
@@ -334,7 +334,7 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
 
-        vm.prank(owner);
+        vm.prank(owner());
         IBaoRoles(stabilityPoolCollateral).grantRoles(address(this), rebalancerRole);
     }
 
@@ -471,9 +471,9 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
         // Deploy a fresh pool proxy but skip configuring window/fee
         address unconfigured = UnsafeUpgrades.deployUUPSProxy(
             address(new MockStabilityPool(minter, wrappedCollateralToken)),
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner, EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
         );
-        IBaoOwnable(unconfigured).transferOwnership(owner);
+        IBaoOwnable(unconfigured).transferOwnership(owner());
 
         // With immutables defaulting to constructor values, proxy cannot change window; this scenario no longer applies
         // Request should succeed if implementation had valid immutables; skip this legacy negative test

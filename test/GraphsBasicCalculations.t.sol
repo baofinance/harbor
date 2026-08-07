@@ -34,7 +34,7 @@ contract TestGraphsBasicCalculations is TestStabilityPool2SetUp, TestGraphs {
         IERC20(leveragedToken).approve(minter, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-        vm.prank(owner);
+        vm.prank(owner());
         IHarborRoles(minter).grantRoles(address(this), zeroFeeRole);
         assertEq(0, IERC20(wrappedCollateralToken).balanceOf(reservePool), "reserve pool should be empty");
     }

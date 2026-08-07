@@ -129,7 +129,7 @@ abstract contract TestGraphRewardClaimThroughRebalance is TestGraphReward {
         super.setUp();
 
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
-        vm.startPrank(owner);
+        vm.startPrank(owner());
         IHarborRoles(minter).grantRoles(rebalancer, IMinter(minter).ZERO_FEE_ROLE());
         vm.stopPrank();
 
