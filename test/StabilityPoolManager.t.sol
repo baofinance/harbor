@@ -29,51 +29,41 @@ import {StabilityPoolManager_v2} from "@harbor/minter/StabilityPoolManager_v2.so
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {TestStabilityPool2SetUp} from "@harbor-test/Rebalance.t.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 
 import "@harbor-test/Useful.sol";
 
 contract TestStabilityPoolManagerSetUp is TestStabilityPool2SetUp {
     address stabilityPoolManager;
-    address stabilityPoolManagerFeeReceiver;
     address bountyReceiver;
     address user;
+
+    /// @dev Adds the manager that coordinates the market's two pools. Every role it needs is already granted:
+    ///      each pool grants REBALANCER and REWARD_DEPOSITOR to the manager's predicted address as part of
+    ///      being deployed, and the minter grants HARVESTER and ZERO_FEE the same way. Its fee receiver is
+    ///      `treasury()`, set by `deployStabilityPoolManager` - a test wanting it elsewhere moves it itself.
+    function _deployAndConfigure(
+        DeploymentTypes.State memory state,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        bool deployPeg,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) internal virtual override {
+        super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
+
+        deployStabilityPoolManager(state, marketsToDeploy[0]);
+    }
 
     function setUp() public virtual override(TestStabilityPool2SetUp) {
         super.setUp();
 
-        stabilityPoolManagerFeeReceiver = makeAddr("treasury");
+        stabilityPoolManager = stabilityPoolManagerAddress(marketConfig);
+        vm.label(stabilityPoolManager, "stabilityPoolManager");
+
         bountyReceiver = makeAddr("bountyReceiver");
         user = makeAddr("user");
-        // deal(peggedToken, user, 10000 ether);
-        // vm.prank(user);
-        // IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
-        // vm.prank(user);
-        // IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
-
-        stabilityPoolManager = UnsafeUpgrades.deployUUPSProxy(
-            address(new StabilityPoolManager_v2(minter, stabilityPoolCollateral, stabilityPoolLeveraged)),
-            abi.encodeCall(StabilityPoolManager_v2.initialize, (address(this), owner()))
-        );
-        IBaoOwnable(stabilityPoolManager).transferOwnership(owner());
-        // Mirror the production deploy, which points the fee (cut) receiver at the treasury; the initialize seed is
-        // the owner, and it is never zero.
-        vm.prank(owner());
-        IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(stabilityPoolManagerFeeReceiver);
-
-        uint256 rebalancerRole = IStabilityPool(stabilityPoolCollateral).REBALANCER_ROLE();
-        uint256 zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-        uint256 harvesterRole = IMinter(minter).HARVESTER_ROLE();
-        uint256 rewardDepositorRole = IMultipleRewardDistributor(stabilityPoolCollateral).REWARD_DEPOSITOR_ROLE();
-
-        // Grant roles
-        vm.startPrank(owner());
-        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManager, rebalancerRole);
-        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManager, rebalancerRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManager, zeroFeeRole);
-        IBaoRoles(minter).grantRoles(stabilityPoolManager, harvesterRole);
-        IBaoRoles(stabilityPoolCollateral).grantRoles(stabilityPoolManager, rewardDepositorRole);
-        IBaoRoles(stabilityPoolLeveraged).grantRoles(stabilityPoolManager, rewardDepositorRole);
-        vm.stopPrank();
     }
 
     /// Write the harvest ratio pair straight into the manager's storage - the way a proxy configured before the two
@@ -911,7 +901,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         uint256 expectedNet = (gross * (1 ether - bountyRatio - cutRatio)) / 1 ether; // the pool's OWN floored net
 
         uint256 bountyBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
-        uint256 cutBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver); // feeReceiver == treasury (setUp)
+        uint256 cutBefore = IERC20(wrappedCollateralToken).balanceOf(treasury()); // feeReceiver == treasury (setUp)
         uint256 poolBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolCollateral);
 
         vm.prank(harvester);
@@ -923,7 +913,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             "bounty receiver gets exactly bountyRatio * gross"
         );
         assertEq(
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver) - cutBefore,
+            IERC20(wrappedCollateralToken).balanceOf(treasury()) - cutBefore,
             expectedCut,
             "cut receiver gets exactly cutRatio * gross"
         );
@@ -947,7 +937,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "Harvester should not receive bounty");
         assertApproxEqAbs(
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver),
+            IERC20(wrappedCollateralToken).balanceOf(treasury()),
             10 ether,
             10,
             "Treasury should receive bounty"
@@ -968,11 +958,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             "all goes to one pool, not treasury"
         );
         assertEq(IERC20(wrappedCollateralToken).balanceOf(harvester), 0, "no bounty");
-        assertEq(
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver),
-            0,
-            "Treasury should not receive bounty"
-        );
+        assertEq(IERC20(wrappedCollateralToken).balanceOf(treasury()), 0, "Treasury should not receive bounty");
         assertEq(IERC20(wrappedCollateralToken).balanceOf(stabilityPoolLeveraged), 0 ether, "none in this pool");
     }
 
@@ -994,13 +980,13 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         // the fixture must distinguish the two, or the assertions below hold for either rule
         assertTrue(complementTreasury != flooredTreasury, "fixture produces a discriminating flooring remainder");
 
-        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver); // feeReceiver == treasury (setUp)
+        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(treasury()); // feeReceiver == treasury (setUp)
         vm.startPrank(harvester);
         uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
         vm.stopPrank();
 
         assertEq(
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver) - treasuryBefore,
+            IERC20(wrappedCollateralToken).balanceOf(treasury()) - treasuryBefore,
             flooredTreasury,
             "treasury takes floor(cut) + floor(residual), not the complement"
         );
@@ -1320,7 +1306,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         // Record initial balances
         uint256 harvesterBefore = IERC20(wrappedCollateralToken).balanceOf(harvester);
-        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver);
+        uint256 treasuryBefore = IERC20(wrappedCollateralToken).balanceOf(treasury());
 
         // Execute harvest
         vm.prank(harvester);
@@ -1343,7 +1329,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
 
         // Check remainder went to treasury
         assertApproxEqAbs(
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver) - treasuryBefore,
+            IERC20(wrappedCollateralToken).balanceOf(treasury()) - treasuryBefore,
             expectedToTreasury,
             10,
             "Treasury should receive remainder when pools are empty"
@@ -1414,7 +1400,7 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
             "the pools receive the residual after the cut"
         );
         assertApproxEqAbs(
-            IERC20(wrappedCollateralToken).balanceOf(stabilityPoolManagerFeeReceiver),
+            IERC20(wrappedCollateralToken).balanceOf(treasury()),
             2 ether,
             10,
             "Treasury gets the fee receiver cut"
@@ -1482,14 +1468,14 @@ contract TestStabilityPoolManagerCutAndFeeReceiver is TestStabilityPoolManagerSe
         // The fee receiver is never zero: setUp points it at the treasury (the initialize seed is the owner).
         assertEq(
             IStabilityPoolManager(stabilityPoolManager).feeReceiver(),
-            stabilityPoolManagerFeeReceiver,
+            treasury(),
             "fee receiver starts at the setUp value (the treasury), never zero"
         );
 
         // Set fee receiver
         vm.prank(owner());
         vm.expectEmit(true, true, false, false);
-        emit IStabilityPoolManager.UpdateFeeReceiver(stabilityPoolManagerFeeReceiver, feeReceiver);
+        emit IStabilityPoolManager.UpdateFeeReceiver(treasury(), feeReceiver);
         IStabilityPoolManager(stabilityPoolManager).updateFeeReceiver(feeReceiver);
 
         // Verify it was set correctly

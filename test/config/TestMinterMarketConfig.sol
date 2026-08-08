@@ -43,6 +43,25 @@ contract TestMinterMarketConfig is ConfigMarket_BTC_stETH_mainnet {
         return 0.025 ether;
     }
 
+    /// @notice The manager's harvest and rebalance ratios the suites were written against: none of them.
+    /// @dev Production charges a 1% rebalance bounty, a 1% harvest bounty and takes a 99% cut. The suites
+    ///      that care about ratios set their own with `updateHarvestRatios`, so those paths stay covered;
+    ///      what these override is the DEFAULT, which the suites assume takes nothing. Leaving production's
+    ///      99% cut in place would not merely renumber them — it would send almost the whole harvest to the
+    ///      fee receiver, so a test asserting how a harvest divides between pools would have nothing to
+    ///      divide.
+    function rebalanceBountyRatio() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function harvestBountyRatio() public pure override returns (uint256) {
+        return 0;
+    }
+
+    function harvestCutRatio() public pure override returns (uint256) {
+        return 0;
+    }
+
     /// @notice The stability-pool supply floor the suites were written against.
     /// @dev The one value where production's BTC setting (1e13) would genuinely change what is tested rather
     ///      than merely rescale it: this floor gates every deposit and withdrawal — a deposit must leave the
