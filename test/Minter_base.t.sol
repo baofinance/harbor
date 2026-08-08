@@ -15,8 +15,6 @@ import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
 import {Minter_v3} from "@harbor/minter/Minter_v3.sol";
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {ReservePool_v1} from "@harbor/minter/ReservePool_v1.sol";
 
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
@@ -27,12 +25,19 @@ import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
 import {Deployed} from "@bao/Deployed.sol";
 import {MockWrappedPriceOracle} from "@harbor-test/mocks/MockWrappedPriceOracle.sol";
 import {IBaoUSD} from "@harbor-test/IBaoUSD.sol";
-import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import "@harbor-test/Useful.sol";
 import {Array} from "@harbor-test/Array.sol";
 
 import {ConfigFile} from "@harbor-test/Config.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
+import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig.sol";
+import {ConfigPeg, ConfigPeg_BTC} from "@harbor-script/config/pegs/ConfigPeg_BTC.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
+import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
+import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
 contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
     constructor() HarborDeployRun(makeAddr("owner"), makeAddr("feeReceiver"), "minter_test", "mainnet") {}
@@ -52,6 +57,10 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
 
     address feeReceiver;
     address zeroFee;
+
+    /// @dev The market this suite deploys: a production configuration with only the incentive config made
+    ///      settable, so each test's choice reaches the minter by the deploy's own path.
+    TestMinterMarketConfig internal marketConfig;
 
     uint256 zeroFeeRole;
     uint256 minterRole;
@@ -299,39 +308,21 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
         writeConfig(config, "default-int");
     }
 
-    function setUp_leveragedToken() internal virtual {
-        leveragedToken = UnsafeUpgrades.deployUUPSProxy(
-            address(new MintableBurnableERC20_v1()), // "MintableBurnableERC20_v1.sol",
-            abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner(), "Leveraged Token", "BaoUSDLwstETH"))
-        );
-        vm.label(leveragedToken, "leveragedToken");
-        IBaoOwnable(leveragedToken).transferOwnership(owner());
-        minterRole = MintableBurnableERC20_v1(leveragedToken).MINTER_ROLE();
-        burnerRole = MintableBurnableERC20_v1(leveragedToken).BURNER_ROLE();
-    }
+    /// @dev Phase 2 of the deploy run, stopping after the minter. The stability pools, manager and genesis
+    ///      above it are neither deployed nor paid for, because nothing in this suite touches them.
+    ///      `deployPeg` is ignored: the minter cannot be built without its peg's token.
+    function _deployAndConfigure(
+        DeploymentTypes.State memory state,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        bool,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) internal virtual override {
+        deployPeggedTokenWithRoles(state, peg, allMarkets);
 
-    function setUp_reservePool() internal virtual {
-        reservePool = UnsafeUpgrades.deployUUPSProxy(
-            address(new ReservePool_v1()), //"ReservePool_v1.sol",
-            abi.encodeCall(ReservePool_v1.initialize, (owner()))
-        );
-        IBaoOwnable(reservePool).transferOwnership(owner());
-    }
-
-    function setUp_minter() internal virtual {
-        minter = UnsafeUpgrades.deployUUPSProxy(
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken)),
-            abi.encodeCall(Minter_v3.initialize, (address(this), owner()))
-        );
-        vm.label(minter, "minter");
-        zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
-
-        IMinter(minter).updatePriceOracle(priceOracle);
-        IMinter(minter).updateFeeReceiver(feeReceiver);
-        IMinter(minter).updateReservePool(reservePool);
-        if (isConfigSet) IMinter(minter).updateConfig(config);
-
-        IBaoOwnable(minter).transferOwnership(owner());
+        _deployLeveragedTokenWithRoles(state, marketsToDeploy[0]);
+        deployReservePool(state, marketsToDeploy[0]);
+        deployMinter(state, marketsToDeploy[0]);
     }
 
     function setUpFork() internal virtual {
@@ -339,33 +330,60 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
 
         feeReceiver = treasury();
 
-        priceOracle = address(new MockWrappedPriceOracle());
-        vm.label(priceOracle, "priceOracle");
-
-        setUp_leveragedToken();
-        peggedToken = address(new MockERC20("BaoUSD", "BAOUSD", 18));
-        vm.label(peggedToken, "pegged");
-        wrappedCollateralToken = Deployed.wstETH;
-        collateralToken = Deployed.stETH;
-
-        setUp_reservePool();
+        marketConfig = new TestMinterMarketConfig();
+        wrappedCollateralToken = marketConfig.wrappedCollateralToken();
+        collateralToken = marketConfig.collateralToken();
     }
 
     function setUpContract() internal virtual {
-        setUp_minter();
+        // The incentive config the suite chose reaches the minter through the market config, so the deploy
+        // applies it by the same path it applies production's - rather than the suite configuring the minter
+        // afterwards, which would exercise none of the deploy.
+        if (isConfigSet) {
+            marketConfig.setMinterConfig(config);
+        }
 
-        vm.prank(owner());
-        IBaoRoles(leveragedToken).grantRoles(minter, minterRole);
-        vm.prank(owner());
-        IBaoRoles(leveragedToken).grantRoles(minter, burnerRole);
-        requesterRole = ReservePool_v1(reservePool).REQUESTER_ROLE();
+        Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
+        markets[0] = marketConfig;
 
-        vm.prank(owner());
-        ReservePool_v1(reservePool).grantRoles(minter, requesterRole);
+        address factory = ensureFactory();
+        vm.startPrank(IBaoFactory(factory).owner());
+        IBaoFactory(factory).setOperator(address(this), 365 days);
+        vm.stopPrank();
+
+        deploy(new ConfigPeg_BTC(), markets, true, markets);
+
+        minter = minterAddress(marketConfig);
+        peggedToken = peggedTokenAddress(marketConfig);
+        leveragedToken = leveragedTokenAddress(marketConfig);
+        reservePool = reservePoolAddress(marketConfig);
+
+        // The price oracle is a separate deployment the minter only knows by predicted address. Etch the mock
+        // AFTER the deploy, so the deploy is exercised against a codeless reference exactly as in production,
+        // then restore the state `vm.etch` does not copy.
+        priceOracle = wrappedPriceOracleAddress(marketConfig);
+        MockWrappedPriceOracle template = new MockWrappedPriceOracle();
+        vm.etch(priceOracle, address(template).code);
+        // `vm.etch` copies code but not storage, so the etched oracle arrives with every field zeroed and its
+        // constructor never runs. Seed it FROM the constructed template rather than restating the mock's
+        // starting values here, so the two cannot drift apart.
+        (uint256 minPrice, uint256 maxPrice, uint256 minRate, uint256 maxRate) = template.latestAnswer();
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(minPrice, maxPrice, minRate, maxRate);
+        MockWrappedPriceOracle(priceOracle).setQuoteName(template.quoteName());
+        vm.label(priceOracle, "priceOracle");
+
+        minterRole = IMintableRole(leveragedToken).MINTER_ROLE();
+        burnerRole = IBurnableRole(leveragedToken).BURNER_ROLE();
+        requesterRole = IReservePool(reservePool).REQUESTER_ROLE();
+        zeroFeeRole = IMinter(minter).ZERO_FEE_ROLE();
+
         zeroFee = makeAddr("zeroFee");
-
-        vm.prank(owner());
+        vm.startPrank(owner());
         IBaoRoles(minter).grantRoles(zeroFee, zeroFeeRole);
+        // The suite mints pegged tokens directly to set up positions. The deploy grants MINTER only to the
+        // minter, which is correct for production, so the test's own minting rights are granted here.
+        IBaoRoles(peggedToken).grantRoles(owner(), IMintableRole(peggedToken).MINTER_ROLE());
+        vm.stopPrank();
 
         // free* is onlyOwnerOrRoles, so the owner is authorised without ZERO_FEE_ROLE. Guard that no setup path
         // grants the role to the owner - a grant-to-owner would hide the owner path behind the role path in tests.
@@ -488,54 +506,6 @@ contract TestMinterInit is TestMinterSetUp {
         new Minter_v3(Deployed.wstETH, peggedToken, priceOracle);
     }
 
-    function test_burnSig() public {
-        deal(wrappedCollateralToken, address(this), 100 ether);
-
-        minter = UnsafeUpgrades.deployUUPSProxy(
-            // mock, no need to permission minting
-            address(new Minter_v3(wrappedCollateralToken, peggedToken, leveragedToken)),
-            abi.encodeCall(Minter_v3.initialize, (address(this), owner()))
-        );
-        // let this contract mint and burn pegged
-        IBaoRoles(minter).grantRoles(zeroFee, IMinter(minter).ZERO_FEE_ROLE());
-        IMinter(minter).updatePriceOracle(priceOracle);
-
-        deal(wrappedCollateralToken, zeroFee, 1 ether);
-        vm.prank(zeroFee);
-        IERC20(wrappedCollateralToken).approve(minter, type(uint256).max);
-        // mint some
-        uint256 thisPegged = IERC20(peggedToken).balanceOf(zeroFee);
-        uint256 totalPegged = IERC20(peggedToken).totalSupply();
-        vm.prank(zeroFee);
-        uint256 peggedMinted = IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
-        assertEq(
-            IERC20(peggedToken).balanceOf(zeroFee),
-            thisPegged + peggedMinted,
-            "pegged tokens minted should be added to balance"
-        );
-        assertEq(
-            IERC20(peggedToken).totalSupply(),
-            totalPegged + peggedMinted,
-            "pegged tokens minted should be added to to supply"
-        );
-
-        // burn some
-        vm.prank(zeroFee);
-        IERC20(peggedToken).approve(minter, type(uint256).max);
-        vm.prank(zeroFee);
-        IMinter(minter).freeRedeemPeggedToken(peggedMinted, 0, zeroFee);
-        assertEq(
-            IERC20(peggedToken).balanceOf(zeroFee),
-            thisPegged,
-            "pegged tokens balance should be equal to initial balance"
-        );
-        assertEq(
-            IERC20(peggedToken).totalSupply(),
-            totalPegged,
-            "pegged tokens totalSupply should be equal to total supply"
-        );
-    }
-
     function test_initEventsImplementation() public {
         vm.expectEmit();
         emit Initializable.Initialized(type(uint64).max); // from the logic contract constructor
@@ -561,8 +531,9 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         Minter_v3(minter).initialize(address(this), owner());
 
-        setUp_config_free();
-        _assertEqConfig(IMinter(minter).config(), config);
+        // The deploy applied the market's config, which is how a minter gets one in production. Changing it
+        // afterwards is a separate operation with its own tests - and its own production script.
+        _assertEqConfig(IMinter(minter).config(), marketConfig.minterConfig());
 
         // also add checks for leveraged price, etc - all the view functions
 

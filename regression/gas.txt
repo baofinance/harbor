@@ -16,7 +16,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | freeMintPeggedToken                              | 169776 | 1.698e+05 |
 | freeRedeemDryRun                                 |  30820 | 3.082e+04 |
 | freeRedeemLeveragedToken                         |  90508 | 9.051e+04 |
-| freeRedeemPeggedToken                            | 105474 | 1.055e+05 |
+| freeRedeemPeggedToken                            | 112647 | 1.126e+05 |
 | grantRoles                                       |  26400 | 2.640e+04 |
 | harvestable                                      |  29450 | 2.945e+04 |
 | hasAllRoles                                      |   2615 | 2.615e+03 |
@@ -28,7 +28,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | mintLeveragedToken                               | 149737 | 1.497e+05 |
 | mintLeveragedTokenDryRun                         |  73547 | 7.355e+04 |
 | mintLeveragedTokenIncentiveRatio                 |  30991 | 3.099e+04 |
-| mintPeggedToken(uint256,address,uint256)         | 191280 | 1.913e+05 |
+| mintPeggedToken(uint256,address,uint256)         | 198418 | 1.984e+05 |
 | mintPeggedToken(uint256,address,uint256,uint256) | 133991 | 1.340e+05 |
 | mintPeggedTokenDryRun(uint256)                   |  64186 | 6.419e+04 |
 | mintPeggedTokenDryRun(uint256,uint256)           |  45355 | 4.536e+04 |
@@ -41,8 +41,8 @@ src/minter/Minter_v3.sol:Minter_v3
 | redeemLeveragedTokenDryRun                       |  63367 | 6.337e+04 |
 | redeemLeveragedTokenIncentiveRatio               |  29122 | 2.912e+04 |
 | redeemPeggedForCollateralRatio                   |  20256 | 2.026e+04 |
-| redeemPeggedToken                                | 132246 | 1.322e+05 |
-| redeemPeggedTokenDryRun                          |  49831 | 4.983e+04 |
+| redeemPeggedToken                                | 139419 | 1.394e+05 |
+| redeemPeggedTokenDryRun                          |  49930 | 4.993e+04 |
 | redeemPeggedTokenIncentiveRatio                  |  30015 | 3.002e+04 |
 | reservePool                                      |   2411 | 2.411e+03 |
 | reset                                            |  28353 | 2.835e+04 |
@@ -54,29 +54,20 @@ src/minter/Minter_v3.sol:Minter_v3
 | updatePriceOracle                                |  26374 | 2.637e+04 |
 | updateReservePool                                |  26346 | 2.635e+04 |
 
-src/minter/ReservePool_v1.sol:ReservePool_v1
-| function name     |   max |   display |
-|-------------------|-------|-----------|
-| REQUESTER_ROLE    |   239 | 2.390e+02 |
-| grantRoles        | 26330 | 2.633e+04 |
-| initialize        | 70307 | 7.031e+04 |
-| requestBonus      | 17737 | 1.774e+04 |
-| transferOwnership | 12040 | 1.204e+04 |
-
 src/minter/StabilityPoolManager_v2.sol:StabilityPoolManager_v2
 | function name              |    max |   display |
 |----------------------------|--------|-----------|
 | MINTER                     |    325 | 3.250e+02 |
 | addYieldVault              |  70488 | 7.049e+04 |
 | feeReceiver                |   2419 | 2.419e+03 |
-| harvest                    | 554055 | 5.541e+05 |
+| harvest                    | 559279 | 5.593e+05 |
 | harvestBountyRatio         |   2370 | 2.370e+03 |
 | harvestCutRatio            |   2371 | 2.371e+03 |
 | harvestable                |  30159 | 3.016e+04 |
 | hasStabilityPool           |    559 | 5.590e+02 |
 | initialize                 |  92852 | 9.285e+04 |
 | owner                      |   2401 | 2.401e+03 |
-| rebalance                  | 611033 | 6.110e+05 |
+| rebalance                  | 617313 | 6.173e+05 |
 | rebalanceBountyRatio       |   2399 | 2.399e+03 |
 | rebalanceThreshold         |   2348 | 2.348e+03 |
 | rebalanceable              |  29283 | 2.928e+04 |
@@ -135,7 +126,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | registerRewardToken    |  72900 | 7.290e+04 |
 | requestWithdrawal      |  25011 | 2.501e+04 |
 | rewardData             |   4958 | 4.958e+03 |
-| sweep                  |  42752 | 4.275e+04 |
+| sweep                  |  47662 | 4.766e+04 |
 | symbol                 |    621 | 6.210e+02 |
 | totalAssetSupply       |   2467 | 2.467e+03 |
 | totalSupply            |   2424 | 2.424e+03 |
@@ -143,7 +134,7 @@ src/minter/StabilityPool_v3.sol:StabilityPool_v3
 | transferFrom           | 129943 | 1.299e+05 |
 | transferOwnership      |  12067 | 1.207e+04 |
 | unregisterRewardToken  |  93501 | 9.350e+04 |
-| withdraw               | 264813 | 2.648e+05 |
+| withdraw               | 269921 | 2.699e+05 |
 
 src/minter/TokenDistributor_v1.sol:TokenDistributor_v1
 | function name        |    max |   display |
