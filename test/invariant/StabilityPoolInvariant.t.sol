@@ -281,7 +281,7 @@ contract StabilityPoolInvariantHandler is Test {
     /// pre-enforce the floor: requesting up to the full balance is what drives the pool's own clamp, the path a
     /// floor-respecting cap could never reach. The revert to dodge is WithdrawZeroAmount, when there is no headroom at
     /// all to clamp into. The fee cannot zero the clamped outflow at this fixture's fee, which is a strict fraction of
-    /// it — note `_MAX_EARLY_WITHDRAWAL_FEE` is `1 ether` INCLUSIVE, so a pool configured at a 100% fee would zero the
+    /// it — note `_MAX_marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()` is `1 ether` INCLUSIVE, so a pool configured at a 100% fee would zero the
     /// outflow and revert here; such a fixture would need the fee-free withdrawal window instead.
     function _withdrawCap(address actor) internal view returns (uint256 cap) {
         if (IERC20(POOL).totalSupply() <= MIN_TOTAL_ASSET_SUPPLY) {

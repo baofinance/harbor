@@ -120,7 +120,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.warp(start - 10);
 
         uint256 userBefore = IERC20(peggedToken).balanceOf(user1);
-        uint256 feeBefore = IERC20(peggedToken).balanceOf(FEE_ADDRESS);
+        uint256 feeBefore = IERC20(peggedToken).balanceOf(treasury());
 
         vm.prank(user1);
         uint256 amount = 1 * price;
@@ -129,7 +129,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         // Exempt role: no fee should be charged even before the window
         assertEq(withdrawn, amount);
         assertEq(IERC20(peggedToken).balanceOf(user1), userBefore + amount);
-        assertEq(IERC20(peggedToken).balanceOf(FEE_ADDRESS), feeBefore);
+        assertEq(IERC20(peggedToken).balanceOf(treasury()), feeBefore);
     }
 
     function test_withdraw_withoutRequest_appliesFee() public {
@@ -144,7 +144,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.prank(user1);
         uint256 amount = 1 * price;
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(amount, user1, 0);
-        uint256 expectedFee = (amount * EARLY_WITHDRAWAL_FEE) / 1 ether;
+        uint256 expectedFee = (amount * marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()) / 1 ether;
         assertEq(withdrawn, amount - expectedFee);
         assertEq(IERC20(peggedToken).balanceOf(user1), balBefore + withdrawn);
     }
@@ -240,8 +240,11 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
     }
 
     function test_getters_returnConfiguredValues() public view {
-        assertEq(IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee(), EARLY_WITHDRAWAL_FEE);
-        assertEq(IStabilityPool(stabilityPoolCollateral).getFeeAddress(), FEE_ADDRESS);
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee(),
+            marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()
+        );
+        assertEq(IStabilityPool(stabilityPoolCollateral).getFeeAddress(), treasury());
     }
 
     function test_getWithdrawalWindow_immutables_match_constructor() public view {
@@ -275,7 +278,7 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         vm.prank(user1);
         uint256 amount = 1 * price;
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(amount, user1, 0);
-        uint256 expectedFee = (amount * EARLY_WITHDRAWAL_FEE) / 1 ether;
+        uint256 expectedFee = (amount * marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()) / 1 ether;
         assertEq(withdrawn, amount - expectedFee);
         assertEq(IERC20(peggedToken).balanceOf(user1), balBefore + withdrawn);
     }
@@ -292,13 +295,13 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         (uint64 start, ) = IStabilityPool(stabilityPoolCollateral).getWithdrawalRequest(user1);
         vm.warp(start - 10); // before start, fee should apply
 
-        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(FEE_ADDRESS);
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
         vm.prank(user1);
         uint256 amount = 2 * price;
         uint256 withdrawn = IStabilityPool(stabilityPoolCollateral).withdraw(amount, user1, 0);
-        uint256 expectedFee = (amount * EARLY_WITHDRAWAL_FEE) / 1 ether;
+        uint256 expectedFee = (amount * marketConfig.stabilityPoolEarlyWithdrawalFeeRatio()) / 1 ether;
         assertEq(withdrawn, amount - expectedFee);
-        assertEq(IERC20(peggedToken).balanceOf(FEE_ADDRESS), feeReceiverBefore + expectedFee);
+        assertEq(IERC20(peggedToken).balanceOf(treasury()), feeReceiverBefore + expectedFee);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -413,14 +416,14 @@ contract StabilityPoolFeatures is TestStabilityPoolSetUp {
         uint256 feeRate = IStabilityPool(stabilityPoolCollateral).getEarlyWithdrawalFee();
         uint256 expectedFee = (clampedOutflow * feeRate) / 1 ether; // fee on the CLAMPED outflow
 
-        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(FEE_ADDRESS);
+        uint256 feeReceiverBefore = IERC20(peggedToken).balanceOf(treasury());
         uint256 walletBefore = IERC20(peggedToken).balanceOf(user1);
         vm.prank(user1);
         IStabilityPool(stabilityPoolCollateral).withdraw(type(uint256).max, user1, 0);
 
         assertEq(IERC20(stabilityPoolCollateral).totalSupply(), floor, "pool left at the floor");
         assertEq(
-            IERC20(peggedToken).balanceOf(FEE_ADDRESS) - feeReceiverBefore,
+            IERC20(peggedToken).balanceOf(treasury()) - feeReceiverBefore,
             expectedFee,
             "fee is a true percentage of the clamped outflow"
         );

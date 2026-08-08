@@ -34,7 +34,10 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
             address(
                 new StabilityPool_v2(minter, liquidationToken, WITHDRAWAL_START_DELAY, WITHDRAWAL_END_WINDOW, 1 ether)
             ),
-            abi.encodeCall(StabilityPool_v2.initialize, (owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(
+                StabilityPool_v2.initialize,
+                (owner(), marketConfig.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
+            )
         );
 
         IBaoRoles(stabilityPool).grantRoles(

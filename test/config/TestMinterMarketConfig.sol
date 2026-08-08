@@ -33,4 +33,22 @@ contract TestMinterMarketConfig is ConfigMarket_BTC_stETH_mainnet {
         }
         return _minterConfig;
     }
+
+    /// @notice The early-withdrawal fee the stability-pool suites were written against.
+    /// @dev Production BTC charges 1e16 (1%). The suites compute their expectations from this rate, so they
+    ///      would still pass at either value — but they would be exercising a different one than they were
+    ///      designed for. The market presents the rate the tests intend, and the deploy applies it by its own
+    ///      path, so nothing is configured behind the deploy's back.
+    function stabilityPoolEarlyWithdrawalFeeRatio() public pure override returns (uint256) {
+        return 0.025 ether;
+    }
+
+    /// @notice The stability-pool supply floor the suites were written against.
+    /// @dev The one value where production's BTC setting (1e13) would genuinely change what is tested rather
+    ///      than merely rescale it: this floor gates every deposit and withdrawal — a deposit must leave the
+    ///      total at zero or at or above it — and 1e13 is 100,000x smaller, so the boundary cases the suites
+    ///      drive would stop being boundaries at all.
+    function minTotalSupply() public pure override returns (uint256) {
+        return 1 ether;
+    }
 }

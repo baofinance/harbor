@@ -11,10 +11,10 @@ contract ConfigPeg_EUR is ConfigPeg {
         return "EUR";
     }
 
-    function minDeposit() public pure override returns (uint256) {
+    function minDeposit() public pure virtual override returns (uint256) {
         return 1e18;
     }
-    function minTotalSupply() public pure override returns (uint256) {
+    function minTotalSupply() public pure virtual override returns (uint256) {
         return 1e18;
     }
 }

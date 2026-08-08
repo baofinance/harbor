@@ -11,10 +11,10 @@ contract ConfigPeg_GOLD is ConfigPeg {
         return "GOLD";
     }
 
-    function minDeposit() public pure override returns (uint256) {
+    function minDeposit() public pure virtual override returns (uint256) {
         return 2e14;
     }
-    function minTotalSupply() public pure override returns (uint256) {
+    function minTotalSupply() public pure virtual override returns (uint256) {
         return 2e14;
     }
 }

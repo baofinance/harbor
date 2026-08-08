@@ -187,7 +187,11 @@ contract TestStabilityPoolExtra2 is TestStabilityPoolSetUp {
     // Test contract initialization with invalid parameters
     function testReinitializeContract() public {
         // Try to initialize again (contract is already initialized)
+        // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be
+        // the call the expectation binds to - which succeeds, so the test would fail claiming no revert.
+        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
+
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        StabilityPool_v3(stabilityPoolCollateral).initialize(address(this), owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS);
+        StabilityPool_v3(stabilityPoolCollateral).initialize(address(this), owner(), earlyWithdrawalFee, treasury());
     }
 }

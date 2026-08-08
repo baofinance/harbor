@@ -29,6 +29,11 @@ import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDist
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 
 import {TestMinterFeeSetUp} from "@harbor-test/Minter_fees.t.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
+import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
+import {ConfigTokenNames} from "@harbor-script/config/ConfigTokenNames.sol";
+import {IHarborConfig} from "@harbor-script/config/IHarborConfig.sol";
 
 // New version for testing upgrades
 contract StabilityPool_vN is StabilityPool_v3 {
@@ -45,11 +50,30 @@ contract StabilityPool_vN is StabilityPool_v3 {
 }
 
 // used to expose internal functions
+/// @dev Identical to `StabilityPool_v3` bar the `__`-prefixed accessors that expose internals for testing, so
+///      it takes the SAME constructor arguments and passes every one through. Baking values in here instead
+///      would make a pool deployed through the seam differ from the one the deploy script produces, and the
+///      mock would then be testing itself rather than the configuration.
 contract MockStabilityPool is StabilityPool_v3 {
     constructor(
         address minter_,
-        address liquidationToken_
-    ) StabilityPool_v3(minter_, liquidationToken_, 3600, 90000, 1 ether, "Mock SP", "mSP") {}
+        address liquidationToken_,
+        uint256 withdrawalStartDelay_,
+        uint256 withdrawalEndWindow_,
+        uint256 minTotalAssetSupply_,
+        string memory name_,
+        string memory symbol_
+    )
+        StabilityPool_v3(
+            minter_,
+            liquidationToken_,
+            withdrawalStartDelay_,
+            withdrawalEndWindow_,
+            minTotalAssetSupply_,
+            name_,
+            symbol_
+        )
+    {}
 
     /// @notice Exposes the product value for testing purposes
     function __totalSupply() external view returns (TokenBalance memory) {
@@ -99,8 +123,6 @@ contract MockStabilityPool is StabilityPool_v3 {
 contract MockSTEAM is MintableBurnableERC20_v1 {}
 
 contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
-    uint256 internal constant EARLY_WITHDRAWAL_FEE = 0.025 ether;
-    address internal constant FEE_ADDRESS = 0x3dFc49e5112005179Da613BdE5973229082dAc35;
     uint256 internal constant WITHDRAWAL_START_DELAY = 3600;
     uint256 internal constant WITHDRAWAL_END_WINDOW = 90000;
     address stabilityPoolCollateral;
@@ -110,6 +132,74 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address rewardDepositor;
     address rebalancer;
     address rewardManager;
+
+    /// @dev Adds the market's collateral stability pool to the minter chain above it.
+    function _deployAndConfigure(
+        DeploymentTypes.State memory state,
+        ConfigPeg peg,
+        Config_MinterMarket[] memory allMarkets,
+        bool deployPeg,
+        Config_MinterMarket[] memory marketsToDeploy
+    ) internal virtual override {
+        super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
+
+        deployStabilityPool(StabilityPoolType.Collateral, state, marketsToDeploy[0]);
+    }
+
+    /// @dev Substitutes `MockStabilityPool`, which is `StabilityPool_v3` plus accessors that expose internals.
+    ///      Everything the constructor needs still comes from the market config, so a pool deployed here is the
+    ///      one the deploy script would produce.
+    function deployStabilityPoolImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory key,
+        StabilityPoolType poolType,
+        Config_MinterMarket marketConfig_,
+        address minter_,
+        address liquidationToken
+    ) internal virtual override returns (address impl) {
+        ConfigTokenNames names = ConfigTokenNames(address(marketConfig_));
+        bool isCollateral = poolType == StabilityPoolType.Collateral;
+        string memory tokenName = isCollateral
+            ? names.stabilityPoolCollateralName()
+            : names.stabilityPoolLeveragedName();
+        string memory tokenSymbol = isCollateral
+            ? names.stabilityPoolCollateralSymbol()
+            : names.stabilityPoolLeveragedSymbol();
+
+        IHarborConfig cfg = IHarborConfig(address(marketConfig_));
+
+        impl = address(
+            new MockStabilityPool(
+                minter_,
+                liquidationToken,
+                cfg.stabilityPoolWithdrawalDelay(),
+                cfg.stabilityPoolWithdrawalPeriod(),
+                cfg.minTotalSupply(),
+                tokenName,
+                tokenSymbol
+            )
+        );
+
+        _recordImplementation(stateData, key, "@harbor-test/StabilityPool.t.sol", "MockStabilityPool", impl);
+    }
+
+    /// @dev The roles and reward token this SUITE needs, which the deploy has no reason to know about: it
+    ///      grants the pool's roles to the predicted manager, not to test actors, and `steam` is a reward
+    ///      token that exists only here. Shared because every pool the suites stand up needs the same.
+    function _grantPoolTestRoles(address stabilityPool) internal {
+        vm.startPrank(owner());
+        IBaoRoles(stabilityPool).grantRoles(
+            rewardManager,
+            IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE()
+        );
+        IBaoRoles(stabilityPool).grantRoles(
+            rewardDepositor,
+            IMultipleRewardDistributor(stabilityPool).REWARD_DEPOSITOR_ROLE()
+        );
+        IBaoRoles(stabilityPool).grantRoles(rebalancer, IStabilityPool(stabilityPool).REBALANCER_ROLE());
+        IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam);
+        vm.stopPrank();
+    }
 
     function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
         string memory liquidation = IERC20Metadata(liquidationToken).symbol();
@@ -130,8 +220,21 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
 
         // use mock stability pool to expose internals for testing, otherwise it's identical to StabilityPool_v3
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, liquidationToken)), // "StabilityPool_v3.sol",
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            address(
+                new MockStabilityPool(
+                    minter,
+                    liquidationToken,
+                    WITHDRAWAL_START_DELAY,
+                    WITHDRAWAL_END_WINDOW,
+                    marketConfig.minTotalSupply(),
+                    SPName,
+                    string.concat("lp", SPName)
+                )
+            ),
+            abi.encodeCall(
+                StabilityPool_v3.initialize,
+                (address(this), owner(), marketConfig.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
+            )
         );
         vm.label(stabilityPool, SPName);
 
@@ -161,22 +264,28 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     function setUp() public virtual override {
         super.setUp();
 
+        // Deployed by `_deployAndConfigure` above, already carrying its config, its reward token and the
+        // roles the deploy grants. Only what is test-specific is added below.
+        stabilityPoolCollateral = stabilityPoolAddress(marketConfig, StabilityPoolType.Collateral);
+        vm.label(stabilityPoolCollateral, "stabilityPoolCollateral");
+
         steam = address(new MockSTEAM());
         vm.label(steam, "STEAM");
 
         rewardDepositor = makeAddr("rewardDepositor");
         rebalancer = makeAddr("rebalancer");
 
-        stabilityPoolCollateral = _setupStabilityPool(wrappedCollateralToken);
-        // fee settings are now initialized via initialize(owner, fee, address)
+        _grantPoolTestRoles(stabilityPoolCollateral);
 
         user1 = makeAddr("user1");
-        vm.prank(user1);
+        vm.startPrank(user1);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
 
         user2 = makeAddr("user2");
-        vm.prank(user2);
+        vm.startPrank(user2);
         IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
     }
 
     function _beginWithdrawal(address user) internal {
@@ -265,6 +374,10 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
                 "tSP"
             )
         );
+        // Hoisted: reading the fee off the config is an external call that emits nothing, and the
+        // `expectEmit`s below bind to the NEXT call - which must be the proxy deployment, not this read.
+        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
+
         vm.expectEmit();
         emit IERC1967.Upgraded(address(sp));
         vm.expectEmit();
@@ -274,7 +387,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
 
         address spProxy = UnsafeUpgrades.deployUUPSProxy(
             sp, // "StabilityPool_v3.sol",
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), earlyWithdrawalFee, treasury()))
         );
         IBaoOwnable(spProxy).transferOwnership(owner());
 
@@ -304,7 +417,7 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFee.selector, 1 ether + 1));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether + 1, FEE_ADDRESS))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), 1 ether + 1, treasury()))
         );
     }
 
@@ -320,10 +433,14 @@ contract TestStabilityPoolInitEvents is TestStabilityPoolSetUp {
                 "tSP"
             )
         );
+        // Hoisted: reading the fee off the config is an external call, and under `expectRevert` it would be
+        // the call the expectation binds to - which succeeds, so the test would fail claiming no revert.
+        uint256 earlyWithdrawalFee = marketConfig.stabilityPoolEarlyWithdrawalFeeRatio();
+
         vm.expectRevert(abi.encodeWithSelector(IStabilityPool.InvalidFeeAddress.selector, address(0)));
         UnsafeUpgrades.deployUUPSProxy(
             spImpl,
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, address(0)))
+            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), earlyWithdrawalFee, address(0)))
         );
     }
 }
@@ -470,8 +587,21 @@ contract TestStabilityPoolDepositWithdraw is TestStabilityPoolSetUp {
     function test_requestWithdrawal_reverts_when_window_unconfigured() public {
         // Deploy a fresh pool proxy but skip configuring window/fee
         address unconfigured = UnsafeUpgrades.deployUUPSProxy(
-            address(new MockStabilityPool(minter, wrappedCollateralToken)),
-            abi.encodeCall(StabilityPool_v3.initialize, (address(this), owner(), EARLY_WITHDRAWAL_FEE, FEE_ADDRESS))
+            address(
+                new MockStabilityPool(
+                    minter,
+                    wrappedCollateralToken,
+                    WITHDRAWAL_START_DELAY,
+                    WITHDRAWAL_END_WINDOW,
+                    marketConfig.minTotalSupply(),
+                    "unconfigured",
+                    "unconfigured"
+                )
+            ),
+            abi.encodeCall(
+                StabilityPool_v3.initialize,
+                (address(this), owner(), marketConfig.stabilityPoolEarlyWithdrawalFeeRatio(), treasury())
+            )
         );
         IBaoOwnable(unconfigured).transferOwnership(owner());
 
