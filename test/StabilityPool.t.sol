@@ -133,6 +133,22 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     address rebalancer;
     address rewardManager;
 
+    /// @dev The suite's own actors and reward token, created BEFORE the deploy so `_deployAndConfigure` can
+    ///      grant and register them as part of standing each pool up.
+    function setUpFork() internal virtual override {
+        super.setUpFork();
+
+        steam = address(new MockSTEAM());
+        vm.label(steam, "STEAM");
+
+        rewardDepositor = makeAddr("rewardDepositor");
+        rebalancer = makeAddr("rebalancer");
+        // A real address, not the zero one it defaulted to: registering reward tokens is `onlyOwnerOrRoles`,
+        // so a reward manager distinct from the owner is what keeps the ROLE path covered rather than the
+        // owner path standing in for it.
+        rewardManager = makeAddr("rewardManager");
+    }
+
     /// @dev Adds the market's collateral stability pool to the minter chain above it.
     function _deployAndConfigure(
         DeploymentTypes.State memory state,
@@ -143,7 +159,7 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     ) internal virtual override {
         super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
 
-        deployStabilityPool(StabilityPoolType.Collateral, state, marketsToDeploy[0]);
+        _grantPoolTestRoles(deployStabilityPool(StabilityPoolType.Collateral, state, marketsToDeploy[0]));
     }
 
     /// @dev Substitutes `MockStabilityPool`, which is `StabilityPool_v3` plus accessors that expose internals.
@@ -186,8 +202,9 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
     /// @dev The roles and reward token this SUITE needs, which the deploy has no reason to know about: it
     ///      grants the pool's roles to the predicted manager, not to test actors, and `steam` is a reward
     ///      token that exists only here. Shared because every pool the suites stand up needs the same.
+    /// @dev Called from inside `_deployAndConfigure`, where this contract is still the pool's owner, so it
+    ///      needs no prank — the same window in which the deploy does its own granting.
     function _grantPoolTestRoles(address stabilityPool) internal {
-        vm.startPrank(owner());
         IBaoRoles(stabilityPool).grantRoles(
             rewardManager,
             IMultipleRewardDistributor(stabilityPool).REWARD_MANAGER_ROLE()
@@ -198,7 +215,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         );
         IBaoRoles(stabilityPool).grantRoles(rebalancer, IStabilityPool(stabilityPool).REBALANCER_ROLE());
         IMultipleRewardDistributor(stabilityPool).registerRewardToken(steam);
-        vm.stopPrank();
     }
 
     function _setupStabilityPool(address liquidationToken) internal virtual returns (address stabilityPool) {
@@ -268,14 +284,6 @@ contract TestStabilityPoolSetUp is TestMinterFeeSetUp {
         // roles the deploy grants. Only what is test-specific is added below.
         stabilityPoolCollateral = stabilityPoolAddress(marketConfig, StabilityPoolType.Collateral);
         vm.label(stabilityPoolCollateral, "stabilityPoolCollateral");
-
-        steam = address(new MockSTEAM());
-        vm.label(steam, "STEAM");
-
-        rewardDepositor = makeAddr("rewardDepositor");
-        rebalancer = makeAddr("rebalancer");
-
-        _grantPoolTestRoles(stabilityPoolCollateral);
 
         user1 = makeAddr("user1");
         vm.startPrank(user1);

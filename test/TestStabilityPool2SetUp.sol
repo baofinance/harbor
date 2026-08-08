@@ -23,7 +23,7 @@ contract TestStabilityPool2SetUp is TestStabilityPoolRebalanceSetUp {
     ) internal virtual override {
         super._deployAndConfigure(state, peg, allMarkets, deployPeg, marketsToDeploy);
 
-        deployStabilityPool(StabilityPoolType.Leveraged, state, marketsToDeploy[0]);
+        _grantPoolTestRoles(deployStabilityPool(StabilityPoolType.Leveraged, state, marketsToDeploy[0]));
     }
 
     function setUp() public virtual override {
@@ -31,8 +31,6 @@ contract TestStabilityPool2SetUp is TestStabilityPoolRebalanceSetUp {
 
         stabilityPoolLeveraged = stabilityPoolAddress(marketConfig, StabilityPoolType.Leveraged);
         vm.label(stabilityPoolLeveraged, "stabilityPoolLeveraged");
-
-        _grantPoolTestRoles(stabilityPoolLeveraged);
 
         vm.startPrank(user1);
         IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
