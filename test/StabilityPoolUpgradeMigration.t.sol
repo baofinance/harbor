@@ -27,8 +27,10 @@ import {TestStabilityPoolSetUp} from "@harbor-test/StabilityPool.t.sol";
 contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     uint256 price;
 
-    /// @dev Override to deploy with StabilityPool_v2 implementation (matching production)
-    function _setupStabilityPool(address liquidationToken) internal override returns (address stabilityPool) {
+    /// @dev Builds a pool on the PREVIOUS implementation, which is what mainnet proxies run today: v3 is not
+    ///      deployed, so v2 is the thing an upgrade starts from. Deliberately a hand-built fixture rather than
+    ///      a deploy: the deploy stands up v3, and nothing in production produces a v2 pool any more.
+    function _setupStabilityPoolV2(address liquidationToken) internal returns (address stabilityPool) {
         // Deploy with StabilityPool_v2 implementation — this is what production proxies currently run
         stabilityPool = UnsafeUpgrades.deployUUPSProxy(
             address(
@@ -61,6 +63,19 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
 
     function setUp() public override {
         super.setUp();
+
+        // The suite upgrades FROM v2, so the pool under test has to BE a v2. The deploy above stands up a v3
+        // one; replace it, and re-point the depositor approvals the base granted against the old address.
+        stabilityPoolCollateral = _setupStabilityPoolV2(wrappedCollateralToken);
+        vm.label(stabilityPoolCollateral, "stabilityPoolCollateral(v2)");
+
+        vm.startPrank(user1);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
+        vm.startPrank(user2);
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        vm.stopPrank();
+
         (price, , , ) = IWrappedPriceOracle(priceOracle).latestAnswer();
     }
 
