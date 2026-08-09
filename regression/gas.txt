@@ -37,6 +37,7 @@ src/minter/Minter_v3.sol:Minter_v3
 | peggedTokenBalance                               |   2431 | 2.431e+03 |
 | peggedTokenPrice                                 |  19138 | 1.914e+04 |
 | priceOracle                                      |   2472 | 2.472e+03 |
+| proxiableUUID                                    |    386 | 3.860e+02 |
 | redeemLeveragedToken                             | 128275 | 1.283e+05 |
 | redeemLeveragedTokenDryRun                       |  63367 | 6.337e+04 |
 | redeemLeveragedTokenIncentiveRatio               |  29122 | 2.912e+04 |
