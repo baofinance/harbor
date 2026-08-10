@@ -326,7 +326,7 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
     }
 
     function setUpFork() internal virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+        forkMainnet();
 
         feeReceiver = treasury();
 
@@ -485,15 +485,21 @@ contract TestMinterInit is TestMinterSetUp {
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroAddress.selector));
         new Minter_v3(Deployed.wstETH, peggedToken, address(0));
 
-        // not a contract
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner()));
-        new Minter_v3(owner(), peggedToken, leveragedToken);
+        // not a contract - an address chosen for having no code, rather than an actor that happens to lack
+        // it. Asserted, because on a fork "has no code" is a fact about the chain at that block: this used
+        // to be `owner()`, whose address carries an EIP-7702 delegation on mainnet at recent blocks, so the
+        // constructor reached its NotERC20Token branch instead and the failure said nothing about why.
+        address notAContract = makeAddr("notAContract");
+        assertEq(notAContract.code.length, 0, "the address must have no code for this to test what it says");
 
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner()));
-        new Minter_v3(Deployed.wstETH, owner(), leveragedToken);
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
+        new Minter_v3(notAContract, peggedToken, leveragedToken);
 
-        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, owner()));
-        new Minter_v3(Deployed.wstETH, peggedToken, owner());
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
+        new Minter_v3(Deployed.wstETH, notAContract, leveragedToken);
+
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, notAContract));
+        new Minter_v3(Deployed.wstETH, peggedToken, notAContract);
 
         // contract but not ERC20
         vm.expectRevert(abi.encodeWithSelector(Token.NotERC20Token.selector, priceOracle));

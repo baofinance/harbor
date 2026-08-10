@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,7 +18,7 @@ import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
 
 import {Deployed} from "@bao/Deployed.sol";
 
-contract TestReservePoolSetUp is Test {
+contract TestReservePoolSetUp is BaoTest {
     address token1 = Deployed.BaoUSD;
     address token2 = Deployed.wstETH;
     address tokenNotERC20 = makeAddr("tokenNotERC20"); // not an ERC20 token
@@ -31,7 +31,7 @@ contract TestReservePoolSetUp is Test {
     address reservePoolImpl;
 
     function setUpFork() internal virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+        forkMainnet();
         owner = makeAddr("owner");
         minter = makeAddr("minter");
         bonusReceiver = makeAddr("bonusReceiver");

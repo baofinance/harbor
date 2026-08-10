@@ -31,7 +31,7 @@ abstract contract PartialDeploySetUp is BaoTest, Deploy_ETH_Minter {
     ///      it has to stay a memory value passed hand to hand.
     function _deployMinter(string memory saltPrefix) internal returns (DeploymentTypes.State memory state) {
         address factory = _ensureBaoFactory();
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
+        forkMainnet();
         vm.startPrank(IBaoFactory(factory).owner());
         IBaoFactory(factory).setOperator(address(this), 365 days);
         vm.stopPrank();

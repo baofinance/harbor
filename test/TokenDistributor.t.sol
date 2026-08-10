@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 //import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -24,7 +24,7 @@ import {Deployed} from "@bao/Deployed.sol";
 
 import {Array} from "@harbor-test/Array.sol";
 
-contract TestTokenDistributorSetUp is Test, Array {
+contract TestTokenDistributorSetUp is BaoTest, Array {
     using ECDSA for bytes32;
 
     address tokenDistributor;
@@ -42,7 +42,7 @@ contract TestTokenDistributorSetUp is Test, Array {
     address recipient3;
 
     function setUpFork() internal virtual {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+        forkMainnet();
 
         owner = makeAddr("owner");
         claimer = makeAddr("claimer");

@@ -28,7 +28,7 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter, HarborTestActions 
         // re-registered as the factory operator AFTER the fork for the CREATE3 deploy to run.
         address factory = _ensureBaoFactory();
         // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for fork caching.
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
+        forkMainnet();
         vm.startPrank(IBaoFactory(factory).owner());
         IBaoFactory(factory).setOperator(address(this), 365 days);
         vm.stopPrank();

@@ -42,7 +42,7 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter, HarborTestAction
 
     function setUp() public virtual {
         address factory = _ensureBaoFactory();
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
+        forkMainnet();
 
         vm.prank(IBaoFactory(factory).owner());
         IBaoFactory(factory).setOperator(address(this), 365 days);

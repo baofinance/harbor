@@ -79,7 +79,7 @@ contract HarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
 contract ComposedHarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
     function test_aComposedRunDeploysOnItsOwnAccountAndHandsOver() public {
         address factory = _ensureBaoFactory();
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
+        forkMainnet();
 
         address runOwner = makeAddr("composedRunOwner");
         HarborDeployRun run = new HarborDeployRun(runOwner, makeAddr("composedRunTreasury"), "composed", "mainnet");

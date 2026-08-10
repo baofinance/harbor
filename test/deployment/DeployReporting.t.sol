@@ -19,7 +19,7 @@ abstract contract DeployReportingSetUp is BaoTest, Deploy_ETH_Minter {
 
     function _deployETHfxUSD(string memory saltPrefix) internal {
         address factory = _ensureBaoFactory();
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
+        forkMainnet();
         vm.prank(IBaoFactory(factory).owner());
         IBaoFactory(factory).setOperator(address(this), 365 days);
 

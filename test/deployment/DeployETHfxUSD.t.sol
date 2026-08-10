@@ -32,7 +32,7 @@ abstract contract DeployETHfxUSDSetUp is BaoTest, Deploy_ETH_Minter, HarborTestA
     function setUp() public virtual {
         address factory = _ensureBaoFactory();
         // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for caching
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 24699497);
+        forkMainnet();
 
         vm.prank(IBaoFactory(factory).owner());
         IBaoFactory(factory).setOperator(address(this), 365 days);
