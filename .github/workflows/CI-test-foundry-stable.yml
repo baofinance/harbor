@@ -17,6 +17,9 @@ jobs:
   test_foundry_os:
     strategy:
       matrix:
+        max-parallel: 1
+        fail-fast: false # ensure all jobs run even if one fails
+
         include:
           - os: ubuntu-latest
             foundry: stable
@@ -26,8 +29,6 @@ jobs:
 
           # - os: windows-latest
           #   foundry: stable
-
-      fail-fast: false # ensure all jobs run even if one fails
 
     runs-on: ${{ matrix.os }}
     steps:
