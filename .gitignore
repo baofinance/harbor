@@ -10,6 +10,9 @@ venv
 # wake
 .wake/
 
+# claude
+.claude/settings.local.json
+
 # generated files
 cache/
 out/
