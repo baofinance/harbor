@@ -346,7 +346,7 @@ they stay setters because live markets are retuned by multisig batch (`script/Up
 
 ## 11. Open questions
 
-- **Seed size is per-market**, but different collaterals have wildly different decimals (wBTC is 8, wstETH is 18). Should `wCOL_seed` be `1e12` universally or `10^(decimals / 2)` per collateral? Preference: universal `1e12` and document the min-decimal handling if any underflow issues appear.
+- ~~**Seed size is per-market**, but different collaterals have wildly different decimals (wBTC is 8, wstETH is 18). Should the wrapped-collateral seed be `1e12` universally or `10^(decimals / 2)` per collateral?~~ **Resolved — neither.** A universal base-unit constant is what §7 rejects: `1e12` is 1e-6 of an 18-decimal token but 10,000 whole tokens of an 8-decimal one. The seed is denominated in *pegged* tokens as the peg's configured `minDeposit()`, and `HarborYieldDeployStack._wrappedCollateralSeedAmount` converts it at the oracle's min price and rate, so it carries no `decimals()` assumption to handle.
 - **Weight choice for `HY.addVault`** when adding a new market to an existing HY: use the market's config value (if set) or fall back to a default (e.g., equal weight). Currently undefined — resolve during Campaign B.4.1e implementation.
 - **Leveraged AC weight for HY**: N/A — AC_lev is not registered with HY by design. Document this explicitly in the first-market-for-peg deploy log.
 - **Seed during upgrade**: not applicable here — an upgrade preserves existing storage so the seed from the original deploy is still there. No action needed on upgrades.

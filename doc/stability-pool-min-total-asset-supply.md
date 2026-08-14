@@ -14,46 +14,57 @@ All code references are to `src/minter/StabilityPool_v3.sol` unless stated other
 Two derived quantities govern the pool's supply band:
 
 - `MIN_TOTAL_ASSET_SUPPLY` — the floor. Once the pool has been seeded, its total
-  supply may never drop below this (`_capToFloor`, `StabilityPool_v3.sol:748`).
+  supply may never drop below this (`_capToFloor`, over the headroom `maxAssetLoss()`).
 - `MAX_TOTAL_ASSET_SUPPLY = min(MIN * FACTOR_PRECISION, uint128.max)` — the ceiling,
-  with `FACTOR_PRECISION = 1e18` and `uint128.max ≈ 3.403e38`
-  (`StabilityPool_v3.sol:301-303`).
+  with `FACTOR_PRECISION = 1e18` and `uint128.max ≈ 3.403e38`. Both are `immutable`,
+  assigned in the constructor; MAX's saturating form is the conditional assignment
+  there.
 
 **MIN and MAX are precision parameters, not risk limits.** They are pure
 pegged-token quantities — nothing about collateral, price, or peg value appears in
 either. Their only job is to keep the liquidation loss-factor arithmetic from
 rounding a near-total liquidation into a *total* one.
 
-The mechanism (`_notifyLoss`, `StabilityPool_v3.sol:639-699`):
+The mechanism (`_notifyLoss`):
 
 - A liquidation's loss is first capped at the headroom above the floor,
   `supply - MIN` (`_capToFloor`).
 - The per-unit loss is `assetLossPerUnitStaked = ceil((supply - MIN) * FP / supply)`
-  (`StabilityPool_v3.sol:673`, with the capped loss substituted).
+  (`_notifyLoss`'s ceiling division, with the capped loss substituted).
 - The product factor applied to every balance is
-  `newProductFactor = FP - assetLossPerUnitStaked` (`StabilityPool_v3.sol:687`).
+  `newProductFactor = FP - assetLossPerUnitStaked` (`_notifyLoss`, just before
+  `supply.product.mul(newProductFactor)`).
 
 For `newProductFactor` to stay strictly positive — i.e. for a liquidation never to
 zero the product and brick every `balanceOf` read (which divides by the product
 magnitude) — we need `assetLossPerUnitStaked < FP`. Working the ceiling through, that
 holds exactly when:
 
+```text
+supply <= MIN * FACTOR_PRECISION
 ```
-supply <= MIN * FACTOR_PRECISION   ( = MAX )
-```
+
+That is the arithmetic requirement, and it is *not* the same expression as MAX. MAX is
+that bound saturated at the supply field's width, `min(MIN·FP, uint128.max)` — so
+whenever `MIN·FP` exceeds `uint128.max`, MAX is the smaller of the two and the
+requirement above is met with room to spare. The saturation is not a weakening: supply
+is stored in a `uint128`, so a ceiling above `uint128.max` is unreachable and the clamp
+is a no-op. Enforcing `supply <= MAX` therefore always implies `supply <= MIN·FP`,
+which is what the derivation needs. Equating the two, as if MAX were simply `MIN·FP`,
+is only true below the saturation point.
 
 So the ceiling is not a policy choice; it is the largest supply at which the survivor
 fraction `MIN / supply` is still representable in the factor's `1e18`-scale
-fixed point. The deposit path enforces it (`StabilityPool_v3.sol:442`), which is what
-makes "the factor handed to `mul` is always > 0" true *by construction* rather than
-by assumption.
+fixed point. The deposit path enforces it — `_deposit` reverts
+`DepositAmountExceedsMaximum` on the resulting total — which is what makes "the factor
+handed to `mul` is always > 0" true *by construction* rather than by assumption.
 
 **The floor's second job** is to bound the reward-integral divisor. `_minTotalShare()`
-returns `MIN` (`StabilityPool_v3.sol:622`), and `_depositRewardCap` (in
+returns `MIN`, and `_depositRewardCap` (in
 `MultipleRewardCompoundingAccumulator_v3`) sizes each reward deposit so its per-share
 integral delta cannot overflow *assuming the divisor is as small as `MIN`*. A zero
 floor would admit a vanishing pool share and an unbounded integral — which is why
-`MIN == 0` is rejected at construction (`StabilityPool_v3.sol:300`).
+`MIN == 0` is rejected at construction, reverting `InvalidMinTotalAssetSupply`.
 
 ### The four things MIN is load-bearing for
 
@@ -61,10 +72,10 @@ Any change to MIN has to respect all four:
 
 | # | Use | Code | Direction sensitivity |
 |---|-----|------|-----------------------|
-| 1 | Deposit floor (resulting supply ≥ MIN) | `:436` | raising can strand a first deposit below the new floor |
-| 2 | Deposit ceiling `MAX = MIN·FP` (loss factor > 0) | `:442`, `:687` | **lowering** shrinks MAX — the dangerous direction |
-| 3 | Outflow headroom `supply − MIN` (withdraw / sweep / loss), underflow-guarded to 0 | `:748-752` | **raising** above supply freezes all outflow |
-| 4 | Reward-integral overflow cap (`_minTotalShare`) | `:622` | lowering tightens future caps; never retroactive |
+| 1 | Deposit floor (resulting supply ≥ MIN) | `_deposit` → `DepositAmountLessThanMinimum` | raising can strand a first deposit below the new floor |
+| 2 | Deposit ceiling `MAX` (loss factor > 0) | `_deposit` → `DepositAmountExceedsMaximum`; `_notifyLoss` → `newProductFactor` | **lowering** shrinks MAX — the dangerous direction |
+| 3 | Outflow headroom `supply − MIN` (withdraw / sweep / loss), underflow-guarded to 0 | `maxAssetLoss` / `_capToFloor` | **raising** to or above supply freezes all outflow |
+| 4 | Reward-integral overflow cap | `_minTotalShare` | lowering tightens future caps; never retroactive |
 
 ---
 
@@ -99,7 +110,9 @@ This is where a real limit lives. There are two floors on representable value:
 2. **Configurable MIN floor:** `MIN_in_wei >= target_value / price` — i.e. MIN must be
    at least the whole-token count the pool must ever hold.
 
-For all six current markets (MIN ranges from `1e13` wei [BTC] to `1e18` wei [EUR]) a
+MIN is a pegged-token quantity carried on the peg, so it takes one value per peg rather
+than one per market: six values across the eleven `(peg, collateral)` markets currently
+configured. For all six pegs (MIN ranges from `1e13` wei [BTC] to `1e18` wei [EUR]) a
 $1B pool is comfortably representable, with 4 to 14 orders of magnitude of margin. In
 normal operation the MAX ceiling is never approached.
 
@@ -128,7 +141,7 @@ if the peg moves by orders of magnitude.
 
 ## 3. If MIN were made changeable — what could be done
 
-MIN is `immutable` today (`StabilityPool_v3.sol:93`). The question is whether it could
+MIN is `immutable` today. The question is whether it could
 become an owner-settable storage value, and how far a setter could safely move it.
 
 ### The safe band
@@ -137,12 +150,19 @@ Combining dependencies #2 and #3 from §1, after any change the pool's current s
 must satisfy:
 
 ```
-newMin <= supply <= newMin * FACTOR_PRECISION
+newMin < supply <= newMin * FACTOR_PRECISION        (supply > 0)
 ```
 
-- The **lower bound** (`newMin <= supply`) keeps outflow headroom above zero, so
-  withdrawals, sweeps, and liquidations don't freeze.
+- The **lower bound** (`newMin < supply`) keeps outflow headroom *strictly* positive.
+  The inequality has to be strict: at `newMin == supply` the headroom `supply − MIN` is
+  zero, so `_capToFloor` caps every withdrawal, sweep and liquidation loss to nothing —
+  the freeze §4 rejects, reached one wei earlier than raising MIN *above* supply would.
+  Equality is not the edge of the safe band, it is the first value outside it.
 - The **upper bound** (`supply <= newMin·FP`) keeps the loss factor non-zero.
+
+The band is stated for a pool that holds something. An empty pool (`supply == 0`) has no
+headroom to preserve and no factor to zero, so it cannot satisfy a strict lower bound and
+must not be judged against one — see the pristine-pool sub-decision in §5.
 
 This is exactly the band the pool already lives in. A setter that refuses to move MIN
 outside the current supply's safe band is safe in **both** directions:
@@ -154,7 +174,8 @@ outside the current supply's safe band is safe in **both** directions:
 - **Lowering** MIN (freeing trapped floor capital) automatically satisfies the lower
   bound and only needs the upper-bound check.
 
-A single guard — `newMin != 0 && newMin <= supply <= newMin·FP` — covers both.
+A single guard — `newMin != 0 && newMin < supply <= newMin·FP` — covers both, once the
+empty pool is dispatched by whichever rule §5 settles on.
 
 ### Reward integral is safe under either direction
 
@@ -170,10 +191,12 @@ MIN-lower with 0 / 1 / N reward deposits before relying on it.)
 
 ## 4. What could NOT be done safely
 
-- **Raise MIN above current supply.** Headroom `supply − MIN` clamps to zero
-  (`:750`), freezing every withdrawal, sweep, and — critically — liquidation
+- **Raise MIN to or above current supply.** Headroom `supply − MIN` reaches zero
+  (`maxAssetLoss`), freezing every withdrawal, sweep, and — critically — liquidation
   loss absorption. The StabilityPool exists to absorb liquidations, so freezing
   outflow is a solvency hazard, not a mere inconvenience. A setter must reject this.
+  Note that *equality* already freezes: `newMin == supply` leaves exactly zero
+  headroom, so the rejection has to start there rather than one wei above.
 
 - **Lower MIN such that `supply > newMin·FP`.** The very next liquidation would round
   the loss factor up to a full `1.0`, zero the product, and make every `balanceOf`
@@ -200,8 +223,8 @@ MIN-lower with 0 / 1 / N reward deposits before relying on it.)
 ## 5. Implementation implications (if a mutable MIN is pursued)
 
 - **Storage move.** MIN moves from `immutable` (bytecode) into `StabilityPoolStorage`
-  as an appended field (the same append-only pattern as `rewardDivisorGap`,
-  `StabilityPool_v3.sol:187`). MAX stops being stored at all and becomes a computed
+  as an appended field (the same append-only pattern as `rewardDivisorGap`, appended to
+  `StabilityPoolStorage` under `@custom:bao-added`). MAX stops being stored at all and becomes a computed
   view `min(MIN·FP, uint128.max)` — one source of truth, no drift.
 
 - **v3 is undeployed, so this edits v3 in place** — no `StabilityPool_v4`, no
@@ -211,7 +234,7 @@ MIN-lower with 0 / 1 / N reward deposits before relying on it.)
 - **But v3 upgrades a *live* v2 proxy.** v2 *is* deployed, and v2 held MIN as an
   immutable. The new storage slot must therefore be seeded on the v2→v3 upgrade path,
   not only on fresh `initialize`. The existing `StabilityPool_v3_Upgrader`
-  (`script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol:85`) ends with
+  (`migrateAndUpgrade` in `script/UpgradeStabilityPool_v2_v3/StabilityPool_v3_Upgrader.sol`) ends with
   `upgradeToAndCall(stabilityPoolV3, "")`; that empty call-data would leave the slot
   seeded to whatever a reinitializer sets. Cleanest: keep the constructor arg as a
   private immutable *seed*, have both `initialize` and a `reinitializer` copy

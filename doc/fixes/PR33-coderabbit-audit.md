@@ -1,10 +1,12 @@
 # PR #33 — CodeRabbit audit triage
 
-Source: the six CodeRabbit reviews on [PR #33](https://github.com/baofinance/harbor/pull/33),
-submitted 2026-07-29. Regenerate with:
+Source: the CodeRabbit reviews on [PR #33](https://github.com/baofinance/harbor/pull/33), in two
+rounds — six reviews of 2026-07-29 (round 1, below) and two more of 2026-08-08 and 2026-08-09
+(round 2, at the end of this document). Regenerate with:
 
 ```bash
 gh api "repos/baofinance/harbor/pulls/33/reviews?per_page=100" --paginate
+gh api "repos/baofinance/harbor/pulls/33/comments?per_page=100" --paginate
 ```
 
 Findings are keyed by CodeRabbit's own content hash (`cr-comment:v1:<id>`, truncated to 8
@@ -38,6 +40,8 @@ deliberately declined. A ❌ marks one that is still outstanding.
 | ✅ **duplicate** | Same issue as another entry |
 | ✅ **won't-fix** | Deliberately not fixed — reason given |
 
+# Round 1 — the six reviews of 2026-07-29
+
 ## Summary
 
 | Area | Total | ✅ done | ❌ open | ❌ decide | ✅ false-positive | ✅ duplicate | ✅ won't-fix |
@@ -50,14 +54,14 @@ deliberately declined. A ❌ marks one that is still outstanding.
 | doc | 25 | 6 | – | – | – | 5 | 14 |
 | **Total** | **70** | **22** | **1** | **–** | **5** | **10** | **32** |
 
-**1 finding is outstanding**: `56e24c6a`, deploy-script test coverage. The other 69 need no
-further work. Its fix prompt is reproduced in the appendix.
+**1 of round 1's findings is outstanding**: `56e24c6a`, deploy-script test coverage. The other 69
+need no further work. Its fix prompt is reproduced in the appendix.
 
 Five findings turned out to be false positives, and the pattern is worth recording: CodeRabbit
 reads a single file without the surrounding system, so it reported a CI check as deleted when
 it had moved into the composite action being called, a test suite as not covering v3 when its
-mock inherits v3, and a directory as an input when it is generated output. A sixth
-(`077b539f`) would have broken a working script had its fix been applied as written.
+mock inherits v3, and a directory as an input when it is generated output. One of the five,
+`077b539f`, would additionally have broken a working script had its fix been applied as written.
 
 ---
 
@@ -85,7 +89,7 @@ mock inherits v3, and a directory as an input when it is generated output. A six
 
 | id | location | finding | status |
 |---|---|---|---|
-| `2ec5976e` | `.claude/settings.json:7-9` | Allowlist exposes other local repos and `~/.claude/**` | ✅ **done** — `2b3bdeb`; `Read(//home/tfras/github/baofinance/**)` removed, `Read(//home/tfras/.claude/**)` narrowed to `plans/**` and this project's directory |
+| `2ec5976e` | `.claude/settings.json:7-9` | Allowlist exposes other local repos and `~/.claude/**` | ✅ **done** — `2b3bdeb`; the rule granting read access to every sibling repository under the developer's home directory was removed, and the `~/.claude/**` rule narrowed to `plans/**` plus this project's own directory |
 | `5b4d32ae` | `.claude/settings.json:7` | CWE-732: constrain permissions to minimum scope | ✅ **duplicate** of `2ec5976e` |
 | `87c9d0d1` | `.claude/settings.json:22` | Remove the `~/.claude/plans` git allow rules | ✅ **won't-fix** — `lib/bao-base/CLAUDE.md` *requires* committing to the plan repo after every plan update ("you own its git, and committing there is required"). Removing the rule would break the documented working mode. The remaining rule is already an exact command with a fixed argument, which is what the sibling finding asked for |
 | `ea436f80` | `.claude/settings.local.json:6` | `Bash(chmod:*)` grants chmod on any path | ✅ **done** — rule removed, so chmod now requires approval. Removing rather than narrowing avoids guessing a scope: a rule can be re-added against a real path if one proves necessary. Whether this machine-local file should be git-tracked at all remains an open question, carried in the plan |
@@ -190,7 +194,187 @@ flaw, the code already did the right thing and the prose had not kept up. Two of
 
 ---
 
-## Appendix — fix prompt for the one outstanding finding
+# Round 2 — reviews of 2026-08-08 and 2026-08-09
+
+Two further reviews, 16 findings across 15 inline comments (one comment stacks two findings).
+Each was checked against `HEAD` on `harbor-yield`. The **status vocabulary is the same as round
+1** — a ✅ marks a finding needing no further work, a ❌ one that is still outstanding — and the
+status cell carries both the verification result and what closing it takes.
+
+Round 2 reviewed a much smaller diff than round 1, and it shows in the composition: no finding
+touches `src/`. Ten are documentation, three are multisig batch scripts, two are tests, one is
+tooling configuration.
+
+## Summary
+
+| Area | Total | ✅ done | ❌ open | ❌ decide | ✅ false-positive | ✅ duplicate | ✅ won't-fix |
+|---|---|---|---|---|---|---|---|
+| test | 2 | – | – | 1 | – | 1 | – |
+| config | 1 | 1 | – | – | – | – | – |
+| script (multisig batches) | 3 | – | 2 | – | – | – | 1 |
+| doc — this audit file | 3 | 3 | – | – | – | – | – |
+| doc — design documents | 6 | 5 | – | – | – | – | 1 |
+| regression artefact | 1 | 1 | – | – | – | – | – |
+| **Total** | **16** | **10** | **2** | **1** | **–** | **1** | **2** |
+
+**3 findings are outstanding**: 2 ❌ open — both labels in the pending `UpdateHarvestCut_MCAP`
+batch — and 1 ❌ decide, the fork-ordering precedent discussed at the end of this section. The
+other 13 need no further work. Adding round 1's single remaining finding (`56e24c6a`,
+deploy-script coverage) gives **4 outstanding across both rounds**, of 86 raised.
+
+Every documentation finding in this round is closed. They fell into one pattern worth naming: in
+five of the six, the document **contradicted itself** rather than the code — one section had been
+brought up to date and another left behind, so the correct statement was usually already present
+elsewhere in the same file. `00dc864c` is the clearest case, being round 1's `182c6c4d` returning
+because that fix corrected §7 and left §11 saying the opposite.
+
+## Two things to know before reading the table
+
+**CodeRabbit's own "✅ Addressed" footers are unreliable.** Three findings carry one, and only one
+of the three had actually been addressed. The mark is attributed to commit *ranges* touching the
+same file, not to a re-check of the finding, so any nearby edit satisfies it.
+
+| id | claim | reality |
+|---|---|---|
+| `69c3be35` | Addressed in `9f166a0`..`3b4c8be` | **true** — the row exists at `regression/gas-duration.txt:167` and `MinterV1ToV2Upgrade.t.sol` is gone |
+| `8cb85991` | Addressed in `9f166a0`..`46c12ef` | **false** — the absolute home paths were still in this document when the mark was applied |
+| `00dc864c` | Addressed in `9f166a0`..`46c12ef` | **false** — the universal `1e12` recommendation is still at `doc/harbor-deployment.md:349` |
+
+**For a multisig batch script, whether it has already executed decides the disposition.** These
+scripts queue transactions into a Safe batch; three findings are about the human-readable label
+beside a queued call, which is the only thing a signer reads when approving. Once the batch has
+been signed and executed, the label has done all the harm or good it ever will and correcting it
+changes nothing — won't-fix. While the batch is still pending, the label is about to be read.
+
+Establishing which is which takes some care, because the two directions need different evidence:
+
+- **Executed** is provable from a *tracked* artefact under `deployments/<network>/batch/`. That
+  file is the record of what was signed.
+- **Pending is not provable from the absence of one**, and in particular nothing under
+  `deployments/local*/` is evidence either way — `.gitignore:44` excludes it, so it is one
+  machine's anvil run, present or absent for reasons that have nothing to do with mainnet. Pending
+  has to be established positively, from tracked state: for `UpdateHarvestCut_MCAP`, mainnet still
+  runs `StabilityPoolManager_v1` at all 26 sites, and the script's own docstring gates it to run
+  *before* the v2 upgrade.
+
+## test (2)
+
+| id | location | finding | status |
+|---|---|---|---|
+| `98c0c63a` | `StabilityPoolManager.t.sol:1345` | `test_harvestAfterRatioPairRepair_` pins `Panic(uint256) 0x11` rather than a named error, and a guard should be added to `harvest()` | ✅ **duplicate** of `39f62036`, closed won't-fix in round 1 — the over-100% pair is unreachable through v2's API (`updateHarvestRatios` validates the sum atomically), reachable only as legacy v1 storage, and every live deployment was verified compliant; `Minter_v3` has 134 B of headroom, so a guard against an unreachable state is not free. The test half is a new point and is answered in the discussion below: the assertion stands |
+| `8cb2fa0e` | `PartialDeploy.t.sol:33-34` | `_ensureBaoFactory()` is called before `forkMainnet()`, and the fork resets the operator registration | ❌ **decide** — the ordering is real; the stated consequence does not occur, because the test re-registers the operator immediately after the fork (lines 35-37). But that is what makes it worth fixing rather than what excuses it: **the order is wrong and the code around it silently compensates**, so what the sequence teaches a reader is false. It is the house convention in seven test files, so the precedent is already spreading. Discussed below |
+
+## config (1)
+
+| id | location | finding | status |
+|---|---|---|---|
+| `7fa21b38` | `.claude/settings.json:20-21` | Recursive `Read` access to user-local `.claude` plans and project state | ✅ **done** — half fixed, half declined for a reason round 1 already accepted. The rule granting recursive read access to this project's own `~/.claude/projects/` state directory had nothing requiring it and is **gone**. The plans rule remains, rewritten as `Read(~/.claude/plans/**)`: `lib/bao-base/CLAUDE.md` *requires* committing to the plan repo after every plan update, so removing it would break the documented working mode — which is exactly why the sibling finding `87c9d0d1` was closed won't-fix. Every absolute home path is gone from the file, which also settles the disclosure half |
+
+## script — multisig batch scripts (3)
+
+The queued *call data* is correct in all three; what is wrong is the label beside it. Disposition
+follows execution status, per the rule above — `UpdateVolatility_OGPlus` executed on mainnet on
+2026-01-15, `UpdateHarvestCut_MCAP` is still pending, gated behind the `StabilityPoolManager_v2`
+upgrade it must precede.
+
+| id | location | finding | status |
+|---|---|---|---|
+| `e5c2d779` | `UpdateVolatility_OGPlus.s.sol:60` | GOLD-fxUSD is labelled `updateConfig(105 month1)` but encodes `ConfigPriceVolatility_115` | ✅ **won't-fix** — the finding is correct: the label was copied from the EUR-fxUSD entry above it, and the paired threshold on line 63 is `115e16`, so the label is the only thing saying 105. But the batch has already been signed and executed — `deployments/mainnet/batch/UpdateVolatility_OGPlus_2026-01-15T21:56:04Z.json` is tracked, and is the record of what was approved — so the label has been read for the last time. Correcting it now would edit that record rather than anything a signer will see |
+| `e9e7093e` | `UpdateHarvestCut_MCAP.s.sol:27,35` | Both queue entries carry the identical description `updateHarvestCutRatio(configured)` | ❌ **open** — the decoded batch shows two identical labels against two different managers, so a signer cannot tell MCAP::fxUSD from MCAP::stETH. This batch has **not** executed, so the labels are still ahead of being read. Name the market in each |
+| `389b2d60` | `UpdateHarvestCut_MCAP.s.sol:18` | The run instruction names `./script/safe-batch`, which does not exist | ❌ **open** — confirmed; `script/` holds `run-batch`, `run-script` and `decode-safe-batch`, no `safe-batch`. **CodeRabbit's replacement is also wrong**: it proposes `run-script`, but this contract implements `build()` and queues a batch. Two sibling scripts are wrong the same way — `UpdateVolatility_OGPlus.s.sol:15` repeats `safe-batch` and `UpdateVolatility_test3_SILVER.s.sol:13` invents `generate-safe-batch` — so fix all three against the runner that actually exists rather than this one alone |
+
+## doc — this audit file (3)
+
+| id | location | finding | status |
+|---|---|---|---|
+| `7cf3b00b` | `:56-60` | "A sixth (`077b539f`)" contradicts the stated five false positives | ✅ **done** — confirmed: `077b539f` is one of the five, so the prose double-counted it. Now reads "One of the five, `077b539f`, would additionally have broken a working script", which keeps the point the sentence was making without inventing a sixth finding |
+| `446b3be0` | `:96` vs `:219-221` | `ForceMigrateAccumulator_v1` is called pending in one place and already-run archive in another | ✅ **done** — confirmed. The status entry cites its evidence (`StabilityPool_v3` appears 3 times across `deployments/` against `StabilityPool_v2`'s 105); the appendix note calling it "migration code that has already run" was an unchecked aside. The appendix now states it is not archive, and says what the missing coverage actually is — unit tests for its assembly slot arithmetic, which need no fork |
+| `8cb85991` | `:88` | Exact local filesystem paths in a public repository | ✅ **done** — the last four occurrences, all in this document, now describe the permission rules rather than quoting them verbatim, which loses nothing since every rule they quoted has since been removed or rewritten. Worth recording *why* it was declined twice before: while `.claude/settings.json` still held twelve of these paths, scrubbing the prose and leaving the configuration would have been theatre, and it would have cost each entry the rule string that was its evidence. `7fa21b38` removed those twelve and the developer cleared `.claude/settings.local.json` as well, at which point this document became the only tracked file still carrying them and the objection expired. **No absolute home path now appears in any tracked file.** |
+
+## doc — design documents (6)
+
+Five of these are `doc/stability-pool-min-total-asset-supply.md`, an analysis document evaluating
+whether `MIN_TOTAL_ASSET_SUPPLY` could become settable. Its purpose is to be *checkable* against
+the code, which raises the cost of a stale reference above the usual for prose.
+
+| id | location | finding | status |
+|---|---|---|---|
+| `ea3f51b0` | `min-total-asset-supply.md:139-143` | The proposed setter guard admits `newMin == supply`, which freezes all outflow | ✅ **done** — the most substantive finding of the round, and correct. The document proposed the band `newMin <= supply <= newMin·FP`, saying the lower bound "keeps outflow headroom above zero"; at equality the headroom `supply − MIN` is exactly zero, so `_capToFloor` caps every withdrawal, sweep and liquidation loss to nothing — the state the document's own §4 calls "a solvency hazard, not a mere inconvenience". The band is now strict (`newMin < supply`), §4 rejects equality explicitly rather than only `newMin > supply`, and the empty pool is routed to the pristine-pool sub-decision in §5 instead of being silently caught by a bound it cannot satisfy |
+| `905c3b88` | `min-total-asset-supply.md`, throughout | Cited source line numbers do not identify the described logic | ✅ **done** — confirmed, and systematic: `:301-303` was the zero-check revert, not the MAX calculation (312); `:442` was `supply.updatedAt`, not the ceiling check (453); `:622` a comment, not `_minTotalShare` (644); `:673` a comment, not the loss-per-unit division (695); `:687` was `lastAssetLossError`, not the product factor (708-710); `:748` a docstring, not `_capToFloor` (776). Only `:300` and `:93` still landed. **All twelve numeric citations are now symbol names** (`_capToFloor`, `maxAssetLoss`, `_minTotalShare`, `DepositAmountExceedsMaximum`, `migrateAndUpgrade`, …) — the file is named once at the top, so nothing re-breaks when the code moves, which is what made them stale in the first place |
+| `2558c8fd` | `min-total-asset-supply.md:41-42` | `supply <= MIN * FACTOR_PRECISION ( = MAX )` ignores `uint128` saturation | ✅ **done** — confirmed, and the document contradicted *itself*: §1 already stated `MAX = min(MIN·FP, uint128.max)`, matching the constructor. The derivation now presents `supply <= MIN·FP` as the *arithmetic requirement* and MAX as that bound saturated at the supply field's width, with the reason the clamp costs nothing: supply is stored in a `uint128`, so a ceiling above `uint128.max` is unreachable, and `supply <= MAX` therefore always implies `supply <= MIN·FP` |
+| `c847c207` | `min-total-asset-supply.md:102` | "six current markets" understates the deployment matrix | ✅ **done** — confirmed: there are **6 pegs and 11 markets** (`ConfigPeg_{BTC,ETH,EUR,GOLD,MCAP,SILVER}`, and eleven `ConfigMarket_*_mainnet`). CodeRabbit offered two remedies and only the first was right: `MIN` is a pegged-token quantity carried on the peg, so it takes six values, not eleven — enumerating the 11 market instances would have been *less* accurate. The text now says so explicitly rather than just swapping the noun, since the one-value-per-peg fact is why six is the right count |
+| `00dc864c` | `harbor-deployment.md:349` | The Open questions section still recommends a universal `1e12` seed | ✅ **done** — confirmed present despite the "addressed" mark, and it was round 1's `182c6c4d` resurfacing: that finding was closed by correcting §7, but §11 was left contradicting it. The open question is now struck through and marked resolved as **neither** of the two options it posed — the seed is denominated in pegged tokens as `peg.minDeposit()` and oracle-converted by `_wrappedCollateralSeedAmount`, so it carries no `decimals()` assumption for either answer to handle |
+| `bc848afa` | `min-total-asset-supply.md`, fenced blocks | `markdownlint` MD040: code fences without a language | ✅ **won't-fix** — the repository has no markdownlint configuration and does not run it in CI, so this is CodeRabbit's own linter reporting against its own defaults, not a standard this codebase holds. Adopting markdownlint would be a deliberate decision of its own, not a review fix |
+
+## regression artefact (1)
+
+| id | location | finding | status |
+|---|---|---|---|
+| `69c3be35` | `regression/gas-duration.txt:167` | No row for `MinterV2ToV3UpgradeTest`, and no exclusion explaining its absence | ✅ **done** — the row is present at line 167, and `MinterV1ToV2Upgrade.t.sol` (whose row the finding saw instead) no longer exists, having been retired when the upgrade tests were retargeted at the pending v2→v3 deploy |
+
+## Discussion — the ❌ decide entries, and one answer owed
+
+The eight ❌ **open** findings are accepted work and need nothing from this section. The three
+❌ **decide** entries do, and `98c0c63a` is owed a straight answer on the half of it that round 1
+did not already settle.
+
+### 1. `7fa21b38` and `8cb85991` — settled, and what settled them
+
+Recorded because it took three findings to land, and the reason is reusable. The file mixed two
+things: **project policy** (which tools this codebase's work needs) and **one machine's absolute
+paths**. Every finding objected to the second kind, and each was answered by narrowing one more
+rule, which is why a third arrived.
+
+What closed it was removing the category rather than the instances — the project-state read is
+gone entirely, and the plans read is now `Read(~/.claude/plans/**)`, which says the same thing
+without naming a home directory. That rule stays: `lib/bao-base/CLAUDE.md` *requires* committing
+to the plan repo after every plan update, so it implements the documented working mode, exactly
+the grounds round 1 closed `87c9d0d1` on.
+
+That leaves `8cb85991` as the only place the paths survive, which flips its disposition. It was
+declined while the settings file held twelve of them, on the grounds that scrubbing prose and
+leaving configuration is theatre. With the configuration clean, the argument is gone. Two loose
+ends: `.claude/settings.local.json` still carries one at line 22, and it is **git-tracked and not
+in `.gitignore`**, which defeats the point of the `.local` name and is what put it in front of a
+reviewer in the first place (`ea436f80`). Tracking it remains an open question in the plan.
+
+### 2. `8cb2fa0e` — a misleading precedent, not an inefficiency
+
+`_ensureBaoFactory()` → `forkMainnet()` → `setOperator()` is what seven test files do, so this is
+a convention rather than a slip in one file.
+
+The wasted work — deploying a BaoFactory into state `createSelectFork` immediately discards — is
+the least of it. What matters is that **the order is wrong and the next two lines silently repair
+it**, so the sequence teaches a reader something false: read straight it says "ensure the factory,
+then fork", implying the factory survives the fork. It does not; the manual `setOperator` is the
+repair, and nothing marks it as one, so the three-line shape looks like a deliberate idiom. Copy
+it and drop the `setOperator` — reasonably, having already "ensured" the factory — and the failure
+surfaces nowhere near its cause.
+
+Since the point is to stop the precedent, fixing one file would be worse than fixing none: six
+would still teach the wrong order and the seventh would look like the exception. Decision needed
+on the shape of the sweep; carry it alongside the `vm.prank` → `startPrank`/`stopPrank` sweep,
+which touches the same files.
+
+### 3. `98c0c63a` — the half round 1 did not answer
+
+The contract half is `39f62036` again and is marked ✅ **duplicate** above; nothing has changed to
+reopen it. The test half is new, and deserves a straight answer rather than the same one.
+CodeRabbit argues the test's
+`Panic(0x11)` assertion binds to compiler-generated behaviour and would break under an `unchecked`
+block or a reordered subtraction. True — but that is the assertion being *load-bearing*, not
+brittle: the property under test is that a legacy over-100% pair has no harvest until repaired,
+and if someone wraps that subtraction in `unchecked` the pair silently produces a wrong split
+instead of reverting. A test that goes red on that change is doing its job. The assertion is also
+specific — `abi.encodeWithSignature("Panic(uint256)", 0x11)`, not a bare `expectRevert` — which is
+what the repository's rule actually requires.
+
+Worth fixing while nearby, and unrelated to the finding: the test is named
+`test_harvestAfterRatioPairRepair_` with a trailing underscore.
+
+---
+
+## Appendix — fix prompt for round 1's outstanding finding
 
 CodeRabbit generated a "Prompt for AI Agents" alongside each finding. The one still outstanding
 is reproduced verbatim below so it can be handed to a fresh session without re-reading the pull
@@ -216,6 +400,9 @@ coverage entries in regression/coverage.txt lines 3-3 and 34-35 no longer remain
 at 0% or low coverage; do not modify coverage.txt directly if it is generated.
 ```
 
-`ForceMigrateAccumulator_v1` is migration code that has already run, so it is arguably archive;
-`HarborDeployStack` and `HarborDeployer` are the live targets. Note the prompt's closing
+`ForceMigrateAccumulator_v1` is **not** archive — its migration is still pending, as the status
+entry above records: `StabilityPool_v3` appears 3 times across `deployments/` against
+`StabilityPool_v2`'s 105. It is also already tested, by a fork test that cannot join `yarn test`;
+what is missing is unit coverage of its assembly slot arithmetic, which needs no fork.
+`HarborDeployStack` and `HarborDeployer` are the other two targets. Note the prompt's closing
 caution: `regression/coverage.txt` is generated, so it is the tests that change, not the file.
