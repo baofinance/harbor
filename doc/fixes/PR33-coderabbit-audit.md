@@ -209,18 +209,17 @@ tooling configuration.
 
 | Area | Total | ✅ done | ❌ open | ❌ decide | ✅ false-positive | ✅ duplicate | ✅ won't-fix |
 |---|---|---|---|---|---|---|---|
-| test | 2 | – | – | 1 | – | 1 | – |
+| test | 2 | 1 | – | – | – | 1 | – |
 | config | 1 | 1 | – | – | – | – | – |
 | script (multisig batches) | 3 | – | 2 | – | – | – | 1 |
 | doc — this audit file | 3 | 3 | – | – | – | – | – |
 | doc — design documents | 6 | 5 | – | – | – | – | 1 |
 | regression artefact | 1 | 1 | – | – | – | – | – |
-| **Total** | **16** | **10** | **2** | **1** | **–** | **1** | **2** |
+| **Total** | **16** | **11** | **2** | **–** | **–** | **1** | **2** |
 
-**3 findings are outstanding**: 2 ❌ open — both labels in the pending `UpdateHarvestCut_MCAP`
-batch — and 1 ❌ decide, the fork-ordering precedent discussed at the end of this section. The
-other 13 need no further work. Adding round 1's single remaining finding (`56e24c6a`,
-deploy-script coverage) gives **4 outstanding across both rounds**, of 86 raised.
+**2 findings are outstanding**, both labels in the pending `UpdateHarvestCut_MCAP` batch. The
+other 14 need no further work. Adding round 1's single remaining finding (`56e24c6a`,
+deploy-script coverage) gives **3 outstanding across both rounds**, of 86 raised.
 
 Every documentation finding in this round is closed. They fell into one pattern worth naming: in
 five of the six, the document **contradicted itself** rather than the code — one section had been
@@ -262,7 +261,7 @@ Establishing which is which takes some care, because the two directions need dif
 | id | location | finding | status |
 |---|---|---|---|
 | `98c0c63a` | `StabilityPoolManager.t.sol:1345` | `test_harvestAfterRatioPairRepair_` pins `Panic(uint256) 0x11` rather than a named error, and a guard should be added to `harvest()` | ✅ **duplicate** of `39f62036`, closed won't-fix in round 1 — the over-100% pair is unreachable through v2's API (`updateHarvestRatios` validates the sum atomically), reachable only as legacy v1 storage, and every live deployment was verified compliant; `Minter_v3` has 134 B of headroom, so a guard against an unreachable state is not free. The test half is a new point and is answered in the discussion below: the assertion stands |
-| `8cb2fa0e` | `PartialDeploy.t.sol:33-34` | `_ensureBaoFactory()` is called before `forkMainnet()`, and the fork resets the operator registration | ❌ **decide** — the ordering is real; the stated consequence does not occur, because the test re-registers the operator immediately after the fork (lines 35-37). But that is what makes it worth fixing rather than what excuses it: **the order is wrong and the code around it silently compensates**, so what the sequence teaches a reader is false. It is the house convention in seven test files, so the precedent is already spreading. Discussed below |
+| `8cb2fa0e` | `PartialDeploy.t.sol:33-34` | `_ensureBaoFactory()` is called before `forkMainnet()`, and the fork resets the operator registration | ✅ **done** — the ordering was real and the stated consequence did not occur, because the next two lines silently repaired it; that is what made it worth fixing rather than what excused it. `BaoTest.forkMainnetWithBaoFactory()` now pairs the two steps in the only order that works, and all **eleven** sites are converted, so no manual `setOperator` remains in `test/` or `script/`. Proven before it was built: removing only the repair, keeping the wrong order, failed every affected contract with `BaoFactory_v1`'s `Unauthorized()` — so the detector already exists at the point of use, on every path including `script/verify/`, and the repair was suppressing it. Pinned by `lib/bao-base/test/BaoFactoryAcrossForks.t.sol`. Net **−56 lines**, and the full suite plus `sizes`, `gas` and `coverage` regressions are unchanged |
 
 ## config (1)
 
@@ -312,18 +311,16 @@ the code, which raises the cost of a stale reference above the usual for prose.
 |---|---|---|---|
 | `69c3be35` | `regression/gas-duration.txt:167` | No row for `MinterV2ToV3UpgradeTest`, and no exclusion explaining its absence | ✅ **done** — the row is present at line 167, and `MinterV1ToV2Upgrade.t.sol` (whose row the finding saw instead) no longer exists, having been retired when the upgrade tests were retargeted at the pending v2→v3 deploy |
 
-## Discussion — the ❌ decide entries, and one answer owed
+## Discussion — how the three hard ones were settled
 
-The eight ❌ **open** findings are accepted work and need nothing from this section. The three
-❌ **decide** entries do, and `98c0c63a` is owed a straight answer on the half of it that round 1
-did not already settle.
+All three are closed. Kept because the reasoning is reusable and each cost more than the fix did.
 
 ### 1. `7fa21b38` and `8cb85991` — settled, and what settled them
 
-Recorded because it took three findings to land, and the reason is reusable. The file mixed two
-things: **project policy** (which tools this codebase's work needs) and **one machine's absolute
-paths**. Every finding objected to the second kind, and each was answered by narrowing one more
-rule, which is why a third arrived.
+It took three findings to land, and the reason is reusable. The file mixed two things: **project
+policy** (which tools this codebase's work needs) and **one machine's absolute paths**. Every
+finding objected to the second kind, and each was answered by narrowing one more rule, which is
+why a third arrived.
 
 What closed it was removing the category rather than the instances — the project-state read is
 gone entirely, and the plans read is now `Read(~/.claude/plans/**)`, which says the same thing
@@ -331,30 +328,40 @@ without naming a home directory. That rule stays: `lib/bao-base/CLAUDE.md` *requ
 to the plan repo after every plan update, so it implements the documented working mode, exactly
 the grounds round 1 closed `87c9d0d1` on.
 
-That leaves `8cb85991` as the only place the paths survive, which flips its disposition. It was
-declined while the settings file held twelve of them, on the grounds that scrubbing prose and
-leaving configuration is theatre. With the configuration clean, the argument is gone. Two loose
-ends: `.claude/settings.local.json` still carries one at line 22, and it is **git-tracked and not
-in `.gitignore`**, which defeats the point of the `.local` name and is what put it in front of a
-reviewer in the first place (`ea436f80`). Tracking it remains an open question in the plan.
+That left `8cb85991` as the only place the paths survived, which flipped its disposition: declining
+it had rested on the settings file holding twelve of them, and scrubbing prose while leaving
+configuration would have been theatre. With the configuration clean the objection expired and the
+fix was free, the quoted rules having ceased to exist. One loose end remains:
+`.claude/settings.local.json` is **git-tracked and not in `.gitignore`**, which defeats the point
+of the `.local` name and is what put it in front of a reviewer as `ea436f80`.
 
 ### 2. `8cb2fa0e` — a misleading precedent, not an inefficiency
 
-`_ensureBaoFactory()` → `forkMainnet()` → `setOperator()` is what seven test files do, so this is
-a convention rather than a slip in one file.
+`_ensureBaoFactory()` → `forkMainnet()` → `setOperator()` was what eight suites did, so this was a
+convention rather than a slip in one file.
 
-The wasted work — deploying a BaoFactory into state `createSelectFork` immediately discards — is
-the least of it. What matters is that **the order is wrong and the next two lines silently repair
-it**, so the sequence teaches a reader something false: read straight it says "ensure the factory,
-then fork", implying the factory survives the fork. It does not; the manual `setOperator` is the
-repair, and nothing marks it as one, so the three-line shape looks like a deliberate idiom. Copy
-it and drop the `setOperator` — reasonably, having already "ensured" the factory — and the failure
-surfaces nowhere near its cause.
+The wasted work — deploying a BaoFactory into state `createSelectFork` immediately discards — was
+the least of it. What mattered is that **the order was wrong and the next two lines silently
+repaired it**, so the sequence taught a reader something false: read straight it said "ensure the
+factory, then fork", implying the factory survives the fork. It does not, and copying the shape
+without the repair produced a failure nowhere near its cause.
 
-Since the point is to stop the precedent, fixing one file would be worse than fixing none: six
-would still teach the wrong order and the seventh would look like the exception. Decision needed
-on the shape of the sweep; carry it alongside the `vm.prank` → `startPrank`/`stopPrank` sweep,
-which touches the same files.
+Two mechanisms were considered for catching the mistake and both were rejected, the second by
+measurement rather than argument:
+
+- **A flag set by the ensure and read by the fork** is the transient state `CLAUDE.md` bans, would
+  guard only forks taken through `forkMainnet()` while `script/verify/` calls `vm.createSelectFork`
+  directly, and detects rather than removes.
+- **`vm.makePersistent(factory)`** looked attractive because the registration would then survive.
+  **It does not.** `_isCurrentOperator` is `exists && expiry > block.timestamp`, and
+  `block.timestamp` is **1** in the bare test EVM against **1774019135** on the fork, so an expiry
+  of `now + 365 days` has lapsed by decades whether or not the account carried over. It would also
+  have put a local rebuild in front of the deployed factory these suites exist to deploy through.
+
+**No detector was needed.** `BaoFactory_v1:179-180` already reverts `Unauthorized()` when a
+non-operator calls `deploy` — at the point of use, on every path. The hand-written `setOperator`
+was suppressing that signal, so the fix removed three lines rather than adding a check. Confirmed
+by removing only the repair and watching every affected contract fail with exactly that error.
 
 ### 3. `98c0c63a` — the half round 1 did not answer
 

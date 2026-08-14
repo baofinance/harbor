@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {Deploy_EUR_Minter} from "@harbor-script/src/Deploy_EUR_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
@@ -41,11 +40,7 @@ abstract contract DeployEURSetUp is BaoTest, Deploy_EUR_Minter, HarborTestAction
     MockWrappedPriceOracle mockOracleStETH;
 
     function setUp() public virtual {
-        address factory = _ensureBaoFactory();
-        forkMainnet();
-
-        vm.prank(IBaoFactory(factory).owner());
-        IBaoFactory(factory).setOperator(address(this), 365 days);
+        forkMainnetWithBaoFactory();
 
         (ConfigPeg peg_, Config_MinterMarket[] memory mktConfigs) = createEURMintersConfig();
 

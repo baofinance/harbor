@@ -157,10 +157,6 @@ contract DeployMintersTest is
         ReturnKind kind;
     }
 
-    function setUp() public virtual {
-        _baoFactory = _ensureBaoFactory();
-    }
-
     function test_BTC() public {
         string memory refSalt = "harbor_v1";
         _forkAndSetup();
@@ -240,12 +236,13 @@ contract DeployMintersTest is
         _compareMintersAgainstReference(refSalt, peg, stETHOnly);
     }
 
-    /// @dev Fork mainnet and register this contract as factory operator.
+    /// @dev Fork mainnet at head and stand the BaoFactory up on it, registering this contract as operator.
+    ///      The fork is deliberately unpinned - this compares a candidate deploy against live state, which is
+    ///      what `script/verify/` is for - so it cannot use `forkMainnetWithBaoFactory`, which pins the block.
+    ///      The ensure has to follow the fork: one taken afterwards would discard the registration.
     function _forkAndSetup() private {
-        uint256 forkId = vm.createSelectFork(vm.rpcUrl("mainnet"));
-        vm.selectFork(forkId);
-        vm.prank(IBaoFactory(_baoFactory).owner());
-        IBaoFactory(_baoFactory).setOperator(address(this), 365 days);
+        vm.createSelectFork(vm.rpcUrl("mainnet"));
+        _baoFactory = _ensureBaoFactory();
     }
 
     /// @dev Log all addresses from the global mapping (well-known + deployed contracts).

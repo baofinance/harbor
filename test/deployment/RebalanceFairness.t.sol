@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket, MinterMarketConfigLib} from "@harbor-script/config/ConfigBase.sol";
@@ -53,17 +52,8 @@ contract RebalanceFairnessSetUp is BaoTest, Deploy_ETH_Minter, Array, HarborTest
     address eve; // Holds only leveraged tokens (the market maker / leveraged-side liquidity)
 
     function setUp() public virtual {
-        // Deploy BaoFactory locally
-        address factory = _ensureBaoFactory();
-
-        // Fork mainnet so real token contracts (fxSAVE, fxUSD, etc.) exist
-        // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for caching
-        uint256 forkId = forkMainnet();
-        vm.selectFork(forkId);
-
-        // Register as factory operator
-        vm.prank(IBaoFactory(factory).owner());
-        IBaoFactory(factory).setOperator(address(this), 365 days);
+        // Fork mainnet so real token contracts (fxSAVE, fxUSD, etc.) exist, and stand the factory up on it
+        forkMainnetWithBaoFactory();
 
         // Deploy a fresh ETH::fxUSD market via the production deployment scripts
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();

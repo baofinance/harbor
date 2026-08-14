@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
 import {ConfigPeg} from "@harbor-script/config/pegs/ConfigPeg.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
@@ -24,14 +23,7 @@ contract MinterCappedMintSetUp is BaoTest, Deploy_ETH_Minter, HarborTestActions 
     MockWrappedPriceOracle mockOracle;
 
     function setUp() public virtual {
-        // Bootstrap the BaoFactory, then fork mainnet. The fork resets chain state, so the test must be
-        // re-registered as the factory operator AFTER the fork for the CREATE3 deploy to run.
-        address factory = _ensureBaoFactory();
-        // Pinned after latest Harbor deployment (SPL remediation, 2026-03-25) for fork caching.
-        forkMainnet();
-        vm.startPrank(IBaoFactory(factory).owner());
-        IBaoFactory(factory).setOperator(address(this), 365 days);
-        vm.stopPrank();
+        forkMainnetWithBaoFactory();
 
         // Deploy the ETH::fxUSD market (one collateral) via the production deploy scripts (Minter_v3).
         (ConfigPeg peg, Config_MinterMarket[] memory allMarkets) = createETHMintersConfig();

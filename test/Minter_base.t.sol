@@ -34,7 +34,6 @@ import {TestMinterMarketConfig} from "@harbor-test/config/TestMinterMarketConfig
 import {ConfigPeg, ConfigPeg_BTC} from "@harbor-script/config/pegs/ConfigPeg_BTC.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {IReservePool} from "@harbor/interfaces/IReservePool.sol";
@@ -346,10 +345,9 @@ contract TestMinterSetUp is BaoTest, Clog, Array, ConfigFile, HarborDeployRun {
         Config_MinterMarket[] memory markets = new Config_MinterMarket[](1);
         markets[0] = marketConfig;
 
-        address factory = ensureFactory();
-        vm.startPrank(IBaoFactory(factory).owner());
-        IBaoFactory(factory).setOperator(address(this), 365 days);
-        vm.stopPrank();
+        // Runs after setUpFork, which is the order that works: `ensureFactory` registers this test as the
+        // factory operator, and a fork selected afterwards would discard that.
+        ensureFactory();
 
         deploy(new ConfigPeg_BTC(), markets, true, markets);
 

@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {HarborDeployRun} from "@harbor-test/HarborDeployRun.sol";
 import {Deploy_ETH_Minter} from "@harbor-script/src/Deploy_ETH_Minter.sol";
@@ -78,15 +77,14 @@ contract HarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
 ///      registers ITSELF as the factory operator, so it deploys on its own account rather than the test's.
 contract ComposedHarborDeployRunTest is BaoTest, Deploy_ETH_Minter {
     function test_aComposedRunDeploysOnItsOwnAccountAndHandsOver() public {
-        address factory = _ensureBaoFactory();
-        forkMainnet();
+        forkMainnetWithBaoFactory();
 
         address runOwner = makeAddr("composedRunOwner");
         HarborDeployRun run = new HarborDeployRun(runOwner, makeAddr("composedRunTreasury"), "composed", "mainnet");
 
-        vm.startPrank(IBaoFactory(factory).owner());
-        IBaoFactory(factory).setOperator(address(run), 365 days);
-        vm.stopPrank();
+        // The run registers ITSELF rather than the test doing it for the run: `ensureFactory` is public and
+        // inlines the library, so `address(this)` inside it is the run.
+        run.ensureFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
         Config_MinterMarket[] memory marketsToDeploy = new Config_MinterMarket[](1);

@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
@@ -30,11 +29,7 @@ abstract contract PartialDeploySetUp is BaoTest, Deploy_ETH_Minter {
     ///      carry on: the struct holds dynamic arrays, which the legacy pipeline cannot copy into storage, so
     ///      it has to stay a memory value passed hand to hand.
     function _deployMinter(string memory saltPrefix) internal returns (DeploymentTypes.State memory state) {
-        address factory = _ensureBaoFactory();
-        forkMainnet();
-        vm.startPrank(IBaoFactory(factory).owner());
-        IBaoFactory(factory).setOperator(address(this), 365 days);
-        vm.stopPrank();
+        forkMainnetWithBaoFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
         market = mktConfigs[0];

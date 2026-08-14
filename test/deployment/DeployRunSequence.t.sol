@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
@@ -19,11 +18,7 @@ abstract contract DeployRunSetUp is BaoTest, Deploy_ETH_Minter {
     Config_MinterMarket internal market;
 
     function _run(string memory saltPrefix) internal {
-        address factory = _ensureBaoFactory();
-        forkMainnet();
-        vm.startPrank(IBaoFactory(factory).owner());
-        IBaoFactory(factory).setOperator(address(this), 365 days);
-        vm.stopPrank();
+        forkMainnetWithBaoFactory();
 
         (ConfigPeg peg, Config_MinterMarket[] memory mktConfigs) = createETHMintersConfig();
         market = mktConfigs[0];
