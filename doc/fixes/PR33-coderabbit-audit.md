@@ -15,15 +15,28 @@ identity of a finding. Line numbers below are as they stood at review time, agai
 `4c05265`; the code has moved since (`Minter_v3.sol` by ~125 lines), so treat them as
 historical pointers rather than current locations.
 
-| | |
-|---|---|
-| Raw finding-instances across 6 reviews | 107 |
-| Unique by content hash | **70** |
-| Of which semantic duplicates of another finding | 11 |
-| Genuinely distinct issues | **59** |
+## Where this stands
 
-Severity as reported: 2 Critical, 66 Major, 1 Minor, 1 Trivial. CodeRabbit labelled almost
-everything Major, so severity carries no useful signal here and is not used to order this
+Each round has its own summary table further down; this is the position across both, and is the
+one to read first.
+
+| | round 1 | round 2 | total |
+|---|---|---|---|
+| Findings, unique by content hash | 70 | 16 | **86** |
+| ✅ need no further work | 69 | 16 | **85** |
+| ❌ outstanding | **1** | – | **1** |
+
+**One finding remains: `56e24c6a`** — deploy-script test coverage, from round 1. Its entry is under
+[config](#config-10), its fix prompt is in the appendix, and what the deploy-stack refactor did and
+did not do for it is measured in the section following that table. Short version: the refactor has
+landed and **closed none of the three files**, though it took the per-contract deploy modules to
+100%; and before anything is written against `HarborDeployer`, its contradictory coverage metrics
+need explaining rather than chasing.
+
+Round 1 raised 107 finding-instances across its six reviews, which deduplicated to 70 by content
+hash; 11 of those were semantic duplicates of another finding, leaving 59 genuinely distinct
+issues. Severity as reported was 2 Critical, 66 Major, 1 Minor, 1 Trivial — CodeRabbit labelled
+almost everything Major, so severity carries no useful signal here and is not used to order this
 document.
 
 ## Status vocabulary
@@ -97,8 +110,41 @@ mock inherits v3, and a directory as an input when it is generated output. One o
 | `077b539f` | `foundry.toml:70` | `read-write` granted on the git-tracked holder-input directory | ✅ **false-positive** — the premise is wrong. That directory holds the *filtered output* of `FilterSpHolders.s.sol`, not its input: inputs are read from the untracked `tmp/sp-holders` ([FilterSpHolders.s.sol:48](../../script/Migrate_StabilityPool_v2_Data_mainnet/FilterSpHolders.s.sol#L48)) and the results written back to the tracked directory, which is git-tracked *deliberately* — "the filtered files are git-tracked: they form the auditable record of which holders were included in the migration batch and which were skipped" (lines 19-21). Write access is required by design; both prescribed remedies would break it — read-only stops `run()` writing at all, and relocating the output to `./tmp` destroys the audit record that tracking exists to preserve |
 | `23d31d75` | `pyproject.toml:7` | Wake used but not declared | ✅ **won't-fix** — Wake is not part of the CI tooling yet; the Python testing of Solidity it supports is work in progress and not on any official path. Declaring it now would pin a dependency the build does not use. Revisit when Wake joins CI, at which point the `requires-python = "==3.10.*"` pin will need resolving against the 3.13 the bao-base tooling expects |
 | `04f01408` | `scripts/deploy.py:3-6` | Literal `ENTER_NODE_URL_HERE` placeholder committed | ✅ **won't-fix** — same reason as `23d31d75`: Python testing of Solidity via Wake is work in progress and not part of any official process. The placeholder marks an entry point that is not yet wired up, not a broken deployment path |
-| `56e24c6a` | `regression/coverage.txt:3` | `ForceMigrateAccumulator_v1.sol` 0%, `HarborDeployStack.sol` 75%, `HarborDeployer.sol` 53% | ❌ **open** — accepted: deployment is part of the production process, so the deploy scripts are tested alongside the contracts. Three files, three different problems. `ForceMigrateAccumulator_v1` is **not** spent — the migration is pending (`StabilityPool_v3` appears 3 times across `deployments/` against `StabilityPool_v2`'s 105) — and it *is* tested, by `script/verify/sp-v2-data-prep-for-v3/ForceMigrateAccumulatorTest.t.sol`, which needs a mainnet fork and so cannot join `yarn test`; its assembly slot arithmetic is unit-testable without a fork and is what should be covered. `HarborDeployStack`/`HarborDeployer` wait for the in-flight refactor moving test setups onto `HarborDeployStack`, which will exercise them as a side effect. Sequencing in the plan |
+| `56e24c6a` | `regression/coverage.txt:3` | `ForceMigrateAccumulator_v1.sol` 0%, `HarborDeployStack.sol` 75%, `HarborDeployer.sol` 53% | ❌ **open** — accepted: deployment is part of the production process, so the deploy scripts are tested alongside the contracts. Three files, three different problems, and the deploy-stack refactor has since landed **without closing any of them** — see the measured outcome below. `ForceMigrateAccumulator_v1` is **not** spent: the migration is pending (`StabilityPool_v3` appears 3 times across `deployments/` against `StabilityPool_v2`'s 105) and it *is* tested, by `script/verify/sp-v2-data-prep-for-v3/ForceMigrateAccumulatorTest.t.sol`, which needs a mainnet fork and so cannot join `yarn test`; its assembly slot arithmetic is unit-testable without a fork and is what should be covered |
 | `9b58cc3b` | `regression/sizes.txt:48` | `Minter_v3` near the EIP-170 limit | ✅ **won't-fix** — no action needed: contract size is tracked by CI against `regression/sizes.txt`, so an overrun fails the build rather than surprising a deployment. Recorded for context: the margin was 182 B at review, 143 B at `HEAD~6`, and is **134 B** now — the oracle guards took a third of the remaining headroom, and `StabilityPool_v3` fell 775 B → 646 B. Changes to `Minter_v3` are size-budgeted from here on |
+
+### `56e24c6a` after the deploy-stack refactor — what it actually moved
+
+The refactor was sequenced ahead of this finding on the expectation that running test setups through
+the deploy chain would exercise these files as a side effect. It landed, and the current
+`regression/coverage.txt` says it did not:
+
+| file | at review | now |
+|---|---|---|
+| `ForceMigrateAccumulator_v1.sol` | 0% (0/36) | 0% (0/36) — unchanged |
+| `HarborDeployStack.sol` | 75% (43/57) | **69% (31/45)** — *fell* |
+| `HarborDeployer.sol` | 53% (42/79) | 57% (45/79) |
+
+The expectation was not wrong, only aimed at the wrong files. The gain landed on the per-contract
+deploy modules, which is where the migrated setups actually spend their time:
+`script/src/contracts/` now reads **100%** for `Minter.sol`, `StabilityPool.sol`,
+`StabilityPoolManager.sol`, `Genesis.sol` and `LeveragedToken.sol`, with `PeggedToken.sol` at 85%.
+`HarborDeployStack.sol` *fell* because it shrank — 57 lines to 45 — as R1-R4 folded configuration
+into those modules; what left the file was the well-exercised part.
+
+**Before any test is written against `HarborDeployer`, its numbers need explaining rather than
+chasing.** Its four metrics contradict each other: lines 57% (45/79), statements **95% (70/74)**,
+branches 100% (0/0), functions 14% (5/37). A file cannot be 95% exercised by statement and 14% by
+function, and its 37 functions are almost all two-line `public` key/address resolvers on an
+*abstract* contract reached through inheritance — both overloads of which are in real use across
+`test/` and `script/`. The statement figure is the one consistent with how heavily the deploy path
+is driven. So the line and function figures are suspect as a measurement of this file, and writing
+tests to move them would be precisely the "make line X execute" work `CLAUDE.md` warns against —
+gaming a number that a second number already contradicts.
+
+That makes the first task diagnostic, not remedial: establish what forge is counting here. Only
+then is it worth asking what behaviour of the deploy scripts is genuinely unverified, working from
+what they are meant to do rather than from an uncovered-lines list.
 
 ## script — live tooling (5)
 
@@ -211,15 +257,14 @@ tooling configuration.
 |---|---|---|---|---|---|---|---|
 | test | 2 | 1 | – | – | – | 1 | – |
 | config | 1 | 1 | – | – | – | – | – |
-| script (multisig batches) | 3 | – | 2 | – | – | – | 1 |
+| script (multisig batches) | 3 | – | – | – | – | – | 3 |
 | doc — this audit file | 3 | 3 | – | – | – | – | – |
 | doc — design documents | 6 | 5 | – | – | – | – | 1 |
 | regression artefact | 1 | 1 | – | – | – | – | – |
-| **Total** | **16** | **11** | **2** | **–** | **–** | **1** | **2** |
+| **Total** | **16** | **11** | **–** | **–** | **–** | **1** | **4** |
 
-**2 findings are outstanding**, both labels in the pending `UpdateHarvestCut_MCAP` batch. The
-other 14 need no further work. Adding round 1's single remaining finding (`56e24c6a`,
-deploy-script coverage) gives **3 outstanding across both rounds**, of 86 raised.
+**Nothing from round 2 is outstanding.** Round 1's `56e24c6a`, deploy-script coverage, is the
+single remaining finding of the 86 raised.
 
 Every documentation finding in this round is closed. They fell into one pattern worth naming: in
 five of the six, the document **contradicted itself** rather than the code — one section had been
@@ -243,18 +288,57 @@ same file, not to a re-check of the finding, so any nearby edit satisfies it.
 scripts queue transactions into a Safe batch; three findings are about the human-readable label
 beside a queued call, which is the only thing a signer reads when approving. Once the batch has
 been signed and executed, the label has done all the harm or good it ever will and correcting it
-changes nothing — won't-fix. While the batch is still pending, the label is about to be read.
+edits the record of what was approved rather than anything anyone will see — won't-fix. All three
+turned out to be in that state.
 
-Establishing which is which takes some care, because the two directions need different evidence:
+Establishing which is which is where this audit went wrong once, and the mistake is worth keeping.
+The rule is sound: **executed** is provable from a tracked artefact under `deployments/<network>/batch/`,
+whereas **pending is not provable from the absence of one** — and nothing under `deployments/local*/`
+is evidence either way, `.gitignore:44` excluding it, so it records one machine's anvil run.
 
-- **Executed** is provable from a *tracked* artefact under `deployments/<network>/batch/`. That
-  file is the record of what was signed.
-- **Pending is not provable from the absence of one**, and in particular nothing under
-  `deployments/local*/` is evidence either way — `.gitignore:44` excludes it, so it is one
-  machine's anvil run, present or absent for reasons that have nothing to do with mainnet. Pending
-  has to be established positively, from tracked state: for `UpdateHarvestCut_MCAP`, mainnet still
-  runs `StabilityPoolManager_v1` at all 26 sites, and the script's own docstring gates it to run
-  *before* the v2 upgrade.
+Having said that, `UpdateHarvestCut_MCAP` was then filed as pending on an inference that does not
+hold: that mainnet still runs `StabilityPoolManager_v1` at all 26 sites, and the script's docstring
+gates it to run *before* the v2 upgrade. Both are true and neither says the script has not run. The
+script does not upgrade anything — it calls `updateHarvestCutRatio` on the *existing* v1 managers,
+and running while v1 is live is precisely its purpose. A precondition on when something must happen
+was read as evidence about whether it had. It had:
+`script/verify/spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md` records both MCAP markets repaired
+at mainnet block **25691117**, with all eleven then holding 1e16 / 99e16.
+
+So: look for the record of the action, not for state that would be consistent with it. A runbook
+naming a block beats any inference from surrounding deployment state.
+
+### The gap this exposed, and closing it
+
+`UpdateVolatility_OGPlus` had its batch artefact committed under `deployments/mainnet/batch/`;
+`UpdateHarvestCut_MCAP` had none. Its only copy sat under `deployments/local/mainnet/batch/`,
+which `.gitignore:44` excludes — so a batch that ran on mainnet left no tracked audit record, and
+the one file that did exist was invisible to everyone else and looked like an anvil dry run. That
+is what made the execution hard to see in the first place.
+
+The file has been moved to
+`deployments/mainnet/batch/UpdateHarvestCut_MCAP_2026-08-05T11:42:54Z_harbor_multisig.json`.
+
+It was checked against the record before being moved rather than after, because a **wrong** file in
+the production area is worse than an absent one: it carries the authority of the directory it sits
+in, and the next person to audit these batches would have no reason to doubt it. Four checks, all
+of which had to agree:
+
+| check | result |
+|---|---|
+| `chainId` | `"1"` — mainnet, not a local chain |
+| selector `0x3ab51d60` | `updateHarvestCutRatio(uint256)` |
+| both arguments | **99e16**, exactly the cut the SPM v2 runbook says all eleven markets now hold |
+| the two `to` addresses | resolve in `deployments/mainnet/harbor_v1.state.json` to `MCAP::fxUSD::stabilityPoolManager` and `MCAP::stETH::stabilityPoolManager` |
+
+So it was only ever in `deployments/local/` because of where the generator wrote it, not because of
+what it contains, and its shape is identical to the tracked `UpdateVolatility_OGPlus` artefact.
+
+One thing it is not: proof of execution. Like every artefact in that directory it records what was
+*queued for signing*, and nothing in the file says it was signed. The execution record remains the
+runbook's line naming mainnet block **25691117**. The two are complementary — the artefact says
+what was approved, the runbook says that it landed and when — and neither substitutes for the
+other.
 
 ## test (2)
 
@@ -279,8 +363,8 @@ upgrade it must precede.
 | id | location | finding | status |
 |---|---|---|---|
 | `e5c2d779` | `UpdateVolatility_OGPlus.s.sol:60` | GOLD-fxUSD is labelled `updateConfig(105 month1)` but encodes `ConfigPriceVolatility_115` | ✅ **won't-fix** — the finding is correct: the label was copied from the EUR-fxUSD entry above it, and the paired threshold on line 63 is `115e16`, so the label is the only thing saying 105. But the batch has already been signed and executed — `deployments/mainnet/batch/UpdateVolatility_OGPlus_2026-01-15T21:56:04Z.json` is tracked, and is the record of what was approved — so the label has been read for the last time. Correcting it now would edit that record rather than anything a signer will see |
-| `e9e7093e` | `UpdateHarvestCut_MCAP.s.sol:27,35` | Both queue entries carry the identical description `updateHarvestCutRatio(configured)` | ❌ **open** — the decoded batch shows two identical labels against two different managers, so a signer cannot tell MCAP::fxUSD from MCAP::stETH. This batch has **not** executed, so the labels are still ahead of being read. Name the market in each |
-| `389b2d60` | `UpdateHarvestCut_MCAP.s.sol:18` | The run instruction names `./script/safe-batch`, which does not exist | ❌ **open** — confirmed; `script/` holds `run-batch`, `run-script` and `decode-safe-batch`, no `safe-batch`. **CodeRabbit's replacement is also wrong**: it proposes `run-script`, but this contract implements `build()` and queues a batch. Two sibling scripts are wrong the same way — `UpdateVolatility_OGPlus.s.sol:15` repeats `safe-batch` and `UpdateVolatility_test3_SILVER.s.sol:13` invents `generate-safe-batch` — so fix all three against the runner that actually exists rather than this one alone |
+| `e9e7093e` | `UpdateHarvestCut_MCAP.s.sol:27,35` | Both queue entries carry the identical description `updateHarvestCutRatio(configured)` | ✅ **won't-fix** — the finding is correct: the decoded batch showed two identical labels against two different managers, so a signer could not tell MCAP::fxUSD from MCAP::stETH. But the batch **has** executed — `script/verify/spm-v2-upgrade/upgrade-StabilityPoolManager_v2.md` records both markets repaired by this script at mainnet block **25691117**, all eleven markets now holding 1e16 / 99e16 — so the labels have been read for the last time, and the same reasoning applies as to `e5c2d779` |
+| `389b2d60` | `UpdateHarvestCut_MCAP.s.sol:18` | The run instruction names `./script/safe-batch`, which does not exist | ✅ **won't-fix** — confirmed, and CodeRabbit's replacement is wrong too: it proposes `run-script`, but this contract implements `build()` and queues a batch. Moot either way, the script having executed at block 25691117. Two sibling scripts spell the runner wrongly as well — `UpdateVolatility_OGPlus.s.sol:15` repeats `safe-batch`, `UpdateVolatility_test3_SILVER.s.sol:13` invents `generate-safe-batch` — and all three have run, so the wrong name has misdirected nobody. Worth correcting only if one of them is ever used as a template |
 
 ## doc — this audit file (3)
 
