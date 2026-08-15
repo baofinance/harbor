@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
+import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
+import {IMultipleRewardDistributor} from "@harbor/interfaces/IMultipleRewardDistributor.sol";
 import {DecrementalFloatingPoint_v2} from "@harbor/math/DecrementalFloatingPoint_v2.sol";
 import {Config_MinterMarket} from "@harbor-script/config/ConfigBase.sol";
 import {Deploy_BTC_Minter} from "@harbor-script/src/Deploy_BTC_Minter.sol";
@@ -56,6 +58,9 @@ contract StabilityPoolMigrationPreflight is
     ///      reward-migration work but still holds a balance; other `#` lines = header). BOTH address forms count.
     string internal constant HOLDERS_DIR = "script/Migrate_StabilityPool_v2_Data_mainnet/";
     string internal constant CSV = "./results/sp-pool-gaps.csv";
+    /// @dev Per-pool census of the ClaimData copy the upgrader must perform - kept separate from the gap CSV because it
+    ///      answers a different question (which per-user snapshots move) for a different consumer (the migration batch).
+    string internal constant CLAIM_CSV = "./results/sp-pool-claimdata.csv";
     /// @dev The block the holder lists were captured to (their `# to-block`), so the sum is over the complete set.
     ///      At migration time, re-capture the lists to the migration block and set this to it.
     uint256 internal constant CAPTURE_BLOCK = 25272609;
@@ -72,12 +77,14 @@ contract StabilityPoolMigrationPreflight is
     uint256 internal historicalTokenCount; // reward tokens ever unregistered, across all pools (expected: 0)
     uint256 internal claimDataPairsToCopy; // (holder, token) pairs whose V2 ClaimData must be copied to V3
     uint256 internal claimDataPairsAlreadyV3; // pairs already carrying V3 data (a re-run would skip them)
+    uint256 internal claimDataPairsStillOnV1; // pairs whose live data is in the V1 mapping the upgrader does NOT read
 
     /// @dev The accumulator's ERC-7201 namespace, and the member offsets of the two per-user snapshot mappings within
     ///      it. V2 and V3 agree on the first four members, so `userRewardSnapshotV2` sits at offset 3 under both; V3
     ///      adds its widened mapping at offset 4. Read directly because the live V2 pool exposes no getter for the
     ///      checkpoint `integral` - and the integral is the field that MUST be copied (see `_censusClaimData`).
     bytes32 internal constant _ACCUMULATOR_STORAGE = 0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
+    uint256 internal constant _SNAPSHOT_V1_OFFSET = 2;
     uint256 internal constant _SNAPSHOT_V2_OFFSET = 3;
     uint256 internal constant _SNAPSHOT_V3_OFFSET = 4;
 
@@ -93,6 +100,141 @@ contract StabilityPoolMigrationPreflight is
                 : minTotalAssetSupply * DecrementalFloatingPoint_v2.FACTOR_PRECISION;
     }
 
+    uint256 internal constant _RESIDENT_NONE = 0;
+    uint256 internal constant _RESIDENT_V2 = 1;
+    uint256 internal constant _RESIDENT_V1 = 2;
+
+    /// @dev First slot of `mapping(address => mapping(address => T))` held at member `offset` of the accumulator
+    ///      namespace, for the `[holder][token]` entry.
+    function _snapshotSlot(uint256 offset, address holder, address token) internal pure returns (uint256 slot) {
+        bytes32 inner = keccak256(abi.encode(holder, uint256(_ACCUMULATOR_STORAGE) + offset));
+        slot = uint256(keccak256(abi.encode(token, inner)));
+    }
+
+    /// @dev Census the per-(holder, token) reward snapshots the ClaimData migration must copy, and pin the invariant
+    ///      that the copy's completeness rests on.
+    ///
+    ///      V3 relocated the per-user snapshot to a NEW mapping (`ClaimData` uint128/uint128 -> `ClaimDataV3`
+    ///      uint256/uint256) and `_claimable`/`_checkpoint` read ONLY the new one - there is no lazy fallback to the V2
+    ///      mapping. So every holder's snapshot must be copied by the upgrader. A holder the list misses loses their
+    ///      unclaimed `pending` and, worse, checkpoints from `integral` 0 and is massively over-credited on the next
+    ///      accrual.
+    ///
+    ///      This measures two things the gap classification above CANNOT see:
+    ///      - HISTORICAL TOKENS. `_checkpoint` iterates active + historical tokens, so a holder can hold `pending` on
+    ///        an unregistered token. The upgrader copies over `activeRewardTokens` only, which is the complete set
+    ///        exactly while no token has ever been unregistered - asserted per pool here rather than assumed.
+    ///      - REWARD-DATA COVERAGE. The gap check compares Sum(balanceOf) against supply, so it only proves the list
+    ///        covers holders with a BALANCE. A holder who fully withdrew has balanceOf 0 - invisible to the gap check -
+    ///        yet can still carry `claimed` history and unclaimed `pending` that must be copied.
+    function _censusClaimData(
+        address pool,
+        string memory saltKey,
+        address[] memory holders
+    ) internal returns (uint256 pairsToCopy, uint256 historicalCount, uint256 v1Pairs) {
+        // Census over active + historical: the two sets are disjoint (unregistering moves a token from one to the
+        // other), so concatenating needs no de-duplication. Merged inside a scope so only the combined list stays live
+        // through the loops below - this function is at the stack limit.
+        address[] memory tokens;
+        {
+            address[] memory active = IMultipleRewardDistributor(pool).activeRewardTokens();
+            address[] memory historical = IMultipleRewardDistributor(pool).historicalRewardTokens();
+            historicalCount = historical.length;
+            if (historicalCount > 0) {
+                historicalTokenCount += historicalCount;
+                console.log(
+                    string.concat(
+                        "HISTORICAL TOKENS: ",
+                        saltKey,
+                        " has ",
+                        vm.toString(historicalCount),
+                        " unregistered reward token(s) - the upgrader's active-only copy would miss holder pending"
+                    )
+                );
+            }
+            tokens = new address[](active.length + historicalCount);
+            for (uint256 i = 0; i < tokens.length; i++) {
+                tokens[i] = i < active.length ? active[i] : historical[i - active.length];
+            }
+        }
+
+        for (uint256 t = 0; t < tokens.length; t++) {
+            for (uint256 h = 0; h < holders.length; h++) {
+                // Resolve which mapping holds this pair's LIVE snapshot, exactly as the deployed accumulator's
+                // `_getUserRewardSnapshot` resolves it: the V2 entry wins when its `integral` or `timestamp` is set,
+                // otherwise every read falls back to the V1 mapping. Live data therefore sits in EITHER mapping,
+                // depending on whether the V1->V2 remediation ever reached that pair - which is the point of measuring
+                // it here, because the V3 upgrader reads the V2 mapping ONLY.
+                uint256 residency = _RESIDENT_NONE;
+                uint256 rawClaimed;
+                // Each candidate mapping is read in its own scope, so the slot local goes out of scope with the branch
+                // that owns it (this function is at the stack limit) and each name still says which mapping it means.
+                {
+                    uint256 v2Base = _snapshotSlot(_SNAPSHOT_V2_OFFSET, holders[h], tokens[t]);
+                    if (
+                        uint256(vm.load(pool, bytes32(v2Base + 2))) != 0 || // integral
+                        uint256(vm.load(pool, bytes32(v2Base + 1))) != 0 // timestamp
+                    ) {
+                        residency = _RESIDENT_V2;
+                        rawClaimed = uint256(uint128(uint256(vm.load(pool, bytes32(v2Base))) >> 128));
+                    }
+                }
+                if (residency == _RESIDENT_NONE) {
+                    uint256 v1Base = _snapshotSlot(_SNAPSHOT_V1_OFFSET, holders[h], tokens[t]);
+                    if (
+                        uint256(vm.load(pool, bytes32(v1Base))) != 0 || // ClaimData: pending | claimed
+                        uint256(vm.load(pool, bytes32(v1Base + 1))) != 0 // checkpoint: timestamp | integral
+                    ) {
+                        residency = _RESIDENT_V1;
+                        rawClaimed = uint256(uint128(uint256(vm.load(pool, bytes32(v1Base))) >> 128));
+                    }
+                }
+                // Anchor the raw slot arithmetic against the contract's own getter, so a wrong namespace or member
+                // offset fails loudly here instead of silently reporting a census of zeros.
+                assertEq(
+                    rawClaimed,
+                    IMultipleRewardAccumulator(pool).claimed(holders[h], tokens[t]),
+                    string.concat("raw claimed disagrees with claimed() - snapshot slot math wrong: ", saltKey)
+                );
+
+                if (residency == _RESIDENT_V1) {
+                    // The upgrader copies from the V2 mapping ONLY, so this pair would migrate as all-zero: pending and
+                    // claimed lost, and - worse - a checkpoint integral of 0 that over-credits the next accrual.
+                    v1Pairs++;
+                    claimDataPairsStillOnV1++;
+                    pairsToCopy++;
+                } else if (residency == _RESIDENT_V2) {
+                    pairsToCopy++;
+                }
+
+                {
+                    uint256 v3Base = _snapshotSlot(_SNAPSHOT_V3_OFFSET, holders[h], tokens[t]);
+                    if (
+                        uint256(vm.load(pool, bytes32(v3Base))) != 0 || // pending
+                        uint256(vm.load(pool, bytes32(v3Base + 1))) != 0 || // claimed
+                        uint256(vm.load(pool, bytes32(v3Base + 2))) != 0 || // timestamp
+                        uint256(vm.load(pool, bytes32(v3Base + 3))) != 0 // integral
+                    ) {
+                        claimDataPairsAlreadyV3++;
+                    }
+                }
+            }
+        }
+        claimDataPairsToCopy += pairsToCopy;
+        if (v1Pairs > 0) {
+            console.log(
+                string.concat(
+                    "V1-RESIDENT: ",
+                    saltKey,
+                    " has ",
+                    vm.toString(v1Pairs),
+                    " (holder, token) pair(s) whose live snapshot is still in the V1 mapping - the upgrader's",
+                    " V2-only copy would write zeros and over-credit them"
+                )
+            );
+        }
+    }
+
     function setUp() public {
         vm.createSelectFork(vm.rpcUrl("mainnet"), CAPTURE_BLOCK);
         _setSaltPrefix("harbor_v1");
@@ -100,6 +242,7 @@ contract StabilityPoolMigrationPreflight is
 
     function test_migrationPreflight() public {
         vm.writeFile(CSV, "pool,action,totalSupply,sumBalanceOf,gap,relGapPpb\n");
+        vm.writeFile(CLAIM_CSV, "pool,holders,claimDataPairsToCopy,claimDataPairsStillOnV1,historicalTokens\n");
 
         Config_MinterMarket[] memory markets;
         (, markets) = createBTCMintersConfig();
@@ -125,6 +268,43 @@ contract StabilityPoolMigrationPreflight is
             overCeilingCount,
             0,
             "a pool's supply exceeds the v3 supply ceiling - re-base its floor before migrating"
+        );
+
+        console.log(
+            "ClaimData census: %d (holder, token) pairs to copy, %d still on V1, %d already on V3",
+            claimDataPairsToCopy,
+            claimDataPairsStillOnV1,
+            claimDataPairsAlreadyV3
+        );
+
+        // The upgrader copies each holder's snapshot over `activeRewardTokens` only. That set is complete exactly while
+        // no reward token has ever been unregistered; if one ever is, holders can hold `pending` on it and the copy
+        // must widen to active + historical before this migration can run.
+        assertEq(
+            historicalTokenCount,
+            0,
+            "a pool has unregistered reward tokens - the upgrader's active-only ClaimData copy would miss them"
+        );
+        // Pre-migration every pool is still on V2, so nothing may be sitting in the V3 mapping. A non-zero count means
+        // either a pool was already migrated (this run is stale) or the snapshot slot arithmetic is wrong.
+        assertEq(
+            claimDataPairsAlreadyV3,
+            0,
+            "a (holder, token) pair already carries V3 snapshot data - pool already migrated, or slot math wrong"
+        );
+        // The whole point of the ClaimData copy: if there were nothing to copy, the upgrader's holder loop would be
+        // dead code and this pre-flight would be silently vacuous.
+        assertGt(claimDataPairsToCopy, 0, "no ClaimData pairs to copy - holder lists empty or census not reading");
+        // The deployed V2 accumulator resolves a snapshot with a lazy fallback - the V2 entry wins only when its
+        // integral or timestamp is set, otherwise the read comes from the V1 mapping - so a pair the V1->V2 remediation
+        // never reached still lives in V1. The V3 upgrader copies from V2 ONLY and V3 has NO fallback, so such a pair
+        // migrates as all-zero: its pending and claimed are lost and its zero checkpoint integral over-credits the next
+        // accrual. Either finish the V1->V2 remediation for these pairs, or widen the upgrader's copy to resolve V1
+        // exactly as `_getUserRewardSnapshot` does.
+        assertEq(
+            claimDataPairsStillOnV1,
+            0,
+            "a (holder, token) pair's live snapshot is still in the V1 mapping - the upgrader's V2-only copy would zero it"
         );
     }
 
@@ -165,6 +345,28 @@ contract StabilityPoolMigrationPreflight is
         }
 
         address[] memory holders = _readHolders(saltKey);
+
+        // Census the per-user reward snapshots the ClaimData copy must carry, and pin the no-historical-tokens
+        // invariant the upgrader's active-only token loop relies on. Scoped so neither result stays live across the
+        // gap measurement below, which is already at the stack limit.
+        {
+            (uint256 pairs, uint256 historical, uint256 v1Pairs) = _censusClaimData(pool, saltKey, holders);
+            vm.writeLine(
+                CLAIM_CSV,
+                string.concat(
+                    saltKey,
+                    ",",
+                    vm.toString(holders.length),
+                    ",",
+                    vm.toString(pairs),
+                    ",",
+                    vm.toString(v1Pairs),
+                    ",",
+                    vm.toString(historical)
+                )
+            );
+        }
+
         uint256 sumBalance = 0;
         for (uint256 h = 0; h < holders.length; h++) {
             sumBalance += IStabilityPool(pool).assetBalanceOf(holders[h]);
