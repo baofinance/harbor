@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# capture-sp-holders — discover every account that has ever held a position in
+# each Harbor stability pool, via the Etherscan `logs/getLogs` API.
+#
+# Why Etherscan (not cast logs): some RPC providers cap eth_getLogs at ~10 blocks
+# per call, which makes scanning ~1M blocks impossible. Etherscan's getLogs is not
+# block-range limited (1000 records/page, paginated by block), same approach as the
+# sibling `collect-holders` script (which uses the tokentx endpoint).
+#
+# Why UserDepositChange: an account gets a per-user reward snapshot exactly when it
+# is checkpointed (deposit -> receiver, withdraw -> sender, liquidation -> account).
+# UserDepositChange(owner, ...) fires on every one of those, so the distinct set of
+# `owner` values is precisely the set of accounts that may carry legacy V1 storage.
+# (Over-approximation is harmless: on-chain remediate() skips accounts with no V1 data.)
+#
+# Output: one raw file per pool under --out-dir (default tmp/sp-holders/), one
+# checksummed address per line, with a comment header carrying the pool proxy and the
+# to-block the scan ran to.
+#
+# STANDALONE COPY. The original lived beside Migrate_StabilityPool_v2_Data_mainnet and
+# ended by running FilterSpHolders.s.sol, which annotated holders by whether they still
+# needed V1->V2 migration work. That migration is complete on mainnet and its machinery
+# is in deprecated/; the filter went with it, because "needs V1->V2 work" is not a
+# question any later upgrade asks. Discovery, by contrast, is version-agnostic and is
+# needed again by every subsequent migration, so it lives here on its own.
+#
+# The holder list MUST be re-captured for each upgrade rather than reused: it is a
+# snapshot of everyone who had ever deposited AT THE SCANNED BLOCK, and anyone who
+# deposited since is simply absent. A migration that copies per-user state from a stale
+# list silently drops exactly those holders. Re-run this with --to-block set to the
+# migration block, and freeze the pools so the set cannot change underneath it.
+#
+# The raw list deliberately OVER-approximates - it is every account ever checkpointed,
+# including accounts that have since withdrawn to a zero balance. That is wanted: a
+# zero-balance account can still hold unclaimed `pending`, and it is invisible to the
+# sum(balanceOf) == totalSupply completeness check precisely because its balance is 0.
+# Copying an account with no data costs gas and changes nothing.
+#
+# Requires ETHERSCAN_KEY in .env or the environment (sourced, never printed).
+# Usage:
+#   capture-sp-holders                       # scan at latest (the resolved block is recorded in each file)
+#   capture-sp-holders --dry-run             # print pool->address table, no API calls
+#   capture-sp-holders --to-block <number>   # pin a specific block - USE THIS for a migration capture
+#   capture-sp-holders --out-dir tmp/holders-rerun   # for an independent cross-check capture
+
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Load env for ETHERSCAN_KEY (same pattern as collect-holders).
+# shellcheck source=/dev/null
+[[ -f .env ]] && source .env
+
+# ── Configuration ────────────────────────────────────────────────────────────
+
+CHAIN_ID=1
+FROM_BLOCK=24049000   # first harbor mainnet deployment (same as collect-holders)
+TO_BLOCK="latest"     # default: resolved to a concrete block (recorded in the output files)
+OFFSET=1000           # Etherscan max records per page
+STATE_FILE="deployments/mainnet/harbor_v1.state.json"
+SALT_PREFIX="harbor_v1"
+OUT_DIR="tmp/sp-holders"
+DRY_RUN=false
+FILTER=false    # accepted for compatibility with the original invocation; no filter step exists here
+RPC="mainnet"   # foundry alias, used to resolve `latest` when --to-block is not given
+
+# CREATE3 (solady) — same constants the repo's script/cast wrapper uses (local, no RPC).
+FACTORY="0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
+INIT_CODE_HASH="21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f"
+# topic0 = keccak("UserDepositChange(address,uint256,uint256)")
+TOPIC0="0x5fa7d0e13a31540b6d42936e522173de31fa0c53aa5aff71e63c60fe02b2b50e"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from-block) FROM_BLOCK="$2"; shift 2 ;;
+    --to-block)   TO_BLOCK="$2"; shift 2 ;;
+    --out-dir)    OUT_DIR="$2"; shift 2 ;;
+    --dry-run)    DRY_RUN=true; shift ;;
+    --no-filter)  FILTER=false; shift ;;
+    -h|--help)    sed -n '2,34p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+# CREATE3 proxy address for a full salt string (local, no RPC).
+compute_create3_address() {
+  local salt_string="$1"
+  local salt preimage proxy_hash proxy rlp deployed_hash
+  salt=$(cast keccak "$salt_string")
+  preimage=$(cast concat-hex 0xff "$FACTORY" "$salt" "0x$INIT_CODE_HASH")
+  proxy_hash=$(cast keccak "$preimage")
+  proxy="0x${proxy_hash:26}"
+  rlp="0xd694${proxy#0x}01"
+  deployed_hash=$(cast keccak "$rlp")
+  echo "0x${deployed_hash:26}"
+}
+
+# Distinct stability-pool salts, e.g. "ETH::fxUSD::stabilityPoolCollateral".
+pool_salts() {
+  local salts
+  salts=$(jq -r '.implementations[].proxy' "$STATE_FILE")
+  if [[ ${PIPESTATUS[0]:-$?} -ne 0 ]]; then
+    echo "ERROR: failed reading $STATE_FILE" >&2
+    exit 1
+  fi
+  # Under pipefail a no-match grep (status 1) would fail the whole function and be indistinguishable
+  # from a real failure, so admit it as the empty result it is while still propagating grep's error
+  # status 2. The caller decides what an empty set means; this function only reports it faithfully.
+  printf '%s\n' "$salts" | { grep -E 'stabilityPool(Collateral|Leveraged)$' || [[ $? -eq 1 ]]; } | sort -u
+}
+
+# Parse one Etherscan getLogs response on stdin.
+# Prints "COUNT LASTBLOCK" on line 1, then one owner address per subsequent line.
+# Exits non-zero on a genuine API error (not "No records found").
+parse_page() {
+  python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except Exception:
+    print("API returned non-JSON: " + raw[:200], file=sys.stderr)
+    sys.exit(2)
+status = str(d.get("status", "0"))
+result = d.get("result")
+if status != "1":
+    msg = str(d.get("message", ""))
+    if "No records" in msg or result == []:
+        print("0 0")
+        sys.exit(0)
+    print("Etherscan error: %s %r" % (msg, result), file=sys.stderr)
+    sys.exit(2)
+owners = []
+last = 0
+for log in result:
+    topics = log.get("topics", [])
+    if len(topics) >= 2:
+        owners.append("0x" + topics[1][-40:])
+    bn = int(log.get("blockNumber", "0x0"), 16)
+    if bn > last:
+        last = bn
+print("%d %d" % (len(result), last))
+for o in owners:
+    print(o)
+'
+}
+
+# Fetch all owner addresses for one proxy across [FROM_BLOCK, TO_BLOCK], paginating
+# by advancing fromBlock when a page is full.
+fetch_owners() {
+  local proxy="$1"
+  local from="$FROM_BLOCK" resp parsed meta count last
+  while true; do
+    if ! resp=$(curl -s "https://api.etherscan.io/v2/api?chainid=${CHAIN_ID}&module=logs&action=getLogs&address=${proxy}&topic0=${TOPIC0}&fromBlock=${from}&toBlock=${TO_BLOCK}&offset=${OFFSET}&page=1&apikey=${ETHERSCAN_KEY}"); then
+      echo "ERROR: curl failed for $proxy from $from" >&2
+      exit 1
+    fi
+    # pipefail makes this assignment's status the pipeline's; parse_page exits non-zero on a real API error.
+    if ! parsed=$(printf '%s' "$resp" | parse_page); then
+      echo "ERROR: parsing Etherscan response for $proxy from $from" >&2
+      exit 1
+    fi
+    meta=$(printf '%s\n' "$parsed" | head -1)
+    count=${meta%% *}
+    last=${meta##* }
+    printf '%s\n' "$parsed" | tail -n +2
+    # Stop when the page was not full.
+    if (( count < OFFSET )); then
+      break
+    fi
+    # Full page: continue from the last block (dedup handles overlap). Guard no-progress.
+    if (( last <= from )); then
+      echo "WARN: $proxy: full page ($count) all in block $last; possible truncation" >&2
+      break
+    fi
+    from=$last
+  done
+}
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+# Same checked-producer pattern as the holder scan below: pool_salts' exit status cannot escape a
+# process substitution, so a failed state-file read would leave SALTS empty and the run would report
+# "0 stability pools" as though that were the answer. Capture, check, then load.
+if ! salts_found=$(pool_salts); then
+  echo "ERROR: could not determine stability pool salts from $STATE_FILE" >&2
+  exit 1
+fi
+SALTS=()
+if [[ -n "$salts_found" ]]; then
+  mapfile -t SALTS <<<"$salts_found"
+fi
+echo "# ${#SALTS[@]} stability pools from $STATE_FILE" >&2
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "# DRY RUN — pool -> proxy address (no API calls)" >&2
+  for salt in "${SALTS[@]}"; do
+    printf '%-44s %s\n' "$salt" "$(compute_create3_address "${SALT_PREFIX}::${salt}")"
+  done
+  exit 0
+fi
+
+: "${ETHERSCAN_KEY:?Set ETHERSCAN_KEY in .env or environment}"
+
+# Resolve "latest" to a concrete block NOW, so the scan, the file headers, and the
+# filter all use the SAME block. The concrete number is written into the output files
+# (never the word "latest"), which makes the capture reproducible and self-documenting
+# (each file records its "# to-block: <N>"). (set -e does not catch failures in
+# command-substitution assignments, so check the result explicitly.)
+if [[ "$TO_BLOCK" == "latest" ]]; then
+  TO_BLOCK=$(cast block-number --rpc-url "$RPC") || { echo "ERROR: cast block-number failed (rpc: $RPC)" >&2; exit 1; }
+  echo "# resolved latest -> block ${TO_BLOCK}" >&2
+fi
+if [[ ! "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: --to-block must be a number or 'latest' (got: ${TO_BLOCK})" >&2
+  exit 1
+fi
+
+echo "# scanning UserDepositChange logs, blocks ${FROM_BLOCK} -> ${TO_BLOCK} (Etherscan)" >&2
+
+mkdir -p "$OUT_DIR"
+
+for salt in "${SALTS[@]}"; do
+  proxy=$(compute_create3_address "${SALT_PREFIX}::${salt}")
+  out_file="${OUT_DIR}/${salt}.txt"
+  echo "  scanning ${salt} (${proxy})..." >&2
+
+  # fetch_owners exits non-zero on an API/curl failure, but in a process substitution that exit
+  # cannot stop this script - mapfile would just record an empty list and the header-only file
+  # below would look like a pool with no holders. Capture the output and check the status first
+  # (pipefail makes the pipeline carry fetch_owners' failure past the successful sort), so a
+  # failed scan aborts before anything is written.
+  if ! owners_found=$(fetch_owners "$proxy" | sort -uf); then
+    echo "ERROR: holder discovery failed for ${salt} (${proxy}) - ${out_file} not written" >&2
+    exit 1
+  fi
+  owners=()
+  if [[ -n "$owners_found" ]]; then
+    mapfile -t owners <<<"$owners_found"
+  fi
+
+  {
+    echo "# Stability pool holders: ${salt}"
+    echo "# proxy:  ${proxy}"
+    echo "# to-block: ${TO_BLOCK}"
+    echo "# source: UserDepositChange logs (Etherscan), blocks ${FROM_BLOCK}-${TO_BLOCK}"
+    echo "# generated: $(date -Iseconds)"
+    for addr in "${owners[@]}"; do
+      [[ -z "$addr" ]] && continue
+      cast to-check-sum-address "$addr"
+    done
+  } > "$out_file"
+
+  echo "    ${salt}: ${#owners[@]} holders -> ${out_file}" >&2
+done
+
+echo "# raw discovery done -> ${OUT_DIR}/" >&2
+
+# No filter step: this copy emits the raw, over-approximating list and stops. Deciding
+# which of those holders a given migration must touch is that migration's own business -
+# it knows which storage it reads - and baking one upgrade's answer in here is what tied
+# the original to Migrate_StabilityPool_v2_Data_mainnet.
+if [[ "$FILTER" == true ]]; then
+  echo "# note: --filter is not supported by the standalone capture; raw lists written to ${OUT_DIR}/" >&2
+fi

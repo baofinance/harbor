@@ -200,6 +200,61 @@ contract TestStabilityPoolUpgradeMigration is TestStabilityPoolSetUp {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // 1b. A PLAIN upgrade is not a migration
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice A plain `upgradeToAndCall(v3Impl, "")` erases every holder's reward accounting, so the v2 -> v3 upgrade
+    /// MUST route through StabilityPool_v3_Upgrader. V3 reads per-user snapshots from a new mapping
+    /// (`userRewardSnapshot`) and never falls back to the v2 one it supersedes, so unless the upgrader copies them
+    /// across, a migrated holder reads zero `claimed` and a zero checkpoint `integral` - the latter making their next
+    /// accrual start from the beginning of the pool's history rather than from where they left off.
+    ///
+    /// This pins the shape of the queued transaction: it is the difference between an implementation swap and a
+    /// migration, and only the calldata distinguishes them.
+    function test_plainUpgradeToV3_erasesHolderRewardAccounting() public {
+        _deposit(user1, 100 ether);
+        _depositReward(steam, 10 ether);
+        vm.warp(block.timestamp + 1 weeks);
+        _depositReward(steam, 0); // distribute pending
+
+        // Claim so the holder has BOTH kinds of reward state: a settled `claimed` history and a live checkpoint.
+        vm.startPrank(user1);
+        IMultipleRewardAccumulator(stabilityPoolCollateral).claim();
+        vm.stopPrank();
+
+        uint256 claimedBefore = StabilityPool_v2(stabilityPoolCollateral).claimed(user1, steam);
+        assertGt(claimedBefore, 0, "holder must have claimed history for this test to mean anything");
+
+        // The upgrade the deploy script would queue for a contract that needed no data migration.
+        address v3Impl = address(
+            new StabilityPool_v3(
+                minter,
+                wrappedCollateralToken,
+                WITHDRAWAL_START_DELAY,
+                WITHDRAWAL_END_WINDOW,
+                1 ether,
+                "StabilityPool",
+                "SP"
+            )
+        );
+        vm.startPrank(owner());
+        UUPSUpgradeable(stabilityPoolCollateral).upgradeToAndCall(v3Impl, "");
+        vm.stopPrank();
+
+        // The asset ledger is in the pool's own namespace, so it survives - which is what makes the loss easy to miss.
+        assertEq(
+            IStabilityPool(stabilityPoolCollateral).assetBalanceOf(user1),
+            100 ether,
+            "asset balance survives a plain upgrade - only the REWARD accounting is lost"
+        );
+        assertEq(
+            IMultipleRewardAccumulator(stabilityPoolCollateral).claimed(user1, aa(steam))[0],
+            0,
+            "claimed history erased: the holder can re-claim rewards already paid out"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // 2. AfterDeposits — 3 liquidation variants
     // ═══════════════════════════════════════════════════════════════════════
 

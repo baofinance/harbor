@@ -1,3 +1,4 @@
+# to-block: 25272609
 pool,action,totalSupply,sumBalanceOf,gap,relGapPpb
 BTC::fxUSD::stabilityPoolCollateral,plain,98410526344906787,98410526344906787,0,0
 BTC::fxUSD::stabilityPoolLeveraged,plain,7298639108341792,7298639108341792,0,0

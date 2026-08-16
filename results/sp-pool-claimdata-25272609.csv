@@ -1,3 +1,4 @@
+# to-block: 25272609
 pool,holders,claimDataPairsToCopy,claimDataPairsStillOnV1,historicalTokens
 BTC::fxUSD::stabilityPoolCollateral,8,8,4,0
 BTC::fxUSD::stabilityPoolLeveraged,12,24,8,0

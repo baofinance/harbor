@@ -57,10 +57,6 @@ contract StabilityPoolMigrationPreflight is
     /// @dev The captured holder lists (bare `0x...` = holder; `# no-work: 0x...` = holder that needed no
     ///      reward-migration work but still holds a balance; other `#` lines = header). BOTH address forms count.
     string internal constant HOLDERS_DIR = "script/Migrate_StabilityPool_v2_Data_mainnet/";
-    string internal constant CSV = "./results/sp-pool-gaps.csv";
-    /// @dev Per-pool census of the ClaimData copy the upgrader must perform - kept separate from the gap CSV because it
-    ///      answers a different question (which per-user snapshots move) for a different consumer (the migration batch).
-    string internal constant CLAIM_CSV = "./results/sp-pool-claimdata.csv";
     /// @dev The block the holder lists were captured to (their `# to-block`), so the sum is over the complete set.
     ///      At migration time, re-capture the lists to the migration block and set this to it.
     uint256 internal constant CAPTURE_BLOCK = 25272609;
@@ -68,6 +64,22 @@ contract StabilityPoolMigrationPreflight is
     ///      stale/incomplete and must be re-captured. Legitimate gaps measure ~0 ppb; the incomplete-list artifact
     ///      measures ~9e8 ppb, so this cleanly separates them.
     uint256 internal constant MAX_REL_GAP_PPB = 1_000_000; // 0.1% of supply
+
+    /// @dev Output path for a result set, stamped with the capture block. The two files answer different questions -
+    ///      the gap classification, and which per-user snapshots move - for different consumers, so they stay separate.
+    ///
+    ///      The block is in the NAME so a run at a new block writes a new file instead of overwriting the old one: the
+    ///      pre-migration and post-migration censuses are precisely the evidence that a migration step did its job
+    ///      (e.g. V1-resident pairs going 45 -> 0 across the force-migrate), and one overwritten file cannot show both.
+    ///      It is repeated in a `# to-block:` header INSIDE each file - matching the header the holder lists these are
+    ///      derived from already carry - so a copied, renamed or pasted CSV is still self-describing.
+    ///
+    ///      This is provenance, NOT a cache: the expensive part (the archive reads) is already cached per block by
+    ///      foundry's own fork cache, and the assertions are computed from those reads - so nothing here may be skipped
+    ///      when a file already exists, or the run would go green without checking anything.
+    function _csvPath(string memory name) internal view returns (string memory) {
+        return string.concat("./results/", name, "-", vm.toString(CAPTURE_BLOCK), ".csv");
+    }
 
     uint256 internal deployedCount;
     uint256 internal negativeGapCount; // pools that need a seed (Sum(balanceOf) > supply)
@@ -241,8 +253,18 @@ contract StabilityPoolMigrationPreflight is
     }
 
     function test_migrationPreflight() public {
-        vm.writeFile(CSV, "pool,action,totalSupply,sumBalanceOf,gap,relGapPpb\n");
-        vm.writeFile(CLAIM_CSV, "pool,holders,claimDataPairsToCopy,claimDataPairsStillOnV1,historicalTokens\n");
+        // No `generated:` timestamp alongside the block: these files are regenerated often and tracked in git, so a
+        // timestamp would produce a diff on every run even when the measurement is identical. The block is the
+        // provenance that matters - the same data always comes back from the same block.
+        string memory toBlock = string.concat("# to-block: ", vm.toString(CAPTURE_BLOCK), "\n");
+        vm.writeFile(
+            _csvPath("sp-pool-gaps"),
+            string.concat(toBlock, "pool,action,totalSupply,sumBalanceOf,gap,relGapPpb\n")
+        );
+        vm.writeFile(
+            _csvPath("sp-pool-claimdata"),
+            string.concat(toBlock, "pool,holders,claimDataPairsToCopy,claimDataPairsStillOnV1,historicalTokens\n")
+        );
 
         Config_MinterMarket[] memory markets;
         (, markets) = createBTCMintersConfig();
@@ -352,7 +374,7 @@ contract StabilityPoolMigrationPreflight is
         {
             (uint256 pairs, uint256 historical, uint256 v1Pairs) = _censusClaimData(pool, saltKey, holders);
             vm.writeLine(
-                CLAIM_CSV,
+                _csvPath("sp-pool-claimdata"),
                 string.concat(
                     saltKey,
                     ",",
@@ -411,7 +433,7 @@ contract StabilityPoolMigrationPreflight is
             )
         );
         vm.writeLine(
-            CSV,
+            _csvPath("sp-pool-gaps"),
             string.concat(
                 saltKey,
                 ",",
