@@ -57,12 +57,12 @@ Fees can be queried up front by so-called dry-run view functions, answering the 
   - After end: allowed, early-withdrawal fee applies.
 - A successful withdraw clears the request immediately (both `start` and `end` set to `0`).
 - Depositing during an active window cancels the request (both `start` and `end` set to `0`).
-- Configuration:
-  - `earlyWithdrawalFee` (scaled by 1e18, e.g., `0.025 ether` = 2.5%; must be <= 1e18)
-  - `feeAddress` (recipient of early-withdrawal fees)
-  - `withdrawalStartDelay` (seconds; may be 0; recommended <= 1 week)
-  - `withdrawalEndWindow` (seconds; must be > 0; recommended <= 1 week; example/default: `86400` for 1 day)
-  - Implementation detail: these four values are internally packed into two storage slots for gas efficiency (no ABI change).
+- Configuration — all four are set at deployment, and none has a setter:
+  - `withdrawalStartDelay` (seconds; **must be > 0**; hard maximum 365 days, recommended <= 1 week) — an immutable constructor argument
+  - `withdrawalEndWindow` (seconds; **must be > 0**; hard maximum 365 days, recommended <= 1 week; example: `86400` for 1 day) — an immutable constructor argument
+  - `earlyWithdrawalFee` (scaled by 1e18, e.g. `0.025 ether` = 2.5%; must be <= 1e18) — set at `initialize`
+  - `feeAddress` (recipient of early-withdrawal fees; must be non-zero) — set at `initialize`
+  - Implementation detail: the two window durations are immutables (they live in the implementation's bytecode, not storage); `feeAddress` and `earlyWithdrawalFee` are packed together into a single storage slot. Changing any of them requires an upgrade.
 
 #### Fee exemption (StabilityPool)
 
