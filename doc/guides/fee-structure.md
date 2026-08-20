@@ -4,6 +4,10 @@
 
 The Minter contract uses a health-based fee structure that dynamically adjusts fees based on the current collateral ratio. This incentivizes actions that improve system health and discourages actions that worsen it.
 
+> **The numbers in this document are an example, not the fee schedule.** Fees are configured **per market**, from a volatility class chosen for that market's expected price behaviour — `script/config/volatility/ConfigPriceVolatility_105`, `_115`, `_125`, `_130` and their `_stable` variants. Each class carries its own band bounds and ratios, and the rebalance threshold that goes with them. A market pegged to a volatile underlying is configured very differently from a stable one.
+>
+> Read this document for **how the mechanism works** — the band structure, the sign convention, the validation rules, where the money goes. For the values a given market actually uses, read that market's volatility config. The tables below illustrate the shape with one steeply-graduated set; deployed classes are typically far shallower (single-digit percentages).
+
 ## Token Types
 
 - **ha tokens** = Anchor (Pegged) Tokens
@@ -16,7 +20,11 @@ The Minter contract uses a health-based fee structure that dynamically adjusts f
 3. **Minting hs tokens**: Encouraged when system is unhealthy (discounts)
 4. **Redeeming hs tokens**: Discouraged when system is unhealthy (expensive fees/blocked)
 
-## Fee Tables by Collateral Ratio
+## Example Fee Tables by Collateral Ratio
+
+These illustrate the *shape* of a schedule. They are not the values any market uses — see the note in the Overview.
+
+One structural point the example below does **not** show, and every deployed class does: the mint-anchor disallow band ends just **above** the rebalance threshold (e.g. threshold 1.30 → disallowed below 1.31), not at 1.0. Minting anchor tokens is therefore shut off before the system reaches rebalance territory, not merely once it has depegged.
 
 ### Mint Anchor (ha) Tokens
 

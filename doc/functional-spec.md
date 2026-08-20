@@ -377,8 +377,10 @@ Acceptance criteria:
    delivering less.
 4. The caller may nominate a **receiver** other than themselves.
 5. The caller may supply `type(uint256).max` to mean "all of my balance", without querying it first.
-6. Minting is **refused entirely** when the collateral ratio is below 1 — the operation would make an
-   under-covered system worse.
+6. Minting is **refused entirely** below a configured floor. In every deployed schedule that floor
+   sits just *above* the market's rebalance threshold, not at a ratio of 1 — so new anchor claims
+   stop being issued before the system enters rebalance territory, rather than once it is already
+   under-covered.
 
 ---
 
@@ -729,7 +731,8 @@ no fee charged on either side.
 
 ### 5.2 Minting anchor tokens
 
-**Trigger:** user action. **Precondition:** collateral ratio ≥ 1 (below it, minting is disallowed).
+**Trigger:** user action. **Precondition:** the collateral ratio is above the schedule's disallow
+floor — in deployed markets, just above the rebalance threshold.
 
 ```mermaid
 sequenceDiagram
@@ -819,8 +822,8 @@ These mirror §5.2 and §5.3 with the incentives inverted.
 
 | | Effect on collateral ratio | Incentive when unhealthy | Can configuration disallow it? |
 |---|---|---|---|
-| **Mint sail** | Rises | **Discount** (funded by reserve pool) | No — validation forbids it |
-| **Redeem sail** | Falls | **Fee**, steeply rising | **Yes** — blocked below a ratio of 1 |
+| **Mint sail** | Rises | **Discount** (funded by reserve pool) | Not as such — but see §7.5: below a ratio of 1 the residual claim has no price, so deployed schedules set a near-100% fee that blocks it in effect |
+| **Redeem sail** | Falls | **Fee**, rising | **Yes** — blocked below a ratio of 1 |
 
 ```mermaid
 sequenceDiagram
@@ -1429,21 +1432,36 @@ Two actions consume system health and two restore it. The schedule for each is s
 The final two columns are not conventions — they are **enforced by validation** and are the most
 important structural property of the whole design. See §7.5.
 
-An illustrative deployed schedule (the values are configurable; these are the health-based set):
+**Schedules are per market, not per protocol.** Each market picks a **volatility class** sized to its
+underlying's expected price behaviour — currently classes for rebalance thresholds of 1.05, 1.15,
+1.25 and 1.30, each with a `_stable` variant. The class supplies both the fee schedule *and* the
+rebalance threshold that goes with it, so the two are always consistent. A market on a volatile
+underlying is configured very differently from one on a stable peg.
+
+One deployed class, the 1.30 threshold, to show the real shape:
 
 | Collateral ratio | Mint anchor | Redeem anchor | Mint sail | Redeem sail |
 |---|---|---|---|---|
-| **< 1.0×** (depegged) | **blocked** | **−10%** | **−15%** | **blocked** |
-| 1.0 – 1.05× | 50% | −5% | −10% | 30% |
-| 1.05 – 1.1× | 20% | 0% | −5% | 15% |
-| 1.1 – 1.2× | 10% | 1% | −2% | 8% |
-| 1.2 – 1.3× | 5% | 2% | 0% | 5% |
-| 1.3 – 1.5× | 2% | 3% | 1% | 3% |
-| 1.5 – 2.0× | 1% | 4% | 2% | 2% |
-| **> 2.0×** | 0.5% | 5% | 3% | 1.5% |
+| **< 1.00×** (depegged) | **disallowed** | −1% | **99.9999%** (see below) | **disallowed** |
+| 1.00 – 1.10× | **disallowed** | −0.75% | −2.5% | 4% |
+| 1.10 – 1.29× | **disallowed** | −0.3% | −1% | 4% |
+| 1.29 – 1.31× | **disallowed** | 0% | 0% | 2.5% |
+| 1.31 – 1.40× | 2% | 0% | 0% | 2.5% |
+| 1.40 – 1.50× | 1% | 0.25% | 0% | 2% |
+| 1.50 – 1.80× | 0.75 → 0.33% | 0.33 → 0.5% | 0% | 1.5 → 1.25% |
+| **> 1.80×** | 0.25% | 0.5% | 0.25 → 1% | 1% |
 
-Read across any row and the pattern is the same: **the two actions that help are cheap or paid; the
-two that hurt are expensive or blocked**, and the gap between them widens as health worsens.
+Read across any row and the pattern holds: **the two actions that help are cheap or paid; the two
+that hurt are expensive or shut off**, and the gap widens as health worsens. Two features of the
+real schedule are worth drawing out, because both are sharper than the principle suggests:
+
+- **Anchor minting is shut off well before a depeg.** The disallow band ends just *above* the
+  rebalance threshold — 1.31 for a 1.30-threshold market — and every deployed class follows the same
+  `threshold + 0.01` rule. The system stops issuing new anchor claims **before** it enters rebalance
+  territory, rather than waiting until it is already under-covered.
+- **Magnitudes are single-digit.** The steepest fee in this class is 4%. The schedule works by
+  *shutting off* the damaging action at the boundary, not by pricing it punitively — the disallow
+  does the heavy lifting, and the percentages handle the healthy range.
 
 ### 7.4 The self-correcting loop
 
@@ -1498,6 +1516,16 @@ Some rules are arithmetic hygiene; two are structural guarantees.
    interval (−1, +1), which *excludes* +1. Since +1 is the only encoding for "disallowed", these two
    actions are unblockable by construction — there is no configuration, valid or invalid, that
    closes them.
+
+   **This guarantee is load-bearing for anchor redemption and largely nominal for sail minting.**
+   The interval is open, so a fee of 99.9999% is representable and is economically a block. The
+   deployed schedules use exactly that for sail minting in the depegged band — and for a sound
+   reason rather than to evade the rule: below a collateral ratio of 1 the residual claim is zero or
+   negative, so there is no meaningful price at which to issue sail tokens, and the mint must not
+   proceed. The rule's real effect is therefore to force such a block to be expressed as a priced
+   fee that the arithmetic still handles, rather than as a hard gate. For **anchor redemption**,
+   where a genuine exit must always exist and no arithmetic obstacle arises, no deployed schedule
+   goes near the boundary and the guarantee bites as intended.
 2. **Anchor minting and sail redemption can never be discounted.** Their permitted range is [0, +1],
    which excludes negatives. The protocol cannot be configured to *pay* users to damage its own
    health.
@@ -1766,23 +1794,31 @@ is priced and so also halts, and the system cannot backstop itself until the fee
 capture a favourable band — for instance push the ratio down into discount territory, redeem at the
 discount, and repay.
 
-**Why it fails.** The fee schedule is **slice-priced across bands** (§7.2): moving the ratio means
-paying every band's fee on the way. The two directions are deliberately asymmetric — pushing the
-ratio down means minting anchor tokens, which is the *expensive* direction (20–50% in stressed
-bands), while the reward at the bottom is a discount of at most 10–15%, itself bounded by the
-reserve pool's balance. The round trip loses by a wide margin, by construction rather than by
-parameter choice.
+**Why it fails, and the reason is stronger than pricing.** The two ways to push the ratio down are
+minting anchor tokens and redeeming sail tokens, and the deployed schedules **shut both off** before
+the ratio reaches the discount region:
 
-Two further limits: anchor minting is **blocked entirely** below a ratio of 1, so the ratio cannot
-be pushed into the depegged region by minting; and the discount is best-effort, so a large attempt
-exhausts the subsidy and receives nothing further.
+- Anchor minting is **disallowed below the schedule's floor**, which sits just above the rebalance
+  threshold (§7.3). An attacker cannot mint the ratio down into stressed territory at all.
+- Sail redemption is **disallowed below a ratio of 1**.
 
-**Residual risk.** The defence is economic, so it depends on the schedule remaining sanely
-calibrated. A misconfigured schedule — discounts exceeding the fees paid to reach them — would open
-this. The validation rules do not prevent that particular miscalibration; only the sign and disallow
-constraints are enforced (§8.5).
+So the attack is not merely made expensive — the lever is removed. Where it is still available the
+fee schedule is additionally **slice-priced across bands** (§7.2), so any ratio movement pays every
+band's fee on the way, and the discounts on the far side are small (around 1% in the deployed class
+shown in §7.3) and bounded by the reserve pool's balance.
 
-### 9.4 Front-running a rebalance
+**Residual risk.** The defence rests on the disallow floor being configured above the region where
+discounts begin. That relationship is a **calibration property, not a validated one**: the rules
+enforce signs and disallow placement (§8.5), not that the floor sits above the discount bands. A
+schedule that permitted minting into discount territory, with discounts exceeding the fees paid to
+reach them, would open this. Every deployed class satisfies the relationship by following the
+`threshold + 0.01` rule, but nothing in the contract requires it.
+
+### 9.4 Timing the rebalance
+
+Two mirror-image attempts, and they have different answers.
+
+#### 9.4a Depositing just before, to capture the liquidation terms
 
 **The attempt.** Deposit into a stability pool immediately before a rebalance to capture the
 favourable liquidation terms — maximum price, zero fee — then leave.
@@ -1805,6 +1841,47 @@ liquidation reward, not on the protocol's solvency.
 
 **Residual risk.** Dilution of existing depositors' liquidation proceeds by opportunistic late
 entrants. Real, small, and structurally bounded by the four limits above.
+
+#### 9.4b Withdrawing just before, to dodge the liquidation
+
+**The attempt.** A depositor who anticipates a rebalance — by watching the collateral ratio, or the
+mempool — withdraws beforehand and re-deposits afterwards. They avoid the liquidation entirely and
+re-enter a now-smaller pool, so their share of every future harvest is larger.
+
+**What it costs them today.** The rebalance itself is value-neutral, so the dodge yields **nothing at
+the moment of the rebalance** — both the stayer and the dodger hold the same value immediately
+afterwards. The gain is entirely in *future harvest share*: the stayer's balance has rebased down
+while the dodger's has not.
+
+Two mechanisms work against it:
+
+- **The withdrawal window.** Leaving on short notice, outside an open window, costs the
+  early-withdrawal fee. Opening a window requires committing before the opportunity was visible, and
+  a deposit during an open window cancels it (§6.6). This is what the window is *for* — it prices
+  exactly this manoeuvre.
+- **Compounding restores the stayer.** For the collateral pool, the stayer's liquidation proceeds are
+  wrapped collateral, which the yield layer can convert back into anchor tokens and redeposit —
+  rebuilding the balance and closing the harvest-share gap. This is automatic, since compounding is
+  triggered after every rebalance and harvest (§6.4).
+
+**Residual risk, and it is asymmetric between the two pools:**
+
+- **Collateral pool:** the gap is transient. It lasts from the rebalance until compounding can run at
+  an acceptable mint fee, and the proceeds also earn their own yield in the meantime.
+- **Leveraged pool:** the gap is **permanent**. The stayer's proceeds are sail tokens, which cannot
+  be minted back into anchor tokens and are not yield-bearing, so nothing restores the balance. The
+  stayer's harvest share stays permanently below the dodger's.
+
+This is an accepted trade-off of choosing the leveraged pool rather than a defect, but it is real and
+it is the sharpest unfairness in the design.
+
+**A future upgrade addresses this.** [doc/ideas/rebalance-fairness.md](ideas/rebalance-fairness.md)
+analyses the manoeuvre in depth and proposes replacing the fixed withdrawal window with a
+**collateral-ratio-derived withdrawal fee** — computed from the Minter's own incentive ratios, so it
+is naturally zero when the system is healthy and rises automatically under stress — together with an
+**effective-share** mechanism that would let a stayer's unclaimed proceeds count toward their harvest
+share, closing the leveraged-pool gap. **Neither is implemented, and neither is scheduled at this
+stage.** Everything described in §5.5, §6.6 and US-12 is the current withdrawal-window behaviour.
 
 ### 9.5 Rebalance griefing
 
@@ -1964,8 +2041,9 @@ in-protocol mechanism addresses.
 |---|---|---|
 | Feed manipulation | Band, deviation and staleness checks | Sustained genuine mispricing |
 | Stale feed | Reverts (fail-safe) | **Availability** — market halts, pool access survives |
-| Flash-loan band traversal | Slice pricing, asymmetric directions, mint blocked below 1 | Depends on sane schedule calibration |
-| Rebalance front-running | Pro-rata dilution, exit fee, discounts compete | Dilution of incumbent depositors — small, bounded |
+| Flash-loan band traversal | Both ratio-lowering actions disallowed before the discount region; slice pricing | Floor-above-discounts is calibration, not validated |
+| Rebalance timing — deposit before | Pro-rata dilution, exit fee, discounts compete | Dilution of incumbent depositors — small, bounded |
+| Rebalance timing — withdraw before | Withdrawal window prices the exit; compounding restores the stayer | **Permanent harvest-share gap in the leveraged pool** |
 | Rebalance griefing | Threshold check; bounty only on real proceeds | None material |
 | Discount draining | Legs priced against each other; reserve best-effort | Reserve exhaustion under legitimate use |
 | Window gaming | Withdraw clears request; deposit cancels window | Accepted by design — a fee, not a lock |
