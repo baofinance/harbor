@@ -16,7 +16,7 @@
 
 # Build status
 
-### bao-minter
+### harbor
 
 [![CI](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/harbor/actions/workflows/CI-test-foundry-stable.yml)
 
@@ -26,100 +26,30 @@
 
 # Introduction
 
-Harbor is a system of contracts that pegs a given token to the value of some underlying asset, e.g. USD or anything that has a price feed
-These pegged tokens are minted in exchange for a capital efficient amount of collateral tokens.
-In addition, there are leveraged tokens whose total value is the difference in the value of the collateral and the pegged tokens.
-Pegged tokens and Leveraged tokens can be both minted and redeemed by users.
-The system maintains the pegging by varying the price of the leveraged token such that the pegged value equals the underlying asset's price.
-This works perfectly while the value of the collateral held doesn't drop below the value of all the minted pegged tokens.
-A healthy collateral ratio is maintained through four mechanisms some of which operate throughout the collateral ratio spectrum and others kick in when collateral ratio levels are tending downward.
+Harbor turns a single yield-bearing collateral asset into **two tokens with opposite risk profiles**, and keeps them both honest without an external liquidator, an auction, or a counterparty.
 
-## Stability mechanisms
+- **Anchor tokens** (_ha_) track the value of a chosen underlying — a currency, commodity or index, anything with a price feed. They are the stable, senior claim, redeemable from the protocol for collateral.
+- **Sail tokens** (_hs_) take whatever is left over: a leveraged long on the collateral, with no liquidation price, no margin call and no funding rate.
 
-### Incentives
+Every unit of collateral value is claimed by exactly one of the two, so they are complementary by construction — the anchor holder gets stability, and the sail holder is paid to carry the price risk that provides it.
 
-Fees and discounts can be set for each of minting/redeeming actions of pegged/leveraged tokens. It is expected, but not enforced, that fees increase for an action if that action tends to decrease collateral ratio and vica versa. Collateral ratio increasing actions minting leveraged tokens and redeeming pegged tokens and collateral ratio decreasing actions are redeeming leveraged tokens and minting pegged tokens.
+The protocol's job is to keep that split solvent, meaning the collateral it holds is always worth at least the anchor tokens it has issued. Four mechanisms do that: a fee and discount schedule that varies with the collateral ratio, stability pools that can be drawn down to restore it, a reserve pool funding the discounts, and a per-contract pause.
 
-Certain actions are incentivised and some deincentivised by a fee set-up that allows up to 8 fee levels per action.
+Harbor is deployed once per **market** — one (collateral, underlying) pair — and each market is independent, with its own tokens, pools and solvency.
 
-Fees can also be negative and this is interpreted as a kind of discount where you get more in returne for what you pay for. Discounts are funded by the reserve pool and when that empties discounts no longer apply.
+## Documentation
 
-If fees are set to 100%, this is interpreted as "disallowed" in that if your mint/redeem would result in a collateral ratio that is "disallowed" the you get to mint/redeem only up to that level.
+**[Functional specification](doc/functional-spec.md)** — what the protocol achieves, in full: the domain model and accounting identity, the actors and what each must trust, user stories with acceptance criteria, the core flows as sequence diagrams, the keeper-driven background processes, the incentive design, the invariants, the attack vectors, and the operational states.
 
-Fees can be queried up front by so-called dry-run view functions, answering the question: What fees/discounts will I be charged/receive if I were to carry out this action. Obviously this is only true for the instant the dry-run function is called and if someone else moves the collateral ratio enough you may not get the result in reality.
-
-#### Withdrawal requests (StabilityPool)
-
-- Requesting: `requestWithdrawal()` creates an account window with `start = now + WITHDRAWAL_START_DELAY` and `end = start + WITHDRAWAL_END_WINDOW` (window period).
-- Withdrawing:
-  - Before start: allowed, early-withdrawal fee applies.
-  - During the window [start, end]: allowed, no fee.
-  - After end: allowed, early-withdrawal fee applies.
-- A successful withdraw clears the request immediately (both `start` and `end` set to `0`).
-- Depositing during an active window cancels the request (both `start` and `end` set to `0`).
-- Configuration — all four are set at deployment, and none has a setter:
-  - `withdrawalStartDelay` (seconds; **must be > 0**; hard maximum 365 days, recommended <= 1 week) — an immutable constructor argument
-  - `withdrawalEndWindow` (seconds; **must be > 0**; hard maximum 365 days, recommended <= 1 week; example: `86400` for 1 day) — an immutable constructor argument
-  - `earlyWithdrawalFee` (scaled by 1e18, e.g. `0.025 ether` = 2.5%; must be <= 1e18) — set at `initialize`
-  - `feeAddress` (recipient of early-withdrawal fees; must be non-zero) — set at `initialize`
-  - Implementation detail: the two window durations are immutables (they live in the implementation's bytecode, not storage); `feeAddress` and `earlyWithdrawalFee` are packed together into a single storage slot. Changing any of them requires an upgrade.
-
-#### Fee exemption (StabilityPool)
-
-- Addresses granted the `EXEMPT_WITHDRAWAL_FEE_ROLE` are exempt from early-withdrawal fees when withdrawing outside the request window.
-- This is intended for whitelisted contracts (e.g. treasury, ops) or EOAs as needed.
-- Role management (owner-only):
-
-```solidity
-// Grant exemption
-IBaoRoles(stabilityPool).grantRoles(account, StabilityPool_v1.EXEMPT_WITHDRAWAL_FEE_ROLE());
-
-// Revoke exemption
-IBaoRoles(stabilityPool).revokeRoles(account, StabilityPool_v1.EXEMPT_WITHDRAWAL_FEE_ROLE());
-```
-
-### Rebalancing
-
-Rebalancing is when collateral ratio reaches a certain level, configurable in the StabilityPoolManager. Anyone can call the rebalance() function there and receive a bounty for doing so. If the collateral ratio of the system is not below the configured threshold, no rebalancing is performed.
-
-When a rebalance occurs, pegged tokens that have been deposited in one of the stability pools will be converted back to collateral and that collateral is available for depositors to claim. By removing pegged tokens from the system we will increase the collateral ratio to above the threshold for rebalancing. Further rebalancing operations can be performed if the threshold is breached again.
-
-There are currently two stability pools per pegged token / collateral token pair, one, as described above, that rebalances into collaterral tokens and the other that rebalances into leveraged tokens. Both reduce the supply of pegged tokens and so increase collateral ratio.
-
-Rebalancing is performed on the stability pools in proportion to the amount of pegged tokens they hold.
-
-The rebalance-to-leverage pool needs to rebalance fewer pegged tokens to reach threshold again because these tokens continue to have their own collateral backing the system.
-
-### Pausing of certain user actions
-
-User actions can be paused.
-
-All contracts involved are in the system are upgradeable using the UUPS proxy pattern. This allows pausing a contract to be done by "upgrading" to a dumb contract whose ownership is help on the implementation, not the proxy, and so does not affect any of the data held by the proxy. This dumb contract responds to all calls with a message that the action is paused, with the exception of the upgradeToAndCall function which only the owner of the contract can call.
-
-This provides a pause mechanism with out burdening the caller of each function with the gas cost of looking up whether the function is paused or not.
-
-Unpausing becomes another "upgrade" to the original contract. Both "upgrades" are simple and cheap single transactions, on a par with calling a pause() function on the contract.
-
-This provides a gas efficient and general pause mechanism for all UUPS upgradeable contracts.
-
-### Reserve pool
-
-Provides discounts for collateral ratio beneficial user actions.
-The reserve pool is funded by a portion of the fees collected, and can be filled by other mechanisms, e.g. simply transferring the collateral token to it.
-
-## Anchored haTokens - the pegged tokens
-
-Pegged, tokens can be any ERC20 token and can be minted by other means not just by Harbor. Pegged tokens can therefore be minted by some other means and redeemed in Harbor, or in a Harbor on another chain.
-The Minter contract maintains a count of how many have been minted and redeemed by the Minter contract itself and ensures that no more are redeemed than are minted by the Minter contract itself.
-
-## Sail hsTokens - the leveraged Tokens
-
-Leveraged tokens operate on a one-to-one basis with the Minter contract. Only the Minter contract can mint them and redeem them.
-Leverage token's value is derived from the difference between the value of collateral and the value of the total number of pegged tokens minted by the Minter contract and not redeemed.
-Because of this the value of a leveraged token changes as the value of the collateral changes - by the price of the collateral changing.
-Minting or redeeming pegged or leveraged tokens makes no difference to the price of the leveraged token as each mint/redeem increases/decreases the total amount of collateral such that the value of the leveraged token is unaffected.
-Leveraged tokens act as a leveraged long collateral position.
-Leveraged token's value drops to zero when the value of the collateral held equals the total value of the pegged tokend minted but not redeemed by the Minter contract.
+| | |
+|---|---|
+| [Fee structure](doc/guides/fee-structure.md) | How the fee, discount and disallow mechanism is configured |
+| [Stability pool rewards](doc/guides/stability-pool-rewards.md) | How depositors earn, and how to read it off-chain |
+| [Risk parameters](doc/guides/risk-parameters.md) | Collateral ratio thresholds and their meaning |
+| [Oracle price feeds](doc/guides/oracle-price-feeds.md) | How prices are sourced and validated |
+| [Numerical envelope](doc/DataEnvelope.md) | What the stack can hold, and the limits testing located |
+| [Autocompounding vault design](doc/autocompounding-vault-design.md) | The yield layer above the stability pools |
+| [Deployment design](doc/harbor-deployment.md) | Peg families, markets, seeding and deploy switches |
 
 # Development
 

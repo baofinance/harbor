@@ -196,6 +196,26 @@ uint256[] memory amounts = pool.claimable(account, tokens);
 uint256[] memory taken   = pool.claimed(account, tokens);
 ```
 
+## Early-withdrawal fee exemption
+
+Addresses holding `EXEMPT_WITHDRAWAL_FEE_ROLE` pay no early-withdrawal fee when withdrawing outside
+their request window. This exists so protocol-internal exits — the AutoCompounders, the HarborYield
+router — are not charged for routing through the pool, and it can be granted to a treasury or
+operations address as needed.
+
+The role is owner-managed:
+
+```solidity
+// Grant exemption
+IBaoRoles(stabilityPool).grantRoles(account, IStabilityPool_v3(stabilityPool).EXEMPT_WITHDRAWAL_FEE_ROLE());
+
+// Revoke exemption
+IBaoRoles(stabilityPool).revokeRoles(account, IStabilityPool_v3(stabilityPool).EXEMPT_WITHDRAWAL_FEE_ROLE());
+```
+
+The window itself, the fee ratio and the fee recipient are all fixed at deployment and have no
+setters — changing any of them requires an upgrade.
+
 ## Proportional distribution
 
 Your share of rewards is proportional to your share of the pool at the time the reward accrues:

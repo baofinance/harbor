@@ -247,7 +247,7 @@ funded by a share of collected fees and by direct transfers.
 
 The reserve pool is a **best-effort** facility. When it empties, discounts silently stop applying
 and actions simply proceed at zero fee; no operation fails because a discount could not be paid.
-Users are told the actual discount available, not the configured one, by the forecast functions
+Users are told the actual discount available, not the configured one, by the dry-run functions
 (§4, §5.3).
 
 ### 2.9 Terminology
@@ -380,19 +380,19 @@ Acceptance criteria:
 > so that I am not surprised by a fee that depends on system state I cannot see.*
 
 Acceptance criteria:
-1. A read-only **forecast function** exists for each of the four operations, returning the effective
+1. A read-only **dry-run function** exists for each of the four operations, returning the effective
    incentive ratio, the fee, any discount, the exact input consumed, the exact output produced, and
    the price and rate used.
-2. The forecast is exact for the state at the moment of the call — it is a computation of the same
+2. The dry-run is exact for the state at the moment of the call — it is a computation of the same
    path, not an estimate.
-3. The forecast accounts for **partial fills**: where configuration disallows part of an operation,
+3. The dry-run accounts for **partial fills**: where configuration disallows part of an operation,
    it reports the amount that would actually transact, not the amount requested.
-4. The forecast reports the **available** discount, reduced if the reserve pool cannot fund the
+4. The dry-run reports the **available** discount, reduced if the reserve pool cannot fund the
    configured one.
 
-*Note: the forecast binds only to the state at the time of the call. Another user's transaction
+*Note: the dry-run binds only to the state at the time of the call. Another user's transaction
 landing first can move the collateral ratio into a different fee band. Criterion US-1.3's minimum-out
-check is the protection against that, not the forecast.*
+check is the protection against that, not the dry-run.*
 
 ---
 
@@ -652,7 +652,7 @@ Acceptance criteria:
 
 Acceptance criteria:
 1. The core protocol exposes the seams the yield layer needs: zero-fee-exempt withdrawal for
-   protocol-internal exits, and a forecast of what a deposit would credit.
+   protocol-internal exits, and a dry-run forecast of what a deposit would credit.
 2. Registered vaults are **poked automatically** after every rebalance and harvest, so compounding
    tracks reward arrival without a separate keeper schedule.
 3. A vault that fails to compound does **not** cause the rebalance or harvest to fail; the failure is
@@ -1111,7 +1111,7 @@ flowchart TB
    skipped.
 2. A **fee exemption role** on stability-pool withdrawal, so protocol-internal exits are not charged
    the early-withdrawal fee.
-3. A **deposit forecast**, so a vault pricing a deposit never has to assume the credit equals the
+3. A **deposit dry-run**, so a vault pricing a deposit never has to assume the credit equals the
    input.
 
 **What the core requires from below:** a price source returning a validated *band* — minimum and
@@ -1276,6 +1276,9 @@ declines to make such a deposit and leaves the value owed instead.
 
 Requesting a withdrawal opens a fee-free window that begins after a configured delay and lasts a
 configured duration; both are fixed at deployment, must be non-zero, and are capped at one year.
+Neither has a setter, and nor do the fee or its recipient — changing any of them requires an
+upgrade, so **the terms a depositor joined under cannot shift beneath them** by ordinary governance
+action.
 
 The window governs **whether a fee applies, never whether withdrawal is possible**. There is no
 lock-up: a depositor with no request, or one whose window has passed, may still withdraw at any
@@ -1345,7 +1348,7 @@ The reserve pool funds discounts and is **best-effort by design**: it hands out 
 or as much as it has, and never reverts for being short.
 
 **If it empties.** Discounts silently stop applying and the health-improving actions proceed at zero
-fee instead. No operation fails. The forecast functions report the *available* discount rather than
+fee instead. No operation fails. The dry-run functions report the *available* discount rather than
 the configured one, so a user is never quoted a subsidy that will not be paid.
 
 The consequence is a **weakening, not a breaking**, of the incentive design: the actions that restore
@@ -1547,7 +1550,7 @@ The design handles that by making the shortfall harmless:
   reverts for being short.
 - A partly-funded or unfunded discount reduces to a smaller discount, or to zero — the action still
   completes.
-- The forecast functions report the **available** discount, so a user is never quoted a subsidy that
+- The dry-run functions report the **available** discount, so a user is never quoted a subsidy that
   will not be paid.
 
 The relationship to §7.5 is what makes this safe: because the health-restoring actions can never be
@@ -2272,7 +2275,7 @@ document, the section is given.
 | **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
 | **Genesis** | The bootstrap phase before a market opens (§5.1, §10.2) |
 | **Reset** | Correcting the recorded backing to match holdings, after a collateral impairment. Owner-only and manual (§6.7, §9.12) |
-| **Forecast function** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount (US-2) |
+| **Forecast function** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount. Named "dry run" in the code and in older documentation — the two mean the same thing (US-2) |
 
 ### Structural
 
