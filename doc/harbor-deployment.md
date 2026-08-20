@@ -212,10 +212,8 @@ total_required[collateral] = required_per_market × markets_using_that_collatera
 
 ## 7. Seed mechanics
 
-Covered in detail in the plan at Campaign H.4.1. Summary:
-
 - **Seed size**: the peg's configured `minDeposit()`, denominated in *pegged* tokens — not a fixed base-unit
-  constant. `HarborYieldDeployStack._wrappedCollateralSeedAmount` converts it to a wrapped-collateral amount at
+  constant. The HarborYield deploy stack converts it to a wrapped-collateral amount at
   the oracle's min price and rate, rounding up and doubling for headroom. Being peg-denominated and
   oracle-converted, this carries no assumption about any token's `decimals()`: a raw constant such as `1e12`
   base units would be 1e-6 of an 18-decimal token but 10,000 whole tokens of an 8-decimal one, and would strand
@@ -347,13 +345,15 @@ they stay setters because live markets are retuned by multisig batch (`script/Up
 ## 11. Open questions
 
 - ~~**Seed size is per-market**, but different collaterals have wildly different decimals (wBTC is 8, wstETH is 18). Should the wrapped-collateral seed be `1e12` universally or `10^(decimals / 2)` per collateral?~~ **Resolved — neither.** A universal base-unit constant is what §7 rejects: `1e12` is 1e-6 of an 18-decimal token but 10,000 whole tokens of an 8-decimal one. The seed is denominated in *pegged* tokens as the peg's configured `minDeposit()`, and `HarborYieldDeployStack._wrappedCollateralSeedAmount` converts it at the oracle's min price and rate, so it carries no `decimals()` assumption to handle.
-- **Weight choice for `HY.addVault`** when adding a new market to an existing HY: use the market's config value (if set) or fall back to a default (e.g., equal weight). Currently undefined — resolve during Campaign B.4.1e implementation.
+- **Weight choice for `HarborYield.addVault`** when adding a new market to an existing HarborYield: use the market's config value (if set) or fall back to a default (e.g., equal weight). Currently undefined.
 - **Leveraged AC weight for HY**: N/A — AC_lev is not registered with HY by design. Document this explicitly in the first-market-for-peg deploy log.
 - **Seed during upgrade**: not applicable here — an upgrade preserves existing storage so the seed from the original deploy is still there. No action needed on upgrades.
 
 ## 12. References
 
-- Plan: [`quirky-booping-valley.md`](../../.claude/plans/quirky-booping-valley.md) §H.4.1 for seed mechanics
+- Functional specification: [`functional-spec.md`](functional-spec.md) for what the protocol achieves
 - Design: [`autocompounding-vault-design.md`](autocompounding-vault-design.md) for contract architecture
-- Existing impl: [`script/src/DeployMintersShared.sol`](../script/src/DeployMintersShared.sol), [`script/src/contracts/PeggedToken.sol`](../script/src/contracts/PeggedToken.sol), [`script/src/contracts/HarborYield.sol`](../script/src/contracts/HarborYield.sol)
+- Seed mechanics: §7 of this document
+- Existing impl: [`script/src/HarborDeployStack.sol`](../script/src/HarborDeployStack.sol) (the shared deploy stack, exposing `deployHarborForPeg`), [`script/src/contracts/PeggedToken.sol`](../script/src/contracts/PeggedToken.sol)
+- HarborYield deployment lives in the **harbor-yield repository**, not this one — see its `script/src/contracts/HarborYield.sol`
 - Deployment history: [`deployments/README.md`](../deployments/README.md)

@@ -387,14 +387,14 @@ The AC does NOT hold wXXXn. Unprofitable wCOLn stays as unclaimed rewards in the
 
 Two distinct "compound" operations live at different layers:
 
-- **AC.compound()** — permissionless. Claims profitable wCOLn, mints haXXX via the Minter, redeposits to the SP. Also triggered by SPM during harvest/rebalance (B.5, pending).
+- **AC.compound()** — permissionless. Claims profitable wCOLn, mints haXXX via the Minter, redeposits to the SP. Also triggered by the StabilityPoolManager at the end of every `harvest()` and `rebalance()`, for each registered yield vault; a vault that fails to compound is recorded and skipped rather than failing the enclosing call.
 - **HY.compound(fromVault, toVault, vaultShares, minOut, swapData)** — role-gated (`COMPOUNDER_ROLE | owner`). Redeems from one managed vault, swaps via `ISwapper`, deposits into another managed vault. Used to route equivalent-token yield into the AC layer when profitable.
 
 ### 6.11 Withdrawal
 
 **Current (shipped):** AC uses `EXEMPT_WITHDRAWAL_FEE_ROLE` and SP_v3 still has the request/wait withdrawal window. AC withdrawals route through the AC contract and bypass both fee and window.
 
-**Planned (B.6b, NOT YET SHIPPED):** Replace the withdrawal window with a CR-based dynamic fee derived from the Minter's incentive ratios (`fee = mintPeggedRatio - redeemPeggedRatio`, clamped to `[0, MAX_WITHDRAWAL_FEE]`). Naturally zero at healthy CR. Enables atomic ERC4626 `withdraw()`. See [rebalance-fairness.md §5A](ideas/rebalance-fairness.md) for the full design.
+**Possible future upgrade — not implemented and not scheduled:** replace the withdrawal window with a CR-based dynamic fee derived from the Minter's incentive ratios (`fee = mintPeggedRatio - redeemPeggedRatio`, clamped to `[0, MAX_WITHDRAWAL_FEE]`). Naturally zero at healthy CR, and it would enable an atomic ERC4626 `withdraw()`. See [rebalance-fairness.md](ideas/rebalance-fairness.md), "CR-Based Dynamic Withdrawal Fee", for the full design.
 
 ### 6.12 HarborYield is not ERC-4626 / ERC-7575
 
@@ -458,12 +458,13 @@ All harbor-side ERC-20 contracts in this work support `permit(owner, spender, va
 | AutoCompounder_v1 | Done | Non-rebasing ERC4626 wrapper per SP (Level 1), Solady ERC4626 + EIP-2612 permit |
 | HarborYield_v1 | Done (core) | Multi-asset ERC-20 basket per peg (Level 2), Solady ERC20 + EIP-2612 permit. Two `addVault` variants (AC introspection vs equivalent + oracle); depeg-aware `totalAssets`; oracle-bounded swap floor; `compound`/`redistribute` role-gated |
 | ISwapper / MockSwapper | Done | Generic swap interface; mock for tests. (`previewSwap` deliberately removed — see §6.13.) |
-| StabilityPoolManager_v2 | Pending (B.5) | SPM triggers `AC.compound()` during harvest/rebalance |
-| SP_v3 — CR-based withdrawal fee | Pending (B.6b) | Replace withdrawal window with `fee = mintPeggedRatio - redeemPeggedRatio` clamped to `[0, MAX_WITHDRAWAL_FEE]`. Enables atomic ERC4626 `withdraw()`. See [rebalance-fairness.md §5A](ideas/rebalance-fairness.md). |
-| SP_v3 — accumulator cleanup | Pending (A2 / H.5) | Drop v1/v2 legacy accumulator storage fallback; one-shot migration via separate `ForceMigrateAccumulator_v1` |
+| StabilityPoolManager_v2 | Done | Registers yield vaults and triggers `AC.compound()` on each at the end of every `harvest()` and `rebalance()`; a failing vault is recorded and skipped, never fatal |
+| SP_v3 — CR-based withdrawal fee | Not implemented, not scheduled | Would replace the withdrawal window with `fee = mintPeggedRatio - redeemPeggedRatio` clamped to `[0, MAX_WITHDRAWAL_FEE]`, enabling an atomic ERC4626 `withdraw()`. See [rebalance-fairness.md](ideas/rebalance-fairness.md). |
+| SP_v3 — accumulator cleanup | Not implemented | Drop v1/v2 legacy accumulator storage fallback; one-shot migration via separate `ForceMigrateAccumulator_v1` |
 
 ## 9. References
 
+- [Functional specification](functional-spec.md) -- what the protocol achieves: user stories, flows, invariants, attack vectors
 - [Aladdin fxSAVE analysis](aladdin/fxSAVE.md) -- ERC4626 wrapping stability pool, proven pattern
-- [Rebalance fairness](ideas/rebalance-fairness.md) -- worked examples, CR-based withdrawal fee design (B.6b), effective share deferred (B.6c)
+- [Rebalance fairness](ideas/rebalance-fairness.md) -- worked examples, plus two unimplemented proposals: a CR-based withdrawal fee and an effective-share boost
 - [Harbor deployment design](harbor-deployment.md) -- pre-flight, seed deposits, deployHY/deployPeg switches

@@ -1,6 +1,10 @@
 # Stability Pool Rebalance Fairness
 
-**Status: Under discussion**
+**Status: under discussion. The mechanisms proposed here are not implemented and not scheduled.**
+
+For the shipped behaviour this analysis builds on — the withdrawal window, the rebalance and harvest
+flows, and where this manoeuvre sits among the other attack vectors — see the
+[functional specification](../functional-spec.md), particularly §5.5, §5.6, §6.6 and §9.4b.
 
 ## 1. The Problem
 
@@ -611,7 +615,7 @@ The AC changes the dynamics fundamentally. Without the AC, stayers must manually
 
 1. **Fee curve magnitude:** The Minter's `mintPeggedTokenIncentiveRatio` reaches ~1.5% near the rebalance threshold; combined with the redeem ratio it gives ~2.0%. The §5A break-even analysis shows this clears both Coll SP (0.17%) and Lev SP (0.60%) thresholds with margin, so a multiplier is not needed for the design case. Revisit only if production data shows the assumption (10% drop / 25% leveraged) is wrong.
 2. **Post-rebalance gap:** After rebalance, CR jumps back to threshold and the fee drops immediately. An attacker who can re-enter in the same block faces a low fee. Mitigation: private mempool for rebalance tx, or a brief cooldown (simpler than the full withdrawal window).
-3. **Leveraged SP fairness:** Auto-compounding doesn't help Charlie. The effective share mechanism would, but adds accumulator complexity. **Decision: deferred (B.6c)** — accepted as a known risk trade-off of the leveraged pool. The accumulator architecture is forward-compatible with adding effective-share later (via virtual `_getEffectiveTotalPoolShare` / `_getEffectiveUserPoolShare`) without breaking the AC or fee mechanisms.
+3. **Leveraged SP fairness:** Auto-compounding doesn't help Charlie. The effective share mechanism would, but adds accumulator complexity. **Decision: deferred** — accepted as a known risk trade-off of the leveraged pool. The accumulator architecture is forward-compatible with adding effective-share later (via virtual `_getEffectiveTotalPoolShare` / `_getEffectiveUserPoolShare`) without breaking the AC or fee mechanisms.
 4. **Multiple rapid rebalances:** Production has seen 5 rebalances in succession. The AC compounds after the series ends. The unfairness window spans the full series. Is this acceptable?
 5. **BOLD B-sum as future enhancement:** Proven not to help with the same denominator (Section 3), but a `totalOriginalDeposits` denominator variant (discussed in earlier analysis) could provide precise fairness. Worth revisiting if the practical approach proves insufficient?
 
@@ -621,10 +625,10 @@ The AC changes the dynamics fundamentally. Without the AC, stayers must manually
 
 | Layer | Mechanism | Addresses | Status |
 |-------|-----------|-----------|--------|
-| **Withdrawal fee** | `fee = mintPeggedRatio - redeemPeggedRatio` clamped to `[0, MAX_WITHDRAWAL_FEE]` | Deters frontrun withdrawal | **Active target (B.6b)** — replaces withdrawal window in SP_v3 (pre-deployment) |
+| **Withdrawal fee** | `fee = mintPeggedRatio - redeemPeggedRatio` clamped to `[0, MAX_WITHDRAWAL_FEE]` | Deters frontrun withdrawal | **Proposed — not implemented, not scheduled.** Would replace the withdrawal window in SP_v3, which currently ships the request/window mechanism instead |
 | **Auto-compounding** | AC claims wCOL, mints pegged, redeposits | Restores stayer's harvest share (collateral SP only) | **Shipped** (AutoCompounder_v1) |
 | **Private mempool** (off-chain) | Submit rebalance via Flashbots Protect | Mempool frontrunning specifically | **Operational** |
-| **Effective share boost** | Unclaimed rebalance reward counts toward harvest share | Corrects harvest distribution (needed for leveraged SP) | **Deferred (B.6c)** — accumulator architecture remains forward-compatible |
+| **Effective share boost** | Unclaimed rebalance reward counts toward harvest share | Corrects harvest distribution (needed for leveraged SP) | **Deferred** — accumulator architecture remains forward-compatible |
 
 For collateral SPs, withdrawal fees + auto-compounding provide practical fairness: fees deter the attack, the AC restores the stayer's position. The unfairness window is bounded by the time between rebalance and compound.
 
