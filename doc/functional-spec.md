@@ -1,6 +1,6 @@
 # Harbor — Functional Specification
 
-**Status:** in progress. Sections 1–5 complete; sections 6–11 to follow.
+**Status:** complete — sections 1–11.
 
 This document describes **what the Harbor protocol achieves** — the outcomes it delivers, for whom,
 and under what conditions. It is distilled from the code, its comments, and the existing
@@ -250,21 +250,11 @@ and actions simply proceed at zero fee; no operation fails because a discount co
 Users are told the actual discount available, not the configured one, by the forecast functions
 (§4, §5.3).
 
-### 2.9 Glossary of the core terms
+### 2.9 Terminology
 
-| Term | Meaning |
-|---|---|
-| **Anchor token** (*ha*) | The stable, senior token tracking an underlying's value |
-| **Sail token** (*hs*) | The leveraged, junior token holding the residual claim |
-| **Wrapped collateral** | The yield-bearing asset the protocol holds |
-| **Underlying** | The asset the anchor token tracks (ETH, BTC, EUR, gold, …) |
-| **Collateral ratio** | Collateral value ÷ anchor token value — the health metric |
-| **Leverage ratio** | Collateral value ÷ sail token value |
-| **Depeg** | Collateral ratio below 1 — anchor tokens no longer fully covered |
-| **Rebalance** | Drawing down a stability pool to raise the collateral ratio |
-| **Harvest** | Distributing the collateral's accrued yield to stability pools |
-| **Incentive ratio** | A single signed number: positive is a fee, negative a discount, 100% means disallowed |
-| **Forecast function** | A read-only call reporting exactly what an action would yield right now |
+The terms introduced above — anchor and sail token, wrapped collateral, underlying, collateral and
+leverage ratio, depeg — are defined where they first appear and collected, with everything else this
+document uses, in the **glossary at §11**.
 
 ---
 
@@ -2060,4 +2050,241 @@ operationally: **upgrade authority**, and the **manual reset after a slashing ev
 
 ---
 
-*Sections 10–11 (operational states, glossary) follow.*
+## 10. Operational states
+
+A market's behaviour at any moment is fixed by **two independent axes**. Conflating them is the
+commonest way to misread the system, so they are kept apart here:
+
+- **Health** — where the collateral ratio sits relative to the market's configured boundaries. This
+  axis moves continuously with the collateral price and with user activity, and nobody controls it
+  directly.
+- **Availability** — whether the market can transact at all. This axis moves in discrete steps, and
+  is driven by the price feed or by governance, not by the collateral ratio.
+
+A market is always in exactly one health state and, independently, either available, halted or
+paused. "Depegged **and** halted" is a real and particularly awkward combination (§10.8).
+
+### 10.1 The health axis
+
+Boundaries are per market, taken from its volatility class (§7.3). The concrete figures below are
+the 1.30-threshold class; a 1.05-threshold market has the same structure with different numbers.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Genesis
+    Genesis --> Healthy: endGenesis()<br/>opens at ~2.0x
+
+    Healthy --> Guarded: collateral price falls<br/>(CR < 1.31)
+    Guarded --> Healthy: CR recovers above 1.31
+    Guarded --> Rebalanceable: CR < 1.30<br/>(the threshold)
+    Rebalanceable --> Guarded: rebalance, or<br/>market activity
+    Rebalanceable --> Depegged: CR < 1.00
+    Depegged --> Rebalanceable: CR recovers above 1.00
+
+    note right of Guarded
+        anchor minting already OFF
+        rebalance not yet armed
+    end note
+    note right of Depegged
+        anchor under-covered
+        sail claim worthless
+    end note
+```
+
+Note the ordering, which is the design's main safety property on this axis: **anchor minting shuts
+off before rebalancing arms**, and rebalancing arms long before a depeg. Each defence engages while
+the previous one still has room.
+
+| State | Entry condition (1.30 class) | Anchor mint | Anchor redeem | Sail mint | Sail redeem | Rebalance |
+|---|---|---|---|---|---|---|
+| **Genesis** | market not yet opened | — | — | — | — | — |
+| **Healthy** | CR ≥ 1.31 | ✅ 0.25–2% | ✅ 0–0.5% | ✅ 0–1% | ✅ 1–2.5% | ❌ not armed |
+| **Guarded** | 1.30 ≤ CR < 1.31 | ⛔ **disallowed** | ✅ free | ✅ free | ✅ 2.5% | ❌ not armed |
+| **Rebalanceable** | 1.00 ≤ CR < 1.30 | ⛔ disallowed | ✅ **paid** 0.3–0.75% | ✅ **paid** 1–2.5% | ✅ 4% | ✅ **armed** |
+| **Depegged** | CR < 1.00 | ⛔ disallowed | ✅ **paid** 1% | ⛔ blocked in effect | ⛔ **disallowed** | ✅ armed |
+
+"Paid" means a discount — the user receives more than the arithmetic rate, funded by the reserve
+pool while it lasts (§7.6).
+
+### 10.2 Genesis
+
+The market has no collateral, no issued tokens and therefore no meaningful collateral ratio.
+
+Only the genesis contract is live: collateral may be deposited, and **withdrawn in full at any
+time** until the owner closes the phase. No minting, redeeming or stability-pool activity exists
+yet. Closing is a one-way owner action that mints both tokens from the pooled collateral and opens
+the market at roughly 2.0× (§5.1).
+
+### 10.3 Healthy
+
+The ordinary operating state. All four actions are available, fees are mild — a fraction of a
+percent to a few percent — and no discount applies in either direction because the system needs
+nothing from anyone.
+
+Harvesting runs on its keeper cadence; rebalancing is unavailable and reverts if attempted.
+
+### 10.4 Guarded
+
+A narrow band — one percentage point of collateral ratio in every deployed class — between the point
+where anchor minting stops and the point where rebalancing begins.
+
+Its purpose is to stop the system walking into rebalance territory while still issuing new anchor
+claims. **Anchor minting is already disallowed here, but no rebalance is armed yet**: the market has
+one band's worth of room in which the restoring actions (redeeming anchor, minting sail) are free
+and the damaging one is shut off, before the backstop is needed at all.
+
+The band is deliberately thin. It is a boundary condition, not a place a market is expected to sit.
+
+### 10.5 Rebalanceable
+
+The collateral ratio is below the threshold, so a keeper may rebalance at any time and is paid to.
+
+Discounts are now live: redeeming anchor tokens and minting sail tokens both pay the user, funded by
+the reserve pool. Sail redemption carries its steepest permitted fee. This is the state in which the
+economic mechanism and the backstop both work at once — the fee schedule recruits volunteers while
+rebalancing stands ready regardless of whether any appear.
+
+Repeated rebalances are normal here rather than a sign of malfunction: each call moves the ratio to
+the threshold, or as far as the pools' combined capacity allows, and a partially-satisfied rebalance
+should simply be called again (§6.2).
+
+### 10.6 Depegged
+
+The collateral no longer covers the anchor tokens. Three things change qualitatively:
+
+1. **The anchor token stops being worth 1.** Its reported price becomes its pro-rata share of the
+   remaining collateral, and redemption is priced from that share. The system reports this plainly
+   rather than concealing it.
+2. **The sail claim is worthless.** `C − P` is zero or negative, so sail tokens have no residual
+   value. Sail redemption is disallowed outright — allowing it would pay sail holders out of anchor
+   holders' backing — and sail minting is blocked in effect, because there is no meaningful price at
+   which to issue (§7.5).
+3. **Redeeming anchor tokens is paid at its highest rate.** Every redemption raises the ratio, so
+   this is the action the system most wants, and it remains permanently available (C1).
+
+Stability-pool depositors bear the loss here: anchor tokens drawn from the pool redeem at the
+depressed share, so a depositor can receive back less value than they deposited. This is the risk the
+yield pays for (US-11), and it is the one state in which it is realised.
+
+**Exit** is by the collateral price recovering, or by enough redemption and sail minting to restore
+coverage. Rebalancing remains armed but may have little left to work with if the pools are already
+drawn down to their floors.
+
+### 10.7 Halted — the price feed has failed
+
+Not a health state. The feed has returned an invalid, zero, stale or abnormally-deviant reading, so
+every operation that must be priced **reverts** (§6.8, P2).
+
+| | |
+|---|---|
+| **Unavailable** | Minting and redeeming either token; rebalancing |
+| **Still available** | Stability-pool deposit, withdrawal, reward claim — **none of these reads the oracle** |
+| **Controlled by** | Nobody. It clears when the feed recovers |
+
+Depositors therefore keep access to their positions throughout. Solvency is untouched — refusing to
+transact at an unknown price is what preserves it — but liveness is lost, and the loss includes
+rebalancing.
+
+### 10.8 The dangerous overlap
+
+**Halted while the collateral ratio is falling** is the combination that deserves naming. Rebalancing
+is priced, so it halts with everything else, and the system cannot backstop itself until the feed
+returns. It can enter Depegged with no mechanism able to act.
+
+Nothing in the protocol resolves this — it is an operational monitoring requirement, and it is why
+feed liveness matters as much as feed correctness.
+
+### 10.9 Paused — governance has stopped a contract
+
+Any contract can be halted by **upgrading its proxy to a stub implementation** whose only behaviour
+is to reject everything. There is no pause flag anywhere in the system.
+
+| | |
+|---|---|
+| **Effect** | Every call, including plain ether transfers, reverts with a "paused" error |
+| **State** | Entirely preserved — the proxy's storage is untouched, so no balance, deposit or accrual is lost |
+| **Cost when unused** | **Zero.** Ordinary operation pays no gas for a pause check that isn't there |
+| **Scope** | Per contract. Pausing the Minter does not pause the stability pools |
+| **Exit** | Upgrade back to a working implementation |
+
+Two properties of this approach are worth stating because they are unusual:
+
+- **Pausing and unpausing are ordinary upgrades**, each a single transaction of about the cost of
+  calling a `pause()` function — so the mechanism is as cheap to operate as a flag while costing
+  nothing at all in the common case.
+- **Pausing can move who controls the contract.** The stub's own owner is a **hardcoded multisig**,
+  fixed in its bytecode, and it is that owner — not the paused contract's previous one — who can
+  upgrade back. This is deliberate: it doubles as recovery from a compromised owner. The stub cannot
+  be installed unless the existing owner authorises the upgrade, so it is not a takeover path, but it
+  does mean **pausing is not always reversible by the party who initiated it**.
+
+---
+
+## 11. Glossary
+
+Terms are grouped by what they describe. Where a term has a precise definition elsewhere in this
+document, the section is given.
+
+### Tokens and assets
+
+| Term | Meaning |
+|---|---|
+| **Anchor token** (*ha*) | The stable, senior token, tracking the value of a chosen underlying. Redeemable from the protocol for collateral. An ordinary ERC-20 that may also exist from other sources (§2.1) |
+| **Sail token** (*hs*) | The leveraged, junior token, holding the residual claim `C − P`. Minted and burned only by the protocol (§2.1) |
+| **Wrapped collateral** | The yield-bearing asset the protocol actually holds — wstETH, fxSAVE, sUSDe. Worth progressively more of its underlying over time |
+| **Underlying** | Two distinct uses. (1) The asset an anchor token tracks — ETH, BTC, EUR, gold. (2) The asset a wrapped collateral unwraps to. The **rate** converts between wrapped and underlying; the **price** values the underlying against the anchor's underlying (§2.5) |
+| **Stability-pool share** | A depositor's claim on a stability pool. A transferable, rebasing ERC-20 (§2.6) |
+
+### Health and pricing
+
+| Term | Meaning |
+|---|---|
+| **Collateral ratio** | Collateral value ÷ anchor token value. The system's health metric, computed from the *tracked* backing rather than the balance held (§2.3, §6.3) |
+| **Leverage ratio** | Collateral value ÷ sail token value. Rises without bound as the collateral ratio approaches 1 (§2.3) |
+| **Depeg** | Collateral ratio below 1 — anchor tokens no longer fully covered (§10.6) |
+| **Rebalance threshold** | The collateral ratio below which rebalancing becomes available. Set per market by its volatility class (§7.3) |
+| **Disallow floor** | The collateral ratio below which anchor minting is refused. Sits one point *above* the rebalance threshold in every deployed class (§7.3) |
+| **Price band** | The minimum and maximum the price source reports. The protocol picks the end conservative for solvency, per operation (§2.5) |
+| **Rate** | The wrapped-to-underlying conversion. Its growth over time is the source of harvestable yield (§2.5) |
+
+### Value flows
+
+| Term | Meaning |
+|---|---|
+| **Incentive ratio** | One signed number carrying fee, discount and permission: positive is a fee, negative a discount, `+1.0` means disallowed (§7.1) |
+| **Discount** | A negative fee — the user receives more than the arithmetic rate, funded by the reserve pool. Best-effort: it shrinks silently if the pool is short (§7.6) |
+| **Band** | A collateral-ratio interval with one incentive ratio. A large order is priced slice-by-slice across the bands it moves through (§7.2) |
+| **Volatility class** | The per-market configuration supplying both the fee schedule and its matching rebalance threshold (§7.3) |
+| **Harvestable yield** | The surplus of wrapped collateral held over the tracked backing. Belongs to no claim in the accounting identity until harvested (§2.5) |
+| **Owed ledger** | Per-pool record of harvested yield allocated but not yet streamed. Never re-split between pools (§5.7, H2) |
+| **Bounty** | A keeper's share of the value its own call released (§7.7) |
+| **Cut** | The fee receiver's share of a harvest (§7.7) |
+| **Early-withdrawal fee** | Charged on a stability-pool withdrawal outside an open window. A fee, never a lock (§7.8) |
+
+### Operations
+
+| Term | Meaning |
+|---|---|
+| **Rebalance** | Drawing anchor tokens from the stability pools and redeeming them, to raise the collateral ratio. Keeper-triggered, permissionless (§5.6) |
+| **Harvest** | Distributing accrued collateral yield to the stability pools. Keeper-triggered, permissionless (§5.7) |
+| **Compound** | Reinvesting a yield vault's rewards. Runs automatically after every rebalance and harvest (§6.4) |
+| **Liquidation** | What a stability pool experiences during a rebalance: balances rebase down, proceeds are credited immediately at the band's maximum price and zero fee (§2.7) |
+| **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
+| **Genesis** | The bootstrap phase before a market opens (§5.1, §10.2) |
+| **Reset** | Correcting the recorded backing to match holdings, after a collateral impairment. Owner-only and manual (§6.7, §9.12) |
+| **Forecast function** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount (US-2) |
+
+### Structural
+
+| Term | Meaning |
+|---|---|
+| **Market** | One deployed instance: a (collateral, underlying) pair with its own tokens, pools and solvency. Independent of every other market (§1.4) |
+| **Floor / ceiling** | The stability pool's supply bounds. **Precision parameters, not risk limits** — they exist to keep the liquidation loss factor positive (§2.6, S2) |
+| **Reward divisor** | The denominator each reward accrual divides by. Held at or above the summed depositor balances so rewards conserve by construction (S4) |
+| **Reserve pool** | Collateral funding discounts. Best-effort — it never reverts for being short (§2.8) |
+| **Pause** | Halting a contract by upgrading its proxy to a stub that rejects everything. No pause flag exists (§10.9) |
+| **By construction / by check** | Whether an invariant cannot be expressed falsely, or is verified at runtime. The distinction carries very different assurance (§8) |
+
+---
+
+*End of specification. Sections 1–11 complete.*
