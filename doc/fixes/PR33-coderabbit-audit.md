@@ -328,7 +328,7 @@ of which had to agree:
 |---|---|
 | `chainId` | `"1"` — mainnet, not a local chain |
 | selector `0x3ab51d60` | `updateHarvestCutRatio(uint256)` |
-| both arguments | **99e16**, exactly the cut the SPM v2 runbook says all eleven markets now hold |
+| both arguments | **99e16**, exactly the cut the StabilityPoolManager v2 runbook says all eleven markets now hold |
 | the two `to` addresses | resolve in `deployments/mainnet/harbor_v1.state.json` to `MCAP::fxUSD::stabilityPoolManager` and `MCAP::stETH::stabilityPoolManager` |
 
 So it was only ever in `deployments/local/` because of where the generator wrote it, not because of

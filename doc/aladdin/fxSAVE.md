@@ -70,9 +70,9 @@ The f(x) protocol's leverage mechanism can reach unsafe ratios. When the leverag
 - However, the pool's composition changed -- it now holds collateral tokens that need to be managed
 
 **Comparison with Harbor's rebalancing:**
-- Harbor: the SPM rebalances by redeeming haXXX for wCOLn (collateral SP) or hsXXX.COLn (leveraged SP). The SP's haXXX balance drops, and it receives liquid wCOLn or illiquid hsXXX.COLn.
+- Harbor: the StabilityPoolManager rebalances by redeeming haXXX for wrappedCollateral (collateral StabilityPool) or hsXXX.COLn (leveraged StabilityPool). The StabilityPool's haXXX balance drops, and it receives liquid wrappedCollateral or illiquid hsXXX.COLn.
 - f(x): the base pool rebalances by contributing stablecoins to buy back leveraged positions. The pool's stablecoin balance drops, and it receives underlying collateral.
-- Key difference: in Harbor, the rebalance is a loss-distribution event (SP depositors lose haXXX). In f(x), it's more of a swap (stablecoins for collateral at a bonus). Harbor's mechanism is closer to Liquity's liquidation model; f(x)'s is closer to a peg-stabilisation mechanism.
+- Key difference: in Harbor, the rebalance is a loss-distribution event (StabilityPool depositors lose haXXX). In f(x), it's more of a swap (stablecoins for collateral at a bonus). Harbor's mechanism is closer to Liquity's liquidation model; f(x)'s is closer to a peg-stabilisation mechanism.
 
 ## SavingFxUSD (fxSAVE)
 
@@ -145,7 +145,7 @@ Aladdin's old system (`ShareableRebalancePool` in `aladdin-v3-contracts`) used t
   2. **Per-deposit precision** — each depositor's loss is tracked from their exact entry point
   3. **Battle-tested** — the same mechanism runs in Liquity ($1B+ TVL) and has been audited extensively
   4. **Reward integrals** — the same product feeds into harvest reward distribution, giving proportional rewards without iteration
-- The downside (complexity, epoch/scale/exponent tracking) is already implemented and working in SP_v3
+- The downside (complexity, epoch/scale/exponent tracking) is already implemented and working in StabilityPool_v3
 
 **What Harbor gains from NOT changing:**
 - The auto-compounder can rely on `claimable()` being accurate per-depositor without any sync calls
@@ -155,13 +155,13 @@ Aladdin's old system (`ShareableRebalancePool` in `aladdin-v3-contracts`) used t
 
 | Aspect | fxSAVE | Harbor |
 |--------|--------|--------|
-| Stability pool assets | fxUSD + USDC in one pool | Multiple SPs per peg (one per collateral) |
-| Equivalent handling | USDC is native pool asset | wXXXn held at PV level, wCOLn from failed mints |
-| Rebalance mechanism | Pool contributes fxUSD+USDC to reduce leverage | SP absorbs loss via Liquity product mechanism |
+| Stability pool assets | fxUSD + USDC in one pool | Multiple StabilityPools per peg (one per collateral) |
+| Equivalent handling | USDC is native pool asset | wXXXn held at PV level, wrappedCollateral from failed mints |
+| Rebalance mechanism | Pool contributes fxUSD+USDC to reduce leverage | StabilityPool absorbs loss via Liquity product mechanism |
 | Loss distribution | Simple total reduction | Per-deposit product tracking (no iteration) |
 | Withdrawal | Cooldown + proxy contracts | Dynamic fees (planned), atomic withdraw |
-| Auto-compound | Gauge rewards -> LP -> re-stake | SP rewards -> mint haXXX -> redeposit |
-| Layers | 2 (pool -> fxSAVE) | 3 (SP -> AC -> PV) |
+| Auto-compound | Gauge rewards -> LP -> re-stake | StabilityPool rewards -> mint haXXX -> redeposit |
+| Layers | 2 (pool -> fxSAVE) | 3 (StabilityPool -> AutoCompounder -> PV) |
 
 ## Audit Findings (OpenZeppelin f(x) v2)
 

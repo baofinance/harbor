@@ -652,7 +652,7 @@ Acceptance criteria:
 
 Acceptance criteria:
 1. The core protocol exposes the seams the yield layer needs: zero-fee-exempt withdrawal for
-   protocol-internal exits, and a dry-run forecast of what a deposit would credit.
+   protocol-internal exits, and a dry run of what a deposit would credit.
 2. Registered vaults are **poked automatically** after every rebalance and harvest, so compounding
    tracks reward arrival without a separate keeper schedule.
 3. A vault that fails to compound does **not** cause the rebalance or harvest to fail; the failure is
@@ -2275,7 +2275,7 @@ document, the section is given.
 | **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
 | **Genesis** | The bootstrap phase before a market opens (§5.1, §10.2) |
 | **Reset** | Correcting the recorded backing to match holdings, after a collateral impairment. Owner-only and manual (§6.7, §9.12) |
-| **Forecast function** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount. Named "dry run" in the code and in older documentation — the two mean the same thing (US-2) |
+| **Dry run** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount (US-2) |
 
 ### Structural
 

@@ -2,17 +2,19 @@
 
 Companion document to [`autocompounding-vault-design.md`](autocompounding-vault-design.md).
 
-This document describes **what we plan to implement** for the deployment flow once Campaign B (auto-compounding vaults) and Campaign H (ERC-20 permit) land. It's a forward-looking spec, not a description of the current deployer — see [`deployments/README.md`](../deployments/README.md) for the history of what's actually on-chain.
+A **forward-looking design** for the deployment flow covering the auto-compounding vaults and ERC-20 permit work. It describes the intended deployer rather than the one in the repository; for what is actually on-chain see [`deployments/README.md`](../deployments/README.md).
+
+Notation follows the nomenclature table in [`autocompounding-vault-design.md`](autocompounding-vault-design.md) — `haXXX` is the anchor token for peg `XXX`, `hyXXX` the HarborYield share token, `COLn` the *n*th collateral.
 
 ---
 
 ## 1. Goals
 
 - **Deterministic addresses via CREATE3**: every contract can be referenced by its predicted address before deployment.
-- **Incremental market addition**: a new market for a new collateral can be added to an existing peg without redeploying the peg's pegged token, HY, or any prior markets.
-- **Per-vault grief protection**: every share-issuing vault (AC_col, AC_lev, HY) has a dead-share seed deposited at deploy time.
-- **Fail fast**: pre-flight checks assert the deployer holds the required wCOLn before any on-chain work begins.
-- **Pre-existing detection mirrored across all shared-across-markets contracts**: the pegged token, the HY, and any future peg-level shared contract all follow the same `deployXxx = true/false` command-line switch pattern.
+- **Incremental market addition**: a new market for a new collateral can be added to an existing peg without redeploying the peg's pegged token, HarborYield, or any prior markets.
+- **Per-vault grief protection**: every share-issuing vault (AutoCompounder_collateral, AutoCompounder_leveraged, HarborYield) has a dead-share seed deposited at deploy time.
+- **Fail fast**: pre-flight checks assert the deployer holds the required wrappedCollateral before any on-chain work begins.
+- **Pre-existing detection mirrored across all shared-across-markets contracts**: the pegged token, the HarborYield, and any future peg-level shared contract all follow the same `deployXxx = true/false` command-line switch pattern.
 
 ## 2. Deployment units
 
@@ -21,7 +23,7 @@ This document describes **what we plan to implement** for the deployment flow on
 A **peg family** is everything tied to one pegged token (e.g., `haEUR`):
 
 - `PeggedToken` (one per peg, shared by all markets for the peg)
-- `HarborYield` (one per peg, registered against all collateral ACs for the peg)
+- `HarborYield` (one per peg, registered against all collateral AutoCompounders for the peg)
 
 Peg-family contracts are deployed **once per peg**. Adding a new market to an existing peg does NOT re-deploy peg-family contracts — it references them at their predicted addresses and adds the new market's contracts as dependents.
 
@@ -30,47 +32,45 @@ Peg-family contracts are deployed **once per peg**. Adding a new market to an ex
 A **market** is the per-(peg, collateral) unit:
 
 - One `Minter` (wraps the wrapped-collateral token, mints/burns the pegged token)
-- Two stability pools: `SP_col` (collateral pool, rebases into wCOLn on rebalance) and `SP_lev` (leveraged pool, rebases into the leveraged `hsXXX.COLn` token on rebalance)
-- Two auto-compounders: `AC_col` wraps `SP_col`, `AC_lev` wraps `SP_lev`. Both are ERC-4626 non-rebasing share tokens.
-- `Genesis`, `SPM`, per-market supporting contracts (same pattern as today)
+- Two stability pools: `StabilityPool_collateral` (collateral pool, rebases into wrappedCollateral on rebalance) and `StabilityPool_leveraged` (leveraged pool, rebases into the leveraged `hsXXX.COLn` token on rebalance)
+- Two auto-compounders: `AutoCompounder_collateral` wraps `StabilityPool_collateral`, `AutoCompounder_leveraged` wraps `StabilityPool_leveraged`. Both are ERC-4626 non-rebasing share tokens.
+- `Genesis`, `StabilityPoolManager`, per-market supporting contracts (same pattern as today)
 
-**Only `AC_col` is registered with the peg's HY.** `AC_lev` is standalone — leveraged SPs rebalance into an illiquid leveraged token and are intentionally not pooled with the collateral basket per the autocompounding vault design.
+**Only `AutoCompounder_collateral` is registered with the peg's HarborYield.** `AutoCompounder_leveraged` is standalone — leveraged StabilityPools rebalance into an illiquid leveraged token and are intentionally not pooled with the collateral basket per the autocompounding vault design.
 
 ### 2.3 Dependency graph
 
 ```
-                      ┌────────────┐
-                      │ PeggedToken│  (one per peg — peg family)
-                      └─────┬──────┘
-                            │
-              ┌─────────────┼─────────────┐
-              │             │             │
-              ▼             ▼             ▼
-         ┌────────┐   ┌────────┐    ┌────────┐
-         │ Minter │   │ Minter │    │ Minter │   (one per market)
-         │ col A  │   │ col B  │    │ col C  │
-         └───┬────┘   └───┬────┘    └───┬────┘
-             │            │             │
-        ┌────┼────┐  ┌────┼────┐   ┌────┼────┐
-        │    │    │  │    │    │   │    │    │
-        ▼    ▼    ▼  ▼    ▼    ▼   ▼    ▼    ▼
-       SP_  SP_  ... SP_  SP_  ... (col + lev per market)
-       col  lev     col  lev
-        │    │       │    │
-        ▼    ▼       ▼    ▼
-       AC_  AC_     AC_  AC_        (col + lev per market)
-       col  lev     col  lev
-        │            │
-        └──────┬─────┘
-               ▼
-        ┌─────────────┐
-        │ HarborYield │  (one per peg — peg family, holds AC_col only)
-        └─────────────┘
+                          ┌─────────────┐
+                          │ PeggedToken │   (one per peg — peg family)
+                          └──────┬──────┘
+                                 │
+             ┌───────────────────┼───────────────────┐
+             ▼                   ▼                   ▼
+      ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+      │    Minter    │    │    Minter    │    │    Minter    │   (one per market)
+      │ collateral A │    │ collateral B │    │ collateral C │
+      └───────┬──────┘    └───────┬──────┘    └───────┬──────┘
+              │                   │                   │
+      ┌───────┴───────┐           │                   │
+      ▼               ▼           ▼                   ▼
+ StabilityPool   StabilityPool   ...                 ...     (one collateral and one
+   collateral      leveraged                                  leveraged, per market)
+      │               │
+      ▼               ▼
+AutoCompounder  AutoCompounder   ...                 ...     (one per stability pool)
+   collateral      leveraged
+      │
+      └───────────────────────────┬───────────────────┘
+                                  ▼
+                          ┌───────────────┐
+                          │  HarborYield  │   (one per peg — peg family; holds the
+                          └───────────────┘    collateral AutoCompounders only)
 ```
 
 ## 3. Command-line switches (mirrored pattern)
 
-Both peg-family contracts share the same "deploy fresh vs reuse existing" switch pattern. The existing script already does this for the pegged token; we extend it to HY.
+Both peg-family contracts share the same "deploy fresh vs reuse existing" switch pattern. The existing script already does this for the pegged token; we extend it to HarborYield.
 
 ```solidity
 function deployForPeg(
@@ -79,7 +79,7 @@ function deployForPeg(
     Config_MinterMarket[] memory allMarkets,       // all markets that will ever use this peg
     string memory network,
     bool deployPeg,                                // switch: deploy pegged token fresh?
-    bool deployHY,                                 // NEW switch: deploy HY fresh?
+    bool deployHarborYield,                                 // NEW switch: deploy HarborYield fresh?
     Config_MinterMarket[] memory marketsToDeploy   // subset being deployed this invocation
 ) internal;
 ```
@@ -87,7 +87,7 @@ function deployForPeg(
 | Flag | `true` | `false` |
 |---|---|---|
 | `deployPeg` | Deploy pegged token fresh, grant minter/burner roles directly | Detect at predicted address, log manual `grantRoles` TXs for the new markets |
-| `deployHY` | Deploy HY fresh, call `addVault` directly, seed HY | Detect at predicted address, call or log `addVault` for the new markets' AC_col, SKIP seed |
+| `deployHarborYield` | Deploy HarborYield fresh, call `addVault` directly, seed HarborYield | Detect at predicted address, call or log `addVault` for the new markets' AutoCompounder_collateral, SKIP seed |
 
 **Auto-detection via `code.length > 0`** is already used in `PeggedToken.deployPeggedTokenWithRoles`. The explicit command-line flag is still required (not replaced) because it documents intent and guards against accidentally using a mis-predicted address. Auto-detection acts as a sanity check on the flag.
 
@@ -95,69 +95,69 @@ function deployForPeg(
 
 This is the deploy invocation for "new peg, one market."
 
-**Flags:** `deployPeg = true`, `deployHY = true`, `marketsToDeploy = [market_X]`
+**Flags:** `deployPeg = true`, `deployHarborYield = true`, `marketsToDeploy = [market_X]`
 
 ```
 Pre-flight:
-  - Deployer holds ≥ 3×wCOL_seed of wCOL_X
+  - Deployer holds ≥ 3×wrappedCollateral_seed of wrappedCollateral_X
   - Deployer has ZERO_FEE_ROLE grantable on the about-to-be-deployed Minter
     (granted by the script as part of the deploy flow)
 
 Deploy:
   1. Deploy PeggedToken (haXXX)
-  2. Deploy Minter_X, SP_col_X, SP_lev_X, Genesis_X, SPM_X
-  3. Deploy AC_col_X (wraps SP_col_X)
-  4. Deploy AC_lev_X (wraps SP_lev_X)
+  2. Deploy Minter_X, StabilityPool_collateral_X, StabilityPool_leveraged_X, Genesis_X, StabilityPoolManager_X
+  3. Deploy AutoCompounder_collateral_X (wraps StabilityPool_collateral_X)
+  4. Deploy AutoCompounder_leveraged_X (wraps StabilityPool_leveraged_X)
   5. Grant:
-     - AC_col_X has EXEMPT_WITHDRAWAL_FEE_ROLE on SP_col_X
-     - AC_lev_X has EXEMPT_WITHDRAWAL_FEE_ROLE on SP_lev_X
+     - AutoCompounder_collateral_X has EXEMPT_WITHDRAWAL_FEE_ROLE on StabilityPool_collateral_X
+     - AutoCompounder_leveraged_X has EXEMPT_WITHDRAWAL_FEE_ROLE on StabilityPool_leveraged_X
      - deployer has ZERO_FEE_ROLE on Minter_X  (temporary)
-     - deployer approves AC_col_X, AC_lev_X, SP_col_X, HY to spend haXXX / SP_col_X
+     - deployer approves AutoCompounder_collateral_X, AutoCompounder_leveraged_X, StabilityPool_collateral_X, HarborYield to spend haXXX / StabilityPool_collateral_X
 
-Seed ACs (AC_col before HY):
-  6. Seed AC_col_X via AC.depositPeggedToken(haAmt, 0xdead)
-  7. Seed AC_lev_X via AC.depositPeggedToken(haAmt, 0xdead)
+Seed AutoCompounders (AutoCompounder_collateral before HarborYield):
+  6. Seed AutoCompounder_collateral_X via AutoCompounder.depositPeggedToken(haAmt, 0xdead)
+  7. Seed AutoCompounder_leveraged_X via AutoCompounder.depositPeggedToken(haAmt, 0xdead)
 
-Deploy and seed HY:
-  8. Deploy HY (hyXXX)
-  9. HY.addVault(AC_col_X, weight_X, isAutoCompounder=true)
-  10. Seed HY via the multi-step sequence:
-      - Minter.freeMintPeggedToken(wCOL, deployer) → haXXX
-      - SP_col_X.deposit(haXXX, deployer, 0) → hpXXX
-      - HY.deposit(SP_col_X, hpAmt, 0xdead)
-         ↪ internally: HY forwards to AC_col_X.deposit;
-                       AC_col_X mints hcXXX to HY
+Deploy and seed HarborYield:
+  8. Deploy HarborYield (hyXXX)
+  9. HarborYield.addVault(AutoCompounder_collateral_X, weight_X, isAutoCompounder=true)
+  10. Seed HarborYield via the multi-step sequence:
+      - Minter.freeMintPeggedToken(wrappedCollateral, deployer) → haXXX
+      - StabilityPool_collateral_X.deposit(haXXX, deployer, 0) → hpXXX
+      - HarborYield.deposit(StabilityPool_collateral_X, hpAmt, 0xdead)
+         ↪ internally: HarborYield forwards to AutoCompounder_collateral_X.deposit;
+                       AutoCompounder_collateral_X mints hcXXX to HarborYield
 
 Finalize:
   11. Revoke deployer's ZERO_FEE_ROLE on Minter_X
   12. Transfer ownership of all new contracts to the harbor multisig
 
 Post-deploy assertions:
-  - AC_col_X.totalSupply() > 0, AC_col_X.balanceOf(0xdead) > 0
-  - AC_lev_X.totalSupply() > 0, AC_lev_X.balanceOf(0xdead) > 0
-  - HY.totalSupply() > 0, HY.balanceOf(0xdead) > 0
-  - HY.vaultCount() == 1
-  - AC_col_X.balanceOf(address(HY)) > 0
+  - AutoCompounder_collateral_X.totalSupply() > 0, AutoCompounder_collateral_X.balanceOf(0xdead) > 0
+  - AutoCompounder_leveraged_X.totalSupply() > 0, AutoCompounder_leveraged_X.balanceOf(0xdead) > 0
+  - HarborYield.totalSupply() > 0, HarborYield.balanceOf(0xdead) > 0
+  - HarborYield.vaultCount() == 1
+  - AutoCompounder_collateral_X.balanceOf(address(HarborYield)) > 0
 ```
 
 ## 5. Additional-market deployment flow
 
 This is the deploy invocation for "existing peg, one new market."
 
-**Flags:** `deployPeg = false`, `deployHY = false`, `marketsToDeploy = [market_Y]`, `allMarkets = [market_X, market_Y, ...]`
+**Flags:** `deployPeg = false`, `deployHarborYield = false`, `marketsToDeploy = [market_Y]`, `allMarkets = [market_X, market_Y, ...]`
 
 ```
 Pre-flight:
-  - Deployer holds ≥ 2×wCOL_seed of wCOL_Y (no HY seed this time)
+  - Deployer holds ≥ 2×wrappedCollateral_seed of wrappedCollateral_Y (no HarborYield seed this time)
   - PeggedToken at _predictAddress(pegKey, "pegged") has code
-  - HY at _predictAddress(pegKey, "harborYield") has code
+  - HarborYield at _predictAddress(pegKey, "harborYield") has code
   - If either is missing, script fails fast: "expected pre-existing X, not found at Y"
 
 Deploy:
   1. SKIP PeggedToken — already exists
-  2. Deploy Minter_Y, SP_col_Y, SP_lev_Y, Genesis_Y, SPM_Y
-  3. Deploy AC_col_Y, AC_lev_Y
-  4. Grant EXEMPT_WITHDRAWAL_FEE_ROLE on each SP to its corresponding AC
+  2. Deploy Minter_Y, StabilityPool_collateral_Y, StabilityPool_leveraged_Y, Genesis_Y, StabilityPoolManager_Y
+  3. Deploy AutoCompounder_collateral_Y, AutoCompounder_leveraged_Y
+  4. Grant EXEMPT_WITHDRAWAL_FEE_ROLE on each StabilityPool to its corresponding AutoCompounder
      Grant deployer ZERO_FEE_ROLE on Minter_Y
   5. If PeggedToken ownership is on the multisig:
         - LOG manual grantRoles TX for Minter_Y (minter + burner on PeggedToken)
@@ -165,23 +165,23 @@ Deploy:
      Otherwise:
         - Call grantRoles directly (deployer still has ownership)
 
-Seed ACs (both for the new market):
-  6. Seed AC_col_Y, AC_lev_Y via depositPeggedToken to 0xdead
+Seed AutoCompounders (both for the new market):
+  6. Seed AutoCompounder_collateral_Y, AutoCompounder_leveraged_Y via depositPeggedToken to 0xdead
 
-Add to existing HY (no HY re-seed):
-  7. If HY ownership is on the multisig:
-        - LOG manual HY.addVault TX for AC_col_Y
+Add to existing HarborYield (no HarborYield re-seed):
+  7. If HarborYield ownership is on the multisig:
+        - LOG manual HarborYield.addVault TX for AutoCompounder_collateral_Y
      Otherwise:
-        - Call HY.addVault(AC_col_Y, weight_Y, true) directly
+        - Call HarborYield.addVault(AutoCompounder_collateral_Y, weight_Y, true) directly
 
 Finalize:
   8. Revoke deployer's ZERO_FEE_ROLE on Minter_Y
   9. Transfer ownership of new contracts
 
 Post-deploy assertions:
-  - AC_col_Y / AC_lev_Y seeded (new-market invariants)
-  - HY.totalSupply() unchanged from pre-deploy (no new seed)
-  - HY.vaultCount() incremented by 1 (if addVault called directly)
+  - AutoCompounder_collateral_Y / AutoCompounder_leveraged_Y seeded (new-market invariants)
+  - HarborYield.totalSupply() unchanged from pre-deploy (no new seed)
+  - HarborYield.vaultCount() incremented by 1 (if addVault called directly)
     OR: manual TX list emitted for multisig to execute
 ```
 
@@ -191,22 +191,22 @@ The `marketsToDeploy` parameter already allows deploying multiple markets in one
 
 ```
 For each market in marketsToDeploy:
-    - Deploy market's Minter/SP/AC pair
-    - Seed market's AC_col and AC_lev
-    - If first market for this peg AND deployHY = true:
-        - Deploy HY
-        - Seed HY via this market's SP_col
-        - addVault for this market's AC_col
+    - Deploy market's Minter/StabilityPool/AutoCompounder pair
+    - Seed market's AutoCompounder_collateral and AutoCompounder_leveraged
+    - If first market for this peg AND deployHarborYield = true:
+        - Deploy HarborYield
+        - Seed HarborYield via this market's StabilityPool_collateral
+        - addVault for this market's AutoCompounder_collateral
     - Else:
-        - addVault for this market's AC_col on the existing/just-deployed HY
+        - addVault for this market's AutoCompounder_collateral on the existing/just-deployed HarborYield
 ```
 
-Pre-flight wCOLn tally:
+Pre-flight wrappedCollateral tally:
 ```
-required_per_market = 2 × wCOL_seed    (AC_col + AC_lev)
-required_hy_seed    = 1 × wCOL_seed    (if deployHY = true, first market only)
+required_per_market = 2 × wrappedCollateral_seed    (AutoCompounder_collateral + AutoCompounder_leveraged)
+required_hy_seed    = 1 × wrappedCollateral_seed    (if deployHarborYield = true, first market only)
 
-total_required[collateral] = required_per_market × markets_using_that_collateral
+total_required[collateral] = required_per_market × markets_using_that_collaterallateral
                             + (required_hy_seed if this collateral is the first market's collateral for a new-peg deploy)
 ```
 
@@ -220,15 +220,15 @@ total_required[collateral] = required_per_market × markets_using_that_collatera
   a material amount at `address(0xdead)` on the first non-18-decimal collateral.
 - **Recipient**: `address(0xdead)` for all seeds (not `address(0)` — solidity semantics differ for some tokens).
 - **Rationale**: closes the first-depositor griefing window (solady's virtual shares defaults already prevent the profit-stealing flavor of the inflation attack). The seed also sanity-checks the full deposit path at deploy time, catching any wiring error before a real user transacts.
-- **Ordering**: AC_col must seed before HY, so AC_col has its own independent dead-share floor rather than inheriting protection from HY's pass-through.
+- **Ordering**: AutoCompounder_collateral must seed before HarborYield, so AutoCompounder_collateral has its own independent dead-share floor rather than inheriting protection from HarborYield's pass-through.
 
 ## 8. Pre-flight checklist
 
 Before the script begins any on-chain work, it asserts:
 
-1. **Deployer wCOLn holdings**: per the tally formula above.
+1. **Deployer wrappedCollateral holdings**: per the tally formula above.
 2. **Salt prefix uniqueness**: no existing contract at the predicted salt for contracts being freshly deployed.
-3. **Pre-existing contract verification**: if `deployPeg = false`, `_predictAddress(peg, "pegged").code.length > 0`. Same for HY if `deployHY = false`.
+3. **Pre-existing contract verification**: if `deployPeg = false`, `_predictAddress(peg, "pegged").code.length > 0`. Same for HarborYield if `deployHarborYield = false`.
 4. **Role prerequisites**: the deployer can be granted `ZERO_FEE_ROLE` on the about-to-be-deployed Minters (which is always true because the deployer owns them at deploy time).
 5. **Configured markets match peg**: every market in `marketsToDeploy` and `allMarkets` has `peg == pegKey` (existing check).
 
@@ -239,7 +239,7 @@ Failing any pre-flight check reverts the entire deploy before any on-chain trans
 | | Production (mainnet) | Test (fork, forge test) |
 |---|---|---|
 | Deployer | Multisig / deployer EOA | `address(this)` in the test |
-| wCOLn funding | Pre-funded before deploy script runs | `deal()` cheat in test harness |
+| wrappedCollateral funding | Pre-funded before deploy script runs | `deal()` cheat in test harness |
 | Free-mint role | Granted and revoked by script | Granted via `vm.prank(HARBOR_MULTISIG)` in setup |
 | Ownership transfer | Deployer → multisig, standard handoff | Left with `address(this)` for test assertions |
 | Pre-existing detection | Auto-detect + explicit flag both checked | Explicit flag only (tests don't simulate prior deployments in-place) |
@@ -346,7 +346,7 @@ they stay setters because live markets are retuned by multisig batch (`script/Up
 
 - ~~**Seed size is per-market**, but different collaterals have wildly different decimals (wBTC is 8, wstETH is 18). Should the wrapped-collateral seed be `1e12` universally or `10^(decimals / 2)` per collateral?~~ **Resolved — neither.** A universal base-unit constant is what §7 rejects: `1e12` is 1e-6 of an 18-decimal token but 10,000 whole tokens of an 8-decimal one. The seed is denominated in *pegged* tokens as the peg's configured `minDeposit()`, and `HarborYieldDeployStack._wrappedCollateralSeedAmount` converts it at the oracle's min price and rate, so it carries no `decimals()` assumption to handle.
 - **Weight choice for `HarborYield.addVault`** when adding a new market to an existing HarborYield: use the market's config value (if set) or fall back to a default (e.g., equal weight). Currently undefined.
-- **Leveraged AC weight for HY**: N/A — AC_lev is not registered with HY by design. Document this explicitly in the first-market-for-peg deploy log.
+- **Leveraged AutoCompounder weight for HarborYield**: N/A — AutoCompounder_leveraged is not registered with HarborYield by design. Document this explicitly in the first-market-for-peg deploy log.
 - **Seed during upgrade**: not applicable here — an upgrade preserves existing storage so the seed from the original deploy is still there. No action needed on upgrades.
 
 ## 12. References

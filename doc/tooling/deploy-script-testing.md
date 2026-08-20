@@ -14,7 +14,7 @@ configuration, and wiring are tested implicitly by every test run.
 - Test bases (`test/Minter_base.t.sol`) reimplement setup from scratch,
   manually creating proxies, granting roles, and configuring contracts.
 - The two paths can diverge silently. For example, every test grants
-  `ZERO_FEE_ROLE` to the SPM, but the actual mainnet deployment did not have
+  `ZERO_FEE_ROLE` to the StabilityPoolManager, but the actual mainnet deployment did not have
   this role granted correctly.
 
 ## Design
@@ -27,7 +27,7 @@ the code under test.
 Deploy script (script/src/contracts/Minter.sol)
 ├── deployMinter()              — creates proxy, records state (non-virtual)
 ├── configureMinter()           — sets oracle, reserve pool, fees (non-virtual)
-├── grantMinterRoles()          — grants HARVESTER, ZERO_FEE to SPM (non-virtual)
+├── grantMinterRoles()          — grants HARVESTER, ZERO_FEE to StabilityPoolManager (non-virtual)
 └── createWrappedCollateral()   — virtual: returns real wstETH address
 
 Test base (test/Minter_base.t.sol)
