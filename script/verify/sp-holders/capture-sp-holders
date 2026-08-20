@@ -41,6 +41,8 @@
 #   capture-sp-holders                       # scan at latest (the resolved block is recorded in each file)
 #   capture-sp-holders --dry-run             # print pool->address table, no API calls
 #   capture-sp-holders --to-block <number>   # pin a specific block - USE THIS for a migration capture
+#   capture-sp-holders --rerun               # redo the capture in --out-dir at ITS OWN block (retry a
+#                                            # failed/buggy run without moving the goalposts)
 #   capture-sp-holders --out-dir tmp/holders-rerun   # for an independent cross-check capture
 
 set -euo pipefail
@@ -54,7 +56,8 @@ cd "$(git rev-parse --show-toplevel)"
 
 CHAIN_ID=1
 FROM_BLOCK=24049000   # first harbor mainnet deployment (same as collect-holders)
-TO_BLOCK="latest"     # default: resolved to a concrete block (recorded in the output files)
+TO_BLOCK="latest"     # default: resolved to a concrete block NOW (recorded in the output files)
+RERUN=false           # --rerun: repeat the capture in --out-dir at ITS block, from its manifest
 OFFSET=1000           # Etherscan max records per page
 STATE_FILE="deployments/mainnet/harbor_v1.state.json"
 SALT_PREFIX="harbor_v1"
@@ -73,6 +76,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --from-block) FROM_BLOCK="$2"; shift 2 ;;
     --to-block)   TO_BLOCK="$2"; shift 2 ;;
+    --rerun)      RERUN=true; shift ;;
     --out-dir)    OUT_DIR="$2"; shift 2 ;;
     --dry-run)    DRY_RUN=true; shift ;;
     --no-filter)  FILTER=false; shift ;;
@@ -203,11 +207,31 @@ fi
 
 : "${ETHERSCAN_KEY:?Set ETHERSCAN_KEY in .env or environment}"
 
-# Resolve "latest" to a concrete block NOW, so the scan, the file headers, and the
-# filter all use the SAME block. The concrete number is written into the output files
-# (never the word "latest"), which makes the capture reproducible and self-documenting
-# (each file records its "# to-block: <N>"). (set -e does not catch failures in
-# command-substitution assignments, so check the result explicitly.)
+# --rerun: repeat an existing capture AT ITS OWN BLOCK, taken from its manifest. This is
+# the retry path - the capture failed part way, or its mechanics were wrong and the code
+# has been fixed - and re-running it must NOT quietly advance to a newer block, because
+# then the retry answers a different question than the run it replaces and the two cannot
+# be compared. Reproducing a capture and taking a fresh one are different acts; --rerun is
+# the first, plain (or --to-block) is the second.
+if [[ "$RERUN" == true ]]; then
+  rerun_manifest="${OUT_DIR}/manifest.txt"
+  if [[ ! -f "$rerun_manifest" ]]; then
+    echo "ERROR: --rerun needs a previous capture at ${OUT_DIR}/ (no manifest.txt)" >&2
+    exit 1
+  fi
+  TO_BLOCK=$(awk -F': *' '/^to-block:/ {print $2; exit}' "$rerun_manifest")
+  if [[ ! "$TO_BLOCK" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: no usable 'to-block:' in ${rerun_manifest} (got: '${TO_BLOCK}')" >&2
+    exit 1
+  fi
+  echo "# rerun: reusing block ${TO_BLOCK} from ${rerun_manifest}" >&2
+fi
+
+# Resolve "latest" to a concrete block NOW, so the scan and the file headers all use the
+# SAME block. The concrete number is written into the output files (never the word
+# "latest"), which makes the capture reproducible and self-documenting (each file records
+# its "# to-block: <N>"). (set -e does not catch failures in command-substitution
+# assignments, so check the result explicitly.)
 if [[ "$TO_BLOCK" == "latest" ]]; then
   TO_BLOCK=$(cast block-number --rpc-url "$RPC") || { echo "ERROR: cast block-number failed (rpc: $RPC)" >&2; exit 1; }
   echo "# resolved latest -> block ${TO_BLOCK}" >&2
@@ -255,7 +279,18 @@ for salt in "${SALTS[@]}"; do
   echo "    ${salt}: ${#owners[@]} holders -> ${out_file}" >&2
 done
 
-echo "# raw discovery done -> ${OUT_DIR}/" >&2
+# Manifest: the one file a consumer must read to use this capture. It carries the block
+# the scan ran to, so a checker forks at the block the holders were captured at rather
+# than being told separately - the two can then never disagree, which is the whole class
+# of bug that a hand-maintained "capture block" constant invites.
+{
+  echo "# Harbor stability pool holder capture"
+  echo "to-block: ${TO_BLOCK}"
+  echo "from-block: ${FROM_BLOCK}"
+  echo "pools: ${#SALTS[@]}"
+} > "${OUT_DIR}/manifest.txt"
+
+echo "# raw discovery done -> ${OUT_DIR}/ (manifest.txt carries to-block ${TO_BLOCK})" >&2
 
 # No filter step: this copy emits the raw, over-approximating list and stops. Deciding
 # which of those holders a given migration must touch is that migration's own business -

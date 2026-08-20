@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Check whether every deployed StabilityPool is safe to upgrade v2 -> v3, against a given holder capture.
+#
+# The capture is a REQUIRED argument rather than a default, deliberately. Every failure this pre-flight
+# exists to catch has, at some point, been caused by measuring the right thing against the wrong input -
+# holders from one block compared with supply at another. A default would let that happen silently, by
+# picking up whatever capture happened to be lying in tmp/. Naming it is one word, and it is the word
+# that makes the answer mean something.
+#
+# The block is NOT a parameter: it is read from the capture's own manifest, so the run always measures
+# chain state at the block its holder list was scanned to. The two cannot disagree.
+#
+# Usage:
+#   run-migration-preflight --holders-dir tmp/sp-holders          # check that capture
+#   run-migration-preflight --holders-dir tmp/sp-holders --list   # list the checks
+#
+# Produce a capture first with:
+#   script/verify/sp-holders/capture-sp-holders --to-block <block>
+#
+# Needs MAINNET_RPC_URL, archival at the capture's block.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/../../.."
+
+TEST_PATH="script/verify/sp-v3-reward-divisor-migration/StabilityPoolMigrationPreflight.t.sol"
+FORGE_VERBOSITY="${FORGE_VERBOSITY:--vv}"
+
+HOLDERS_DIR=""
+LIST=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --holders-dir) HOLDERS_DIR="$2"; shift 2 ;;
+    --list)        LIST=true; shift ;;
+    -h|--help)     sed -n '2,20p' "$0"; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -z "$HOLDERS_DIR" ]]; then
+  echo "ERROR: --holders-dir is required (the capture to check)" >&2
+  echo "       produce one with: script/verify/sp-holders/capture-sp-holders --to-block <block>" >&2
+  exit 1
+fi
+if [[ ! -f "${HOLDERS_DIR}/manifest.txt" ]]; then
+  echo "ERROR: ${HOLDERS_DIR} is not a capture (no manifest.txt)" >&2
+  exit 1
+fi
+
+echo "# checking capture ${HOLDERS_DIR} ($(grep '^to-block:' "${HOLDERS_DIR}/manifest.txt"))" >&2
+
+if [[ "$LIST" == true ]]; then
+  forge test --mp "$TEST_PATH" --list
+else
+  # The env var is how this wrapper hands the choice to forge, which takes no arguments of its own -
+  # internal plumbing, not a user-facing knob. Users say --holders-dir; nothing reads SP_HOLDERS_DIR
+  # except the test this line invokes.
+  SP_HOLDERS_DIR="$HOLDERS_DIR" forge test --mp "$TEST_PATH" $FORGE_VERBOSITY
+fi

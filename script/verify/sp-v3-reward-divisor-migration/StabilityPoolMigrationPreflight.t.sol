@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 import {IStabilityPool} from "@harbor/interfaces/IStabilityPool.sol";
 import {IMultipleRewardAccumulator} from "@harbor/interfaces/IMultipleRewardAccumulator.sol";
@@ -35,16 +36,18 @@ import {Deploy_SILVER_Minter} from "@harbor-script/src/Deploy_SILVER_Minter.sol"
 ///
 ///         PASSES iff every deployed pool is `plain` or `empty` (a plain all-pools upgrade is safe), sits within the
 ///         supply ceiling, AND the measurement is reliable. FAILS - naming the pool - if any needs a `seed`, exceeds
-///         the ceiling, has an incomplete/stale holder list, or the harness did not run.
-///         Per-pool results -> ./results/sp-pool-gaps.csv.
+///         the ceiling, has an incomplete/stale holder list, or the harness did not run. Per-pool detail is logged;
+///         nothing is written to disk, because a run against a provisional capture has nothing worth keeping until the
+///         upgrade it gates has been verified end to end.
 ///
 ///         RUN AT MIGRATION TIME:
 ///           1. Pause the pools (freeze state) and re-capture the holder .txt files up to the migration block.
-///           2. Set CAPTURE_BLOCK to that block.
+///           2. Point SP_HOLDERS_DIR at that capture (the block comes from its manifest).
 ///           3. `forge test --mc StabilityPoolMigrationPreflight -vv`  (needs MAINNET_RPC_URL, archival at the block).
 ///           4. Green -> plain-upgrade every pool. Red -> the message names the pool(s) to seed or re-capture.
 ///
-///         Read-only. Reuses the market enumeration + captured holder files from Migrate_StabilityPool_v2_Data_mainnet.
+///         Read-only. Pools are enumerated through the deploy scripts' own salt derivation, so this can never check a
+///         different set than the deploy touches; holders come from the capture named by SP_HOLDERS_DIR.
 contract StabilityPoolMigrationPreflight is
     Test,
     Deploy_BTC_Minter,
@@ -54,32 +57,24 @@ contract StabilityPoolMigrationPreflight is
     Deploy_MCAP_Minter,
     Deploy_SILVER_Minter
 {
-    /// @dev The captured holder lists (bare `0x...` = holder; `# no-work: 0x...` = holder that needed no
-    ///      reward-migration work but still holds a balance; other `#` lines = header). BOTH address forms count.
-    string internal constant HOLDERS_DIR = "script/Migrate_StabilityPool_v2_Data_mainnet/";
-    /// @dev The block the holder lists were captured to (their `# to-block`), so the sum is over the complete set.
-    ///      At migration time, re-capture the lists to the migration block and set this to it.
-    uint256 internal constant CAPTURE_BLOCK = 25272609;
+    /// @dev The capture this run checks, as produced by `script/verify/sp-holders/capture-sp-holders`. Set
+    ///      `SP_HOLDERS_DIR` to point at one; the default is the capture tool's own default, which is deliberately
+    ///      NON-PERMANENT. A capture is provisional until an upgrade using it has been verified end to end - only then
+    ///      is it worth keeping - so nothing here reads from, or writes to, a tracked location.
+    using LibString for string;
+
+    string internal constant DEFAULT_HOLDERS_DIR = "tmp/sp-holders/";
+    /// @dev The capture directory in use, and the block its scan ran to - read from the capture's own manifest rather
+    ///      than configured here. Holding the block as a constant beside a separately-supplied holder list is what lets
+    ///      the two drift apart, and a run that measures supply at one block against holders from another is silently
+    ///      wrong: it was reporting 45 already-migrated pairs as live defects until the block was checked.
+    string internal holdersDir;
+    uint256 internal captureBlock;
     /// @dev A gap above this fraction of supply (parts-per-billion) is not rounding dust - the holder list is
     ///      stale/incomplete and must be re-captured. Legitimate gaps measure ~0 ppb; the incomplete-list artifact
     ///      measures ~9e8 ppb, so this cleanly separates them.
     uint256 internal constant MAX_REL_GAP_PPB = 1_000_000; // 0.1% of supply
 
-    /// @dev Output path for a result set, stamped with the capture block. The two files answer different questions -
-    ///      the gap classification, and which per-user snapshots move - for different consumers, so they stay separate.
-    ///
-    ///      The block is in the NAME so a run at a new block writes a new file instead of overwriting the old one: the
-    ///      pre-migration and post-migration censuses are precisely the evidence that a migration step did its job
-    ///      (e.g. V1-resident pairs going 45 -> 0 across the force-migrate), and one overwritten file cannot show both.
-    ///      It is repeated in a `# to-block:` header INSIDE each file - matching the header the holder lists these are
-    ///      derived from already carry - so a copied, renamed or pasted CSV is still self-describing.
-    ///
-    ///      This is provenance, NOT a cache: the expensive part (the archive reads) is already cached per block by
-    ///      foundry's own fork cache, and the assertions are computed from those reads - so nothing here may be skipped
-    ///      when a file already exists, or the run would go green without checking anything.
-    function _csvPath(string memory name) internal view returns (string memory) {
-        return string.concat("./results/", name, "-", vm.toString(CAPTURE_BLOCK), ".csv");
-    }
 
     uint256 internal deployedCount;
     uint256 internal negativeGapCount; // pools that need a seed (Sum(balanceOf) > supply)
@@ -94,7 +89,7 @@ contract StabilityPoolMigrationPreflight is
     /// @dev The accumulator's ERC-7201 namespace, and the member offsets of the two per-user snapshot mappings within
     ///      it. V2 and V3 agree on the first four members, so `userRewardSnapshotV2` sits at offset 3 under both; V3
     ///      adds its widened mapping at offset 4. Read directly because the live V2 pool exposes no getter for the
-    ///      checkpoint `integral` - and the integral is the field that MUST be copied (see `_censusClaimData`).
+    ///      checkpoint `integral` - and the integral is the field that MUST be copied (see `_locateRewardSnapshots`).
     bytes32 internal constant _ACCUMULATOR_STORAGE = 0x47ddc56aaabfe9761e2e64ce86720771c5fd1fd7ef0605da74e07d71de0e7900;
     uint256 internal constant _SNAPSHOT_V1_OFFSET = 2;
     uint256 internal constant _SNAPSHOT_V2_OFFSET = 3;
@@ -123,8 +118,15 @@ contract StabilityPoolMigrationPreflight is
         slot = uint256(keccak256(abi.encode(token, inner)));
     }
 
-    /// @dev Census the per-(holder, token) reward snapshots the ClaimData migration must copy, and pin the invariant
-    ///      that the copy's completeness rests on.
+    /// @dev Determine, for EVERY `(holder, token)` pair, which storage location holds that pair's live reward snapshot
+    ///      - and count each outcome. The population is every holder in the capture crossed with the pool's active and
+    ///      historical reward tokens; the outcome is one of: still in the V1 mapping, in the V2 mapping, already in the
+    ///      V3 mapping, or no data at all. Exhaustive by construction, never sampled: one holder whose snapshot the
+    ///      copy fails to find loses their `pending` and starts accruing from a zero checkpoint.
+    ///
+    ///      This MEASURES; it does not judge. What the counts should be depends on which side of the upgrade the run
+    ///      sits (see the report in `test_migrationPreflight`), so the phase-dependent expectations belong to the
+    ///      caller, which knows the phase.
     ///
     ///      V3 relocated the per-user snapshot to a NEW mapping (`ClaimData` uint128/uint128 -> `ClaimDataV3`
     ///      uint256/uint256) and `_claimable`/`_checkpoint` read ONLY the new one - there is no lazy fallback to the V2
@@ -139,12 +141,12 @@ contract StabilityPoolMigrationPreflight is
     ///      - REWARD-DATA COVERAGE. The gap check compares Sum(balanceOf) against supply, so it only proves the list
     ///        covers holders with a BALANCE. A holder who fully withdrew has balanceOf 0 - invisible to the gap check -
     ///        yet can still carry `claimed` history and unclaimed `pending` that must be copied.
-    function _censusClaimData(
+    function _locateRewardSnapshots(
         address pool,
         string memory saltKey,
         address[] memory holders
     ) internal returns (uint256 pairsToCopy, uint256 historicalCount, uint256 v1Pairs) {
-        // Census over active + historical: the two sets are disjoint (unregistering moves a token from one to the
+        // Walk active + historical: the two sets are disjoint (unregistering moves a token from one to the
         // other), so concatenating needs no de-duplication. Merged inside a scope so only the combined list stays live
         // through the loops below - this function is at the stack limit.
         address[] memory tokens;
@@ -202,7 +204,7 @@ contract StabilityPoolMigrationPreflight is
                     }
                 }
                 // Anchor the raw slot arithmetic against the contract's own getter, so a wrong namespace or member
-                // offset fails loudly here instead of silently reporting a census of zeros.
+                // offset fails loudly here instead of silently reporting all-zero locations.
                 assertEq(
                     rawClaimed,
                     IMultipleRewardAccumulator(pool).claimed(holders[h], tokens[t]),
@@ -248,24 +250,34 @@ contract StabilityPoolMigrationPreflight is
     }
 
     function setUp() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), CAPTURE_BLOCK);
+        holdersDir = vm.envOr("SP_HOLDERS_DIR", DEFAULT_HOLDERS_DIR);
+        if (!holdersDir.endsWith("/")) {
+            holdersDir = string.concat(holdersDir, "/");
+        }
+
+        // The capture states the block it ran to; this reads it rather than being told separately. A missing manifest
+        // means the directory is not a capture at all - fail here, naming it, rather than reading zero holders from
+        // every pool and reporting that as a finding about the pools.
+        string memory manifest = string.concat(holdersDir, "manifest.txt");
+        require(vm.isFile(manifest), string.concat("no capture manifest at ", manifest, " - run capture-sp-holders"));
+        while (true) {
+            string memory line = vm.readLine(manifest);
+            if (bytes(line).length == 0) {
+                break;
+            }
+            if (line.startsWith("to-block: ")) {
+                captureBlock = vm.parseUint(line.slice(10));
+                break;
+            }
+        }
+        vm.closeFile(manifest);
+        require(captureBlock != 0, string.concat("capture manifest has no `to-block:` line: ", manifest));
+
+        vm.createSelectFork(vm.rpcUrl("mainnet"), captureBlock);
         _setSaltPrefix("harbor_v1");
     }
 
     function test_migrationPreflight() public {
-        // No `generated:` timestamp alongside the block: these files are regenerated often and tracked in git, so a
-        // timestamp would produce a diff on every run even when the measurement is identical. The block is the
-        // provenance that matters - the same data always comes back from the same block.
-        string memory toBlock = string.concat("# to-block: ", vm.toString(CAPTURE_BLOCK), "\n");
-        vm.writeFile(
-            _csvPath("sp-pool-gaps"),
-            string.concat(toBlock, "pool,action,totalSupply,sumBalanceOf,gap,relGapPpb\n")
-        );
-        vm.writeFile(
-            _csvPath("sp-pool-claimdata"),
-            string.concat(toBlock, "pool,holders,claimDataPairsToCopy,claimDataPairsStillOnV1,historicalTokens\n")
-        );
-
         Config_MinterMarket[] memory markets;
         (, markets) = createBTCMintersConfig();
         _scan(markets);
@@ -292,31 +304,29 @@ contract StabilityPoolMigrationPreflight is
             "a pool's supply exceeds the v3 supply ceiling - re-base its floor before migrating"
         );
 
+        // REPORTED, not asserted. These three counts are the measurement; what they SHOULD be depends on which side of
+        // the upgrade this run sits, and only the caller knows that. Before the upgrade every pool still runs a v2
+        // implementation, which cannot write the v3 mapping, so `onV3` is 0 by construction and asserting it proves
+        // nothing; after the upgrade the same number is the evidence the copy ran, and must equal `withV2Data`.
+        // Asserting either value here would make one of the two runs fail on a correct upgrade.
         console.log(
-            "ClaimData census: %d (holder, token) pairs to copy, %d still on V1, %d already on V3",
+            "reward snapshots: %d pairs with V2 data, %d still on V1, %d on V3",
             claimDataPairsToCopy,
             claimDataPairsStillOnV1,
             claimDataPairsAlreadyV3
         );
 
-        // The upgrader copies each holder's snapshot over `activeRewardTokens` only. That set is complete exactly while
-        // no reward token has ever been unregistered; if one ever is, holders can hold `pending` on it and the copy
-        // must widen to active + historical before this migration can run.
+        // The copy walks each holder against `activeRewardTokens` only. That set is complete exactly while no reward
+        // token has ever been unregistered; if one ever is, holders can hold `pending` on it and the copy must widen to
+        // active + historical before this migration can run. True on both sides of the upgrade.
         assertEq(
             historicalTokenCount,
             0,
-            "a pool has unregistered reward tokens - the upgrader's active-only ClaimData copy would miss them"
-        );
-        // Pre-migration every pool is still on V2, so nothing may be sitting in the V3 mapping. A non-zero count means
-        // either a pool was already migrated (this run is stale) or the snapshot slot arithmetic is wrong.
-        assertEq(
-            claimDataPairsAlreadyV3,
-            0,
-            "a (holder, token) pair already carries V3 snapshot data - pool already migrated, or slot math wrong"
+            "a pool has unregistered reward tokens - the active-only ClaimData copy would miss them"
         );
         // The whole point of the ClaimData copy: if there were nothing to copy, the upgrader's holder loop would be
         // dead code and this pre-flight would be silently vacuous.
-        assertGt(claimDataPairsToCopy, 0, "no ClaimData pairs to copy - holder lists empty or census not reading");
+        assertGt(claimDataPairsToCopy, 0, "no ClaimData pairs to copy - holder lists empty, or the snapshot reads are not landing");
         // The deployed V2 accumulator resolves a snapshot with a lazy fallback - the V2 entry wins only when its
         // integral or timestamp is set, otherwise the read comes from the V1 mapping - so a pair the V1->V2 remediation
         // never reached still lives in V1. The V3 upgrader copies from V2 ONLY and V3 has NO fallback, so such a pair
@@ -368,26 +378,10 @@ contract StabilityPoolMigrationPreflight is
 
         address[] memory holders = _readHolders(saltKey);
 
-        // Census the per-user reward snapshots the ClaimData copy must carry, and pin the no-historical-tokens
-        // invariant the upgrader's active-only token loop relies on. Scoped so neither result stays live across the
-        // gap measurement below, which is already at the stack limit.
-        {
-            (uint256 pairs, uint256 historical, uint256 v1Pairs) = _censusClaimData(pool, saltKey, holders);
-            vm.writeLine(
-                _csvPath("sp-pool-claimdata"),
-                string.concat(
-                    saltKey,
-                    ",",
-                    vm.toString(holders.length),
-                    ",",
-                    vm.toString(pairs),
-                    ",",
-                    vm.toString(v1Pairs),
-                    ",",
-                    vm.toString(historical)
-                )
-            );
-        }
+        // Inventory where each holder's reward snapshot currently lives, and pin the no-historical-tokens invariant
+        // the copy's active-token loop relies on. Scoped so its results do not stay live across the gap measurement
+        // below, which is already at the stack limit.
+        _locateRewardSnapshots(pool, saltKey, holders);
 
         uint256 sumBalance = 0;
         for (uint256 h = 0; h < holders.length; h++) {
@@ -432,22 +426,6 @@ contract StabilityPoolMigrationPreflight is
                 vm.toString(gap)
             )
         );
-        vm.writeLine(
-            _csvPath("sp-pool-gaps"),
-            string.concat(
-                saltKey,
-                ",",
-                action,
-                ",",
-                vm.toString(totalSupply),
-                ",",
-                vm.toString(sumBalance),
-                ",",
-                vm.toString(gap),
-                ",",
-                vm.toString(relGapPpb)
-            )
-        );
     }
 
     function _abs(int256 x) internal pure returns (uint256 absolute) {
@@ -459,7 +437,7 @@ contract StabilityPoolMigrationPreflight is
     // are real holders and must be summed - reading only the bare lines undercounts Sum(balanceOf) massively (the
     // no-work holders are usually the majority). Other `#` header lines (proxy, source, ...) are skipped.
     function _readHolders(string memory saltKey) internal returns (address[] memory holders) {
-        string memory path = string.concat(HOLDERS_DIR, saltKey, ".txt");
+        string memory path = string.concat(holdersDir, saltKey, ".txt");
         if (!vm.isFile(path)) {
             return new address[](0);
         }
