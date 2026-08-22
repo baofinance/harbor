@@ -18,8 +18,9 @@ that provide it.
 ### 1.1 What Harbor achieves
 
 Harbor turns a single yield-bearing collateral asset into **two tokens with opposite risk
-profiles**, and keeps them both honest without an external liquidator, an auction, or a
-counterparty.
+profiles**, and keeps them both honest without a liquidator, an auction, or a counterparty. **No
+user's position is ever seized**: there is no liquidation price, no margin call, and nothing is sold
+off at a discount to cover someone else's debt.
 
 From a deposit of one collateral asset the protocol issues:
 
@@ -39,7 +40,7 @@ different points of stress, described in §7 and §5.
 ### 1.2 What "solvent" means here
 
 Harbor measures its own health with a single number, the **collateral ratio**: the value of the
-collateral it holds, divided by the value of the anchor tokens it has issued. At a collateral ratio
+collateral backing it, divided by the value of the anchor tokens it has issued. At a collateral ratio
 above 1, every anchor token is fully backed and the surplus belongs to the sail tokens. At exactly
 1, the sail tokens are worthless and the anchor tokens are exactly covered. Below 1 the anchor token
 has *depegged* — it can no longer be redeemed for its face value, only for its pro-rata share of
@@ -56,15 +57,15 @@ stability pools that backstop them, the genesis bootstrap, the reserve pool that
 the reward distribution to stability-pool depositors, and the keeper-driven background processes
 (rebalancing, harvesting, compounding).
 
-**Referenced but not specified here:** Harbor depends on, and is depended on by, three sibling
-systems. They define functionality the core must provide or consume, so they appear wherever they
-touch a flow, but their internals are outside this document:
+**Referenced but not specified here:**
 
-| System | Relationship to the core | Where it appears |
-|---|---|---|
-| **Price aggregators** | Supplies the validated price of the collateral in terms of the anchor token's underlying, and the wrapped-to-underlying conversion rate. Every mint, redeem and rebalance is priced from it. | §2.5, §5 (all pricing steps) |
-| **Swap routing** | Converts between assets on external venues (Uniswap, Curve, Balancer, and DEX aggregators). The core protocol does not swap; the yield layer above it does. | §5.9 |
-| **Yield layer** | Sits *on top of* the stability pools. Deposits anchor tokens into a stability pool on a user's behalf and automatically reinvests the rewards. The core protocol knows it only as a set of registered vaults it pokes after each rebalance and harvest. | §5.9 |
+- **Price aggregators** — a hard dependency. Every mint, redeem and rebalance is priced from a
+  validated price; an invalid or stale reading stops the market (§2.5, §6.8).
+- **The yield layer** — sits on the stability pools, holding a pool position on depositors' behalf.
+  The relationship is asymmetric: Harbor makes one call into it (`compound()`), while it uses a small
+  surface of Harbor built for it, notably fee-capped minting (§5.9).
+
+Harbor performs no swaps; conversion between assets happens in the layer above.
 
 **Out of scope entirely:** deployment mechanics, upgrade procedures, off-chain indexing, and the
 front-end application.
@@ -87,7 +88,7 @@ Throughout this document "the system" means one such market.
 
 | Asset | What it is | Who holds it |
 |---|---|---|
-| **Wrapped collateral token** | The yield-bearing asset the protocol actually holds — e.g. wstETH, fxSAVE, sUSDe. Its value in terms of its own *underlying* asset rises over time as the underlying protocol accrues yield. | The protocol (backing both issued tokens) |
+| **Collateral** | The asset backing the market, in two forms: the **collateral token** it is accounted in — stETH, fxUSD, USDe — and the yield-bearing **wrapped collateral token** actually held, wstETH, fxSAVE, sUSDe. The wrapper is worth progressively more collateral token over time. | The protocol (backing both issued tokens) |
 | **Anchor token** (*ha*) | An ERC-20 whose value tracks a chosen underlying — a currency, commodity or index. Redeemable from the protocol for collateral. | Users, stability pools, the yield layer |
 | **Sail token** (*hs*) | An ERC-20 whose value is the *residual*: the collateral value left over after every anchor token is covered. A leveraged long on the collateral. | Users, the leveraged stability pool |
 
@@ -100,20 +101,37 @@ Two properties of the anchor token matter for the design:
 - The sail token, by contrast, is **exclusive to the protocol**: only Harbor mints and burns it, and
   its total supply is exactly what Harbor has issued.
 
+#### Held versus accounted
+
+**Harbor holds the wrapped token but records the backing in collateral tokens** — and that recorded
+quantity, not the wrapped balance, is what every health calculation uses. The two diverge, because a
+fixed wrapped holding is worth steadily more collateral token. The difference is the **harvestable
+surplus**: real, held, and belonging to no claim until harvested.
+
+The unit of account is doing deliberate work here. Were the backing measured in wrapped tokens, the
+collateral's yield would inflate it automatically; the anchor claim being fixed, all of that growth
+would fall to the sail token. Recording it in collateral tokens quarantines the yield instead, so
+harvesting can direct it to the stability-pool depositors backstopping the system (§5.7).
+
+Hence: the collateral ratio understates health by the unharvested surplus and can never overstate it
+(§6.3); a harvest is ratio-neutral; and correcting the backing after the collateral is impaired is a
+deliberate act, not an automatic one (§6.7, §9.12).
+
 ### 2.2 The accounting identity
 
-The whole model rests on one identity. Writing $C$ for the value of the collateral held, $P$ for the
-value of the anchor tokens issued, and $L$ for the value of the sail tokens:
+The model rests on one identity. Writing $C$ for the value of the collateral **accounted**, $P$ for
+the value of the anchor tokens issued, and $L$ for the value of the sail tokens:
 
 $$C = P + L$$
 
 All three are measured in the same unit: the anchor token's underlying. The sail token's total value
 is defined as the residual $L = C - P$, so the identity holds by construction rather than by
-enforcement.
+enforcement. The harvestable surplus sits outside the identity, which is what leaves it free to be
+given away.
 
 ```mermaid
 flowchart LR
-    subgraph held["Collateral held by the protocol"]
+    subgraph held["Collateral accounted"]
         C["Collateral value<br/><b>C</b>"]
     end
     C --> P["Anchor token claim<br/><b>P</b><br/><i>senior — fixed value</i>"]
@@ -139,10 +157,17 @@ $$\text{collateral ratio} = \frac{C}{P}$$
 $$\text{leverage ratio} = \frac{C}{C - P} = \frac{\text{collateral ratio}}{\text{collateral ratio} - 1}$$
 
 The two move together, and the relationship explains the system's behaviour under stress: as the
-collateral ratio falls toward 1, the leverage ratio rises without bound. The sail token becomes more
+collateral ratio falls toward 1, the leverage ratio climbs steeply. The sail token becomes more
 leveraged precisely when the system is least healthy — which is exactly when the protocol most
 wants someone to buy it. That is not a coincidence to be corrected; it is a natural incentive the
 fee design leans on (§7).
+
+The formula diverges at a ratio of 1, so **the reported leverage ratio is capped at 20×**, reached
+well before the ratio reaches 1. The same constant bounds the rebalance's anchor-to-sail exchange,
+which would otherwise issue an unbounded number of sail tokens as their price approaches zero — at
+the cost of bounding what a leveraged pool receives near a depeg (§2.6). The value 20 is derived,
+not chosen: it is the smallest bound that leaves the exchange fair throughout the operating range of
+every configured market. See [leveraged pool conversion](leveraged-pool-conversion.md).
 
 | Collateral ratio | Leverage ratio | System state |
 |---|---|---|
@@ -151,8 +176,8 @@ fee design leans on (§7).
 | 1.5× | 3.0× | Comfortable |
 | 1.3× | 4.3× | Rebalancing typically begins around here |
 | 1.1× | 11× | Stressed |
-| 1.01× | 101× | Critical |
-| 1.0× | ∞ | Sail token worthless; anchor exactly covered |
+| ≤ 1.053× | **20× (capped)** | Critical — the reported ratio stops rising here |
+| 1.0× | 20× (capped) | Sail token worthless; anchor exactly covered |
 | < 1.0× | — | **Depegged** — anchor token under-covered |
 
 ### 2.4 Token prices
@@ -173,47 +198,56 @@ redeem removes them in the same proportion. The sail price moves only when the *
 moves — which is what a leveraged long is supposed to do. Users are therefore not diluted by other
 users' activity, only by their own fees.
 
-### 2.5 Pricing, and why there are two prices
+### 2.5 Price and rate
 
-The protocol never takes a single price. Its price source supplies **four** numbers on every read:
+A price read returns **four** numbers: a minimum and maximum price for the collateral token, and a
+minimum and maximum wrapped-to-collateral rate. Each operation selects the end that is least
+favourable to the caller and most favourable to solvency — minting values incoming collateral at the
+low end, while a rebalance exchanges the pool's anchor tokens at the maximum price, the end that
+favours the depositors.
 
-- a **minimum** and a **maximum** price of the collateral's underlying asset, and
-- a **minimum** and a **maximum** conversion rate from the wrapped collateral to that underlying.
+Pricing is protected by **validation**: a reading that is zero, negative, stale, or too far from the
+previous round reverts the operation rather than pricing it (§6.8).
 
-The protocol then chooses, per operation, whichever end of the band is **least favourable to the
-caller and most favourable to the system's solvency**. Minting an anchor token values the incoming
-collateral at the low end; redeeming values the outgoing collateral at a conservative end.
-Liquidation during a rebalance uses the *maximum* price, which is the end most favourable to the
-stability-pool depositors who are absorbing the loss.
-
-This band, rather than a point estimate, is the protocol's primary defence against price
-manipulation and stale feeds: an attacker must move *both* ends of the band to profit, and a feed
-that has gone stale or invalid causes a revert rather than a mispriced trade.
-
-The wrapped-to-underlying **rate** is separate from the **price** for a specific reason. The
-collateral is yield-bearing: one unit of it is worth progressively more of its underlying over time.
-The protocol backs anchor tokens with the *underlying* amount, so the growth in the wrapped asset's
-rate accrues as a surplus that belongs to nobody in the accounting identity. That surplus is the
-**harvestable yield**, and distributing it to stability-pool depositors is what §5.7 does.
+**Rate** and **price** are separate because they convert between different things: the rate turns
+wrapped collateral into collateral tokens, the price values a collateral token in the anchor's
+underlying. Only the rate moves with the collateral's yield, and since the backing is recorded in
+collateral tokens (§2.1) that movement becomes the **harvestable surplus** rather than extra backing.
 
 ### 2.6 The stability pools
 
-Each market has **two stability pools**. Both accept deposits of the **anchor token**, and both
-exist to be drawn down when the system needs to raise its collateral ratio. They differ only in what
-a depositor receives when that happens:
+Each market has **two stability pools**. Both accept deposits of the **anchor token**, and both exist
+to raise the collateral ratio when it falls too far. They do it in a **rebalance**: anchor tokens
+held by the pool are exchanged for another asset — which one is what distinguishes the two pools.
 
-| Pool | Deposits | Pays out on liquidation | Effect on the system |
+| Pool | Deposits | Anchor tokens exchanged for | Effect on the system |
 |---|---|---|---|
 | **Collateral pool** | Anchor tokens | Wrapped collateral | Anchor supply falls; collateral leaves the system |
 | **Leveraged pool** | Anchor tokens | Sail tokens | Anchor supply falls; collateral *stays* in the system |
 
-Both raise the collateral ratio by reducing $P$ (the anchor supply). The leveraged pool is the more
-efficient of the two: because the collateral backing the redeemed anchor tokens stays in the system
-as sail-token backing, a smaller liquidation achieves the same ratio improvement.
+Both raise the ratio by reducing $P$, the anchor supply. The leveraged pool is the more efficient of
+the two: the collateral backing the exchanged anchor tokens stays in the system as sail-token
+backing, so a smaller exchange achieves the same ratio improvement.
 
-A stability-pool deposit is a **rebasing balance**: it shrinks proportionally when the pool absorbs
-a liquidation, and the depositor receives the payout token in exchange. The pool's shares are
-themselves a transferable ERC-20.
+A deposit is a **rebasing balance**: it shrinks by the anchor tokens taken, and the depositor receives
+the exchanged asset in return. Pool shares are themselves a transferable ERC-20.
+
+The code calls the pool's side of this a *liquidation* and this document follows it, but the word
+carries none of its lending-protocol meaning: nothing is seized to cover a debt, and the exchange is
+priced in the depositor's favour — maximum reported price, no fee (§5.6). In the collateral pool it
+is close to value-neutral; what changes is *what the depositor holds*.
+
+**The leveraged pool is different as the ratio approaches 1.** Sail tokens are the residual claim, so
+their price falls toward zero there, and an exchange priced on that value would issue an unbounded
+number of them. The exchange is therefore bounded (§2.3), which caps the count issued — and with it
+the value received, at less than the anchor tokens given up. Near a depeg, a leveraged pool depositor
+takes a real loss on the exchange. That is the risk the pool's yield pays for (US-11).
+
+The bound also compresses an effect that a single rebalance cannot show: **a depositor's outcome
+depends on the collateral ratio at which they happened to be converted**, which the keeper's timing
+decides rather than the depositor. Two depositors giving up identical anchor at different moments
+can end up an order of magnitude apart. [Leveraged pool conversion](leveraged-pool-conversion.md)
+carries the derivation, a worked example, and what integrators are exposed to.
 
 Two structural bounds govern each pool, and both are **numerical-precision parameters, not risk
 limits**:
@@ -268,8 +302,8 @@ flowchart TB
     subgraph users["Economic participants"]
         A["<b>Anchor holder</b><br/>wants stable value"]
         S["<b>Sail holder</b><br/>wants leveraged exposure"]
-        D["<b>Stability-pool depositor</b><br/>wants yield, accepts<br/>liquidation risk"]
-        Y["<b>Yield-layer depositor</b><br/>wants yield without<br/>managing it"]
+        D["<b>Stability-pool depositor</b><br/>wants yield, accepts<br/>being rebalanced"]
+        Y["<b>Yield vault</b><br/>a contract holding a pool<br/>position for depositors<br/>the core never sees"]
         G["<b>Genesis depositor</b><br/>bootstraps a new market"]
         R["<b>Reserve funder</b><br/>subsidises system health"]
     end
@@ -305,9 +339,10 @@ the deposit may be converted — at a favourable rate — into collateral or sai
 needs to rebalance. This is the protocol's backstop and its most complex role: the depositor is
 being paid to stand ready to absorb a loss that is usually profitable and occasionally is not.
 
-**Yield-layer depositor.** Wants the stability-pool return without operating the position — without
-minting anchor tokens, choosing a pool, or reinvesting rewards. Interacts with a vault above the
-core protocol; the core sees only the vault.
+**Yield vault.** The one participant that is a contract rather than a person. Mints anchor tokens,
+holds a stability-pool position, claims and reinvests rewards — all on behalf of its own depositors,
+whom the core never sees and cannot distinguish. Several of the core's capabilities exist for it and
+have no other consumer (§5.9), and it is called back to compound after every rebalance and harvest.
 
 **Genesis depositor.** Supplies collateral before a market has any, when there is no price to mint
 against and no ratio to defend. Receives a proportional claim on both tokens once the market opens.
@@ -339,9 +374,11 @@ fees. A passive recipient; holds no authority.
 | Anchor holder | Owner (upgrade), price source | Other users, keepers |
 | Sail holder | Owner (upgrade), price source | Other users, keepers |
 | Stability-pool depositor | Owner (upgrade), price source, rebalance sizing | Individual keepers — anyone may rebalance |
-| Yield-layer depositor | All of the above, plus the vault and its swap routing | — |
 | Genesis depositor | Owner (to end genesis on fair terms) | — |
 | Keeper | Nothing — a keeper risks only gas | — |
+
+Anyone reaching the protocol through a yield vault inherits every assumption above, plus the vault's
+own — including its swap routing, which the core has none of.
 
 ---
 
@@ -361,7 +398,7 @@ guarantees.
 > that I hold stable value without holding the underlying asset.*
 
 Acceptance criteria:
-1. Supplying wrapped collateral mints anchor tokens priced from the validated price band.
+1. Supplying wrapped collateral mints anchor tokens priced from the validated price.
 2. A fee, determined by the current collateral ratio, is deducted and sent to the fee receiver.
 3. The caller may specify a **minimum acceptable output**; the operation reverts rather than
    delivering less.
@@ -425,8 +462,8 @@ Acceptance criteria:
    improves the collateral ratio.
 3. If the reserve pool cannot fund the full discount, the redemption still completes with whatever
    discount is available.
-4. Redemption is **never disallowed by fee configuration** — the configuration is validated to
-   prohibit a 100% fee on this action, so an anchor holder always has an exit.
+4. **Redemption is always permitted.** No configuration can disallow it, at any collateral ratio, so
+   an anchor holder always has an exit (§7.5).
 5. The protocol will not redeem more anchor tokens than it issued, regardless of how many exist.
 
 ---
@@ -507,37 +544,46 @@ Acceptance criteria:
 
 ---
 
-**US-10 — Choose which risk I take**
+**US-10 — Know what a rebalance does to my deposit**
 
-> *As a stability-pool depositor, I want to choose what I receive when a liquidation happens, so
-> that my backstop position matches my view.*
+> *As a stability-pool depositor, I want to know exactly what happens to my position when a rebalance
+> draws on my pool, so that I can judge the backstop I am providing.*
 
 Acceptance criteria:
-1. Two pools are available: one paying out wrapped collateral, one paying out sail tokens.
-2. Both accept the same deposit asset (anchor tokens) and both reduce anchor supply when drawn.
-3. The choice is made by which pool is deposited into; no further configuration is needed.
+1. A rebalance may fire **at any time, triggered by any keeper**. A depositor cannot opt out, defer
+   it, or influence its timing.
+2. The anchor balance falls **in proportion to the depositor's share** of the pool. No depositor is
+   singled out, and none is spared.
+3. In exchange the depositor receives the pool's payout asset — wrapped collateral or sail tokens —
+   credited **immediately** rather than vested. Which asset arrives is fixed by the pool deposited
+   into, and is the only choice a depositor has over the outcome.
+4. A rebalance draws at most the **headroom above the pool's floor**, so a depositor always retains a
+   share of the minimum and the pool is never emptied.
+5. What remains stays deposited and keeps accruing. Successive rebalances may draw on it again, and
+   the terms of each depend on conditions at the time (§2.6).
 
 ---
 
-**US-11 — Be paid fairly when liquidated**
+**US-11 — Be paid fairly when rebalanced**
 
-> *As a stability-pool depositor, I want a liquidation to be priced in my favour, so that being
-> drawn upon is compensation rather than confiscation.*
+> *As a stability-pool depositor, I want a rebalance to be priced in my favour, so that being drawn
+> upon is compensation rather than confiscation.*
 
 Acceptance criteria:
-1. Liquidation redeems at **zero fee**, unlike an ordinary redemption.
-2. Liquidation is priced at the **maximum** of the price band — the end most favourable to the
-   depositor.
+1. The exchange is at **zero fee**, unlike an ordinary redemption.
+2. It is priced at the **maximum** reported price — the end most favourable to the depositor.
 3. Proceeds, less the keeper's bounty, are credited to the pool's depositors in proportion to
    holdings.
-4. A liquidation may reduce the pool only to its floor, never below — every depositor retains a share
+4. A rebalance may reduce the pool only to its floor, never below — every depositor retains a share
    of the minimum.
 5. Where a pool's proportional share of a rebalance exceeds what it can absorb, the shortfall moves
    to the other pool rather than being forced onto it.
 
-*The compensating risk, stated plainly: when the system is depegged, the anchor tokens drawn from
-the pool are redeemed at their depressed share of collateral. A depositor can receive back less
-value than was deposited. This is the risk the yield pays for.*
+*The compensating risk, stated plainly, and it differs by pool. In the **collateral pool** the loss
+arrives at a depeg: the anchor tokens taken are redeemed at their depressed share of collateral. In
+the **leveraged pool** it arrives earlier — once the leverage cap binds, at a ratio around 1.05, the
+sail tokens received are worth less than the anchor tokens given up (§2.6). Either way a depositor
+can receive back less value than was deposited. This is the risk the yield pays for.*
 
 ---
 
@@ -641,21 +687,28 @@ Acceptance criteria:
 2. Halting preserves all stored state — no balance, deposit or accrual is lost.
 3. The halt mechanism imposes **no gas cost on ordinary operation** when not in use.
 
-### 4.7 Yield-layer depositor
+### 4.7 Yield vault
 
 ---
 
-**US-18 — Earn the stability-pool return without operating it**
+**US-18 — Operate a stability-pool position on depositors' behalf**
 
-> *As a yield-layer depositor, I want a single deposit to give me the stability-pool return with
-> rewards reinvested automatically, so that I need not mint, choose a pool, or claim.*
+> *As a yield vault, I need to mint, deposit, price and exit without penalty or guesswork, so that I
+> can hold a pool position for my own depositors and reinvest what it earns.*
 
 Acceptance criteria:
-1. The core protocol exposes the seams the yield layer needs: zero-fee-exempt withdrawal for
-   protocol-internal exits, and a dry run of what a deposit would credit.
-2. Registered vaults are **poked automatically** after every rebalance and harvest, so compounding
+1. Minting anchor tokens can be **capped by fee ratio**, so compounding never mints at a punitive
+   rate (US-3).
+2. A **dry run of a deposit** reports what it would credit, so a vault pricing a deposit need not
+   assume the credit equals the input.
+3. Withdrawal can be **exempted from the early-withdrawal fee**, so a protocol-internal exit is not
+   penalised.
+4. The anchor token's price is reported **depeg-aware**, so a pool position can be valued correctly
+   when the anchor is under-covered.
+5. Rewards can be claimed **selectively and partially**, rather than all tokens at once.
+6. Registered vaults are **poked automatically** after every rebalance and harvest, so compounding
    tracks reward arrival without a separate keeper schedule.
-3. A vault that fails to compound does **not** cause the rebalance or harvest to fail; the failure is
+7. A vault that fails to compound does **not** cause the rebalance or harvest to fail; the failure is
    recorded for off-chain monitoring.
 
 ---
@@ -973,7 +1026,7 @@ keeper is paid.
 - **Proceeds are measured, not assumed.** The manager measures what each pool actually handed over
   and drives the redemption and crediting from those actuals — a pool is never left backing supply it
   no longer holds.
-- **Liquidation is priced favourably to depositors:** zero fee, maximum of the price band.
+- **Liquidation is priced favourably to depositors:** zero fee, maximum reported price.
 - **Two capacity bounds apply per leg** — how much loss the pool may absorb before reaching its floor,
   and how much reward its accounting can credit at once. Excess is deferred to a later call rather
   than overflowing.
@@ -1075,13 +1128,13 @@ preserve accrual — a depositor who never claims loses nothing.
 
 ### 5.9 Interaction with the layers above
 
-The core protocol connects to the yield layer at exactly two seams, both narrow by design.
+The core connects upward to the yield layer and downward to its price source. The upward connection
+is **asymmetric**: one call out, a small purpose-built surface in.
 
 ```mermaid
 flowchart TB
     subgraph external["Above the core — separate deployments"]
         HY["<b>Yield vault</b><br/>holds a stability-pool position<br/>on depositors' behalf"]
-        SW["<b>Swap routing</b><br/>converts between assets<br/>on external venues"]
     end
 
     subgraph core["Harbor core"]
@@ -1091,13 +1144,12 @@ flowchart TB
     end
 
     subgraph feeds["Below the core"]
-        PO["<b>Price aggregators</b><br/>validated price band<br/>+ wrapped rate"]
+        PO["<b>Price aggregators</b><br/>validated price<br/>+ wrapped rate"]
     end
 
-    SPM -->|"registers, then pokes<br/>compound() after every<br/>rebalance and harvest"| HY
-    HY -->|"deposits anchor tokens;<br/>exits fee-exempt"| SP
-    HY -->|"mints anchor tokens<br/>from collateral"| MIN
-    HY -->|"converts reward tokens"| SW
+    SPM -->|"<b>the only call out:</b><br/>compound() after every<br/>rebalance and harvest"| HY
+    HY -->|"deposit, withdraw fee-exempt,<br/>claim, deposit dry run"| SP
+    HY -->|"fee-capped mint + dry run,<br/>redeem, depeg-aware price"| MIN
     PO -->|"prices every mint,<br/>redeem and rebalance"| MIN
 
     style core fill:#e9f5ee,stroke:#2d6a4f
@@ -1105,20 +1157,25 @@ flowchart TB
     style feeds fill:#fdf3e8,stroke:#9c6644
 ```
 
-**What the core provides to the layer above:**
-1. A **registry of yield vaults**, each poked to compound after every rebalance and harvest, so
-   reinvestment tracks reward arrival without a separate keeper schedule. Failures are recorded and
-   skipped.
-2. A **fee exemption role** on stability-pool withdrawal, so protocol-internal exits are not charged
-   the early-withdrawal fee.
-3. A **deposit dry-run**, so a vault pricing a deposit never has to assume the credit equals the
-   input.
+**Outward** the core asks one thing: a `compound()` on each registered vault, called after every
+rebalance and harvest so reinvestment tracks reward arrival without a separate keeper schedule
+(§6.4). A vault that fails is recorded and skipped, never fatal.
 
-**What the core requires from below:** a price source returning a validated *band* — minimum and
-maximum underlying price, minimum and maximum wrapped-to-underlying rate — with invalid, zero or
-stale readings causing a revert rather than a mispriced trade.
+**Inward** it exposes a small surface, most of it built for this consumer and no other:
 
-The core protocol performs **no swaps**. All conversion between assets happens in the layer above.
+| Capability | Why it exists |
+|---|---|
+| Fee-capped minting, and its dry run | A vault compounding collateral into anchor tokens must not mint at a punitive fee (US-3) |
+| Deposit dry run on a stability pool | So a vault pricing a deposit never assumes the credit equals the input |
+| Fee exemption on stability-pool withdrawal | So a protocol-internal exit is not charged the early-withdrawal fee |
+| Depeg-aware anchor price | So a vault values its pool position correctly when the anchor is under-covered |
+| Selective and partial reward claiming | So a vault can take one reward token, or part of one |
+
+**Downward** it requires a validated price — an invalid, zero or stale reading reverts rather
+than mispricing a trade. Unlike the yield layer this is a hard dependency: without it the market
+cannot transact (§6.8).
+
+The core holds and transfers tokens but never exchanges one for another on a market.
 
 ---
 
@@ -1316,8 +1373,8 @@ mechanisms respond:
 | **Who may call** | Nobody within Harbor |
 | **Cadence** | Per feed |
 
-Harbor reads a validated band rather than a point (§2.5). The validation is strict, and every
-failure mode **reverts** rather than returning a substitute:
+Every price read is validated (§2.5), and every failure mode **reverts** rather than returning a
+substitute:
 
 | Condition | Response |
 |---|---|
@@ -1634,10 +1691,10 @@ reach this market's collateral.
 
 | # | Invariant | Assurance |
 |---|---|---|
-| **P1** | Every priced operation reads a **validated band**, never a single point. | By construction |
+| **P1** | Every priced operation reads a **validated** price; nothing is priced from an unvalidated source. | By construction |
 | **P2** | An invalid, zero, stale or abnormally-deviant reading **reverts**. No operation proceeds on a substitute, a cached, or a default price. | By check |
-| **P3** | A zero wrapped-to-underlying rate reverts — a rate of zero is a unit conversion, not an economic state, so it can only mean a faulty oracle. | By check |
-| **P4** | The end of the band used is always the one conservative for solvency, chosen per operation and per direction. | By construction |
+| **P3** | A zero wrapped-to-collateral rate reverts — a rate of zero is a unit conversion, not an economic state, so it can only mean a faulty oracle. | By check |
+| **P4** | Where a minimum and maximum differ, the end used is always the one conservative for solvency, chosen per operation and direction. | By construction |
 | **P5** | Liquidation prices at the band's **maximum** — the end most favourable to the depositors absorbing the loss. | By construction |
 
 ### 8.3 Stability pool
@@ -1756,15 +1813,14 @@ flowchart TB
 example, inflate the price, mint anchor tokens against overvalued collateral, then let the price
 correct.
 
-**Why it is hard.** The protocol reads a **band**, not a point, and picks the end conservative for
-solvency in the direction of the operation. An attacker must therefore move *both* ends far enough
-that the conservative end is still profitable — a strictly harder problem than moving a single
-number. The feed additionally rejects abnormal round-to-round deviation, so a sharp move is refused
-rather than consumed, and rejects stale data, so an old favourable reading cannot be replayed.
+**Why it is hard.** The feed rejects abnormal round-to-round deviation, so a sharp move is refused
+rather than consumed, and rejects stale data, so an old favourable reading cannot be replayed. A
+manipulation must therefore be small enough per round to pass the deviation check, which bounds how
+far it can move price before the operation reverts.
 
-**Residual risk.** A sustained, genuine mispricing across the whole band — a compromised or
-systemically wrong feed rather than a momentary spike — is not defended against by these checks and
-would propagate into pricing. Feed integrity is a trust assumption, narrowed but not eliminated.
+**Residual risk.** A move slow enough to stay inside the deviation bound each round, or a compromised
+or systemically wrong feed, is not caught by these checks and propagates into pricing. **Feed
+integrity is a trust assumption**, narrowed by the validation but not eliminated by it.
 
 ### 9.2 Stale-feed exploitation
 
@@ -1990,17 +2046,36 @@ forwarded gas can still make the enclosing call expensive. The primary defence i
 
 ### 9.12 Exploiting a collateral slashing event
 
-**The attempt.** Transact in the window between the collateral asset being impaired and the protocol
-recognising it — for example redeeming at a stale, too-favourable backing figure.
+**The attempt.** Transact in the window between the collateral being impaired and the protocol
+recognising it, while the recorded backing still overstates what is held.
 
-**Why it is limited.** The recorded backing is corrected by `reset()`, and the harvest's owed ledger
-independently writes down proportionally if the surplus shrinks (H1).
+**How far it gets — further than anything else in this section.** The backing is corrected only by
+`reset()`, an owner action, so until it is called the collateral value is inflated: the anchor price
+reads 1 when the true ratio is below 1, and the sail price reads high. Everything priced off them is
+wrong in the departing user's favour, in order of severity:
 
-**Residual risk, and it is real.** `reset()` is an **owner action, not an automatic one**. Between
-the impairment and the owner's transaction the system reports more backing than exists, the
-collateral ratio reads too high, and — most importantly — **a rebalance that should trigger will
-not**, because the threshold check is made against the inflated ratio. This is a genuine timing
-exposure requiring operational monitoring, not a self-correcting property.
+1. **Sail redemption escapes its block.** Below a true ratio of 1 it should be disallowed outright —
+   the sail claim is worthless and the block exists to stop it being paid out of anchor holders'
+   backing. The disallow band is tested against the inflated ratio, so it is permitted, at an
+   inflated valuation. The junior claim exits ahead of the senior one.
+2. **Anchor redemption pays par on short backing.** It should pay a pro-rata share of what remains.
+   Early redeemers take full value and the shortfall concentrates on those who follow, stopping only
+   when the Minter's actual balance is exhausted and transfers revert.
+3. **Anchor minting is priced from the wrong band** — waved through cheaply, or through a disallow
+   band it should have hit, issuing new claims against backing that is not there.
+
+Minting sail is the mirror: the inflated price means a minter receives *fewer* tokens than fair, so
+the recapitalisation arm is priced out of use exactly when it is wanted. And all of it runs while
+**the rebalance stays dormant**, its threshold read from the same inflated ratio.
+
+**What is not affected.** The wrapped-to-collateral conversion stays correct — a fallen rate means a
+redeemer receives more wrapped tokens per unit of value, which is right. The error is confined to
+valuing the backing, not to converting it.
+
+**Residual risk.** All of the above, for as long as the window lasts. This is the sharpest
+consequence of `reset()` being manual, and none of it is self-correcting. It also assumes the
+impairment shows up in the reported wrapped-to-collateral rate; a collateral that socialises a loss
+without moving that rate would not be detectable on-chain at all.
 
 ### 9.13 Rebasing-balance approval semantics
 
@@ -2044,12 +2119,15 @@ in-protocol mechanism addresses.
 | Reward-integral overflow | Capped and deferred, floor bounds the divisor | Deferral latency only |
 | Hostile governance | Config validation; **upgrade unbounded** | **Root trust assumption** |
 | Vault griefing | Failures isolated; registration owner-gated | Gas exhaustion; folds into governance trust |
-| Collateral slashing | `reset()` plus proportional owed write-down | **Timing gap — reset is manual; rebalance may not trigger** |
+| Collateral slashing | `reset()` plus proportional owed write-down | **Manual reset leaves a priced arbitrage open — sail redemption escapes its block, anchor redeems at par on short backing, rebalance stays dormant** |
 | Rebase vs allowance | Documented semantics | Integrator error |
 | Keeper absence | Bounties denominated in released assets | Inability to transact at all |
 
-The two rows in bold type are the ones that cannot be engineered away and must be carried
-operationally: **upgrade authority**, and the **manual reset after a slashing event**.
+The two rows in bold type are the ones carried operationally rather than by the design. **Upgrade
+authority** cannot be engineered away. The **manual reset after a slashing event** could be — the
+condition is computable on-chain, since the backing is overstated exactly when it exceeds the held
+wrapped balance converted at the current rate — and until it is, the window it leaves open is the
+most valuable arbitrage in this section.
 
 ---
 
@@ -2235,7 +2313,7 @@ document, the section is given.
 | **Anchor token** (*ha*) | The stable, senior token, tracking the value of a chosen underlying. Redeemable from the protocol for collateral. An ordinary ERC-20 that may also exist from other sources (§2.1) |
 | **Sail token** (*hs*) | The leveraged, junior token, holding the residual claim `C − P`. Minted and burned only by the protocol (§2.1) |
 | **Wrapped collateral** | The yield-bearing asset the protocol actually holds — wstETH, fxSAVE, sUSDe. Worth progressively more of its underlying over time |
-| **Underlying** | Two distinct uses. (1) The asset an anchor token tracks — ETH, BTC, EUR, gold. (2) The asset a wrapped collateral unwraps to. The **rate** converts between wrapped and underlying; the **price** values the underlying against the anchor's underlying (§2.5) |
+| **Underlying** | The asset an anchor token tracks — ETH, BTC, EUR, gold |
 | **Stability-pool share** | A depositor's claim on a stability pool. A transferable, rebasing ERC-20 (§2.6) |
 
 ### Health and pricing
@@ -2248,7 +2326,7 @@ document, the section is given.
 | **Rebalance threshold** | The collateral ratio below which rebalancing becomes available. Set per market by its volatility class (§7.3) |
 | **Disallow floor** | The collateral ratio below which anchor minting is refused. Sits one point *above* the rebalance threshold in every deployed class (§7.3) |
 | **Price band** | The minimum and maximum the price source reports. The protocol picks the end conservative for solvency, per operation (§2.5) |
-| **Rate** | The wrapped-to-underlying conversion. Its growth over time is the source of harvestable yield (§2.5) |
+| **Rate** | The wrapped-to-collateral conversion. Its growth over time is the source of harvestable yield (§2.5) |
 
 ### Value flows
 
@@ -2271,7 +2349,7 @@ document, the section is given.
 | **Rebalance** | Drawing anchor tokens from the stability pools and redeeming them, to raise the collateral ratio. Keeper-triggered, permissionless (§5.6) |
 | **Harvest** | Distributing accrued collateral yield to the stability pools. Keeper-triggered, permissionless (§5.7) |
 | **Compound** | Reinvesting a yield vault's rewards. Runs automatically after every rebalance and harvest (§6.4) |
-| **Liquidation** | What a stability pool experiences during a rebalance: balances rebase down, proceeds are credited immediately at the band's maximum price and zero fee (§2.7) |
+| **Liquidation** | The pool's side of a rebalance: anchor tokens are exchanged for the payout asset, at the maximum reported price and zero fee, and the proceeds credited immediately. Not a seizure — see §2.6 (§2.7) |
 | **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
 | **Genesis** | The bootstrap phase before a market opens (§5.1, §10.2) |
 | **Reset** | Correcting the recorded backing to match holdings, after a collateral impairment. Owner-only and manual (§6.7, §9.12) |
