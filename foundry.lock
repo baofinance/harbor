@@ -2,7 +2,7 @@
   "lib/bao-base": {
     "branch": {
       "name": "main",
-      "rev": "0f12f48a30507ddfc8fab308d98c54bc62682bce"
+      "rev": "b1834ee85d86bd619cfb20f75dc064a4d51adb03"
     }
   },
   "lib/chainlink-brownie-contracts": {

@@ -2,6 +2,8 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
+import {IToken} from "@bao/interfaces/IToken.sol";
+
 /// @notice Minter v3
 /// @author rootminus0x1 based on (albeit significantly modified) Aladdin's FX system
 /// @notice Provides an interface for minting and redeeming pegged and leveraged tokens, some with fees, others without.
@@ -24,7 +26,7 @@ pragma solidity >=0.8.28 <0.9.0;
 /// * fee-capped minting
 /// * absolute-amount fee queries in pegged space (removal of uncapped queries, can make the same call passing "0,0")
 // solhint-disable-next-line contract-name-capwords
-interface IMinter_v3 {
+interface IMinter_v3 is IToken {
     /*//////////////////////////////////////////////////////////////
                            DATA STRUCTURES
     //////////////////////////////////////////////////////////////*/
@@ -99,8 +101,17 @@ interface IMinter_v3 {
         uint256 collateralOut
     );
 
-    /// @notice Emitted when there's been a slashing event and Zhenglong responds by calling reset.
-    event Reset(uint256 oldCollateral, uint256 newCollateral);
+    /// @notice Emitted when collateral is given to the protocol as backing rather than as yield.
+    /// @param donor The address that supplied the collateral.
+    /// @param wrappedAmount The wrapped collateral supplied.
+    /// @param collateralAdded The collateral tokens it was worth, and by which the backing rose.
+    /// @param backing The recorded backing after the donation.
+    event DonateWrappedCollateral(
+        address indexed donor,
+        uint256 wrappedAmount,
+        uint256 collateralAdded,
+        uint256 backing
+    );
 
     /// @notice Emitted whenever the config is updated.
     event UpdateConfig(Config newConfig);
@@ -132,9 +143,6 @@ interface IMinter_v3 {
     /// economic state, so it can only mean the oracle is faulty.
     error ZeroOracleRate();
 
-    // @inderitdoc Token
-    /// @dev thrown when zero collateral is passed in or -1 is passed in and the balance is zero
-    error ZeroInputBalance(address token);
     error RequestedBonusNotGiven(uint256 requested, uint256 available);
 
     /// @dev Thrown when collateral is passed but minting is prevented for some other reason.
@@ -474,10 +482,17 @@ interface IMinter_v3 {
                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Resets the underlying collateral count to equal the value of the held wrapped collateral
-    /// This is anticipation of a slashing event for the wrapped collateral which could
-    /// leave the whole system with overvalued collateral which would prevent a rebalancing
-    function reset() external;
+    /// @notice Give wrapped collateral to the protocol as backing, raising the collateral ratio.
+    /// @dev Permissionless: the caller supplies the collateral in the same call and receives nothing, so the only
+    /// power it grants is the power to give. It cannot reach collateral already held — the surplus of the holding
+    /// over the recorded backing is the harvestable yield, which belongs to the stability pools, and a donation
+    /// adds only itself.
+    ///
+    /// This is the one way to contribute collateral as *cover*. Transferring wrapped collateral to this contract
+    /// instead leaves the record untouched, so it becomes harvestable yield for the stability pools and moves
+    /// neither the collateral ratio nor either token's price.
+    /// @param wrappedAmount The wrapped collateral to give. Must be non-zero.
+    function donateWrappedCollateral(uint256 wrappedAmount) external;
 
     /// @notice Updates the config to the given config
     /// @param config_ The new config

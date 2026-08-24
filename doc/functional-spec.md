@@ -146,6 +146,11 @@ The anchor claim is **senior** — it is satisfied first, at face value. The sai
 it takes whatever is left. That seniority is the entire source of the anchor token's stability and
 the sail token's leverage.
 
+It holds for **any** fall in collateral value, whatever the cause. A price fall and an impairment of
+the collateral asset itself — a slashing, say — are the same event to this accounting: the residual
+absorbs it, sail holders bear it, and the anchor claim is untouched until the residual is exhausted.
+Nothing redirects value from elsewhere in the protocol to restore the junior claim.
+
 ### 2.3 The two health metrics
 
 **Collateral ratio** — how well covered the anchor tokens are:
@@ -305,7 +310,7 @@ flowchart TB
         D["<b>Stability-pool depositor</b><br/>wants yield, accepts<br/>being rebalanced"]
         Y["<b>Yield vault</b><br/>a contract holding a pool<br/>position for depositors<br/>the core never sees"]
         G["<b>Genesis depositor</b><br/>bootstraps a new market"]
-        R["<b>Reserve funder</b><br/>subsidises system health"]
+        R["<b>Contributor</b><br/>gives value to the protocol,<br/>taking no claim"]
     end
     subgraph ops["Operational"]
         K["<b>Keeper</b><br/>triggers background work<br/>for a bounty"]
@@ -348,9 +353,11 @@ have no other consumer (§5.9), and it is called back to compound after every re
 against and no ratio to defend. Receives a proportional claim on both tokens once the market opens.
 Bears the risk that the market opens on unfavourable terms, in exchange for founding allocation.
 
-**Reserve funder.** Supplies collateral to the reserve pool so that health-improving actions can be
-subsidised. Typically the protocol treasury; may be anyone, since the pool accepts direct transfers.
-Receives nothing directly — this is a subsidy, not an investment.
+**Contributor.** Gives value to the protocol and takes no claim in return — typically the treasury,
+but anyone, since both routes accept direct transfers. The choice of route decides who benefits:
+collateral sent to the reserve pool funds discounts for users restoring the ratio, while wrapped
+collateral sent to the Minter becomes yield for stability-pool depositors. Neither is an investment
+and neither is recoverable (§4.8).
 
 ### 3.2 Operational participants
 
@@ -710,6 +717,49 @@ Acceptance criteria:
    tracks reward arrival without a separate keeper schedule.
 7. A vault that fails to compound does **not** cause the rebalance or harvest to fail; the failure is
    recorded for off-chain monitoring.
+
+### 4.8 Contributor
+
+Two routes exist, with **different beneficiaries**. Choosing between them is the contributor's only
+decision, and it is not reversible.
+
+---
+
+**US-19 — Subsidise the actions that restore health**
+
+> *As a contributor, I want to fund the discounts that pay users for restoring the collateral ratio,
+> so that the incentive works when it is most needed.*
+
+Acceptance criteria:
+1. The reserve pool accepts collateral by **direct transfer** — no call, no permission, no
+   registration.
+2. What it holds funds discounts on anchor redemption and sail minting, paid automatically as those
+   actions occur (§7.6).
+3. The contributor receives nothing and retains no claim. Only the owner may withdraw.
+4. An empty pool degrades discounts to zero without failing any operation, so a contribution changes
+   how much is paid, never whether an action is permitted.
+
+---
+
+**US-20 — Contribute yield to the stability pools**
+
+> *As a contributor, I want to add to what the stability pools earn, so that backstop depositors are
+> rewarded without my taking a claim.*
+
+Acceptance criteria:
+1. Wrapped collateral transferred directly to the Minter becomes **harvestable surplus**.
+2. It reaches stability-pool depositors on the next harvest, on the same terms as collateral yield —
+   proportional to holdings, vesting over the reward period.
+3. It does **not** raise the collateral ratio and does **not** move either token's price. The
+   recorded backing is unchanged, so the contribution is yield, not coverage.
+4. The contributor receives nothing and retains no claim.
+
+---
+
+**There is no route that contributes as backing.** A contribution that raises the collateral ratio —
+repairing coverage rather than paying depositors — has no entry point. A treasury wanting that effect
+must mint sail tokens and take a claim in return, which is a different act with different
+consequences for every existing holder.
 
 ---
 

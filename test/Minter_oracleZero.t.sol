@@ -97,33 +97,33 @@ contract MinterOracleZeroTest is TestMinterSetUp {
         IMinter_v3(minter).harvestable();
     }
 
-    /// collateralRatio() reads no rate, so a faulty rate must not stop it reporting - and must not change what it
-    /// reports either.
-    function test_collateralRatio_zeroRate_stillReports() public {
+    /// Every view of the collateral now needs the rate, because the recorded backing is only meaningful once
+    /// measured against what is held — and the holding is wrapped collateral, which only the rate converts. With no
+    /// usable rate there is no way to tell whether the record still stands up, and reporting it anyway is the
+    /// overstatement these views exist to avoid. So they refuse, on the same principle as a faulty price: better no
+    /// answer than a wrong one.
+    function test_collateralRatio_zeroRate_reverts() public {
         (uint256 price, ) = _seedWhileHealthy();
-        uint256 expected = IMinter_v3(minter).collateralRatio();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        assertEq(IMinter_v3(minter).collateralRatio(), expected, "a faulty rate must not block a price-only reading");
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
+        IMinter_v3(minter).collateralRatio();
     }
 
-    /// leverageRatio() likewise reads no rate.
-    function test_leverageRatio_zeroRate_stillReports() public {
+    function test_leverageRatio_zeroRate_reverts() public {
         (uint256 price, ) = _seedWhileHealthy();
-        uint256 expected = IMinter_v3(minter).leverageRatio();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        assertEq(IMinter_v3(minter).leverageRatio(), expected, "a faulty rate must not block a price-only reading");
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
+        IMinter_v3(minter).leverageRatio();
     }
 
-    /// peggedTokenPrice() reaches the max-price fetch through the collateral-ratio line intercepts, so it covers the
-    /// price-only path of that helper too.
-    function test_peggedTokenPrice_zeroRate_stillReports() public {
+    function test_peggedTokenPrice_zeroRate_reverts() public {
         (uint256 price, ) = _seedWhileHealthy();
-        uint256 expected = IMinter_v3(minter).peggedTokenPrice();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        assertEq(IMinter_v3(minter).peggedTokenPrice(), expected, "a faulty rate must not block a price-only reading");
+        vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
+        IMinter_v3(minter).peggedTokenPrice();
     }
 
     /// harvestable() reads no price, so a faulty price must not stop it reporting.
@@ -156,27 +156,33 @@ contract MinterOracleZeroTest is TestMinterSetUp {
 
     // Owner path -------------------------------------------------------------
 
-    /// reset() rescales the recorded collateral by the rate; a zero rate must revert, not scale it to nothing.
-    function test_reset_zeroRate_reverts() public {
+    /// A donation values the collateral supplied at the rate; a zero rate must revert, not credit it as nothing.
+    function test_donateWrappedCollateral_zeroRate_reverts() public {
         (uint256 price, ) = _seedWhileHealthy();
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
 
-        vm.startPrank(owner());
+        address donor = makeAddr("donor");
+        deal(wrappedCollateralToken, donor, 1 ether);
+        vm.startPrank(donor);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
         vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
-        IMinter_v3(minter).reset();
+        IMinter_v3(minter).donateWrappedCollateral(1 ether);
         vm.stopPrank();
     }
 
-    /// The refusal must leave the recorded collateral intact. Without the guard reset() writes it to zero, which is
-    /// silent, permanent state corruption - observable here as a collapsed collateral ratio once the oracle recovers.
-    function test_reset_zeroRate_leavesCollateralRatioUnchanged() public {
+    /// The refusal must leave the record intact. Crediting a donation at a zero rate would add nothing while taking
+    /// the collateral, and the donor's collateral would sit in the contract as unattributed surplus.
+    function test_donateWrappedCollateral_zeroRate_leavesCollateralRatioUnchanged() public {
         (uint256 price, uint256 rate) = _seedWhileHealthy();
         uint256 collateralRatioBefore = IMinter_v3(minter).collateralRatio();
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0);
-        vm.startPrank(owner());
+        address donor = makeAddr("donor");
+        deal(wrappedCollateralToken, donor, 1 ether);
+        vm.startPrank(donor);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
         vm.expectRevert(IMinter_v3.ZeroOracleRate.selector);
-        IMinter_v3(minter).reset();
+        IMinter_v3(minter).donateWrappedCollateral(1 ether);
         vm.stopPrank();
 
         MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
