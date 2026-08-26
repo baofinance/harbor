@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IMinter} from "@harbor/interfaces/IMinter.sol";
 import {IMinter_v3} from "@harbor/interfaces/IMinter_v3.sol";
 import {IWrappedPriceOracle} from "@harbor/interfaces/IWrappedPriceOracle.sol";
@@ -55,6 +56,17 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
     function _impair(uint256 dropBps) private {
         _scaleRate(10_000 - dropBps);
+    }
+
+    /// Set the rate outright, for returning to a known level after an impairment.
+    function _setRate(uint256 rate) private {
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(_price(), rate);
+    }
+
+    function _recogniseImpairment() private {
+        vm.startPrank(owner());
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
     }
 
     /// What the protocol actually holds, expressed in collateral tokens. This is the quantity the
@@ -306,16 +318,9 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         _impair(dropBps);
 
         uint256 heldValue = Math.mulDiv(_heldAsCollateral(), _price(), 1 ether);
-        uint256 expected = heldValue <= anchorClaims
-            ? 0
-            : Math.mulDiv(heldValue - anchorClaims, 1 ether, sailSupply);
+        uint256 expected = heldValue <= anchorClaims ? 0 : Math.mulDiv(heldValue - anchorClaims, 1 ether, sailSupply);
 
-        assertApproxEqAbs(
-            IMinter(minter).leveragedTokenPrice(),
-            expected,
-            1,
-            "sail is the residual of what is held"
-        );
+        assertApproxEqAbs(IMinter(minter).leveragedTokenPrice(), expected, 1, "sail is the residual of what is held");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -331,32 +336,125 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertEq(IMinter(minter).harvestable(), 0, "a shortfall is not a surplus");
     }
 
-    /// Sail is the junior claim, so a collateral impairment falls on sail holders — exactly as a
-    /// collateral price fall does. Yield accruing afterwards belongs to the senior side and must
-    /// reach stability-pool depositors, not be diverted into repairing the junior claim.
-    ///
-    /// This is the test that distinguishes recognising the loss from merely reporting around it: if
-    /// the recorded backing is left at its pre-impairment level, harvests stay dead until the whole
-    /// impairment has been repaid out of depositors' yield.
+    /// Recognising the loss is what settles who owns the recovery. Once the record is written down,
+    /// the collateral's yield is a surplus again and reaches stability-pool depositors, while sail
+    /// holders keep the loss they absorbed as the junior claim.
     function test_impairment_isBorneBySailHoldersNotDepositors() public {
         setUp_collateral(100 ether, 40 ether);
-        uint256 sailPriceBefore = IMinter(minter).leveragedTokenPrice();
 
-        _impair(3_000); // rate 0.70, held cover 98 against 140 recorded
+        _impair(1_500); // rate 0.85: held cover 119 against 140 recorded
+        _recogniseImpairment();
+        uint256 sailPriceAtRecognition = IMinter(minter).leveragedTokenPrice();
+        assertGt(sailPriceAtRecognition, 0, "sail must still be worth something for this to discriminate");
 
-        // yield accrues afterwards: the rate recovers part of the way, to 0.75
-        _scaleRate(10_714);
+        _setRate(0.9 ether); // the collateral earns afterwards
 
         assertGt(
             IMinter(minter).harvestable(),
             0,
-            "yield accruing after an impairment belongs to depositors, not to repairing the sail claim"
+            "once the loss is recognised, later yield is a surplus and belongs to depositors"
         );
-        assertLt(
+        assertEq(
             IMinter(minter).leveragedTokenPrice(),
-            sailPriceBefore / 4,
-            "sail keeps the loss it absorbed"
+            sailPriceAtRecognition,
+            "sail keeps the loss it absorbed - the recovery is not diverted back to it"
         );
+    }
+
+    /// The mirror, and the reason recognition is a deliberate act rather than an automatic one. With
+    /// no recognition, a dip that reverses costs sail holders nothing: the recovery accrues back to
+    /// the junior claim, and there is no surplus to harvest until the record is exceeded again. A
+    /// system that wrote the record down automatically would have made this loss permanent.
+    function test_transientDip_leavesBackingIntactAndRecoversSail() public {
+        setUp_collateral(100 ether, 40 ether);
+        uint256 sailPriceBefore = IMinter(minter).leveragedTokenPrice();
+
+        _impair(1_500);
+        assertLt(IMinter(minter).leveragedTokenPrice(), sailPriceBefore, "the dip marks sail down while it lasts");
+
+        _setRate(1 ether); // the dip reverses
+
+        assertEq(IMinter(minter).leveragedTokenPrice(), sailPriceBefore, "sail is whole again");
+        assertEq(IMinter(minter).harvestable(), 0, "and nothing was taken from it on the way");
+    }
+
+    /// No mutating call writes the record down. Redeeming a worthless sail claim moves no collateral
+    /// at all, so the record and the holding are both untouched by it — and once the rate returns to
+    /// where it started, there is no surplus. A crystallising mutator would leave one behind.
+    function test_mutatingWhileImpaired_doesNotWriteTheRecordDown() public {
+        (, uint256 sailTokens) = setUp_collateral(100 ether, 40 ether);
+
+        _impair(3_000);
+
+        vm.startPrank(zeroFee);
+        IERC20(leveragedToken).approve(minter, sailTokens);
+        uint256 returned = IMinter(minter).freeRedeemLeveragedToken(sailTokens / 10, zeroFee);
+        vm.stopPrank();
+        assertEq(returned, 0, "the mutator must move no collateral, or it cannot isolate the record");
+
+        _setRate(1 ether);
+
+        assertEq(IMinter(minter).harvestable(), 0, "the record still matches the holding, so there is no surplus");
+    }
+
+    /// Recognition writes the record down to exactly what is held, and no further.
+    function test_recogniseImpairment_writesBackingDownToWhatIsHeld() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(1_500);
+
+        uint256 held = _heldAsCollateral();
+        _recogniseImpairment();
+
+        _setRate(1 ether); // at the original rate the holding is worth 140 again
+
+        assertEq(
+            IMinter(minter).harvestable(),
+            IERC20(wrappedCollateralToken).balanceOf(minter) - held,
+            "the record sits at the impaired holding, so everything above it is surplus"
+        );
+    }
+
+    /// Each recognition is cumulative and none restores a previous level.
+    function test_repeatedImpairment_accumulatesAndNeverRecovers() public {
+        setUp_collateral(100 ether, 40 ether);
+
+        _impair(1_000);
+        _recogniseImpairment();
+        uint256 sailAfterFirst = IMinter(minter).leveragedTokenPrice();
+
+        _impair(1_000);
+        _recogniseImpairment();
+        uint256 sailAfterSecond = IMinter(minter).leveragedTokenPrice();
+        assertLt(sailAfterSecond, sailAfterFirst, "the second loss compounds on the first");
+
+        _setRate(1 ether);
+        assertEq(IMinter(minter).leveragedTokenPrice(), sailAfterSecond, "neither loss is given back");
+    }
+
+    /// A call that would change nothing fails rather than succeeding silently, so an owner cannot
+    /// mistake a no-op for a write-down.
+    function test_recogniseImpairment_refusesWhenTheRecordIsNotOverstated() public {
+        setUp_collateral(100 ether, 40 ether);
+        _scaleRate(10_500); // a surplus, not a shortfall
+
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        vm.startPrank(owner());
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.NothingToRecognise.selector, backing));
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
+    }
+
+    /// Writing the record down transfers the collateral's future yield from sail holders to
+    /// depositors, so it is the owner's decision and nobody else's.
+    function test_recogniseImpairment_isOwnerOnly() public {
+        setUp_collateral(100 ether, 40 ether);
+        _impair(1_500);
+
+        address stranger = makeAddr("stranger");
+        vm.startPrank(stranger);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IMinter_v3(minter).recogniseImpairment();
+        vm.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -399,6 +497,11 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
 
     /// The zero-fee mint is how Genesis opens a market. It prices from the same backing as everything
     /// else and must not be exempt from recognising an impairment.
+    ///
+    /// Once the collateral no longer covers the anchor claim there is no residual to sell, so no sail
+    /// can be issued. It must refuse by the same named error as the fee-paying path, which returns
+    /// zero from its adjustments and is turned away by `_mintLeveragedToken` — not by an arithmetic
+    /// panic, which would take the collateral's measure of the failure away from the caller.
     function test_impairedBacking_freeMintPricesFromRecognisedBacking() public {
         setUp_collateral(100 ether, 40 ether);
         _impair(3_000);
@@ -409,8 +512,27 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         deal(wrappedCollateralToken, zeroFee, 1 ether);
         vm.startPrank(zeroFee);
         IERC20(wrappedCollateralToken).approve(minter, 1 ether);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(IMinter_v3.ReturnZeroAmount.selector, leveragedToken));
         IMinter(minter).freeMintLeveragedToken(1 ether, zeroFee);
+        vm.stopPrank();
+    }
+
+    /// With no collateral left behind an outstanding anchor supply, an anchor token is worth nothing,
+    /// so a mint priced against it has no answer. The protocol must say so by name rather than
+    /// dividing by the zero price it just computed.
+    function test_noBacking_freeAnchorMintIsRefusedByName() public {
+        setUp_collateral(100 ether, 40 ether);
+        assertGt(IMinter(minter).peggedTokenBalance(), 0, "anchor must be outstanding for this to bite");
+
+        // the whole holding is gone: the recognised backing floors to nothing
+        deal(wrappedCollateralToken, minter, 0);
+        assertEq(IMinter(minter).collateralTokenBalance(), 0, "no collateral stands behind the anchor claim");
+
+        deal(wrappedCollateralToken, zeroFee, 1 ether);
+        vm.startPrank(zeroFee);
+        IERC20(wrappedCollateralToken).approve(minter, 1 ether);
+        vm.expectRevert(IMinter_v3.ZeroPeggedTokenPrice.selector);
+        IMinter(minter).freeMintPeggedToken(1 ether, zeroFee);
         vm.stopPrank();
     }
 

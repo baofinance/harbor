@@ -66,7 +66,11 @@ contract MinterSlashTest is TestMinterSetUp {
         vm.stopPrank();
 
         assertApproxEqAbs(IMinter(minter).collateralRatio(), 1.4 ether, 1e12, "the ratio is made whole");
-        assertEq(IMinter(minter).harvestable(), 0, "a donation is backing, not yield");
+        // The donation is converted to collateral once when credited and the whole holding is
+        // converted once when harvestable is measured, so the two floors can differ by a single wei.
+        // The direction is fixed: crediting rounds down, so any residue is yield, never phantom
+        // backing. One wei is the exact bound - two would mean a second rounding step had crept in.
+        assertLe(IMinter(minter).harvestable(), 1, "a donation is backing, not yield");
     }
 
     /// Wrapped collateral simply transferred in is yield for the stability pools, and moves neither

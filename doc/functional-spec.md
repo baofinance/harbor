@@ -108,6 +108,12 @@ quantity, not the wrapped balance, is what every health calculation uses. The tw
 fixed wrapped holding is worth steadily more collateral token. The difference is the **harvestable
 surplus**: real, held, and belonging to no claim until harvested.
 
+The holding can also be worth *less* than the record, when the collateral itself is impaired and the
+conversion rate falls. Valuation therefore uses the **recognised backing** — the lower of the record
+and what the holding currently converts to — so the protocol can never price against cover it does
+not have. In normal operation the record is the lower of the two and recognition changes nothing; it
+binds only once the collateral is impaired, and it applies to views as much as to transactions.
+
 The unit of account is doing deliberate work here. Were the backing measured in wrapped tokens, the
 collateral's yield would inflate it automatically; the anchor claim being fixed, all of that growth
 would fall to the sail token. Recording it in collateral tokens quarantines the yield instead, so
@@ -672,15 +678,21 @@ Acceptance criteria:
 
 ---
 
-**US-16 — Respond to a collateral slashing event**
+**US-16 — Recognise a collateral impairment as permanent**
 
-> *As the owner, I want to correct the protocol's record of its own backing after the collateral
-> asset suffers a loss, so that the system's health metric reflects reality.*
+> *As the owner, I want to write the protocol's record of its own backing down to what is actually
+> held, so that the collateral's yield resumes reaching the stability pools.*
 
 Acceptance criteria:
-1. An owner-only operation resets the recorded underlying backing to match the value actually held.
-2. Without it, a slashed wrapped-collateral asset would leave the system reporting more backing than
-   exists, which would prevent a rebalance from being triggered when one is needed.
+1. An owner-only operation lowers the recorded backing to the recognised backing (§2.1). It can only
+   ever **lower** it; no path raises the record without collateral arriving to justify it (US-21).
+2. Valuation does not wait for it. Prices, ratios, fee bands and the rebalance threshold already read
+   the recognised backing, so the call moves no price and unblocks no operation (§9.12).
+3. What it changes is the harvest. While the record is overstated `harvestable` is zero, so the
+   collateral's yield rebuilds the backing instead of reaching depositors; afterwards it is
+   distributable again (§6.3).
+4. Calling it is a judgement that the loss is **permanent**. No reading distinguishes a permanent loss
+   from a fall that will reverse, so the protocol never makes that judgement for itself (§6.7).
 
 ---
 
@@ -720,7 +732,7 @@ Acceptance criteria:
 
 ### 4.8 Contributor
 
-Two routes exist, with **different beneficiaries**. Choosing between them is the contributor's only
+Three routes exist, with **different beneficiaries**. Choosing between them is the contributor's only
 decision, and it is not reversible.
 
 ---
@@ -756,10 +768,25 @@ Acceptance criteria:
 
 ---
 
-**There is no route that contributes as backing.** A contribution that raises the collateral ratio —
-repairing coverage rather than paying depositors — has no entry point. A treasury wanting that effect
-must mint sail tokens and take a claim in return, which is a different act with different
-consequences for every existing holder.
+**US-21 — Contribute as backing, repairing coverage**
+
+> *As a contributor, I want the collateral I supply to count as backing rather than as yield, so that
+> the collateral ratio and the sail price recover.*
+
+Acceptance criteria:
+1. A permissionless call takes a **stated amount** of wrapped collateral and credits it to the
+   recorded backing, atomically with the transfer.
+2. The collateral ratio rises and the sail price rises with it; anchor coverage improves.
+3. `harvestable` is **unchanged**. Only the amount supplied in the same call is credited, so a
+   contribution can never absorb surplus that was already there and owed to depositors.
+4. The contributor receives nothing and retains no claim.
+
+---
+
+**The three differ only in who benefits**: the reserve pool pays users who restore health, a direct
+transfer pays stability-pool depositors, and a credited contribution repairs coverage for anchor and
+sail holders. None returns a claim. A treasury wanting a claim in return must mint sail tokens, which
+is a different act with different consequences for every existing holder.
 
 ---
 
@@ -1325,6 +1352,11 @@ Two consequences are worth stating precisely, because they are counter-intuitive
 2. **A backlog drains slowly, by design.** Each call streams at most one reward period's capacity per
    pool; the rest stays owed. Recovery from a large backlog is by **waiting** across periods, not by
    harvesting more often. Calling repeatedly within a period achieves nothing.
+3. **An impaired collateral suspends harvesting entirely.** The surplus is the excess of the holding
+   over the *recognised* backing, and once the collateral is impaired recognition has already floored
+   that figure to the holding — so `harvestable` is zero by construction. Yield accruing meanwhile
+   closes the gap back up to the record, restoring the sail claim rather than paying depositors.
+   Harvesting resumes when the owner writes the record down (§6.7, US-16).
 
 **The keeper's incentive weakens as the backlog grows**, because the bounty is a share of what a
 call actually distributes, not of the backlog. This is the correct behaviour — it prevents a keeper
@@ -1406,14 +1438,24 @@ The wrapped collateral is worth progressively more of its underlying over time. 
 only as a rising conversion rate reported by its price source, and the resulting surplus is what
 harvesting distributes.
 
-**The rate can also fall** — through a slashing event, or a change in the collateral protocol. Two
-mechanisms respond:
+**The rate can also fall** — through a slashing event, a loss in the collateral protocol, or simply
+because the collateral is itself a volatile claim. Three mechanisms respond, and they are deliberately
+separated:
 
+- **Valuation corrects itself immediately.** Every price, ratio and fee band reads the recognised
+  backing (§2.1), so a fallen rate is reflected on the next call with nothing done and nobody called.
+  The rebalance becomes available at the same instant, its threshold being read from that same figure.
 - The harvest's owed ledger is **written down proportionally** if the surplus shrinks below what is
   already owed, so it never claims more than the protocol holds.
-- If the wrapped asset itself is impaired, the owner must **reset** the recorded backing to match
-  what is actually held (US-16). Without it the system would report more backing than exists, and —
-  critically — a rebalance that *should* trigger would not, because the ratio would read too high.
+- **The record itself is corrected only by the owner** (US-16), and only downwards.
+
+The last is deliberate, and the reason is that a falling rate does not mean the same thing for every
+collateral. A vault share price that only rises makes a fall strong evidence of a real loss; but a
+market may equally be collateralised by another market's sail token, whose price falls and recovers
+with leverage as ordinary behaviour. Writing the record down automatically would make every such fall
+permanent, transferring value from sail holders to depositors on movements that reverse. Since no
+reading distinguishes the two cases, the judgement is left to the owner and the protocol carries the
+cost of waiting: suspended harvesting, visible in `harvestable` reading zero while collateral is held.
 
 ### 6.8 Price feed maintenance (external)
 
@@ -1727,6 +1769,7 @@ very different assurance.
 | **A3** | The protocol never redeems more anchor tokens than **it** issued. | By check — issuance is tracked independently of token supply |
 | **A4** | Sail token supply equals exactly what the protocol issued. | By construction — the protocol is the only minter and burner |
 | **A5** | Rounding always favours the protocol: a mint never issues more than the exact formula, a redeem never returns more. | By check — verified per band slice, not merely in aggregate |
+| **A6** | The **recognised** backing never exceeds the collateral actually held, converted at the current rate. Everything the protocol prices is priced from that figure. | By construction — recognition takes the lower of the two on every read |
 
 **A2 is the strongest claim in the document** and deserves emphasis: this is exact conservation, not
 conservation within a tolerance. Every unit of wrapped collateral that leaves one party arrives at
@@ -2074,7 +2117,7 @@ the validation lives in the code being replaced. Three specific powers are worth
 | Power | Effect |
 |---|---|
 | Replace any implementation | Unbounded — supersedes every guarantee in this document |
-| `reset()` the recorded backing | Intended for slashing (writing backing **down**), but bidirectional: called while a harvest surplus exists it writes backing **up** and absorbs the surplus, converting yield owed to depositors into collateral backing |
+| `recogniseImpairment()` the recorded backing | One-directional — it can only write backing **down**, to what is held, and no owner path writes it up. What the owner controls is the *timing*: the call moves no price, but it switches the collateral's future yield from restoring the sail claim to paying depositors. That is a transfer between two groups of users, bounded by the shortfall and visible in `harvestable` |
 | Register a yield vault | Adds a contract that is called after every rebalance and harvest |
 
 **Residual risk. This is the system's root trust assumption, and it is not reducible by design** —
@@ -2099,33 +2142,32 @@ forwarded gas can still make the enclosing call expensive. The primary defence i
 **The attempt.** Transact in the window between the collateral being impaired and the protocol
 recognising it, while the recorded backing still overstates what is held.
 
-**How far it gets — further than anything else in this section.** The backing is corrected only by
-`reset()`, an owner action, so until it is called the collateral value is inflated: the anchor price
-reads 1 when the true ratio is below 1, and the sail price reads high. Everything priced off them is
-wrong in the departing user's favour, in order of severity:
+**Why there is no window.** The recorded backing is never what the protocol prices against. Every
+price, ratio and fee band reads the **recognised backing** — the lower of the record and what the
+holding converts to at the current rate (§2.1, A6) — so a fallen rate corrects the anchor price, the
+sail price, the collateral ratio, all four fee schedules and the rebalance threshold on the very next
+call. No transaction, keeper or governance action stands between the impairment and the correction.
 
-1. **Sail redemption escapes its block.** Below a true ratio of 1 it should be disallowed outright —
-   the sail claim is worthless and the block exists to stop it being paid out of anchor holders'
-   backing. The disallow band is tested against the inflated ratio, so it is permitted, at an
-   inflated valuation. The junior claim exits ahead of the senior one.
-2. **Anchor redemption pays par on short backing.** It should pay a pro-rata share of what remains.
-   Early redeemers take full value and the shortfall concentrates on those who follow, stopping only
-   when the Minter's actual balance is exhausted and transfers revert.
-3. **Anchor minting is priced from the wrong band** — waved through cheaply, or through a disallow
-   band it should have hit, issuing new claims against backing that is not there.
-
-Minting sail is the mirror: the inflated price means a minter receives *fewer* tokens than fair, so
-the recapitalisation arm is priced out of use exactly when it is wanted. And all of it runs while
-**the rebalance stays dormant**, its threshold read from the same inflated ratio.
+Recognition reaching **views** is what closes the last of it. The rebalance threshold is read by the
+StabilityPoolManager from `collateralRatio()`, so the rebalance becomes available at the same instant
+rather than staying dormant behind a stale figure. In particular: sail redemption meets its disallow
+band at the true ratio, anchor redemption prices against what remains rather than paying par on short
+backing, and anchor minting is priced from the band the true ratio selects.
 
 **What is not affected.** The wrapped-to-collateral conversion stays correct — a fallen rate means a
-redeemer receives more wrapped tokens per unit of value, which is right. The error is confined to
-valuing the backing, not to converting it.
+redeemer receives more wrapped tokens per unit of value, which is right. The error recognition removes
+was confined to valuing the backing, never to converting it.
 
-**Residual risk.** All of the above, for as long as the window lasts. This is the sharpest
-consequence of `reset()` being manual, and none of it is self-correcting. It also assumes the
-impairment shows up in the reported wrapped-to-collateral rate; a collateral that socialises a loss
-without moving that rate would not be detectable on-chain at all.
+**Residual risk — income, not extraction.** Recognition does not alter the record, and the record is
+written down only by `recogniseImpairment()` (§6.7, US-16). Until that is called `harvestable` is
+zero, so the collateral's yield rebuilds the backing instead of reaching the stability pools —
+restoring the sail claim at depositors' expense (§6.3). What is at stake in that window is the
+*timing of a transfer between two groups of users*, bounded by the shortfall; nothing can be
+extracted, because every price is honest throughout. The condition is externally observable:
+`harvestable` reads zero while wrapped collateral is held.
+
+All of this assumes the impairment shows up in the reported wrapped-to-collateral rate. A collateral
+that socialised a loss without moving that rate would not be detectable on-chain at all.
 
 ### 9.13 Rebasing-balance approval semantics
 
@@ -2169,15 +2211,20 @@ in-protocol mechanism addresses.
 | Reward-integral overflow | Capped and deferred, floor bounds the divisor | Deferral latency only |
 | Hostile governance | Config validation; **upgrade unbounded** | **Root trust assumption** |
 | Vault griefing | Failures isolated; registration owner-gated | Gas exhaustion; folds into governance trust |
-| Collateral slashing | `reset()` plus proportional owed write-down | **Manual reset leaves a priced arbitrage open — sail redemption escapes its block, anchor redeems at par on short backing, rebalance stays dormant** |
+| Collateral slashing | Recognition on read — every price, band and threshold values the lower of the record and the holding; plus proportional owed write-down | Harvesting suspended until the owner writes the record down: depositors' income, not extractable value |
 | Rebase vs allowance | Documented semantics | Integrator error |
 | Keeper absence | Bounties denominated in released assets | Inability to transact at all |
 
-The two rows in bold type are the ones carried operationally rather than by the design. **Upgrade
-authority** cannot be engineered away. The **manual reset after a slashing event** could be — the
-condition is computable on-chain, since the backing is overstated exactly when it exceeds the held
-wrapped balance converted at the current rate — and until it is, the window it leaves open is the
-most valuable arbitrage in this section.
+The single row in bold type is the one carried operationally rather than by the design. **Upgrade
+authority** cannot be engineered away; every other defence here is conditional on it.
+
+One residual is worth distinguishing from the rest, because it reads like an open vector and is not.
+After a collateral impairment, harvesting is suspended until the owner recognises the loss. That
+withholds income from stability-pool depositors and hands the collateral's yield to sail holders for
+as long as it lasts — but it is a transfer between users, visible in `harvestable`, and no party can
+trade against it, because recognition has already corrected every price. It is deliberately not
+automated: no on-chain reading distinguishes a permanent loss from a fall that will reverse, and a
+market may be collateralised by an asset whose price does exactly that as a matter of course (§6.7).
 
 ---
 
@@ -2370,7 +2417,8 @@ document, the section is given.
 
 | Term | Meaning |
 |---|---|
-| **Collateral ratio** | Collateral value ÷ anchor token value. The system's health metric, computed from the *tracked* backing rather than the balance held (§2.3, §6.3) |
+| **Collateral ratio** | Collateral value ÷ anchor token value. The system's health metric, computed from the *recognised* backing rather than the balance held (§2.3, §6.3) |
+| **Recognised backing** | The lower of the recorded backing and what the wrapped holding currently converts to. Every price, ratio and fee band is computed from it, so the protocol never prices against cover it does not hold (§2.1, A6) |
 | **Leverage ratio** | Collateral value ÷ sail token value. Rises without bound as the collateral ratio approaches 1 (§2.3) |
 | **Depeg** | Collateral ratio below 1 — anchor tokens no longer fully covered (§10.6) |
 | **Rebalance threshold** | The collateral ratio below which rebalancing becomes available. Set per market by its volatility class (§7.3) |
@@ -2402,7 +2450,7 @@ document, the section is given.
 | **Liquidation** | The pool's side of a rebalance: anchor tokens are exchanged for the payout asset, at the maximum reported price and zero fee, and the proceeds credited immediately. Not a seizure — see §2.6 (§2.7) |
 | **Sweep** | Moving tokens out of a contract that is holding them on another's behalf — how the manager takes anchor tokens from a pool, and harvested yield from the Minter |
 | **Genesis** | The bootstrap phase before a market opens (§5.1, §10.2) |
-| **Reset** | Correcting the recorded backing to match holdings, after a collateral impairment. Owner-only and manual (§6.7, §9.12) |
+| **Recognise an impairment** | Writing the recorded backing down to what is held, after a collateral impairment. Owner-only, one-directional, and deliberately not automated. It moves no price — only who receives the collateral's future yield (§6.7, US-16) |
 | **Dry run** | A read-only call reporting exactly what an action would yield in the current state, including partial fills and the actually-available discount (US-2) |
 
 ### Structural

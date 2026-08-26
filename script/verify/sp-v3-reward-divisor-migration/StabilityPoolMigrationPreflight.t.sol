@@ -75,7 +75,6 @@ contract StabilityPoolMigrationPreflight is
     ///      measures ~9e8 ppb, so this cleanly separates them.
     uint256 internal constant MAX_REL_GAP_PPB = 1_000_000; // 0.1% of supply
 
-
     uint256 internal deployedCount;
     uint256 internal negativeGapCount; // pools that need a seed (Sum(balanceOf) > supply)
     uint256 internal emptyNonZeroCount; // no-holder pools with supply > 0 (holder list missed depositors)
@@ -326,7 +325,11 @@ contract StabilityPoolMigrationPreflight is
         );
         // The whole point of the ClaimData copy: if there were nothing to copy, the upgrader's holder loop would be
         // dead code and this pre-flight would be silently vacuous.
-        assertGt(claimDataPairsToCopy, 0, "no ClaimData pairs to copy - holder lists empty, or the snapshot reads are not landing");
+        assertGt(
+            claimDataPairsToCopy,
+            0,
+            "no ClaimData pairs to copy - holder lists empty, or the snapshot reads are not landing"
+        );
         // The deployed V2 accumulator resolves a snapshot with a lazy fallback - the V2 entry wins only when its
         // integral or timestamp is set, otherwise the read comes from the V1 mapping - so a pair the V1->V2 remediation
         // never reached still lives in V1. The V3 upgrader copies from V2 ONLY and V3 has NO fallback, so such a pair

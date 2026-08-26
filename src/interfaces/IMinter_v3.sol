@@ -113,6 +113,11 @@ interface IMinter_v3 is IToken {
         uint256 backing
     );
 
+    /// @notice Emitted when the recorded backing is written down to the collateral actually held.
+    /// @param previousBacking The recorded backing before the write-down.
+    /// @param recognisedBacking The collateral held, converted at the min rate, which the record becomes.
+    event RecogniseImpairment(uint256 previousBacking, uint256 recognisedBacking);
+
     /// @notice Emitted whenever the config is updated.
     event UpdateConfig(Config newConfig);
 
@@ -155,6 +160,13 @@ interface IMinter_v3 is IToken {
     error ReturnInsufficientAmount(address returningToken, uint256 actual, uint256 miniumum);
     error NoRedeemableTokens(address redeemingToken);
     error InsufficientRedeemableTokens(address redeemingToken, uint256 available, uint256 requested);
+
+    /// @dev Thrown when recognising an impairment would change nothing, the record not exceeding the holding.
+    error NothingToRecognise(uint256 backing);
+
+    /// @dev Thrown when a pegged token is worth nothing - no collateral stands behind an outstanding supply - so an
+    /// operation priced against that value has no answer.
+    error ZeroPeggedTokenPrice();
 
     /// @dev thrown if a ratio doesn't make sense in some context
     error InvalidRatio();
@@ -493,6 +505,26 @@ interface IMinter_v3 is IToken {
     /// neither the collateral ratio nor either token's price.
     /// @param wrappedAmount The wrapped collateral to give. Must be non-zero.
     function donateWrappedCollateral(uint256 wrappedAmount) external;
+
+    /// @notice Write the recorded backing down to the collateral actually held, recognising an impairment as
+    /// permanent.
+    /// @dev One-directional: it can only lower the record. Raising it requires collateral to arrive, which is
+    /// `donateWrappedCollateral`.
+    ///
+    /// This moves no price and unblocks no operation. Every price, ratio and fee band already values the backing
+    /// at the lower of the record and what the holding converts to, so an impairment is priced correctly from the
+    /// moment the rate falls, with no call needed. What this changes is the harvest: while the record stands above
+    /// the holding there is no surplus, so `harvestable` is zero and the collateral's yield closes the gap —
+    /// restoring the sail claim instead of reaching the stability pools. Writing the record down ends that.
+    ///
+    /// Owner-gated because it is a judgement, not a reading. A fall in the rate does not say whether the loss is
+    /// permanent: a market may be collateralised by an asset whose value falls and recovers as a matter of course,
+    /// and writing the record down automatically would make every such fall permanent at the sail holders'
+    /// expense. Nothing on-chain distinguishes the two cases.
+    ///
+    /// Reverts when the record does not exceed the holding, so a call that would do nothing fails visibly rather
+    /// than succeeding silently.
+    function recogniseImpairment() external;
 
     /// @notice Updates the config to the given config
     /// @param config_ The new config
