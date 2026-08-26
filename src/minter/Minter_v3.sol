@@ -437,12 +437,19 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         (price, rate) = _fetchMid($.priceOracle);
         uint256 underlyingCollateralAdded;
-        (wrappedFee, peggedMinted, wrappedCollateralUsed, underlyingCollateralAdded) = MinterAdjustments_v1.mintPeggedAdjustments(
-            $.incentiveConfig[Config_v2.MINT_PEGGED],
-            wrappedCollateralIn,
-            ValuationLib.CollateralRatioData(_effectiveBacking($), price, rate, $.peggedTokenBalance, _leveragedTokenBalance()),
-            maxFeeRatio
-        );
+        (wrappedFee, peggedMinted, wrappedCollateralUsed, underlyingCollateralAdded) = MinterAdjustments_v1
+            .mintPeggedAdjustments(
+                $.incentiveConfig[Config_v2.MINT_PEGGED],
+                wrappedCollateralIn,
+                ValuationLib.CollateralRatioData(
+                    _effectiveBacking($),
+                    price,
+                    rate,
+                    $.peggedTokenBalance,
+                    _leveragedTokenBalance()
+                ),
+                maxFeeRatio
+            );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralUsed == 0
             ? _lookupIncentiveRatio(Config_v2.MINT_PEGGED)
@@ -472,12 +479,19 @@ contract Minter_v3 is
         (price, rate) = _fetchMid($.priceOracle);
         peggedRedeemed = peggedIn;
         uint256 peggedPriceE36;
-        (wrappedFee, wrappedDiscount, wrappedCollateralReturned, , peggedPriceE36) = MinterAdjustments_v1.redeemPeggedAdjustments(
-            $.incentiveConfig[Config_v2.REDEEM_PEGGED],
-            peggedIn,
-            ValuationLib.CollateralRatioData(_effectiveBacking($), price, rate, peggedTokenBalance_, _leveragedTokenBalance()),
-            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
-        );
+        (wrappedFee, wrappedDiscount, wrappedCollateralReturned, , peggedPriceE36) = MinterAdjustments_v1
+            .redeemPeggedAdjustments(
+                $.incentiveConfig[Config_v2.REDEEM_PEGGED],
+                peggedIn,
+                ValuationLib.CollateralRatioData(
+                    _effectiveBacking($),
+                    price,
+                    rate,
+                    peggedTokenBalance_,
+                    _leveragedTokenBalance()
+                ),
+                IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
+            );
         // slither-disable-next-line incorrect-equality
         if (peggedRedeemed == 0) {
             incentiveRatio = _lookupIncentiveRatio(Config_v2.REDEEM_PEGGED);
@@ -516,12 +530,19 @@ contract Minter_v3 is
         MinterStorage storage $ = _getMinterStorage();
         (price, rate) = _fetchMid($.priceOracle);
 
-        (wrappedFee, wrappedDiscount, leveragedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1.mintLeveragedAdjustments(
-            $.incentiveConfig[Config_v2.MINT_LEVERAGED],
-            wrappedCollateralIn,
-            ValuationLib.CollateralRatioData(_effectiveBacking($), price, rate, $.peggedTokenBalance, _leveragedTokenBalance()),
-            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
-        );
+        (wrappedFee, wrappedDiscount, leveragedMinted, wrappedCollateralUsed, ) = MinterAdjustments_v1
+            .mintLeveragedAdjustments(
+                $.incentiveConfig[Config_v2.MINT_LEVERAGED],
+                wrappedCollateralIn,
+                ValuationLib.CollateralRatioData(
+                    _effectiveBacking($),
+                    price,
+                    rate,
+                    $.peggedTokenBalance,
+                    _leveragedTokenBalance()
+                ),
+                IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf($.reservePool)
+            );
         // slither-disable-next-line incorrect-equality
         if (wrappedCollateralUsed == 0) {
             incentiveRatio = _lookupIncentiveRatio(Config_v2.MINT_LEVERAGED);
@@ -563,7 +584,13 @@ contract Minter_v3 is
         (wrappedFee, leveragedRedeemed, wrappedCollateralReturned, ) = MinterAdjustments_v1.redeemLeveragedAdjustments(
             $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
             leveragedIn,
-            ValuationLib.CollateralRatioData(_effectiveBacking($), price, rate, $.peggedTokenBalance, leveragedTokenBalance_)
+            ValuationLib.CollateralRatioData(
+                _effectiveBacking($),
+                price,
+                rate,
+                $.peggedTokenBalance,
+                leveragedTokenBalance_
+            )
         );
         // slither-disable-next-line incorrect-equality
         incentiveRatio = wrappedCollateralReturned == 0
@@ -704,12 +731,19 @@ contract Minter_v3 is
 
         uint256 wrappedFee;
         uint256 underlyingCollateralAdded;
-        (wrappedFee, peggedOut, wrappedCollateralUsed, underlyingCollateralAdded) = MinterAdjustments_v1.mintPeggedAdjustments(
-            $.incentiveConfig[Config_v2.MINT_PEGGED],
-            wrappedCollateralIn,
-            ValuationLib.CollateralRatioData(underlyingCollateral_, price, rate, peggedTokenBalance_, _leveragedTokenBalance()),
-            maxFeeRatio
-        );
+        (wrappedFee, peggedOut, wrappedCollateralUsed, underlyingCollateralAdded) = MinterAdjustments_v1
+            .mintPeggedAdjustments(
+                $.incentiveConfig[Config_v2.MINT_PEGGED],
+                wrappedCollateralIn,
+                ValuationLib.CollateralRatioData(
+                    underlyingCollateral_,
+                    price,
+                    rate,
+                    peggedTokenBalance_,
+                    _leveragedTokenBalance()
+                ),
+                maxFeeRatio
+            );
 
         // The pegged tokens minted are floored, so a mint too small to buy a whole one yields nothing.
         // Taking its collateral and fee anyway would charge the caller for nothing, so both the "nothing
@@ -775,12 +809,19 @@ contract Minter_v3 is
         uint256 wrappedFee;
         uint256 wrappedDiscount;
         uint256 underlyingCollateralRemoved;
-        (wrappedFee, wrappedDiscount, wrappedCollateralOut, underlyingCollateralRemoved, ) = MinterAdjustments_v1.redeemPeggedAdjustments(
-            $.incentiveConfig[Config_v2.REDEEM_PEGGED],
-            peggedIn,
-            ValuationLib.CollateralRatioData(underlyingCollateral_, price, rate, peggedTokenBalance_, _leveragedTokenBalance()),
-            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
-        );
+        (wrappedFee, wrappedDiscount, wrappedCollateralOut, underlyingCollateralRemoved, ) = MinterAdjustments_v1
+            .redeemPeggedAdjustments(
+                $.incentiveConfig[Config_v2.REDEEM_PEGGED],
+                peggedIn,
+                ValuationLib.CollateralRatioData(
+                    underlyingCollateral_,
+                    price,
+                    rate,
+                    peggedTokenBalance_,
+                    _leveragedTokenBalance()
+                ),
+                IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(reservePool_)
+            );
         // make sure it meets the minimum requirements
         if (wrappedCollateralOut < minWrappedCollateralOut) {
             revert ReturnInsufficientAmount(WRAPPED_COLLATERAL_TOKEN, wrappedCollateralOut, minWrappedCollateralOut);
@@ -830,7 +871,13 @@ contract Minter_v3 is
         ValuationLib.CollateralRatioData memory crData;
         {
             (uint256 price, uint256 rate) = _fetchMid($.priceOracle);
-            crData = ValuationLib.CollateralRatioData(_effectiveBacking($), price, rate, $.peggedTokenBalance, _leveragedTokenBalance());
+            crData = ValuationLib.CollateralRatioData(
+                _effectiveBacking($),
+                price,
+                rate,
+                $.peggedTokenBalance,
+                _leveragedTokenBalance()
+            );
         }
         uint256 wrappedFee;
         uint256 wrappedDiscount;
@@ -893,11 +940,18 @@ contract Minter_v3 is
 
         uint256 wrappedFee;
         uint256 underlyingCollateralOut;
-        (wrappedFee, leveragedIn, wrappedCollateralOut, underlyingCollateralOut) = MinterAdjustments_v1.redeemLeveragedAdjustments(
-            $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
-            leveragedIn,
-            ValuationLib.CollateralRatioData(underlyingCollateral_, price, rate, $.peggedTokenBalance, leveragedTokenBalance_)
-        );
+        (wrappedFee, leveragedIn, wrappedCollateralOut, underlyingCollateralOut) = MinterAdjustments_v1
+            .redeemLeveragedAdjustments(
+                $.incentiveConfig[Config_v2.REDEEM_LEVERAGED],
+                leveragedIn,
+                ValuationLib.CollateralRatioData(
+                    underlyingCollateral_,
+                    price,
+                    rate,
+                    $.peggedTokenBalance,
+                    leveragedTokenBalance_
+                )
+            );
         // slither-disable-next-line incorrect-equality
         if (wrappedCollateralOut == 0) {
             revert ReturnZeroAmount(WRAPPED_COLLATERAL_TOKEN);
@@ -983,15 +1037,16 @@ contract Minter_v3 is
             uint256 underlyingCollateral_ = _effectiveBacking($);
 
             uint256 underlyingCollateralOutE36;
-            (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = MinterAdjustments_v1.freeRedeemPeggedTokenAmounts(
-                peggedForCollateral,
-                peggedForLeveraged,
-                peggedTokenBalance_,
-                underlyingCollateral_,
-                price,
-                rate,
-                _leveragedTokenBalance()
-            );
+            (wrappedCollateralOut, leveragedOut, underlyingCollateralOutE36) = MinterAdjustments_v1
+                .freeRedeemPeggedTokenAmounts(
+                    peggedForCollateral,
+                    peggedForLeveraged,
+                    peggedTokenBalance_,
+                    underlyingCollateral_,
+                    price,
+                    rate,
+                    _leveragedTokenBalance()
+                );
 
             if (peggedForCollateral > 0) {
                 // return the collateral
@@ -1037,7 +1092,6 @@ contract Minter_v3 is
             _leveragedTokenBalance()
         );
     }
-
 
     // @inheritdoc IMinter
     function freeMintLeveragedToken(
@@ -1236,7 +1290,6 @@ contract Minter_v3 is
     // and fairly, where, say a large deposit is made in the face of a relatively small collateral balance or when fee boundaries
     // are placed closely together to create the correct incentives for investors.
 
-
     /// @notice The recorded backing, recognised against the collateral actually standing behind it.
     /// @dev The record is a collateral-token quantity, but what the contract holds is the wrapped token. An
     /// impairment of the collateral lowers the wrapped-to-collateral rate, so the record comes to claim more
@@ -1260,12 +1313,14 @@ contract Minter_v3 is
     /// @param minRate The min wrapped-to-collateral rate.
     function _effectiveBacking(uint256 underlyingCollateral_, uint256 minRate) private view returns (uint256 backing) {
         backing = underlyingCollateral_;
-        uint256 held = ValuationLib.wrappedAsCollateral(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)), minRate);
+        uint256 held = ValuationLib.wrappedAsCollateral(
+            IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)),
+            minRate
+        );
         if (held < backing) {
             backing = held;
         }
     }
-
 
     /// @notice Returns the amount of leveraged tokens being managed
     function _leveragedTokenBalance() private view returns (uint256) {

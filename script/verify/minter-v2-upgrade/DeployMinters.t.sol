@@ -43,9 +43,14 @@ contract DeployMintersTest is
     address internal _baoFactory;
 
     /// @notice Contract spec for dynamic comparison. Maps salt suffixes to artifacts.
+    /// @dev Two artifacts, because the two sides are different versions: the reference is what is deployed, the
+    /// candidate is what this repo now builds. Only the functions declared by BOTH can be compared - a view one
+    /// version has and the other does not is a surface difference, not a value difference, and calling it would
+    /// report a failure that says nothing about whether the deployment is correct.
     struct ContractSpec {
         string salt; // e.g., "ETH::pegged", "ETH::fxUSD::minter"
-        string artifact; // Artifact path for ABI loading
+        string artifact; // Artifact path for the REFERENCE (deployed) version's ABI
+        string candidateArtifact; // Artifact path for the CANDIDATE (this repo's) version's ABI
         string marketKey; // e.g., "ETH::fxUSD" for minter lookup (empty for pegged tokens)
     }
 
@@ -66,6 +71,7 @@ contract DeployMintersTest is
         specs[idx++] = ContractSpec({
             salt: peggedTokenKey(pegName),
             artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
+            candidateArtifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
             marketKey: ""
         });
 
@@ -74,6 +80,7 @@ contract DeployMintersTest is
             specs[idx++] = ContractSpec({
                 salt: leveragedTokenKey(mktConfigs[i]),
                 artifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
+                candidateArtifact: "out/MintableBurnableERC20_v1.sol/MintableBurnableERC20_v1.json",
                 marketKey: mktConfigs[i].salt()
             });
         }
@@ -85,31 +92,37 @@ contract DeployMintersTest is
             specs[idx++] = ContractSpec({
                 salt: reservePoolKey(mktConfigs[i]),
                 artifact: "out/ReservePool_v1.sol/ReservePool_v1.json",
+                candidateArtifact: "out/ReservePool_v2.sol/ReservePool_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
                 salt: minterKey(mktConfigs[i]),
                 artifact: "out/Minter_v2.sol/Minter_v2.json",
+                candidateArtifact: "out/Minter_v3.sol/Minter_v3.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
                 salt: stabilityPoolKey(mktConfigs[i], StabilityPoolType.Collateral),
                 artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
+                candidateArtifact: "out/StabilityPool_v3.sol/StabilityPool_v3.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
                 salt: stabilityPoolKey(mktConfigs[i], StabilityPoolType.Leveraged),
                 artifact: "out/StabilityPool_v2.sol/StabilityPool_v2.json",
+                candidateArtifact: "out/StabilityPool_v3.sol/StabilityPool_v3.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
                 salt: stabilityPoolManagerKey(mktConfigs[i]),
                 artifact: "out/StabilityPoolManager_v1.sol/StabilityPoolManager_v1.json",
+                candidateArtifact: "out/StabilityPoolManager_v2.sol/StabilityPoolManager_v2.json",
                 marketKey: marketKey
             });
             specs[idx++] = ContractSpec({
                 salt: genesisKey(mktConfigs[i]),
                 artifact: "out/Genesis_v1.sol/Genesis_v1.json",
+                candidateArtifact: "out/Genesis_v2.sol/Genesis_v2.json",
                 marketKey: marketKey
             });
         }
@@ -155,6 +168,12 @@ contract DeployMintersTest is
     struct FuncSpec {
         string sig;
         ReturnKind kind;
+    }
+
+    /// @notice The view/pure functions an ABI declares, by argument shape, as name hashes.
+    struct Surface {
+        bytes32[] zeroArg;
+        bytes32[] addressArg;
     }
 
     function test_BTC() public {
@@ -310,7 +329,12 @@ contract DeployMintersTest is
             s.candToken = candAddr;
 
             // Address-arg views use all known addresses from the global mapping
-            CompareTotals memory contractTotals = _processContract(fullRefSalt, s, spec.artifact);
+            CompareTotals memory contractTotals = _processContract(
+                fullRefSalt,
+                s,
+                spec.artifact,
+                spec.candidateArtifact
+            );
             agg.total += contractTotals.total;
             agg.passed += contractTotals.passed;
         }
@@ -402,22 +426,38 @@ contract DeployMintersTest is
         }
     }
 
+    /// @dev Each artifact is read ONCE and its contents threaded through from here. These files carry the
+    /// contract's bytecode as well as its ABI, so they are large, and Solidity never releases memory - re-reading
+    /// one per loader exhausts the EVM memory limit on the pegs carrying the most markets.
     function _processContract(
         string memory label,
         TokenCompareState memory s,
-        string memory artifactPath
+        string memory artifactPath,
+        string memory candidateArtifactPath
     ) private returns (CompareTotals memory totals) {
         // Global address mapping is already populated by _buildGlobalAddressMapping
-        totals = _compareNoArgViews(label, s, artifactPath);
-        totals = _compareAddressArgViews(label, s, totals, artifactPath);
+        string memory refRaw = vm.readFile(artifactPath);
+        string memory candRaw = vm.readFile(candidateArtifactPath);
+        Surface memory refSurface = _surfaceOf(refRaw);
+        Surface memory candSurface = _surfaceOf(candRaw);
+
+        // The views one version declares and the other does not cannot be compared - there is nothing on the far
+        // side to compare them against - but the exclusion must be visible, or a view silently dropped by a
+        // version bump looks the same as one that was never there.
+        _logSurfaceOnlyIn(label, "reference only, absent from candidate", refRaw, candSurface);
+        _logSurfaceOnlyIn(label, "candidate only, absent from reference", candRaw, refSurface);
+
+        totals = _compareNoArgViews(label, s, refRaw, candSurface);
+        totals = _compareAddressArgViews(label, s, totals, refRaw, candSurface);
     }
 
     function _compareNoArgViews(
         string memory label,
         TokenCompareState memory s,
-        string memory artifactPath
+        string memory refRaw,
+        Surface memory candSurface
     ) private returns (CompareTotals memory totals) {
-        FuncSpec[] memory specs = _loadZeroArgViewFunctions(artifactPath);
+        FuncSpec[] memory specs = _loadZeroArgViewFunctions(refRaw, candSurface);
         for (uint256 i = 0; i < specs.length; i++) {
             totals = _compareCall(label, specs[i], s, totals);
         }
@@ -427,9 +467,10 @@ contract DeployMintersTest is
         string memory label,
         TokenCompareState memory s,
         CompareTotals memory totals,
-        string memory artifactPath
+        string memory refRaw,
+        Surface memory candSurface
     ) private returns (CompareTotals memory) {
-        FuncSpec[] memory sigs = _loadAddressViewFunctions(artifactPath);
+        FuncSpec[] memory sigs = _loadAddressViewFunctions(refRaw, candSurface);
         // Test with ALL known addresses (well-known + deployed contracts)
         for (uint256 i = 0; i < sigs.length; i++) {
             for (uint256 j = 0; j < knownSalts.length; j++) {
@@ -440,9 +481,12 @@ contract DeployMintersTest is
         return totals;
     }
 
-    function _loadZeroArgViewFunctions(string memory artifactPath) private view returns (FuncSpec[] memory sigs) {
-        string memory raw = vm.readFile(artifactPath);
+    function _loadZeroArgViewFunctions(
+        string memory raw,
+        Surface memory candSurface
+    ) private view returns (FuncSpec[] memory sigs) {
         uint256 len = _abiLength(raw);
+        bytes32[] memory candidateNames = candSurface.zeroArg;
 
         uint256 count;
         for (uint256 i = 0; i < len; i++) {
@@ -458,6 +502,7 @@ contract DeployMintersTest is
 
             string memory name = _parseJsonString(raw, _abiPathName(i));
             if (_skipZeroArgFunction(name)) continue;
+            if (!_contains(candidateNames, keccak256(bytes(name)))) continue;
 
             ++count;
         }
@@ -477,8 +522,99 @@ contract DeployMintersTest is
 
             string memory name = _parseJsonString(raw, _abiPathName(i));
             if (_skipZeroArgFunction(name)) continue;
+            if (!_contains(candidateNames, keccak256(bytes(name)))) continue;
+
             sigs[idx++] = FuncSpec({sig: string.concat(name, "()"), kind: _returnKind(raw, i)});
         }
+    }
+
+    /// @dev The name hashes of every view/pure function an ABI declares, split by argument shape and unfiltered
+    /// by the skip lists. Used to intersect the reference's surface with the candidate's, so only functions both
+    /// versions declare are called. Collected in a single pass: the ABI is walked once and each qualifying entry
+    /// sorted into the shape it belongs to.
+    /// @param raw The artifact's contents.
+    function _surfaceOf(string memory raw) private view returns (Surface memory surface) {
+        uint256 len = _abiLength(raw);
+        bytes32[] memory zeroArg = new bytes32[](len);
+        bytes32[] memory addressArg = new bytes32[](len);
+        uint256 zeroIdx;
+        uint256 addressIdx;
+
+        for (uint256 i = 0; i < len; i++) {
+            bool isZeroArg = _isViewEntry(raw, i, false);
+            bool isAddressArg = _isViewEntry(raw, i, true);
+            if (!isZeroArg && !isAddressArg) {
+                continue;
+            }
+            bytes32 nameHash = keccak256(bytes(_parseJsonString(raw, _abiPathName(i))));
+            if (isZeroArg) {
+                zeroArg[zeroIdx++] = nameHash;
+            } else {
+                addressArg[addressIdx++] = nameHash;
+            }
+        }
+        assembly {
+            mstore(zeroArg, zeroIdx)
+            mstore(addressArg, addressIdx)
+        }
+        surface = Surface({zeroArg: zeroArg, addressArg: addressArg});
+    }
+
+    /// @dev Whether ABI entry `i` is a view/pure function of the shape being collected.
+    /// @param raw The artifact's contents.
+    /// @param i The ABI entry index.
+    /// @param addressArg True for the single-address-argument shape, false for the zero-argument one.
+    function _isViewEntry(string memory raw, uint256 i, bool addressArg) private view returns (bool) {
+        if (addressArg) {
+            return _isAddressViewEntry(raw, i);
+        }
+        string memory typeStr = _parseJsonString(raw, _abiPathType(i));
+        if (keccak256(bytes(typeStr)) != keccak256("function")) {
+            return false;
+        }
+        if (_inputsLength(raw, i) != 0) {
+            return false;
+        }
+        string memory mutability = _parseJsonString(raw, _abiPathStateMutability(i));
+        bytes32 mutHash = keccak256(bytes(mutability));
+        return mutHash == keccak256("view") || mutHash == keccak256("pure");
+    }
+
+    /// @dev Log every view declared by `raw` that `otherSurface` does not declare.
+    /// @param label The contract being compared, for the log line.
+    /// @param description Which direction this is, for the log line.
+    /// @param raw The contents of the artifact whose views are being listed.
+    /// @param otherSurface The far side's surface; a view must be absent from it to be listed.
+    function _logSurfaceOnlyIn(
+        string memory label,
+        string memory description,
+        string memory raw,
+        Surface memory otherSurface
+    ) private view {
+        uint256 len = _abiLength(raw);
+        for (uint256 i = 0; i < len; i++) {
+            bool isZeroArg = _isViewEntry(raw, i, false);
+            bool isAddressArg = _isViewEntry(raw, i, true);
+            if (!isZeroArg && !isAddressArg) {
+                continue;
+            }
+            string memory name = _parseJsonString(raw, _abiPathName(i));
+            bytes32 nameHash = keccak256(bytes(name));
+            if (_contains(isZeroArg ? otherSurface.zeroArg : otherSurface.addressArg, nameHash)) {
+                continue;
+            }
+            console.log("  [surface] %s %s: %s", label, description, name);
+        }
+    }
+
+    /// @dev Whether a name hash appears in a list of them.
+    function _contains(bytes32[] memory names, bytes32 name) private pure returns (bool) {
+        for (uint256 i = 0; i < names.length; i++) {
+            if (names[i] == name) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function _skipZeroArgFunction(string memory name) private pure returns (bool) {
@@ -503,6 +639,8 @@ contract DeployMintersTest is
         if (h == keccak256("redeemPeggedTokenIncentiveRatio")) return true;
         if (h == keccak256("rebalanceable")) return true;
         if (h == keccak256("collateralRatio")) return true;
+        // Accumulated rounding residue from liquidations the live pool has processed and a fresh one has not.
+        if (h == keccak256("lastAssetLossError")) return true;
         // Skip genesis state functions (genesis ended, claims made)
         if (h == keccak256("genesisIsEnded")) return true;
         // Skip priceOracle (external contract, not factory-deployed)
@@ -540,15 +678,19 @@ contract DeployMintersTest is
         return ReturnKind.TupleKind;
     }
 
-    function _loadAddressViewFunctions(string memory artifactPath) private view returns (FuncSpec[] memory sigs) {
-        string memory raw = vm.readFile(artifactPath);
+    function _loadAddressViewFunctions(
+        string memory raw,
+        Surface memory candSurface
+    ) private view returns (FuncSpec[] memory sigs) {
         uint256 len = _abiLength(raw);
+        bytes32[] memory candidateNames = candSurface.addressArg;
 
         uint256 count;
         for (uint256 i = 0; i < len; i++) {
             if (!_isAddressViewEntry(raw, i)) continue;
             string memory name = _parseJsonString(raw, _abiPathName(i));
             if (_skipAddressArgFunction(name)) continue;
+            if (!_contains(candidateNames, keccak256(bytes(name)))) continue;
             ++count;
         }
 
@@ -558,6 +700,7 @@ contract DeployMintersTest is
             if (!_isAddressViewEntry(raw, i)) continue;
             string memory name = _parseJsonString(raw, _abiPathName(i));
             if (_skipAddressArgFunction(name)) continue;
+            if (!_contains(candidateNames, keccak256(bytes(name)))) continue;
             sigs[idx++] = FuncSpec({sig: string.concat(name, "(address)"), kind: _returnKind(raw, i)});
         }
     }

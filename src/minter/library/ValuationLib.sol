@@ -82,7 +82,6 @@ library ValuationLib {
         return 1 ether * 1 ether; // encode +infinity as 1e36
     }
 
-
     /// @notice Returns the collateral ratio band given `collateralTokenBalance_`, `collateralPrice`, and
     /// `peggedTokenBalance_`.
     /// @param config_ Contains the collateral ratio boundaries to be searched.
@@ -120,7 +119,6 @@ library ValuationLib {
             }
         }
     }
-
 
     // the price of a pegged token taking into account de-peg rate
     function peggedTokenPriceE36(

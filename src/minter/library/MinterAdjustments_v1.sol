@@ -34,7 +34,6 @@ library MinterAdjustments_v1 {
         uint256 peggedTokenPriceE36;
     }
 
-
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
     /// Fees, discounts and disallows relating to the different incentiveRatios values are calculated as sum, weighted
     /// in proportion, in collateral space, to the amount spent within each collateral ratio boundary.
@@ -75,7 +74,11 @@ library MinterAdjustments_v1 {
         // (note we treat the disallow band as any other here, except that it is the terminal band)
         MintPeggedWorkspace memory w;
         w.band = ValuationLib.findBand(config_, cr.underlyingCollateral, cr.price, cr.peggedTokenBalance, false);
-        w.peggedTokenPriceE36 = ValuationLib.peggedTokenPriceE36(cr.peggedTokenBalance, cr.underlyingCollateral, cr.price);
+        w.peggedTokenPriceE36 = ValuationLib.peggedTokenPriceE36(
+            cr.peggedTokenBalance,
+            cr.underlyingCollateral,
+            cr.price
+        );
 
         w.underlyingCollateralInLeftE36 = wrappedCollateralIn * cr.rate; // scaled to 1e36
         w.underlyingCollateralHeldE36 = cr.underlyingCollateral * 1 ether; // scaled to 1e36
@@ -187,7 +190,6 @@ library MinterAdjustments_v1 {
         int256 discountErrorE54;
         int256 collateralHeldErrorE54;
     }
-
 
     /// @notice Perform a dry run of a redeem pegged to calculate the various transfers of tokens
     /// Fees and discounts relating to the different incentiveRatios values are calculated as sum, weighted
@@ -326,7 +328,6 @@ library MinterAdjustments_v1 {
         uint256 collateralValueE36;
         uint256 peggedValueE36;
     }
-
 
     /// @notice Perform a dry run of a mint pegged to calculate the various transfers of tokens.
     /// Fees, discounts and disallows relating to the different incentiveRatios values are calculated as sum, weighted
@@ -487,8 +488,8 @@ library MinterAdjustments_v1 {
                 w.collateralValueE36 - w.peggedValueE36
             );
         } else if (addedE36 > 0) {
-            leveragedMinted = Math.mulDiv((cr.underlyingCollateral * 1 ether) + addedE36, cr.price, 1e18) -
-                w.peggedValueE36;
+            leveragedMinted =
+                Math.mulDiv((cr.underlyingCollateral * 1 ether) + addedE36, cr.price, 1e18) - w.peggedValueE36;
         } else {
             leveragedMinted = 0;
         }
@@ -503,7 +504,6 @@ library MinterAdjustments_v1 {
         uint256 underlyingCollateralRemovedE36; // Σ(collateralInBandE36) (underlying * 1e18, pre-fee)
         uint256 underlyingCollateralHeldE36; // provisional collateral balance (underlying * 1e18)
     }
-
 
     /// @notice Perform a dry run of a redeem leveraged to calculate the various transfers of tokens
     /// Fees and disallows relating to the different incentiveRatios values are calculated as sum, weighted
