@@ -31,6 +31,25 @@ library ValuationLib {
         uint256 leveragedTokenBalance;
     }
 
+    /// @notice The collateral a wrapped amount stands for, at a given rate.
+    /// @dev Floored. This is the conversion the HOLDING is valued by, so anything crediting the record of backing
+    /// must reach it through here as well: the record is only ever a claim about the holding, and deriving the two
+    /// by separate arithmetic is what lets the claim drift above what is actually held.
+    /// @param wrappedAmount The wrapped collateral to value.
+    /// @param rate The wrapped-to-collateral rate.
+    function wrappedAsCollateral(uint256 wrappedAmount, uint256 rate) internal pure returns (uint256) {
+        return Math.mulDiv(wrappedAmount, rate, 1 ether);
+    }
+
+    /// @notice The same conversion rounded up, for collateral on its way out.
+    /// @dev A debit that rounds down leaves the record still claiming the difference - the same shortfall the
+    /// floored credit avoids on the way in, arrived at from the other direction.
+    /// @param wrappedAmount The wrapped collateral to value.
+    /// @param rate The wrapped-to-collateral rate.
+    function wrappedAsCollateralCeil(uint256 wrappedAmount, uint256 rate) internal pure returns (uint256) {
+        return Math.mulDiv(wrappedAmount, rate, 1 ether, Math.Rounding.Ceil);
+    }
+
     /// @notice Calculates the raw collateral ratio without any flooring.
     /// @dev This returns the actual mathematical ratio (collateralValue / peggedValue) which may be < 1 in depegged scenarios.
     /// Semantics:

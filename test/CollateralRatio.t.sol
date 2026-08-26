@@ -401,6 +401,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         DeltaHoldings memory a,
         DeltaHoldings memory b,
         uint256 tolerance,
+        uint256 leveragedTolerance,
         string memory context
     ) internal pure {
         assertApproxEqAbs(
@@ -432,7 +433,7 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
         assertApproxEqAbs(
             a.thisLeveraged,
             b.thisLeveraged,
-            tolerance * 1000,
+            leveragedTolerance,
             string.concat(context, ":", "thisLeveraged")
         );
     }
@@ -487,7 +488,20 @@ contract TestCollateralRatioRangeIntegralNoReserve is TestCollateralRatioRangeSe
                 // console2.log("%s th iteration", i + 1);
                 // logDeltaHoldings(smallChanges);
             }
-            compareDeltaHoldings(largeChanges, smallChanges, repeats * 25, toString(Action(a)));
+            // The leveraged tolerance carries a term the collateral one does not. Backing credited to the
+            // record is floored once per operation, so splitting an action into `repeats` of them floors
+            // `repeats` times where doing it once floors once — a difference of at most one collateral wei
+            // each. Sail is the residual claim, so a collateral wei moves it by the collateral price times
+            // the leverage ratio, and the leverage ratio is capped: `_LEVERAGE_RATIO_CAP` bounds how far one
+            // wei can reach however close to a depeg the sweep runs.
+            uint256 creditFloorReach = repeats * 20 * (price / 1 ether);
+            compareDeltaHoldings(
+                largeChanges,
+                smallChanges,
+                repeats * 25,
+                repeats * 25 * 1000 + creditFloorReach,
+                toString(Action(a))
+            );
             vm.revertToState(snap);
         }
     }

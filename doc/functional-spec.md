@@ -1352,11 +1352,16 @@ Two consequences are worth stating precisely, because they are counter-intuitive
 2. **A backlog drains slowly, by design.** Each call streams at most one reward period's capacity per
    pool; the rest stays owed. Recovery from a large backlog is by **waiting** across periods, not by
    harvesting more often. Calling repeatedly within a period achieves nothing.
-3. **An impaired collateral suspends harvesting entirely.** The surplus is the excess of the holding
-   over the *recognised* backing, and once the collateral is impaired recognition has already floored
-   that figure to the holding — so `harvestable` is zero by construction. Yield accruing meanwhile
-   closes the gap back up to the record, restoring the sail claim rather than paying depositors.
-   Harvesting resumes when the owner writes the record down (§6.7, US-16).
+3. **An impaired collateral suspends harvesting entirely — and nothing else does.** The surplus is
+   the excess of the holding over the *recognised* backing, and once the collateral is impaired
+   recognition has already floored that figure to the holding, so `harvestable` is zero by
+   construction. Yield accruing meanwhile closes the gap back up to the record, restoring the sail
+   claim rather than paying depositors. Harvesting resumes when the owner writes the record down
+   (§6.7, US-16).
+
+   Only an impairment can do this. The record moves by the collateral that actually moved (A6), so
+   trading — however much of it, and however finely divided — leaves no shortfall of its own for
+   later yield to make good before any of it reaches the pools.
 
 **The keeper's incentive weakens as the backlog grows**, because the bounty is a share of what a
 call actually distributes, not of the backlog. This is the correct behaviour — it prevents a keeper
@@ -1769,7 +1774,7 @@ very different assurance.
 | **A3** | The protocol never redeems more anchor tokens than **it** issued. | By check — issuance is tracked independently of token supply |
 | **A4** | Sail token supply equals exactly what the protocol issued. | By construction — the protocol is the only minter and burner |
 | **A5** | Rounding always favours the protocol: a mint never issues more than the exact formula, a redeem never returns more. | By check — verified per band slice, not merely in aggregate |
-| **A6** | The **recognised** backing never exceeds the collateral actually held, converted at the current rate. Everything the protocol prices is priced from that figure. | By construction — recognition takes the lower of the two on every read |
+| **A6** | The **recorded** backing never exceeds the collateral actually held, converted at the current rate — and neither does the recognised figure everything is priced from. | By check — every mint credits the record with the collateral that arrived, and every redeem debits it with the collateral that left, through the same conversion the holding is valued by |
 
 **A2 is the strongest claim in the document** and deserves emphasis: this is exact conservation, not
 conservation within a tolerance. Every unit of wrapped collateral that leaves one party arrives at

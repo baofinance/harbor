@@ -164,11 +164,16 @@ library MinterAdjustments_v1 {
         }
         // return the results
         peggedMinted = w.mintedE36 / 1 ether;
-        // first do calculations in underlying collateral
-        underlyingCollateralAdded = ValuationLib.round(w.underlyingCollateralAddedE36, 1 ether);
-        // then wrapped collateral based on the underlying collateral numbers
+        // The wrapped amounts move first, and the record of backing is derived from them: it is a claim about
+        // what is held, so deriving it separately lets the two disagree by a wei on every mint, and the error
+        // only ever accumulates.
+        //
+        // Ceiled, so the wrapped taken covers the whole target rather than falling a wei short of it. The band
+        // walk never accumulates more than was offered, so this cannot exceed `wrappedCollateralIn`.
+        maxWrappedCollateralIn = Math.ceilDiv(w.underlyingCollateralAddedE36 + w.underlyingFeeE36, cr.rate);
         wrappedFee = w.underlyingFeeE36 / cr.rate;
-        maxWrappedCollateralIn = (w.underlyingCollateralAddedE36 + w.underlyingFeeE36) / cr.rate;
+        // What stays behind, through the conversion the holding is valued by.
+        underlyingCollateralAdded = ValuationLib.wrappedAsCollateral(maxWrappedCollateralIn - wrappedFee, cr.rate);
     }
 
     struct RedeemPeggedWorkspace {
@@ -295,8 +300,14 @@ library MinterAdjustments_v1 {
         wrappedFee = w.underlyingFeeE36 / cr.rate;
         wrappedDiscount = Math.min(reserveWrappedCapacity, w.underlyingDiscountE36 / cr.rate); // amount requested from reserve pool
         uint256 underlyingCollateralRemovedE36 = cr.underlyingCollateral * 1 ether - w.underlyingCollateralHeldE36;
-        underlyingCollateralRemoved = underlyingCollateralRemovedE36 / 1 ether; // don't round this as it may push CR the wrong way
         wrappedCollateralReturned = underlyingCollateralRemovedE36 / cr.rate + wrappedDiscount - wrappedFee;
+        // Derived from the wrapped that actually leaves: paid to the redeemer, plus the fee paid away, less what
+        // the reserve sent for the discount. Ceiled, so the record gives up at least as much as the holding did -
+        // giving up less would leave it claiming the difference.
+        underlyingCollateralRemoved = ValuationLib.wrappedAsCollateralCeil(
+            wrappedCollateralReturned + wrappedFee - wrappedDiscount,
+            cr.rate
+        );
     }
 
     struct MintLeveragedWorkspace {
@@ -458,20 +469,31 @@ library MinterAdjustments_v1 {
         }
         wrappedDiscount = w.underlyingDiscountE36 / cr.rate; // we don't round this as it may overflow the reserve pool
         wrappedFee = ValuationLib.round(w.underlyingFeeE36, cr.rate);
+        // Derived from the wrapped that actually stays: the whole input, plus what the reserve sends for the
+        // discount, less the fee paid away. Valued by the same conversion the holding is, so the record and the
+        // collateral behind it move together to the wei.
+        underlyingCollateralAdded = ValuationLib.wrappedAsCollateral(
+            maxWrappedCollateralIn + wrappedDiscount - wrappedFee,
+            cr.rate
+        );
+        // The tokens are issued against the collateral the record actually gained, not against the unrounded
+        // figure the band walk accumulated. Issuing against more than was credited buys the holder a share of a
+        // residual that never arrived, which shows up as the sail price moving on a mint that should not move it.
+        uint256 addedE36 = underlyingCollateralAdded * 1 ether;
         if (w.leveragedTokenBalance > 0) {
             leveragedMinted = Math.mulDiv(
-                w.underlyingCollateralAddedE36,
+                addedE36,
                 cr.price * w.leveragedTokenBalance,
                 w.collateralValueE36 - w.peggedValueE36
             );
-        } else if (w.underlyingCollateralAddedE36 > 0) {
-            leveragedMinted = Math.mulDiv(w.underlyingCollateralHeldE36, cr.price, 1e18) - w.peggedValueE36;
+        } else if (addedE36 > 0) {
+            leveragedMinted = Math.mulDiv((cr.underlyingCollateral * 1 ether) + addedE36, cr.price, 1e18) -
+                w.peggedValueE36;
         } else {
             leveragedMinted = 0;
         }
         // Floored: a mint never issues more than the exact formula gives.
         leveragedMinted = leveragedMinted / 1e18;
-        underlyingCollateralAdded = ValuationLib.round(w.underlyingCollateralAddedE36, 1e18);
     }
 
     struct RedeemLeveragedWorkspace {
@@ -575,14 +597,16 @@ library MinterAdjustments_v1 {
             w.underlyingCollateralHeldE36 -= collateralInBandE36;
             band--;
         }
-        // Ceiled: taken OFF the record of backing as collateral leaves, so it must never remove less than the
-        // wrapped actually paid out - the mirror of the floored credit on the minting side.
-        underlyingCollateralRemoved = Math.ceilDiv(w.underlyingCollateralRemovedE36, 1e18);
         // calculate the leveraged for the collateral assuming constant leveraged price.
         leveragedRedeemed = Math.mulDiv(leveragedIn, w.underlyingCollateralRemovedE36, w.underlyingCollateralInE36);
 
         wrappedFee = w.underlyingFeeE54 / (cr.rate * 1e18);
         wrappedCollateralOut = w.underlyingCollateralRemovedE36 / cr.rate - wrappedFee;
+        // Ceiled straight from the accumulator, which is exact here: the wrapped leaving is a single floored
+        // conversion of it, so ceiling covers that floor without a second conversion of its own. Round-tripping
+        // through the wrapped amount instead would discard up to one rate's worth of collateral each time, which
+        // is a wei at parity but a million of them at a rate of a million.
+        underlyingCollateralRemoved = Math.ceilDiv(w.underlyingCollateralRemovedE36, 1e18);
     }
 
     /// @dev The wrapped collateral and leveraged a free (zero-fee) pegged redeem yields, priced against the given

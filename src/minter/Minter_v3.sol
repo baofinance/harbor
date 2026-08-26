@@ -595,7 +595,7 @@ contract Minter_v3 is
 
         // The collateral is valued at the min rate for the same reason the record is: the conservative edge
         // never credits more backing than the donation stands up.
-        uint256 collateralAdded = Math.mulDiv(wrappedAmount, _fetchMinRate($.priceOracle), 1 ether);
+        uint256 collateralAdded = ValuationLib.wrappedAsCollateral(wrappedAmount, _fetchMinRate($.priceOracle));
         uint256 backing = $.underlyingCollateral + collateralAdded;
         $.underlyingCollateral = backing;
 
@@ -1260,7 +1260,7 @@ contract Minter_v3 is
     /// @param minRate The min wrapped-to-collateral rate.
     function _effectiveBacking(uint256 underlyingCollateral_, uint256 minRate) private view returns (uint256 backing) {
         backing = underlyingCollateral_;
-        uint256 held = Math.mulDiv(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)), minRate, 1 ether);
+        uint256 held = ValuationLib.wrappedAsCollateral(IERC20(WRAPPED_COLLATERAL_TOKEN).balanceOf(address(this)), minRate);
         if (held < backing) {
             backing = held;
         }
