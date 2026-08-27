@@ -1011,6 +1011,40 @@ contract TestStabilityPoolManagerHarvest is TestStabilityPoolManagerSetUp {
         vm.stopPrank();
     }
 
+    /// An impaired collateral suspends harvesting entirely, and only an impairment does. The surplus is the excess of
+    /// the holding over the RECOGNISED backing, so once the rate falls below the level the record was credited at
+    /// there is no surplus by construction. The harvest must then REFUSE rather than distribute a zero - and the
+    /// refusal must cost nothing, which is what the recovery leg establishes: the same surplus is still there to
+    /// distribute afterwards, so nothing was consumed or stranded by the attempt.
+    function test_harvest_revertsWhenBackingOverstated() public {
+        IERC20(peggedToken).approve(stabilityPoolCollateral, type(uint256).max);
+        IERC20(peggedToken).approve(stabilityPoolLeveraged, type(uint256).max);
+        IStabilityPool(stabilityPoolCollateral).deposit(3 ether, address(this), 0);
+        IStabilityPool(stabilityPoolLeveraged).deposit(2 ether, address(this), 0);
+
+        (uint256 price, , uint256 rate, ) = IWrappedPriceOracle(priceOracle).latestAnswer();
+        uint256 surplus = IMinter(minter).harvestable();
+        assertGt(surplus, 0, "a surplus must exist for its disappearance to mean anything");
+
+        // impair the collateral below the rate the record was credited at: the holding no longer covers the record
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, 0.9 ether);
+        assertEq(IMinter(minter).harvestable(), 0, "a shortfall is not a surplus");
+
+        vm.startPrank(harvester);
+        vm.expectRevert(IStabilityPoolManager.NoHarvestable.selector);
+        IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        vm.stopPrank();
+
+        // the collateral recovers: the surplus is untouched, so the refusal took nothing with it
+        MockWrappedPriceOracle(priceOracle).setLatestAnswer(price, rate);
+        assertEq(IMinter(minter).harvestable(), surplus, "the refused harvest consumed no surplus");
+
+        vm.startPrank(harvester);
+        uint256 harvested = IStabilityPoolManager(stabilityPoolManager).harvest(harvester, 0);
+        vm.stopPrank();
+        assertGt(harvested, 0, "harvesting resumes once the holding covers the record again");
+    }
+
     /// The minimum-bounty check precedes the nothing-fairly-harvestable short circuit: with no gross distributed the
     /// bounty is a floor-share of zero, so a keeper that demanded a bounty is told its bounty was insufficient - the
     /// more specific of the two failures.

@@ -174,6 +174,34 @@ contract MinterImpairedBackingTest is TestMinterSetUp {
         assertGt(IMinter(minter).harvestable(), 0, "and is not exhausted");
     }
 
+    /// Ordinary yield accrual is the everyday case and must not move a wei of anything but the
+    /// surplus. Valuing the backing at what is held takes the LOWER of the record and the holding,
+    /// so while the collateral is appreciating the record is the lower of the two and the reading is
+    /// simply the record - unchanged, however far the rate rises. The whole of the gain shows up as
+    /// harvestable, which is what carries it to depositors rather than to sail holders.
+    function test_normalRateIncrease_leavesBackingAndPricesUnchanged() public {
+        setUp_collateral(100 ether, 40 ether);
+
+        uint256 backing = IMinter(minter).collateralTokenBalance();
+        uint256 ratio = IMinter(minter).collateralRatio();
+        uint256 sailPrice = IMinter(minter).leveragedTokenPrice();
+        uint256 anchorPrice = IMinter(minter).peggedTokenPrice();
+        uint256 harvestableBefore = IMinter(minter).harvestable();
+
+        _scaleRate(11_000); // 10% of yield accrues to the wrapped collateral
+
+        assertEq(IMinter(minter).collateralTokenBalance(), backing, "yield does not raise the recognised backing");
+        assertEq(IMinter(minter).collateralRatio(), ratio, "nor the collateral ratio");
+        assertEq(IMinter(minter).leveragedTokenPrice(), sailPrice, "nor the sail price");
+        assertEq(IMinter(minter).peggedTokenPrice(), anchorPrice, "nor the anchor price");
+        assertGt(IMinter(minter).harvestable(), harvestableBefore, "the gain is a surplus, and only that");
+
+        // and it keeps holding however far the rate runs: the record is the lower side throughout
+        _scaleRate(50_000);
+        assertEq(IMinter(minter).collateralTokenBalance(), backing, "a fivefold rate still leaves the record");
+        assertEq(IMinter(minter).leveragedTokenPrice(), sailPrice, "and still leaves the sail price");
+    }
+
     /*//////////////////////////////////////////////////////////////
                           REGIME BOUNDARIES
     //////////////////////////////////////////////////////////////*/
